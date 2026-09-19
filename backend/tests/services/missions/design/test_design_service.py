@@ -149,8 +149,12 @@ async def test_save_cost_entry_updates_in_place_rather_than_duplicating(db):
     library = await _library_component(db)
     dc = await design_service.add_component(db, design_id=design.id, library_component_id=library.id)
 
-    first = await design_service.save_cost_entry(db, design_component_id=dc.id, cost_per_unit_aed=50.0, vendor="A")
-    second = await design_service.save_cost_entry(db, design_component_id=dc.id, cost_per_unit_aed=75.0, vendor="B")
+    first = await design_service.save_cost_entry(
+        db, design_id=design.id, design_component_id=dc.id, cost_per_unit_aed=50.0, vendor="A",
+    )
+    second = await design_service.save_cost_entry(
+        db, design_id=design.id, design_component_id=dc.id, cost_per_unit_aed=75.0, vendor="B",
+    )
     assert first.id == second.id
     assert second.cost_per_unit_aed == 75.0
     assert second.vendor == "B"
@@ -197,6 +201,36 @@ async def test_save_link_entry_updates_in_place_rather_than_duplicating(db):
     assert len(rows) == 1
 
 
+@pytest.mark.asyncio
+async def test_save_cost_entry_rejects_a_component_belonging_to_a_different_design(db):
+    """Pre-existing gap (present in the old select-then-insert too, not
+    introduced by the upsert rewrite): nothing checked design_component_id
+    actually belonged to the caller's own design — one team could overwrite
+    another team's cost/vendor/mass rows just by passing their component
+    id. remove_component already had this check; _upsert_budget_entry now
+    does too."""
+    author = await _user(db, roles=["operations"])
+    mission, variant = await _design_mission(db, author=author)
+    library = await _library_component(db)
+
+    owner = await _user(db, roles=["student"])
+    owner_attempt = await start_attempt(db, user_id=owner.id, mission_id=mission.id, variant_id=variant.id)
+    owner_design = await ensure_design(db, attempt=owner_attempt)
+    owner_component = await design_service.add_component(
+        db, design_id=owner_design.id, library_component_id=library.id,
+    )
+
+    attacker = await _user(db, roles=["student"])
+    attacker_attempt = await start_attempt(db, user_id=attacker.id, mission_id=mission.id, variant_id=variant.id)
+    attacker_design = await ensure_design(db, attempt=attacker_attempt)
+
+    with pytest.raises(HTTPException) as exc:
+        await design_service.save_cost_entry(
+            db, design_id=attacker_design.id, design_component_id=owner_component.id, cost_per_unit_aed=1.0,
+        )
+    assert exc.value.status_code == 404
+
+
 # ── Dashboard composition + mark_design_complete ────────────────────────
 
 async def _build_passing_design(db, design_id, library_id):
@@ -208,14 +242,14 @@ async def _build_passing_design(db, design_id, library_id):
     for m in modes:
         await design_service.save_mode_duration(db, design_mode_id=m.id, duration_min=90 / len(modes))
     await design_service.save_data_entry(
-        db, design_component_id=dc.id, data_size_per_measurement_kb=0.1,
+        db, design_id=design_id, design_component_id=dc.id, data_size_per_measurement_kb=0.1,
         # Design v2: "Both" — stored on board *and* downlinked. The F7 check
         # treats sending nothing as a failed mission, not a skipped step.
         measurements_per_minute=1.0, storage_mode="Both",
     )
-    await design_service.save_power_entry(db, design_component_id=dc.id, voltage_v=5.0, current_ma=100.0)
-    await design_service.save_mass_entry(db, design_component_id=dc.id)
-    await design_service.save_cost_entry(db, design_component_id=dc.id, cost_per_unit_aed=50.0)
+    await design_service.save_power_entry(db, design_id=design_id, design_component_id=dc.id, voltage_v=5.0, current_ma=100.0)
+    await design_service.save_mass_entry(db, design_id=design_id, design_component_id=dc.id)
+    await design_service.save_cost_entry(db, design_id=design_id, design_component_id=dc.id, cost_per_unit_aed=50.0)
     await design_service.save_link_entry(
         db, design_id=design_id, band_profile="UHF",
         downlink_frequency_mhz=437.5, uplink_frequency_mhz=145.8,
@@ -344,8 +378,8 @@ async def test_tdra_case_power_and_mass_only_no_conops_required(db):
 
     # Only components + power + mass filled in; CONOPS/data/cost/link left empty.
     dc = await design_service.add_component(db, design_id=design.id, library_component_id=library.id, quantity=1)
-    await design_service.save_power_entry(db, design_component_id=dc.id, voltage_v=5.0, current_ma=100.0)
-    await design_service.save_mass_entry(db, design_component_id=dc.id)
+    await design_service.save_power_entry(db, design_id=design.id, design_component_id=dc.id, voltage_v=5.0, current_ma=100.0)
+    await design_service.save_mass_entry(db, design_id=design.id, design_component_id=dc.id)
 
     dashboard = await design_service.compute_dashboard(db, design=design, variant_config=variant.config, attempt=attempt)
     assert dashboard["included_steps"] == {"components", "power_budget", "mass_budget"}

@@ -590,11 +590,21 @@ async def team_mission_run_items(db: AsyncSession, *, team_id: uuid.UUID) -> lis
     )).scalars().all()
     # Any one item in a group's team progress row carries the run's
     # attempt id — they were all created against the same team_id, so
-    # whichever item's row got created first is the answer for the group.
+    # whichever item's row actually carries one is the answer for the
+    # group. Must check mission_attempt_id itself, not just that a
+    # progress row exists for that item: a step can have a progress row
+    # with a still-null mission_attempt_id (assigned before the shared
+    # attempt was created) while a later step in the same group already
+    # has it — stopping at "first row that exists" rather than "first row
+    # that actually carries an attempt id" used to report that run as
+    # not_started even once it had genuinely started.
     team_progress_by_item = {r.item_id: r for r in team_progress_rows}
     attempt_id_by_mission: dict[uuid.UUID, uuid.UUID | None] = {
         mission_id: next(
-            (team_progress_by_item[gi.id].mission_attempt_id for gi in group_items if gi.id in team_progress_by_item),
+            (
+                row.mission_attempt_id for gi in group_items
+                if (row := team_progress_by_item.get(gi.id)) is not None and row.mission_attempt_id is not None
+            ),
             None,
         )
         for mission_id, group_items in groups.items()
@@ -863,7 +873,7 @@ async def assign_lms_program(
 
 async def _assign_team_mission_run(
     db: AsyncSession, *, item: LmsProgramItem, cohort_id: uuid.UUID, user_id: uuid.UUID,
-) -> None:
+) -> bool:
     """Ensures the team's own LmsProgramTeamItemProgress row has a
     MissionAttempt attached — called once per teammate assigned/synced,
     but only the first call for a given (item, team) actually creates the
@@ -871,6 +881,10 @@ async def _assign_team_mission_run(
     already set and does nothing further. No-ops entirely if the student
     isn't on a team for this cohort yet — `sync_team_mission_runs` below is
     the resync trigger for when one forms later.
+
+    Returns True only when this call is the one that attached the attempt,
+    so backfill callers can report what they actually repaired rather than
+    how many items they looked at.
 
     Race-safe the same way `_get_or_create_team_progress` is: two
     teammates assigned via genuinely concurrent requests can both read
@@ -883,10 +897,10 @@ async def _assign_team_mission_run(
     the whole assignment call failing outright."""
     team = await team_for_cohort_member(db, cohort_id=cohort_id, user_id=user_id)
     if team is None:
-        return
+        return False
     team_progress = await _get_or_create_team_progress(db, item_id=item.id, team_id=team.id)
     if team_progress.mission_attempt_id is not None:
-        return
+        return False
 
     # A mission split into several team-scoped steps (mission_step_key)
     # shares ONE attempt across every step's own team-progress row —
@@ -912,7 +926,7 @@ async def _assign_team_mission_run(
     )
     if sibling_attempt_id is not None:
         team_progress.mission_attempt_id = sibling_attempt_id
-        return
+        return True
 
     try:
         async with db.begin_nested():
@@ -922,6 +936,8 @@ async def _assign_team_mission_run(
             team_progress.mission_attempt_id = attempt.id
     except IntegrityError:
         await db.refresh(team_progress)
+        return False
+    return True
 
 
 async def sync_team_mission_runs(db: AsyncSession, *, team: Team) -> int:
@@ -935,7 +951,9 @@ async def sync_team_mission_runs(db: AsyncSession, *, team: Team) -> int:
     cohort scope: team creation (self-form or ops-assign, though a
     self-formed team has no `cohort_id` so this no-ops for it) and
     `join_team`. Safe to call any time — a no-op once every team-scoped
-    item's progress row already has an attempt.
+    item's progress row already has an attempt. Returns how many items it
+    actually attached an attempt to, not how many it considered, so a
+    caller can tell a real repair from a no-op.
 
     Only needs one team member to drive `_assign_team_mission_run` (it
     resolves the team from `(cohort_id, user_id)` but the row/attempt it
@@ -955,9 +973,11 @@ async def sync_team_mission_runs(db: AsyncSession, *, team: Team) -> int:
     )
     if representative is None:
         return 0
+    attached = 0
     for item in mission_run_items:
-        await _assign_team_mission_run(db, item=item, cohort_id=team.cohort_id, user_id=representative)
-    return len(mission_run_items)
+        if await _assign_team_mission_run(db, item=item, cohort_id=team.cohort_id, user_id=representative):
+            attached += 1
+    return attached
 
 
 async def sync_assignment_items(db: AsyncSession, *, assignment: LmsProgramAssignment) -> int:
@@ -968,7 +988,22 @@ async def sync_assignment_items(db: AsyncSession, *, assignment: LmsProgramAssig
     v1 gap" (adding a checklist item after students are already assigned
     never reached them) stops being a gap once callers that add items
     run this afterward — a no-op once every current item already has a
-    row, so it's safe to call any time, not just right after an add."""
+    row, so it's safe to call any time, not just right after an add.
+
+    Team-scoped `mission_run` items are deliberately NOT gated on the
+    `missing` check below, and that asymmetry is the whole point (found
+    live, 2026-09-19): such an item's real state is the team's shared
+    `LmsProgramTeamItemProgress` row, while the individual row this
+    function creates is only a placeholder. Gating both on the
+    placeholder's absence meant that once a student held their
+    placeholder — which they do from the moment they're assigned — the
+    item was never "missing", `_assign_team_mission_run` never ran, and
+    the team never got its row or its `MissionAttempt`. The checklist
+    tile then had no `mission_attempt_id` to open and clicking it
+    silently did nothing, while this function honestly reported 0 items
+    added no matter how many times ops hit "Resync students". Two
+    independent things are being synced here, so they get two
+    independent existence checks."""
     if assignment.cohort_id is None:
         return 0
     resolved = await resolve_cohort_program(db, assignment.cohort_id)
@@ -979,9 +1014,7 @@ async def sync_assignment_items(db: AsyncSession, *, assignment: LmsProgramAssig
         select(LmsProgramItemProgress.item_id).where(LmsProgramItemProgress.assignment_id == assignment.id)
     )).scalars().all())
     missing = [item for item in items if item.id not in existing_item_ids]
-    if not missing:
-        return 0
-    cohort = await db.get(Cohort, assignment.cohort_id)
+    cohort = await db.get(Cohort, assignment.cohort_id) if missing else None
     for item in missing:
         progress = LmsProgramItemProgress(id=uuid.uuid4(), assignment_id=assignment.id, item_id=item.id)
         if item.item_type == "course" and item.course_id:
@@ -989,26 +1022,45 @@ async def sync_assignment_items(db: AsyncSession, *, assignment: LmsProgramAssig
                 db, user_id=assignment.user_id, course_id=item.course_id, source="registration",
                 program_id=cohort.program_id if cohort else None, registration_id=assignment.registration_id,
             )
-        elif item.item_type == "mission_run" and item.mission_id:
-            if item.scope == "team":
-                await _assign_team_mission_run(
-                    db, item=item, cohort_id=assignment.cohort_id, user_id=assignment.user_id,
-                )
+        # A team-scoped mission_run gets only its placeholder row here —
+        # the team pass below owns its attempt, for every such item rather
+        # than only the ones missing a placeholder (see the docstring).
+        elif item.item_type == "mission_run" and item.mission_id and item.scope != "team":
+            sibling_attempt_id = await _sibling_individual_attempt(
+                db, assignment_id=assignment.id, mission_id=item.mission_id, exclude_item_id=item.id,
+            )
+            if sibling_attempt_id is not None:
+                progress.mission_attempt_id = sibling_attempt_id
             else:
-                sibling_attempt_id = await _sibling_individual_attempt(
-                    db, assignment_id=assignment.id, mission_id=item.mission_id, exclude_item_id=item.id,
+                attempt = await assign_mission_run(
+                    db, mission_id=item.mission_id, user_id=assignment.user_id,
+                    cohort_id=assignment.cohort_id, variant_id=item.variant_id,
                 )
-                if sibling_attempt_id is not None:
-                    progress.mission_attempt_id = sibling_attempt_id
-                else:
-                    attempt = await assign_mission_run(
-                        db, mission_id=item.mission_id, user_id=assignment.user_id,
-                        cohort_id=assignment.cohort_id, variant_id=item.variant_id,
-                    )
-                    progress.mission_attempt_id = attempt.id
+                progress.mission_attempt_id = attempt.id
         db.add(progress)
+
+    # Resolved once rather than per item: `_assign_team_mission_run` looks
+    # the team up itself, but a student with no team at all is the common
+    # case on a cohort that hasn't formed teams yet, and this skips the
+    # whole pass for them instead of re-running that join per item.
+    team_attached = 0
+    team_run_items = [
+        item for item in items
+        if item.item_type == "mission_run" and item.scope == "team" and item.mission_id
+    ]
+    if team_run_items and await team_for_cohort_member(
+        db, cohort_id=assignment.cohort_id, user_id=assignment.user_id,
+    ) is not None:
+        for item in team_run_items:
+            if await _assign_team_mission_run(
+                db, item=item, cohort_id=assignment.cohort_id, user_id=assignment.user_id,
+            ):
+                team_attached += 1
+
+    if not missing and not team_attached:
+        return 0
     await db.flush()
-    return len(missing)
+    return len(missing) + team_attached
 
 
 async def sync_program_assignments(db: AsyncSession, *, lms_program_id: uuid.UUID) -> int:
@@ -1487,6 +1539,70 @@ async def checklist_item_locked(db: AsyncSession, *, assignment: LmsProgramAssig
     return locked.get(item.id, False)
 
 
+async def team_final_locked(db: AsyncSession, *, assignment: LmsProgramAssignment, item: LmsProgramItem) -> bool:
+    """True once this item's team has already finally submitted (see
+    `Team.final_locked_at`'s own docstring) — checked only for
+    `scope=="team"` items; an individual-scoped item is never blocked by
+    the team's lock."""
+    if item.scope != "team":
+        return False
+    team = await team_for_cohort_member(db, cohort_id=assignment.cohort_id, user_id=assignment.user_id)
+    return team is not None and team.final_locked_at is not None
+
+
+async def team_final_locked_for_attempt(db: AsyncSession, *, attempt_id: uuid.UUID) -> bool:
+    """Same check as `team_final_locked`, but keyed off a `MissionAttempt`
+    rather than an assignment/item pair — for the design-mission write
+    endpoints (`routers/missions/design.py`), which mutate an attempt
+    directly and never see the checklist item that owns it. A team-scoped
+    `mission_run` item's shared attempt lives on `LmsProgramTeamItemProgress.
+    mission_attempt_id` (see that column's own docstring); an attempt with
+    no such row is either individual-scoped or not on any checklist at
+    all, and is never blocked by a team's lock."""
+    team_id = await db.scalar(
+        select(LmsProgramTeamItemProgress.team_id).where(
+            LmsProgramTeamItemProgress.mission_attempt_id == attempt_id,
+        )
+    )
+    if team_id is None:
+        return False
+    team = await db.get(Team, team_id)
+    return team is not None and team.final_locked_at is not None
+
+
+async def team_final_submit_readiness(
+    db: AsyncSession, *, assignment: LmsProgramAssignment,
+) -> tuple[bool, str | None]:
+    """True once every required (non-optional), *team-scoped* item on this
+    assignment's checklist is `"done"` — an individual-scoped item never
+    blocks this (2026-09-19, reversed from an earlier version that also
+    required every individual item done: the user's own testing found a
+    single leftover personal task kept "Final Submit" disabled even
+    though the team's own deliverables were all in). `RoadmapBoard.tsx`
+    computes the button's enabled state the same way (`teamReady`,
+    filtered to `item.scope === "team"`), so the two must keep agreeing.
+    Uses the same live-refreshed status `get_student_checklist` shows (via
+    `refresh_item_progress`, not the cheaper stored-only
+    `_effective_status`). Returns `(ready, reason)` — `reason` is a
+    human-readable string for the 400 detail when not ready."""
+    pairs = await _assignment_items_and_progress(db, assignment.id)
+    team_progress_by_item = await _team_progress_by_item(
+        db, pairs=pairs, cohort_id=assignment.cohort_id, user_id=assignment.user_id,
+    )
+    dashboard_cache: dict[uuid.UUID, dict | None] = {}
+    for item, progress in pairs:
+        if item.optional or item.scope != "team":
+            continue
+        team_progress = team_progress_by_item.get(item.id)
+        item_status = await refresh_item_progress(
+            db, progress=team_progress or progress, item=item, user_id=assignment.user_id,
+            dashboard_cache=dashboard_cache,
+        )
+        if item_status != "done":
+            return False, f"'{item.title}' isn't done yet"
+    return True, None
+
+
 async def get_student_checklist(db: AsyncSession, *, assignment_id: uuid.UUID, user_id: uuid.UUID) -> dict | None:
     """None means either the assignment doesn't exist or belongs to a
     different student — the router turns both into a plain 404, never
@@ -1542,6 +1658,16 @@ async def get_student_checklist(db: AsyncSession, *, assignment_id: uuid.UUID, u
     # unlike the per-item `updater_names` batch the team rows needed.
     student = await db.get(User, user_id)
     student_name = student.full_name if student else None
+
+    team_final_locked_by_name: str | None = None
+    if team is not None and team.final_locked_by is not None:
+        if team.final_locked_by == user_id:
+            team_final_locked_by_name = student_name
+        elif team.final_locked_by in updater_names:
+            team_final_locked_by_name = updater_names[team.final_locked_by]
+        else:
+            locked_user = await db.get(User, team.final_locked_by)
+            team_final_locked_by_name = locked_user.full_name if locked_user else None
 
     # One design-dashboard read per attempt for this whole checklist load,
     # not per item — several Madar phase tiles can share one
@@ -1624,6 +1750,11 @@ async def get_student_checklist(db: AsyncSession, *, assignment_id: uuid.UUID, u
         # with no team yet (or a program with no team-scoped items at all)
         # gets None, same as cohort_name for a program with no cohort.
         "team_name": team.name if team is not None else None,
+        # None means still editable — see Team.final_locked_at's own
+        # docstring. Same "resolved from the already-loaded team" posture
+        # as team_name above, no extra query.
+        "team_final_locked_at": team.final_locked_at if team is not None else None,
+        "team_final_locked_by_name": team_final_locked_by_name,
         "certificate_required": program.certificate_required,
         "certificate_earned": await _certificate_earned(db, assignment.registration_id),
         "items": items_out,

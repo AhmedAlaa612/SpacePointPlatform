@@ -142,10 +142,11 @@ async def _individual_done_user_ids(
     user_by_assignment = {aid: uid for aid, uid in assignments}
     assigned_user_ids = set(user_by_assignment.values())
 
+    assignment_by_user = {uid: aid for aid, uid in assignments}
     done_by_item: dict[uuid.UUID, set[uuid.UUID]] = {i.id: set() for i in items}
     awaiting_by_item: dict[uuid.UUID, set[uuid.UUID]] = {i.id: set() for i in items}
     if not items or not user_by_assignment:
-        return done_by_item, awaiting_by_item, assigned_user_ids
+        return done_by_item, awaiting_by_item, assigned_user_ids, assignment_by_user
 
     rows = (await db.execute(
         select(LmsProgramItemProgress.item_id, LmsProgramItemProgress.assignment_id, LmsProgramItemProgress.status)
@@ -191,7 +192,7 @@ async def _individual_done_user_ids(
                 done_by_item[item_id].add(user_id)
                 awaiting_by_item[item_id].discard(user_id)
 
-    return done_by_item, awaiting_by_item, assigned_user_ids
+    return done_by_item, awaiting_by_item, assigned_user_ids, assignment_by_user
 
 
 def _mission_attempt_lookup(
@@ -299,10 +300,12 @@ def _team_mission_runs(
 
     Grouped by mission_id, same as `_mission_blocks`/`team_mission_run_items`
     — several checklist items can split one run into steps via
-    `mission_step_key` and all share one MissionAttempt. A team with no
-    team-scoped mission_run items on its checklist is simply absent from
-    the returned dict (not an empty list), matching the convention
-    CompetitionTeamDetailOut.mission_runs's own docstring uses."""
+    `mission_step_key` and all share one MissionAttempt. Returns `{}`
+    outright when the cohort's checklist has no team-scoped mission_run
+    items at all (most cohorts today); once it has even one, every team
+    gets an entry, with a "not_started"/no-attempt placeholder row for any
+    mission it hasn't been assigned yet — never a team selectively missing
+    from the dict."""
     team_scoped_mission_items = [
         i for i in items if i.item_type == "mission_run" and i.scope == "team" and i.mission_id
     ]
@@ -334,8 +337,7 @@ def _team_mission_runs(
                 "attempt_id": attempt_id,
                 "status": attempt_status.get(attempt_id, "not_started") if attempt_id else "not_started",
             })
-        if runs:
-            out[team_id] = runs
+        out[team_id] = runs
     return out
 
 
@@ -356,6 +358,11 @@ async def cohort_team_analytics(db: AsyncSession, *, cohort_id: uuid.UUID) -> di
     )).scalars().all())
     team_ids = [t.id for t in teams]
     members_by_team, users_by_id = await _team_rosters(db, team_ids=team_ids)
+    missing_locked_by = {t.final_locked_by for t in teams if t.final_locked_by and t.final_locked_by not in users_by_id}
+    if missing_locked_by:
+        more_users = (await db.execute(select(User).where(User.id.in_(missing_locked_by)))).scalars().all()
+        for u in more_users:
+            users_by_id[u.id] = u
 
     registered_user_ids = await _cohort_roster_user_ids(db, cohort_id=cohort_id)
     on_a_team = {uid for ids in members_by_team.values() for uid in ids}
@@ -376,9 +383,22 @@ async def cohort_team_analytics(db: AsyncSession, *, cohort_id: uuid.UUID) -> di
     )).scalars().all()) if progress_item_ids and team_ids else []
     progress_by_team_item = {(p.team_id, p.item_id): p for p in team_progress}
 
-    done_users_by_item, awaiting_users_by_item, assigned_user_ids = await _individual_done_user_ids(
+    done_users_by_item, awaiting_users_by_item, assigned_user_ids, assignment_by_user = await _individual_done_user_ids(
         db, items=individual_items, cohort_id=cohort_id,
     )
+
+    quiz_items = [i for i in items if i.item_type == "quiz"]
+    quiz_attempts_by_user_item: dict[tuple[uuid.UUID, uuid.UUID], CohortQuizAttempt] = {}
+    if quiz_items and on_a_team:
+        quiz_item_ids = [i.id for i in quiz_items]
+        quiz_attempts = (await db.execute(
+            select(CohortQuizAttempt).where(
+                CohortQuizAttempt.program_item_id.in_(quiz_item_ids),
+                (CohortQuizAttempt.cohort_id == cohort_id) | (CohortQuizAttempt.user_id.in_(list(on_a_team))),
+            )
+        )).scalars().all()
+        for att in quiz_attempts:
+            quiz_attempts_by_user_item[(att.user_id, att.program_item_id)] = att
 
     # ── per-item completion rate ────────────────────────────────────────
     item_rows = []
@@ -452,7 +472,26 @@ async def cohort_team_analytics(db: AsyncSession, *, cohort_id: uuid.UUID) -> di
             if progress is not None and progress.updated_at is not None:
                 if last_activity is None or progress.updated_at > last_activity:
                     last_activity = progress.updated_at
+
+        quiz_subs = []
+        for q_item in quiz_items:
+            for uid in member_ids:
+                u = users_by_id.get(uid)
+                att = quiz_attempts_by_user_item.get((uid, q_item.id))
+                quiz_subs.append({
+                    "user_id": uid,
+                    "student_name": u.full_name if u else "Student",
+                    "assignment_id": assignment_by_user.get(uid),
+                    "item_id": q_item.id,
+                    "quiz_title": q_item.title,
+                    "status": att.status if att else "not_started",
+                    "score": att.score if att else None,
+                    "total": att.total if att else None,
+                    "submitted_at": att.submitted_at if att else None,
+                })
+
         total = len(required_team_items)
+        locked_by_user = users_by_id.get(team.final_locked_by) if team.final_locked_by else None
         team_rows.append({
             "team_id": team.id,
             "team_name": team.name,
@@ -465,11 +504,17 @@ async def cohort_team_analytics(db: AsyncSession, *, cohort_id: uuid.UUID) -> di
             "awaiting": awaiting,
             "pct": _pct(done, total),
             "deliverables": deliverables,
+            "quiz_submissions": quiz_subs,
             "last_activity_at": last_activity,
             "stalled": (
                 done < total
                 and (last_activity is None or (now - last_activity) > timedelta(days=STALLED_AFTER_DAYS))
             ),
+            "locked": team.final_locked_at is not None,
+            "locked_at": team.final_locked_at,
+            "locked_by_name": locked_by_user.full_name if locked_by_user else None,
+            "locked_by_email": locked_by_user.email if locked_by_user else None,
+            "locked_by_id": team.final_locked_by,
         })
     team_rows.sort(key=lambda r: (-r["pct"], r["team_name"].lower()))
 

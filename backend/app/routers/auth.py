@@ -39,7 +39,8 @@ from app.models.instructors.video_submission import VideoSubmission
 from app.models.instructors.application_review import ApplicationReview
 from app.services.instructors.application_videos import get_configured_videos
 from app.schemas.user import InstructorApply
-from app.services.documents.id_card import ensure_card_number, format_card_id
+from app.services.documents.card_id import format_card_id
+from app.services.documents.id_card import ensure_card_number
 from app.services.invitations import resolve_invite_code
 from app.services.lms.invite_grants import apply_invite_code_grants_to_new_user
 from app.services.lms.ops_integration import send_set_password_email

@@ -70,6 +70,18 @@ class Team(Base):
     cohort_id = Column(UUID(as_uuid=True), ForeignKey("cohorts.id", ondelete="CASCADE"), nullable=True)
     created_by = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+    # Final-submission lock (2026-09) — a team-scoped checklist "done, for
+    # real" action a team member triggers once every required team-scoped
+    # item is done (services/competitions/team_management.py::
+    # finalize_team_submission). NULL means "still editable" — a nullable
+    # timestamp doubling as the boolean, same idiom as
+    # LmsProgramItemProgress.completed_at, rather than a separate bool
+    # column. Deliberately one-way from the team's side: only ops can clear
+    # it (unlock_team_submission), mirroring MissionStepGate's
+    # instructor-controlled-unlock posture — a team cannot re-lock/re-open
+    # its own submission at will.
+    final_locked_at = Column(DateTime(timezone=True), nullable=True)
+    final_locked_by = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
 
 
 class TeamMember(Base):

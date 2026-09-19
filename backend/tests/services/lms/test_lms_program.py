@@ -1094,6 +1094,57 @@ async def test_team_scoped_mission_split_into_steps_keeps_one_attempt_after_the_
 
 
 @pytest.mark.asyncio
+async def test_team_mission_run_items_finds_the_attempt_even_when_an_earlier_step_has_no_row_yet(db):
+    """Regression: a split run's steps don't all necessarily get their
+    LmsProgramTeamItemProgress row's mission_attempt_id populated at the
+    same moment — step A's row can exist with mission_attempt_id still
+    null while step B's already carries the real, shared attempt. Reading
+    "first item that HAS a progress row" instead of "first item whose row
+    actually carries an attempt id" used to report the run as not_started
+    in that case, even though it had genuinely started."""
+    author = await _author(db)
+    program, cohort = await _program_and_cohort(db)
+    mission, variant = await _mission_with_variant(db, author=author, team_policy="team")
+    lms_program = LmsProgram(id=uuid.uuid4(), program_id=program.id, name="Partially Synced Split Mission")
+    db.add(lms_program)
+    await db.flush()
+    step_a = LmsProgramItem(
+        id=uuid.uuid4(), owner_type="program", owner_id=lms_program.id, position=1,
+        item_type="mission_run", title="Step A", mission_id=mission.id, variant_id=variant.id,
+        scope="team", mission_step_key="components",
+    )
+    step_b = LmsProgramItem(
+        id=uuid.uuid4(), owner_type="program", owner_id=lms_program.id, position=2,
+        item_type="mission_run", title="Step B", mission_id=mission.id, variant_id=variant.id,
+        scope="team", mission_step_key="conops",
+    )
+    db.add_all([step_a, step_b])
+    await db.flush()
+    alice = await _student(db)
+    team = await create_team(db, name="Partial Sync Team", created_by=alice.id, cohort_id=cohort.id)
+    attempt = MissionAttempt(
+        id=uuid.uuid4(), mission_id=mission.id, variant_id=variant.id, team_id=team.id,
+        attempt_no=1, status="in_progress", payload={},
+    )
+    db.add(attempt)
+    await db.flush()
+    # Step A's row exists (assigned) but hasn't picked up the attempt yet;
+    # step B's already has it — same shared run, disagreeing rows.
+    db.add(LmsProgramTeamItemProgress(
+        id=uuid.uuid4(), item_id=step_a.id, team_id=team.id, status="pending", mission_attempt_id=None,
+    ))
+    db.add(LmsProgramTeamItemProgress(
+        id=uuid.uuid4(), item_id=step_b.id, team_id=team.id, status="pending", mission_attempt_id=attempt.id,
+    ))
+    await db.commit()
+
+    runs = await team_mission_run_items(db, team_id=team.id)
+    assert len(runs) == 1
+    assert runs[0]["attempt_id"] == attempt.id
+    assert runs[0]["status"] == "in_progress"
+
+
+@pytest.mark.asyncio
 async def test_individual_mission_split_into_steps_keeps_one_attempt_after_the_first_passes(db):
     """The individual-scope mirror of the team-side regression above:
     `sync_assignment_items` adding a second individual-scoped step for a
@@ -1252,3 +1303,109 @@ def test_submission_link_labels_rejects_duplicate_labels():
         validate_item_payload(body)
     assert exc_info.value.status_code == 400
     assert "unique" in exc_info.value.detail
+
+
+@pytest.mark.asyncio
+async def test_resync_wires_a_team_mission_run_added_after_the_team_was_assigned(db):
+    """Regression (found live, 2026-09-19 — team Orbit3): ops added six
+    team-scoped `mission_run` steps to a cohort override whose teams were
+    already formed and assigned. Every member got their individual
+    placeholder row for each new item, but no team ever got its
+    `LmsProgramTeamItemProgress` row or the shared `MissionAttempt`, so
+    the checklist tile had no `mission_attempt_id` and clicking "Open"
+    silently did nothing.
+
+    The cause was `sync_assignment_items` gating the team-side wiring on
+    the same `missing` check as the individual placeholder: the moment a
+    student holds their placeholder, the item stops being "missing" and
+    `_assign_team_mission_run` is never reached. "Resync students"
+    therefore reported 0 items added forever and could never repair it.
+
+    This reproduces that exact state — placeholder present, team row
+    absent — and asserts a resync now fixes it."""
+    author = await _author(db)
+    program, cohort = await _program_and_cohort(db)
+    mission, variant = await _mission_with_variant(db, author=author, team_policy="team")
+    lms_program = LmsProgram(id=uuid.uuid4(), program_id=program.id, name="Late Team Mission Program")
+    db.add(lms_program)
+    await db.flush()
+    # Something already on the checklist, so the cohort resolves and the
+    # students get a real assignment before the team item is ever added.
+    seed = LmsProgramItem(
+        id=uuid.uuid4(), owner_type="program", owner_id=lms_program.id, position=1,
+        item_type="manual", title="Kickoff",
+    )
+    db.add(seed)
+    await db.flush()
+
+    alice, bob = await _student(db), await _student(db)
+    team = await create_team(db, name="Orbit3", created_by=alice.id, cohort_id=cohort.id)
+    await join_team(db, team_id=team.id, user_id=bob.id)
+    for student in (alice, bob):
+        await assign_lms_program(db, user_id=student.id, cohort_id=cohort.id)
+    await db.commit()
+
+    # Ops adds the team-scoped mission_run step AFTER everyone's assigned.
+    late_item = LmsProgramItem(
+        id=uuid.uuid4(), owner_type="program", owner_id=lms_program.id, position=2,
+        item_type="mission_run", title="Team's mission components", mission_id=mission.id,
+        variant_id=variant.id, scope="team", mission_step_key="components",
+    )
+    db.add(late_item)
+    await db.flush()
+
+    # Reproduce the live state precisely: the individual placeholder rows
+    # exist (so `missing` is empty for this item) while the team row does
+    # not. This is what one earlier resync would have left behind.
+    for student in (alice, bob):
+        assignment = (await db.execute(
+            select(LmsProgramAssignment).where(
+                LmsProgramAssignment.user_id == student.id, LmsProgramAssignment.cohort_id == cohort.id,
+            )
+        )).scalars().one()
+        db.add(LmsProgramItemProgress(
+            id=uuid.uuid4(), assignment_id=assignment.id, item_id=late_item.id,
+        ))
+    await db.commit()
+
+    team_row = await db.scalar(
+        select(LmsProgramTeamItemProgress).where(
+            LmsProgramTeamItemProgress.item_id == late_item.id, LmsProgramTeamItemProgress.team_id == team.id,
+        )
+    )
+    assert team_row is None  # the broken state, as observed in production
+
+    # The "Resync students" path. Before the fix this returned 0 and
+    # changed nothing, no matter how many times it was called.
+    added = await sync_cohort_assignments(db, cohort_id=cohort.id)
+    await db.commit()
+    assert added == 1
+
+    team_row = await db.scalar(
+        select(LmsProgramTeamItemProgress).where(
+            LmsProgramTeamItemProgress.item_id == late_item.id, LmsProgramTeamItemProgress.team_id == team.id,
+        )
+    )
+    assert team_row is not None
+    assert team_row.mission_attempt_id is not None
+
+    # Exactly one attempt for the whole team — not one per member.
+    attempts = (await db.execute(
+        select(MissionAttempt).where(MissionAttempt.mission_id == mission.id)
+    )).scalars().all()
+    assert len(attempts) == 1
+    assert attempts[0].team_id == team.id
+    assert team_row.mission_attempt_id == attempts[0].id
+
+    # The tile can now resolve an attempt to open.
+    runs = await team_mission_run_items(db, team_id=team.id)
+    assert len(runs) == 1
+    assert runs[0]["attempt_id"] == attempts[0].id
+
+    # And a second resync is a genuine no-op, not a second attempt.
+    assert await sync_cohort_assignments(db, cohort_id=cohort.id) == 0
+    await db.commit()
+    attempts = (await db.execute(
+        select(MissionAttempt).where(MissionAttempt.mission_id == mission.id)
+    )).scalars().all()
+    assert len(attempts) == 1

@@ -157,6 +157,18 @@ async def delete_team(team_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
     await db.commit()
 
 
+@router.post("/teams/{team_id}/unlock", response_model=CompetitionTeamOut)
+async def unlock_team(team_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
+    """Reopens a team's checklist after "Final Submit" — the only way that
+    lock ever clears (see `Team.final_locked_at`'s own docstring). Already
+    gated ops-only by this whole router's `require_lms_content` dependency
+    — no separate check needed here."""
+    await team_service.unlock_team_submission(db, team_id=team_id)
+    await db.commit()
+    rows = await team_service.list_teams_with_members(db, cohort_id=(await _team_cohort_id(db, team_id)))
+    return next(CompetitionTeamOut(**r) for r in rows if r["id"] == team_id)
+
+
 @router.post("/teams/{team_id}/members", response_model=CompetitionTeamOut, status_code=status.HTTP_201_CREATED)
 async def post_team_member(
     team_id: uuid.UUID, body: CompetitionTeamMemberIn, db: AsyncSession = Depends(get_db),
@@ -388,6 +400,19 @@ async def export_cohort_results_workbook(cohort_id: uuid.UUID, db: AsyncSession 
     return Response(
         content=content, media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         headers={"Content-Disposition": f'attachment; filename="{safe_name} results.xlsx"'},
+    )
+
+
+@router.get("/cohorts/{cohort_id}/quiz-answers.xlsx")
+async def export_cohort_quiz_answers_workbook(cohort_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
+    """Exports all quiz answers for the cohort, grouped by team and quiz,
+    with an overview summary sheet and per-question answer breakdown sheet."""
+    cohort = await _get_cohort_or_404(db, cohort_id)
+    content = await export_service.export_quiz_answers_workbook(db, cohort_id=cohort_id)
+    safe_name = "".join(c if c.isalnum() or c in " -_" else "_" for c in cohort.name).strip() or cohort_id
+    return Response(
+        content=content, media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f'attachment; filename="{safe_name} quiz answers.xlsx"'},
     )
 
 

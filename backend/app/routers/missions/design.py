@@ -88,6 +88,7 @@ from app.services.missions.design.rf_calc import BAND_PRESETS
 from app.services.missions.verifiers.design import ensure_design, mark_design_complete
 from app.services.lms.admin_progress import DESIGN_STEP_LABELS
 from app.services.missions.gating import gate_map_for_attempt, require_step_unlocked
+from app.services.lms.program import team_final_locked_for_attempt
 from app.routers.missions.student import _own_attempt
 
 router = APIRouter(prefix="/missions/design", tags=["missions-design"])
@@ -108,6 +109,22 @@ async def _own_design_attempt(db: AsyncSession, attempt_id: uuid.UUID, user: Use
     if mission is None or mission.kind != "design":
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Attempt not found")
     return attempt
+
+
+async def _require_team_not_final_locked(db: AsyncSession, *, attempt: MissionAttempt) -> None:
+    """Call at the top of every mutating endpoint below, right after
+    `_own_design_attempt` — same "call explicitly, per write endpoint"
+    convention `require_step_unlocked` already uses in this file. Only
+    matters for a team-scoped `mission_run` checklist item's shared
+    attempt (`team_final_locked_for_attempt`); an individual attempt is
+    never blocked. Without this, a locked team's checklist could still
+    change via the design wizard even though `student.py`'s own write
+    endpoints already 409 (found in code review, 2026-09-18)."""
+    if await team_final_locked_for_attempt(db, attempt_id=attempt.id):
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            detail="Your team's final submission is locked — ask an ops staff member to reopen it",
+        )
 
 
 async def design_state_out(db: AsyncSession, *, attempt: MissionAttempt, design: Design) -> DesignStateOut:
@@ -429,6 +446,7 @@ async def update_design(
     db: AsyncSession = Depends(get_db), current: User = Depends(get_current_active_user),
 ):
     attempt = await _own_design_attempt(db, attempt_id, current)
+    await _require_team_not_final_locked(db, attempt=attempt)
     design = await ensure_design(db, attempt=attempt)
     changes = body.model_dump(exclude_unset=True)
     for field, value in changes.items():
@@ -444,6 +462,7 @@ async def add_design_component(
     db: AsyncSession = Depends(get_db), current: User = Depends(get_current_active_user),
 ):
     attempt = await _own_design_attempt(db, attempt_id, current)
+    await _require_team_not_final_locked(db, attempt=attempt)
     await require_step_unlocked(db, attempt=attempt, step_key="components")
     if attempt.cohort_id is not None:
         from app.services.missions.component_config import is_component_allowed_for_cohort
@@ -469,6 +488,7 @@ async def remove_design_component(
     db: AsyncSession = Depends(get_db), current: User = Depends(get_current_active_user),
 ):
     attempt = await _own_design_attempt(db, attempt_id, current)
+    await _require_team_not_final_locked(db, attempt=attempt)
     design = await ensure_design(db, attempt=attempt)
     await design_service.remove_component(db, design_id=design.id, design_component_id=design_component_id)
     result = await design_state_out(db, attempt=attempt, design=design)
@@ -482,6 +502,7 @@ async def save_conops(
     db: AsyncSession = Depends(get_db), current: User = Depends(get_current_active_user),
 ):
     attempt = await _own_design_attempt(db, attempt_id, current)
+    await _require_team_not_final_locked(db, attempt=attempt)
     await require_step_unlocked(db, attempt=attempt, step_key="conops")
     design = await ensure_design(db, attempt=attempt)
     for mode_id, duration in body.mode_durations.items():
@@ -500,9 +521,12 @@ async def save_data_budget(
     db: AsyncSession = Depends(get_db), current: User = Depends(get_current_active_user),
 ):
     attempt = await _own_design_attempt(db, attempt_id, current)
+    await _require_team_not_final_locked(db, attempt=attempt)
     await require_step_unlocked(db, attempt=attempt, step_key="data_budget")
     design = await ensure_design(db, attempt=attempt)
-    await design_service.save_data_entry(db, design_component_id=design_component_id, **body.model_dump())
+    await design_service.save_data_entry(
+        db, design_id=design.id, design_component_id=design_component_id, **body.model_dump()
+    )
     result = await design_state_out(db, attempt=attempt, design=design)
     await db.commit()
     return result
@@ -514,9 +538,12 @@ async def save_power_budget(
     db: AsyncSession = Depends(get_db), current: User = Depends(get_current_active_user),
 ):
     attempt = await _own_design_attempt(db, attempt_id, current)
+    await _require_team_not_final_locked(db, attempt=attempt)
     await require_step_unlocked(db, attempt=attempt, step_key="power_budget")
     design = await ensure_design(db, attempt=attempt)
-    await design_service.save_power_entry(db, design_component_id=design_component_id, **body.model_dump())
+    await design_service.save_power_entry(
+        db, design_id=design.id, design_component_id=design_component_id, **body.model_dump()
+    )
     result = await design_state_out(db, attempt=attempt, design=design)
     await db.commit()
     return result
@@ -528,9 +555,12 @@ async def save_mass_budget(
     db: AsyncSession = Depends(get_db), current: User = Depends(get_current_active_user),
 ):
     attempt = await _own_design_attempt(db, attempt_id, current)
+    await _require_team_not_final_locked(db, attempt=attempt)
     await require_step_unlocked(db, attempt=attempt, step_key="mass_budget")
     design = await ensure_design(db, attempt=attempt)
-    await design_service.save_mass_entry(db, design_component_id=design_component_id, **body.model_dump())
+    await design_service.save_mass_entry(
+        db, design_id=design.id, design_component_id=design_component_id, **body.model_dump()
+    )
     result = await design_state_out(db, attempt=attempt, design=design)
     await db.commit()
     return result
@@ -542,9 +572,12 @@ async def save_cost_budget(
     db: AsyncSession = Depends(get_db), current: User = Depends(get_current_active_user),
 ):
     attempt = await _own_design_attempt(db, attempt_id, current)
+    await _require_team_not_final_locked(db, attempt=attempt)
     await require_step_unlocked(db, attempt=attempt, step_key="cost_budget")
     design = await ensure_design(db, attempt=attempt)
-    await design_service.save_cost_entry(db, design_component_id=design_component_id, **body.model_dump())
+    await design_service.save_cost_entry(
+        db, design_id=design.id, design_component_id=design_component_id, **body.model_dump()
+    )
     result = await design_state_out(db, attempt=attempt, design=design)
     await db.commit()
     return result
@@ -556,6 +589,7 @@ async def save_link_budget(
     db: AsyncSession = Depends(get_db), current: User = Depends(get_current_active_user),
 ):
     attempt = await _own_design_attempt(db, attempt_id, current)
+    await _require_team_not_final_locked(db, attempt=attempt)
     await require_step_unlocked(db, attempt=attempt, step_key="link_budget")
     design = await ensure_design(db, attempt=attempt)
     await design_service.save_link_entry(db, design_id=design.id, **body.model_dump())
@@ -582,6 +616,7 @@ async def confirm_design_step(
     if step_key not in CONFIRMABLE_STEP_KEYS:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, detail=f"'{step_key}' can't be self-confirmed")
     attempt = await _own_design_attempt(db, attempt_id, current)
+    await _require_team_not_final_locked(db, attempt=attempt)
     if step_key != "setup":
         await require_step_unlocked(db, attempt=attempt, step_key=step_key)
     design = await ensure_design(db, attempt=attempt)
@@ -649,6 +684,7 @@ async def complete_design(
     touches the attempt's status (still `in_progress`); only a 200 means
     the design passed."""
     attempt = await _own_design_attempt(db, attempt_id, current)
+    await _require_team_not_final_locked(db, attempt=attempt)
     design = await ensure_design(db, attempt=attempt)
     await mark_design_complete(db, attempt=attempt)
     result = await design_state_out(db, attempt=attempt, design=design)

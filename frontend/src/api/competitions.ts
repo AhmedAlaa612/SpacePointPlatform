@@ -198,6 +198,14 @@ export interface CompetitionJudgeTeam {
   member_ids: string[]
   member_names: string[]
   already_scored: boolean
+  // Team hit "Final Submit" — its checklist is frozen, only ops can reopen it.
+  locked: boolean
+  locked_at?: string | null
+  roster_team_id?: string | null
+  member_count?: number
+  items_done?: number
+  items_total?: number
+  pct?: number
 }
 
 export interface CompetitionTeam {
@@ -218,6 +226,8 @@ export interface CompetitionTeamDetail {
   mission_runs: CompetitionMissionRun[]
   rubric: CompetitionRubric | null
   own_score: CompetitionScore | null
+  locked?: boolean
+  locked_at?: string | null
 }
 
 // ── Ops admin ────────────────────────────────────────────────────────────
@@ -261,6 +271,18 @@ export const downloadCohortResultsWorkbookApi = async (cohortId: string, cohortN
   const a = document.createElement("a")
   a.href = url
   a.download = `${cohortName.replace(/[^a-z0-9]+/gi, "_")}_results.xlsx`
+  a.click()
+  URL.revokeObjectURL(url)
+}
+
+/** One .xlsx: a 'Quiz Summary' sheet and a 'Quiz Answers' sheet (per-question
+ * answers grouped by Team and Quiz) — for reviewing cohort quiz diagnostic results. */
+export const downloadCohortQuizAnswersWorkbookApi = async (cohortId: string, cohortName: string) => {
+  const res = await api.get(`/competitions/admin/cohorts/${cohortId}/quiz-answers.xlsx`, { responseType: "blob" })
+  const url = URL.createObjectURL(res.data as Blob)
+  const a = document.createElement("a")
+  a.href = url
+  a.download = `${cohortName.replace(/[^a-z0-9]+/gi, "_")}_quiz_answers.xlsx`
   a.click()
   URL.revokeObjectURL(url)
 }
@@ -348,6 +370,12 @@ export const renameTeamApi = (teamId: string, name: string) =>
 export const deleteTeamApi = (teamId: string) =>
   api.delete<void>(`/competitions/admin/teams/${teamId}`).then((r) => r.data)
 
+/** Reopens a team's checklist after "Final Submit" — see
+ * routers/competitions/admin.py::unlock_team. The only way that lock
+ * ever clears; a team can never re-open its own submission. */
+export const unlockTeamApi = (teamId: string) =>
+  api.post<CompetitionTeam>(`/competitions/admin/teams/${teamId}/unlock`).then((r) => r.data)
+
 export const addExistingTeamMemberApi = (teamId: string, userId: string) =>
   api.post<CompetitionTeam>(`/competitions/admin/teams/${teamId}/members`, { user_id: userId }).then((r) => r.data)
 
@@ -428,8 +456,21 @@ export interface CompetitionAnalyticsDeliverable {
 }
 
 export interface CompetitionAnalyticsTeamMember {
+  user_id?: string
   name: string
   last_login_at: string | null
+}
+
+export interface CompetitionTeamQuizSubmission {
+  user_id: string
+  student_name: string
+  assignment_id: string | null
+  item_id: string
+  quiz_title: string
+  status: "submitted" | "in_progress" | "not_started"
+  score: number | null
+  total: number | null
+  submitted_at: string | null
 }
 
 export interface CompetitionAnalyticsTeam {
@@ -449,8 +490,16 @@ export interface CompetitionAnalyticsTeam {
   deliverables: CompetitionAnalyticsDeliverable[]
   /** Team-scoped Design mission runs on this team's checklist, if any. */
   mission_runs: CompetitionMissionRun[]
+  /** Cohort quiz submissions for members of this team. */
+  quiz_submissions?: CompetitionTeamQuizSubmission[]
   last_activity_at: string | null
   stalled: boolean
+  /** Team hit "Final Submit" — its checklist is frozen, only ops can reopen it. */
+  locked: boolean
+  locked_at?: string | null
+  locked_by_name?: string | null
+  locked_by_email?: string | null
+  locked_by_id?: string | null
 }
 
 export interface CompetitionAnalyticsActivity {

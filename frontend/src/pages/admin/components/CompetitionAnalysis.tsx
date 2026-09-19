@@ -1,21 +1,25 @@
 import { useMemo, useState, useEffect } from "react"
-import { useQuery } from "@tanstack/react-query"
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import * as XLSX from "xlsx"
 import {
   Area, AreaChart, Bar, BarChart, CartesianGrid, Cell, LabelList, ResponsiveContainer,
   Tooltip, XAxis, YAxis,
 } from "recharts"
 import {
-  AlertTriangle, ChevronDown, ChevronRight, Clock, FileSpreadsheet, Search,
+  AlertTriangle, CheckCircle2, ChevronDown, ChevronRight, Circle, Clock, ExternalLink, Eye, FileSpreadsheet, Loader2, Lock, Search,
   Rocket, UserX, Users, UsersRound,
 } from "lucide-react"
 import {
-  getCohortTeamAnalyticsApi,
+  getCohortTeamAnalyticsApi, downloadCohortQuizAnswersWorkbookApi, unlockTeamApi,
   type CompetitionAnalytics, type CompetitionAnalyticsItem, type CompetitionAnalyticsTeam,
-  type CompetitionAnalyticsDeliverable, type CompetitionMissionRun,
+  type CompetitionAnalyticsDeliverable, type CompetitionMissionRun, type CompetitionTeamQuizSubmission,
 } from "@/api/competitions"
 import { Spinner, EmptyState, StatCard } from "@/components/ui/primitives"
+import { Button } from "@/components/ui/button"
+import { useToast } from "@/components/ui/toast"
+import { ensureAbsoluteUrl, getErrorMessage } from "@/lib/utils"
 import { DesignRunDetail } from "@/pages/lms-authoring/components/DesignRunDetail"
+import { QuizAnswersReview } from "@/pages/lms-authoring/components/LmsProgressAndMissions"
 
 /* ================================================================== */
 /* Analysis tab (2026-09-16)                                           */
@@ -88,12 +92,12 @@ function SectionCard({ title, hint, action, children }: {
 }) {
   return (
     <div className="rounded-2xl border border-border bg-card p-4 sm:p-5 flex flex-col gap-4">
-      <div className="flex items-start justify-between gap-3">
+      <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3">
         <div className="min-w-0">
           <h3 className="text-sm font-bold text-foreground">{title}</h3>
           {hint && <p className="text-xs text-muted-foreground mt-0.5">{hint}</p>}
         </div>
-        {action}
+        {action && <div className="w-full sm:w-auto shrink-0">{action}</div>}
       </div>
       {children}
     </div>
@@ -280,11 +284,27 @@ function ActivityChart({ activity, isDark }: { activity: CompetitionAnalytics["a
 
 function relativeTime(iso: string | null): string {
   if (!iso) return "—"
-  const days = Math.floor((Date.now() - new Date(iso).getTime()) / 86_400_000)
-  if (days <= 0) return "today"
+  const diffMs = Date.now() - new Date(iso).getTime()
+  const mins = Math.floor(diffMs / 60_000)
+  if (mins < 1) return "just now"
+  if (mins < 60) return `${mins}m ago`
+  const hours = Math.floor(mins / 60)
+  if (hours < 24) return `${hours}h ago`
+  const days = Math.floor(hours / 24)
   if (days === 1) return "yesterday"
   if (days < 30) return `${days}d ago`
   return new Date(iso).toLocaleDateString()
+}
+
+function formatDateTime(iso: string | null): string {
+  if (!iso) return "—"
+  return new Date(iso).toLocaleString(undefined, {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  })
 }
 
 /** Every required deliverable, not just what's missing — a done or
@@ -293,47 +313,120 @@ function relativeTime(iso: string | null): string {
  * to find out. */
 function DeliverableList({ deliverables }: { deliverables: CompetitionAnalyticsDeliverable[] }) {
   return (
-    <ul className="mt-1 flex flex-col gap-1">
-      {deliverables.map((d) => (
-        <li key={d.item_id} className="flex flex-wrap items-baseline gap-1.5">
-          <span
-            className={
-              d.status === "done"
-                ? "text-emerald-600 dark:text-emerald-400"
-                : d.status === "awaiting_confirmation"
-                  ? "text-amber-600 dark:text-amber-400"
-                  : "text-muted-foreground"
-            }
+    <div className="flex flex-col gap-2">
+      {deliverables.map((d) => {
+        const isDone = d.status === "done"
+        const isAwaiting = d.status === "awaiting_confirmation"
+        const hasLinks = Boolean(d.submitted_links && d.submitted_links.length > 0)
+        const hasUrl = Boolean(d.submitted_url)
+        const hasText = Boolean(d.submitted_text)
+        const hasSubmissions = hasLinks || hasUrl || hasText
+
+        return (
+          <div
+            key={d.item_id}
+            className="p-2.5 sm:p-3 rounded-xl bg-card/60 border border-border/60 shadow-2xs flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 sm:gap-3 hover:border-border transition-all"
           >
-            {d.status === "done" ? "✓" : d.status === "awaiting_confirmation" ? "⏳" : "—"}
-          </span>
-          <span className="text-foreground font-medium">{d.title}:</span>
-          {d.submitted_links && d.submitted_links.length > 0 ? (
-            <span className="flex flex-wrap gap-x-1.5">
-              {d.submitted_links.map((link, i) => (
-                <a
-                  key={i} href={link.url ?? undefined} target="_blank" rel="noreferrer"
-                  className="text-primary underline truncate max-w-[220px]"
-                >
-                  {link.label || link.url || link.text || "link"}
-                </a>
-              ))}
-            </span>
-          ) : d.submitted_url ? (
-            <a
-              href={d.submitted_url} target="_blank" rel="noreferrer"
-              className="text-primary underline truncate max-w-[240px]"
-            >
-              {d.submitted_url}
-            </a>
-          ) : d.submitted_text ? (
-            <span className="text-foreground truncate max-w-[280px]">{d.submitted_text}</span>
-          ) : (
-            <span className="text-muted-foreground italic">not submitted</span>
-          )}
-        </li>
-      ))}
-    </ul>
+            <div className="flex items-center gap-2.5 sm:gap-3 min-w-0 flex-1">
+              {isDone ? (
+                <div className="w-7 h-7 rounded-lg bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 flex items-center justify-center border border-emerald-500/30 shrink-0">
+                  <CheckCircle2 size={15} />
+                </div>
+              ) : isAwaiting ? (
+                <div className="w-7 h-7 rounded-lg bg-amber-500/15 text-amber-600 dark:text-amber-400 flex items-center justify-center border border-amber-500/30 shrink-0">
+                  <Clock size={15} />
+                </div>
+              ) : (
+                <div className="w-7 h-7 rounded-lg bg-muted text-muted-foreground flex items-center justify-center border border-border/50 shrink-0">
+                  <Circle size={15} />
+                </div>
+              )}
+
+              <span className="text-xs sm:text-sm font-semibold text-foreground flex-1 min-w-0 truncate">
+                {d.title}
+              </span>
+
+              <span
+                className={`text-[10px] sm:hidden font-bold uppercase tracking-wider px-2 py-0.5 rounded-md shrink-0 ${
+                  isDone
+                    ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20"
+                    : isAwaiting
+                      ? "bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20"
+                      : "bg-muted text-muted-foreground border border-border/40"
+                }`}
+              >
+                {d.status.replace("_", " ")}
+              </span>
+            </div>
+
+            <div className="flex items-center gap-2 flex-wrap shrink-0 justify-end sm:justify-start">
+              {hasSubmissions ? (
+                <div className="flex items-center gap-2 flex-wrap shrink-0 w-full sm:w-auto pt-1 sm:pt-0 border-t sm:border-t-0 border-border/30">
+                  {hasLinks ? (
+                    d.submitted_links!.map((link, i) =>
+                      link.text ? (
+                        <span
+                          key={i}
+                          title={link.text}
+                          className="h-7 sm:h-8 px-2.5 sm:px-3 rounded-lg border border-border/60 bg-muted/40 text-foreground text-xs font-semibold flex items-center gap-1.5 shrink-0 max-w-[200px]"
+                        >
+                          <span className="truncate">{link.label || `Field ${i + 1}`}: {link.text}</span>
+                        </span>
+                      ) : (
+                        <a
+                          key={i}
+                          href={ensureAbsoluteUrl(link.url ?? "")}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="h-7 sm:h-8 px-2.5 sm:px-3 rounded-lg border border-primary/30 bg-primary/10 text-primary text-xs font-semibold flex items-center gap-1.5 hover:bg-primary/20 transition-colors shrink-0 max-w-[220px]"
+                          title={link.label || link.url || `Link ${i + 1}`}
+                        >
+                          <ExternalLink size={12} className="shrink-0" />
+                          <span className="truncate">{link.label || `Link ${i + 1}`}</span>
+                        </a>
+                      ),
+                    )
+                  ) : hasUrl ? (
+                    <a
+                      href={ensureAbsoluteUrl(d.submitted_url!)}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="h-7 sm:h-8 px-2.5 sm:px-3 rounded-lg border border-primary/30 bg-primary/10 text-primary text-xs font-semibold flex items-center gap-1.5 hover:bg-primary/20 transition-colors shrink-0 max-w-[240px]"
+                    >
+                      <ExternalLink size={12} className="shrink-0" />
+                      <span className="truncate">View submission</span>
+                    </a>
+                  ) : hasText ? (
+                    <span
+                      title={d.submitted_text!}
+                      className="h-7 sm:h-8 px-2.5 sm:px-3 rounded-lg border border-border/60 bg-muted/40 text-foreground text-xs font-semibold flex items-center gap-1.5 shrink-0 max-w-[240px]"
+                    >
+                      <span className="truncate">{d.submitted_text}</span>
+                    </span>
+                  ) : null}
+                </div>
+              ) : (
+                <span className="text-xs text-muted-foreground italic px-1">
+                  Not submitted
+                </span>
+              )}
+
+              <span
+                className={`hidden sm:inline-block text-[11px] font-bold uppercase tracking-wider px-2.5 py-1 rounded-md shrink-0 ${
+                  isDone
+                    ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20"
+                    : isAwaiting
+                      ? "bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20"
+                      : "bg-muted text-muted-foreground border border-border/40"
+                }`}
+              >
+                {d.status.replace("_", " ")}
+              </span>
+            </div>
+          </div>
+        )
+      })}
+    </div>
   )
 }
 
@@ -349,23 +442,155 @@ const MISSION_RUN_STATUS_LABEL: Record<string, string> = {
  * gate) can already call. */
 function MissionRunRow({ run }: { run: CompetitionMissionRun }) {
   const [expanded, setExpanded] = useState(false)
+  const isPassed = run.status === "passed" || run.status === "submitted"
+  const isInProgress = run.status === "in_progress"
+
   return (
-    <div className="border border-border rounded-lg overflow-hidden">
-      <button
-        onClick={() => run.attempt_id && setExpanded((v) => !v)}
-        disabled={!run.attempt_id}
-        className="w-full flex items-center gap-2 p-2 hover:bg-muted/40 transition-colors text-left disabled:cursor-not-allowed disabled:hover:bg-transparent"
-      >
-        {run.attempt_id ? (
-          expanded ? <ChevronDown size={14} className="shrink-0 text-muted-foreground" /> : <ChevronRight size={14} className="shrink-0 text-muted-foreground" />
-        ) : (
-          <span className="w-3.5 shrink-0" />
-        )}
-        <span className="text-foreground font-medium flex-1">{run.title}</span>
-        <span className="text-xs text-muted-foreground">{MISSION_RUN_STATUS_LABEL[run.status] ?? run.status}</span>
-      </button>
+    <div className="rounded-xl border border-border/60 bg-card/60 overflow-hidden shadow-2xs">
+      <div className="p-2.5 sm:p-3 flex items-center justify-between gap-3 flex-wrap">
+        <div className="flex items-center gap-2.5 sm:gap-3 min-w-0 flex-1">
+          {isPassed ? (
+            <div className="w-7 h-7 rounded-lg bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 flex items-center justify-center border border-emerald-500/30 shrink-0">
+              <CheckCircle2 size={15} />
+            </div>
+          ) : isInProgress ? (
+            <div className="w-7 h-7 rounded-lg bg-amber-500/15 text-amber-600 dark:text-amber-400 flex items-center justify-center border border-amber-500/30 shrink-0">
+              <Clock size={15} />
+            </div>
+          ) : (
+            <div className="w-7 h-7 rounded-lg bg-muted text-muted-foreground flex items-center justify-center border border-border/50 shrink-0">
+              <Circle size={15} />
+            </div>
+          )}
+
+          <span className="text-xs sm:text-sm font-semibold text-foreground flex-1 min-w-0 truncate">
+            {run.title}
+          </span>
+
+          <span
+            className={`text-[10px] sm:hidden font-bold uppercase tracking-wider px-2 py-0.5 rounded-md shrink-0 ${
+              isPassed
+                ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20"
+                : isInProgress
+                  ? "bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20"
+                  : "bg-muted text-muted-foreground border border-border/40"
+            }`}
+          >
+            {MISSION_RUN_STATUS_LABEL[run.status] ?? run.status}
+          </span>
+        </div>
+
+        <div className="flex items-center gap-2 shrink-0">
+          {run.attempt_id ? (
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => setExpanded((v) => !v)}
+              className="h-7 text-xs font-semibold gap-1.5 shrink-0"
+            >
+              <Eye size={12} className="text-primary" />
+              {expanded ? "Hide run" : "View run"}
+            </Button>
+          ) : (
+            <span className="text-xs text-muted-foreground italic px-1">
+              Not started
+            </span>
+          )}
+
+          <span
+            className={`hidden sm:inline-block text-[11px] font-bold uppercase tracking-wider px-2.5 py-1 rounded-md shrink-0 ${
+              isPassed
+                ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20"
+                : isInProgress
+                  ? "bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20"
+                  : "bg-muted text-muted-foreground border border-border/40"
+            }`}
+          >
+            {MISSION_RUN_STATUS_LABEL[run.status] ?? run.status}
+          </span>
+        </div>
+      </div>
+
       {expanded && run.attempt_id && (
-        <DesignRunDetail attemptId={run.attempt_id} queryKeySuffix="analysis" />
+        <div className="p-3 border-t border-border/60 bg-muted/20">
+          <DesignRunDetail attemptId={run.attempt_id} queryKeySuffix="analysis" />
+        </div>
+      )}
+    </div>
+  )
+}
+
+/** One student's quiz submission under an expanded Team row.
+ * If submitted, shows score and an expand button to inspect per-question
+ * answers (QuizAnswersReview), mirroring individual progress in LMS tab. */
+function TeamQuizSubmissionRow({
+  submission, cohortId,
+}: {
+  submission: CompetitionTeamQuizSubmission; cohortId: string
+}) {
+  const [showAnswers, setShowAnswers] = useState(false)
+  const isSubmitted = submission.status === "submitted"
+  const isInProgress = submission.status === "in_progress"
+  const canViewAnswers = isSubmitted && !!submission.assignment_id
+
+  return (
+    <div className="border border-border/70 rounded-xl bg-card/60 overflow-hidden shadow-xs">
+      <div className="p-2.5 sm:p-3 flex items-center justify-between gap-3 flex-wrap">
+        <div className="flex items-center gap-2.5 min-w-0 flex-1">
+          {isSubmitted ? (
+            <div className="w-6 h-6 rounded-md bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 flex items-center justify-center border border-emerald-500/30 shrink-0">
+              <CheckCircle2 size={13} />
+            </div>
+          ) : isInProgress ? (
+            <div className="w-6 h-6 rounded-md bg-amber-500/15 text-amber-600 dark:text-amber-400 flex items-center justify-center border border-amber-500/30 shrink-0">
+              <Clock size={13} />
+            </div>
+          ) : (
+            <div className="w-6 h-6 rounded-md bg-muted text-muted-foreground flex items-center justify-center border border-border/50 shrink-0">
+              <Circle size={13} />
+            </div>
+          )}
+
+          <div className="min-w-0 flex-1 flex items-baseline gap-2 flex-wrap">
+            <span className="font-semibold text-foreground text-xs sm:text-sm">{submission.student_name}</span>
+            <span className="text-muted-foreground text-[11px] truncate">· {submission.quiz_title}</span>
+          </div>
+
+          {isSubmitted && submission.score !== null && submission.total !== null && (
+            <span className="text-xs font-mono font-bold text-emerald-600 dark:text-emerald-400 shrink-0">
+              {submission.score} / {submission.total} correct
+              {submission.total > 0 && ` (${Math.round((submission.score / submission.total) * 100)}%)`}
+            </span>
+          )}
+
+          {!isSubmitted && (
+            <span className="text-[11px] font-medium text-muted-foreground capitalize shrink-0">
+              {submission.status.replace("_", " ")}
+            </span>
+          )}
+        </div>
+
+        {canViewAnswers && (
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => setShowAnswers((v) => !v)}
+            className="h-7 text-xs font-semibold gap-1.5 shrink-0"
+          >
+            <Eye size={12} className="text-primary" />
+            {showAnswers ? "Hide answers" : "View answers"}
+          </Button>
+        )}
+      </div>
+
+      {showAnswers && submission.assignment_id && (
+        <div className="p-3 border-t border-border/60 bg-muted/20">
+          <QuizAnswersReview
+            cohortId={cohortId}
+            assignmentId={submission.assignment_id}
+            itemId={submission.item_id}
+          />
+        </div>
       )}
     </div>
   )
@@ -373,11 +598,26 @@ function MissionRunRow({ run }: { run: CompetitionMissionRun }) {
 
 type SortKey = "pct" | "name" | "members" | "activity"
 
-function TeamTable({ teams, isDark }: { teams: CompetitionAnalyticsTeam[]; isDark: boolean }) {
+function TeamTable({
+  teams, isDark, cohortId, cohortName,
+}: {
+  teams: CompetitionAnalyticsTeam[]; isDark: boolean; cohortId: string; cohortName?: string
+}) {
   const c = isDark ? CHART.dark : CHART.light
   const [search, setSearch] = useState("")
   const [sort, setSort] = useState<SortKey>("pct")
   const [expanded, setExpanded] = useState<string | null>(null)
+  const [exportingQuiz, setExportingQuiz] = useState(false)
+  const toast = useToast()
+  const queryClient = useQueryClient()
+  const unlockMutation = useMutation({
+    mutationFn: (teamId: string) => unlockTeamApi(teamId),
+    onSuccess: () => {
+      toast.success("Team's checklist reopened for editing")
+      queryClient.invalidateQueries({ queryKey: ["competitions-team-analytics", cohortId] })
+    },
+    onError: (e: unknown) => toast.error(getErrorMessage(e, "Failed to unlock this team")),
+  })
 
   const rows = useMemo(() => {
     const q = search.trim().toLowerCase()
@@ -398,6 +638,17 @@ function TeamTable({ teams, isDark }: { teams: CompetitionAnalyticsTeam[]; isDar
     return sorted
   }, [teams, search, sort])
 
+  const exportQuizAnswers = async () => {
+    try {
+      setExportingQuiz(true)
+      await downloadCohortQuizAnswersWorkbookApi(cohortId, cohortName || "cohort")
+    } catch (e) {
+      console.error("Failed to export quiz answers", e)
+    } finally {
+      setExportingQuiz(false)
+    }
+  }
+
   const exportXlsx = () => {
     const sheet = XLSX.utils.json_to_sheet(rows.map((t) => ({
       Team: t.team_name,
@@ -411,6 +662,9 @@ function TeamTable({ teams, isDark }: { teams: CompetitionAnalyticsTeam[]; isDar
       Missing: t.deliverables.filter((d) => d.status !== "done").map((d) => d.title).join("; "),
       "Last activity": t.last_activity_at ? new Date(t.last_activity_at).toISOString().slice(0, 10) : "",
       Stalled: t.stalled ? "yes" : "",
+      Locked: t.locked ? "yes" : "no",
+      "Locked at": t.locked_at ? formatDateTime(t.locked_at) : "",
+      "Locked by": t.locked_by_name ? `${t.locked_by_name}${t.locked_by_email ? ` (${t.locked_by_email})` : ""}` : "",
       Roster: t.members.map((m) => `${m.name} (${m.last_login_at ? relativeTime(m.last_login_at) : "never logged in"})`).join("; "),
     })))
     const book = XLSX.utils.book_new()
@@ -423,12 +677,23 @@ function TeamTable({ teams, isDark }: { teams: CompetitionAnalyticsTeam[]; isDar
       title="Team progress"
       hint="Against this cohort's required team deliverables. Awaiting confirmation counts as not done — confirming it is the outstanding work."
       action={
-        <button
-          onClick={exportXlsx}
-          className="flex items-center gap-1.5 h-9 px-3 border border-border rounded-xl text-sm font-medium text-foreground hover:bg-muted transition-colors shrink-0"
-        >
-          <FileSpreadsheet size={14} /> Export
-        </button>
+        <div className="flex items-center gap-2 flex-wrap w-full sm:w-auto">
+          <button
+            onClick={exportQuizAnswers}
+            disabled={exportingQuiz}
+            className="flex-1 sm:flex-initial flex items-center justify-center gap-1.5 h-9 px-3 border border-border rounded-xl text-xs sm:text-sm font-medium text-foreground hover:bg-muted transition-colors shrink-0 disabled:opacity-50 cursor-pointer"
+            title="Export all quiz answers grouped by team and quiz"
+          >
+            {exportingQuiz ? <Loader2 size={14} className="animate-spin" /> : <FileSpreadsheet size={14} />}
+            <span>Export Quiz Answers</span>
+          </button>
+          <button
+            onClick={exportXlsx}
+            className="flex-1 sm:flex-initial flex items-center justify-center gap-1.5 h-9 px-3 border border-border rounded-xl text-xs sm:text-sm font-medium text-foreground hover:bg-muted transition-colors shrink-0 cursor-pointer"
+          >
+            <FileSpreadsheet size={14} /> <span>Export Progress</span>
+          </button>
+        </div>
       }
     >
       <div className="flex items-center gap-2 flex-wrap">
@@ -456,28 +721,53 @@ function TeamTable({ teams, isDark }: { teams: CompetitionAnalyticsTeam[]; isDar
       ) : (
         <div className="flex flex-col gap-1.5">
           {rows.map((team) => (
-            <div key={team.team_id} className="rounded-xl border border-border/70 bg-background/40 overflow-hidden">
+            <div key={team.team_id} className="rounded-2xl border border-border/70 bg-background/40 overflow-hidden shadow-xs hover:border-border transition-all">
               <button
                 onClick={() => setExpanded(expanded === team.team_id ? null : team.team_id)}
-                className="w-full flex items-center gap-3 p-3 text-left hover:bg-muted/40 transition-colors cursor-pointer"
+                className="w-full flex items-center gap-3 p-3 sm:p-3.5 text-left hover:bg-muted/40 transition-colors cursor-pointer"
               >
-                {expanded === team.team_id
-                  ? <ChevronDown size={14} className="text-muted-foreground shrink-0" />
-                  : <ChevronRight size={14} className="text-muted-foreground shrink-0" />}
+                <div className="p-1 rounded-lg bg-muted/60 text-muted-foreground shrink-0">
+                  {expanded === team.team_id
+                    ? <ChevronDown size={14} />
+                    : <ChevronRight size={14} />}
+                </div>
+
+                <div className="w-8 h-8 rounded-xl bg-primary/10 border border-primary/20 text-primary font-bold flex items-center justify-center text-xs shrink-0">
+                  {team.team_name.trim().slice(0, 2).toUpperCase()}
+                </div>
 
                 <div className="min-w-0 flex-1">
-                  <p className="text-sm font-semibold text-foreground truncate">
-                    {team.team_name}
+                  <div className="flex items-center gap-1.5 sm:gap-2 flex-wrap">
+                    <p className="text-sm font-semibold text-foreground truncate max-w-full">
+                      {team.team_name}
+                    </p>
                     {team.roster_team_id && team.roster_team_id !== team.team_name && (
-                      <span className="ml-2 text-xs font-normal text-muted-foreground">{team.roster_team_id}</span>
+                      <span className="text-xs font-normal text-muted-foreground font-mono shrink-0">
+                        ({team.roster_team_id})
+                      </span>
                     )}
-                  </p>
-                  <p className="text-xs text-muted-foreground truncate">
+                    {team.locked && (
+                      <span
+                        className="inline-flex sm:hidden items-center gap-1 text-[10px] font-semibold px-1.5 py-0.5 rounded-md bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30 shrink-0"
+                        title={team.locked_at ? `Locked on ${formatDateTime(team.locked_at)}${team.locked_by_name ? ` by ${team.locked_by_name}` : ""}` : "Final submission locked"}
+                      >
+                        <Lock size={10} /> Locked
+                      </span>
+                    )}
+                  </div>
+                  <p className="text-xs text-muted-foreground truncate mt-0.5">
                     {team.member_count} {team.member_count === 1 ? "member" : "members"}
-                    {team.never_logged_in > 0 && ` · ${team.never_logged_in} never logged in`}
                   </p>
                 </div>
 
+                {team.locked && (
+                  <span
+                    className="hidden sm:flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-lg bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30 shrink-0"
+                    title={team.locked_at ? `Locked on ${formatDateTime(team.locked_at)}${team.locked_by_name ? ` by ${team.locked_by_name}` : ""}` : "Final submission locked"}
+                  >
+                    <Lock size={11} /> Locked
+                  </span>
+                )}
                 {team.stalled && (
                   <span className="hidden sm:flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-lg bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/30 shrink-0">
                     <Clock size={11} /> Stalled
@@ -489,7 +779,7 @@ function TeamTable({ teams, isDark }: { teams: CompetitionAnalyticsTeam[]; isDar
                   </span>
                 )}
 
-                <div className="w-28 sm:w-40 shrink-0">
+                <div className="w-20 sm:w-36 md:w-40 shrink-0">
                   <div className="flex items-center justify-between text-[11px] font-semibold tabular-nums mb-1">
                     <span className="text-muted-foreground">{team.items_done}/{team.items_total}</span>
                     <span className={team.pct === 100 ? "text-emerald-600 dark:text-emerald-400" : "text-foreground"}>
@@ -498,7 +788,7 @@ function TeamTable({ teams, isDark }: { teams: CompetitionAnalyticsTeam[]; isDar
                   </div>
                   <div className="h-2 rounded-full overflow-hidden" style={{ backgroundColor: c.track }}>
                     <div
-                      className="h-full rounded-full transition-all"
+                      className="h-full rounded-full transition-all duration-300"
                       style={{ width: `${team.pct}%`, backgroundColor: team.pct === 100 ? c.done : c.accent }}
                     />
                   </div>
@@ -506,45 +796,151 @@ function TeamTable({ teams, isDark }: { teams: CompetitionAnalyticsTeam[]; isDar
               </button>
 
               {expanded === team.team_id && (
-                <div className="px-3 pb-3 pt-1 border-t border-border/50 flex flex-col gap-2.5 text-xs">
+                <div className="p-3 sm:p-4 border-t border-border/50 bg-muted/15 flex flex-col gap-4 text-xs">
+                  {/* Roster */}
                   <div>
-                    <span className="text-muted-foreground">Roster: </span>
+                    <div className="flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider text-muted-foreground mb-2">
+                      <Users size={13} />
+                      <span>Team Roster ({team.members.length})</span>
+                    </div>
                     {team.members.length === 0 ? (
-                      <span className="text-foreground">No members yet</span>
+                      <p className="text-xs text-muted-foreground italic">No members yet</p>
                     ) : (
-                      <span className="text-foreground">
+                      <div className="flex flex-wrap gap-2">
                         {team.members.map((m, i) => (
-                          <span key={m.name + i}>
-                            {i > 0 && ", "}
-                            {m.name} <span className="text-muted-foreground">
-                              ({m.last_login_at ? `last login ${relativeTime(m.last_login_at)}` : "never logged in"})
-                            </span>
-                          </span>
+                          <div
+                            key={m.name + i}
+                            className="flex items-center gap-2 px-2.5 py-1.5 rounded-xl border border-border/60 bg-card/60 shadow-2xs max-w-full min-w-0"
+                          >
+                            <div className="w-6 h-6 rounded-lg bg-primary/10 border border-primary/20 text-primary font-bold flex items-center justify-center text-[10px] shrink-0">
+                              {m.name.trim().slice(0, 2).toUpperCase()}
+                            </div>
+                            <span className="font-semibold text-foreground text-xs truncate">{m.name}</span>
+                            {m.last_login_at ? (
+                              <span className="text-[11px] text-muted-foreground shrink-0">
+                                {relativeTime(m.last_login_at)}
+                              </span>
+                            ) : (
+                              <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-md bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/25 shrink-0">
+                                never logged in
+                              </span>
+                            )}
+                          </div>
                         ))}
-                      </span>
+                      </div>
                     )}
                   </div>
+
+                  {/* Deliverables */}
                   <div>
-                    <span className="text-muted-foreground">Deliverables: </span>
+                    <div className="flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider text-muted-foreground mb-2">
+                      <FileSpreadsheet size={13} />
+                      <span>Deliverables ({team.items_done}/{team.items_total})</span>
+                    </div>
                     {team.deliverables.length === 0 ? (
-                      <span className="text-foreground">Nothing required</span>
+                      <p className="text-xs text-muted-foreground italic">Nothing required</p>
                     ) : (
                       <DeliverableList deliverables={team.deliverables} />
                     )}
                   </div>
+
+                  {/* Mission runs */}
                   {team.mission_runs.length > 0 && (
                     <div>
-                      <span className="text-muted-foreground">Mission runs: </span>
-                      <div className="mt-1 flex flex-col gap-1.5">
+                      <div className="flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider text-muted-foreground mb-2">
+                        <Rocket size={13} />
+                        <span>Mission Runs ({team.mission_runs.length})</span>
+                      </div>
+                      <div className="flex flex-col gap-2">
                         {team.mission_runs.map((run) => (
                           <MissionRunRow key={run.mission_id} run={run} />
                         ))}
                       </div>
                     </div>
                   )}
-                  <div>
-                    <span className="text-muted-foreground">Last activity: </span>
-                    <span className="text-foreground">{relativeTime(team.last_activity_at)}</span>
+
+                  {/* Quiz submissions */}
+                  {team.quiz_submissions && team.quiz_submissions.length > 0 && (
+                    <div>
+                      <div className="flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider text-muted-foreground mb-2">
+                        <CheckCircle2 size={13} />
+                        <span>Quiz Submissions ({team.quiz_submissions.length})</span>
+                      </div>
+                      <div className="flex flex-col gap-2">
+                        {team.quiz_submissions.map((sub) => (
+                          <TeamQuizSubmissionRow
+                            key={`${sub.user_id}-${sub.item_id}`}
+                            submission={sub}
+                            cohortId={cohortId}
+                          />
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Locked submission banner */}
+                  {team.locked && (
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-3 rounded-xl border border-emerald-500/30 bg-emerald-500/10 text-xs">
+                      <div className="flex items-start sm:items-center gap-2.5 min-w-0">
+                        <div className="p-1.5 rounded-lg bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 shrink-0 mt-0.5 sm:mt-0">
+                          <Lock size={14} />
+                        </div>
+                        <div className="min-w-0">
+                          <div className="font-semibold text-emerald-700 dark:text-emerald-300 flex items-center gap-1.5 flex-wrap">
+                            <span>Final submission locked</span>
+                            {team.locked_at && (
+                              <span className="text-[11px] font-normal text-muted-foreground">
+                                · {relativeTime(team.locked_at)}
+                              </span>
+                            )}
+                          </div>
+                          <p className="text-[11px] text-muted-foreground mt-0.5 flex flex-wrap gap-x-1 gap-y-0.5">
+                            {team.locked_at && (
+                              <span>
+                                Locked on <strong className="text-foreground font-medium">{formatDateTime(team.locked_at)}</strong>
+                              </span>
+                            )}
+                            {team.locked_by_name && (
+                              <span>
+                                by <strong className="text-foreground font-medium">{team.locked_by_name}</strong>
+                                {team.locked_by_email ? <span className="text-muted-foreground"> ({team.locked_by_email})</span> : ""}
+                              </span>
+                            )}
+                            {!team.locked_at && !team.locked_by_name && (
+                              <span>Checklist is finalized and locked.</span>
+                            )}
+                          </p>
+                        </div>
+                      </div>
+
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => {
+                          if (confirm(`Reopen "${team.team_name}"'s checklist for editing?`)) {
+                            unlockMutation.mutate(team.team_id)
+                          }
+                        }}
+                        disabled={unlockMutation.isPending}
+                        className="h-8 text-xs font-semibold gap-1.5 border-emerald-500/40 text-emerald-600 dark:text-emerald-400 hover:bg-emerald-500/20 shrink-0 self-start sm:self-center cursor-pointer"
+                      >
+                        <Lock size={12} /> Unlock final submission
+                      </Button>
+                    </div>
+                  )}
+
+                  {/* Footer metadata */}
+                  <div className="flex items-center justify-between flex-wrap gap-2 pt-2 border-t border-border/40 text-xs">
+                    <div className="flex items-center gap-1.5 text-muted-foreground">
+                      <Clock size={12} className="text-muted-foreground/70" />
+                      <span>Last activity: <strong className="text-foreground font-medium">{relativeTime(team.last_activity_at)}</strong></span>
+                    </div>
+
+                    {!team.locked && (
+                      <span className="text-[11px] text-muted-foreground italic">
+                        Submission not locked
+                      </span>
+                    )}
                   </div>
                 </div>
               )}
@@ -741,7 +1137,7 @@ export function CompetitionAnalysisTab({ cohortId }: { cohortId: string }) {
 
       {data.missions.length > 0 && <MissionsBlock missions={data.missions} isDark={isDark} />}
 
-      <TeamTable teams={data.teams} isDark={isDark} />
+      <TeamTable teams={data.teams} isDark={isDark} cohortId={cohortId} cohortName={data.cohort_name} />
       <AttentionList data={data} />
     </div>
   )

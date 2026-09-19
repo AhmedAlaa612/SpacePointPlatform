@@ -8,7 +8,7 @@ from app.core.config import settings
 from app.core.log_context import bind_user_label
 from app.db.session import get_db
 from app.models.user import User
-from app.services.documents.id_card import format_card_id
+from app.services.documents.card_id import format_card_id
 
 
 def _label_for(user: User) -> str:

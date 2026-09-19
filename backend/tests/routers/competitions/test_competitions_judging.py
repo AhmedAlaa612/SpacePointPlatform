@@ -327,6 +327,26 @@ async def test_judge_only_sees_teams_in_their_assigned_cohort(db, client):
 
 
 @pytest.mark.asyncio
+async def test_judge_roster_shows_a_teams_final_submission_lock(db, client):
+    ops, program, cohort, team, judge, poster_item = await _judge_setup(db)
+
+    unlocked = await client.get(f"/competitions/judge/teams?cohort_id={cohort.id}", headers=_headers(judge))
+    row = unlocked.json()[0]
+    assert row["locked"] is False
+    assert "items_done" in row
+    assert "items_total" in row
+    assert "pct" in row
+    assert "member_count" in row
+
+    from app.services.competitions.team_management import finalize_team_submission
+    await finalize_team_submission(db, team_id=team.id, locked_by_user_id=ops.id)
+    await db.commit()
+
+    locked = await client.get(f"/competitions/judge/teams?cohort_id={cohort.id}", headers=_headers(judge))
+    assert locked.json()[0]["locked"] is True
+
+
+@pytest.mark.asyncio
 async def test_judge_team_detail_surfaces_submissions_and_rubric(db, client):
     ops, program, cohort, team, judge, poster_item = await _judge_setup(db)
 

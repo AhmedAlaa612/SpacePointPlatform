@@ -188,6 +188,16 @@ class CompetitionJudgeTeamOut(TeamOut):
     UI can show a done/pending mark without a second round trip."""
 
     already_scored: bool = False
+    # True once the team has hit "Final Submit" (Team.final_locked_at is
+    # set) — same any-judge, not just-this-judge, visibility as a locked
+    # checklist genuinely is.
+    locked: bool = False
+    locked_at: datetime | None = None
+    roster_team_id: str | None = None
+    member_count: int = 0
+    items_done: int = 0
+    items_total: int = 0
+    pct: int = 0
 
 
 class CompetitionTeamDetailOut(BaseModel):
@@ -199,6 +209,8 @@ class CompetitionTeamDetailOut(BaseModel):
     mission_runs: list[CompetitionMissionRunOut] = []
     rubric: CompetitionRubricOut | None = None
     own_score: CompetitionScoreOut | None = None
+    locked: bool = False
+    locked_at: datetime | None = None
 
 
 class CompetitionImportRowOut(BaseModel):
@@ -394,6 +406,18 @@ class CompetitionAnalyticsTeamMemberOut(BaseModel):
     last_login_at: datetime | None = None
 
 
+class CompetitionTeamQuizSubmissionOut(BaseModel):
+    user_id: UUID
+    student_name: str
+    assignment_id: UUID | None = None
+    item_id: UUID
+    quiz_title: str
+    status: str
+    score: int | None = None
+    total: int | None = None
+    submitted_at: datetime | None = None
+
+
 class CompetitionAnalyticsTeamOut(BaseModel):
     """One team's progress against the cohort's *required* team-scoped
     deliverables. `deliverables` covers every one of them — done ones
@@ -416,8 +440,16 @@ class CompetitionAnalyticsTeamOut(BaseModel):
     # for any cohort with no team-scoped mission_run item, which is most
     # of them today.
     mission_runs: list[CompetitionMissionRunOut] = []
+    quiz_submissions: list[CompetitionTeamQuizSubmissionOut] = []
     last_activity_at: datetime | None = None
     stalled: bool
+    # True once the team has hit "Final Submit" (Team.final_locked_at is
+    # set) — read straight off the already-loaded Team row, no new query.
+    locked: bool = False
+    locked_at: datetime | None = None
+    locked_by_name: str | None = None
+    locked_by_email: str | None = None
+    locked_by_id: UUID | None = None
 
 
 class CompetitionAnalyticsActivityOut(BaseModel):

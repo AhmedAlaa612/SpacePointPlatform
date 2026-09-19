@@ -16,9 +16,11 @@ overwritten — that one has to hook WorkerSettings.on_startup instead.
 import json
 import logging
 import logging.config
+import uuid
 from contextvars import ContextVar, Token
 
 from fastapi import Request
+from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 _DEFAULT = "-"
 
@@ -70,6 +72,67 @@ def reset_user_label(token: Token) -> None:
     user_label_var.reset(token)
 
 
+class RequestContextMiddleware:
+    """Raw ASGI middleware — deliberately not `@app.middleware("http")`
+    (BaseHTTPMiddleware).
+
+    The previous version used BaseHTTPMiddleware and reset context in a
+    `finally` right after `call_next()` returned. That's provably too
+    early: BaseHTTPMiddleware's dispatch function only *builds* the
+    response — Starlette sends it (calls the real ASGI `send`) afterward,
+    outside that function's stack frame. uvicorn's access-log line fires
+    synchronously inside that `send` call (h11_impl.py/httptools_impl.py),
+    and an unhandled exception's traceback is logged through `uvicorn.error`
+    even further out. Both were confirmed empirically (a temporary log
+    line inside an endpoint showed the correct request_id/client_ip; the
+    uvicorn.access line for that same request, right after, showed "-"/"-"
+    every time) to be seeing the post-reset defaults instead of the
+    request's real values — the two log lines you'd most want to
+    correlate were exactly the two that couldn't be.
+
+    A raw ASGI middleware's `self.app(scope, receive, send)` call instead
+    covers the *entire* request — routing, the response, every `send()`
+    call including the one that fires the access log, and any exception
+    logged while unwinding back out through this layer — inside one
+    uninterrupted await, in this same task. The `finally` below therefore
+    runs strictly after all of that.
+
+    Resetting at all — rather than relying solely on uvicorn's own
+    per-request task isolation (it hands each HTTP request task a fresh,
+    empty `contextvars.Context()`, so nothing set here could leak into a
+    different *uvicorn* request even without an explicit reset) — is still
+    necessary: `httpx`'s `ASGITransport` (what the test suite's `client`
+    fixture uses) calls `self.app(scope, receive, send)` directly with no
+    per-request task boundary, so sequential requests within one test
+    would otherwise share whatever context the previous one left bound.
+    """
+
+    def __init__(self, app: ASGIApp) -> None:
+        self.app = app
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+
+        request_id = uuid.uuid4().hex[:12]
+        tokens = bind_request_context(request_id=request_id, ip=client_ip(Request(scope)))
+        user_token = bind_user_label("-")
+
+        async def send_wrapper(message: Message) -> None:
+            if message["type"] == "http.response.start":
+                headers = list(message.get("headers", []))
+                headers.append((b"x-request-id", request_id.encode()))
+                message = {**message, "headers": headers}
+            await send(message)
+
+        try:
+            await self.app(scope, receive, send_wrapper)
+        finally:
+            reset_request_context(tokens)
+            reset_user_label(user_token)
+
+
 class ContextFilter(logging.Filter):
     """Stamps every LogRecord with the current contextvars.
 
@@ -104,6 +167,9 @@ class JsonFormatter(logging.Formatter):
         return json.dumps(payload, default=str)
 
 
+_VALID_LEVELS = {"CRITICAL", "ERROR", "WARNING", "INFO", "DEBUG", "NOTSET"}
+
+
 def configure_logging(level: str = "INFO") -> None:
     """Single source of truth for logging setup.
 
@@ -113,7 +179,21 @@ def configure_logging(level: str = "INFO") -> None:
     listed below (e.g. sqlalchemy.engine, httpx) rather than just leaving it
     alone. Explicitly redeclaring uvicorn's logger names is what lets this
     config win over uvicorn's own default dictConfig — see app/main.py.
+
+    `level` comes straight from the LOG_LEVEL env var (settings.py has no
+    validator on it — it's a bare str) — dictConfig's own level lookup is
+    case-sensitive and raises ValueError on anything it doesn't recognize
+    (confirmed: 'info' crashes it, not just typos like 'DEGUB'). That
+    ValueError happens at import time in app/main.py, before the app
+    object even exists, so both the API and both arq workers would
+    crash-loop on nothing worse than a lowercase .env value. Normalizing
+    here, with a silent fallback to INFO on anything still unrecognized
+    after that, means a bad LOG_LEVEL degrades logging verbosity, not the
+    whole service.
     """
+    level = level.upper()
+    if level not in _VALID_LEVELS:
+        level = "INFO"
     config = {
         "version": 1,
         "disable_existing_loggers": False,

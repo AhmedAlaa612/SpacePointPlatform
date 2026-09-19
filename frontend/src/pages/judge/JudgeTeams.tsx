@@ -1,30 +1,85 @@
-import { useEffect, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 import { useQuery } from "@tanstack/react-query"
 import { Link } from "@tanstack/react-router"
-import { CheckCircle2, Circle, Users } from "lucide-react"
-import { getMyJudgeCohortsApi, getMyJudgeTeamsApi, type CompetitionJudgeCohort } from "@/api/competitions"
+import { CheckCircle2, ChevronRight, Circle, Lock, Search } from "lucide-react"
+import { getMyJudgeCohortsApi, getMyJudgeTeamsApi, type CompetitionJudgeCohort, type CompetitionJudgeTeam } from "@/api/competitions"
 import { PageHeader, Spinner, EmptyState } from "@/components/ui/primitives"
 
-/** Judge landing page (Competition domain, 2026-08-24) — pick a cohort
- * (usually just one), see its teams, jump into scoring. A judge with no
- * `CompetitionJudge` row anywhere sees the empty state, not an error —
- * that's a normal state for an invited-but-not-yet-assigned account. */
+function formatLockTimestamp(iso: string | null | undefined): string {
+  if (!iso) return ""
+  const d = new Date(iso)
+  return `${d.toLocaleDateString(undefined, { month: "short", day: "numeric" })} ${d.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })}`
+}
+
+type LockedFilter = "all" | "locked" | "unlocked"
+type SortKey = "submissions" | "name" | "scored"
+
+/** Judge landing page (Competition domain) — pick a cohort, see its teams,
+ * jump into scoring. Teams are sorted by submissions (locked on top, mirroring
+ * the Analysis tab), searchable by name/members, and filterable by locked status. */
 export default function JudgeTeams() {
   const { data: cohorts = [], isLoading: cohortsLoading } = useQuery<CompetitionJudgeCohort[]>({
     queryKey: ["judge-cohorts"],
     queryFn: getMyJudgeCohortsApi,
   })
   const [cohortId, setCohortId] = useState<string | null>(null)
+  const [search, setSearch] = useState("")
+  const [lockedFilter, setLockedFilter] = useState<LockedFilter>("all")
+  const [sort, setSort] = useState<SortKey>("submissions")
 
   useEffect(() => {
     if (!cohortId && cohorts.length > 0) setCohortId(cohorts[0].id)
   }, [cohorts, cohortId])
 
-  const { data: teams = [], isLoading: teamsLoading } = useQuery({
+  const { data: teams = [], isLoading: teamsLoading } = useQuery<CompetitionJudgeTeam[]>({
     queryKey: ["judge-teams", cohortId],
     queryFn: () => getMyJudgeTeamsApi(cohortId!),
     enabled: !!cohortId,
   })
+
+  const lockedCount = useMemo(() => teams.filter((t) => t.locked).length, [teams])
+  const unlockedCount = teams.length - lockedCount
+
+  const rows = useMemo(() => {
+    const q = search.trim().toLowerCase()
+    const matching = teams.filter((team) => {
+      if (lockedFilter === "locked" && !team.locked) return false
+      if (lockedFilter === "unlocked" && team.locked) return false
+      if (!q) return true
+      return (
+        team.name.toLowerCase().includes(q) ||
+        (team.roster_team_id && team.roster_team_id.toLowerCase().includes(q)) ||
+        (team.member_names && team.member_names.some((m) => m.toLowerCase().includes(q)))
+      )
+    })
+
+    const sorted = [...matching]
+    if (sort === "submissions") {
+      sorted.sort((a, b) => {
+        // Locked on top
+        const lockDiff = (b.locked ? 1 : 0) - (a.locked ? 1 : 0)
+        if (lockDiff !== 0) return lockDiff
+        // Submissions completion %
+        const pctDiff = (b.pct ?? 0) - (a.pct ?? 0)
+        if (pctDiff !== 0) return pctDiff
+        // Completed items count
+        const doneDiff = (b.items_done ?? 0) - (a.items_done ?? 0)
+        if (doneDiff !== 0) return doneDiff
+        return a.name.localeCompare(b.name)
+      })
+    } else if (sort === "name") {
+      sorted.sort((a, b) => a.name.localeCompare(b.name))
+    } else if (sort === "scored") {
+      sorted.sort((a, b) => {
+        const scoredDiff = (a.already_scored ? 1 : 0) - (b.already_scored ? 1 : 0)
+        if (scoredDiff !== 0) return scoredDiff
+        const lockDiff = (b.locked ? 1 : 0) - (a.locked ? 1 : 0)
+        if (lockDiff !== 0) return lockDiff
+        return a.name.localeCompare(b.name)
+      })
+    }
+    return sorted
+  }, [teams, search, lockedFilter, sort])
 
   if (cohortsLoading) return <Spinner />
   if (cohorts.length === 0) {
@@ -46,7 +101,7 @@ export default function JudgeTeams() {
             <button
               key={c.id}
               onClick={() => setCohortId(c.id)}
-              className={`px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors ${
+              className={`px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors cursor-pointer ${
                 c.id === cohortId ? "border-primary text-foreground" : "border-transparent text-muted-foreground hover:text-foreground"
               }`}
             >
@@ -61,36 +116,173 @@ export default function JudgeTeams() {
       ) : teams.length === 0 ? (
         <EmptyState title="No teams yet" hint="Teams appear here once they're formed for this cohort." />
       ) : (
-        <div className="flex flex-col gap-2">
-          {teams.map((team) => (
-            <Link
-              key={team.id}
-              to="/judge/teams/$teamId"
-              params={{ teamId: team.id }}
-              className="flex items-center justify-between p-4 bg-card border border-border rounded-2xl hover:border-primary/40 transition-colors"
-            >
-              <div className="flex items-center gap-3 min-w-0">
-                <Users size={16} className="text-muted-foreground shrink-0" />
-                <div className="min-w-0">
-                  <p className="text-sm font-medium text-foreground truncate">{team.name}</p>
-                  <p className="text-xs text-muted-foreground truncate">
-                    {team.member_names.join(", ") || "No members yet"}
-                  </p>
-                </div>
+        <div className="flex flex-col gap-4">
+          {/* Controls: Search, Filter by Locked, and Sort */}
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div className="relative flex-1 min-w-[200px] max-w-md">
+              <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
+              <input
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder="Search by team or member name…"
+                className="w-full h-9 pl-8 pr-3 border border-border bg-background text-foreground rounded-xl text-sm focus:outline-none focus:border-primary transition-colors"
+              />
+            </div>
+
+            <div className="flex items-center gap-2 flex-wrap">
+              {/* Filter by locked */}
+              <div className="flex items-center p-1 bg-muted/60 border border-border/80 rounded-xl text-xs">
+                <button
+                  type="button"
+                  onClick={() => setLockedFilter("all")}
+                  className={`px-3 py-1 rounded-lg font-medium transition-colors cursor-pointer ${
+                    lockedFilter === "all"
+                      ? "bg-background text-foreground shadow-xs"
+                      : "text-muted-foreground hover:text-foreground"
+                  }`}
+                >
+                  All ({teams.length})
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setLockedFilter("locked")}
+                  className={`flex items-center gap-1 px-3 py-1 rounded-lg font-medium transition-colors cursor-pointer ${
+                    lockedFilter === "locked"
+                      ? "bg-background text-emerald-600 dark:text-emerald-400 shadow-xs"
+                      : "text-muted-foreground hover:text-foreground"
+                  }`}
+                >
+                  <Lock size={12} />
+                  Locked ({lockedCount})
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setLockedFilter("unlocked")}
+                  className={`px-3 py-1 rounded-lg font-medium transition-colors cursor-pointer ${
+                    lockedFilter === "unlocked"
+                      ? "bg-background text-foreground shadow-xs"
+                      : "text-muted-foreground hover:text-foreground"
+                  }`}
+                >
+                  Unlocked ({unlockedCount})
+                </button>
               </div>
-              {team.already_scored ? (
-                <span className="flex items-center gap-1 text-xs font-medium text-emerald-600 dark:text-emerald-400 shrink-0">
-                  <CheckCircle2 size={14} /> Scored
-                </span>
-              ) : (
-                <span className="flex items-center gap-1 text-xs text-muted-foreground shrink-0">
-                  <Circle size={14} /> Not scored
-                </span>
-              )}
-            </Link>
-          ))}
+
+              {/* Sort selector */}
+              <select
+                value={sort}
+                onChange={(e) => setSort(e.target.value as SortKey)}
+                className="h-9 px-2.5 border border-border bg-background rounded-xl text-xs font-medium text-foreground cursor-pointer focus:outline-none"
+              >
+                <option value="submissions">Sort: submissions</option>
+                <option value="name">Sort: name</option>
+                <option value="scored">Sort: scoring status</option>
+              </select>
+            </div>
+          </div>
+
+          {/* Team list */}
+          {rows.length === 0 ? (
+            <div className="flex flex-col items-center justify-center p-8 bg-card border border-border rounded-2xl text-center">
+              <p className="text-sm font-medium text-foreground">No teams match your search or filter</p>
+              <p className="text-xs text-muted-foreground mt-1">Try clearing your search query or changing the filter</p>
+              <button
+                type="button"
+                onClick={() => { setSearch(""); setLockedFilter("all") }}
+                className="mt-3 text-xs font-semibold text-primary hover:underline cursor-pointer"
+              >
+                Reset filters
+              </button>
+            </div>
+          ) : (
+            <div className="flex flex-col gap-2">
+              {rows.map((team) => {
+                const done = team.items_done ?? 0
+                const total = team.items_total ?? 0
+                const pct = team.pct ?? (total > 0 ? Math.round((done / total) * 100) : 0)
+                const memberCount = team.member_count ?? team.member_names?.length ?? 0
+
+                return (
+                  <Link
+                    key={team.id}
+                    to="/judge/teams/$teamId"
+                    params={{ teamId: team.id }}
+                    className="flex items-center justify-between p-3.5 sm:p-4 bg-card border border-border/70 rounded-2xl hover:border-primary/50 hover:bg-muted/20 transition-all gap-3 cursor-pointer"
+                  >
+                    <div className="flex items-center gap-3 min-w-0 flex-1">
+                      <div className="p-1 rounded-lg bg-muted/60 text-muted-foreground shrink-0">
+                        <ChevronRight size={14} />
+                      </div>
+
+                      <div className="w-8 h-8 rounded-xl bg-primary/10 border border-primary/20 text-primary font-bold flex items-center justify-center text-xs shrink-0">
+                        {team.name.trim().slice(0, 2).toUpperCase()}
+                      </div>
+
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-1.5 sm:gap-2 flex-wrap">
+                          <p className="text-sm font-semibold text-foreground truncate max-w-full">
+                            {team.name}
+                          </p>
+                          {team.roster_team_id && team.roster_team_id !== team.name && (
+                            <span className="text-xs font-normal text-muted-foreground font-mono shrink-0">
+                              ({team.roster_team_id})
+                            </span>
+                          )}
+                          {team.locked && (
+                            <span
+                              className="inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-lg bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30 shrink-0"
+                              title={team.locked_at ? `Locked on ${new Date(team.locked_at).toLocaleString()}` : "Final submission locked"}
+                            >
+                              <Lock size={11} />
+                              Locked{team.locked_at ? ` at ${formatLockTimestamp(team.locked_at)}` : ""}
+                            </span>
+                          )}
+                        </div>
+                        <p className="text-xs text-muted-foreground truncate mt-0.5">
+                          {memberCount} {memberCount === 1 ? "member" : "members"}
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="flex flex-col sm:flex-row sm:items-center items-end gap-2 sm:gap-4 shrink-0">
+                      <div className="w-24 sm:w-36 md:w-40 shrink-0">
+                        <div className="flex items-center justify-between text-[11px] font-semibold tabular-nums mb-1">
+                          <span className="text-muted-foreground">{done}/{total}</span>
+                          <span className={pct === 100 ? "text-emerald-600 dark:text-emerald-400 font-bold" : "text-foreground font-bold"}>
+                            {pct}%
+                          </span>
+                        </div>
+                        <div className="h-2 rounded-full overflow-hidden bg-muted/60 border border-border/20">
+                          <div
+                            className="h-full rounded-full transition-all duration-300"
+                            style={{
+                              width: `${pct}%`,
+                              backgroundColor: pct === 100 ? "#10b981" : "var(--primary, #9333ea)",
+                            }}
+                          />
+                        </div>
+                      </div>
+
+                      <div className="flex items-center justify-end sm:min-w-[84px]">
+                        {team.already_scored ? (
+                          <span className="flex items-center gap-1 text-xs font-semibold text-emerald-600 dark:text-emerald-400">
+                            <CheckCircle2 size={13} /> Scored
+                          </span>
+                        ) : (
+                          <span className="flex items-center gap-1 text-xs text-muted-foreground">
+                            <Circle size={13} /> Not scored
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  </Link>
+                )
+              })}
+            </div>
+          )}
         </div>
       )}
     </div>
   )
 }
+

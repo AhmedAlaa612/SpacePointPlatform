@@ -106,7 +106,9 @@ from app.services.missions.verifiers.design import ensure_design
 from app.services.lms.program import (
     PROGRAM_ITEM_PDF_BUCKET, checklist_item_locked, checklist_item_write_target, get_student_checklist,
     list_student_assignments, refresh_item_progress, resolve_effective_poster_template_url,
+    team_final_locked, team_final_submit_readiness, team_for_cohort_member,
 )
+from app.services.competitions.team_management import finalize_team_submission
 from app.services.lms import cohort_quiz as cohort_quiz_service
 from app.services import storage
 from app.services.video_service import get_playback_info, get_video_for_owner
@@ -666,6 +668,11 @@ async def complete_program_item(
         raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="This item is tracked automatically")
     if await checklist_item_locked(db, assignment=assignment, item=item):
         raise HTTPException(status.HTTP_409_CONFLICT, detail="This step isn't unlocked yet")
+    if await team_final_locked(db, assignment=assignment, item=item):
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            detail="Your team's final submission is locked — ask an ops staff member to reopen it",
+        )
     target = await checklist_item_write_target(db, assignment=assignment, item=item, individual=individual, user_id=current.id)
     if item.item_type == "submission" and not target.submitted_url:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="Submit a link first")
@@ -707,6 +714,11 @@ async def submit_program_item(
         raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="The deadline for this submission has passed")
     if await checklist_item_locked(db, assignment=assignment, item=item):
         raise HTTPException(status.HTTP_409_CONFLICT, detail="This step isn't unlocked yet")
+    if await team_final_locked(db, assignment=assignment, item=item):
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            detail="Your team's final submission is locked — ask an ops staff member to reopen it",
+        )
     target = await checklist_item_write_target(db, assignment=assignment, item=item, individual=individual, user_id=current.id)
 
     is_multi = item.item_type == "submission" and item.submission_multi_link
@@ -838,6 +850,11 @@ async def set_team_name(
         raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="The deadline to set your team name has passed")
     if await checklist_item_locked(db, assignment=assignment, item=item):
         raise HTTPException(status.HTTP_409_CONFLICT, detail="This step isn't unlocked yet")
+    if await team_final_locked(db, assignment=assignment, item=item):
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            detail="Your team's final submission is locked — ask an ops staff member to reopen it",
+        )
     target = await checklist_item_write_target(db, assignment=assignment, item=item, individual=individual, user_id=current.id)
     if not isinstance(target, LmsProgramTeamItemProgress):
         # Can't happen given item.scope is forced to "team" at authoring
@@ -871,6 +888,36 @@ async def set_team_name(
     await db.commit()
     await db.refresh(target)
     return await _checklist_item_out(db, item=item, target=target)
+
+
+@router.post("/programs/{assignment_id}/final-submit", response_model=LmsProgramChecklistOut)
+async def final_submit_program(
+    assignment_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db), current: User = Depends(require_lms_student),
+):
+    """The FINAL GATE card's one action — any teammate can call this once
+    every required team-scoped item is done (`team_final_submit_readiness`
+    re-checks server-side, never trusting only the frontend's `allDone`),
+    same "any teammate can write" posture as `set_team_name`. One-way: the
+    team can't undo this itself, only ops can
+    (`routers/competitions/admin.py::unlock_team`). "Not on a team" 403s,
+    same status and message `checklist_item_write_target` already uses for
+    the same condition on every other team-scoped write."""
+    assignment = await db.get(LmsProgramAssignment, assignment_id)
+    if assignment is None or assignment.user_id != current.id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Program assignment not found")
+    team = await team_for_cohort_member(db, cohort_id=assignment.cohort_id, user_id=current.id)
+    if team is None:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, detail="You're not on a team for this cohort")
+    ready, reason = await team_final_submit_readiness(db, assignment=assignment)
+    if not ready:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail=reason or "Not every required item is done yet")
+    await finalize_team_submission(db, team_id=team.id, locked_by_user_id=current.id)
+    await db.commit()
+    checklist = await get_student_checklist(db, assignment_id=assignment_id, user_id=current.id)
+    if checklist is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Program assignment not found")
+    return checklist
 
 
 @router.post("/programs/{assignment_id}/items/{item_id}/quiz/start", response_model=CohortQuizAttemptOut)

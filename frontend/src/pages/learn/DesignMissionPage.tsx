@@ -425,6 +425,7 @@ export function SetupTab({ state, onSaved }: { state: DesignState; onSaved: (s: 
           value={fields.name}
           onChange={(e) => setField("name", e.target.value)}
           placeholder="e.g. EduSat-1"
+          maxLength={128}
         />
         <p className="text-[11px] text-muted-foreground">You can run this mission more than once — this name is how you'll tell your runs apart.</p>
       </div>
@@ -2453,6 +2454,7 @@ export function CostBudgetTab({ state, attemptId, onSaved, handbook }: {
                     <div className="w-28 mx-auto">
                       <input
                         type="text" className={compactTextInputCls} value={rows[c.id]?.vendor ?? ""} placeholder="e.g. Amazon"
+                        maxLength={80}
                         onChange={(e) => setRow(c.id, { vendor: e.target.value })}
                       />
                     </div>

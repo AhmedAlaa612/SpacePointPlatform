@@ -15,11 +15,24 @@ from openpyxl.worksheet.worksheet import Worksheet
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.team import Team
+from app.models.lms.cohort_quiz import CohortQuizAnswer, CohortQuizAttempt, CohortQuizQuestion
+from app.models.team import Team, TeamMember
+from app.models.user import User
 from app.services.competitions.judging import leaderboard
-from app.services.lms.program import team_submission_items
+from app.services.lms.program import effective_cohort_program_items, team_submission_items
 
 MAX_COLUMN_WIDTH = 60
+
+
+def _style_header(sheet: Worksheet) -> None:
+    from openpyxl.styles import Alignment, Font, PatternFill
+    header_fill = PatternFill(start_color="F1F5F9", end_color="F1F5F9", fill_type="solid")
+    header_font = Font(name="Calibri", size=11, bold=True, color="0F172A")
+    for cell in sheet[1]:
+        cell.fill = header_fill
+        cell.font = header_font
+        cell.alignment = Alignment(vertical="center")
+    sheet.row_dimensions[1].height = 24
 
 
 def _autosize(sheet: Worksheet) -> None:
@@ -74,6 +87,170 @@ async def export_results_workbook(db: AsyncSession, *, cohort_id: uuid.UUID) -> 
                 item["updated_by_name"] or "",
             ])
     _autosize(submissions)
+
+    buf = io.BytesIO()
+    wb.save(buf)
+    return buf.getvalue()
+
+
+async def export_quiz_answers_workbook(db: AsyncSession, *, cohort_id: uuid.UUID) -> bytes:
+    """Exports all quiz answers for this cohort as a single .xlsx workbook:
+    - 'Quiz Summary' sheet: Every team member's quiz completion status and score
+    - 'Quiz Answers' sheet: Every student's answer per question, grouped by Team, Quiz, and Student
+    """
+    teams = list((await db.execute(
+        select(Team).where(Team.cohort_id == cohort_id).order_by(Team.name)
+    )).scalars().all())
+    team_ids = [t.id for t in teams]
+
+    if team_ids:
+        tm_rows = (await db.execute(
+            select(TeamMember.team_id, TeamMember.user_id).where(TeamMember.team_id.in_(team_ids))
+        )).all()
+        members_by_team: dict[uuid.UUID, list[uuid.UUID]] = {tid: [] for tid in team_ids}
+        all_user_ids: set[uuid.UUID] = set()
+        for tid, uid in tm_rows:
+            members_by_team[tid].append(uid)
+            all_user_ids.add(uid)
+        users = (await db.execute(select(User).where(User.id.in_(all_user_ids)))).scalars().all() if all_user_ids else []
+        users_by_id = {u.id: u for u in users}
+    else:
+        members_by_team = {}
+        users_by_id = {}
+
+    resolved = await effective_cohort_program_items(db, cohort_id)
+    items = list(resolved[1]) if resolved is not None else []
+    quiz_items = [i for i in items if i.item_type == "quiz"]
+
+    wb = openpyxl.Workbook()
+    summary_sheet = wb.active
+    summary_sheet.title = "Quiz Summary"
+
+    if not quiz_items:
+        summary_sheet.append(["Notice", "No quiz items found on this cohort's program checklist."])
+        _style_header(summary_sheet)
+        _autosize(summary_sheet)
+        buf = io.BytesIO()
+        wb.save(buf)
+        return buf.getvalue()
+
+    quiz_item_ids = [i.id for i in quiz_items]
+    attempts = (await db.execute(
+        select(CohortQuizAttempt).where(
+            CohortQuizAttempt.program_item_id.in_(quiz_item_ids),
+            (CohortQuizAttempt.cohort_id == cohort_id) | (CohortQuizAttempt.user_id.in_(list(users_by_id.keys()))),
+        )
+    )).scalars().all() if users_by_id else []
+
+    attempts_by_user_item: dict[tuple[uuid.UUID, uuid.UUID], CohortQuizAttempt] = {
+        (a.user_id, a.program_item_id): a for a in attempts
+    }
+
+    submitted_attempts = [a for a in attempts if a.status == "submitted"]
+    submitted_attempt_ids = [a.id for a in submitted_attempts]
+    answers = (await db.execute(
+        select(CohortQuizAnswer).where(CohortQuizAnswer.attempt_id.in_(submitted_attempt_ids))
+    )).scalars().all() if submitted_attempt_ids else []
+    answers_by_attempt_qid = {(a.attempt_id, a.question_id): a for a in answers}
+
+    all_qids: set[uuid.UUID] = set()
+    for a in submitted_attempts:
+        if a.question_order:
+            for entry in a.question_order:
+                try:
+                    all_qids.add(uuid.UUID(entry["question_id"]))
+                except (ValueError, KeyError):
+                    pass
+    questions = (await db.execute(
+        select(CohortQuizQuestion).where(CohortQuizQuestion.id.in_(all_qids))
+    )).scalars().all() if all_qids else []
+    questions_by_id = {q.id: q for q in questions}
+
+    # Populate Sheet 1: Quiz Summary
+    summary_sheet.append([
+        "Team", "Team ID", "Student Name", "Email", "Quiz", "Status",
+        "Score", "Total", "Percentage", "Submitted At",
+    ])
+    for team in teams:
+        member_ids = members_by_team.get(team.id, [])
+        for q_item in quiz_items:
+            for uid in member_ids:
+                u = users_by_id.get(uid)
+                att = attempts_by_user_item.get((uid, q_item.id))
+                status_label = "Not Started"
+                score_val = ""
+                total_val = ""
+                pct_val = ""
+                sub_at_val = ""
+                if att:
+                    if att.status == "submitted":
+                        status_label = "Submitted"
+                        score_val = att.score if att.score is not None else 0
+                        total_val = att.total if att.total is not None else 0
+                        pct_val = f"{round(100 * score_val / total_val)}%" if total_val else "0%"
+                        sub_at_val = att.submitted_at.strftime("%Y-%m-%d %H:%M") if att.submitted_at else ""
+                    elif att.status == "in_progress":
+                        status_label = "In Progress"
+                        total_val = att.total if att.total is not None else ""
+
+                summary_sheet.append([
+                    team.name, team.roster_team_id or "", u.full_name if u else "Student",
+                    u.email if u else "", q_item.title, status_label,
+                    score_val, total_val, pct_val, sub_at_val,
+                ])
+    _style_header(summary_sheet)
+    _autosize(summary_sheet)
+
+    # Populate Sheet 2: Quiz Answers
+    answers_sheet = wb.create_sheet("Quiz Answers")
+    answers_sheet.append([
+        "Team", "Student Name", "Quiz", "Q#", "Topic", "Question Prompt",
+        "Student Answer", "Correct Answer", "Result", "Time (s)", "Timed Out", "Explanation",
+    ])
+
+    for team in teams:
+        member_ids = members_by_team.get(team.id, [])
+        for q_item in quiz_items:
+            for uid in member_ids:
+                u = users_by_id.get(uid)
+                att = attempts_by_user_item.get((uid, q_item.id))
+                if not att or att.status != "submitted" or not att.question_order:
+                    continue
+
+                for pos, entry in enumerate(att.question_order, start=1):
+                    try:
+                        qid = uuid.UUID(entry["question_id"])
+                    except (ValueError, KeyError):
+                        continue
+                    q = questions_by_id.get(qid)
+                    if not q:
+                        continue
+                    ans = answers_by_attempt_qid.get((att.id, qid))
+                    if not ans:
+                        continue
+
+                    student_ans_text = ""
+                    if ans.selected_option_index is not None and 0 <= ans.selected_option_index < len(q.options):
+                        student_ans_text = q.options[ans.selected_option_index].get("text", "")
+                    elif ans.timed_out:
+                        student_ans_text = "(Timed out)"
+                    else:
+                        student_ans_text = "(Unanswered)"
+
+                    correct_opt = next((o.get("text", "") for o in q.options if o.get("is_correct")), "")
+
+                    answers_sheet.append([
+                        team.name, u.full_name if u else "Student", q_item.title,
+                        pos, q.topic, q.prompt,
+                        student_ans_text, correct_opt,
+                        "Correct" if ans.is_correct else "Incorrect",
+                        ans.time_taken_seconds if ans.time_taken_seconds is not None else "",
+                        "Yes" if ans.timed_out else "No",
+                        q.explanation or "",
+                    ])
+
+    _style_header(answers_sheet)
+    _autosize(answers_sheet)
 
     buf = io.BytesIO()
     wb.save(buf)

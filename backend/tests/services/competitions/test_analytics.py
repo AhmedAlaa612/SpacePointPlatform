@@ -8,14 +8,19 @@ never counts as done, and that a `mission_run` item is reported as a
 mission rather than as a completion-rate bar.
 """
 
+import io
 import uuid
 from datetime import datetime, timedelta, timezone
 
+import openpyxl
 import pytest
 from fastapi import status as http_status
 from sqlalchemy import delete
 
 from app.core.security import create_access_token
+from app.models.lms.cohort_quiz import (
+    CohortQuizAnswer, CohortQuizAttempt, CohortQuizQuestion, CohortQuizTemplate,
+)
 from app.models.lms.program import (
     LmsProgram, LmsProgramAssignment, LmsProgramItem, LmsProgramItemProgress, LmsProgramTeamItemProgress,
 )
@@ -383,6 +388,27 @@ async def test_a_completed_team_is_never_stalled_however_long_it_has_been_quiet(
     assert row["stalled"] is False
 
 
+@pytest.mark.asyncio
+async def test_locked_reflects_the_teams_final_submission_lock(db):
+    program, cohort = await _program_and_cohort(db)
+    _lms_program, (poster,) = await _checklist(db, program, [{"title": "Poster", "scope": "team"}])
+    open_student = await _student(db, "Open", cohort=cohort)
+    locked_student = await _student(db, "Locked", cohort=cohort)
+    open_team = await create_team(db, name="Open", created_by=open_student.id, cohort_id=cohort.id)
+    locked_team = await create_team(db, name="Locked", created_by=locked_student.id, cohort_id=cohort.id)
+    db.add(LmsProgramTeamItemProgress(id=uuid.uuid4(), item_id=poster.id, team_id=open_team.id, status="pending"))
+    db.add(LmsProgramTeamItemProgress(id=uuid.uuid4(), item_id=poster.id, team_id=locked_team.id, status="done"))
+    await db.commit()
+
+    from app.services.competitions.team_management import finalize_team_submission
+    await finalize_team_submission(db, team_id=locked_team.id, locked_by_user_id=locked_student.id)
+    await db.commit()
+
+    teams = {row["team_name"]: row for row in (await cohort_team_analytics(db, cohort_id=cohort.id))["teams"]}
+    assert teams["Open"]["locked"] is False
+    assert teams["Locked"]["locked"] is True
+
+
 # ── degenerate cohorts ──────────────────────────────────────────────────
 
 @pytest.mark.asyncio
@@ -471,3 +497,153 @@ async def test_an_individual_item_is_measured_against_assigned_students_only(db)
     assert bar["pct"] == 100
     assert result["totals"]["registered_students"] == 2
     assert result["totals"]["assigned_students"] == 1
+
+
+@pytest.mark.asyncio
+async def test_cohort_team_analytics_includes_team_quiz_submissions(db):
+    """Team members' quiz submissions are included in team_rows, showing their
+    status, score, and linking to their assignment ID for answers drill-down."""
+    program, cohort = await _program_and_cohort(db)
+    author = await _ops(db)
+
+    template = CohortQuizTemplate(id=uuid.uuid4(), name="Diagnostic Quiz", created_by=author.id)
+    db.add(template)
+    await db.flush()
+
+    question = CohortQuizQuestion(
+        id=uuid.uuid4(), topic="Power", difficulty="Easy", time_limit_seconds=20,
+        prompt="What generates power?", options=[{"text": "Solar panels", "is_correct": True}, {"text": "Battery only", "is_correct": False}],
+        created_by=author.id,
+    )
+    db.add(question)
+    await db.flush()
+
+    lms_program, (quiz_item,) = await _checklist(db, program, [
+        {"title": "Power Quiz", "scope": "individual", "item_type": "quiz"},
+    ])
+    quiz_item.cohort_quiz_template_id = template.id
+    await db.flush()
+
+    student_a = await _student(db, "Alice", cohort=cohort)
+    student_b = await _student(db, "Bob", cohort=cohort)
+
+    team = await create_team(db, name="Phoenix", created_by=student_a.id, cohort_id=cohort.id, member_ids=[student_b.id])
+
+    assign_a = LmsProgramAssignment(id=uuid.uuid4(), user_id=student_a.id, lms_program_id=lms_program.id, cohort_id=cohort.id)
+    assign_b = LmsProgramAssignment(id=uuid.uuid4(), user_id=student_b.id, lms_program_id=lms_program.id, cohort_id=cohort.id)
+    db.add_all([assign_a, assign_b])
+    await db.flush()
+
+    attempt_a = CohortQuizAttempt(
+        id=uuid.uuid4(), program_item_id=quiz_item.id, cohort_quiz_template_id=template.id,
+        user_id=student_a.id, cohort_id=cohort.id,
+        question_order=[{"question_id": str(question.id), "option_order": [0, 1]}],
+        status="submitted", score=1, total=1, submitted_at=datetime.now(timezone.utc),
+    )
+    db.add(attempt_a)
+    await db.flush()
+    await db.commit()
+
+    result = await cohort_team_analytics(db, cohort_id=cohort.id)
+    assert len(result["teams"]) == 1
+    t = result["teams"][0]
+    assert t["team_name"] == "Phoenix"
+    assert "quiz_submissions" in t
+    assert len(t["quiz_submissions"]) == 2
+
+    by_student = {s["student_name"]: s for s in t["quiz_submissions"]}
+    assert by_student["Alice"]["status"] == "submitted"
+    assert by_student["Alice"]["score"] == 1
+    assert by_student["Alice"]["total"] == 1
+    assert by_student["Alice"]["assignment_id"] == assign_a.id
+    assert by_student["Alice"]["item_id"] == quiz_item.id
+
+    assert by_student["Bob"]["status"] == "not_started"
+    assert by_student["Bob"]["score"] is None
+    assert by_student["Bob"]["total"] is None
+    assert by_student["Bob"]["assignment_id"] == assign_b.id
+
+
+@pytest.mark.asyncio
+async def test_export_cohort_quiz_answers_workbook_xlsx(db, client):
+    """GET /competitions/admin/cohorts/{cohort.id}/quiz-answers.xlsx returns
+    an .xlsx workbook with 'Quiz Summary' and 'Quiz Answers' sheets."""
+    ops = await _ops(db)
+    program, cohort = await _program_and_cohort(db)
+
+    template = CohortQuizTemplate(id=uuid.uuid4(), name="Systems Quiz", created_by=ops.id)
+    db.add(template)
+    await db.flush()
+
+    question = CohortQuizQuestion(
+        id=uuid.uuid4(), topic="ADCS", difficulty="Medium", time_limit_seconds=30,
+        prompt="What senses rotation?", explanation="Gyroscopes sense rate of turn.",
+        options=[{"text": "Gyroscope", "is_correct": True}, {"text": "Solar cell", "is_correct": False}],
+        created_by=ops.id,
+    )
+    db.add(question)
+    await db.flush()
+
+    lms_program, (quiz_item,) = await _checklist(db, program, [
+        {"title": "Systems Quiz Item", "scope": "individual", "item_type": "quiz"},
+    ])
+    quiz_item.cohort_quiz_template_id = template.id
+    await db.flush()
+
+    student = await _student(db, "Zara", cohort=cohort)
+    team = await create_team(db, name="Centaur", created_by=student.id, cohort_id=cohort.id)
+
+    assignment = LmsProgramAssignment(id=uuid.uuid4(), user_id=student.id, lms_program_id=lms_program.id, cohort_id=cohort.id)
+    db.add(assignment)
+    await db.flush()
+
+    attempt = CohortQuizAttempt(
+        id=uuid.uuid4(), program_item_id=quiz_item.id, cohort_quiz_template_id=template.id,
+        user_id=student.id, cohort_id=cohort.id,
+        question_order=[{"question_id": str(question.id), "option_order": [0, 1]}],
+        status="submitted", score=1, total=1, submitted_at=datetime.now(timezone.utc),
+    )
+    db.add(attempt)
+    await db.flush()
+
+    answer = CohortQuizAnswer(
+        id=uuid.uuid4(), attempt_id=attempt.id, question_id=question.id,
+        topic="ADCS", selected_option_index=0, is_correct=True, timed_out=False, time_taken_seconds=12,
+    )
+    db.add(answer)
+    await db.commit()
+
+    resp = await client.get(
+        f"/competitions/admin/cohorts/{cohort.id}/quiz-answers.xlsx",
+        headers=_headers(ops),
+    )
+    assert resp.status_code == http_status.HTTP_200_OK, resp.text
+    assert resp.headers["content-type"] == "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    assert "attachment" in resp.headers["content-disposition"]
+
+    wb = openpyxl.load_workbook(io.BytesIO(resp.content))
+    assert wb.sheetnames == ["Quiz Summary", "Quiz Answers"]
+
+    summary = wb["Quiz Summary"]
+    sum_header = [c.value for c in summary[1]]
+    assert sum_header[:5] == ["Team", "Team ID", "Student Name", "Email", "Quiz"]
+    sum_row = next(r for r in summary.iter_rows(min_row=2, values_only=True) if r[0] == "Centaur")
+    assert sum_row[2] == "Zara"
+    assert sum_row[4] == "Systems Quiz Item"
+    assert sum_row[5] == "Submitted"
+    assert sum_row[6] == 1
+    assert sum_row[7] == 1
+
+    answers = wb["Quiz Answers"]
+    ans_header = [c.value for c in answers[1]]
+    assert ans_header[:6] == ["Team", "Student Name", "Quiz", "Q#", "Topic", "Question Prompt"]
+    ans_row = next(r for r in answers.iter_rows(min_row=2, values_only=True) if r[0] == "Centaur")
+    assert ans_row[1] == "Zara"
+    assert ans_row[3] == 1
+    assert ans_row[4] == "ADCS"
+    assert ans_row[6] == "Gyroscope"
+    assert ans_row[7] == "Gyroscope"
+    assert ans_row[8] == "Correct"
+    assert ans_row[9] == 12
+    assert ans_row[10] == "No"
+    assert ans_row[11] == "Gyroscopes sense rate of turn."

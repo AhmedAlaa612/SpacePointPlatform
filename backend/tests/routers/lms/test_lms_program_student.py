@@ -906,6 +906,132 @@ async def test_individual_and_team_items_on_the_same_checklist_stay_independent(
     assert a_team_item["submitted_url"] == "https://canva.com/design/team-poster"
 
 
+# ── Final submission lock (2026-09) ─────────────────────────────────────────
+
+@pytest.mark.asyncio
+async def test_final_submit_rejects_until_every_required_team_item_is_done(db, client):
+    """Readiness only gates on team-scoped items — a teammate's own
+    unrelated individual item never blocks it (2026-09-19, found live: an
+    earlier version required every item, individual ones included, and a
+    single leftover personal task kept the button permanently disabled
+    even once the team's own deliverables were all in)."""
+    author = await _author(db)
+    cohort, lms_program = await _cohort_with_checklist(db, author=author)
+    individual_item = LmsProgramItem(
+        id=uuid.uuid4(), owner_type="program", owner_id=lms_program.id, position=1,
+        item_type="manual", title="Watch the intro guide",
+    )
+    team_item = LmsProgramItem(
+        id=uuid.uuid4(), owner_type="program", owner_id=lms_program.id, position=2,
+        item_type="submission", title="Mission Poster", submission_prompt="Paste your poster link",
+        scope="team",
+    )
+    db.add_all([individual_item, team_item])
+    student_a = await _student(db)
+    await db.commit()
+    await create_team(db, name="Not Ready Yet", created_by=student_a.id, cohort_id=cohort.id, member_ids=[])
+    assignment_a = await assign_lms_program(db, user_id=student_a.id, cohort_id=cohort.id)
+    await db.commit()
+
+    # Nothing done at all yet.
+    resp = await client.post(f"/lms/programs/{assignment_a.id}/final-submit", headers=_headers(student_a))
+    assert resp.status_code == http_status.HTTP_400_BAD_REQUEST
+
+    # The team item is done — ready, even though the unrelated individual
+    # item never got touched.
+    submitted = await client.post(
+        f"/lms/programs/{assignment_a.id}/items/{team_item.id}/submit", headers=_headers(student_a),
+        json={"url": "https://canva.com/design/poster"},
+    )
+    assert submitted.status_code == 200
+    resp = await client.post(f"/lms/programs/{assignment_a.id}/final-submit", headers=_headers(student_a))
+    assert resp.status_code == 200, resp.text
+
+
+@pytest.mark.asyncio
+async def test_final_submit_locks_the_team_and_blocks_further_team_writes_but_not_individual_ones(db, client):
+    author = await _author(db)
+    cohort, lms_program = await _cohort_with_checklist(db, author=author)
+    individual_item = LmsProgramItem(
+        id=uuid.uuid4(), owner_type="program", owner_id=lms_program.id, position=1,
+        item_type="manual", title="Watch the intro guide",
+    )
+    second_individual_item = LmsProgramItem(
+        id=uuid.uuid4(), owner_type="program", owner_id=lms_program.id, position=2,
+        item_type="manual", title="A second solo task",
+    )
+    team_item = LmsProgramItem(
+        id=uuid.uuid4(), owner_type="program", owner_id=lms_program.id, position=3,
+        item_type="submission", title="Mission Poster", submission_prompt="Paste your poster link",
+        scope="team",
+    )
+    # Optional, present from the start (not readiness-blocking) — proves
+    # individual-scoped writes stay open after the team locks, without
+    # needing sync_assignment_items to backfill a genuinely late-added item.
+    untouched_solo_item = LmsProgramItem(
+        id=uuid.uuid4(), owner_type="program", owner_id=lms_program.id, position=4,
+        item_type="manual", title="An optional solo task", optional=True,
+    )
+    db.add_all([individual_item, second_individual_item, team_item, untouched_solo_item])
+    student_a = await _student(db)
+    student_b = await _student(db)
+    await db.commit()
+    await create_team(db, name="Locking Falcons", created_by=student_a.id, cohort_id=cohort.id, member_ids=[student_b.id])
+    assignment_a = await assign_lms_program(db, user_id=student_a.id, cohort_id=cohort.id)
+    assignment_b = await assign_lms_program(db, user_id=student_b.id, cohort_id=cohort.id)
+    await db.commit()
+
+    for item_id in (individual_item.id, second_individual_item.id):
+        r = await client.post(f"/lms/programs/{assignment_a.id}/items/{item_id}/complete", headers=_headers(student_a))
+        assert r.status_code == 200, r.text
+    r = await client.post(
+        f"/lms/programs/{assignment_b.id}/items/{team_item.id}/submit", headers=_headers(student_b),
+        json={"url": "https://canva.com/design/poster"},
+    )
+    assert r.status_code == 200, r.text
+
+    final = await client.post(f"/lms/programs/{assignment_a.id}/final-submit", headers=_headers(student_a))
+    assert final.status_code == 200, final.text
+    assert final.json()["team_final_locked_at"] is not None
+    assert final.json()["team_final_locked_by_name"] == student_a.full_name
+
+    # Calling it again is idempotent — still 200, not a 400 for "already locked".
+    again = await client.post(f"/lms/programs/{assignment_a.id}/final-submit", headers=_headers(student_a))
+    assert again.status_code == 200
+
+    # A teammate can no longer edit the team-scoped item.
+    blocked = await client.post(
+        f"/lms/programs/{assignment_b.id}/items/{team_item.id}/submit", headers=_headers(student_b),
+        json={"url": "https://canva.com/design/poster-v2"},
+    )
+    assert blocked.status_code == http_status.HTTP_409_CONFLICT
+
+    # An individual-scoped item is still editable for either teammate.
+    still_ok = await client.post(
+        f"/lms/programs/{assignment_b.id}/items/{untouched_solo_item.id}/complete", headers=_headers(student_b),
+    )
+    assert still_ok.status_code == 200, still_ok.text
+
+
+@pytest.mark.asyncio
+async def test_final_submit_403s_for_a_student_with_no_team(db, client):
+    author = await _author(db)
+    cohort, lms_program = await _cohort_with_checklist(db, author=author)
+    item = LmsProgramItem(
+        id=uuid.uuid4(), owner_type="program", owner_id=lms_program.id, position=1,
+        item_type="submission", title="Mission Poster", submission_prompt="Paste your poster link",
+        scope="team",
+    )
+    db.add(item)
+    solo_student = await _student(db)
+    await db.commit()
+    assignment = await assign_lms_program(db, user_id=solo_student.id, cohort_id=cohort.id)
+    await db.commit()
+
+    resp = await client.post(f"/lms/programs/{assignment.id}/final-submit", headers=_headers(solo_student))
+    assert resp.status_code == http_status.HTTP_403_FORBIDDEN
+
+
 # ── Roadmap board — gating (2026-09) ────────────────────────────────────────
 
 @pytest.mark.asyncio

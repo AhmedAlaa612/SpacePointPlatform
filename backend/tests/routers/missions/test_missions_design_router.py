@@ -7,16 +7,21 @@ from datetime import date, timedelta
 
 import pytest
 from fastapi import status as http_status
+from sqlalchemy import select
 
 from app.core.security import create_access_token
+from app.models.lms.program import LmsProgram, LmsProgramItem
 from app.models.missions.design import DesignComponentLibrary
 from app.models.missions.gate import MissionStepGate
-from app.models.missions.mission import Mission, MissionVariant
+from app.models.missions.mission import Mission, MissionAttempt, MissionVariant
 from app.models.sessions.cohort import Cohort
 from app.models.sessions.program import Program
 from app.models.spine.contact import Contact
 from app.models.user import User
+from app.services.competitions.team_management import finalize_team_submission
+from app.services.lms.program import assign_lms_program
 from app.services.sessions.registration import register
+from app.services.teams import create_team
 
 
 async def _user(db, *, roles=None) -> User:
@@ -699,3 +704,97 @@ async def test_update_design_rejects_an_overlong_name_or_orbit_type_or_poster_ur
             f"/missions/design/attempts/{attempt_id}", headers=_headers(student), json={field: value},
         )
         assert resp.status_code == http_status.HTTP_422_UNPROCESSABLE_CONTENT, (field, resp.text)
+
+
+@pytest.mark.asyncio
+async def test_cannot_save_a_budget_entry_for_another_students_component(db, client):
+    """`_own_design_attempt` only checks the attempt in the URL belongs to
+    the caller — it says nothing about the design_component_id path
+    parameter. Bob has his own valid attempt/design, but passes Alice's
+    component id to his own attempt's cost-budget endpoint: this used to
+    write straight into Alice's row (the same shared unique-constraint
+    target the upsert conflicts on)."""
+    author = await _user(db, roles=["operations"])
+    mission, variant = await _design_mission(db, author=author)
+    library = await _library_component(db)
+    await db.commit()
+    alice = await _user(db)
+    bob = await _user(db)
+    await db.commit()
+
+    _alice_attempt_id, alice_dc_id = await _attempt_with_component(
+        client, mission=mission, variant=variant, student=alice, library=library,
+    )
+    bob_start = await client.post(
+        f"/missions/{mission.id}/attempts", headers=_headers(bob), json={"variant_id": str(variant.id)},
+    )
+    bob_attempt_id = bob_start.json()["id"]
+
+    resp = await client.post(
+        f"/missions/design/attempts/{bob_attempt_id}/components/{alice_dc_id}/cost-budget",
+        headers=_headers(bob), json={"cost_per_unit_aed": 999.0, "vendor": "Bob's overwrite"},
+    )
+    assert resp.status_code == http_status.HTTP_404_NOT_FOUND, resp.text
+
+
+@pytest.mark.asyncio
+async def test_design_writes_409_once_the_team_has_finally_submitted(db, client):
+    """Code-review follow-up (2026-09-18): the team final-submission lock
+    (routers/lms/student.py::final_submit_program) only guarded
+    student.py's own complete/submit/team-name endpoints — a team-scoped
+    mission_run item's live-computed status is actually driven by these
+    missions/design.py endpoints, which didn't check the lock at all.
+    Exercises one representative write (steps/{step_key}/confirm, no body
+    needed) to prove `_require_team_not_final_locked` actually blocks it."""
+    author = await _user(db, roles=["operations"])
+    mission = Mission(
+        id=uuid.uuid4(), title="Locked Team CubeSat", slug=f"locked-team-cubesat-{uuid.uuid4().hex[:8]}",
+        kind="design", authored_by=author.id, status="published", team_policy="team",
+    )
+    db.add(mission)
+    await db.flush()
+    variant = MissionVariant(id=uuid.uuid4(), mission_id=mission.id, label="Standard", position=1, points=100)
+    db.add(variant)
+    await db.flush()
+
+    program = Program(
+        id=uuid.uuid4(), code=f"DRLK-{uuid.uuid4().hex[:8]}", name="Design Router Lock Program",
+        program_type="competition", pricing_model="free", active=True,
+    )
+    db.add(program)
+    await db.flush()
+    cohort = Cohort(id=uuid.uuid4(), program_id=program.id, name="Design Router Lock Cohort", status="running")
+    db.add(cohort)
+    await db.flush()
+    lms_program = LmsProgram(id=uuid.uuid4(), program_id=program.id, name="Design Router Lock Checklist")
+    db.add(lms_program)
+    await db.flush()
+    mission_item = LmsProgramItem(
+        id=uuid.uuid4(), owner_type="program", owner_id=lms_program.id, position=1,
+        item_type="mission_run", title=mission.title, mission_id=mission.id, variant_id=variant.id, scope="team",
+    )
+    db.add(mission_item)
+    student = await _user(db)
+    await db.commit()
+
+    team = await create_team(db, name="Locked Design Team", created_by=student.id, cohort_id=cohort.id, member_ids=[])
+    await db.commit()
+    await assign_lms_program(db, user_id=student.id, cohort_id=cohort.id)
+    await db.commit()
+
+    attempt = (await db.execute(
+        select(MissionAttempt).where(MissionAttempt.mission_id == mission.id)
+    )).scalars().one()
+
+    # Still unlocked — the step confirm goes through (setup is always
+    # satisfiable once the design's default objective exists).
+    h = _headers(student)
+    before = await client.post(f"/missions/design/attempts/{attempt.id}/steps/setup/confirm", headers=h)
+    assert before.status_code in (200, 400), before.text  # 400 only if setup's own readiness isn't met yet
+
+    await finalize_team_submission(db, team_id=team.id, locked_by_user_id=student.id)
+    await db.commit()
+
+    locked = await client.post(f"/missions/design/attempts/{attempt.id}/steps/setup/confirm", headers=h)
+    assert locked.status_code == http_status.HTTP_409_CONFLICT, locked.text
+    assert "locked" in locked.json()["detail"].lower()
