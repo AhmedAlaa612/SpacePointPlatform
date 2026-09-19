@@ -46,9 +46,21 @@ export default function RoadmapBoard() {
     if (y !== null) requestAnimationFrame(() => window.scrollTo(0, y));
   }, [checklist, assignmentId]);
 
-  // Do NOT override item.locked = true when final submission is locked —
-  // completed tasks remain "cleared" and reviewable, not "Not powered".
-  const items = checklist?.items ?? [];
+  // A team-scoped tile that isn't done yet reads locked once the team has
+  // hit "Final Submit" (checklist.team_final_locked_at) — a done tile
+  // stays "cleared" and reviewable, not styled "Not powered" like a tile
+  // that was never reachable to begin with. Only the not-done case needs
+  // the override: TaskTile already renders "cleared" for a done item
+  // regardless of item.locked (found live, 2026-09-19: an earlier version
+  // of this fix locked every team-scoped item unconditionally, which made
+  // already-completed ones look broken instead of finished; this version
+  // dropped the override entirely instead, which left a still-open
+  // team-scoped item clickable after the team had already locked).
+  const items = (checklist?.items ?? []).map((item) => (
+    item.scope === "team" && item.status !== "done" && checklist?.team_final_locked_at
+      ? { ...item, locked: true }
+      : item
+  ));
   const liveTaskId = computeLiveTaskId(items);
   const liveItem = items.find((i) => i.id === liveTaskId) ?? null;
   const requiredItems = items.filter((i) => !i.optional);
@@ -62,6 +74,14 @@ export default function RoadmapBoard() {
   // team_final_submit_readiness, which checks the same subset.
   const requiredTeamItems = requiredItems.filter((i) => i.scope === "team");
   const teamReady = requiredTeamItems.length > 0 && requiredTeamItems.every((i) => i.status === "done");
+  // Same "team items only, when there are any" basis as teamReady above —
+  // computed here, not guessed inside FinalGateBar from an optional prop,
+  // so a no-team program (requiredTeamItems always [] there, never
+  // undefined) can't silently read as 0-remaining/ready-to-review (found
+  // live, 2026-09-19).
+  const remainingCount = requiredTeamItems.length > 0
+    ? requiredTeamItems.filter((i) => i.status !== "done").length
+    : requiredItems.length - doneCount;
   const openItem = items.find((i) => i.id === openItemId) ?? null;
 
   if (error) return <div className="mx-auto max-w-[900px] px-5 py-10"><p className="text-sm text-destructive">Couldn't load this program.</p></div>;
@@ -131,10 +151,8 @@ export default function RoadmapBoard() {
             onFinalized={invalidate}
             teamName={checklist.team_name}
             lockedAt={checklist.team_final_locked_at}
-            doneCount={doneCount}
-            totalRequired={requiredItems.length}
             pct={pct}
-            teamRemainingCount={requiredTeamItems.filter((i) => i.status !== "done").length}
+            remainingCount={remainingCount}
           />
         </div>
       </div>

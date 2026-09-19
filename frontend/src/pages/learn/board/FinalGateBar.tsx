@@ -346,10 +346,8 @@ export function FinalGateBar({
   onFinalized,
   teamName,
   lockedAt,
-  doneCount,
-  totalRequired,
   pct = 0,
-  teamRemainingCount,
+  remainingCount,
 }: {
   groups: CheckpointGroup[];
   teamReady: boolean;
@@ -359,25 +357,14 @@ export function FinalGateBar({
   onFinalized: () => void;
   teamName?: string | null;
   lockedAt?: string | null;
-  doneCount?: number;
-  totalRequired?: number;
   pct?: number;
-  teamRemainingCount?: number;
+  remainingCount: number;
 }) {
   const toast = useToast();
   const cardRef = useRef<HTMLDivElement | null>(null);
   const [celebrating, setCelebrating] = useState(false);
   const [celebrationOrigin, setCelebrationOrigin] = useState<{ x: number; y: number } | null>(null);
   const [snapping, setSnapping] = useState(false);
-
-  const finalSubmitMutation = useMutation({
-    mutationFn: () => finalSubmitChecklist(assignmentId),
-    onSuccess: () => {
-      toast.success("Final submission locked in!");
-      onFinalized();
-    },
-    onError: (err) => toast.error(errorDetail(err, "Couldn't finalize your team's submission.")),
-  });
 
   const triggerCelebration = useCallback(() => {
     if (cardRef.current) {
@@ -389,16 +376,36 @@ export function FinalGateBar({
     setCelebrating(true);
   }, []);
 
+  // Fireworks only fire once the lock is actually confirmed — celebrating
+  // eagerly, before the request resolves, showed the "success" animation
+  // in full even when the mutation then failed (found live, 2026-09-19:
+  // an offline click, or a 409 from a teammate finalizing first, still
+  // played the whole launch).
+  const finalSubmitMutation = useMutation({
+    mutationFn: () => finalSubmitChecklist(assignmentId),
+    onSuccess: () => {
+      toast.success("Final submission locked in!");
+      triggerCelebration();
+      onFinalized();
+    },
+    onError: (err) => toast.error(errorDetail(err, "Couldn't finalize your team's submission.")),
+  });
+
+  // Stable identity across re-renders — SpaceFireworksOverlay's effect
+  // depends on this prop, and a fresh inline function every render (the
+  // checklist refetch onFinalized() kicks off re-renders FinalGateBar
+  // mid-celebration) restarted the whole launch animation from scratch
+  // each time (found live, 2026-09-19).
+  const handleCelebrationComplete = useCallback(() => setCelebrating(false), []);
+
   const handleLockClick = () => {
     setSnapping(true);
-    triggerCelebration();
     setTimeout(() => setSnapping(false), 500);
     finalSubmitMutation.mutate();
   };
 
   if (groups.length === 0) return null;
   const last = groups[groups.length - 1];
-  const taskCount = last.items.length;
   const eyebrow = last.label ? `FINAL GATE · ${last.label.toUpperCase()}` : "FINAL GATE";
 
   return (
@@ -501,7 +508,7 @@ export function FinalGateBar({
       <SpaceFireworksOverlay
         active={celebrating}
         origin={celebrationOrigin}
-        onComplete={() => setCelebrating(false)}
+        onComplete={handleCelebrationComplete}
       />
 
       {locked ? (
@@ -607,7 +614,7 @@ export function FinalGateBar({
       ) : (
         /* STATE 1: IN PROGRESS (CLEAN INLINE TEXT — MOBILE OPTIMIZED WITH PROGRESS BAR) */
         (() => {
-          const remaining = teamRemainingCount ?? (totalRequired && doneCount !== undefined ? totalRequired - doneCount : taskCount);
+          const remaining = remainingCount;
           const isUngatedDone = !hasTeam && pct === 100;
 
           if (isUngatedDone) {
