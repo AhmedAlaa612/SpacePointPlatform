@@ -46,15 +46,9 @@ export default function RoadmapBoard() {
     if (y !== null) requestAnimationFrame(() => window.scrollTo(0, y));
   }, [checklist, assignmentId]);
 
-  // A team-scoped tile reads locked once the team has hit "Final Submit"
-  // (checklist.team_final_locked_at), same as any other lock — every
-  // downstream consumer (tileState, computeLiveTaskId, openItemById's
-  // no-op guard) already keys off item.locked, so overriding it here once
-  // is enough to keep the whole board consistent with the 409 the backend
-  // would otherwise return on a now-pointless edit attempt.
-  const items = (checklist?.items ?? []).map((item) => (
-    item.scope === "team" && checklist?.team_final_locked_at ? { ...item, locked: true } : item
-  ));
+  // Do NOT override item.locked = true when final submission is locked —
+  // completed tasks remain "cleared" and reviewable, not "Not powered".
+  const items = checklist?.items ?? [];
   const liveTaskId = computeLiveTaskId(items);
   const liveItem = items.find((i) => i.id === liveTaskId) ?? null;
   const requiredItems = items.filter((i) => !i.optional);
@@ -74,7 +68,7 @@ export default function RoadmapBoard() {
   if (isLoading || !checklist) return <div className="mx-auto max-w-[900px] px-5 py-10"><p className="text-sm text-muted-foreground">Loading...</p></div>;
 
   const openItemById = (item: LmsProgramChecklistItem) => {
-    if (item.locked) return; // flow rule 2: locked tile → no-op
+    if (item.locked && item.status !== "done") return; // flow rule 2: uncompleted locked tile → no-op
     setOpenItemId(item.id);
   };
 
@@ -129,8 +123,18 @@ export default function RoadmapBoard() {
           )}
 
           <FinalGateBar
-            groups={groups} teamReady={teamReady} locked={!!checklist.team_final_locked_at}
-            hasTeam={!!checklist.team_name} assignmentId={assignmentId} onFinalized={invalidate}
+            groups={groups}
+            teamReady={teamReady}
+            locked={!!checklist.team_final_locked_at}
+            hasTeam={!!checklist.team_name}
+            assignmentId={assignmentId}
+            onFinalized={invalidate}
+            teamName={checklist.team_name}
+            lockedAt={checklist.team_final_locked_at}
+            doneCount={doneCount}
+            totalRequired={requiredItems.length}
+            pct={pct}
+            teamRemainingCount={requiredTeamItems.filter((i) => i.status !== "done").length}
           />
         </div>
       </div>
@@ -140,6 +144,7 @@ export default function RoadmapBoard() {
           a useEffect+setState reset on item change. */}
       <TaskDrawer
         key={openItem?.id ?? "closed"} item={openItem} assignmentId={assignmentId} teamName={checklist.team_name}
+        teamFinalLocked={!!checklist.team_final_locked_at}
         onClose={() => setOpenItemId(null)} onChanged={invalidate}
       />
     </div>

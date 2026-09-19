@@ -56,8 +56,8 @@ export function computeLiveTaskId(items: LmsProgramChecklistItem[]): string | nu
  * `computeLiveTaskId` additionally gets the pulse animation and mirrors
  * the next-task card — see TaskTile's own `isPulsing` check. */
 export function tileState(item: LmsProgramChecklistItem): TileState {
-  if (item.locked) return "locked";
   if (itemDone(item)) return "cleared";
+  if (item.locked) return "locked";
   return "live";
 }
 
@@ -100,7 +100,7 @@ const ITEM_TYPE_ICON: Record<LmsProgramChecklistItem["item_type"], LucideIcon> =
 /** Locked tiles always render `lock` regardless of type (README: "locked
  * tiles always render lock"). */
 export function iconForItem(item: LmsProgramChecklistItem): LucideIcon {
-  if (item.locked) return Lock;
+  if (!itemDone(item) && item.locked) return Lock;
   if (item.item_type === "mission_run" && item.mission_step_key) {
     return STEP_ICON[item.mission_step_key as MissionStepKey] ?? Rocket;
   }
