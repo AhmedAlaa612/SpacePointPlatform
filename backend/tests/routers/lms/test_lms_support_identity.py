@@ -6,12 +6,11 @@ and several cohorts at once (see services/lms/support.py). Redis-free — uses
 the shared `client` fixture.
 """
 
-import hmac
 import uuid
 from datetime import datetime, timedelta, timezone
-from hashlib import sha256
 
 import pytest
+from jose import jwt
 from fastapi import status as http_status
 
 from app.core.config import settings
@@ -94,34 +93,57 @@ async def test_requires_authentication(db, client):
     assert res.status_code in (http_status.HTTP_401_UNAUTHORIZED, http_status.HTTP_403_FORBIDDEN)
 
 
-async def test_returns_the_callers_identity_with_a_verifiable_hash(db, client):
-    user = await _user(db, full_name="Aisha Khan")
+async def test_returns_the_callers_identity_as_signed_claims(db, client):
+    """The token is what Intercom actually reads, so verify it the way
+    Intercom will — decode it against the workspace secret — rather than
+    trusting the plaintext fields echoed beside it."""
+    user = await _user(db, full_name="Aisha Khan", card_number=12)
 
     res = await client.get(URL, headers=_headers(user))
     assert res.status_code == http_status.HTTP_200_OK
     body = res.json()
 
-    assert body["user_id"] == str(user.id)
-    assert body["name"] == "Aisha Khan"
-    assert body["email"] == user.email
+    claims = jwt.decode(body["intercom_user_jwt"], SECRET, algorithms=["HS256"])
+    assert claims["user_id"] == str(user.id)
+    assert claims["name"] == "Aisha Khan"
+    assert claims["email"] == user.email
+    assert claims["card_id"] == "SP-ST-0012-UAE"
+    assert claims["exp"] > datetime.now(timezone.utc).timestamp()
 
-    # Not merely "stable" — the exact digest Intercom will recompute. If the
-    # algorithm or the signed value drifts, every boot silently fails
-    # verification, so pin it rather than asserting it's non-empty.
-    assert body["user_hash"] == hmac.new(
-        SECRET.encode(), str(user.id).encode(), sha256,
-    ).hexdigest()
+    # The echoed copies must agree with the signed ones, or the Inbox shows
+    # something the token doesn't actually vouch for.
+    assert body["user_id"] == claims["user_id"]
+    assert body["email"] == claims["email"]
 
 
-async def test_hash_differs_per_user(db, client):
+async def test_token_is_signed_hs256_and_rejects_a_wrong_secret(db, client):
+    """A token Intercom can't verify is worse than no token: the boot fails
+    and the widget silently drops to anonymous."""
+    user = await _user(db)
+    body = (await client.get(URL, headers=_headers(user))).json()
+
+    assert jwt.get_unverified_header(body["intercom_user_jwt"])["alg"] == "HS256"
+    with pytest.raises(Exception):
+        jwt.decode(body["intercom_user_jwt"], "not-the-secret", algorithms=["HS256"])
+
+
+async def test_never_sends_the_deprecated_user_hash(db, client):
+    """Intercom accepts `user_hash` or `intercom_user_jwt`, never both — a
+    payload carrying each is rejected outright."""
+    user = await _user(db)
+    body = (await client.get(URL, headers=_headers(user))).json()
+    assert "user_hash" not in body
+
+
+async def test_token_differs_per_user(db, client):
     one, two = await _user(db), await _user(db)
-    a = (await client.get(URL, headers=_headers(one))).json()["user_hash"]
-    b = (await client.get(URL, headers=_headers(two))).json()["user_hash"]
+    a = (await client.get(URL, headers=_headers(one))).json()["intercom_user_jwt"]
+    b = (await client.get(URL, headers=_headers(two))).json()["intercom_user_jwt"]
     assert a != b
 
 
 async def test_503_when_the_secret_is_unset(db, client, monkeypatch):
-    """A blank secret still yields a syntactically valid HMAC — one keyed on
+    """A blank secret still signs a syntactically valid token — one keyed on
     the empty string. Serving that would look fine and verify nowhere, so the
     route must refuse instead."""
     monkeypatch.setattr(settings, "INTERCOM_IDENTITY_SECRET", "")

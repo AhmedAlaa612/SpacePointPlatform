@@ -19,10 +19,10 @@ so those need to come from the server. It also keeps the boot to one call
 instead of three.
 """
 
-import hmac
 import uuid
-from hashlib import sha256
+from datetime import datetime, timedelta, timezone
 
+from jose import jwt
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -34,11 +34,30 @@ from app.services.documents.card_id import format_card_id
 from app.services.teams import teams_for_user
 
 
-def identity_hash(*, secret: str, user_id: uuid.UUID) -> str:
-    """Intercom's identity verification digest: HMAC-SHA256 of the user id,
-    keyed by the workspace secret. The id must be the same string the
-    Messenger boots with as `user_id` or Intercom rejects the pair."""
-    return hmac.new(secret.encode(), str(user_id).encode(), sha256).hexdigest()
+# How long a minted token stays valid. The Messenger only needs it at boot,
+# and the widget refetches on every mount, so this is short on purpose — a
+# token lifted from a shared machine's devtools stops working the same hour.
+JWT_TTL = timedelta(hours=1)
+
+
+def identity_jwt(*, secret: str, claims: dict) -> str:
+    """Intercom Messenger Security token — HS256 over the workspace secret.
+
+    This replaced the older `user_hash` HMAC digest, which Intercom
+    deprecated along with the whole Identity Verification feature. Old
+    `user_hash` values are still accepted, but the two are mutually
+    exclusive: a boot payload may carry one or the other, never both.
+
+    Every attribute rides *inside* the token rather than beside it, which is
+    the real upgrade. `user_hash` only ever signed the user id, so the name,
+    email and custom attributes next to it in the boot payload were
+    unauthenticated and editable in devtools. As signed claims they are not.
+    """
+    return jwt.encode(
+        {**claims, "exp": datetime.now(timezone.utc) + JWT_TTL},
+        secret,
+        algorithm="HS256",
+    )
 
 
 def _pick_team(teams: list[Team]) -> Team | None:
@@ -101,9 +120,8 @@ async def chat_identity(db: AsyncSession, *, user: User, secret: str) -> dict:
     teams = await teams_for_user(db, user_id=user.id)
     team = _pick_team(teams)
 
-    return {
+    claims = {
         "user_id": str(user.id),
-        "user_hash": identity_hash(secret=secret, user_id=user.id),
         "name": user.full_name,
         "email": user.email,
         # Comma-joined rather than a single role: `users.roles` is an array
@@ -123,3 +141,8 @@ async def chat_identity(db: AsyncSession, *, user: User, secret: str) -> dict:
             else None
         ),
     }
+    # The claims are echoed alongside the token so the frontend can stay dumb
+    # (it hands the whole thing to Intercom) and so this is debuggable without
+    # decoding a JWT by hand. The token is the authenticated copy; Intercom
+    # reads identity from it, not from these.
+    return {"intercom_user_jwt": identity_jwt(secret=secret, claims=claims), **claims}

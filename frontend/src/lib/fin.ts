@@ -42,18 +42,22 @@ declare global {
 /** Attributes handed to the messenger on boot.
  *
  * All optional: an unauthenticated boot passes none of them, and the widget
- * still works — it just opens as an anonymous visitor. `user_hash` is the
- * server's HMAC of `user_id` (see the backend's
- * `services/lms/support.py::identity_hash`); Intercom verifies the pair and
- * rejects a mismatched one, which is what stops a student opening a chat as
- * someone else.
+ * still works — it just opens as an anonymous visitor.
  *
- * `team`, `cohort` and `card_id` are custom attributes rather than Intercom
- * built-ins: they show on the contact when a conversation is handed over, so
- * whoever picks it up knows who they are talking to without asking. */
+ * `intercom_user_jwt` is Intercom Messenger Security — an HS256 token the
+ * backend signs (`services/lms/support.py::identity_jwt`) carrying the same
+ * fields as claims. Intercom reads identity from the token, so a student
+ * cannot open a chat as someone else. It replaces the older `user_hash`
+ * HMAC, which Intercom deprecated; the two are mutually exclusive and must
+ * never both be sent.
+ *
+ * The plain fields are sent too so the contact record and the Inbox show
+ * them. `roles`, `team`, `cohort` and `card_id` are custom attributes rather
+ * than Intercom built-ins: `roles` drives audience matching, the rest tell
+ * whoever picks up a handover who they are talking to. */
 export interface FinBootPayload {
+  intercom_user_jwt?: string;
   user_id?: string;
-  user_hash?: string;
   name?: string;
   email?: string;
   roles?: string;

@@ -718,16 +718,18 @@ export async function getChecklistItemGuidelineVideoUrlApi(
  * (schemas/lms.py) field for field.
  *
  * Composed server-side rather than assembled here from `AuthContext`, even
- * though name/email/card_id are already on `/auth/me`: Intercom's identity
- * verification signs `user_id`, not the attributes beside it, so anything the
- * browser supplies could be edited before boot. A support agent looks the
- * student up by email and card id, so those come from the server.
+ * though name/email/card_id are already on `/auth/me`: the attributes travel
+ * as signed JWT claims, so anything the browser supplied instead could be
+ * edited before boot. A support agent looks the student up by email and card
+ * id, so those have to be trustworthy.
  *
  * 503 when the backend has no `INTERCOM_IDENTITY_SECRET` — the caller treats
  * that as "boot anonymously", which is exactly the pre-identity behaviour. */
 export interface ChatIdentity {
+  /** Signed HS256 token carrying every field below as claims. Intercom reads
+   * identity from this; the rest are echoed for debuggability. */
+  intercom_user_jwt: string;
   user_id: string;
-  user_hash: string;
   name: string;
   email: string;
   /** Every role this account holds, comma-joined ("student,instructor") —
