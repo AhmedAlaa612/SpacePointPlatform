@@ -2,7 +2,7 @@ import { useState } from "react";
 import { useNavigate } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient, type UseMutationResult } from "@tanstack/react-query";
 import { isAxiosError } from "axios";
-import { Check, ExternalLink, Plus, Play, Trash2, X, type LucideIcon } from "lucide-react";
+import { Check, ExternalLink, Lock, Plus, Play, Trash2, X, type LucideIcon } from "lucide-react";
 import {
   completeChecklistItem, getChecklistItemGuidelineVideoUrlApi, getChecklistItemPdfUrlApi, setTeamNameChecklistItem,
   submitChecklistItem, submitChecklistItemText, submitChecklistItemLinks,
@@ -108,6 +108,7 @@ interface DrawerBodyProps {
   teamNameMutation: UseMutationResult<LmsProgramChecklistItem, Error, string>;
   Icon: LucideIcon;
   completeMutation: UseMutationResult<LmsProgramChecklistItem, Error, void>;
+  teamFinalLocked?: boolean;
 }
 
 /** One task, three sections top to bottom: an optional **Guide** (a button
@@ -137,6 +138,7 @@ function DrawerBody({
   submitText, setSubmitText, submitTextMutation,
   linksInput, setLinksInput, submitLinksMutation,
   teamNameInput, setTeamNameInput, teamNameMutation, Icon, completeMutation,
+  teamFinalLocked,
 }: DrawerBodyProps) {
   // A plain (non-multi) submission item can itself be a text field
   // (2026-09-16) — isPoster is excluded on purpose, it's always
@@ -396,7 +398,7 @@ function DrawerBody({
         </div>
       )}
 
-      {isSubmission && !isMultiLink && (
+      {isSubmission && !isMultiLink && !(teamFinalLocked && item.scope === "team") && (
         pastDeadline ? (
           <p className="text-sm font-medium text-amber-600 dark:text-amber-500">
             Deadline passed — no longer accepting submissions
@@ -431,7 +433,7 @@ function DrawerBody({
         )
       )}
 
-      {isSubmission && isMultiLink && (
+      {isSubmission && isMultiLink && !(teamFinalLocked && item.scope === "team") && (
         pastDeadline ? (
           <p className="text-sm font-medium text-amber-600 dark:text-amber-500">
             Deadline passed — no longer accepting submissions
@@ -513,91 +515,99 @@ function DrawerBody({
 
       {/* Exactly one primary action, whatever this item's type. */}
       <div className="mt-auto pt-3 flex flex-col gap-2.5 border-t border-border">
-        {!canSubmit && (isSubmission || isSelfCheck || isTeamSetup) && !done && !awaiting && (
-          <p className="text-xs text-muted-foreground text-center">View the guide above first</p>
-        )}
-        {isAutoTracked && (
-          <Button onClick={doWork} className="h-[52px] text-base gap-2">{workLabel}</Button>
-        )}
-        {isTeamSetup && !pastDeadline && (
-          <Button
-            disabled={!canSubmit || !teamNameInput.trim() || teamNameMutation.isPending}
-            onClick={() => teamNameMutation.mutate(teamNameInput.trim())}
-            className="h-[52px] text-base"
-          >
-            {teamNameMutation.isPending ? "Saving…" : teamName ? "Update team name" : "Save team name"}
-          </Button>
-        )}
-        {isSubmission && !isMultiLink && !isTextSubmission && !pastDeadline && (
-          <Button
-            disabled={!canSubmit || (!submitUrl && !item.submitted_url) || submitMutation.isPending}
-            onClick={() => submitMutation.mutate(submitUrl || item.submitted_url || "")}
-            className="h-[52px] text-base"
-          >
-            {submitMutation.isPending
-              ? "Submitting…"
-              : item.submitted_url
-              ? isPoster
-                ? "Update poster link"
-                : "Replace submission"
-              : isPoster
-              ? "Submit poster"
-              : "Submit for review"}
-          </Button>
-        )}
-        {isTextSubmission && !pastDeadline && (
-          <Button
-            disabled={!canSubmit || (!submitText.trim() && !item.submitted_text) || submitTextMutation.isPending}
-            onClick={() => submitTextMutation.mutate((submitText || item.submitted_text || "").trim())}
-            className="h-[52px] text-base"
-          >
-            {submitTextMutation.isPending
-              ? "Submitting…"
-              : item.submitted_text
-              ? "Replace submission"
-              : "Submit for review"}
-          </Button>
-        )}
-        {isSubmission && isMultiLink && !pastDeadline && (
-          <Button
-            disabled={
-              !canSubmit || submitLinksMutation.isPending
-              // A row's "does it have an answer" reads .text for a
-              // text-type field, .url for everything else (including the
-              // free-text legacy path, which has no specs and is always
-              // link-only) — same field-type-aware check the backend does.
-              || !linksInput.some((l, i) => hasRowValue(l, item.submission_link_labels?.[i]))
-              // Ops's own required fields (2026-09-14) block submission
-              // until each has a real answer — optional ones don't.
-              || (item.submission_link_labels?.some((spec, i) => spec.required && !hasRowValue(linksInput[i], spec)) ?? false)
-            }
-            onClick={() => submitLinksMutation.mutate(
-              linksInput
-                .map((l, i) => ({ link: l, spec: item.submission_link_labels?.[i] }))
-                .filter(({ link, spec }) => hasRowValue(link, spec))
-                .map(({ link, spec }) => (
-                  spec?.field_type === "text"
-                    ? { label: link.label?.trim() || null, url: null, text: (link.text ?? "").trim() }
-                    : { label: link.label?.trim() || null, url: (link.url ?? "").trim(), text: null }
-                )),
+        {teamFinalLocked && item.scope === "team" ? (
+          <div className="flex items-center justify-center gap-2 p-3.5 rounded-xl bg-primary/10 border border-primary/25 text-primary text-sm font-semibold">
+            <Lock size={16} /> Final submission locked · Sealed for review
+          </div>
+        ) : (
+          <>
+            {!canSubmit && (isSubmission || isSelfCheck || isTeamSetup) && !done && !awaiting && (
+              <p className="text-xs text-muted-foreground text-center">View the guide above first</p>
             )}
-            className="h-[52px] text-base"
-          >
-            {submitLinksMutation.isPending
-              ? "Submitting…"
-              : item.submitted_links?.length
-              ? "Replace submission"
-              : "Submit for review"}
-          </Button>
-        )}
-        {isSelfCheck && !done && !awaiting && (
-          <Button
-            disabled={!canSubmit || completeMutation.isPending}
-            onClick={() => completeMutation.mutate()}
-            className="h-[52px] text-base"
-          >
-            {completeMutation.isPending ? "Marking done…" : item.requires_confirmation ? "Mark as done (needs sign-off)" : "Mark as done"}
-          </Button>
+            {isAutoTracked && (
+              <Button onClick={doWork} className="h-[52px] text-base gap-2">{workLabel}</Button>
+            )}
+            {isTeamSetup && !pastDeadline && (
+              <Button
+                disabled={!canSubmit || !teamNameInput.trim() || teamNameMutation.isPending}
+                onClick={() => teamNameMutation.mutate(teamNameInput.trim())}
+                className="h-[52px] text-base"
+              >
+                {teamNameMutation.isPending ? "Saving…" : teamName ? "Update team name" : "Save team name"}
+              </Button>
+            )}
+            {isSubmission && !isMultiLink && !isTextSubmission && !pastDeadline && (
+              <Button
+                disabled={!canSubmit || (!submitUrl && !item.submitted_url) || submitMutation.isPending}
+                onClick={() => submitMutation.mutate(submitUrl || item.submitted_url || "")}
+                className="h-[52px] text-base"
+              >
+                {submitMutation.isPending
+                  ? "Submitting…"
+                  : item.submitted_url
+                  ? isPoster
+                    ? "Update poster link"
+                    : "Replace submission"
+                  : isPoster
+                  ? "Submit poster"
+                  : "Submit for review"}
+              </Button>
+            )}
+            {isTextSubmission && !pastDeadline && (
+              <Button
+                disabled={!canSubmit || (!submitText.trim() && !item.submitted_text) || submitTextMutation.isPending}
+                onClick={() => submitTextMutation.mutate((submitText || item.submitted_text || "").trim())}
+                className="h-[52px] text-base"
+              >
+                {submitTextMutation.isPending
+                  ? "Submitting…"
+                  : item.submitted_text
+                  ? "Replace submission"
+                  : "Submit for review"}
+              </Button>
+            )}
+            {isSubmission && isMultiLink && !pastDeadline && (
+              <Button
+                disabled={
+                  !canSubmit || submitLinksMutation.isPending
+                  // A row's "does it have an answer" reads .text for a
+                  // text-type field, .url for everything else (including the
+                  // free-text legacy path, which has no specs and is always
+                  // link-only) — same field-type-aware check the backend does.
+                  || !linksInput.some((l, i) => hasRowValue(l, item.submission_link_labels?.[i]))
+                  // Ops's own required fields (2026-09-14) block submission
+                  // until each has a real answer — optional ones don't.
+                  || (item.submission_link_labels?.some((spec, i) => spec.required && !hasRowValue(linksInput[i], spec)) ?? false)
+                }
+                onClick={() => submitLinksMutation.mutate(
+                  linksInput
+                    .map((l, i) => ({ link: l, spec: item.submission_link_labels?.[i] }))
+                    .filter(({ link, spec }) => hasRowValue(link, spec))
+                    .map(({ link, spec }) => (
+                      spec?.field_type === "text"
+                        ? { label: link.label?.trim() || null, url: null, text: (link.text ?? "").trim() }
+                        : { label: link.label?.trim() || null, url: (link.url ?? "").trim(), text: null }
+                    )),
+                )}
+                className="h-[52px] text-base"
+              >
+                {submitLinksMutation.isPending
+                  ? "Submitting…"
+                  : item.submitted_links?.length
+                  ? "Replace submission"
+                  : "Submit for review"}
+              </Button>
+            )}
+            {isSelfCheck && !done && !awaiting && (
+              <Button
+                disabled={!canSubmit || completeMutation.isPending}
+                onClick={() => completeMutation.mutate()}
+                className="h-[52px] text-base"
+              >
+                {completeMutation.isPending ? "Marking done…" : item.requires_confirmation ? "Mark as done (needs sign-off)" : "Mark as done"}
+              </Button>
+            )}
+          </>
         )}
       </div>
     </>
@@ -611,11 +621,12 @@ function DrawerBody({
  * lifted from the old `ChecklistItemRow` (`LearnChecklist.tsx`, now
  * retired), not rewritten. */
 export function TaskDrawer({
-  item, assignmentId, teamName, onClose, onChanged,
+  item, assignmentId, teamName, teamFinalLocked, onClose, onChanged,
 }: {
   item: LmsProgramChecklistItem | null;
   assignmentId: string;
   teamName: string | null;
+  teamFinalLocked?: boolean;
   onClose: () => void;
   onChanged: () => void;
 }) {
@@ -838,6 +849,7 @@ export function TaskDrawer({
     submitUrl, setSubmitUrl, submitMutation, submitText, setSubmitText, submitTextMutation,
     linksInput, setLinksInput, submitLinksMutation,
     teamNameInput, setTeamNameInput, teamNameMutation, Icon, completeMutation,
+    teamFinalLocked,
   };
 
   return (

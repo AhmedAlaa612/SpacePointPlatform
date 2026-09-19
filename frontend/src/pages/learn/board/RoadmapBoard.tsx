@@ -46,14 +46,20 @@ export default function RoadmapBoard() {
     if (y !== null) requestAnimationFrame(() => window.scrollTo(0, y));
   }, [checklist, assignmentId]);
 
-  // A team-scoped tile reads locked once the team has hit "Final Submit"
-  // (checklist.team_final_locked_at), same as any other lock — every
-  // downstream consumer (tileState, computeLiveTaskId, openItemById's
-  // no-op guard) already keys off item.locked, so overriding it here once
-  // is enough to keep the whole board consistent with the 409 the backend
-  // would otherwise return on a now-pointless edit attempt.
+  // A team-scoped tile that isn't done yet reads locked once the team has
+  // hit "Final Submit" (checklist.team_final_locked_at) — a done tile
+  // stays "cleared" and reviewable, not styled "Not powered" like a tile
+  // that was never reachable to begin with. Only the not-done case needs
+  // the override: TaskTile already renders "cleared" for a done item
+  // regardless of item.locked (found live, 2026-09-19: an earlier version
+  // of this fix locked every team-scoped item unconditionally, which made
+  // already-completed ones look broken instead of finished; this version
+  // dropped the override entirely instead, which left a still-open
+  // team-scoped item clickable after the team had already locked).
   const items = (checklist?.items ?? []).map((item) => (
-    item.scope === "team" && checklist?.team_final_locked_at ? { ...item, locked: true } : item
+    item.scope === "team" && item.status !== "done" && checklist?.team_final_locked_at
+      ? { ...item, locked: true }
+      : item
   ));
   const liveTaskId = computeLiveTaskId(items);
   const liveItem = items.find((i) => i.id === liveTaskId) ?? null;
@@ -68,13 +74,21 @@ export default function RoadmapBoard() {
   // team_final_submit_readiness, which checks the same subset.
   const requiredTeamItems = requiredItems.filter((i) => i.scope === "team");
   const teamReady = requiredTeamItems.length > 0 && requiredTeamItems.every((i) => i.status === "done");
+  // Same "team items only, when there are any" basis as teamReady above —
+  // computed here, not guessed inside FinalGateBar from an optional prop,
+  // so a no-team program (requiredTeamItems always [] there, never
+  // undefined) can't silently read as 0-remaining/ready-to-review (found
+  // live, 2026-09-19).
+  const remainingCount = requiredTeamItems.length > 0
+    ? requiredTeamItems.filter((i) => i.status !== "done").length
+    : requiredItems.length - doneCount;
   const openItem = items.find((i) => i.id === openItemId) ?? null;
 
   if (error) return <div className="mx-auto max-w-[900px] px-5 py-10"><p className="text-sm text-destructive">Couldn't load this program.</p></div>;
   if (isLoading || !checklist) return <div className="mx-auto max-w-[900px] px-5 py-10"><p className="text-sm text-muted-foreground">Loading...</p></div>;
 
   const openItemById = (item: LmsProgramChecklistItem) => {
-    if (item.locked) return; // flow rule 2: locked tile → no-op
+    if (item.locked && item.status !== "done") return; // flow rule 2: uncompleted locked tile → no-op
     setOpenItemId(item.id);
   };
 
@@ -129,8 +143,16 @@ export default function RoadmapBoard() {
           )}
 
           <FinalGateBar
-            groups={groups} teamReady={teamReady} locked={!!checklist.team_final_locked_at}
-            hasTeam={!!checklist.team_name} assignmentId={assignmentId} onFinalized={invalidate}
+            groups={groups}
+            teamReady={teamReady}
+            locked={!!checklist.team_final_locked_at}
+            hasTeam={!!checklist.team_name}
+            assignmentId={assignmentId}
+            onFinalized={invalidate}
+            teamName={checklist.team_name}
+            lockedAt={checklist.team_final_locked_at}
+            pct={pct}
+            remainingCount={remainingCount}
           />
         </div>
       </div>
@@ -140,6 +162,7 @@ export default function RoadmapBoard() {
           a useEffect+setState reset on item change. */}
       <TaskDrawer
         key={openItem?.id ?? "closed"} item={openItem} assignmentId={assignmentId} teamName={checklist.team_name}
+        teamFinalLocked={!!checklist.team_final_locked_at}
         onClose={() => setOpenItemId(null)} onChanged={invalidate}
       />
     </div>
