@@ -193,6 +193,11 @@ class CompetitionJudgeTeamOut(TeamOut):
     # checklist genuinely is.
     locked: bool = False
     locked_at: datetime | None = None
+    roster_team_id: str | None = None
+    member_count: int = 0
+    items_done: int = 0
+    items_total: int = 0
+    pct: int = 0
 
 
 class CompetitionTeamDetailOut(BaseModel):

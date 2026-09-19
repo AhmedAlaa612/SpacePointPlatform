@@ -15,6 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.dependencies import get_current_active_user, require_judge
 from app.db.session import get_db
+from app.models.lms.program import LmsProgramTeamItemProgress
 from app.models.missions.design import Design
 from app.models.missions.mission import MissionAttempt
 from app.models.sessions.cohort import Cohort
@@ -29,7 +30,7 @@ from app.schemas.missions_design import DesignStateOut
 from app.schemas.teams import TeamOut
 from app.services.competitions.judges import assigned_cohorts, require_judge_cohort_access
 from app.services.competitions.judging import get_own_score, get_rubric, scored_team_ids, submit_score
-from app.services.lms.program import team_mission_run_items, team_submission_items
+from app.services.lms.program import effective_cohort_program_items, team_mission_run_items, team_submission_items
 from app.services.teams import team_member_ids, teams_for_cohort
 
 router = APIRouter(
@@ -73,15 +74,60 @@ async def list_my_teams(
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Cohort not found")
     teams = await teams_for_cohort(db, cohort_id=cohort_id)
     scored = await scored_team_ids(db, judge_user_id=current.id, cohort_id=cohort_id)
+
+    resolved = await effective_cohort_program_items(db, cohort_id)
+    team_items = []
+    if resolved is not None:
+        _, items, _ = resolved
+        team_items = [i for i in items if i.scope == "team" and i.item_type != "mission_run"]
+    required_team_items = [i for i in team_items if not i.optional] or team_items
+    total_items = len(required_team_items)
+
+    progress_by_team_item: dict[tuple[uuid.UUID, uuid.UUID], LmsProgramTeamItemProgress] = {}
+    if teams and required_team_items:
+        progress_rows = (await db.execute(
+            select(LmsProgramTeamItemProgress).where(
+                LmsProgramTeamItemProgress.team_id.in_([t.id for t in teams]),
+                LmsProgramTeamItemProgress.item_id.in_([i.id for i in required_team_items]),
+            )
+        )).scalars().all()
+        for p in progress_rows:
+            progress_by_team_item[(p.team_id, p.item_id)] = p
+
     out = []
     for team in teams:
         base = await _team_out(db, team)
+        done_count = sum(
+            1 for item in required_team_items
+            if (p := progress_by_team_item.get((team.id, item.id))) is not None
+            and (
+                p.status == "done"
+                or p.status == "awaiting_confirmation"
+                or bool(p.submitted_url)
+                or bool(p.submitted_text)
+                or bool(p.submitted_links)
+            )
+        )
+        pct = round(100 * done_count / total_items) if total_items else 0
+
         out.append(CompetitionJudgeTeamOut(
             **base.model_dump(),
             already_scored=team.id in scored,
             locked=team.final_locked_at is not None,
             locked_at=team.final_locked_at,
+            roster_team_id=team.roster_team_id,
+            member_count=len(base.member_ids),
+            items_done=done_count,
+            items_total=total_items,
+            pct=pct,
         ))
+
+    out.sort(key=lambda t: (
+        not t.locked,
+        -t.pct,
+        -t.items_done,
+        t.name.lower(),
+    ))
     return out
 
 

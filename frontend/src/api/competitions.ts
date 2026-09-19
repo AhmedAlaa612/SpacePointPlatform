@@ -201,6 +201,11 @@ export interface CompetitionJudgeTeam {
   // Team hit "Final Submit" — its checklist is frozen, only ops can reopen it.
   locked: boolean
   locked_at?: string | null
+  roster_team_id?: string | null
+  member_count?: number
+  items_done?: number
+  items_total?: number
+  pct?: number
 }
 
 export interface CompetitionTeam {
