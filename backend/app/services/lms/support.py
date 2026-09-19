@@ -120,7 +120,7 @@ async def chat_identity(db: AsyncSession, *, user: User, secret: str) -> dict:
     teams = await teams_for_user(db, user_id=user.id)
     team = _pick_team(teams)
 
-    claims = {
+    fields = {
         "user_id": str(user.id),
         "name": user.full_name,
         "email": user.email,
@@ -141,8 +141,23 @@ async def chat_identity(db: AsyncSession, *, user: User, secret: str) -> dict:
             else None
         ),
     }
-    # The claims are echoed alongside the token so the frontend can stay dumb
-    # (it hands the whole thing to Intercom) and so this is debuggable without
-    # decoding a JWT by hand. The token is the authenticated copy; Intercom
-    # reads identity from it, not from these.
-    return {"intercom_user_jwt": identity_jwt(secret=secret, claims=claims), **claims}
+
+    # Anything that isn't one of Intercom's own standard attributes has to be
+    # nested under `custom_attributes`, the same shape their REST API uses.
+    # Sent as bare top-level claims they are simply dropped: the contact ends
+    # up with name and email applied and no roles/team/cohort/card at all,
+    # with nothing anywhere reporting a problem. Found the hard way, on a
+    # contact whose attribute list was entirely Intercom's own defaults.
+    claims = {
+        "user_id": fields["user_id"],
+        "name": fields["name"],
+        "email": fields["email"],
+        "custom_attributes": {
+            k: v for k, v in fields.items() if k not in ("user_id", "name", "email")
+        },
+    }
+
+    # The response stays flat — it is our own debugging surface, readable
+    # without decoding a token, and the frontend forwards only the token
+    # anyway. The nesting above is Intercom's wire format, not ours.
+    return {"intercom_user_jwt": identity_jwt(secret=secret, claims=claims), **fields}

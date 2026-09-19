@@ -107,8 +107,12 @@ async def test_returns_the_callers_identity_as_signed_claims(db, client):
     assert claims["user_id"] == str(user.id)
     assert claims["name"] == "Aisha Khan"
     assert claims["email"] == user.email
-    assert claims["card_id"] == "SP-ST-0012-UAE"
     assert claims["exp"] > datetime.now(timezone.utc).timestamp()
+
+    # Everything that is not an Intercom standard attribute must be nested,
+    # or it is silently dropped and the contact shows none of it.
+    assert claims["custom_attributes"]["card_id"] == "SP-ST-0012-UAE"
+    assert "card_id" not in claims
 
     # The echoed copies must agree with the signed ones, or the Inbox shows
     # something the token doesn't actually vouch for.
@@ -198,6 +202,34 @@ async def test_picks_the_most_recently_assigned_cohort(db, client):
 
     body = (await client.get(URL, headers=_headers(user))).json()
     assert body["cohort"] == "Ru'ya 2026"
+
+
+async def test_custom_attributes_are_nested_not_top_level(db, client):
+    """Intercom drops unrecognised top-level claims without complaining, so
+    pin the nesting: the failure mode is a contact that looks fine but
+    carries none of the attributes the audience rules depend on."""
+    user = await _user(db)
+    body = (await client.get(URL, headers=_headers(user))).json()
+    claims = jwt.decode(body["intercom_user_jwt"], SECRET, algorithms=["HS256"])
+
+    assert set(claims["custom_attributes"]) == {"roles", "team", "cohort", "card_id"}
+    for key in ("roles", "team", "cohort", "card_id"):
+        assert key not in claims
+
+    # Standard attributes stay where Intercom expects them.
+    for key in ("user_id", "name", "email"):
+        assert key in claims
+        assert key not in claims["custom_attributes"]
+
+
+async def test_response_stays_flat_for_debuggability(db, client):
+    """The HTTP response is our own surface, readable without decoding a
+    token; only the token itself uses Intercom's nesting."""
+    user = await _user(db, roles=["student"], card_number=12)
+    body = (await client.get(URL, headers=_headers(user))).json()
+    assert body["roles"] == "student"
+    assert body["card_id"] == "SP-ST-0012-UAE"
+    assert "custom_attributes" not in body
 
 
 async def test_roles_is_a_single_value_for_a_single_role_account(db, client):
