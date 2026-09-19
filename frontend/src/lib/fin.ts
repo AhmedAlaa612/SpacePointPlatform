@@ -39,14 +39,26 @@ declare global {
   }
 }
 
-/** Attributes handed to the messenger on boot. Phase 1 boots anonymously and
- * passes none of these; identity (name/email/team/cohort/card, HMAC-signed
- * server-side) is a later change. */
+/** Attributes handed to the messenger on boot.
+ *
+ * All optional: an unauthenticated boot passes none of them, and the widget
+ * still works — it just opens as an anonymous visitor. `user_hash` is the
+ * server's HMAC of `user_id` (see the backend's
+ * `services/lms/support.py::identity_hash`); Intercom verifies the pair and
+ * rejects a mismatched one, which is what stops a student opening a chat as
+ * someone else.
+ *
+ * `team`, `cohort` and `card_id` are custom attributes rather than Intercom
+ * built-ins: they show on the contact when a conversation is handed over, so
+ * whoever picks it up knows who they are talking to without asking. */
 export interface FinBootPayload {
   user_id?: string;
   user_hash?: string;
   name?: string;
   email?: string;
+  team?: string | null;
+  cohort?: string | null;
+  card_id?: string | null;
 }
 
 /** Whether an App ID was baked into this build. Callers check this rather

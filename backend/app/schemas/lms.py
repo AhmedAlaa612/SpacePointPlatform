@@ -544,6 +544,23 @@ class LmsProgramChecklistItemOut(BaseModel):
     locked: bool = False
 
 
+class ChatIdentityOut(BaseModel):
+    """Boot payload for the Fin support messenger (services/lms/support.py).
+
+    Everything but `user_id`/`user_hash` is nullable: a student with no team,
+    no cohort or no allocated card number is an ordinary account, and the
+    widget must degrade rather than error."""
+
+    model_config = ConfigDict(extra="forbid")
+    user_id: str
+    user_hash: str
+    name: str
+    email: str
+    team: str | None = None
+    cohort: str | None = None
+    card_id: str | None = None
+
+
 class LmsProgramAssignmentSummaryOut(BaseModel):
     assignment_id: UUID
     lms_program_id: UUID

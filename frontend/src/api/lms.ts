@@ -713,3 +713,29 @@ export async function getChecklistItemGuidelineVideoUrlApi(
   const { data } = await api.get(`/lms/programs/${assignmentId}/items/${itemId}/guideline-video-url`);
   return data;
 }
+
+/** The Fin support messenger's boot identity — mirrors `ChatIdentityOut`
+ * (schemas/lms.py) field for field.
+ *
+ * Composed server-side rather than assembled here from `AuthContext`, even
+ * though name/email/card_id are already on `/auth/me`: Intercom's identity
+ * verification signs `user_id`, not the attributes beside it, so anything the
+ * browser supplies could be edited before boot. A support agent looks the
+ * student up by email and card id, so those come from the server.
+ *
+ * 503 when the backend has no `INTERCOM_IDENTITY_SECRET` — the caller treats
+ * that as "boot anonymously", which is exactly the pre-identity behaviour. */
+export interface ChatIdentity {
+  user_id: string;
+  user_hash: string;
+  name: string;
+  email: string;
+  team: string | null;
+  cohort: string | null;
+  card_id: string | null;
+}
+
+export async function fetchChatIdentity(): Promise<ChatIdentity> {
+  const { data } = await api.get<ChatIdentity>("/lms/support/chat-identity");
+  return data;
+}

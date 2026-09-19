@@ -1,5 +1,6 @@
 import { useEffect } from "react";
 
+import { fetchChatIdentity } from "@/api/lms";
 import { useAuth } from "@/context/AuthContext";
 import { boot, isFinEnabled, shutdown } from "@/lib/fin";
 
@@ -10,28 +11,64 @@ import { boot, isFinEnabled, shutdown } from "@/lib/fin";
  *
  * Mounted in `pages/learn/LearnShell.tsx`, deliberately **not** in `main.tsx`:
  * this is a student support assistant trained on the competition FAQ, and the
- * portal, judge and applicant surfaces have no business showing it. Phase 1
- * boots anonymously, so anyone on `/learn/*` — including staff taking LMS
+ * portal, judge and applicant surfaces have no business showing it. Open to
+ * any authenticated account on `/learn/*`, including staff taking LMS
  * courses, matching how `/lms/my-courses` is gated (see the student router's
- * docstring) — gets the same messenger.
+ * docstring).
  *
- * Keyed on the logged-in user id rather than booting once on mount: the
- * cleanup's `shutdown()` is what stops a signed-out student's conversation
- * carrying over to whoever signs in next on a shared machine. See
- * `lib/fin.ts::shutdown`.
+ * Boots with a verified identity when there is one, anonymously otherwise.
+ * Three things that look incidental and are not:
+ *
+ * - **Waits for `loading`.** `AuthContext` resolves the user asynchronously,
+ *   so booting on mount would open an anonymous conversation and then throw
+ *   it away a moment later when the user arrives — a launcher that flickers
+ *   and a stray contact in Intercom for every page load.
+ * - **Falls back to an anonymous boot if the identity call fails.** A 503
+ *   (no `INTERCOM_IDENTITY_SECRET` configured) or a network blip degrades to
+ *   exactly the pre-identity behaviour rather than costing the student their
+ *   support channel.
+ * - **`shutdown()` on cleanup.** Intercom keeps a conversation in a cookie,
+ *   so without this the next person to sign in on a shared school machine
+ *   inherits the previous student's chat history. See `lib/fin.ts::shutdown`.
  *
  * Renders as a no-op with no network calls when `VITE_INTERCOM_APP_ID` is
- * unset, which is how this ships until the Intercom workspace is configured.
+ * unset.
  */
 export function FinWidget() {
-  const { user } = useAuth();
+  const { user, loading } = useAuth();
   const userId = user?.id ?? null;
 
   useEffect(() => {
     if (!isFinEnabled()) return;
-    boot();
-    return () => shutdown();
-  }, [userId]);
+    // Don't boot until we know whether anyone is signed in.
+    if (loading) return;
+
+    let cancelled = false;
+
+    async function start() {
+      if (!userId) {
+        boot();
+        return;
+      }
+      try {
+        const identity = await fetchChatIdentity();
+        // The user changed (or we unmounted) while the request was in
+        // flight — booting now would identify the wrong person.
+        if (cancelled) return;
+        boot(identity);
+      } catch {
+        if (cancelled) return;
+        boot();
+      }
+    }
+
+    void start();
+
+    return () => {
+      cancelled = true;
+      shutdown();
+    };
+  }, [userId, loading]);
 
   return null;
 }
