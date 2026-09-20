@@ -342,9 +342,16 @@ function DeliverableList({ deliverables }: { deliverables: CompetitionAnalyticsD
                 </div>
               )}
 
-              <span className="text-xs sm:text-sm font-semibold text-foreground flex-1 min-w-0 truncate">
-                {d.title}
-              </span>
+              <div className="flex items-center gap-1.5 min-w-0 flex-1">
+                <span className="text-xs sm:text-sm font-semibold text-foreground truncate">
+                  {d.title}
+                </span>
+                {d.optional && (
+                  <span className="text-[10px] font-medium px-1.5 py-0.5 rounded-md bg-muted text-muted-foreground border border-border/50 shrink-0">
+                    Optional
+                  </span>
+                )}
+              </div>
 
               <span
                 className={`text-[10px] sm:hidden font-bold uppercase tracking-wider px-2 py-0.5 rounded-md shrink-0 ${
@@ -659,7 +666,8 @@ function TeamTable({
       Total: t.items_total,
       "Completion %": t.pct,
       "Awaiting confirmation": t.awaiting,
-      Missing: t.deliverables.filter((d) => d.status !== "done").map((d) => d.title).join("; "),
+      Missing: t.deliverables.filter((d) => !d.optional && d.status !== "done").map((d) => d.title).join("; "),
+      "Optional submitted": t.deliverables.filter((d) => d.optional && d.status === "done").map((d) => d.title).join("; "),
       "Last activity": t.last_activity_at ? new Date(t.last_activity_at).toISOString().slice(0, 10) : "",
       Stalled: t.stalled ? "yes" : "",
       Locked: t.locked ? "yes" : "no",
@@ -838,7 +846,7 @@ function TeamTable({
                       <span>Deliverables ({team.items_done}/{team.items_total})</span>
                     </div>
                     {team.deliverables.length === 0 ? (
-                      <p className="text-xs text-muted-foreground italic">Nothing required</p>
+                      <p className="text-xs text-muted-foreground italic">No deliverables</p>
                     ) : (
                       <DeliverableList deliverables={team.deliverables} />
                     )}

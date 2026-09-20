@@ -450,6 +450,7 @@ export interface CompetitionAnalyticsDeliverable {
   item_id: string
   title: string
   status: string
+  optional?: boolean
   submitted_url: string | null
   submitted_text: string | null
   submitted_links: { label: string | null; url: string | null; text: string | null }[] | null

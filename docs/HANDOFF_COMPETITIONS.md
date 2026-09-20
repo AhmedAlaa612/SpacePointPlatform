@@ -445,7 +445,7 @@ One function, one dict, a fixed number of queries. In order:
 
 #### Per-team `deliverables` and `members` (the part added after first ship)
 
-Each team row's `deliverables` list carries **every required team-scoped item, not just the
+Each team row's `deliverables` list carries **every team-scoped item (required and optional), not just the
 missing ones** — ops asked to see what a team actually submitted, not just a bare "still missing"
 title. A `done` or `awaiting_confirmation` entry carries its real submitted content straight off
 the shared `LmsProgramTeamItemProgress` row: `submitted_url` (a link item), `submitted_text` (a
