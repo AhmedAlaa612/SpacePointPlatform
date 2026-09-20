@@ -10,6 +10,7 @@ from app.routers.lms.checkout import router as checkout_router
 from app.routers.lms.cohort_quiz_admin import router as cohort_quiz_admin_router
 from app.routers.lms.instructor import router as instructor_router
 from app.routers.lms.student import router as student_router
+from app.routers.lms.support import router as support_router
 from app.routers.lms.video import router as video_router
 
 router = APIRouter()
@@ -19,3 +20,4 @@ router.include_router(cohort_quiz_admin_router)
 router.include_router(instructor_router)
 router.include_router(video_router)
 router.include_router(checkout_router)
+router.include_router(support_router)

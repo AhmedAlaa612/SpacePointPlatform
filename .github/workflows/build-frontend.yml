@@ -27,6 +27,14 @@ jobs:
         working-directory: frontend
         env:
           VITE_API_URL: https://portal.spacepoint.ae/api
+          # Intercom/Fin workspace App ID for the student support messenger.
+          # Inline rather than a secret on purpose: it ships inside the JS
+          # bundle and is readable in devtools, so Intercom treats it as
+          # public — same posture as VITE_API_URL above. The identity
+          # verification secret is server-side and must never appear here.
+          # Blank would silently ship a frontend with no messenger at all,
+          # since Vite inlines this at build time.
+          VITE_INTERCOM_APP_ID: hsw1zj8e
         run: npm run build
 
       - name: Package dist
@@ -42,7 +50,7 @@ jobs:
         with:
           tag_name: frontend-latest
           name: "Frontend (latest build)"
-          body: "Auto-built from commit ${{ github.sha }}. VITE_API_URL=https://portal.spacepoint.ae/api"
+          body: "Auto-built from commit ${{ github.sha }}. VITE_API_URL=https://portal.spacepoint.ae/api VITE_INTERCOM_APP_ID=hsw1zj8e"
           files: frontend-dist.tar.gz
           make_latest: false
         env:

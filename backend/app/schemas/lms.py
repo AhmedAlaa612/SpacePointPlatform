@@ -544,6 +544,29 @@ class LmsProgramChecklistItemOut(BaseModel):
     locked: bool = False
 
 
+class ChatIdentityOut(BaseModel):
+    """Boot payload for the Fin support messenger (services/lms/support.py).
+
+    `intercom_user_jwt` is the authenticated copy — Intercom reads identity
+    from its signed claims, not from the fields beside it, which are echoed
+    only so the frontend can stay dumb and this stays debuggable without
+    decoding a token by hand.
+
+    Everything but `user_id`/`intercom_user_jwt` is nullable: a student with
+    no team, no cohort or no allocated card number is an ordinary account,
+    and the widget must degrade rather than error."""
+
+    model_config = ConfigDict(extra="forbid")
+    intercom_user_jwt: str
+    user_id: str
+    name: str
+    email: str
+    roles: str
+    team: str | None = None
+    cohort: str | None = None
+    card_id: str | None = None
+
+
 class LmsProgramAssignmentSummaryOut(BaseModel):
     assignment_id: UUID
     lms_program_id: UUID

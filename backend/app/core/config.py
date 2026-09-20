@@ -35,6 +35,15 @@ class Settings(BaseSettings):
     STRIPE_SECRET_KEY: str = ""
     STRIPE_WEBHOOK_SECRET: str = ""
 
+    # Intercom identity verification (Fin support messenger on /learn/*).
+    # HMAC-SHA256 key for the `user_hash` the Messenger boots with, so a
+    # student cannot open a chat as someone else. Server-side only — the
+    # workspace App ID is a separate, *public* value that lives in the
+    # frontend build (VITE_INTERCOM_APP_ID) and is deliberately not
+    # mirrored here. Blank disables identity: /lms/support/chat-identity
+    # returns 503 rather than serving an unverified payload.
+    INTERCOM_IDENTITY_SECRET: str = ""
+
     # Storage backend (Phase 7 / GO_LIVE §3.A3)
     # - "supabase": Supabase Storage buckets (dev default, pre-cutover)
     # - "local":    files under STORAGE_ROOT/{bucket}/{path}, Fernet-encrypted at

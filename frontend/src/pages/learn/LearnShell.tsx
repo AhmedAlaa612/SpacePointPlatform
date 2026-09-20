@@ -1,4 +1,5 @@
 import { Outlet, useLocation } from "@tanstack/react-router";
+import { FinWidget } from "@/components/FinWidget";
 import { LearnSidebar } from "./LearnSidebar";
 import { LearnMobileTabBar } from "./nav/LearnMobileTabBar";
 import type { LearnNavActive } from "./nav/navItems";
@@ -61,6 +62,10 @@ export function LearnShell() {
       <main className="flex-1 min-w-0 pb-28 md:pb-0 md:ml-64 print:ml-0 print:pb-0">
         <Outlet />
       </main>
+      {/* Renders nothing; the messenger injects its own launcher into <body>.
+          Here rather than in main.tsx so it stays on the student surface — see
+          the component's docblock. Inert without VITE_INTERCOM_APP_ID. */}
+      <FinWidget />
     </div>
   );
 }
