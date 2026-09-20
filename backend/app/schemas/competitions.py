@@ -389,13 +389,14 @@ class CompetitionAnalyticsMissionOut(BaseModel):
 
 
 class CompetitionAnalyticsDeliverableOut(BaseModel):
-    """One required team-scoped deliverable's state for one team —
-    every one of them, not just the missing ones, so a done item can show
+    """One team-scoped deliverable's state for one team —
+    every one of them (required and optional), not just the missing ones, so a done item can show
     what was actually submitted instead of ops having to click through to
     the checklist for it."""
     item_id: UUID
     title: str
     status: str
+    optional: bool = False
     submitted_url: str | None = None
     submitted_text: str | None = None
     submitted_links: list[LmsSubmissionLink] | None = None

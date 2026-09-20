@@ -445,13 +445,6 @@ async def cohort_team_analytics(db: AsyncSession, *, cohort_id: uuid.UUID) -> di
         members = [users_by_id[uid] for uid in member_ids if uid in users_by_id]
         done = 0
         awaiting = 0
-        # Every required deliverable, not just the missing ones — ops asked
-        # to see what a team actually submitted here (link/text), not just
-        # a bare "still missing" title, so a done item carries its content
-        # straight from the shared team-progress row rather than making
-        # ops click through to the checklist for it.
-        deliverables: list[dict] = []
-        last_activity: datetime | None = None
         for item in required_team_items:
             progress = progress_by_team_item.get((team.id, item.id))
             status = progress.status if progress is not None else "pending"
@@ -459,16 +452,26 @@ async def cohort_team_analytics(db: AsyncSession, *, cohort_id: uuid.UUID) -> di
                 done += 1
             elif status == "awaiting_confirmation":
                 awaiting += 1
+
+        # Every deliverable (required and optional), not just the missing ones — ops asked
+        # to see what a team actually submitted here (link/text), not just
+        # a bare "still missing" title, so a done or submitted item carries its content
+        # straight from the shared team-progress row rather than making
+        # ops click through to the checklist for it.
+        deliverables: list[dict] = []
+        last_activity: datetime | None = None
+        for item in team_items:
+            progress = progress_by_team_item.get((team.id, item.id))
+            status = progress.status if progress is not None else "pending"
             deliverables.append({
                 "item_id": item.id,
                 "title": item.title,
                 "status": status,
+                "optional": item.optional,
                 "submitted_url": progress.submitted_url if progress is not None else None,
                 "submitted_text": progress.submitted_text if progress is not None else None,
                 "submitted_links": progress.submitted_links if progress is not None else None,
             })
-        for item in team_items:
-            progress = progress_by_team_item.get((team.id, item.id))
             if progress is not None and progress.updated_at is not None:
                 if last_activity is None or progress.updated_at > last_activity:
                     last_activity = progress.updated_at

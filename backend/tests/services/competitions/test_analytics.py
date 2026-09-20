@@ -647,3 +647,46 @@ async def test_export_cohort_quiz_answers_workbook_xlsx(db, client):
     assert ans_row[9] == 12
     assert ans_row[10] == "No"
     assert ans_row[11] == "Gyroscopes sense rate of turn."
+
+
+@pytest.mark.asyncio
+async def test_team_deliverables_includes_optional_items_with_flag(db):
+    """Optional deliverables must show under team deliverables with optional=True,
+    allowing ops to inspect submissions without optional items inflating items_total."""
+    program, cohort = await _program_and_cohort(db)
+    _lms_program, (poster, extra) = await _checklist(db, program, [
+        {"title": "Poster", "scope": "team", "optional": False},
+        {"title": "Bonus Video", "scope": "team", "optional": True},
+    ])
+    student = await _student(db, "Solo", cohort=cohort)
+    team = await create_team(db, name="Alpha", created_by=student.id, cohort_id=cohort.id)
+    db.add(LmsProgramTeamItemProgress(
+        id=uuid.uuid4(), item_id=poster.id, team_id=team.id, status="done",
+        submitted_url="https://example.com/poster.pdf", updated_at=datetime.now(timezone.utc),
+    ))
+    db.add(LmsProgramTeamItemProgress(
+        id=uuid.uuid4(), item_id=extra.id, team_id=team.id, status="done",
+        submitted_url="https://example.com/bonus.mp4", updated_at=datetime.now(timezone.utc),
+    ))
+    await db.commit()
+
+    result = await cohort_team_analytics(db, cohort_id=cohort.id)
+    team_row = result["teams"][0]
+    # items_total and items_done only count required items
+    assert team_row["items_total"] == 1
+    assert team_row["items_done"] == 1
+    assert team_row["pct"] == 100
+
+    # deliverables includes both required and optional items
+    deliverables = team_row["deliverables"]
+    assert len(deliverables) == 2
+    assert deliverables[0]["title"] == "Poster"
+    assert deliverables[0]["optional"] is False
+    assert deliverables[0]["status"] == "done"
+    assert deliverables[0]["submitted_url"] == "https://example.com/poster.pdf"
+
+    assert deliverables[1]["title"] == "Bonus Video"
+    assert deliverables[1]["optional"] is True
+    assert deliverables[1]["status"] == "done"
+    assert deliverables[1]["submitted_url"] == "https://example.com/bonus.mp4"
+
