@@ -109,10 +109,10 @@ async def test_returns_the_callers_identity_as_signed_claims(db, client):
     assert claims["email"] == user.email
     assert claims["exp"] > datetime.now(timezone.utc).timestamp()
 
-    # Everything that is not an Intercom standard attribute must be nested,
-    # or it is silently dropped and the contact shows none of it.
+    # Both nested and top-level claims are present to support Intercom's
+    # Messenger JWT and REST specifications.
     assert claims["custom_attributes"]["card_id"] == "SP-ST-0012-UAE"
-    assert "card_id" not in claims
+    assert claims["card_id"] == "SP-ST-0012-UAE"
 
     # The echoed copies must agree with the signed ones, or the Inbox shows
     # something the token doesn't actually vouch for.
@@ -204,17 +204,19 @@ async def test_picks_the_most_recently_assigned_cohort(db, client):
     assert body["cohort"] == "Ru'ya 2026"
 
 
-async def test_custom_attributes_are_nested_not_top_level(db, client):
-    """Intercom drops unrecognised top-level claims without complaining, so
-    pin the nesting: the failure mode is a contact that looks fine but
-    carries none of the attributes the audience rules depend on."""
+async def test_custom_attributes_are_present_at_top_level_and_nested(db, client):
+    """Intercom Messenger Security reads verified custom attributes from top-level
+    JWT claims, while the REST API schema expects them under custom_attributes.
+    Both must be present, along with cased variants (e.g. Roles, Card id)."""
     user = await _user(db)
     body = (await client.get(URL, headers=_headers(user))).json()
     claims = jwt.decode(body["intercom_user_jwt"], SECRET, algorithms=["HS256"])
 
-    assert set(claims["custom_attributes"]) == {"roles", "team", "cohort", "card_id"}
-    for key in ("roles", "team", "cohort", "card_id"):
-        assert key not in claims
+    for key in ("roles", "Roles", "team", "cohort", "card_id"):
+        assert key in claims
+
+    for key in ("roles", "Roles", "team", "cohort", "card_id"):
+        assert key in claims["custom_attributes"]
 
     # Standard attributes stay where Intercom expects them.
     for key in ("user_id", "name", "email"):

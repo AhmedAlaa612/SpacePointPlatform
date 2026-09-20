@@ -142,22 +142,35 @@ async def chat_identity(db: AsyncSession, *, user: User, secret: str) -> dict:
         ),
     }
 
-    # Anything that isn't one of Intercom's own standard attributes has to be
-    # nested under `custom_attributes`, the same shape their REST API uses.
-    # Sent as bare top-level claims they are simply dropped: the contact ends
-    # up with name and email applied and no roles/team/cohort/card at all,
-    # with nothing anywhere reporting a problem. Found the hard way, on a
-    # contact whose attribute list was entirely Intercom's own defaults.
+    custom_attrs = {
+        k: v for k, v in fields.items() if k not in ("user_id", "name", "email")
+    }
+
+    # Intercom Messenger Security (JWT) reads custom attributes directly as
+    # top-level claims in the token. We provide both the normalized snake_case
+    # keys and title-cased variants (e.g. "Roles", "Cohort", "Card id") to
+    # match however the attribute API name was configured in Intercom, as well as
+    # the nested `custom_attributes` object for REST API parity.
+    cased_variants = {}
+    for k, v in custom_attrs.items():
+        if v is not None:
+            cased_variants[k.capitalize()] = v
+            cased_variants[k.replace("_", " ").capitalize()] = v
+            cased_variants[k.replace("_", " ").title()] = v
+
     claims = {
         "user_id": fields["user_id"],
         "name": fields["name"],
         "email": fields["email"],
+        **custom_attrs,
+        **cased_variants,
         "custom_attributes": {
-            k: v for k, v in fields.items() if k not in ("user_id", "name", "email")
+            **custom_attrs,
+            **cased_variants,
         },
     }
 
     # The response stays flat — it is our own debugging surface, readable
     # without decoding a token, and the frontend forwards only the token
-    # anyway. The nesting above is Intercom's wire format, not ours.
+    # anyway.
     return {"intercom_user_jwt": identity_jwt(secret=secret, claims=claims), **fields}
