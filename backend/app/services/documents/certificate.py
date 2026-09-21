@@ -18,6 +18,7 @@ from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
 from reportlab.pdfgen import canvas
 from reportlab.platypus import Paragraph
+from reportlab.lib.utils import ImageReader
 
 _STATIC_DIR = os.path.normpath(os.path.join(os.path.dirname(__file__), "..", "..", "static"))
 _TEMPLATES_DIR = os.path.join(_STATIC_DIR, "templates")
@@ -67,35 +68,62 @@ def _shaped(text: str) -> str:
     return get_display(arabic_reshaper.reshape(text))
 
 
+def _parse_color(color_val: str | None, default_color: HexColor) -> HexColor:
+    if not color_val:
+        return default_color
+    try:
+        return HexColor(color_val)
+    except Exception:
+        return default_color
+
+
 def generate_completion_certificate_pdf(
     recipient_name: str,
     body_text_template: str,
     background_bytes: bytes | None = None,
     theme: str = "dark",
+    name_font_size: int = 34,
+    name_y: float = 298.0,
+    name_color: str | None = None,
+    body_font_size: int = 20,
+    body_y: float = 260.0,
+    body_color: str | None = None,
+    body_max_width: float = 600.0,
+    body_alignment: str = "center",
+    show_signature: bool = False,
+    signature_bytes: bytes | None = None,
+    signature_x: float | None = None,
+    signature_y: float = 90.0,
+    signature_width: float = 140.0,
+    signature_height: float = 50.0,
+    signatory_name: str | None = None,
+    signatory_title: str | None = None,
 ) -> bytes:
     """Completion certificate (certificates.type='internship_completion' |
-    'instructor_completion'). Uses dynamic body text and optional background
-    file bytes. `theme` picks the stock background ("dark" | "light") when
-    `background_bytes` isn't supplied, plus a matching text color — light
-    uses #67388f instead of the dark theme's #9778be, since the lighter
-    purple reads poorly against a white background (operator ask,
-    2026-08-07)."""
+    'instructor_completion' | 'student_completion'). Uses dynamic body text and
+    optional background file bytes or custom typography/layout positions.
+    `theme` picks the stock background ("dark" | "light") when
+    `background_bytes` isn't supplied, plus default text colors.
+    """
     _ensure_fonts()
-    text_color = _TEXT_COLORS.get(theme, _TEXT_COLORS["dark"])
+    default_text_color = _TEXT_COLORS.get(theme, _TEXT_COLORS["dark"])
+    resolved_name_color = _parse_color(name_color, default_text_color)
+    resolved_body_color = _parse_color(body_color, default_text_color)
+
     width, height = landscape(A4)
     buf = io.BytesIO()
     c = canvas.Canvas(buf, pagesize=(width, height))
 
     if background_bytes:
-        c.drawImage(io.BytesIO(background_bytes), 0, 0, width=width, height=height)
+        c.drawImage(ImageReader(io.BytesIO(background_bytes)), 0, 0, width=width, height=height)
     else:
         template_path = _TEMPLATE_PATHS.get(theme, _TEMPLATE_PATHS["dark"])
         c.drawImage(template_path, 0, 0, width=width, height=height)
 
     name_arabic = _is_arabic(recipient_name)
-    c.setFont("Amiri-Bold" if name_arabic else "TimesNewRoman-BoldItalic", 34)
-    c.setFillColor(text_color)
-    c.drawCentredString(width / 2.0, 298, _shaped(recipient_name) if name_arabic else recipient_name)
+    c.setFont("Amiri-Bold" if name_arabic else "TimesNewRoman-BoldItalic", int(name_font_size))
+    c.setFillColor(resolved_name_color)
+    c.drawCentredString(width / 2.0, float(name_y), _shaped(recipient_name) if name_arabic else recipient_name)
 
     # `<br/>`-joined segments render independently — reshape each one so a
     # tag never gets treated as literal Arabic-adjacent text (reshaping
@@ -106,15 +134,58 @@ def generate_completion_certificate_pdf(
         segments = [_shaped(seg) if _is_arabic(seg) else seg for seg in segments]
     display_body = "<br/>".join(segments)
 
+    align_map = {"left": 0, "center": 1, "right": 2}
+    align_int = align_map.get((body_alignment or "center").lower(), 1)
+    leading = max(int(round(float(body_font_size) * 1.45)), int(body_font_size) + 2)
+
     style = ParagraphStyle(
         name="CertificateCompletionText",
         fontName="Amiri" if body_arabic else "TimesNewRoman-Italic",
-        fontSize=20, leading=29, textColor=text_color, alignment=1,
+        fontSize=int(body_font_size),
+        leading=leading,
+        textColor=resolved_body_color,
+        alignment=align_int,
     )
     p = Paragraph(display_body, style)
-    p_width = 600
+    p_width = float(body_max_width)
     p_height = p.wrap(p_width, 100)[1]
-    p.drawOn(c, (width - p_width) / 2.0, 260 - p_height)
+    p.drawOn(c, (width - p_width) / 2.0, float(body_y) - p_height)
+
+    if show_signature:
+        sig_img_bytes = signature_bytes
+        if not sig_img_bytes:
+            branding_file = "admin_signature_white.png" if theme == "dark" else "admin_signature_dark.png"
+            branding_path = os.path.join(_STATIC_DIR, "branding", branding_file)
+            if os.path.exists(branding_path):
+                try:
+                    with open(branding_path, "rb") as f:
+                        sig_img_bytes = f.read()
+                except Exception:
+                    sig_img_bytes = None
+
+        sig_w = float(signature_width)
+        sig_h = float(signature_height) if signature_height else sig_w / 4.388
+        sig_x = float(signature_x) if signature_x is not None else (width - sig_w) / 2.0
+        sig_y = float(signature_y)
+
+        if sig_img_bytes:
+            c.drawImage(ImageReader(io.BytesIO(sig_img_bytes)), sig_x, sig_y, width=sig_w, height=sig_h, mask="auto")
+
+        center_x = sig_x + (sig_w / 2.0)
+        resolved_sig_name = (signatory_name or "ABDULLAH ALSALMANI").strip().upper()
+        resolved_sig_title = (signatory_title or "Co-Founder & CEO of SpacePoint").strip()
+
+        # Signatory Name (bold uppercase centered below signature image)
+        name_baseline_y = sig_y - 12.0
+        c.setFont("Helvetica-Bold", 8.5)
+        c.setFillColor(resolved_body_color)
+        c.drawCentredString(center_x, name_baseline_y, resolved_sig_name)
+
+        # Signatory Title (regular weight centered below signatory name)
+        title_baseline_y = name_baseline_y - 11.0
+        c.setFont("Helvetica", 7.5)
+        c.setFillColor(resolved_body_color)
+        c.drawCentredString(center_x, title_baseline_y, resolved_sig_title)
 
     c.save()
     return buf.getvalue()

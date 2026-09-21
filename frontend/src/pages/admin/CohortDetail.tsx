@@ -10,6 +10,7 @@ import type {
   Cohort, CohortStatus, Program, Session,
   Registration,
   SessionReport,
+  ProgramCertificateTemplate,
 } from "@/types/sessions"
 import { getProgramsApi } from "@/api/sessions/programs"
 import { MaterialsPanel } from "@/pages/admin/components/MaterialsPanel"
@@ -29,6 +30,7 @@ import {
   updateCohortApi,
 } from "@/api/sessions/cohorts"
 import { listCohortReportsApi, uploadSessionReportApi, completeCohortApi } from "@/api/sessions/delivery"
+import { listProgramCertificateTemplatesApi } from "@/api/sessions/programCertificateTemplates"
 import { Modal, Field, ModalActions, ConfirmDialog, Spinner, PageHeader, EmptyState } from "@/pages/admin/components/common"
 import { ImportListModal } from "@/pages/admin/components/ImportList"
 import { BulkAssignInstructorModal } from "@/pages/admin/components/BulkAssignInstructorModal"
@@ -266,8 +268,14 @@ function CohortDetailView({ cohort }: { cohort: Cohort }) {
     },
     onError: (e: any) => setDrawerError(getErrorMessage(e, "Failed to issue certificate")),
   })
+  const { data: programTemplates = [] } = useQuery<ProgramCertificateTemplate[]>({
+    queryKey: ["program-certificate-templates", cohort.program_id],
+    queryFn: () => listProgramCertificateTemplatesApi(cohort.program_id),
+    enabled: !!cohort.program_id,
+  })
   const downloadCertificatesMutation = useMutation({
-    mutationFn: (theme: "dark" | "light") => downloadCohortCertificatesApi(cohort.id, cohort.name, theme),
+    mutationFn: ({ theme, templateId }: { theme: "dark" | "light" | "custom"; templateId?: string }) =>
+      downloadCohortCertificatesApi(cohort.id, cohort.name, theme, templateId),
     onError: (e: any) => toast.error(getErrorMessage(e, "Failed to download certificates")),
   })
   // Both refuse server-side once real history is attached (attendance, a
@@ -415,13 +423,22 @@ function CohortDetailView({ cohort }: { cohort: Cohort }) {
               <Award size={14} /> {downloadCertificatesMutation.isPending ? "Preparing…" : "Download certificates"}
             </button>
           </DropdownMenuTrigger>
-          <DropdownMenuContent>
-            <DropdownMenuItem onClick={() => downloadCertificatesMutation.mutate("dark")}>
+          <DropdownMenuContent align="end" className="w-56 max-h-80 overflow-y-auto">
+            <DropdownMenuItem onClick={() => downloadCertificatesMutation.mutate({ theme: "dark" })}>
               Dark background
             </DropdownMenuItem>
-            <DropdownMenuItem onClick={() => downloadCertificatesMutation.mutate("light")}>
+            <DropdownMenuItem onClick={() => downloadCertificatesMutation.mutate({ theme: "light" })}>
               Light background
             </DropdownMenuItem>
+            {programTemplates.map((tmpl: ProgramCertificateTemplate) => (
+              <DropdownMenuItem
+                key={tmpl.id}
+                onClick={() => downloadCertificatesMutation.mutate({ theme: "custom", templateId: tmpl.id })}
+                className="truncate"
+              >
+                {tmpl.name}
+              </DropdownMenuItem>
+            ))}
           </DropdownMenuContent>
         </DropdownMenu>
       </div>

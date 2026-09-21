@@ -137,15 +137,23 @@ export const giveCertificateApi = (registrationId: string) =>
   api.post<{ id: string; status: string; certificate_url: string }>(`/sessions/registrations/${registrationId}/certificate`).then((r) => r.data)
 
 // One merged PDF, one page per registered student in this cohort.
-export const downloadCohortCertificatesApi = async (cohortId: string, cohortName: string, theme: "dark" | "light") => {
+export const downloadCohortCertificatesApi = async (
+  cohortId: string,
+  cohortName: string,
+  theme: "dark" | "light" | string = "dark",
+  templateId?: string,
+) => {
   const res = await api.get(`/sessions/cohorts/${cohortId}/certificates/download`, {
-    responseType: "blob", params: { theme },
+    responseType: "blob",
+    params: { theme, template_id: templateId },
   })
   const url = URL.createObjectURL(res.data as Blob)
   const a = document.createElement("a")
   a.href = url
   a.download = `certificates_${cohortName.replace(/[^a-z0-9]+/gi, "_")}.pdf`
+  document.body.appendChild(a)
   a.click()
+  document.body.removeChild(a)
   URL.revokeObjectURL(url)
 }
 

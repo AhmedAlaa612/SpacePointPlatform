@@ -568,12 +568,15 @@ export interface CompetitionCertificateRecipientsSummary {
   at_least_one_count: number
   all_completed_count: number
   recipients: CompetitionCertificateRecipient[]
+  templates?: Array<{ id: string; name: string; is_default: boolean }> | null
+  default_template_id?: string | null
 }
 
 export interface CompetitionCertificateSendIn {
   filter: "at_least_one" | "all_completed" | "custom" | "all"
   registration_ids?: string[] | null
-  theme?: "dark" | "light"
+  theme?: "dark" | "light" | string
+  template_id?: string | null
   skip_already_issued?: boolean
 }
 
@@ -611,19 +614,20 @@ export const downloadCompetitionCertificatesApi = async (
   cohortId: string,
   cohortName: string,
   filter: "at_least_one" | "all_completed" | "all",
-  theme: "dark" | "light",
+  theme: "dark" | "light" | string = "dark",
   registrationIds?: string[] | null,
+  templateId?: string | null,
 ) => {
   let res
   if (registrationIds && registrationIds.length > 0) {
     res = await api.post(
       `/competitions/admin/cohorts/${cohortId}/certificates/download`,
-      { filter, theme, registration_ids: registrationIds },
+      { filter, theme, template_id: templateId, registration_ids: registrationIds },
       { responseType: "blob" },
     )
   } else {
     res = await api.get(`/competitions/admin/cohorts/${cohortId}/certificates/download`, {
-      params: { filter, theme },
+      params: { filter, theme, template_id: templateId },
       responseType: "blob",
     })
   }
@@ -633,7 +637,9 @@ export const downloadCompetitionCertificatesApi = async (
   const safeName = cohortName.replace(/[^a-z0-9]+/gi, "_")
   const suffix = registrationIds && registrationIds.length > 0 ? `_${registrationIds.length}_selected` : ""
   a.download = `certificates_${filter}_${safeName}_${theme}${suffix}.pdf`
+  document.body.appendChild(a)
   a.click()
+  document.body.removeChild(a)
   URL.revokeObjectURL(url)
 }
 

@@ -31,10 +31,12 @@ from app.models.lms.program import (
 )
 from app.models.sessions.cohort import Cohort
 from app.models.sessions.program import Program
+from app.models.sessions.program_certificate_template import ProgramCertificateTemplate
 from app.models.sessions.registration import Registration
 from app.models.spine.contact import Contact
 from app.models.team import Team, TeamMember
 from app.models.user import User
+from app.services import storage
 from app.services.documents.certificate import (
     format_certificate_program_title, generate_completion_certificate_pdf, merge_certificate_pdfs,
 )
@@ -92,6 +94,28 @@ async def get_cohort_certificate_recipients(
         )
     )).scalars().all()
 
+    # Load templates for this cohort's program
+    program = await db.get(Program, cohort.program_id)
+    default_tid = str(program.default_certificate_template_id) if program and program.default_certificate_template_id else None
+    templates_rows = (await db.execute(
+        select(ProgramCertificateTemplate)
+        .where(ProgramCertificateTemplate.program_id == cohort.program_id)
+        .order_by(ProgramCertificateTemplate.created_at.asc())
+    )).scalars().all()
+
+    available_templates = [
+        {"id": "dark", "name": "Dark Default", "is_default": default_tid is None, "background_type": "dark"},
+        {"id": "light", "name": "Light Default", "is_default": False, "background_type": "light"},
+    ]
+    for t in templates_rows:
+        is_def = t.is_default or (default_tid == str(t.id))
+        available_templates.append({
+            "id": str(t.id),
+            "name": t.name,
+            "is_default": is_def,
+            "background_type": t.background_type,
+        })
+
     if not registrations:
         return {
             "total_registered": 0,
@@ -100,6 +124,8 @@ async def get_cohort_certificate_recipients(
             "at_least_one_count": 0,
             "all_completed_count": 0,
             "recipients": [],
+            "templates": available_templates,
+            "default_template_id": default_tid,
         }
 
     contact_ids = [r.contact_id for r in registrations]
@@ -253,6 +279,118 @@ async def get_cohort_certificate_recipients(
         "at_least_one_count": at_least_one_count,
         "all_completed_count": all_completed_count,
         "recipients": recipients,
+        "templates": available_templates,
+        "default_template_id": default_tid,
+    }
+
+
+async def _resolve_certificate_template(
+    db: AsyncSession,
+    *,
+    program: Program,
+    template_id: str | uuid.UUID | None = None,
+    theme: str = "dark",
+) -> dict:
+    """Resolves template configuration (background bytes, font sizes, colors, coordinates,
+    signature settings). Falls back to stock theme if no custom template is chosen.
+    """
+    selected_template: ProgramCertificateTemplate | None = None
+
+    # 1. If explicit template_id is provided as UUID
+    if template_id and template_id not in ("dark", "light", "default"):
+        try:
+            tid = uuid.UUID(str(template_id))
+            selected_template = await db.get(ProgramCertificateTemplate, tid)
+        except (ValueError, TypeError):
+            selected_template = None
+
+    # 2. If template_id is None or 'default', check program default
+    if selected_template is None and (template_id is None or template_id == "default"):
+        if program.default_certificate_template_id:
+            selected_template = await db.get(ProgramCertificateTemplate, program.default_certificate_template_id)
+        if selected_template is None:
+            selected_template = (await db.execute(
+                select(ProgramCertificateTemplate).where(
+                    ProgramCertificateTemplate.program_id == program.id,
+                    ProgramCertificateTemplate.is_default.is_(True),
+                )
+            )).scalars().first()
+
+    # 3. Stock theme fallback
+    effective_theme = theme
+    if template_id in ("dark", "light"):
+        effective_theme = template_id
+
+    from app.services.settings import get_portal_setting
+    from app.core.config import settings as app_settings
+    sig_name = await get_portal_setting(db, "admin_signatory_name", app_settings.DEFAULT_SIGNATORY_NAME)
+    sig_title = await get_portal_setting(db, "admin_signatory_title", app_settings.DEFAULT_SIGNATORY_TITLE)
+
+    if selected_template is not None:
+        bg_bytes = None
+        if selected_template.background_type == "custom" and selected_template.background_file_path:
+            try:
+                bg_bytes = await storage.download_file("documents", selected_template.background_file_path)
+            except Exception:
+                bg_bytes = None
+
+        sig_bytes = None
+        if selected_template.show_signature:
+            if selected_template.signature_image_path:
+                try:
+                    sig_bytes = await storage.download_file("documents", selected_template.signature_image_path)
+                except Exception:
+                    sig_bytes = None
+            if not sig_bytes:
+                try:
+                    sig_bytes = await storage.download_file("instructor-documents", "settings/admin_signature.png")
+                except Exception:
+                    sig_bytes = None
+
+        return {
+            "is_custom": True,
+            "theme": selected_template.background_type if selected_template.background_type in ("dark", "light") else "dark",
+            "background_bytes": bg_bytes,
+            "body_text_template": selected_template.body_text,
+            "name_font_size": selected_template.name_font_size,
+            "name_y": float(selected_template.name_y),
+            "name_color": selected_template.name_color,
+            "body_font_size": selected_template.body_font_size,
+            "body_y": float(selected_template.body_y),
+            "body_color": selected_template.body_color,
+            "body_max_width": float(selected_template.body_max_width),
+            "body_alignment": selected_template.body_alignment,
+            "show_signature": selected_template.show_signature,
+            "signature_bytes": sig_bytes,
+            "signature_x": float(selected_template.signature_x) if selected_template.signature_x is not None else None,
+            "signature_y": float(selected_template.signature_y),
+            "signature_width": float(selected_template.signature_width),
+            "signature_height": float(selected_template.signature_height),
+            "signatory_name": sig_name,
+            "signatory_title": sig_title,
+        }
+
+    return {
+        "is_custom": False,
+        "theme": effective_theme,
+        "background_bytes": None,
+        "body_text_template": None,
+        "name_font_size": 34,
+        "name_y": 298.0,
+        "name_color": None,
+        "body_font_size": 20,
+        "body_y": 260.0,
+        "body_color": None,
+        "body_max_width": 600.0,
+        "body_alignment": "center",
+        "show_signature": False,
+        "signature_bytes": None,
+        "signature_x": None,
+        "signature_y": 90.0,
+        "signature_width": 140.0,
+        "signature_height": 50.0,
+        "signatory_name": sig_name,
+        "signatory_title": sig_title,
     }
 
 
@@ -264,6 +402,7 @@ async def send_cohort_certificates(
     filter_type: str = "at_least_one",
     registration_ids: list[uuid.UUID] | None = None,
     theme: str = "dark",
+    template_id: str | None = None,
     skip_already_issued: bool = True,
 ) -> dict:
     """Issues and emails completion certificates to the qualifying or selected
@@ -325,11 +464,13 @@ async def send_cohort_certificates(
 
     dates = format_cohort_dates(cohort)
     location = await resolve_session_location_display(db, None, cohort)
+    layout = await _resolve_certificate_template(db, program=program, template_id=template_id, theme=theme)
+
     template = (await db.execute(
         select(DocumentTemplate).where(DocumentTemplate.key == "student_completion")
     )).scalars().first()
 
-    template_body = template.body_text if template else "For successfully completing<br/>{program_name}<br/>{dates}"
+    template_body = layout["body_text_template"] or (template.body_text if template else "For successfully completing<br/>{program_name}<br/>{dates}")
     program_title = format_certificate_program_title(program.name, cohort.name if cohort else None)
     if "{cohort_name}" in template_body:
         body_text = template_body \
@@ -363,7 +504,27 @@ async def send_cohort_certificates(
 
         try:
             cert_bytes = await asyncio.to_thread(
-                generate_completion_certificate_pdf, contact.full_name, body_text, theme=theme,
+                generate_completion_certificate_pdf,
+                recipient_name=contact.full_name,
+                body_text_template=body_text,
+                background_bytes=layout["background_bytes"],
+                theme=layout["theme"],
+                name_font_size=layout["name_font_size"],
+                name_y=layout["name_y"],
+                name_color=layout["name_color"],
+                body_font_size=layout["body_font_size"],
+                body_y=layout["body_y"],
+                body_color=layout["body_color"],
+                body_max_width=layout["body_max_width"],
+                body_alignment=layout["body_alignment"],
+                show_signature=layout["show_signature"],
+                signature_bytes=layout["signature_bytes"],
+                signature_x=layout["signature_x"],
+                signature_y=layout["signature_y"],
+                signature_width=layout["signature_width"],
+                signature_height=layout["signature_height"],
+                signatory_name=layout.get("signatory_name"),
+                signatory_title=layout.get("signatory_title"),
             )
 
             if existing is None:
@@ -418,6 +579,7 @@ async def render_cohort_certificates_pdf(
     cohort_id: uuid.UUID,
     filter_type: str = "at_least_one",
     theme: str = "dark",
+    template_id: str | None = None,
     registration_ids: list[uuid.UUID] | None = None,
 ) -> tuple[bytes, str]:
     """Generates a merged PDF containing completion certificates for students
@@ -447,11 +609,13 @@ async def render_cohort_certificates_pdf(
 
     dates = format_cohort_dates(cohort)
     location = await resolve_session_location_display(db, None, cohort)
+    layout = await _resolve_certificate_template(db, program=program, template_id=template_id, theme=theme)
+
     template = (await db.execute(
         select(DocumentTemplate).where(DocumentTemplate.key == "student_completion")
     )).scalars().first()
 
-    template_body = template.body_text if template else "For successfully completing<br/>{program_name}<br/>{dates}"
+    template_body = layout["body_text_template"] or (template.body_text if template else "For successfully completing<br/>{program_name}<br/>{dates}")
     program_title = format_certificate_program_title(program.name, cohort.name if cohort else None)
     if "{cohort_name}" in template_body:
         body_text = template_body \
@@ -466,7 +630,28 @@ async def render_cohort_certificates_pdf(
             .replace("{location}", escape(location.get("name") or ""))
 
     def _render(name: str, body: str) -> bytes:
-        return generate_completion_certificate_pdf(name, body, theme=theme)
+        return generate_completion_certificate_pdf(
+            recipient_name=name,
+            body_text_template=body,
+            background_bytes=layout["background_bytes"],
+            theme=layout["theme"],
+            name_font_size=layout["name_font_size"],
+            name_y=layout["name_y"],
+            name_color=layout["name_color"],
+            body_font_size=layout["body_font_size"],
+            body_y=layout["body_y"],
+            body_color=layout["body_color"],
+            body_max_width=layout["body_max_width"],
+            body_alignment=layout["body_alignment"],
+            show_signature=layout["show_signature"],
+            signature_bytes=layout["signature_bytes"],
+            signature_x=layout["signature_x"],
+            signature_y=layout["signature_y"],
+            signature_width=layout["signature_width"],
+            signature_height=layout["signature_height"],
+            signatory_name=layout.get("signatory_name"),
+            signatory_title=layout.get("signatory_title"),
+        )
 
     pages = [
         await asyncio.to_thread(_render, r["student_name"], body_text)
@@ -474,6 +659,7 @@ async def render_cohort_certificates_pdf(
     ]
     merged = await asyncio.to_thread(merge_certificate_pdfs, pages)
     safe_name = "".join(c for c in cohort.name if c.isalnum() or c in " -_").strip().replace(" ", "_")
-    filename = f"certificates_{filter_type}_{safe_name or cohort_id}_{theme}.pdf"
+    theme_suffix = layout["theme"] if not layout.get("is_custom") else "custom"
+    filename = f"certificates_{filter_type}_{safe_name or cohort_id}_{theme_suffix}.pdf"
     return merged, filename
 

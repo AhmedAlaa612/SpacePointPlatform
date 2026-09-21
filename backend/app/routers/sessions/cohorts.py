@@ -1286,7 +1286,8 @@ async def give_certificate(
 @router.get("/cohorts/{cohort_id}/certificates/download")
 async def download_cohort_certificates(
     cohort_id: uuid.UUID,
-    theme: str = Query("dark", pattern="^(dark|light)$"),
+    theme: str = Query("dark"),
+    template_id: str | None = Query(None),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_operations),
 ):
@@ -1297,7 +1298,7 @@ async def download_cohort_certificates(
     registrations are excluded, same convention as list_cohorts' counts.
     Generated fresh each time, nothing persisted or emailed — this is a
     print run, not the student_completion issuance flow in delivery.py.
-    `theme` picks the background template (operator ask, 2026-08-07)."""
+    `theme` or `template_id` picks the layout and background template."""
     cohort = await db.get(Cohort, cohort_id)
     if cohort is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Cohort not found")
@@ -1312,11 +1313,14 @@ async def download_cohort_certificates(
     if not rows:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="No registered students in this cohort yet")
 
+    from app.services.competitions.certificates import _resolve_certificate_template
+    layout = await _resolve_certificate_template(db, program=program, template_id=template_id, theme=theme)
+
     template = (await db.execute(
         select(DocumentTemplate).where(DocumentTemplate.key == "student_completion")
     )).scalars().first()
     location = await resolve_session_location_display(db, None, cohort)
-    template_body = template.body_text if template else "For successfully completing<br/>{program_name}<br/>{dates}"
+    template_body = layout["body_text_template"] or (template.body_text if template else "For successfully completing<br/>{program_name}<br/>{dates}")
     program_name = program.name if program else ""
     program_title = format_certificate_program_title(program_name, cohort.name if cohort else None)
     if "{cohort_name}" in template_body:
@@ -1332,7 +1336,28 @@ async def download_cohort_certificates(
             .replace("{location}", escape(location["name"] or ""))
 
     def _render(name: str, body: str) -> bytes:
-        return generate_completion_certificate_pdf(name, body, theme=theme)
+        return generate_completion_certificate_pdf(
+            recipient_name=name,
+            body_text_template=body,
+            background_bytes=layout["background_bytes"],
+            theme=layout["theme"],
+            name_font_size=layout["name_font_size"],
+            name_y=layout["name_y"],
+            name_color=layout["name_color"],
+            body_font_size=layout["body_font_size"],
+            body_y=layout["body_y"],
+            body_color=layout["body_color"],
+            body_max_width=layout["body_max_width"],
+            body_alignment=layout["body_alignment"],
+            show_signature=layout["show_signature"],
+            signature_bytes=layout["signature_bytes"],
+            signature_x=layout["signature_x"],
+            signature_y=layout["signature_y"],
+            signature_width=layout["signature_width"],
+            signature_height=layout["signature_height"],
+            signatory_name=layout.get("signatory_name"),
+            signatory_title=layout.get("signatory_title"),
+        )
 
     pages = [await asyncio.to_thread(_render, full_name, body_text) for full_name in rows]
 

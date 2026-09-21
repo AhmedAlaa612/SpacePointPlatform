@@ -51,6 +51,17 @@ class Program(Base):
     default_assessment_config_id = Column(
         UUID(as_uuid=True), ForeignKey("assessment_configs.id", ondelete="SET NULL"), nullable=True,
     )
+    # Default certificate template (2026-09) — overrides built-in dark/light default
+    default_certificate_template_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey(
+            "program_certificate_templates.id",
+            ondelete="SET NULL",
+            use_alter=True,
+            name="fk_programs_default_certificate_template_id",
+        ),
+        nullable=True,
+    )
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
 
     @property

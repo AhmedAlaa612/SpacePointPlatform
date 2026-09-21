@@ -474,6 +474,7 @@ async def post_cohort_certificates_send(
         filter_type=body.filter,
         registration_ids=body.registration_ids,
         theme=body.theme,
+        template_id=body.template_id,
         skip_already_issued=body.skip_already_issued,
     )
     return CompetitionCertificateSendResultOut(**result)
@@ -483,14 +484,20 @@ async def post_cohort_certificates_send(
 async def download_cohort_certificates(
     cohort_id: uuid.UUID,
     filter: Literal["at_least_one", "all_completed", "all"] = Query("at_least_one"),
-    theme: Literal["dark", "light"] = Query("dark"),
+    theme: str = Query("dark"),
+    template_id: str | None = Query(None),
     registration_ids: list[uuid.UUID] | None = Query(None),
     db: AsyncSession = Depends(get_db),
 ):
     """Download merged certificate PDF for students matching the filter or selected registration IDs."""
     await _get_cohort_or_404(db, cohort_id)
     content, filename = await certificates_service.render_cohort_certificates_pdf(
-        db, cohort_id=cohort_id, filter_type=filter, theme=theme, registration_ids=registration_ids,
+        db,
+        cohort_id=cohort_id,
+        filter_type=filter,
+        theme=theme,
+        template_id=template_id,
+        registration_ids=registration_ids,
     )
     return Response(
         content=content,
@@ -512,6 +519,7 @@ async def download_cohort_certificates_post(
         cohort_id=cohort_id,
         filter_type=body.filter,
         theme=body.theme,
+        template_id=body.template_id,
         registration_ids=body.registration_ids,
     )
     return Response(

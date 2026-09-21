@@ -8,6 +8,7 @@ from app.routers.sessions.delivery import router as delivery_router
 from app.routers.sessions.lms_progress import router as lms_progress_router
 from app.routers.sessions.imports import router as imports_router
 from app.routers.sessions.programs import router as programs_router
+from app.routers.sessions.program_certificate_templates import router as program_certificate_templates_router
 from app.routers.sessions.public import router as public_router
 from app.routers.sessions.staffing import router as staffing_router
 from app.routers.sessions.dashboard import router as dashboard_router
@@ -30,7 +31,11 @@ router.include_router(journey_router)
 # Same reason again: `/sessions/day-reviews` is a literal path, and a
 # `{session_id}` route mounted ahead of it would try to parse "day-reviews"
 # as a UUID and 422 before this router ever sees the request.
-router.include_router(day_router)
+# Mounted before programs_router: `/sessions/programs/stock-template-image`
+# and `/sessions/programs/stock-signature-image` are literal paths that
+# `/sessions/programs/{program_id}` in programs_router would otherwise intercept
+# and fail authentication on.
+router.include_router(program_certificate_templates_router)
 router.include_router(programs_router)
 router.include_router(cohorts_router)
 router.include_router(checkin_router)

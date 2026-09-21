@@ -1,13 +1,14 @@
 import { useState } from "react"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
 import { useNavigate } from "@tanstack/react-router"
-import { Plus, Pencil, Trash2, ListChecks } from "lucide-react"
+import { Plus, Pencil, Trash2, ListChecks, Award } from "lucide-react"
 import type { Program, ProgramType, PricingModel, CompletionRuleType } from "@/types/sessions"
 import { getProgramsApi, createProgramApi, updateProgramApi, deleteProgramApi } from "@/api/sessions/programs"
 import { Modal, Field, ModalActions, Spinner } from "@/pages/admin/components/common"
 import { ProgramRolesPanel } from "@/pages/admin/components/ProgramRolesPanel"
 import { ProgramAssessmentDefaultPanel } from "@/pages/admin/components/ProgramAssessmentDefaultPanel"
 import { MaterialsPanel } from "@/pages/admin/components/MaterialsPanel"
+import { ProgramCertificateStudioModal } from "@/pages/admin/components/ProgramCertificateStudioModal"
 
 const PROGRAM_TYPES: ProgramType[] = ["workshop", "course", "info_session", "competition"]
 const PRICING_MODELS: PricingModel[] = ["paid", "free"]
@@ -38,6 +39,7 @@ export default function Programs() {
   const queryClient = useQueryClient()
   const [editProgram, setEditProgram] = useState<Program | null>(null)
   const [rolesProgram, setRolesProgram] = useState<Program | null>(null)
+  const [certProgram, setCertProgram] = useState<Program | null>(null)
   const [deleteError, setDeleteError] = useState<string | null>(null)
 
   // The API refuses to delete a program that has cohorts (it would cascade
@@ -100,6 +102,13 @@ export default function Programs() {
             </div>
             <div className="flex items-center gap-1 flex-shrink-0 ml-3">
               <button
+                onClick={() => setCertProgram(p)}
+                className="p-1.5 rounded-lg text-muted-foreground hover:text-amber-500 hover:bg-amber-500/10 transition-colors"
+                title="Certificate templates & studio"
+              >
+                <Award size={14} />
+              </button>
+              <button
                 onClick={() => setRolesProgram(p)}
                 className="p-1.5 rounded-lg text-muted-foreground hover:text-primary hover:bg-primary/10 transition-colors"
                 title="Roles, checklist & materials"
@@ -159,6 +168,14 @@ export default function Programs() {
             </div>
           </div>
         </Modal>
+      )}
+
+      {certProgram && (
+        <ProgramCertificateStudioModal
+          program={certProgram}
+          onClose={() => setCertProgram(null)}
+          onUpdated={() => queryClient.invalidateQueries({ queryKey: ["sessions-programs"] })}
+        />
       )}
     </div>
   )

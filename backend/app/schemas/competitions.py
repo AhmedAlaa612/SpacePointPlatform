@@ -515,18 +515,22 @@ class CompetitionCertificateRecipientsSummaryOut(BaseModel):
     at_least_one_count: int
     all_completed_count: int
     recipients: list[CompetitionCertificateRecipientOut]
+    templates: list[dict] | None = None
+    default_template_id: str | None = None
 
 
 class CompetitionCertificateSendIn(BaseModel):
     filter: Literal["at_least_one", "all_completed", "custom", "all"] = "at_least_one"
     registration_ids: list[UUID] | None = None
-    theme: Literal["dark", "light"] = "dark"
+    theme: str = "dark"
+    template_id: str | None = None
     skip_already_issued: bool = True
 
 
 class CompetitionCertificateDownloadIn(BaseModel):
     filter: Literal["at_least_one", "all_completed", "all"] = "at_least_one"
-    theme: Literal["dark", "light"] = "dark"
+    theme: str = "dark"
+    template_id: str | None = None
     registration_ids: list[UUID] | None = None
 
 

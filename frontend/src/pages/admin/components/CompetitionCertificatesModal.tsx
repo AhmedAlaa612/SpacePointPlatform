@@ -27,25 +27,55 @@ export function CompetitionCertificatesModal({
   const queryClient = useQueryClient()
 
   const [filter, setFilter] = useState<FilterMode>("at_least_one")
-  const [theme, setTheme] = useState<"dark" | "light">("dark")
+  const [selectedTemplateId, setSelectedTemplateId] = useState<string>("dark")
+  const [hasUserSelectedTemplate, setHasUserSelectedTemplate] = useState(false)
   const [skipAlreadyIssued, setSkipAlreadyIssued] = useState(true)
   const [searchQuery, setSearchQuery] = useState("")
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
   const [downloading, setDownloading] = useState(false)
 
+  const { data, isLoading, refetch } = useQuery({
+    queryKey: ["cohort-certificates-recipients", cohortId, filter],
+    queryFn: () => getCohortCertificateRecipientsApi(cohortId, filter),
+    enabled: open,
+  })
+
+  // Whenever recipient data loads, auto-select the program's default template if user hasn't manually picked one
+  useEffect(() => {
+    if (data?.default_template_id && !hasUserSelectedTemplate) {
+      setSelectedTemplateId(data.default_template_id)
+    }
+  }, [data?.default_template_id, hasUserSelectedTemplate])
+
+  const availableTemplates = useMemo(() => {
+    if (data?.templates && data.templates.length > 0) {
+      return data.templates
+    }
+    return [
+      { id: "dark", name: "Dark Default", is_default: true },
+      { id: "light", name: "Light Default", is_default: false },
+    ]
+  }, [data?.templates])
+
+  const selectedTemplate = useMemo(() => {
+    return availableTemplates.find((t) => t.id === selectedTemplateId) || availableTemplates[0]
+  }, [availableTemplates, selectedTemplateId])
+
   const handleDownload = async () => {
     if (selectedIds.size === 0) return
     setDownloading(true)
     try {
+      const isStock = selectedTemplateId === "dark" || selectedTemplateId === "light"
       await downloadCompetitionCertificatesApi(
         cohortId,
         cohortName,
         filter,
-        theme,
+        isStock ? (selectedTemplateId as "dark" | "light") : "custom",
         Array.from(selectedIds),
+        isStock ? undefined : selectedTemplateId,
       )
       toast.success(
-        `Downloaded ${theme} certificate PDF (${selectedIds.size} student${selectedIds.size === 1 ? "" : "s"})`,
+        `Downloaded ${selectedTemplate?.name || "certificate"} PDF (${selectedIds.size} student${selectedIds.size === 1 ? "" : "s"})`,
       )
     } catch (e: unknown) {
       toast.error(getErrorMessage(e, "Failed to download certificates PDF"))
@@ -53,12 +83,6 @@ export function CompetitionCertificatesModal({
       setDownloading(false)
     }
   }
-
-  const { data, isLoading, refetch } = useQuery({
-    queryKey: ["cohort-certificates-recipients", cohortId, filter],
-    queryFn: () => getCohortCertificateRecipientsApi(cohortId, filter),
-    enabled: open,
-  })
 
   // Whenever recipient data or filter changes, default select all matching unissued students (or all if skip=false)
   useEffect(() => {
@@ -124,13 +148,16 @@ export function CompetitionCertificatesModal({
   }, [recipients, selectedIds, skipAlreadyIssued])
 
   const sendMutation = useMutation({
-    mutationFn: () =>
-      sendCohortCertificatesApi(cohortId, {
+    mutationFn: () => {
+      const isStock = selectedTemplateId === "dark" || selectedTemplateId === "light"
+      return sendCohortCertificatesApi(cohortId, {
         filter,
         registration_ids: Array.from(selectedIds),
-        theme,
+        theme: isStock ? (selectedTemplateId as "dark" | "light") : "custom",
+        template_id: isStock ? undefined : selectedTemplateId,
         skip_already_issued: skipAlreadyIssued,
-      }),
+      })
+    },
     onSuccess: (res) => {
       toast.success(`Certificates sent: ${res.sent_count} sent, ${res.skipped_count} skipped`)
       queryClient.invalidateQueries({ queryKey: ["cohort-certificates-recipients", cohortId] })
@@ -156,7 +183,7 @@ export function CompetitionCertificatesModal({
           <div className="min-w-0 pr-3">
             <div className="flex items-center gap-2">
               <Award className="text-primary shrink-0" size={20} />
-              <h2 className="text-lg font-bold text-foreground truncate">
+              <h2 className="text-base sm:text-lg font-bold text-foreground break-words">
                 Send Certificates — {cohortName}
               </h2>
             </div>
@@ -245,25 +272,22 @@ export function CompetitionCertificatesModal({
               <span>Skip already issued</span>
             </label>
 
-            <div className="flex items-center gap-1.5 border border-border rounded-lg p-0.5 bg-background">
-              <button
-                type="button"
-                onClick={() => setTheme("dark")}
-                className={`px-2 py-1 text-xs rounded font-medium transition-colors ${
-                  theme === "dark" ? "bg-primary text-primary-foreground font-semibold" : "text-muted-foreground hover:text-foreground"
-                }`}
+            <div className="flex items-center gap-1.5 border border-border rounded-lg px-2.5 py-0.5 bg-background max-w-full">
+              <label className="text-xs text-muted-foreground whitespace-nowrap">Template:</label>
+              <select
+                value={selectedTemplateId}
+                onChange={(e) => {
+                  setSelectedTemplateId(e.target.value)
+                  setHasUserSelectedTemplate(true)
+                }}
+                className="h-7 text-xs font-medium bg-transparent text-foreground border-0 focus:outline-none cursor-pointer max-w-full"
               >
-                Dark template
-              </button>
-              <button
-                type="button"
-                onClick={() => setTheme("light")}
-                className={`px-2 py-1 text-xs rounded font-medium transition-colors ${
-                  theme === "light" ? "bg-primary text-primary-foreground font-semibold" : "text-muted-foreground hover:text-foreground"
-                }`}
-              >
-                Light template
-              </button>
+                {availableTemplates.map((t) => (
+                  <option key={t.id} value={t.id} className="bg-card text-foreground">
+                    {t.name}{t.is_default ? " ★ (Default)" : ""}
+                  </option>
+                ))}
+              </select>
             </div>
           </div>
         </div>
@@ -401,7 +425,7 @@ export function CompetitionCertificatesModal({
               onClick={handleDownload}
               disabled={downloading || selectedIds.size === 0}
               className="flex items-center justify-center gap-1.5 h-9 px-4 rounded-xl border border-border text-sm font-medium text-foreground hover:bg-muted transition-colors disabled:opacity-50"
-              title={`Download merged PDF for ${selectedIds.size} selected student(s) (${theme} theme)`}
+              title={`Download merged PDF for ${selectedIds.size} selected student(s) (${selectedTemplate?.name || selectedTemplateId})`}
             >
               {downloading ? (
                 <>

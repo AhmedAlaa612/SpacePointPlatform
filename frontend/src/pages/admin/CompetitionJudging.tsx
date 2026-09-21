@@ -3,10 +3,11 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { Link, useParams } from "@tanstack/react-router"
 import { ArrowLeft, ArrowUpRight, Award, Download, Mail, Plus, Printer, Search, Trash2, Trophy, Upload, UserPlus, UserMinus, Pencil, X, Check } from "lucide-react"
 import { getCohortApi, getCohortsApi } from "@/api/sessions/cohorts"
-import type { Cohort } from "@/types/sessions"
+import type { Cohort, ProgramCertificateTemplate } from "@/types/sessions"
 import { searchStaffApi, listInviteCodesApi, type StaffOption } from "@/api/lms_admin"
 import { UserProfileModal } from "@/components/UserProfileModal"
 import { CompetitionCertificatesModal } from "@/pages/admin/components/CompetitionCertificatesModal"
+import { listProgramCertificateTemplatesApi } from "@/api/sessions/programCertificateTemplates"
 import {
   advanceCohortTeamsApi, assignExistingStudentsApi, createCohortTeamApi, deleteTeamApi, downloadCohortResultsWorkbookApi,
   downloadCompetitionCertificatesApi,
@@ -1262,15 +1263,30 @@ function ResultsTab({
   const [exporting, setExporting] = useState(false)
   const [downloadingCertificates, setDownloadingCertificates] = useState(false)
 
+  const { data: programTemplates = [] } = useQuery<ProgramCertificateTemplate[]>({
+    queryKey: ["program-certificate-templates", programId],
+    queryFn: () => listProgramCertificateTemplatesApi(programId),
+    enabled: !!programId,
+  })
+
   const handleDownloadCertificates = async (
     filter: "at_least_one" | "all_completed",
-    theme: "dark" | "light",
+    theme: "dark" | "light" | "custom",
+    templateId?: string,
+    templateName?: string,
   ) => {
     setDownloadingCertificates(true)
     try {
-      await downloadCompetitionCertificatesApi(cohortId, cohortName, filter, theme)
+      await downloadCompetitionCertificatesApi(
+        cohortId,
+        cohortName,
+        filter,
+        theme,
+        null,
+        templateId,
+      )
       toast.success(
-        `Downloaded ${theme} certificates for ${
+        `Downloaded ${templateName || theme} certificates for ${
           filter === "at_least_one" ? "≥ 1 submission" : "completed all"
         }`,
       )
@@ -1409,7 +1425,7 @@ function ResultsTab({
               <Printer size={14} /> {downloadingCertificates ? "Preparing…" : "Print certificates"}
             </button>
           </DropdownMenuTrigger>
-          <DropdownMenuContent align="end" className="w-56">
+          <DropdownMenuContent align="end" className="w-64 max-h-96 overflow-y-auto">
             <div className="px-2 py-1 text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">
               At least 1 submission
             </div>
@@ -1419,6 +1435,15 @@ function ResultsTab({
             <DropdownMenuItem onClick={() => handleDownloadCertificates("at_least_one", "light")}>
               Light background
             </DropdownMenuItem>
+            {programTemplates.map((tmpl: ProgramCertificateTemplate) => (
+              <DropdownMenuItem
+                key={`at-least-one-${tmpl.id}`}
+                onClick={() => handleDownloadCertificates("at_least_one", "custom", tmpl.id, tmpl.name)}
+                className="truncate"
+              >
+                {tmpl.name}
+              </DropdownMenuItem>
+            ))}
             <DropdownMenuSeparator />
             <div className="px-2 py-1 text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">
               Completed all submissions
@@ -1429,6 +1454,15 @@ function ResultsTab({
             <DropdownMenuItem onClick={() => handleDownloadCertificates("all_completed", "light")}>
               Light background
             </DropdownMenuItem>
+            {programTemplates.map((tmpl: ProgramCertificateTemplate) => (
+              <DropdownMenuItem
+                key={`all-completed-${tmpl.id}`}
+                onClick={() => handleDownloadCertificates("all_completed", "custom", tmpl.id, tmpl.name)}
+                className="truncate"
+              >
+                {tmpl.name}
+              </DropdownMenuItem>
+            ))}
           </DropdownMenuContent>
         </DropdownMenu>
       </div>

@@ -40,6 +40,7 @@ class ProgramBase(BaseModel):
     # never read live afterwards. See Program.default_assessment_config_id's
     # docstring.
     default_assessment_config_id: UUID | None = None
+    default_certificate_template_id: UUID | None = None
 
 
 class ProgramCreate(ProgramBase):
@@ -63,6 +64,7 @@ class ProgramUpdate(BaseModel):
     completion_rule_value: Decimal | None = None
     poster_template_url: str | None = None
     default_assessment_config_id: UUID | None = None
+    default_certificate_template_id: UUID | None = None
 
 
 class ProgramOut(ProgramBase):

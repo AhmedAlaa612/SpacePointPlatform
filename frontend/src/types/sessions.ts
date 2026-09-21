@@ -31,7 +31,64 @@ export interface Program {
    * cohort's own assessment assignment at creation; never read live
    * afterwards. See backend Program.default_assessment_config_id. */
   default_assessment_config_id?: string | null;
+  default_certificate_template_id?: string | null;
   created_at: string;
+}
+
+export interface ProgramCertificateTemplate {
+  id: string;
+  program_id: string;
+  name: string;
+  is_default: boolean;
+  background_type: "custom" | "dark" | "light";
+  background_file_path?: string | null;
+  background_file_url?: string | null;
+  name_font_size: number;
+  name_y: number;
+  name_color: string;
+  body_text?: string | null;
+  body_font_size: number;
+  body_y: number;
+  body_color: string;
+  body_max_width: number;
+  body_alignment: "center" | "left" | "right";
+  show_signature: boolean;
+  signature_image_path?: string | null;
+  signature_image_url?: string | null;
+  signature_x?: number | null;
+  signature_y: number;
+  signature_width: number;
+  signature_height: number;
+  created_at: string;
+  updated_at?: string | null;
+}
+
+export type ProgramCertificateTemplateCreate = Omit<ProgramCertificateTemplate, "id" | "program_id" | "created_at" | "updated_at">;
+export type ProgramCertificateTemplateUpdate = Partial<ProgramCertificateTemplateCreate>;
+
+export interface CertificatePreviewRequest {
+  recipient_name?: string;
+  program_name?: string;
+  cohort_name?: string;
+  dates?: string;
+  location?: string;
+  background_type: "custom" | "dark" | "light";
+  background_file_path?: string | null;
+  name_font_size: number;
+  name_y: number;
+  name_color: string;
+  body_text?: string | null;
+  body_font_size: number;
+  body_y: number;
+  body_color: string;
+  body_max_width: number;
+  body_alignment: "center" | "left" | "right";
+  show_signature: boolean;
+  signature_image_path?: string | null;
+  signature_x?: number | null;
+  signature_y: number;
+  signature_width: number;
+  signature_height: number;
 }
 
 /** planned|registration_open|running|completed|cancelled — see
