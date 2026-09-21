@@ -52,8 +52,8 @@ export function LearnNotificationsBell({
     queryKey: ["notifications"],
     queryFn: getNotificationsApi,
     enabled: !!user,
-    staleTime: 20_000,
-    refetchInterval: 30_000,
+    staleTime: 30_000,
+    refetchInterval: 60_000,
   });
 
   const markAll = useMutation({

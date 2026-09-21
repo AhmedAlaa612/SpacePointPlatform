@@ -78,7 +78,8 @@ export default function AdminHub() {
   const { data: notifications = [], isLoading } = useQuery<Notification[]>({
     queryKey: ["notifications"],
     queryFn: getNotificationsApi,
-    refetchInterval: 30_000,
+    staleTime: 30_000,
+    refetchInterval: 60_000,
   })
 
   const { data: appCounts } = useQuery({
