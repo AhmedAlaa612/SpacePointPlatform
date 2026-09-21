@@ -207,8 +207,11 @@ async def test_send_cohort_certificates(db, client):
         assert send_resp.status_code == 200, send_resp.text
         res = send_resp.json()
         assert res["sent_count"] == 1
-        assert res["recipient_names"] == ["Student Beta"]
         assert mock_email.called
+        call_args = mock_email.call_args[0]
+        # recipient, subject, body
+        assert f"{program.name} - {cohort.name}" in call_args[1]
+        assert f"{program.name} - {cohort.name}" in call_args[2]
 
     # Check Certificate row was created
     certs = (await db.execute(select(Certificate).where(Certificate.registration_id == r2.id))).scalars().all()

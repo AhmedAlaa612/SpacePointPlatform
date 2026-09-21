@@ -132,3 +132,16 @@ def merge_certificate_pdfs(pdf_bytes_list: list[bytes]) -> bytes:
     writer.write(out)
     out.seek(0)
     return out.read()
+
+
+def format_certificate_program_title(program_name: str, cohort_name: str | None = None) -> str:
+    """Formats the program title line on certificates as 'program name - cohort name',
+    or just 'program name' if cohort name is missing or identical to the program name.
+    """
+    if not cohort_name or not cohort_name.strip():
+        return program_name
+    c_name = cohort_name.strip()
+    if c_name.lower() == program_name.strip().lower():
+        return program_name
+    return f"{program_name} - {c_name}"
+

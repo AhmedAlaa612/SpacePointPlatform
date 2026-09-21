@@ -36,7 +36,9 @@ from app.models.certificate import Certificate
 from app.models.document_template import DocumentTemplate
 from app.models.instructor_assessment.assignment import AssessmentCohortAssignment
 from app.models.sessions.delivery_role import DeliveryRole
-from app.services.documents.certificate import generate_completion_certificate_pdf, merge_certificate_pdfs
+from app.services.documents.certificate import (
+    format_certificate_program_title, generate_completion_certificate_pdf, merge_certificate_pdfs,
+)
 from app.services.games.realtime import get_realtime_redis_dep, safe_publish_to_run
 from app.services.games.runs import close_open_runs_for_session
 from app.services.sessions.openings import fully_staffed, lead_role_id
@@ -1315,10 +1317,19 @@ async def download_cohort_certificates(
     )).scalars().first()
     location = await resolve_session_location_display(db, None, cohort)
     template_body = template.body_text if template else "For successfully completing<br/>{program_name}<br/>{dates}"
-    body_text = template_body \
-        .replace("{program_name}", escape(program.name if program else "")) \
-        .replace("{dates}", escape(format_cohort_dates(cohort))) \
-        .replace("{location}", escape(location["name"] or ""))
+    program_name = program.name if program else ""
+    program_title = format_certificate_program_title(program_name, cohort.name if cohort else None)
+    if "{cohort_name}" in template_body:
+        body_text = template_body \
+            .replace("{program_name}", escape(program_name)) \
+            .replace("{cohort_name}", escape(cohort.name if cohort and cohort.name else "")) \
+            .replace("{dates}", escape(format_cohort_dates(cohort))) \
+            .replace("{location}", escape(location["name"] or ""))
+    else:
+        body_text = template_body \
+            .replace("{program_name}", escape(program_title)) \
+            .replace("{dates}", escape(format_cohort_dates(cohort))) \
+            .replace("{location}", escape(location["name"] or ""))
 
     def _render(name: str, body: str) -> bytes:
         return generate_completion_certificate_pdf(name, body, theme=theme)

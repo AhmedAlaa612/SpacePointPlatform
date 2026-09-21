@@ -35,7 +35,9 @@ from app.models.sessions.registration import Registration
 from app.models.spine.contact import Contact
 from app.models.team import Team, TeamMember
 from app.models.user import User
-from app.services.documents.certificate import generate_completion_certificate_pdf, merge_certificate_pdfs
+from app.services.documents.certificate import (
+    format_certificate_program_title, generate_completion_certificate_pdf, merge_certificate_pdfs,
+)
 from app.services.email import try_send_email
 from app.services.lms.program import effective_cohort_program_items
 from app.services.sessions.registration import ACTIVE_REGISTRATION_STATUSES, format_cohort_dates
@@ -322,10 +324,18 @@ async def send_cohort_certificates(
     )).scalars().first()
 
     template_body = template.body_text if template else "For successfully completing<br/>{program_name}<br/>{dates}"
-    body_text = template_body \
-        .replace("{program_name}", escape(program.name)) \
-        .replace("{dates}", escape(dates)) \
-        .replace("{location}", escape(location.get("name") or ""))
+    program_title = format_certificate_program_title(program.name, cohort.name if cohort else None)
+    if "{cohort_name}" in template_body:
+        body_text = template_body \
+            .replace("{program_name}", escape(program.name)) \
+            .replace("{cohort_name}", escape(cohort.name if cohort and cohort.name else "")) \
+            .replace("{dates}", escape(dates)) \
+            .replace("{location}", escape(location.get("name") or ""))
+    else:
+        body_text = template_body \
+            .replace("{program_name}", escape(program_title)) \
+            .replace("{dates}", escape(dates)) \
+            .replace("{location}", escape(location.get("name") or ""))
 
     sent_count = 0
     skipped_count = 0
@@ -374,8 +384,8 @@ async def send_cohort_certificates(
                 filename = f"SpacePoint_Certificate_{program.name.replace(' ', '_')}.pdf"
                 await try_send_email(
                     contact.email,
-                    f"Your SpacePoint certificate — {program.name}",
-                    _cert_email_body(contact.full_name, program.name, dates),
+                    f"Your SpacePoint certificate — {program_title}",
+                    _cert_email_body(contact.full_name, program_title, dates),
                     html=True,
                     attachments=[(filename, cert_bytes, "pdf")],
                 )
@@ -430,10 +440,18 @@ async def render_cohort_certificates_pdf(
     )).scalars().first()
 
     template_body = template.body_text if template else "For successfully completing<br/>{program_name}<br/>{dates}"
-    body_text = template_body \
-        .replace("{program_name}", escape(program.name)) \
-        .replace("{dates}", escape(dates)) \
-        .replace("{location}", escape(location.get("name") or ""))
+    program_title = format_certificate_program_title(program.name, cohort.name if cohort else None)
+    if "{cohort_name}" in template_body:
+        body_text = template_body \
+            .replace("{program_name}", escape(program.name)) \
+            .replace("{cohort_name}", escape(cohort.name if cohort and cohort.name else "")) \
+            .replace("{dates}", escape(dates)) \
+            .replace("{location}", escape(location.get("name") or ""))
+    else:
+        body_text = template_body \
+            .replace("{program_name}", escape(program_title)) \
+            .replace("{dates}", escape(dates)) \
+            .replace("{location}", escape(location.get("name") or ""))
 
     def _render(name: str, body: str) -> bytes:
         return generate_completion_certificate_pdf(name, body, theme=theme)

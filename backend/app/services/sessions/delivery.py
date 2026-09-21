@@ -30,7 +30,9 @@ from app.models.sessions.registration import Registration, RegistrationSession
 from app.models.sessions.session import Session, SessionInstructor
 from app.models.spine.contact import Contact
 from app.models.user import User
-from app.services.documents.certificate import generate_completion_certificate_pdf
+from app.services.documents.certificate import (
+    format_certificate_program_title, generate_completion_certificate_pdf,
+)
 from app.services.email import try_send_email
 from app.services.lms.program import certificate_gate_satisfied
 from app.services.sessions.registration import check_in, format_cohort_dates
@@ -219,10 +221,19 @@ async def _issue_student_certificate(
     template = (await db.execute(
         select(DocumentTemplate).where(DocumentTemplate.key == "student_completion")
     )).scalars().first()
-    body_text = (template.body_text if template else "For successfully completing<br/>{program_name}<br/>{dates}") \
-        .replace("{program_name}", escape(program.name)) \
-        .replace("{dates}", escape(dates)) \
-        .replace("{location}", escape(location["name"] or ""))
+    template_body = template.body_text if template else "For successfully completing<br/>{program_name}<br/>{dates}"
+    program_title = format_certificate_program_title(program.name, cohort.name if cohort else None)
+    if "{cohort_name}" in template_body:
+        body_text = template_body \
+            .replace("{program_name}", escape(program.name)) \
+            .replace("{cohort_name}", escape(cohort.name if cohort and cohort.name else "")) \
+            .replace("{dates}", escape(dates)) \
+            .replace("{location}", escape(location["name"] or ""))
+    else:
+        body_text = template_body \
+            .replace("{program_name}", escape(program_title)) \
+            .replace("{dates}", escape(dates)) \
+            .replace("{location}", escape(location["name"] or ""))
     cert_bytes = await asyncio.to_thread(generate_completion_certificate_pdf, contact.full_name, body_text)
 
     certificate = Certificate(
