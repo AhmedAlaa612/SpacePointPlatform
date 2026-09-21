@@ -9,7 +9,7 @@ import uuid
 from typing import Literal
 
 from arq.connections import ArqRedis
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
+from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
 from fastapi.responses import Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -23,6 +23,8 @@ from app.schemas.competitions import (
     CompetitionAdvanceResultOut, CompetitionAdvanceTeamsIn, CompetitionAnalyticsOut,
     CompetitionAssignableStudentOut,
     CompetitionAssignStudentRowOut, CompetitionAssignStudentsIn, CompetitionAssignStudentsOut,
+    CompetitionCertificateRecipientOut, CompetitionCertificateRecipientsSummaryOut,
+    CompetitionCertificateSendIn, CompetitionCertificateSendResultOut,
     CompetitionImportConfirmIn,
     CompetitionImportPreviewOut, CompetitionImportPreviewRowOut, CompetitionImportResultOut,
     CompetitionImportRowOut, CompetitionJudgeInviteIn, CompetitionJudgeOut, CompetitionJudgeProgressOut,
@@ -30,6 +32,7 @@ from app.schemas.competitions import (
     CompetitionTeamCreateIn, CompetitionTeamMemberIn, CompetitionTeamOut, CompetitionTeamRenameIn,
 )
 from app.services.competitions import analytics as analytics_service
+from app.services.competitions import certificates as certificates_service
 from app.services.competitions import export as export_service
 from app.services.competitions import judges as judges_service
 from app.services.competitions import judging as judging_service
@@ -440,3 +443,57 @@ async def post_cohort_unpublish(cohort_id: uuid.UUID, db: AsyncSession = Depends
     if not unpublished:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="This cohort's results aren't published")
     await db.commit()
+
+
+# ── Certificates (2026-09) ───────────────────────────────────────────────────
+
+@router.get("/cohorts/{cohort_id}/certificates/recipients", response_model=CompetitionCertificateRecipientsSummaryOut)
+async def get_cohort_certificate_recipients(
+    cohort_id: uuid.UUID,
+    filter: Literal["at_least_one", "all_completed", "all"] = Query("all"),
+    db: AsyncSession = Depends(get_db),
+):
+    await _get_cohort_or_404(db, cohort_id)
+    result = await certificates_service.get_cohort_certificate_recipients(db, cohort_id=cohort_id, filter_type=filter)
+    return CompetitionCertificateRecipientsSummaryOut(**result)
+
+
+@router.post("/cohorts/{cohort_id}/certificates/send", response_model=CompetitionCertificateSendResultOut)
+async def post_cohort_certificates_send(
+    cohort_id: uuid.UUID,
+    body: CompetitionCertificateSendIn,
+    db: AsyncSession = Depends(get_db),
+    current: User = Depends(get_current_active_user),
+):
+    await _get_cohort_or_404(db, cohort_id)
+    result = await certificates_service.send_cohort_certificates(
+        db,
+        cohort_id=cohort_id,
+        actor_user_id=current.id,
+        filter_type=body.filter,
+        registration_ids=body.registration_ids,
+        theme=body.theme,
+        skip_already_issued=body.skip_already_issued,
+    )
+    return CompetitionCertificateSendResultOut(**result)
+
+
+@router.get("/cohorts/{cohort_id}/certificates/download")
+async def download_cohort_certificates(
+    cohort_id: uuid.UUID,
+    filter: Literal["at_least_one", "all_completed", "all"] = Query("at_least_one"),
+    theme: Literal["dark", "light"] = Query("dark"),
+    db: AsyncSession = Depends(get_db),
+):
+    """Download merged certificate PDF for students matching the filter."""
+    await _get_cohort_or_404(db, cohort_id)
+    content, filename = await certificates_service.render_cohort_certificates_pdf(
+        db, cohort_id=cohort_id, filter_type=filter, theme=theme,
+    )
+    return Response(
+        content=content,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+

@@ -485,3 +485,49 @@ class CompetitionAnalyticsOut(BaseModel):
     teams: list[CompetitionAnalyticsTeamOut] = []
     activity: list[CompetitionAnalyticsActivityOut] = []
     stalled_after_days: int
+
+
+# ── Certificates (2026-09) ───────────────────────────────────────────────────
+
+class CompetitionCertificateRecipientOut(BaseModel):
+    registration_id: UUID
+    user_id: UUID | None = None
+    contact_id: UUID
+    student_name: str
+    email: str | None = None
+    team_id: UUID | None = None
+    team_name: str | None = None
+    submissions_done: int
+    submissions_total: int
+    required_submissions_total: int
+    team_locked: bool = False
+    meets_at_least_one: bool
+    meets_all_completed: bool
+    certificate_issued: bool
+    certificate_id: UUID | None = None
+    certificate_generated_at: datetime | None = None
+
+
+class CompetitionCertificateRecipientsSummaryOut(BaseModel):
+    total_registered: int
+    submission_items_total: int
+    required_submissions_total: int
+    at_least_one_count: int
+    all_completed_count: int
+    recipients: list[CompetitionCertificateRecipientOut]
+
+
+class CompetitionCertificateSendIn(BaseModel):
+    filter: Literal["at_least_one", "all_completed", "custom", "all"] = "at_least_one"
+    registration_ids: list[UUID] | None = None
+    theme: Literal["dark", "light"] = "dark"
+    skip_already_issued: bool = True
+
+
+class CompetitionCertificateSendResultOut(BaseModel):
+    sent_count: int
+    skipped_count: int
+    total_targeted: int
+    recipient_names: list[str]
+    errors: list[str]
+

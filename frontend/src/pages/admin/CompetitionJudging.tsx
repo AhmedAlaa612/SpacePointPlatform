@@ -1,13 +1,15 @@
 import { useEffect, useRef, useState } from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { Link, useParams } from "@tanstack/react-router"
-import { ArrowLeft, ArrowUpRight, Download, Mail, Plus, Search, Trash2, Trophy, Upload, UserPlus, UserMinus, Pencil, X, Check } from "lucide-react"
+import { ArrowLeft, ArrowUpRight, Award, Download, Mail, Plus, Printer, Search, Trash2, Trophy, Upload, UserPlus, UserMinus, Pencil, X, Check } from "lucide-react"
 import { getCohortApi, getCohortsApi } from "@/api/sessions/cohorts"
 import type { Cohort } from "@/types/sessions"
 import { searchStaffApi, listInviteCodesApi, type StaffOption } from "@/api/lms_admin"
 import { UserProfileModal } from "@/components/UserProfileModal"
+import { CompetitionCertificatesModal } from "@/pages/admin/components/CompetitionCertificatesModal"
 import {
   advanceCohortTeamsApi, assignExistingStudentsApi, createCohortTeamApi, deleteTeamApi, downloadCohortResultsWorkbookApi,
+  downloadCompetitionCertificatesApi,
   getCohortExportTop20Api,
   confirmCohortRegistrationImportApi,
   getCohortJudgesApi, getCohortLeaderboardApi, getCohortPublicationApi, getCohortTeamsApi, getProgramRubricApi,
@@ -21,6 +23,13 @@ import {
 import { CompetitionAnalysisTab } from "@/pages/admin/components/CompetitionAnalysis"
 import { PageHeader, Spinner, EmptyState } from "@/components/ui/primitives"
 import { Field } from "@/pages/admin/components/common"
+import {
+  DropdownMenu,
+  DropdownMenuTrigger,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+} from "@/components/ui/dropdown-menu"
 import { useToast } from "@/components/ui/toast"
 import { getErrorMessage } from "@/lib/utils"
 
@@ -43,6 +52,7 @@ const TABS: { key: JudgingTab; label: string }[] = [
 export default function CompetitionJudging() {
   const { cohortId } = useParams({ strict: false }) as { cohortId: string }
   const [tab, setTab] = useState<JudgingTab>("roster")
+  const [certificatesOpen, setCertificatesOpen] = useState(false)
 
   const { data: cohort, isLoading } = useQuery({
     queryKey: ["sessions-cohort", cohortId],
@@ -70,7 +80,19 @@ export default function CompetitionJudging() {
         <ArrowLeft size={14} /> {cohort.name}
       </Link>
 
-      <PageHeader title={`Judging — ${cohort.name}`} subtitle={cohort.program_name ?? "—"} />
+      <PageHeader
+        title={`Judging — ${cohort.name}`}
+        subtitle={cohort.program_name ?? "—"}
+        action={
+          <button
+            onClick={() => setCertificatesOpen(true)}
+            className="flex items-center gap-1.5 h-9 px-3.5 border border-border rounded-xl text-sm font-medium text-foreground hover:bg-muted transition-colors shrink-0"
+            title="Issue and email completion certificates"
+          >
+            <Award size={14} className="text-primary" /> Certificates
+          </button>
+        }
+      />
 
       {/* overflow-x-auto + shrink-0 (2026-09-17) — seven tabs since Analysis
           landed no longer fits a phone width; without this the row just
@@ -95,7 +117,21 @@ export default function CompetitionJudging() {
       {tab === "analysis" && <CompetitionAnalysisTab cohortId={cohort.id} />}
       {tab === "rubric" && <RubricTab programId={cohort.program_id} />}
       {tab === "judges" && <JudgesTab cohortId={cohort.id} />}
-      {tab === "results" && <ResultsTab cohortId={cohort.id} cohortName={cohort.name} programId={cohort.program_id} />}
+      {tab === "results" && (
+        <ResultsTab
+          cohortId={cohort.id}
+          cohortName={cohort.name}
+          programId={cohort.program_id}
+          onOpenCertificates={() => setCertificatesOpen(true)}
+        />
+      )}
+
+      <CompetitionCertificatesModal
+        cohortId={cohort.id}
+        cohortName={cohort.name}
+        open={certificatesOpen}
+        onClose={() => setCertificatesOpen(false)}
+      />
     </div>
   )
 }
@@ -1205,7 +1241,17 @@ function JudgesTab({ cohortId }: { cohortId: string }) {
 /* ================================================================== */
 /* Results                                                              */
 /* ================================================================== */
-function ResultsTab({ cohortId, cohortName, programId }: { cohortId: string; cohortName: string; programId: string }) {
+function ResultsTab({
+  cohortId,
+  cohortName,
+  programId,
+  onOpenCertificates,
+}: {
+  cohortId: string
+  cohortName: string
+  programId: string
+  onOpenCertificates?: () => void
+}) {
   const toast = useToast()
   const queryClient = useQueryClient()
   const [showTop20, setShowTop20] = useState(false)
@@ -1214,6 +1260,26 @@ function ResultsTab({ cohortId, cohortName, programId }: { cohortId: string; coh
   const [sendTicketOnAdvance, setSendTicketOnAdvance] = useState(true)
   const [sendWelcomeOnAdvance, setSendWelcomeOnAdvance] = useState(true)
   const [exporting, setExporting] = useState(false)
+  const [downloadingCertificates, setDownloadingCertificates] = useState(false)
+
+  const handleDownloadCertificates = async (
+    filter: "at_least_one" | "all_completed",
+    theme: "dark" | "light",
+  ) => {
+    setDownloadingCertificates(true)
+    try {
+      await downloadCompetitionCertificatesApi(cohortId, cohortName, filter, theme)
+      toast.success(
+        `Downloaded ${theme} certificates for ${
+          filter === "at_least_one" ? "≥ 1 submission" : "completed all"
+        }`,
+      )
+    } catch (e: unknown) {
+      toast.error(getErrorMessage(e, "Failed to download certificates PDF"))
+    } finally {
+      setDownloadingCertificates(false)
+    }
+  }
 
   const { data: board = [], isLoading } = useQuery<CompetitionLeaderboardRow[]>({
     queryKey: ["competitions-leaderboard", cohortId],
@@ -1324,6 +1390,47 @@ function ResultsTab({ cohortId, cohortName, programId }: { cohortId: string; coh
         >
           <Download size={14} /> {exporting ? "Exporting…" : "Export spreadsheet"}
         </button>
+        {onOpenCertificates && (
+          <button
+            onClick={onOpenCertificates}
+            className="flex items-center gap-1.5 h-9 px-4 border border-border rounded-xl text-sm font-medium text-foreground hover:bg-muted transition-colors"
+            title="Review qualifying students and email certificates"
+          >
+            <Mail size={14} className="text-primary" /> Send certificates
+          </button>
+        )}
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <button
+              disabled={downloadingCertificates}
+              className="flex items-center gap-1.5 h-9 px-3 border border-border rounded-xl text-sm font-medium text-foreground hover:bg-muted transition-colors disabled:opacity-50"
+              title="Download merged PDF of certificates for students with submissions"
+            >
+              <Printer size={14} /> {downloadingCertificates ? "Preparing…" : "Print certificates"}
+            </button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="w-56">
+            <div className="px-2 py-1 text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">
+              At least 1 submission
+            </div>
+            <DropdownMenuItem onClick={() => handleDownloadCertificates("at_least_one", "dark")}>
+              Dark background
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={() => handleDownloadCertificates("at_least_one", "light")}>
+              Light background
+            </DropdownMenuItem>
+            <DropdownMenuSeparator />
+            <div className="px-2 py-1 text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">
+              Completed all submissions
+            </div>
+            <DropdownMenuItem onClick={() => handleDownloadCertificates("all_completed", "dark")}>
+              Dark background
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={() => handleDownloadCertificates("all_completed", "light")}>
+              Light background
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
       </div>
       <p className="text-xs text-muted-foreground -mt-2">
         Publishing closes scoring for every judge on this cohort — unpublish to reopen it. "Export spreadsheet"

@@ -539,3 +539,90 @@ export interface CompetitionAnalytics {
 
 export const getCohortTeamAnalyticsApi = (cohortId: string) =>
   api.get<CompetitionAnalytics>(`/competitions/admin/cohorts/${cohortId}/team-analytics`).then((r) => r.data)
+
+// ── Certificate issuance (2026-09) ──────────────────────────────────────────
+
+export interface CompetitionCertificateRecipient {
+  registration_id: string
+  user_id?: string | null
+  contact_id: string
+  student_name: string
+  email?: string | null
+  team_id?: string | null
+  team_name?: string | null
+  submissions_done: number
+  submissions_total: number
+  required_submissions_total: number
+  team_locked: boolean
+  meets_at_least_one: boolean
+  meets_all_completed: boolean
+  certificate_issued: boolean
+  certificate_id?: string | null
+  certificate_generated_at?: string | null
+}
+
+export interface CompetitionCertificateRecipientsSummary {
+  total_registered: number
+  submission_items_total: number
+  required_submissions_total: number
+  at_least_one_count: number
+  all_completed_count: number
+  recipients: CompetitionCertificateRecipient[]
+}
+
+export interface CompetitionCertificateSendIn {
+  filter: "at_least_one" | "all_completed" | "custom" | "all"
+  registration_ids?: string[] | null
+  theme?: "dark" | "light"
+  skip_already_issued?: boolean
+}
+
+export interface CompetitionCertificateSendResult {
+  sent_count: number
+  skipped_count: number
+  total_targeted: number
+  recipient_names: string[]
+  errors: string[]
+}
+
+export const getCohortCertificateRecipientsApi = (
+  cohortId: string,
+  filter: "at_least_one" | "all_completed" | "all" = "all",
+) =>
+  api
+    .get<CompetitionCertificateRecipientsSummary>(
+      `/competitions/admin/cohorts/${cohortId}/certificates/recipients`,
+      { params: { filter } },
+    )
+    .then((r) => r.data)
+
+export const sendCohortCertificatesApi = (
+  cohortId: string,
+  payload: CompetitionCertificateSendIn,
+) =>
+  api
+    .post<CompetitionCertificateSendResult>(
+      `/competitions/admin/cohorts/${cohortId}/certificates/send`,
+      payload,
+    )
+    .then((r) => r.data)
+
+export const downloadCompetitionCertificatesApi = async (
+  cohortId: string,
+  cohortName: string,
+  filter: "at_least_one" | "all_completed" | "all",
+  theme: "dark" | "light",
+) => {
+  const res = await api.get(`/competitions/admin/cohorts/${cohortId}/certificates/download`, {
+    params: { filter, theme },
+    responseType: "blob",
+  })
+  const url = URL.createObjectURL(res.data as Blob)
+  const a = document.createElement("a")
+  a.href = url
+  a.download = `certificates_${filter}_${cohortName.replace(/[^a-z0-9]+/gi, "_")}_${theme}.pdf`
+  a.click()
+  URL.revokeObjectURL(url)
+}
+
+

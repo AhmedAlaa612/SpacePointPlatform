@@ -1,0 +1,294 @@
+"""Competition judging certificate issuance tests (2026-09).
+
+Tests:
+1. Preview recipients:
+   - Evaluates 'at_least_one' filter (students with >= 1 submission)
+   - Evaluates 'all_completed' filter (students who finished all required deliverables or locked team)
+2. Send certificates:
+   - Generates Certificate rows, updates registration to 'completed', and sends emails
+   - Honors skip_already_issued flag (idempotency)
+"""
+
+import uuid
+from unittest.mock import patch
+
+import pytest
+from fastapi import status as http_status
+from sqlalchemy import select
+
+from app.core.security import create_access_token
+from app.models.certificate import Certificate
+from app.models.lms.program import (
+    LmsProgram, LmsProgramItem, LmsProgramTeamItemProgress,
+)
+from app.models.sessions.cohort import Cohort
+from app.models.sessions.program import Program
+from app.models.sessions.registration import Registration
+from app.models.spine.contact import Contact
+from app.models.team import Team, TeamMember
+from app.models.user import User
+from app.services.sessions.registration import register
+from app.services.teams import create_team
+
+
+def _headers(user: User) -> dict:
+    return {"Authorization": f"Bearer {create_access_token(user.id, user.role_values)}"}
+
+
+async def _ops(db) -> User:
+    user = User(
+        id=uuid.uuid4(), full_name="Cert Ops", email=f"certops-{uuid.uuid4().hex[:8]}@example.com",
+        password_hash="x", roles=["operations"], status="active",
+    )
+    db.add(user)
+    await db.flush()
+    return user
+
+
+async def _student(db, name: str, *, cohort: Cohort | None = None) -> tuple[User, Registration]:
+    email = f"student-{uuid.uuid4().hex[:8]}@example.com"
+    contact = Contact(
+        id=uuid.uuid4(), full_name=name, email=email, contact_roles=["student"],
+        secondary_phones=[], preferred_language="en", lifecycle_stage="lead",
+    )
+    db.add(contact)
+    await db.flush()
+    user = User(
+        id=uuid.uuid4(), full_name=name, email=email,
+        password_hash="x", roles=["student"], status="active", contact_id=contact.id,
+    )
+    db.add(user)
+    await db.flush()
+    reg = None
+    if cohort is not None:
+        reg = await register(
+            db, contact_id=contact.id, cohort_id=cohort.id,
+            registered_via="desk", payment_status="waived",
+        )
+        await db.flush()
+    return user, reg
+
+
+async def _setup_competition_cohort(db):
+    program = Program(
+        id=uuid.uuid4(), code=f"CERT-{uuid.uuid4().hex[:8]}", name="Space Cup",
+        program_type="competition", pricing_model="free", active=True,
+    )
+    db.add(program)
+    await db.flush()
+
+    cohort = Cohort(id=uuid.uuid4(), program_id=program.id, name="Qualifier Stage", status="running")
+    db.add(cohort)
+    await db.flush()
+
+    lms_program = LmsProgram(id=uuid.uuid4(), program_id=program.id, name="Cup Checklist")
+    db.add(lms_program)
+    await db.flush()
+
+    # Checklist items: 2 required team submissions
+    item1 = LmsProgramItem(
+        id=uuid.uuid4(), owner_type="program", owner_id=lms_program.id, position=1,
+        item_type="submission", title="Design Proposal", scope="team", optional=False,
+    )
+    item2 = LmsProgramItem(
+        id=uuid.uuid4(), owner_type="program", owner_id=lms_program.id, position=2,
+        item_type="submission", title="Final Presentation", scope="team", optional=False,
+    )
+    db.add_all([item1, item2])
+    await db.flush()
+
+    return program, cohort, lms_program, [item1, item2]
+
+
+@pytest.mark.asyncio
+async def test_certificate_recipients_preview(db, client):
+    ops = await _ops(db)
+    program, cohort, lms_program, (item1, item2) = await _setup_competition_cohort(db)
+
+    # Student 1: Team Alpha (submitted item 1 only)
+    s1, r1 = await _student(db, "Student Alpha 1", cohort=cohort)
+    team_alpha = await create_team(db, cohort_id=cohort.id, name="Team Alpha", created_by=s1.id)
+    # add item 1 submission
+    p1 = LmsProgramTeamItemProgress(
+        id=uuid.uuid4(), item_id=item1.id, team_id=team_alpha.id, status="done",
+        submitted_url="https://example.com/alpha-proposal",
+    )
+    db.add(p1)
+
+    # Student 2: Team Beta (submitted both item 1 and item 2)
+    s2, r2 = await _student(db, "Student Beta 1", cohort=cohort)
+    team_beta = await create_team(db, cohort_id=cohort.id, name="Team Beta", created_by=s2.id)
+    p2a = LmsProgramTeamItemProgress(
+        id=uuid.uuid4(), item_id=item1.id, team_id=team_beta.id, status="done",
+        submitted_url="https://example.com/beta-proposal",
+    )
+    p2b = LmsProgramTeamItemProgress(
+        id=uuid.uuid4(), item_id=item2.id, team_id=team_beta.id, status="done",
+        submitted_url="https://example.com/beta-final",
+    )
+    db.add_all([p2a, p2b])
+
+    # Student 3: Team Gamma (no submissions)
+    s3, r3 = await _student(db, "Student Gamma 1", cohort=cohort)
+    await create_team(db, cohort_id=cohort.id, name="Team Gamma", created_by=s3.id)
+
+    await db.commit()
+
+    # Query all recipients
+    resp_all = await client.get(
+        f"/competitions/admin/cohorts/{cohort.id}/certificates/recipients?filter=all",
+        headers=_headers(ops),
+    )
+    assert resp_all.status_code == 200, resp_all.text
+    data = resp_all.json()
+    assert data["total_registered"] == 3
+    assert data["at_least_one_count"] == 2
+    assert data["all_completed_count"] == 1
+    assert len(data["recipients"]) == 3
+
+    # Query 'at_least_one' filter
+    resp_at_least_one = await client.get(
+        f"/competitions/admin/cohorts/{cohort.id}/certificates/recipients?filter=at_least_one",
+        headers=_headers(ops),
+    )
+    assert resp_at_least_one.status_code == 200
+    at_least_one_data = resp_at_least_one.json()
+    assert len(at_least_one_data["recipients"]) == 2
+    names = {r["student_name"] for r in at_least_one_data["recipients"]}
+    assert names == {"Student Alpha 1", "Student Beta 1"}
+
+    # Query 'all_completed' filter
+    resp_all_comp = await client.get(
+        f"/competitions/admin/cohorts/{cohort.id}/certificates/recipients?filter=all_completed",
+        headers=_headers(ops),
+    )
+    assert resp_all_comp.status_code == 200
+    all_comp_data = resp_all_comp.json()
+    assert len(all_comp_data["recipients"]) == 1
+    assert all_comp_data["recipients"][0]["student_name"] == "Student Beta 1"
+
+
+@pytest.mark.asyncio
+async def test_send_cohort_certificates(db, client):
+    ops = await _ops(db)
+    program, cohort, lms_program, (item1, item2) = await _setup_competition_cohort(db)
+
+    # Student 1: submitted 1 item
+    s1, r1 = await _student(db, "Student Alpha", cohort=cohort)
+    team_alpha = await create_team(db, cohort_id=cohort.id, name="Alpha", created_by=s1.id)
+    p1 = LmsProgramTeamItemProgress(
+        id=uuid.uuid4(), item_id=item1.id, team_id=team_alpha.id, status="done",
+        submitted_url="https://example.com/alpha-proposal",
+    )
+    db.add(p1)
+
+    # Student 2: submitted 2 items
+    s2, r2 = await _student(db, "Student Beta", cohort=cohort)
+    team_beta = await create_team(db, cohort_id=cohort.id, name="Beta", created_by=s2.id)
+    p2a = LmsProgramTeamItemProgress(
+        id=uuid.uuid4(), item_id=item1.id, team_id=team_beta.id, status="done",
+        submitted_url="https://example.com/beta-proposal",
+    )
+    p2b = LmsProgramTeamItemProgress(
+        id=uuid.uuid4(), item_id=item2.id, team_id=team_beta.id, status="done",
+        submitted_url="https://example.com/beta-final",
+    )
+    db.add_all([p2a, p2b])
+    await db.commit()
+
+    # Send certificates for students with 'all_completed'
+    with patch("app.services.competitions.certificates.try_send_email") as mock_email:
+        mock_email.return_value = None
+        send_resp = await client.post(
+            f"/competitions/admin/cohorts/{cohort.id}/certificates/send",
+            headers=_headers(ops),
+            json={"filter": "all_completed", "theme": "dark", "skip_already_issued": True},
+        )
+        assert send_resp.status_code == 200, send_resp.text
+        res = send_resp.json()
+        assert res["sent_count"] == 1
+        assert res["recipient_names"] == ["Student Beta"]
+        assert mock_email.called
+
+    # Check Certificate row was created
+    certs = (await db.execute(select(Certificate).where(Certificate.registration_id == r2.id))).scalars().all()
+    assert len(certs) == 1
+    assert certs[0].workshop_name == program.name
+
+    # Check registration was updated to completed
+    await db.refresh(r2)
+    assert r2.status == "completed"
+
+    # Re-sending with skip_already_issued=True should skip Student Beta
+    with patch("app.services.competitions.certificates.try_send_email") as mock_email:
+        send_again = await client.post(
+            f"/competitions/admin/cohorts/{cohort.id}/certificates/send",
+            headers=_headers(ops),
+            json={"filter": "all_completed", "theme": "dark", "skip_already_issued": True},
+        )
+        assert send_again.status_code == 200
+        res2 = send_again.json()
+        assert res2["sent_count"] == 0
+        assert res2["skipped_count"] == 1
+        assert not mock_email.called
+
+
+@pytest.mark.asyncio
+async def test_download_cohort_certificates_pdf(db, client):
+    ops = await _ops(db)
+    program, cohort, lms_program, (item1, item2) = await _setup_competition_cohort(db)
+
+    # Student 1: submitted 1 item
+    s1, r1 = await _student(db, "PDF Student Alpha", cohort=cohort)
+    team_alpha = await create_team(db, cohort_id=cohort.id, name="PDF Alpha", created_by=s1.id)
+    p1 = LmsProgramTeamItemProgress(
+        id=uuid.uuid4(), item_id=item1.id, team_id=team_alpha.id, status="done",
+        submitted_url="https://example.com/pdf-alpha",
+    )
+    db.add(p1)
+
+    # Student 2: submitted both items
+    s2, r2 = await _student(db, "PDF Student Beta", cohort=cohort)
+    team_beta = await create_team(db, cohort_id=cohort.id, name="PDF Beta", created_by=s2.id)
+    p2a = LmsProgramTeamItemProgress(
+        id=uuid.uuid4(), item_id=item1.id, team_id=team_beta.id, status="done",
+        submitted_url="https://example.com/pdf-beta-1",
+    )
+    p2b = LmsProgramTeamItemProgress(
+        id=uuid.uuid4(), item_id=item2.id, team_id=team_beta.id, status="done",
+        submitted_url="https://example.com/pdf-beta-2",
+    )
+    db.add_all([p2a, p2b])
+    await db.commit()
+
+    # 1. Download dark theme PDF for at_least_one (should include both students, 2 pages)
+    resp_dark = await client.get(
+        f"/competitions/admin/cohorts/{cohort.id}/certificates/download?filter=at_least_one&theme=dark",
+        headers=_headers(ops),
+    )
+    assert resp_dark.status_code == 200, resp_dark.text
+    assert resp_dark.headers["content-type"] == "application/pdf"
+    assert "attachment;" in resp_dark.headers.get("content-disposition", "")
+    assert resp_dark.content.startswith(b"%PDF-")
+
+    # 2. Download light theme PDF for all_completed (should include Student Beta only, 1 page)
+    resp_light = await client.get(
+        f"/competitions/admin/cohorts/{cohort.id}/certificates/download?filter=all_completed&theme=light",
+        headers=_headers(ops),
+    )
+    assert resp_light.status_code == 200, resp_light.text
+    assert resp_light.headers["content-type"] == "application/pdf"
+    assert resp_light.content.startswith(b"%PDF-")
+
+    # 3. Empty cohort with no submissions should return 400
+    empty_cohort = Cohort(id=uuid.uuid4(), program_id=program.id, name="Empty Stage", status="running")
+    db.add(empty_cohort)
+    await db.commit()
+
+    resp_empty = await client.get(
+        f"/competitions/admin/cohorts/{empty_cohort.id}/certificates/download?filter=at_least_one&theme=dark",
+        headers=_headers(ops),
+    )
+    assert resp_empty.status_code == 404
+    assert "No matching students found" in resp_empty.json()["detail"]
+
