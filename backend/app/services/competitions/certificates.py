@@ -281,7 +281,13 @@ async def send_cohort_certificates(
     all_recipients = {r["registration_id"]: r for r in all_data["recipients"]}
 
     if registration_ids is not None and len(registration_ids) > 0:
-        target_ids = [rid for rid in registration_ids if rid in all_recipients]
+        target_id_set = set()
+        for item in registration_ids:
+            try:
+                target_id_set.add(uuid.UUID(str(item)))
+            except (ValueError, TypeError):
+                pass
+        target_ids = [rid for rid in all_recipients if rid in target_id_set]
     elif filter_type == "all_completed":
         target_ids = [rid for rid, r in all_recipients.items() if r["meets_all_completed"]]
     elif filter_type == "at_least_one":
@@ -424,10 +430,16 @@ async def render_cohort_certificates_pdf(
     if program is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Program not found")
 
-    data = await get_cohort_certificate_recipients(db, cohort_id=cohort_id, filter_type=filter_type)
+    effective_filter = "all" if registration_ids else filter_type
+    data = await get_cohort_certificate_recipients(db, cohort_id=cohort_id, filter_type=effective_filter)
     recipients = data["recipients"]
     if registration_ids:
-        target_ids = set(registration_ids)
+        target_ids = set()
+        for item in registration_ids:
+            try:
+                target_ids.add(uuid.UUID(str(item)))
+            except (ValueError, TypeError):
+                pass
         recipients = [r for r in recipients if r["registration_id"] in target_ids]
 
     if not recipients:

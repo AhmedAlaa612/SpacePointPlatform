@@ -9,9 +9,11 @@ Tests:
    - Honors skip_already_issued flag (idempotency)
 """
 
+import io
 import uuid
 from unittest.mock import patch
 
+from pypdf import PdfReader
 import pytest
 from fastapi import status as http_status
 from sqlalchemy import select
@@ -235,6 +237,20 @@ async def test_send_cohort_certificates(db, client):
         assert res2["skipped_count"] == 1
         assert not mock_email.called
 
+    # Explicitly selecting Student Alpha only should send only to Student Alpha
+    with patch("app.services.competitions.certificates.try_send_email") as mock_email:
+        mock_email.return_value = None
+        send_alpha = await client.post(
+            f"/competitions/admin/cohorts/{cohort.id}/certificates/send",
+            headers=_headers(ops),
+            json={"filter": "at_least_one", "theme": "dark", "registration_ids": [str(r1.id)], "skip_already_issued": False},
+        )
+        assert send_alpha.status_code == 200
+        res_alpha = send_alpha.json()
+        assert res_alpha["sent_count"] == 1
+        assert res_alpha["recipient_names"] == ["Student Alpha"]
+        assert mock_email.called
+
 
 @pytest.mark.asyncio
 async def test_download_cohort_certificates_pdf(db, client):
@@ -294,4 +310,24 @@ async def test_download_cohort_certificates_pdf(db, client):
     )
     assert resp_empty.status_code == 404
     assert "No matching students found" in resp_empty.json()["detail"]
+
+    # 4. Download PDF for only selected student (Student Alpha only, exactly 1 page)
+    resp_selected = await client.post(
+        f"/competitions/admin/cohorts/{cohort.id}/certificates/download",
+        headers=_headers(ops),
+        json={"filter": "at_least_one", "theme": "dark", "registration_ids": [str(r1.id)]},
+    )
+    assert resp_selected.status_code == 200, resp_selected.text
+    assert resp_selected.headers["content-type"] == "application/pdf"
+    reader = PdfReader(io.BytesIO(resp_selected.content))
+    assert len(reader.pages) == 1
+
+    # 5. GET with query param registration_ids also downloads only selected
+    resp_get_selected = await client.get(
+        f"/competitions/admin/cohorts/{cohort.id}/certificates/download?registration_ids={r1.id}",
+        headers=_headers(ops),
+    )
+    assert resp_get_selected.status_code == 200
+    reader_get = PdfReader(io.BytesIO(resp_get_selected.content))
+    assert len(reader_get.pages) == 1
 

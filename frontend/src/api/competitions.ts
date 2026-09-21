@@ -612,15 +612,27 @@ export const downloadCompetitionCertificatesApi = async (
   cohortName: string,
   filter: "at_least_one" | "all_completed" | "all",
   theme: "dark" | "light",
+  registrationIds?: string[] | null,
 ) => {
-  const res = await api.get(`/competitions/admin/cohorts/${cohortId}/certificates/download`, {
-    params: { filter, theme },
-    responseType: "blob",
-  })
+  let res
+  if (registrationIds && registrationIds.length > 0) {
+    res = await api.post(
+      `/competitions/admin/cohorts/${cohortId}/certificates/download`,
+      { filter, theme, registration_ids: registrationIds },
+      { responseType: "blob" },
+    )
+  } else {
+    res = await api.get(`/competitions/admin/cohorts/${cohortId}/certificates/download`, {
+      params: { filter, theme },
+      responseType: "blob",
+    })
+  }
   const url = URL.createObjectURL(res.data as Blob)
   const a = document.createElement("a")
   a.href = url
-  a.download = `certificates_${filter}_${cohortName.replace(/[^a-z0-9]+/gi, "_")}_${theme}.pdf`
+  const safeName = cohortName.replace(/[^a-z0-9]+/gi, "_")
+  const suffix = registrationIds && registrationIds.length > 0 ? `_${registrationIds.length}_selected` : ""
+  a.download = `certificates_${filter}_${safeName}_${theme}${suffix}.pdf`
   a.click()
   URL.revokeObjectURL(url)
 }

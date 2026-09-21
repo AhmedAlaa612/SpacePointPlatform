@@ -34,10 +34,19 @@ export function CompetitionCertificatesModal({
   const [downloading, setDownloading] = useState(false)
 
   const handleDownload = async () => {
+    if (selectedIds.size === 0) return
     setDownloading(true)
     try {
-      await downloadCompetitionCertificatesApi(cohortId, cohortName, filter, theme)
-      toast.success(`Downloaded ${theme} certificates PDF for ${filter.replace("_", " ")}`)
+      await downloadCompetitionCertificatesApi(
+        cohortId,
+        cohortName,
+        filter,
+        theme,
+        Array.from(selectedIds),
+      )
+      toast.success(
+        `Downloaded ${theme} certificate PDF (${selectedIds.size} student${selectedIds.size === 1 ? "" : "s"})`,
+      )
     } catch (e: unknown) {
       toast.error(getErrorMessage(e, "Failed to download certificates PDF"))
     } finally {
@@ -390,9 +399,9 @@ export function CompetitionCertificatesModal({
             <button
               type="button"
               onClick={handleDownload}
-              disabled={downloading || recipients.length === 0}
+              disabled={downloading || selectedIds.size === 0}
               className="flex items-center justify-center gap-1.5 h-9 px-4 rounded-xl border border-border text-sm font-medium text-foreground hover:bg-muted transition-colors disabled:opacity-50"
-              title={`Download merged PDF for all recipients in '${filter.replace("_", " ")}' (${theme} theme)`}
+              title={`Download merged PDF for ${selectedIds.size} selected student(s) (${theme} theme)`}
             >
               {downloading ? (
                 <>
@@ -400,7 +409,7 @@ export function CompetitionCertificatesModal({
                 </>
               ) : (
                 <>
-                  <Download size={14} /> Download PDF ({theme === "dark" ? "Dark" : "Light"})
+                  <Download size={14} /> Download PDF ({selectedIds.size})
                 </>
               )}
             </button>

@@ -25,6 +25,7 @@ from app.schemas.competitions import (
     CompetitionAssignStudentRowOut, CompetitionAssignStudentsIn, CompetitionAssignStudentsOut,
     CompetitionCertificateRecipientOut, CompetitionCertificateRecipientsSummaryOut,
     CompetitionCertificateSendIn, CompetitionCertificateSendResultOut,
+    CompetitionCertificateDownloadIn,
     CompetitionImportConfirmIn,
     CompetitionImportPreviewOut, CompetitionImportPreviewRowOut, CompetitionImportResultOut,
     CompetitionImportRowOut, CompetitionJudgeInviteIn, CompetitionJudgeOut, CompetitionJudgeProgressOut,
@@ -483,12 +484,35 @@ async def download_cohort_certificates(
     cohort_id: uuid.UUID,
     filter: Literal["at_least_one", "all_completed", "all"] = Query("at_least_one"),
     theme: Literal["dark", "light"] = Query("dark"),
+    registration_ids: list[uuid.UUID] | None = Query(None),
     db: AsyncSession = Depends(get_db),
 ):
-    """Download merged certificate PDF for students matching the filter."""
+    """Download merged certificate PDF for students matching the filter or selected registration IDs."""
     await _get_cohort_or_404(db, cohort_id)
     content, filename = await certificates_service.render_cohort_certificates_pdf(
-        db, cohort_id=cohort_id, filter_type=filter, theme=theme,
+        db, cohort_id=cohort_id, filter_type=filter, theme=theme, registration_ids=registration_ids,
+    )
+    return Response(
+        content=content,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+@router.post("/cohorts/{cohort_id}/certificates/download")
+async def download_cohort_certificates_post(
+    cohort_id: uuid.UUID,
+    body: CompetitionCertificateDownloadIn,
+    db: AsyncSession = Depends(get_db),
+):
+    """Download merged certificate PDF for students matching the filter or selected registration IDs."""
+    await _get_cohort_or_404(db, cohort_id)
+    content, filename = await certificates_service.render_cohort_certificates_pdf(
+        db,
+        cohort_id=cohort_id,
+        filter_type=body.filter,
+        theme=body.theme,
+        registration_ids=body.registration_ids,
     )
     return Response(
         content=content,

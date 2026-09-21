@@ -524,6 +524,13 @@ class CompetitionCertificateSendIn(BaseModel):
     skip_already_issued: bool = True
 
 
+class CompetitionCertificateDownloadIn(BaseModel):
+    filter: Literal["at_least_one", "all_completed", "all"] = "at_least_one"
+    theme: Literal["dark", "light"] = "dark"
+    registration_ids: list[UUID] | None = None
+
+
+
 class CompetitionCertificateSendResultOut(BaseModel):
     sent_count: int
     skipped_count: int
