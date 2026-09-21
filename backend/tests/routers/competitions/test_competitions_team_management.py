@@ -242,7 +242,7 @@ async def test_ops_renames_a_team_and_removes_a_member(db, client):
 
 
 @pytest.mark.asyncio
-async def test_ops_deletes_an_unscored_team_but_not_a_scored_one(db, client):
+async def test_ops_deletes_teams_and_cascades_scores(db, client):
     ops = await _ops(db)
     program, cohort = await _program_and_cohort(db)
     student = await _student(db)
@@ -269,11 +269,17 @@ async def test_ops_deletes_an_unscored_team_but_not_a_scored_one(db, client):
     ok = await client.delete(f"/competitions/admin/teams/{empty_team.id}", headers=_headers(ops))
     assert ok.status_code == http_status.HTTP_204_NO_CONTENT
 
-    blocked = await client.delete(f"/competitions/admin/teams/{scored_team.id}", headers=_headers(ops))
-    assert blocked.status_code == http_status.HTTP_400_BAD_REQUEST
+    # Scored team can now be deleted and cascades
+    res = await client.delete(f"/competitions/admin/teams/{scored_team.id}", headers=_headers(ops))
+    assert res.status_code == http_status.HTTP_204_NO_CONTENT
 
     still_there = (await db.execute(select(Team).where(Team.id == scored_team.id))).scalars().first()
-    assert still_there is not None
+    assert still_there is None
+
+    scores_remaining = (await db.execute(
+        select(CompetitionScore).where(CompetitionScore.team_id == scored_team.id)
+    )).scalars().all()
+    assert len(scores_remaining) == 0
 
 
 @pytest.mark.asyncio

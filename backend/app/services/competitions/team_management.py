@@ -19,15 +19,16 @@ import uuid
 from datetime import datetime, timezone
 
 from fastapi import HTTPException, status
-from sqlalchemy import func, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.competitions.judging import CompetitionScore
 from app.models.lms.program import LmsProgramTeamItemProgress
+from app.models.missions.mission import MissionAttempt
 from app.models.sessions.cohort import Cohort
 from app.models.sessions.registration import Registration
-from app.models.team import Team
+from app.models.team import Team, TeamMember
 from app.models.user import User
 from app.services.lms.ops_integration import sync_registration_lms
 from app.services.sessions.registration import register
@@ -92,29 +93,19 @@ async def rename_team(db: AsyncSession, *, team_id: uuid.UUID, name: str) -> Tea
 
 
 async def delete_team(db: AsyncSession, *, team_id: uuid.UUID) -> None:
-    """Refuses once the team has a judged score or any submitted checklist
-    progress — both `competition_scores.team_id` and
-    `lms_program_team_item_progress.team_id` CASCADE on delete, so deleting
-    a team with either would silently erase evaluations or submissions
-    rather than just the team grouping. Same reasoning as the judge-delete
-    guard in `services/user.py::delete_user`."""
+    """Deletes a team and cascades all dependent records (scores, checklist progress,
+    team memberships, and mission attempts) so ops can freely delete teams."""
     team = await db.get(Team, team_id)
     if team is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Team not found")
 
-    score_count = (await db.execute(
-        select(func.count()).select_from(CompetitionScore).where(CompetitionScore.team_id == team_id)
-    )).scalar_one()
-    progress_count = (await db.execute(
-        select(func.count()).select_from(LmsProgramTeamItemProgress)
-        .where(LmsProgramTeamItemProgress.team_id == team_id)
-    )).scalar_one()
-    if score_count > 0 or progress_count > 0:
-        raise HTTPException(
-            status.HTTP_400_BAD_REQUEST,
-            detail="Cannot delete a team that has already been scored or has submitted checklist "
-                   "progress — remove its members instead, or leave it as a historical record.",
-        )
+    # Cascade dependent records
+    await db.execute(delete(CompetitionScore).where(CompetitionScore.team_id == team_id))
+    await db.execute(
+        delete(LmsProgramTeamItemProgress).where(LmsProgramTeamItemProgress.team_id == team_id)
+    )
+    await db.execute(delete(TeamMember).where(TeamMember.team_id == team_id))
+    await db.execute(delete(MissionAttempt).where(MissionAttempt.team_id == team_id))
 
     await db.delete(team)
     await db.flush()
