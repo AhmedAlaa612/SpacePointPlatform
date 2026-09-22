@@ -47,6 +47,10 @@ def clean_team_name(raw: str) -> str:
     return s
 
 
+def strip_all_parens(s: str) -> str:
+    return re.sub(r"\s*\([^)]*\)", "", s).strip()
+
+
 def extract_team_id(raw: str) -> str | None:
     m = re.search(r"\((\d+)\)\s*$", raw)
     return m.group(1) if m else None
@@ -176,32 +180,65 @@ async def main():
         team_by_roster_id = {}
         team_by_clean_name = {}
         team_by_exact_name = {}
+        team_by_base_name = {}
         for t in teams:
             team_by_exact_name[t.name.strip().lower()] = t
             team_by_clean_name[clean_team_name(t.name).lower()] = t
+            team_by_base_name[strip_all_parens(t.name).lower()] = t
             if t.roster_team_id:
                 team_by_roster_id[str(t.roster_team_id).strip().lower()] = t
+
+        matched_team_ids = set()
 
         def find_team(raw_name: str) -> tuple[Team | None, str]:
             c_name = clean_team_name(raw_name)
             e_id = extract_team_id(raw_name)
+            base_name = strip_all_parens(raw_name)
 
-            # Special case mappings if needed
+            # 1. Exact Roster ID match
             if e_id and e_id.lower() in team_by_roster_id:
-                return team_by_roster_id[e_id.lower()], f"BY_ROSTER_ID ({e_id})"
-            if c_name.lower() in team_by_exact_name:
-                return team_by_exact_name[c_name.lower()], "BY_EXACT_NAME"
-            if c_name.lower() in team_by_clean_name:
-                return team_by_clean_name[c_name.lower()], "BY_CLEAN_NAME"
-            if raw_name.strip().lower() in team_by_exact_name:
-                return team_by_exact_name[raw_name.strip().lower()], "BY_RAW_NAME"
+                t = team_by_roster_id[e_id.lower()]
+                if t.id not in matched_team_ids:
+                    matched_team_ids.add(t.id)
+                    return t, f"BY_ROSTER_ID ({e_id})"
 
-            # Fallback: substring matching
+            # 2. Exact full name match
+            if c_name.lower() in team_by_exact_name:
+                t = team_by_exact_name[c_name.lower()]
+                if t.id not in matched_team_ids:
+                    matched_team_ids.add(t.id)
+                    return t, "BY_EXACT_NAME"
+
+            # 3. Clean name match (excluding trailing id)
+            if c_name.lower() in team_by_clean_name:
+                t = team_by_clean_name[c_name.lower()]
+                if t.id not in matched_team_ids:
+                    matched_team_ids.add(t.id)
+                    return t, "BY_CLEAN_NAME"
+
+            # 4. Base name match (excluding all parens)
+            if base_name.lower() in team_by_base_name:
+                t = team_by_base_name[base_name.lower()]
+                if t.id not in matched_team_ids:
+                    matched_team_ids.add(t.id)
+                    return t, f"BY_BASE_NAME ({base_name})"
+
+            if raw_name.strip().lower() in team_by_exact_name:
+                t = team_by_exact_name[raw_name.strip().lower()]
+                if t.id not in matched_team_ids:
+                    matched_team_ids.add(t.id)
+                    return t, "BY_RAW_NAME"
+
+            # 5. Safe substring matching on team NAME (min 4 chars)
             for t in teams:
-                if c_name.lower() in t.name.lower() or t.name.lower() in c_name.lower():
+                if t.id in matched_team_ids:
+                    continue
+                if len(c_name) >= 4 and (c_name.lower() in t.name.lower() or t.name.lower() in c_name.lower()):
+                    matched_team_ids.add(t.id)
                     return t, f"BY_SUBSTRING ({t.name})"
-                if t.roster_team_id and (t.roster_team_id.lower() in raw_name.lower()):
-                    return t, f"BY_ROSTER_SUBSTRING ({t.roster_team_id})"
+                if len(base_name) >= 4 and (base_name.lower() in t.name.lower() or t.name.lower() in base_name.lower()):
+                    matched_team_ids.add(t.id)
+                    return t, f"BY_SUBSTRING ({t.name})"
 
             return None, "UNMATCHED"
 
