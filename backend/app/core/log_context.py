@@ -16,6 +16,7 @@ overwritten — that one has to hook WorkerSettings.on_startup instead.
 import json
 import logging
 import logging.config
+import time
 import uuid
 from contextvars import ContextVar, Token
 
@@ -27,6 +28,7 @@ _DEFAULT = "-"
 request_id_var: ContextVar[str] = ContextVar("request_id", default=_DEFAULT)
 client_ip_var: ContextVar[str] = ContextVar("client_ip", default=_DEFAULT)
 user_label_var: ContextVar[str] = ContextVar("user_label", default=_DEFAULT)
+start_time_var: ContextVar[float | None] = ContextVar("start_time", default=None)
 
 
 def client_ip(request: Request) -> str:
@@ -118,6 +120,7 @@ class RequestContextMiddleware:
         request_id = uuid.uuid4().hex[:12]
         tokens = bind_request_context(request_id=request_id, ip=client_ip(Request(scope)))
         user_token = bind_user_label("-")
+        start_time_token = start_time_var.set(time.perf_counter())
 
         async def send_wrapper(message: Message) -> None:
             if message["type"] == "http.response.start":
@@ -131,6 +134,7 @@ class RequestContextMiddleware:
         finally:
             reset_request_context(tokens)
             reset_user_label(user_token)
+            start_time_var.reset(start_time_token)
 
 
 class ContextFilter(logging.Filter):
@@ -145,6 +149,27 @@ class ContextFilter(logging.Filter):
         record.request_id = request_id_var.get()
         record.client_ip = client_ip_var.get()
         record.user_label = user_label_var.get()
+        start = start_time_var.get()
+        if start is not None and record.name == "uvicorn.access":
+            record.duration_ms = round((time.perf_counter() - start) * 1000, 2)
+        return True
+
+
+class NoiseFilter(logging.Filter):
+    """Drops high-frequency 200/304 polling and health-check lines from uvicorn.access.
+
+    Failed requests (4xx / 5xx) on these endpoints are never suppressed.
+    """
+
+    SILENCED_PATHS = ("/notifications/me", "/health", "/health/worker")
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        if record.name == "uvicorn.access" and isinstance(record.args, tuple) and len(record.args) >= 5:
+            path = str(record.args[2])
+            status = record.args[4]
+            if any(path == p or path.startswith(f"{p}?") for p in self.SILENCED_PATHS):
+                if status in (200, 304, "200", "304"):
+                    return False
         return True
 
 
@@ -162,6 +187,30 @@ class JsonFormatter(logging.Formatter):
             "user_label": getattr(record, "user_label", _DEFAULT),
             "request_id": getattr(record, "request_id", _DEFAULT),
         }
+
+        # Extract structured HTTP telemetry fields for Axiom/dashboards
+        method = getattr(record, "method", None)
+        path = getattr(record, "path", None)
+        status_code = getattr(record, "status_code", None)
+
+        if record.name == "uvicorn.access" and isinstance(record.args, tuple) and len(record.args) >= 5:
+            method = method or record.args[1]
+            path = path or record.args[2]
+            status_code = status_code if status_code is not None else record.args[4]
+
+        if method is not None:
+            payload["method"] = str(method)
+        if path is not None:
+            payload["path"] = str(path)
+        if status_code is not None:
+            try:
+                payload["status_code"] = int(status_code)
+            except (ValueError, TypeError):
+                payload["status_code"] = status_code
+
+        if hasattr(record, "duration_ms") and record.duration_ms is not None:
+            payload["duration_ms"] = record.duration_ms
+
         if record.exc_info:
             payload["exc_info"] = self.formatException(record.exc_info)
         return json.dumps(payload, default=str)
@@ -197,13 +246,16 @@ def configure_logging(level: str = "INFO") -> None:
     config = {
         "version": 1,
         "disable_existing_loggers": False,
-        "filters": {"context": {"()": ContextFilter}},
+        "filters": {
+            "context": {"()": ContextFilter},
+            "noise": {"()": NoiseFilter},
+        },
         "formatters": {"json": {"()": JsonFormatter}},
         "handlers": {
             "console": {
                 "class": "logging.StreamHandler",
                 "formatter": "json",
-                "filters": ["context"],
+                "filters": ["context", "noise"],
                 "stream": "ext://sys.stdout",
             }
         },

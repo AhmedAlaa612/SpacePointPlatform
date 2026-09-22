@@ -1,0 +1,39 @@
+# ==============================================================================
+# Vector Configuration: SpacePoint -> Axiom
+# ==============================================================================
+# Reads stdout/stderr from SpacePoint Docker containers, parses the JSON payload
+# emitted by Python/Uvicorn/ARQ, and streams structured logs to Axiom.
+# ==============================================================================
+
+[sources.docker_logs]
+type = "docker_logs"
+include_containers = ["spacepoint-api", "spacepoint-worker", "spacepoint-worker-video"]
+
+[transforms.parse_json]
+type = "remap"
+inputs = ["docker_logs"]
+source = '''
+# Docker engine wraps the line in .message
+parsed, err = parse_json(.message)
+if err == null {
+    c_name = .container_name
+    stream = .stream
+
+    # Flatten the parsed JSON fields directly onto the root object
+    . = merge(., parsed)
+
+    # Attach container metadata
+    .container = c_name
+    .stream = stream
+} else {
+    # Non-JSON lines (e.g. gunicorn/uvicorn startup banner or shell output)
+    .level = "INFO"
+    .container = .container_name
+}
+'''
+
+[sinks.axiom]
+type = "axiom"
+inputs = ["parse_json"]
+token = "${AXIOM_TOKEN}"
+dataset = "${AXIOM_DATASET}"

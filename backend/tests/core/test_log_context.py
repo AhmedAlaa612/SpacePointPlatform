@@ -19,6 +19,7 @@ from app.core import log_context
 from app.core.log_context import (
     ContextFilter,
     JsonFormatter,
+    NoiseFilter,
     bind_request_context,
     bind_user_label,
     client_ip,
@@ -110,3 +111,63 @@ def test_json_formatter_includes_exc_info_on_exception():
         )
     payload = json.loads(JsonFormatter().format(record))
     assert "boom" in payload["exc_info"]
+
+
+def test_json_formatter_extracts_uvicorn_access_fields():
+    record = logging.LogRecord(
+        name="uvicorn.access",
+        level=logging.INFO,
+        pathname=__file__,
+        lineno=1,
+        msg='%s - "%s %s HTTP/%s" %d',
+        args=("83.110.167.137:0", "GET", "/missions/instructor/attempts", "1.1", 200),
+        exc_info=None,
+    )
+    payload = json.loads(JsonFormatter().format(record))
+    assert payload["method"] == "GET"
+    assert payload["path"] == "/missions/instructor/attempts"
+    assert payload["status_code"] == 200
+
+
+def test_json_formatter_includes_duration_ms():
+    record = _record()
+    record.duration_ms = 42.5
+    payload = json.loads(JsonFormatter().format(record))
+    assert payload["duration_ms"] == 42.5
+
+
+def test_noise_filter_silences_successful_polling():
+    filter_ = NoiseFilter()
+
+    # /notifications/me 200 -> dropped
+    r_notif_200 = logging.LogRecord(
+        name="uvicorn.access", level=logging.INFO, pathname=__file__, lineno=1,
+        msg='%s - "%s %s HTTP/%s" %d',
+        args=("10.0.0.1", "GET", "/notifications/me", "1.1", 200), exc_info=None,
+    )
+    assert filter_.filter(r_notif_200) is False
+
+    # /notifications/me 500 -> preserved!
+    r_notif_500 = logging.LogRecord(
+        name="uvicorn.access", level=logging.ERROR, pathname=__file__, lineno=1,
+        msg='%s - "%s %s HTTP/%s" %d',
+        args=("10.0.0.1", "GET", "/notifications/me", "1.1", 500), exc_info=None,
+    )
+    assert filter_.filter(r_notif_500) is True
+
+    # /health 200 -> dropped
+    r_health_200 = logging.LogRecord(
+        name="uvicorn.access", level=logging.INFO, pathname=__file__, lineno=1,
+        msg='%s - "%s %s HTTP/%s" %d',
+        args=("10.0.0.1", "GET", "/health", "1.1", 200), exc_info=None,
+    )
+    assert filter_.filter(r_health_200) is False
+
+    # Normal business route 200 -> preserved
+    r_missions = logging.LogRecord(
+        name="uvicorn.access", level=logging.INFO, pathname=__file__, lineno=1,
+        msg='%s - "%s %s HTTP/%s" %d',
+        args=("10.0.0.1", "GET", "/missions/123", "1.1", 200), exc_info=None,
+    )
+    assert filter_.filter(r_missions) is True
+
