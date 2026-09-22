@@ -87,6 +87,7 @@ async def lifespan(app: FastAPI):
         from sqlalchemy import text
         async with AsyncSessionLocal() as db:
             await db.execute(text("ALTER TABLE cohorts ADD COLUMN IF NOT EXISTS checklist_title_override VARCHAR(255);"))
+            await db.execute(text("UPDATE cohorts SET checklist_title_override = 'testcohortname', name = 'Cohort Test' WHERE name = 'testcohortname';"))
             await db.commit()
     except Exception:
         logger.warning("Could not auto-add checklist_title_override to cohorts table", exc_info=True)

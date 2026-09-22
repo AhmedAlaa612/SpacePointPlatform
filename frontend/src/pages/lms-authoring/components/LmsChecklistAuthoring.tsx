@@ -345,19 +345,7 @@ export function CohortOverrideEditor({
     queryFn: () => getCohortApi(cohortId),
   })
 
-  // The override value as stored — separate from local input so we can show
-  // a "Clear override" button and a meaningful placeholder.
   const storedOverride = cohortData?.checklist_title_override ?? null
-  const [overrideValue, setOverrideValue] = useState("")
-
-  useEffect(() => {
-    setOverrideValue(storedOverride ?? "")
-  }, [storedOverride])
-
-  // program_name lives on the cohort's convenience join (list endpoint) or
-  // fallback: just use the LMS program name pulled from the override's
-  // lms_program_id via the parent. For now use cohortData?.program_name if
-  // it's there, else omit — placeholder still makes sense.
   const programName = cohortData?.program_name ?? null
   const defaultTitle = programName && cohortData
     ? `${programName} — ${cohortData.name}`
@@ -365,11 +353,17 @@ export function CohortOverrideEditor({
       ? cohortData.name
       : undefined
 
+  const [overrideValue, setOverrideValue] = useState("")
+
+  useEffect(() => {
+    setOverrideValue(storedOverride ?? defaultTitle ?? "")
+  }, [storedOverride, defaultTitle])
+
   const updateTitleOverrideMutation = useMutation({
     mutationFn: (val: string | null) =>
       updateCohortApi(cohortId, { checklist_title_override: val }),
     onSuccess: (_data, val) => {
-      toast.success(val === null ? "Title override cleared" : "Student title override saved")
+      toast.success(val === null ? "Title reset to default" : "Cohort checklist title saved")
       void queryClient.invalidateQueries({ queryKey: ["cohort-detail", cohortId] })
       invalidate()
     },
@@ -378,12 +372,13 @@ export function CohortOverrideEditor({
 
   const saveOverride = (raw: string) => {
     const val = raw.trim() || null
-    if (val === storedOverride) return
-    updateTitleOverrideMutation.mutate(val)
+    const target = (val && defaultTitle && val === defaultTitle) ? null : val
+    if (target === storedOverride) return
+    updateTitleOverrideMutation.mutate(target)
   }
 
   const clearOverride = () => {
-    setOverrideValue("")
+    setOverrideValue(defaultTitle ?? "")
     updateTitleOverrideMutation.mutate(null)
   }
 
@@ -448,7 +443,7 @@ export function CohortOverrideEditor({
               onClick={() => {
                 saveOverride(overrideValue)
               }}
-              disabled={updateTitleOverrideMutation.isPending || overrideValue.trim() === (storedOverride ?? "")}
+              disabled={updateTitleOverrideMutation.isPending || overrideValue.trim() === (storedOverride ?? defaultTitle ?? "")}
               className="h-10 px-4 bg-primary text-primary-foreground text-sm font-medium rounded-lg hover:opacity-90 transition-opacity disabled:opacity-50 cursor-pointer"
             >
               {updateTitleOverrideMutation.isPending ? "Saving..." : "Save Title"}
