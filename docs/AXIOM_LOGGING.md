@@ -29,27 +29,65 @@ AXIOM_TOKEN=xaat-your-ingest-token-here
 AXIOM_DATASET=spacepoint
 ```
 
-### Step 2: Deploy Vector
-Run the automated deployment script from the project root:
+### Step 2: Create `/etc/spacepoint/vector.toml`
+Since the git repo does not live on the VPS, write the Vector configuration directly:
 ```bash
-sudo bash ops/deploy-vector.sh
+sudo mkdir -p /etc/spacepoint
+sudo tee /etc/spacepoint/vector.toml << 'EOF'
+[sources.docker_logs]
+type = "docker_logs"
+include_containers = ["spacepoint-api", "spacepoint-worker", "spacepoint-worker-video"]
+
+[transforms.parse_json]
+type = "remap"
+inputs = ["docker_logs"]
+source = '''
+parsed, err = parse_json(.message)
+if err == null {
+    c_name = .container_name
+    stream = .stream
+    . = merge(., parsed)
+    .container = c_name
+    .stream = stream
+} else {
+    .level = "INFO"
+    .container = .container_name
+}
+'''
+
+[sinks.axiom]
+type = "axiom"
+inputs = ["parse_json"]
+token = "${AXIOM_TOKEN}"
+dataset = "${AXIOM_DATASET}"
+EOF
 ```
 
-This will:
-1. Verify `AXIOM_TOKEN` and `AXIOM_DATASET` in `/etc/spacepoint/env`.
-2. Sync `ops/vector/vector.toml` to `/etc/spacepoint/vector.toml`.
-3. Pull `timberio/vector:0.43.0-alpine`.
-4. Start `spacepoint-vector` with `--restart unless-stopped`.
+### Step 3: Run Vector Container
+Launch `spacepoint-vector`:
+```bash
+docker pull timberio/vector:0.43.0-alpine
+docker rm -f spacepoint-vector 2>/dev/null || true
 
-### Step 3: Verify Vector Logs
+docker run -d \
+  --name spacepoint-vector \
+  --restart unless-stopped \
+  -v /var/run/docker.sock:/var/run/docker.sock:ro \
+  -v /etc/spacepoint/vector.toml:/etc/vector/vector.toml:ro \
+  --env-file /etc/spacepoint/env \
+  timberio/vector:0.43.0-alpine
+```
+
+### Step 4: Update Backend on VPS
+To pull the new backend image containing the telemetry enrichment and noise filter (built automatically by GitHub Actions on push to `main`), run:
+```bash
+deploy-backend.sh
+```
+
+### Step 5: Verify Vector Streaming
 ```bash
 docker logs -f spacepoint-vector
 ```
-You should see:
-```text
-Vector has started.
-```
-As traffic hits the site, batches will stream to your Axiom dataset.
 
 ---
 
