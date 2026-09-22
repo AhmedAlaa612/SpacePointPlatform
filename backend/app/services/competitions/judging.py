@@ -264,32 +264,52 @@ async def leaderboard(db: AsyncSession, *, cohort_id: uuid.UUID) -> list[dict]:
     by_team = {team_id: (float(avg), count) for team_id, avg, count in agg_rows}
 
     score_rows = (await db.execute(
-        select(CompetitionScore.team_id, CompetitionScore.judge_user_id, CompetitionScore.total_points, User.full_name)
+        select(CompetitionScore.team_id, CompetitionScore.judge_user_id, CompetitionScore.total_points, User.full_name, User.email)
         .join(User, User.id == CompetitionScore.judge_user_id)
         .where(CompetitionScore.cohort_id == cohort_id, CompetitionScore.submitted.is_(True))
         .order_by(User.full_name)
     )).all()
     judge_scores_by_team: dict[uuid.UUID, list[dict]] = {}
-    for team_id, judge_user_id, total_points, judge_name in score_rows:
+    team_normalized_percentages: dict[uuid.UUID, list[float]] = {}
+    team_raw_points: dict[uuid.UUID, list[float]] = {}
+
+    for team_id, judge_user_id, total_points, judge_name, judge_email in score_rows:
         judge_scores_by_team.setdefault(team_id, []).append({
             "judge_user_id": judge_user_id, "judge_name": judge_name, "total_points": total_points,
         })
+        team_raw_points.setdefault(team_id, []).append(total_points)
+        # Normalize each judge to their scale: Judge 1 = 110, Judge 2 = 95 (common 100% scale)
+        email_str = (judge_email or "").lower()
+        scale = 110.0 if "judge1" in email_str else (95.0 if "judge2" in email_str else (110.0 if total_points > 100 else 100.0))
+        team_normalized_percentages.setdefault(team_id, []).append((total_points / scale) * 100.0)
 
     out = []
     for team in teams:
-        avg, count = by_team.get(team.id, (None, 0))
-        pct = round(100 * (avg / 110), 1) if avg is not None else None
+        pts_list = team_raw_points.get(team.id, [])
+        pct_list = team_normalized_percentages.get(team.id, [])
+        count = len(pts_list)
+        avg_score = round(sum(pts_list) / count, 1) if count > 0 else None
+        avg_pct = round(sum(pct_list) / count, 1) if count > 0 else None
+
         out.append({
             "team_id": team.id, "team_name": team.name,
-            "score": round(avg, 1) if avg is not None else None,
-            "score_percent": pct,
+            "score": avg_score,
+            "score_percent": avg_pct,
             "qualification": team.qualification,
             "judges_scored": count,
             "status": "unscored" if count == 0 else "scored",
             "judge_scores": judge_scores_by_team.get(team.id, []),
             "advanced_to": ", ".join(advanced_to_by_name.get(team.name, [])) or None,
         })
-    out.sort(key=lambda r: (r["score"] is None, -(r["score"] or 0)))
+
+    # Sort: scored teams first. Official TOP 10 qualifiers occupy the top 10 ranks.
+    # Within each tier, ranked by combined normalized percentage.
+    out.sort(key=lambda r: (
+        r["score"] is None,
+        0 if r.get("qualification") == "TOP 10" else 1,
+        -(r["score_percent"] or 0),
+        -(r["score"] or 0),
+    ))
     for i, row in enumerate(out, start=1):
         row["rank"] = i
     return out

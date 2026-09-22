@@ -409,8 +409,8 @@ async def main():
         for rec in records:
             team = rec["team"]
 
-            # Update team qualification
-            team.qualification = rec["qualification"]
+            # Update team qualification (only keep official TOP 10 tag)
+            team.qualification = "TOP 10" if (rec["qualification"] and "TOP 10" in str(rec["qualification"]).upper()) else None
 
             # ── Upsert Judge 1 Score ──
             j1_detail = rec["j1_detail"] or {}
