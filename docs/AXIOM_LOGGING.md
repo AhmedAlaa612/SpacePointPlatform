@@ -46,7 +46,7 @@ parsed, err = parse_json(.message)
 if err == null {
     c_name = .container_name
     stream = .stream
-    . = merge(., parsed)
+    . = merge!(., parsed)
     .container = c_name
     .stream = stream
 } else {

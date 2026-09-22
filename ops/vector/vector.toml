@@ -20,7 +20,7 @@ if err == null {
     stream = .stream
 
     # Flatten the parsed JSON fields directly onto the root object
-    . = merge(., parsed)
+    . = merge!(., parsed)
 
     # Attach container metadata
     .container = c_name
