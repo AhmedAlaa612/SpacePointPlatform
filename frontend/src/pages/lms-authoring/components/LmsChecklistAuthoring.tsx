@@ -409,14 +409,21 @@ export function CohortOverrideEditor({
         </div>
       )}
       {isStaff && !readOnly && (
-        <div className="flex flex-col gap-2 p-3 bg-card border border-border rounded-xl">
-          <div>
-            <div className="text-sm font-medium">Student Title Override</div>
-            <div className="text-xs text-muted-foreground mt-0.5">
-              {defaultTitle
-                ? <>Default: <span className="font-medium text-foreground">{defaultTitle}</span>. Set an override to replace what students see entirely.</>
-                : "Set a custom title students see instead of the default \u201cProgram \u2014 Cohort\u201d."}
-            </div>
+        <div className="flex flex-col gap-1.5 p-4 bg-card border border-border rounded-xl">
+          <div className="flex items-center justify-between">
+            <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+              LMS Cohort Title (Displayed to Students)
+            </label>
+            {storedOverride && (
+              <span className="text-[11px] font-medium text-emerald-600 dark:text-emerald-400">
+                ✓ Override active
+              </span>
+            )}
+          </div>
+          <div className="text-xs text-muted-foreground">
+            {defaultTitle
+              ? <>Default: <span className="font-medium text-foreground">{defaultTitle}</span>. Set an override to replace what students see entirely.</>
+              : "Set a custom title students see instead of the default."}
           </div>
           <div className="flex items-center gap-2 mt-1">
             <input
@@ -425,7 +432,7 @@ export function CohortOverrideEditor({
               onChange={(e) => setOverrideValue(e.target.value)}
               disabled={updateTitleOverrideMutation.isPending}
               placeholder={defaultTitle ?? "e.g. Ru'ya Competition — Finalists"}
-              className="flex-1 h-9 px-3 border border-border bg-background text-foreground rounded-lg text-sm focus:outline-none focus:border-primary transition-colors disabled:opacity-50"
+              className="flex-1 h-10 px-3 border border-border bg-background text-foreground rounded-lg text-sm font-medium focus:outline-none focus:border-primary transition-colors disabled:opacity-50"
               onKeyDown={(e) => {
                 if (e.key === "Enter") {
                   e.preventDefault()
@@ -442,26 +449,21 @@ export function CohortOverrideEditor({
                 saveOverride(overrideValue)
               }}
               disabled={updateTitleOverrideMutation.isPending || overrideValue.trim() === (storedOverride ?? "")}
-              className="h-9 px-3 bg-primary text-primary-foreground text-xs font-medium rounded-lg hover:opacity-90 transition-opacity disabled:opacity-50 cursor-pointer"
+              className="h-10 px-4 bg-primary text-primary-foreground text-sm font-medium rounded-lg hover:opacity-90 transition-opacity disabled:opacity-50 cursor-pointer"
             >
-              {updateTitleOverrideMutation.isPending ? "Saving..." : "Save"}
+              {updateTitleOverrideMutation.isPending ? "Saving..." : "Save Title"}
             </button>
             {storedOverride && (
               <button
                 type="button"
                 onClick={clearOverride}
                 disabled={updateTitleOverrideMutation.isPending}
-                className="text-xs text-muted-foreground hover:text-foreground px-2 py-1 cursor-pointer disabled:opacity-50"
+                className="h-10 px-3 text-xs text-muted-foreground hover:text-foreground border border-border rounded-lg cursor-pointer disabled:opacity-50 whitespace-nowrap"
               >
-                Clear override
+                Reset to default
               </button>
             )}
           </div>
-          {storedOverride && (
-            <div className="text-[11px] text-emerald-600 dark:text-emerald-400">
-              ✓ Override active — students see: <span className="font-semibold">{storedOverride}</span>
-            </div>
-          )}
         </div>
       )}
       {isStaff && !readOnly && (

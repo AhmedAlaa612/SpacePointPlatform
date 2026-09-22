@@ -571,6 +571,7 @@ class LmsProgramAssignmentSummaryOut(BaseModel):
     assignment_id: UUID
     lms_program_id: UUID
     name: str
+    program_name: str | None = None
     cohort_id: UUID | None = None
     cohort_name: str | None = None
     items_total: int
@@ -585,6 +586,7 @@ class LmsProgramChecklistOut(BaseModel):
     assignment_id: UUID
     lms_program_id: UUID
     name: str
+    program_name: str | None = None
     description: str | None = None
     image_url: str | None = None
     poster_template_url: str | None = None

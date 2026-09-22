@@ -82,7 +82,14 @@ async def lifespan(app: FastAPI):
             "the API itself still starts; broadcasts drop until it's available.",
             exc_info=True,
         )
-        app.state.realtime_redis = None
+    try:
+        from app.db.session import AsyncSessionLocal
+        from sqlalchemy import text
+        async with AsyncSessionLocal() as db:
+            await db.execute(text("ALTER TABLE cohorts ADD COLUMN IF NOT EXISTS checklist_title_override VARCHAR(255);"))
+            await db.commit()
+    except Exception:
+        logger.warning("Could not auto-add checklist_title_override to cohorts table", exc_info=True)
 
     yield
     if app.state.arq_redis is not None:

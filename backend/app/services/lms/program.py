@@ -1758,8 +1758,8 @@ async def get_student_checklist(db: AsyncSession, *, assignment_id: uuid.UUID, u
                 else (sessions_program.name if sessions_program else program.name)
             )
         ),
-        # Sessions program name — shown as the small subtitle beneath the big title.
-        "program_name": sessions_program.name if sessions_program else None,
+        # Sessions program name (or LMS program name fallback) — shown as small subtitle beneath the big title.
+        "program_name": sessions_program.name if sessions_program else program.name,
         "description": program.description,
         "image_url": await storage.resolve_url(program.image_bucket, program.image_path),
         "poster_template_url": effective_poster_template_url,
@@ -1825,7 +1825,7 @@ async def _assignment_summary(db: AsyncSession, assignment: LmsProgramAssignment
                 else (sessions_program.name if sessions_program else program.name)
             )
         ),
-        "program_name": sessions_program.name if sessions_program else None,
+        "program_name": sessions_program.name if sessions_program else program.name,
         "cohort_id": assignment.cohort_id, "cohort_name": cohort.name if cohort else None,
         "items_total": required_total, "items_done": done,
         "pct": round(100 * done / required_total) if required_total else 100,
