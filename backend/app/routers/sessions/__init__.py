@@ -31,6 +31,7 @@ router.include_router(journey_router)
 # Same reason again: `/sessions/day-reviews` is a literal path, and a
 # `{session_id}` route mounted ahead of it would try to parse "day-reviews"
 # as a UUID and 422 before this router ever sees the request.
+router.include_router(day_router)
 # Mounted before programs_router: `/sessions/programs/stock-template-image`
 # and `/sessions/programs/stock-signature-image` are literal paths that
 # `/sessions/programs/{program_id}` in programs_router would otherwise intercept
