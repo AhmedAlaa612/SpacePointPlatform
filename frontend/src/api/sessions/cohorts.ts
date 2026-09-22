@@ -48,6 +48,10 @@ export const updateCohortApi = (
     visibility: CohortVisibility
     notes: string | null
     poster_template_url: string | null
+    /** Student-facing title override. When set, replaces the default
+     *  "Program — Cohort" label on the student's checklist. Pass null to
+     *  revert to the default fallback. */
+    checklist_title_override: string | null
   }>
 ) => api.patch<Cohort>(`/sessions/cohorts/${id}`, data).then((r) => r.data)
 

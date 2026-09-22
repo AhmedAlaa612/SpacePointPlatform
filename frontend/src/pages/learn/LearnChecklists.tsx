@@ -41,11 +41,11 @@ export default function LearnChecklists() {
             <div className="flex items-start justify-between gap-3">
               <div>
                 <div className="font-display text-lg font-semibold leading-snug">
-                  {c.cohort_name ? `${c.name} — ${c.cohort_name}` : c.name}
+                  {c.name}
                 </div>
-                {c.cohort_name && (
+                {c.program_name && (
                   <div className="text-xs text-muted-foreground mt-0.5">
-                    {c.cohort_name}
+                    {c.program_name}
                   </div>
                 )}
               </div>

@@ -114,11 +114,11 @@ export default function RoadmapBoard() {
         <div className="px-5 sm:px-8 lg:px-14 py-6 sm:py-8 flex flex-col gap-6 sm:gap-8 max-w-[1180px] mx-auto w-full">
           <div className="flex flex-col gap-1.5">
             <h1 className="font-display text-[19px] sm:text-2xl font-extrabold tracking-tight leading-none">
-              {checklist.cohort_name ? `${checklist.name} — ${checklist.cohort_name}` : checklist.name}
+              {checklist.name}
             </h1>
-            {checklist.cohort_name && (
+            {checklist.program_name && (
               <p className="text-xs sm:text-sm font-medium text-muted-foreground">
-                {checklist.cohort_name}
+                {checklist.program_name}
               </p>
             )}
             {checklist.team_name && (

@@ -44,6 +44,10 @@ class CohortBase(BaseModel):
     # Ops-set once per cohort — the master poster template link a team's
     # working copy is duplicated from.
     poster_template_url: str | None = None
+    # Student-facing title override for LMS checklist. When set, replaces the
+    # default "Program Name — Cohort Name" shown to students. Clear to revert
+    # to the default fallback.
+    checklist_title_override: str | None = None
 
 
 class CohortCreate(CohortBase):
@@ -67,6 +71,7 @@ class CohortUpdate(BaseModel):
     organization_id: UUID | None = None
     visibility: Visibility | None = None
     poster_template_url: str | None = None
+    checklist_title_override: str | None = None
 
 
 class CohortOut(CohortBase):

@@ -1739,7 +1739,16 @@ async def get_student_checklist(db: AsyncSession, *, assignment_id: uuid.UUID, u
     items_out = [{**row, "locked": locked_by_item.get(row["id"], False)} for row in rows]
 
     return {
-        "assignment_id": assignment.id, "lms_program_id": program.id, "name": program.name,
+        "assignment_id": assignment.id, "lms_program_id": program.id,
+        # Student-facing title: cohort override wins if set, otherwise
+        # "Program — Cohort" (or just program name if there's no cohort).
+        "name": (
+            cohort.checklist_title_override
+            if cohort and cohort.checklist_title_override
+            else (f"{program.name} \u2014 {cohort.name}" if cohort else program.name)
+        ),
+        # Raw program name — shown as the subtitle beneath the display title.
+        "program_name": program.name,
         "description": program.description,
         "image_url": await storage.resolve_url(program.image_bucket, program.image_path),
         "poster_template_url": effective_poster_template_url,
@@ -1791,7 +1800,13 @@ async def _assignment_summary(db: AsyncSession, assignment: LmsProgramAssignment
             next_item_title = item.title
 
     return {
-        "assignment_id": assignment.id, "lms_program_id": program.id, "name": program.name,
+        "assignment_id": assignment.id, "lms_program_id": program.id,
+        "name": (
+            cohort.checklist_title_override
+            if cohort and cohort.checklist_title_override
+            else (f"{program.name} \u2014 {cohort.name}" if cohort else program.name)
+        ),
+        "program_name": program.name,
         "cohort_id": assignment.cohort_id, "cohort_name": cohort.name if cohort else None,
         "items_total": required_total, "items_done": done,
         "pct": round(100 * done / required_total) if required_total else 100,

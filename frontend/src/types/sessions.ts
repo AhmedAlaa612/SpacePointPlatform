@@ -134,6 +134,9 @@ export interface Cohort {
   /** Ops-set once per cohort — the master poster template link a team's
    *  working copy is duplicated from. */
   poster_template_url?: string | null;
+  /** Student-facing title override for the LMS checklist. When set, replaces
+   *  the default "Program — Cohort" shown to students. Null means use default. */
+  checklist_title_override?: string | null;
   // Convenience join, populated only by the list endpoint.
   program_name?: string | null;
   program_code?: string | null;

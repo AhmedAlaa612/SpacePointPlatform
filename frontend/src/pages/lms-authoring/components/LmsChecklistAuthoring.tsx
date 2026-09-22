@@ -345,24 +345,47 @@ export function CohortOverrideEditor({
     queryFn: () => getCohortApi(cohortId),
   })
 
-  const [cohortNameValue, setCohortNameValue] = useState("")
+  // The override value as stored — separate from local input so we can show
+  // a "Clear override" button and a meaningful placeholder.
+  const storedOverride = cohortData?.checklist_title_override ?? null
+  const [overrideValue, setOverrideValue] = useState("")
 
   useEffect(() => {
-    if (cohortData?.name) {
-      setCohortNameValue(cohortData.name)
-    }
-  }, [cohortData?.name])
+    setOverrideValue(storedOverride ?? "")
+  }, [storedOverride])
 
-  const updateCohortNameMutation = useMutation({
-    mutationFn: (name: string) => updateCohortApi(cohortId, { name }),
-    onSuccess: () => {
-      toast.success("Cohort title updated")
+  // program_name lives on the cohort's convenience join (list endpoint) or
+  // fallback: just use the LMS program name pulled from the override's
+  // lms_program_id via the parent. For now use cohortData?.program_name if
+  // it's there, else omit — placeholder still makes sense.
+  const programName = cohortData?.program_name ?? null
+  const defaultTitle = programName && cohortData
+    ? `${programName} — ${cohortData.name}`
+    : cohortData
+      ? cohortData.name
+      : undefined
+
+  const updateTitleOverrideMutation = useMutation({
+    mutationFn: (val: string | null) =>
+      updateCohortApi(cohortId, { checklist_title_override: val }),
+    onSuccess: (_data, val) => {
+      toast.success(val === null ? "Title override cleared" : "Student title override saved")
       void queryClient.invalidateQueries({ queryKey: ["cohort-detail", cohortId] })
-      void queryClient.invalidateQueries({ queryKey: ["sessions-cohorts"] })
       invalidate()
     },
-    onError: (e: unknown) => toast.error(errorDetail(e, "Failed to update cohort title")),
+    onError: (e: unknown) => toast.error(errorDetail(e, "Failed to update title override")),
   })
+
+  const saveOverride = (raw: string) => {
+    const val = raw.trim() || null
+    if (val === storedOverride) return
+    updateTitleOverrideMutation.mutate(val)
+  }
+
+  const clearOverride = () => {
+    setOverrideValue("")
+    updateTitleOverrideMutation.mutate(null)
+  }
 
   const updateCohortPosterMutation = useMutation({
     mutationFn: (url: string | null) => updateCohortPosterTemplateApi(cohortId, url),
@@ -388,49 +411,57 @@ export function CohortOverrideEditor({
       {isStaff && !readOnly && (
         <div className="flex flex-col gap-2 p-3 bg-card border border-border rounded-xl">
           <div>
-            <div className="text-sm font-medium">Cohort Title (Displayed to Students)</div>
+            <div className="text-sm font-medium">Student Title Override</div>
             <div className="text-xs text-muted-foreground mt-0.5">
-              Shown to students alongside the program name on their roadmap (e.g. "{cohortData?.name || "Finalists"}")
+              {defaultTitle
+                ? <>Default: <span className="font-medium text-foreground">{defaultTitle}</span>. Set an override to replace what students see entirely.</>
+                : "Set a custom title students see instead of the default \u201cProgram \u2014 Cohort\u201d."}
             </div>
           </div>
           <div className="flex items-center gap-2 mt-1">
             <input
               type="text"
-              value={cohortNameValue}
-              onChange={(e) => setCohortNameValue(e.target.value)}
-              disabled={updateCohortNameMutation.isPending}
-              placeholder="e.g. Finalists"
+              value={overrideValue}
+              onChange={(e) => setOverrideValue(e.target.value)}
+              disabled={updateTitleOverrideMutation.isPending}
+              placeholder={defaultTitle ?? "e.g. Ru'ya Competition — Finalists"}
               className="flex-1 h-9 px-3 border border-border bg-background text-foreground rounded-lg text-sm focus:outline-none focus:border-primary transition-colors disabled:opacity-50"
               onKeyDown={(e) => {
                 if (e.key === "Enter") {
                   e.preventDefault()
-                  const val = cohortNameValue.trim()
-                  if (val && val !== cohortData?.name) {
-                    updateCohortNameMutation.mutate(val)
-                  }
+                  saveOverride(overrideValue)
                 }
               }}
               onBlur={() => {
-                const val = cohortNameValue.trim()
-                if (val && val !== cohortData?.name) {
-                  updateCohortNameMutation.mutate(val)
-                }
+                saveOverride(overrideValue)
               }}
             />
             <button
               type="button"
               onClick={() => {
-                const val = cohortNameValue.trim()
-                if (val && val !== cohortData?.name) {
-                  updateCohortNameMutation.mutate(val)
-                }
+                saveOverride(overrideValue)
               }}
-              disabled={updateCohortNameMutation.isPending || !cohortNameValue.trim() || cohortNameValue.trim() === cohortData?.name}
+              disabled={updateTitleOverrideMutation.isPending || overrideValue.trim() === (storedOverride ?? "")}
               className="h-9 px-3 bg-primary text-primary-foreground text-xs font-medium rounded-lg hover:opacity-90 transition-opacity disabled:opacity-50 cursor-pointer"
             >
-              {updateCohortNameMutation.isPending ? "Saving..." : "Save"}
+              {updateTitleOverrideMutation.isPending ? "Saving..." : "Save"}
             </button>
+            {storedOverride && (
+              <button
+                type="button"
+                onClick={clearOverride}
+                disabled={updateTitleOverrideMutation.isPending}
+                className="text-xs text-muted-foreground hover:text-foreground px-2 py-1 cursor-pointer disabled:opacity-50"
+              >
+                Clear override
+              </button>
+            )}
           </div>
+          {storedOverride && (
+            <div className="text-[11px] text-emerald-600 dark:text-emerald-400">
+              ✓ Override active — students see: <span className="font-semibold">{storedOverride}</span>
+            </div>
+          )}
         </div>
       )}
       {isStaff && !readOnly && (

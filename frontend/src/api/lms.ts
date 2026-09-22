@@ -617,7 +617,10 @@ export interface LmsProgramChecklistItem {
 export interface LmsProgramAssignmentSummary {
   assignment_id: string;
   lms_program_id: string;
+  /** Display title: checklist_title_override if set, else "Program — Cohort". */
   name: string;
+  /** Raw program name — shown as subtitle beneath the display title. */
+  program_name?: string | null;
   cohort_id: string | null;
   cohort_name: string | null;
   items_total: number;
@@ -631,7 +634,10 @@ export interface LmsProgramAssignmentSummary {
 export interface LmsProgramChecklist {
   assignment_id: string;
   lms_program_id: string;
+  /** Display title: checklist_title_override if set, else "Program — Cohort". */
   name: string;
+  /** Raw program name — shown as subtitle beneath the display title. */
+  program_name?: string | null;
   description: string | null;
   image_url: string | null;
   poster_template_url?: string | null;

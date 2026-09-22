@@ -56,4 +56,9 @@ class Cohort(Base):
     organization_id = Column(UUID(as_uuid=True), ForeignKey("organizations.id", ondelete="SET NULL"), nullable=True)
     visibility = Column(String(12), nullable=False, default="public")  # public|private
 
+    # Student-facing title override for LMS checklist. When set, replaces the
+    # default "Program Name — Cohort Name" label shown to students. Ops can
+    # freely set, edit, or clear this from the LMS program authoring screen.
+    checklist_title_override = Column(String(255), nullable=True)
+
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
