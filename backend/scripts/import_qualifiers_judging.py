@@ -24,6 +24,7 @@ from app.models.competitions.judging import (
     CompetitionJudge, CompetitionRubric, CompetitionRubricCriterion, CompetitionScore
 )
 from app.models.sessions.cohort import Cohort
+from app.models.enums import UserRole
 from app.models.team import Team
 from app.models.user import User
 
@@ -58,15 +59,17 @@ async def ensure_judge_user(db, email: str, full_name: str) -> User:
             id=uuid.uuid4(),
             email=email.lower(),
             full_name=full_name,
-            role="judge",
-            is_active=True,
-            email_verified=True,
+            password_hash="!imported_judge_no_password",
+            roles=[UserRole.judge],
+            status="active",
         )
         db.add(user)
         await db.flush()
-    elif user.role != "judge":
-        user.role = "judge"
-        await db.flush()
+    else:
+        current_roles = list(user.roles or [])
+        if UserRole.judge not in current_roles and "judge" not in current_roles:
+            user.roles = current_roles + [UserRole.judge]
+            await db.flush()
     return user
 
 
