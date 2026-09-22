@@ -121,35 +121,60 @@ async def get_own_score(
 async def submit_score(
     db: AsyncSession, *, rubric: CompetitionRubric, criteria: list[CompetitionRubricCriterion],
     team_id: uuid.UUID, judge_user_id: uuid.UUID, cohort_id: uuid.UUID,
-    criterion_scores: dict[str, int], bonus_points: int = 0, submitted: bool = False,
+    criterion_scores: dict[str, float],
+    criterion_comments: dict[str, str] | None = None,
+    bonus_points: float = 0.0,
+    timing_adjustment: float = 0.0,
+    total_points: float | None = None,
+    notes: str | None = None,
+    submitted: bool = False,
 ) -> CompetitionScore:
     if await is_published(db, cohort_id=cohort_id):
         raise HTTPException(status.HTTP_409_CONFLICT, detail="Results are published — scoring is closed for this stage")
 
-    by_key = {c.key: c for c in criteria}
-    if set(criterion_scores) != set(by_key):
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="Score every rubric criterion, and only rubric criteria")
-    for key, points in criterion_scores.items():
-        if not (0 <= points <= by_key[key].max_points):
-            raise HTTPException(
-                status.HTTP_400_BAD_REQUEST,
-                detail=f"'{by_key[key].label}' must be between 0 and {by_key[key].max_points}",
-            )
     if bonus_points < 0:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="Bonus can't be negative")
 
-    total = sum(criterion_scores.values()) + bonus_points
+    by_key = {c.key: c for c in criteria}
+    if total_points is None:
+        if set(criterion_scores) != set(by_key):
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="Score every rubric criterion, and only rubric criteria")
+        for key, points in criterion_scores.items():
+            if not (0 <= points <= by_key[key].max_points):
+                raise HTTPException(
+                    status.HTTP_400_BAD_REQUEST,
+                    detail=f"'{by_key[key].label}' must be between 0 and {by_key[key].max_points}",
+                )
+        total = float(sum(criterion_scores.values()) + bonus_points + timing_adjustment)
+    else:
+        for key, points in criterion_scores.items():
+            if key in by_key and not (0 <= points <= by_key[key].max_points):
+                raise HTTPException(
+                    status.HTTP_400_BAD_REQUEST,
+                    detail=f"'{by_key[key].label}' must be between 0 and {by_key[key].max_points}",
+                )
+        total = float(total_points)
+
     score = await get_own_score(db, rubric_id=rubric.id, team_id=team_id, judge_user_id=judge_user_id, cohort_id=cohort_id)
     if score is None:
         score = CompetitionScore(
             id=uuid.uuid4(), rubric_id=rubric.id, team_id=team_id, judge_user_id=judge_user_id, cohort_id=cohort_id,
-            criterion_scores=criterion_scores, bonus_points=bonus_points, total_points=total, submitted=submitted,
+            criterion_scores=criterion_scores,
+            criterion_comments=criterion_comments or {},
+            bonus_points=bonus_points,
+            timing_adjustment=timing_adjustment,
+            total_points=total,
+            notes=notes,
+            submitted=submitted,
         )
         db.add(score)
     else:
         score.criterion_scores = criterion_scores
+        score.criterion_comments = criterion_comments or {}
         score.bonus_points = bonus_points
+        score.timing_adjustment = timing_adjustment
         score.total_points = total
+        score.notes = notes
         score.submitted_at = datetime.now(timezone.utc)
         # Ratchet-only: an autosaved draft (submitted=False) never clears a
         # team that's already been deliberately submitted.
@@ -253,9 +278,12 @@ async def leaderboard(db: AsyncSession, *, cohort_id: uuid.UUID) -> list[dict]:
     out = []
     for team in teams:
         avg, count = by_team.get(team.id, (None, 0))
+        pct = round(100 * (avg / 110), 1) if avg is not None else None
         out.append({
             "team_id": team.id, "team_name": team.name,
             "score": round(avg, 1) if avg is not None else None,
+            "score_percent": pct,
+            "qualification": team.qualification,
             "judges_scored": count,
             "status": "unscored" if count == 0 else "scored",
             "judge_scores": judge_scores_by_team.get(team.id, []),
@@ -265,6 +293,57 @@ async def leaderboard(db: AsyncSession, *, cohort_id: uuid.UUID) -> list[dict]:
     for i, row in enumerate(out, start=1):
         row["rank"] = i
     return out
+
+
+async def get_student_team_result(
+    db: AsyncSession, *, cohort_id: uuid.UUID, user_id: uuid.UUID,
+) -> dict:
+    """Student result view — strictly their own team's result once published.
+    Never exposes individual judge scores, judge identities, or other teams.
+    """
+    from app.models.team import TeamMember
+    team = await db.scalar(
+        select(Team)
+        .join(TeamMember, TeamMember.team_id == Team.id)
+        .where(Team.cohort_id == cohort_id, TeamMember.user_id == user_id)
+    )
+    if team is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="You are not in a team for this cohort")
+
+    published = await is_published(db, cohort_id=cohort_id)
+    if not published:
+        return {
+            "team_id": team.id,
+            "team_name": team.name,
+            "status": "pending_publication",
+            "final_score": None,
+            "score_percent": None,
+            "qualification": None,
+            "locked": team.final_locked_at is not None,
+            "locked_at": team.final_locked_at,
+            "published": False,
+        }
+
+    agg = (await db.execute(
+        select(func.avg(CompetitionScore.total_points), func.count(CompetitionScore.id))
+        .where(CompetitionScore.team_id == team.id, CompetitionScore.submitted.is_(True))
+    )).first()
+
+    avg_score = float(agg[0]) if agg and agg[0] is not None else None
+    scored_count = agg[1] if agg else 0
+    score_percent = round(100 * (avg_score / 110), 1) if avg_score is not None else None
+
+    return {
+        "team_id": team.id,
+        "team_name": team.name,
+        "status": "scored" if scored_count > 0 else "unscored",
+        "final_score": round(avg_score, 1) if avg_score is not None else None,
+        "score_percent": score_percent,
+        "qualification": team.qualification,
+        "locked": team.final_locked_at is not None,
+        "locked_at": team.final_locked_at,
+        "published": True,
+    }
 
 
 async def publish(db: AsyncSession, *, cohort_id: uuid.UUID, actor_user_id: uuid.UUID) -> CompetitionResultPublication:

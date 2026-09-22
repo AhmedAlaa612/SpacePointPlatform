@@ -49,11 +49,14 @@ async def export_results_workbook(db: AsyncSession, *, cohort_id: uuid.UUID) -> 
     wb = openpyxl.Workbook()
     scores = wb.active
     scores.title = "Scores"
-    scores.append(["Rank", "Team", "Avg Score", "Status", "Advanced To", *judge_names])
+    scores.append(["Rank", "Team", "Avg Score", "Status", "Advanced To", "Score %", "Qualification", *judge_names])
     for row in board:
         by_judge = {js["judge_name"]: js["total_points"] for js in row["judge_scores"]}
         scores.append([
-            row["rank"], row["team_name"], row["score"], row["status"], row["advanced_to"] or "",
+            row["rank"], row["team_name"], row["score"],
+            row["status"], row["advanced_to"] or "",
+            f"{row['score_percent']}%" if row.get("score_percent") is not None else "",
+            row.get("qualification") or "",
             *[by_judge.get(name, "") for name in judge_names],
         ])
     _autosize(scores)

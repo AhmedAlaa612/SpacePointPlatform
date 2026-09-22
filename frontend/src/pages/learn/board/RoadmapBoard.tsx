@@ -8,6 +8,7 @@ import { NextTaskCard } from "./NextTaskCard";
 import { TileField } from "./TileField";
 import { FinalGateBar } from "./FinalGateBar";
 import { TaskDrawer } from "./TaskDrawer";
+import { StudentTeamResultCard } from "@/components/competitions/StudentTeamResultCard";
 import { checklistItemToTile, computeLiveTaskId, groupByCheckpoint, readBoardScrollPosition } from "./roadmap";
 
 /** `/learn/checklists/$assignmentId` — the gated visual roadmap ("the
@@ -131,6 +132,8 @@ export default function RoadmapBoard() {
               <div className="absolute inset-y-0 left-0 bg-primary transition-[width] duration-300" style={{ width: `${pct}%` }} />
             </div>
           </div>
+
+          {checklist?.cohort_id && <StudentTeamResultCard cohortId={checklist.cohort_id} />}
 
           <NextTaskCard item={liveItem} onStart={() => liveItem && openItemById(liveItem)} />
 

@@ -41,12 +41,26 @@ export interface CompetitionLeaderboardRow {
   team_id: string
   team_name: string
   score: number | null
+  score_percent?: number | null
+  qualification?: string | null
   judges_scored: number
   status: "scored" | "unscored"
   judge_scores: CompetitionJudgeScore[]
   /** Sibling cohort(s) under the same program with a same-named team —
    * inferred, not stored; null means not advanced (yet). */
   advanced_to: string | null
+}
+
+export interface CompetitionStudentResult {
+  team_id: string
+  team_name: string
+  status: string
+  final_score: number | null
+  score_percent: number | null
+  qualification: string | null
+  locked: boolean
+  locked_at: string | null
+  published: boolean
 }
 
 export interface CompetitionJudge {
@@ -642,5 +656,9 @@ export const downloadCompetitionCertificatesApi = async (
   document.body.removeChild(a)
   URL.revokeObjectURL(url)
 }
+
+export const getStudentCompetitionResultApi = (cohortId: string) =>
+  api.get<CompetitionStudentResult>(`/competitions/student/cohorts/${cohortId}/my-result`).then((r) => r.data)
+
 
 

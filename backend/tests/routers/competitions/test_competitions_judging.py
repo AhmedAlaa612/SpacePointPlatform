@@ -1482,3 +1482,82 @@ async def test_assign_students_enqueues_a_ticket_email_only_for_newly_registered
 
     queued_jobs = await arq_redis.zrange("arq:queue", 0, -1)
     assert len(queued_jobs) == 2  # one for b's first assign, one for a's
+
+
+@pytest.mark.asyncio
+async def test_judge_score_with_timing_adjustment_and_comments(db, client):
+    ops, program, cohort, team, judge, _poster = await _judge_setup(db)
+    resp = await client.put(
+        f"/competitions/judge/teams/{team.id}/score", headers=_headers(judge),
+        json={
+            "criterion_scores": {"design": 28.5, "execution": 19.5},
+            "criterion_comments": {"design": "Impressive CAD design", "execution": "Solid presentation"},
+            "bonus_points": 2.0,
+            "timing_adjustment": -1.5,
+            "notes": "Late submission by 2 hours",
+            "submitted": True,
+        },
+    )
+    assert resp.status_code == 200, resp.text
+    data = resp.json()
+    assert data["total_points"] == 48.5
+    assert data["timing_adjustment"] == -1.5
+    assert data["notes"] == "Late submission by 2 hours"
+    assert data["criterion_comments"]["design"] == "Impressive CAD design"
+
+
+@pytest.mark.asyncio
+async def test_student_result_view_only_shows_own_team_once_published(db, client):
+    ops, program, cohort, team, judge, _poster = await _judge_setup(db)
+    student = await _student(db)
+    from app.models.team import TeamMember
+    db.add(TeamMember(team_id=team.id, user_id=student.id))
+    await db.commit()
+
+    # Before publishing: returns unpublished status
+    pre_pub = await client.get(
+        f"/competitions/student/cohorts/{cohort.id}/my-result",
+        headers=_headers(student),
+    )
+    assert pre_pub.status_code == 200, pre_pub.text
+    assert pre_pub.json()["published"] is False
+    assert pre_pub.json()["status"] == "pending_publication"
+    assert pre_pub.json()["final_score"] is None
+    assert pre_pub.json()["qualification"] is None
+
+    # Judge scores team (rubric max is 50 for design + execution, let's score 25 and 20)
+    await client.put(
+        f"/competitions/judge/teams/{team.id}/score", headers=_headers(judge),
+        json={"criterion_scores": {"design": 25.0, "execution": 20.0}, "bonus_points": 0, "submitted": True},
+    )
+
+    # Set team qualification status
+    team.qualification = "Qualified"
+    await db.commit()
+
+    # Ops publishes
+    pub = await client.post(f"/competitions/admin/cohorts/{cohort.id}/publish", headers=_headers(ops))
+    assert pub.status_code == 200, pub.text
+
+    # Student fetches result
+    post_pub = await client.get(
+        f"/competitions/student/cohorts/{cohort.id}/my-result",
+        headers=_headers(student),
+    )
+    assert post_pub.status_code == 200, post_pub.text
+    res = post_pub.json()
+    assert res["published"] is True
+    assert res["status"] == "scored"
+    assert res["final_score"] == 45.0
+    assert res["qualification"] == "Qualified"
+    assert "judge_scores" not in res
+    assert "judges" not in res
+
+    # Unaffiliated student gets 404
+    other_student = await _student(db)
+    await db.commit()
+    other_resp = await client.get(
+        f"/competitions/student/cohorts/{cohort.id}/my-result",
+        headers=_headers(other_student),
+    )
+    assert other_resp.status_code == 404

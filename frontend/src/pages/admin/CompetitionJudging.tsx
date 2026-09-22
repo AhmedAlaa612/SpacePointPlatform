@@ -1546,8 +1546,21 @@ function LeaderboardTable({ rows, selected, onToggle }: {
               )}
               <td className="py-2 pr-3 font-semibold tabular-nums align-top">{r.rank}</td>
               <td className="py-2 pr-3 text-foreground align-top">
-                <div className="flex items-center gap-1.5">
-                  {r.team_name}
+                <div className="flex items-center gap-1.5 flex-wrap">
+                  <span className="font-medium">{r.team_name}</span>
+                  {r.qualification && (
+                    <span
+                      className={`inline-flex items-center text-[10px] font-semibold uppercase tracking-wide rounded-full px-2 py-0.5 whitespace-nowrap border ${
+                        r.qualification.toLowerCase().includes("top 10")
+                          ? "bg-amber-500/10 text-amber-700 dark:text-amber-400 border-amber-500/30"
+                          : r.qualification.toLowerCase().includes("top")
+                          ? "bg-blue-500/10 text-blue-700 dark:text-blue-400 border-blue-500/30"
+                          : "bg-muted text-muted-foreground border-border"
+                      }`}
+                    >
+                      {r.qualification}
+                    </span>
+                  )}
                   {r.advanced_to && (
                     <span
                       title={`Advanced to ${r.advanced_to}`}
@@ -1558,7 +1571,14 @@ function LeaderboardTable({ rows, selected, onToggle }: {
                   )}
                 </div>
               </td>
-              <td className="py-2 pr-3 tabular-nums align-top">{r.score ?? "—"}</td>
+              <td className="py-2 pr-3 tabular-nums align-top">
+                <div className="flex flex-col">
+                  <span>{r.score ?? "—"}</span>
+                  {r.score_percent !== null && r.score_percent !== undefined && (
+                    <span className="text-xs text-muted-foreground font-normal">{r.score_percent}%</span>
+                  )}
+                </div>
+              </td>
               <td className="py-2 pr-3">
                 {r.judge_scores.length === 0 ? (
                   <span className="text-muted-foreground">Not scored yet</span>

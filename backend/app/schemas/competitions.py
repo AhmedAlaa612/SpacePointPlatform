@@ -80,8 +80,11 @@ class CompetitionRubricOut(BaseModel):
 
 
 class CompetitionScoreIn(BaseModel):
-    criterion_scores: dict[str, int]
-    bonus_points: int = 0
+    criterion_scores: dict[str, float]
+    criterion_comments: dict[str, str] = {}
+    bonus_points: float = 0.0
+    timing_adjustment: float = 0.0
+    notes: str | None = None
     # False (default): an autosaved draft — stored, but doesn't count as
     # "scored" anywhere. True: the judge's own deliberate submit click.
     submitted: bool = False
@@ -91,9 +94,12 @@ class CompetitionScoreOut(BaseModel):
     id: UUID
     team_id: UUID
     judge_user_id: UUID
-    criterion_scores: dict[str, int]
-    bonus_points: int
-    total_points: int
+    criterion_scores: dict[str, float]
+    criterion_comments: dict[str, str] = {}
+    bonus_points: float = 0.0
+    timing_adjustment: float = 0.0
+    total_points: float
+    notes: str | None = None
     submitted_at: datetime | None = None
     submitted: bool = False
 
@@ -101,7 +107,7 @@ class CompetitionScoreOut(BaseModel):
 class CompetitionJudgeScoreOut(BaseModel):
     judge_user_id: UUID
     judge_name: str
-    total_points: int
+    total_points: float
 
 
 class CompetitionLeaderboardRowOut(BaseModel):
@@ -109,6 +115,8 @@ class CompetitionLeaderboardRowOut(BaseModel):
     team_id: UUID
     team_name: str
     score: float | None = None
+    score_percent: float | None = None
+    qualification: str | None = None
     judges_scored: int
     status: str  # scored|unscored
     judge_scores: list[CompetitionJudgeScoreOut] = []
@@ -116,6 +124,18 @@ class CompetitionLeaderboardRowOut(BaseModel):
     # the same program — see leaderboard()'s own docstring. None = not
     # advanced (yet), otherwise the sibling cohort name(s) it advanced to.
     advanced_to: str | None = None
+
+
+class CompetitionStudentResultOut(BaseModel):
+    team_id: UUID
+    team_name: str
+    status: str  # scored | unscored
+    final_score: float | None = None
+    score_percent: float | None = None
+    qualification: str | None = None
+    locked: bool = False
+    locked_at: datetime | None = None
+    published: bool = False
 
 
 class CompetitionJudgeOut(BaseModel):

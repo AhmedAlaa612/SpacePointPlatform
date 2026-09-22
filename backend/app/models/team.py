@@ -82,6 +82,7 @@ class Team(Base):
     # its own submission at will.
     final_locked_at = Column(DateTime(timezone=True), nullable=True)
     final_locked_by = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    qualification = Column(String(50), nullable=True)
 
 
 class TeamMember(Base):

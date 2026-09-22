@@ -3,7 +3,7 @@
 import uuid
 from datetime import datetime, timezone
 
-from sqlalchemy import Boolean, Column, DateTime, ForeignKey, Integer, String, UniqueConstraint
+from sqlalchemy import Boolean, Column, DateTime, Float, ForeignKey, Integer, String, Text, UniqueConstraint
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 
 from app.db.base import Base
@@ -74,8 +74,11 @@ class CompetitionScore(Base):
     # {criterion_key: points} — validated against the rubric's own criteria
     # at write time in the service layer, not by a DB constraint.
     criterion_scores = Column(JSONB, nullable=False)
-    bonus_points = Column(Integer, nullable=False, default=0)
-    total_points = Column(Integer, nullable=False)
+    criterion_comments = Column(JSONB, nullable=False, default=dict, server_default="{}")
+    bonus_points = Column(Float, nullable=False, default=0.0)
+    timing_adjustment = Column(Float, nullable=False, default=0.0)
+    total_points = Column(Float, nullable=False)
+    notes = Column(Text, nullable=True)
     submitted_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
     submitted = Column(Boolean, nullable=False, default=False, server_default="false")
 
