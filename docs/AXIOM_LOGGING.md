@@ -75,7 +75,8 @@ docker run -d \
   -v /var/run/docker.sock:/var/run/docker.sock:ro \
   -v /etc/spacepoint/vector.toml:/etc/vector/vector.toml:ro \
   --env-file /etc/spacepoint/env \
-  timberio/vector:0.43.0-alpine
+  timberio/vector:0.43.0-alpine \
+  --config /etc/vector/vector.toml
 ```
 
 ### Step 4: Update Backend on VPS

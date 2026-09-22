@@ -48,7 +48,8 @@ docker run -d \
   -v /var/run/docker.sock:/var/run/docker.sock:ro \
   -v "$CONFIG_DEST":/etc/vector/vector.toml:ro \
   --env-file "$ENV_FILE" \
-  "$IMAGE"
+  "$IMAGE" \
+  --config /etc/vector/vector.toml
 
 echo "==> Waiting 3s for Vector startup..."
 sleep 3
