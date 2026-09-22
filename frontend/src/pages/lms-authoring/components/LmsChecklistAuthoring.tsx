@@ -7,7 +7,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { VideoPlayer } from "@/components/video/VideoPlayer"
 import { useToast } from "@/components/ui/toast"
 import { ensureAbsoluteUrl } from "@/lib/utils"
-import { getSessionsApi } from "@/api/sessions/cohorts"
+import { getSessionsApi, getCohortApi, updateCohortApi } from "@/api/sessions/cohorts"
 import { listCoursesApi } from "@/api/lms_admin"
 import { listMissionsAdminFullApi } from "@/api/missions_admin"
 import { listCohortQuizTemplatesApi } from "@/api/cohort_quiz"
@@ -67,6 +67,22 @@ export function CreateChecklistPrompt({ onCreate, pending }: { onCreate: (name: 
 export function ProgramTemplateEditor({
   program, onChanged, readOnly,
 }: { program: LmsProgram; onChanged: () => void; readOnly: boolean }) {
+  const toast = useToast()
+  const [titleValue, setTitleValue] = useState(program.name)
+
+  useEffect(() => {
+    setTitleValue(program.name)
+  }, [program.name])
+
+  const updateTitleMutation = useMutation({
+    mutationFn: (name: string) => updateLmsProgramApi(program.id, { name }),
+    onSuccess: () => {
+      toast.success("Program title updated")
+      onChanged()
+    },
+    onError: (e: unknown) => toast.error(errorDetail(e, "Failed to update title")),
+  })
+
   const toggleCert = useMutation({
     mutationFn: (value: boolean) => updateLmsProgramApi(program.id, { certificate_required: value }),
     onSuccess: onChanged,
@@ -112,6 +128,51 @@ export function ProgramTemplateEditor({
 
   return (
     <div className="flex flex-col gap-5">
+      {!readOnly && (
+        <div className="flex flex-col gap-1.5 p-4 bg-card border border-border rounded-xl">
+          <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+            LMS Program Title (Displayed to Students)
+          </label>
+          <div className="flex items-center gap-2 mt-1">
+            <input
+              type="text"
+              value={titleValue}
+              onChange={(e) => setTitleValue(e.target.value)}
+              disabled={updateTitleMutation.isPending}
+              placeholder="e.g. Ru'ya Space Race"
+              className="flex-1 h-10 px-3 border border-border bg-background text-foreground rounded-lg text-sm font-medium focus:outline-none focus:border-primary transition-colors disabled:opacity-50"
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  e.preventDefault()
+                  const val = titleValue.trim()
+                  if (val && val !== program.name) {
+                    updateTitleMutation.mutate(val)
+                  }
+                }
+              }}
+              onBlur={() => {
+                const val = titleValue.trim()
+                if (val && val !== program.name) {
+                  updateTitleMutation.mutate(val)
+                }
+              }}
+            />
+            <button
+              type="button"
+              onClick={() => {
+                const val = titleValue.trim()
+                if (val && val !== program.name) {
+                  updateTitleMutation.mutate(val)
+                }
+              }}
+              disabled={updateTitleMutation.isPending || !titleValue.trim() || titleValue.trim() === program.name}
+              className="h-10 px-4 bg-primary text-primary-foreground text-sm font-medium rounded-lg hover:opacity-90 transition-opacity disabled:opacity-50 cursor-pointer"
+            >
+              {updateTitleMutation.isPending ? "Saving..." : "Save Title"}
+            </button>
+          </div>
+        </div>
+      )}
       <div className="flex items-start gap-4">
         <button
           onClick={() => !readOnly && fileInputRef.current?.click()}
@@ -279,6 +340,30 @@ export function CohortOverrideEditor({
     onError: () => toast.error("Couldn't resync students — try again."),
   })
 
+  const { data: cohortData } = useQuery({
+    queryKey: ["cohort-detail", cohortId],
+    queryFn: () => getCohortApi(cohortId),
+  })
+
+  const [cohortNameValue, setCohortNameValue] = useState("")
+
+  useEffect(() => {
+    if (cohortData?.name) {
+      setCohortNameValue(cohortData.name)
+    }
+  }, [cohortData?.name])
+
+  const updateCohortNameMutation = useMutation({
+    mutationFn: (name: string) => updateCohortApi(cohortId, { name }),
+    onSuccess: () => {
+      toast.success("Cohort title updated")
+      void queryClient.invalidateQueries({ queryKey: ["cohort-detail", cohortId] })
+      void queryClient.invalidateQueries({ queryKey: ["sessions-cohorts"] })
+      invalidate()
+    },
+    onError: (e: unknown) => toast.error(errorDetail(e, "Failed to update cohort title")),
+  })
+
   const updateCohortPosterMutation = useMutation({
     mutationFn: (url: string | null) => updateCohortPosterTemplateApi(cohortId, url),
     onSuccess: () => {
@@ -298,6 +383,54 @@ export function CohortOverrideEditor({
       {override.is_inherited && (
         <div className="text-xs text-muted-foreground bg-muted/50 border border-border rounded-xl px-3 py-2">
           Showing the program's own checklist — {readOnly ? "nothing has been overridden for this cohort yet." : "edit anything below to start this cohort's own override."}
+        </div>
+      )}
+      {isStaff && !readOnly && (
+        <div className="flex flex-col gap-2 p-3 bg-card border border-border rounded-xl">
+          <div>
+            <div className="text-sm font-medium">Cohort Title (Displayed to Students)</div>
+            <div className="text-xs text-muted-foreground mt-0.5">
+              Shown to students alongside the program name on their roadmap (e.g. "{cohortData?.name || "Finalists"}")
+            </div>
+          </div>
+          <div className="flex items-center gap-2 mt-1">
+            <input
+              type="text"
+              value={cohortNameValue}
+              onChange={(e) => setCohortNameValue(e.target.value)}
+              disabled={updateCohortNameMutation.isPending}
+              placeholder="e.g. Finalists"
+              className="flex-1 h-9 px-3 border border-border bg-background text-foreground rounded-lg text-sm focus:outline-none focus:border-primary transition-colors disabled:opacity-50"
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  e.preventDefault()
+                  const val = cohortNameValue.trim()
+                  if (val && val !== cohortData?.name) {
+                    updateCohortNameMutation.mutate(val)
+                  }
+                }
+              }}
+              onBlur={() => {
+                const val = cohortNameValue.trim()
+                if (val && val !== cohortData?.name) {
+                  updateCohortNameMutation.mutate(val)
+                }
+              }}
+            />
+            <button
+              type="button"
+              onClick={() => {
+                const val = cohortNameValue.trim()
+                if (val && val !== cohortData?.name) {
+                  updateCohortNameMutation.mutate(val)
+                }
+              }}
+              disabled={updateCohortNameMutation.isPending || !cohortNameValue.trim() || cohortNameValue.trim() === cohortData?.name}
+              className="h-9 px-3 bg-primary text-primary-foreground text-xs font-medium rounded-lg hover:opacity-90 transition-opacity disabled:opacity-50 cursor-pointer"
+            >
+              {updateCohortNameMutation.isPending ? "Saving..." : "Save"}
+            </button>
+          </div>
         </div>
       )}
       {isStaff && !readOnly && (
