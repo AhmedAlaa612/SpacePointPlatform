@@ -289,8 +289,8 @@ export function ProgramCertificateStudioModal({ program, onClose, onUpdated }: P
       const previewReq: CertificatePreviewRequest = {
         recipient_name: testStudentName || "Student Name",
         program_name: program.name,
-        cohort_name: "Cohort 1",
-        dates: "October 2026",
+        cohort_name: "Cohort Title",
+        dates: "12 – 16 October 2026",
         location: "SpacePoint HQ",
         background_type: backgroundType,
         background_file_path: bgFilePath,
@@ -333,8 +333,8 @@ export function ProgramCertificateStudioModal({ program, onClose, onUpdated }: P
       const previewReq: CertificatePreviewRequest = {
         recipient_name: testStudentName || "Student Name",
         program_name: program.name,
-        cohort_name: "Cohort 1",
-        dates: "October 2026",
+        cohort_name: "Cohort Title",
+        dates: "12 – 16 October 2026",
         location: "SpacePoint HQ",
         background_type: backgroundType,
         background_file_path: bgFilePath,
@@ -366,15 +366,13 @@ export function ProgramCertificateStudioModal({ program, onClose, onUpdated }: P
     }
   }
 
-  // Formatted preview body text with test values
-  const programTitle = (bodyText || "").includes("{cohort_name}")
-    ? program.name
-    : `${program.name} - Cohort 1`
-
+  // Formatted preview body text with test values: {program_name} is always the program name,
+  // while {cohort} / {cohort_name} is used if explicitly specified.
   const previewBodyLines = (bodyText || "")
-    .replace(/\{program_name\}/g, programTitle)
-    .replace(/\{cohort_name\}/g, "Cohort 1")
-    .replace(/\{dates\}/g, "October 2026")
+    .replace(/\{program_name\}/g, program.name)
+    .replace(/\{cohort_name\}/g, "Cohort Title")
+    .replace(/\{cohort\}/g, "Cohort Title")
+    .replace(/\{dates\}/g, "12 – 16 October 2026")
     .replace(/\{location\}/g, "SpacePoint HQ")
     .split("<br/>")
 
@@ -392,7 +390,7 @@ export function ProgramCertificateStudioModal({ program, onClose, onUpdated }: P
     <Modal
       title={`Certificate Templates: ${program.name}`}
       onClose={onClose}
-      maxWidth="sm:max-w-7xl max-w-7xl"
+      maxWidth="w-[98vw] max-w-[98vw] sm:w-full sm:max-w-7xl p-2.5 sm:p-6 max-h-[96vh] sm:max-h-[90vh]"
     >
       <div className="flex flex-col gap-5 -mt-1">
         {/* Top Header: Template Selector Pills & Actions Bar */}
@@ -467,34 +465,26 @@ export function ProgramCertificateStudioModal({ program, onClose, onUpdated }: P
 
           {/* Top Actions: Default on Left, Delete & Save on Right */}
           <div className="flex items-center justify-between sm:justify-end gap-2 shrink-0">
-            {/* Default Status / Set as Default */}
-            <div>
-              {isCurrentlyDefault ? (
-                <span className="h-8 px-2.5 sm:px-3 rounded-lg bg-emerald-500/10 border border-emerald-500/30 text-emerald-600 dark:text-emerald-400 text-xs font-medium flex items-center gap-1.5 whitespace-nowrap shrink-0">
-                  <CheckCircle2 size={13} className="shrink-0" />
-                  <span className="hidden sm:inline">Default for {program.name}</span>
-                  <span className="sm:hidden">Default</span>
-                </span>
-              ) : (
-                activeTab !== "new" && (
-                  <button
-                    type="button"
-                    onClick={() => setDefaultMutation.mutate(activeTab)}
-                    disabled={setDefaultMutation.isPending}
-                    className="h-8 px-2.5 sm:px-3 border border-border bg-background hover:bg-muted text-xs font-medium text-foreground rounded-lg transition-colors flex items-center gap-1.5 disabled:opacity-50 cursor-pointer whitespace-nowrap shrink-0"
-                    title={`Make this template the default for ${program.name}`}
-                  >
-                    <Check size={13} className="text-primary shrink-0" />
-                    <span className="hidden sm:inline">
-                      {setDefaultMutation.isPending ? "Setting…" : "Set as Program Default"}
-                    </span>
-                    <span className="sm:hidden">
-                      {setDefaultMutation.isPending ? "Setting…" : "Set Default"}
-                    </span>
-                  </button>
-                )
-              )}
-            </div>
+            {/* Set as Default (only shown when not currently default) */}
+            {!isCurrentlyDefault && activeTab !== "new" && (
+              <div>
+                <button
+                  type="button"
+                  onClick={() => setDefaultMutation.mutate(activeTab)}
+                  disabled={setDefaultMutation.isPending}
+                  className="h-8 px-2.5 sm:px-3 border border-border bg-background hover:bg-muted text-xs font-medium text-foreground rounded-lg transition-colors flex items-center gap-1.5 disabled:opacity-50 cursor-pointer whitespace-nowrap shrink-0"
+                  title={`Make this template the default for ${program.name}`}
+                >
+                  <Check size={13} className="text-primary shrink-0" />
+                  <span className="hidden sm:inline">
+                    {setDefaultMutation.isPending ? "Setting…" : "Set as Default"}
+                  </span>
+                  <span className="sm:hidden">
+                    {setDefaultMutation.isPending ? "Setting…" : "Set Default"}
+                  </span>
+                </button>
+              </div>
+            )}
 
             {/* Delete, Saved Indicator, Save */}
             <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
@@ -539,7 +529,7 @@ export function ProgramCertificateStudioModal({ program, onClose, onUpdated }: P
         </div>
 
         {/* Studio Grid: Controls on Left (4 cols), Live WYSIWYG Canvas on Right (8 cols) */}
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-3 sm:gap-6">
           {/* Controls Column (4 cols) */}
           <div className="lg:col-span-4 flex flex-col gap-4 lg:max-h-[74vh] lg:overflow-y-auto pr-1">
             {/* Template Name */}
@@ -699,10 +689,19 @@ export function ProgramCertificateStudioModal({ program, onClose, onUpdated }: P
 
                   {/* Body Text Template */}
                   <div>
-                    <label className="text-[11px] text-muted-foreground block mb-1">
-                      Text template (use <code className="text-primary">&lt;br/&gt;</code> for line
-                      breaks)
-                    </label>
+                    <div className="flex items-center justify-between mb-1">
+                      <label className="text-[11px] text-muted-foreground block">
+                        Text template (use <code className="text-primary">&lt;br/&gt;</code> for line breaks)
+                      </label>
+                      <button
+                        type="button"
+                        onClick={() => setBodyText((prev) => `${prev} {cohort}`)}
+                        className="text-[10px] text-primary hover:underline font-medium cursor-pointer"
+                        title="Add {cohort} placeholder"
+                      >
+                        + Insert &#123;cohort&#125;
+                      </button>
+                    </div>
                     <textarea
                       rows={3}
                       value={bodyText}
@@ -710,6 +709,13 @@ export function ProgramCertificateStudioModal({ program, onClose, onUpdated }: P
                       className="w-full px-3 py-2 rounded-xl border border-border bg-background text-xs font-mono text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
                       placeholder="For successfully completing<br/>{program_name}<br/>{dates}"
                     />
+                    <div className="flex flex-wrap items-center gap-1.5 mt-1 text-[10px] text-muted-foreground">
+                      <span>Variables:</span>
+                      <code className="bg-muted px-1 rounded text-foreground">&#123;program_name&#125;</code>
+                      <code className="bg-muted px-1 rounded text-foreground">&#123;cohort&#125;</code>
+                      <code className="bg-muted px-1 rounded text-foreground">&#123;dates&#125;</code>
+                      <code className="bg-muted px-1 rounded text-foreground">&#123;location&#125;</code>
+                    </div>
                   </div>
 
                   {/* Body Font size */}

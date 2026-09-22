@@ -222,18 +222,15 @@ async def _issue_student_certificate(
         select(DocumentTemplate).where(DocumentTemplate.key == "student_completion")
     )).scalars().first()
     template_body = template.body_text if template else "For successfully completing<br/>{program_name}<br/>{dates}"
-    program_title = format_certificate_program_title(program.name, cohort.name if cohort else None)
-    if "{cohort_name}" in template_body:
-        body_text = template_body \
-            .replace("{program_name}", escape(program.name)) \
-            .replace("{cohort_name}", escape(cohort.name if cohort and cohort.name else "")) \
-            .replace("{dates}", escape(dates)) \
-            .replace("{location}", escape(location["name"] or ""))
-    else:
-        body_text = template_body \
-            .replace("{program_name}", escape(program_title)) \
-            .replace("{dates}", escape(dates)) \
-            .replace("{location}", escape(location["name"] or ""))
+    cohort_title = cohort.name if cohort and cohort.name else ""
+    body_text = (
+        template_body
+        .replace("{program_name}", escape(program.name))
+        .replace("{cohort_name}", escape(cohort_title))
+        .replace("{cohort}", escape(cohort_title))
+        .replace("{dates}", escape(dates))
+        .replace("{location}", escape(location["name"] or ""))
+    )
     cert_bytes = await asyncio.to_thread(generate_completion_certificate_pdf, contact.full_name, body_text)
 
     certificate = Certificate(

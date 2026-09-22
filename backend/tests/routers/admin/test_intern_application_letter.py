@@ -125,7 +125,9 @@ async def test_onboarding_requires_internship_fields(db, client, admin_headers):
 
 
 async def test_onboarding_then_instructor_approval_auto_generates_the_letter(db, client, admin_headers):
-    application = await _make_intern_application(db, requested_start_date="2026-09-01")
+    from datetime import date, timedelta
+    future_start = (date.today() + timedelta(days=14)).isoformat()
+    application = await _make_intern_application(db, requested_start_date=future_start)
     await db.commit()
 
     onboard = await client.post(
@@ -141,7 +143,7 @@ async def test_onboarding_then_instructor_approval_auto_generates_the_letter(db,
     profile = await db.get(ApplicantProfile, user_id)
     assert profile.also_grant_role == "intern"
     assert profile.pending_intern_details["university_id_number"] == "1092579"
-    assert profile.pending_intern_details["start_date"] == "2026-09-01"
+    assert profile.pending_intern_details["start_date"] == future_start
     assert profile.pending_intern_details["approve"]["supervisor_name"] == "Abdullah AlSalmani"
 
     review = await client.put(
@@ -156,7 +158,7 @@ async def test_onboarding_then_instructor_approval_auto_generates_the_letter(db,
     intern_profile = await db.get(InternProfile, user_id)
     assert intern_profile is not None
     assert intern_profile.university_id_number == "1092579"
-    assert str(intern_profile.start_date) == "2026-09-01"
+    assert str(intern_profile.start_date) == future_start
     assert intern_profile.duration_weeks == 8
     assert intern_profile.ref_number
     assert intern_profile.letter_path

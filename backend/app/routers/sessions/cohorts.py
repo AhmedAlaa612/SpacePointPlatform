@@ -679,7 +679,7 @@ async def assign_instructor(
     # instructor finds out regardless of which path put them on the session.
     if is_new_assignment:
         cohort = await db.get(Cohort, cohort_id)
-        location = await staffing_svc.resolve_session_location_display(db, session, cohort)
+        location = await resolve_session_location_display(db, session, cohort)
         where = f" at {location['name']}" if location["name"] else ""
         if location["address"]:
             where += f", {location['address']}"
@@ -1322,18 +1322,15 @@ async def download_cohort_certificates(
     location = await resolve_session_location_display(db, None, cohort)
     template_body = layout["body_text_template"] or (template.body_text if template else "For successfully completing<br/>{program_name}<br/>{dates}")
     program_name = program.name if program else ""
-    program_title = format_certificate_program_title(program_name, cohort.name if cohort else None)
-    if "{cohort_name}" in template_body:
-        body_text = template_body \
-            .replace("{program_name}", escape(program_name)) \
-            .replace("{cohort_name}", escape(cohort.name if cohort and cohort.name else "")) \
-            .replace("{dates}", escape(format_cohort_dates(cohort))) \
-            .replace("{location}", escape(location["name"] or ""))
-    else:
-        body_text = template_body \
-            .replace("{program_name}", escape(program_title)) \
-            .replace("{dates}", escape(format_cohort_dates(cohort))) \
-            .replace("{location}", escape(location["name"] or ""))
+    cohort_title = cohort.name if cohort and cohort.name else ""
+    body_text = (
+        template_body
+        .replace("{program_name}", escape(program_name))
+        .replace("{cohort_name}", escape(cohort_title))
+        .replace("{cohort}", escape(cohort_title))
+        .replace("{dates}", escape(format_cohort_dates(cohort)))
+        .replace("{location}", escape(location["name"] or ""))
+    )
 
     def _render(name: str, body: str) -> bytes:
         return generate_completion_certificate_pdf(

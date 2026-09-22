@@ -471,18 +471,15 @@ async def send_cohort_certificates(
     )).scalars().first()
 
     template_body = layout["body_text_template"] or (template.body_text if template else "For successfully completing<br/>{program_name}<br/>{dates}")
-    program_title = format_certificate_program_title(program.name, cohort.name if cohort else None)
-    if "{cohort_name}" in template_body:
-        body_text = template_body \
-            .replace("{program_name}", escape(program.name)) \
-            .replace("{cohort_name}", escape(cohort.name if cohort and cohort.name else "")) \
-            .replace("{dates}", escape(dates)) \
-            .replace("{location}", escape(location.get("name") or ""))
-    else:
-        body_text = template_body \
-            .replace("{program_name}", escape(program_title)) \
-            .replace("{dates}", escape(dates)) \
-            .replace("{location}", escape(location.get("name") or ""))
+    cohort_title = cohort.name if cohort and cohort.name else ""
+    body_text = (
+        template_body
+        .replace("{program_name}", escape(program.name))
+        .replace("{cohort_name}", escape(cohort_title))
+        .replace("{cohort}", escape(cohort_title))
+        .replace("{dates}", escape(dates))
+        .replace("{location}", escape(location.get("name") or ""))
+    )
 
     sent_count = 0
     skipped_count = 0
@@ -551,8 +548,8 @@ async def send_cohort_certificates(
                 filename = f"SpacePoint_Certificate_{program.name.replace(' ', '_')}.pdf"
                 await try_send_email(
                     contact.email,
-                    f"Your SpacePoint certificate — {program_title}",
-                    _cert_email_body(contact.full_name, program_title, dates),
+                    f"Your SpacePoint certificate — {program.name}",
+                    _cert_email_body(contact.full_name, program.name, dates),
                     html=True,
                     attachments=[(filename, cert_bytes, "pdf")],
                 )
@@ -563,7 +560,6 @@ async def send_cohort_certificates(
             errors.append(f"{contact.full_name}: {exc}")
 
     await db.commit()
-
     return {
         "sent_count": sent_count,
         "skipped_count": skipped_count,
@@ -577,17 +573,16 @@ async def render_cohort_certificates_pdf(
     db: AsyncSession,
     *,
     cohort_id: uuid.UUID,
-    filter_type: str = "at_least_one",
+    filter_type: Literal["at_least_one", "all_completed", "all"] = "at_least_one",
     theme: str = "dark",
     template_id: str | None = None,
     registration_ids: list[uuid.UUID] | None = None,
 ) -> tuple[bytes, str]:
-    """Generates a merged PDF containing completion certificates for students
-    matching the filter or specified registration IDs.
-    """
+    """Renders a single combined PDF with one landscape A4 certificate per eligible recipient."""
     cohort = await db.get(Cohort, cohort_id)
     if cohort is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Cohort not found")
+
     program = await db.get(Program, cohort.program_id)
     if program is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Program not found")
@@ -605,7 +600,7 @@ async def render_cohort_certificates_pdf(
         recipients = [r for r in recipients if r["registration_id"] in target_ids]
 
     if not recipients:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="No matching students found to generate certificates")
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="No matching students found for the selected filter")
 
     dates = format_cohort_dates(cohort)
     location = await resolve_session_location_display(db, None, cohort)
@@ -616,18 +611,15 @@ async def render_cohort_certificates_pdf(
     )).scalars().first()
 
     template_body = layout["body_text_template"] or (template.body_text if template else "For successfully completing<br/>{program_name}<br/>{dates}")
-    program_title = format_certificate_program_title(program.name, cohort.name if cohort else None)
-    if "{cohort_name}" in template_body:
-        body_text = template_body \
-            .replace("{program_name}", escape(program.name)) \
-            .replace("{cohort_name}", escape(cohort.name if cohort and cohort.name else "")) \
-            .replace("{dates}", escape(dates)) \
-            .replace("{location}", escape(location.get("name") or ""))
-    else:
-        body_text = template_body \
-            .replace("{program_name}", escape(program_title)) \
-            .replace("{dates}", escape(dates)) \
-            .replace("{location}", escape(location.get("name") or ""))
+    cohort_title = cohort.name if cohort and cohort.name else ""
+    body_text = (
+        template_body
+        .replace("{program_name}", escape(program.name))
+        .replace("{cohort_name}", escape(cohort_title))
+        .replace("{cohort}", escape(cohort_title))
+        .replace("{dates}", escape(dates))
+        .replace("{location}", escape(location.get("name") or ""))
+    )
 
     def _render(name: str, body: str) -> bytes:
         return generate_completion_certificate_pdf(

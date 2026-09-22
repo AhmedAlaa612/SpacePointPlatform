@@ -212,8 +212,8 @@ async def test_send_cohort_certificates(db, client):
         assert mock_email.called
         call_args = mock_email.call_args[0]
         # recipient, subject, body
-        assert f"{program.name} - {cohort.name}" in call_args[1]
-        assert f"{program.name} - {cohort.name}" in call_args[2]
+        assert program.name in call_args[1]
+        assert program.name in call_args[2]
 
     # Check Certificate row was created
     certs = (await db.execute(select(Certificate).where(Certificate.registration_id == r2.id))).scalars().all()

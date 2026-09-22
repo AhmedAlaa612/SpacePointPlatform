@@ -382,25 +382,17 @@ async def preview_certificate_template(
     """
     program = await db.get(Program, program_id)
     prog_name = program.name if program else (body.program_name or "Program Name")
-    cohort_name = body.cohort_name or "Cohort 1"
-    dates = body.dates or "October 2026"
+    cohort_name = body.cohort_name or "Cohort Title"
+    dates = body.dates or "12 – 16 October 2026"
     location = body.location or "Muscat, Oman"
-    program_title = format_certificate_program_title(prog_name, cohort_name)
-
     raw_template = body.body_text or "For successfully completing<br/>{program_name}<br/>{dates}"
-    if "{cohort_name}" in raw_template:
-        body_text = (
-            raw_template.replace("{program_name}", escape(prog_name))
-            .replace("{cohort_name}", escape(cohort_name))
-            .replace("{dates}", escape(dates))
-            .replace("{location}", escape(location))
-        )
-    else:
-        body_text = (
-            raw_template.replace("{program_name}", escape(program_title))
-            .replace("{dates}", escape(dates))
-            .replace("{location}", escape(location))
-        )
+    body_text = (
+        raw_template.replace("{program_name}", escape(prog_name))
+        .replace("{cohort_name}", escape(cohort_name))
+        .replace("{cohort}", escape(cohort_name))
+        .replace("{dates}", escape(dates))
+        .replace("{location}", escape(location))
+    )
 
     # 1. Background bytes
     bg_bytes: bytes | None = None
