@@ -1614,6 +1614,13 @@ async def get_student_checklist(db: AsyncSession, *, assignment_id: uuid.UUID, u
     if program is None:
         return None
     cohort = await db.get(Cohort, assignment.cohort_id) if assignment.cohort_id else None
+    # Load the underlying sessions Program so its plain name (e.g. "Ru'ya")
+    # drives the student-facing title and subtitle — not the LMS program name
+    # (which is an ops-internal checklist label like "Ru'ya Checklist").
+    sessions_program = (
+        await db.get(Program, cohort.program_id)
+        if cohort and cohort.program_id else None
+    )
     effective_poster_template_url = await resolve_effective_poster_template_url(
         db, cohort=cohort, lms_program=program,
     )
@@ -1745,10 +1752,14 @@ async def get_student_checklist(db: AsyncSession, *, assignment_id: uuid.UUID, u
         "name": (
             cohort.checklist_title_override
             if cohort and cohort.checklist_title_override
-            else (f"{program.name} \u2014 {cohort.name}" if cohort else program.name)
+            else (
+                f"{sessions_program.name} \u2014 {cohort.name}"
+                if cohort and sessions_program
+                else (sessions_program.name if sessions_program else program.name)
+            )
         ),
-        # Raw program name — shown as the subtitle beneath the display title.
-        "program_name": program.name,
+        # Sessions program name — shown as the small subtitle beneath the big title.
+        "program_name": sessions_program.name if sessions_program else None,
         "description": program.description,
         "image_url": await storage.resolve_url(program.image_bucket, program.image_path),
         "poster_template_url": effective_poster_template_url,
@@ -1775,6 +1786,10 @@ async def _assignment_summary(db: AsyncSession, assignment: LmsProgramAssignment
     if program is None:
         return None
     cohort = await db.get(Cohort, assignment.cohort_id) if assignment.cohort_id else None
+    sessions_program = (
+        await db.get(Program, cohort.program_id)
+        if cohort and cohort.program_id else None
+    )
 
     pairs = await _assignment_items_and_progress(db, assignment.id)
     team_progress_by_item = await _team_progress_by_item(
@@ -1804,9 +1819,13 @@ async def _assignment_summary(db: AsyncSession, assignment: LmsProgramAssignment
         "name": (
             cohort.checklist_title_override
             if cohort and cohort.checklist_title_override
-            else (f"{program.name} \u2014 {cohort.name}" if cohort else program.name)
+            else (
+                f"{sessions_program.name} \u2014 {cohort.name}"
+                if cohort and sessions_program
+                else (sessions_program.name if sessions_program else program.name)
+            )
         ),
-        "program_name": program.name,
+        "program_name": sessions_program.name if sessions_program else None,
         "cohort_id": assignment.cohort_id, "cohort_name": cohort.name if cohort else None,
         "items_total": required_total, "items_done": done,
         "pct": round(100 * done / required_total) if required_total else 100,
