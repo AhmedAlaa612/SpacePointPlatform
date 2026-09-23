@@ -87,6 +87,10 @@ async def lifespan(app: FastAPI):
         from sqlalchemy import text
         async with AsyncSessionLocal() as db:
             await db.execute(text("ALTER TABLE cohorts ADD COLUMN IF NOT EXISTS checklist_title_override VARCHAR(255);"))
+            await db.execute(text("ALTER TABLE cohorts ADD COLUMN IF NOT EXISTS submission_windows JSONB DEFAULT '[]'::jsonb;"))
+            await db.execute(text("ALTER TABLE learner_teams ADD COLUMN IF NOT EXISTS first_locked_at TIMESTAMP WITH TIME ZONE;"))
+            await db.execute(text("ALTER TABLE learner_teams ADD COLUMN IF NOT EXISTS timing_adjustment_override DOUBLE PRECISION;"))
+            await db.execute(text("ALTER TABLE learner_teams ADD COLUMN IF NOT EXISTS timing_adjustment_notes VARCHAR(255);"))
             await db.execute(text("UPDATE cohorts SET checklist_title_override = 'testcohortname', name = 'Cohort Test' WHERE name = 'testcohortname';"))
             await db.commit()
     except Exception:

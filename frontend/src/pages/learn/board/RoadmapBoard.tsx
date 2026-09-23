@@ -163,6 +163,7 @@ export default function RoadmapBoard() {
             lockedByName={checklist.team_final_locked_by_name}
             pct={pct}
             remainingCount={remainingCount}
+            cohortId={checklist?.cohort_id}
           />
         </div>
       </div>

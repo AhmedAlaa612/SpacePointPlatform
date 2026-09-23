@@ -2,7 +2,7 @@ import uuid
 from datetime import datetime, timezone
 
 from sqlalchemy import Column, Date, DateTime, ForeignKey, Integer, Numeric, String, Text
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.dialects.postgresql import JSONB, UUID
 
 from app.db.base import Base
 
@@ -60,5 +60,9 @@ class Cohort(Base):
     # default "Program Name — Cohort Name" label shown to students. Ops can
     # freely set, edit, or clear this from the LMS program authoring screen.
     checklist_title_override = Column(String(255), nullable=True)
+
+    # Submission time windows & brackets (2026-09) — e.g. Early Bird bonus,
+    # On-Time, Late penalties. Array of dicts: [{id, name, cutoff_at, points, badge, ...}].
+    submission_windows = Column(JSONB, nullable=False, default=list, server_default="[]")
 
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))

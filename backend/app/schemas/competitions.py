@@ -124,6 +124,15 @@ class CompetitionLeaderboardRowOut(BaseModel):
     # the same program — see leaderboard()'s own docstring. None = not
     # advanced (yet), otherwise the sibling cohort name(s) it advanced to.
     advanced_to: str | None = None
+    # Timing & Submission Window fields:
+    timing_adjustment: float | None = 0.0
+    timing_badge: str | None = None
+    timing_tier_name: str | None = None
+    is_timing_override: bool = False
+    timing_override_notes: str | None = None
+    final_locked_at: datetime | None = None
+    first_locked_at: datetime | None = None
+    raw_judge_score: float | None = None
 
 
 class CompetitionStudentResultOut(BaseModel):
@@ -136,6 +145,65 @@ class CompetitionStudentResultOut(BaseModel):
     locked: bool = False
     locked_at: datetime | None = None
     published: bool = False
+    timing_adjustment: float | None = None
+    timing_badge: str | None = None
+
+
+class SubmissionWindowItem(BaseModel):
+    id: str
+    name: str
+    cutoff_at: str  # ISO string
+    points: float = 0.0
+    badge: str | None = None
+    color: str | None = "blue"
+    description: str | None = None
+
+
+class CohortSubmissionWindowsUpdate(BaseModel):
+    windows: list[SubmissionWindowItem]
+
+
+class TeamTimingAdjustmentUpdate(BaseModel):
+    override_points: float | None = None
+    notes: str | None = None
+
+
+class CriterionScoreItem(BaseModel):
+    key: str
+    label: str
+    max_points: int
+    awarded_points: float | None = None
+    comment: str | None = None
+
+
+class JudgeEvaluationDetailOut(BaseModel):
+    judge_user_id: UUID
+    judge_name: str
+    judge_email: str
+    submitted_at: datetime | None = None
+    total_points: float
+    bonus_points: float = 0.0
+    timing_adjustment: float = 0.0
+    notes: str | None = None
+    criteria: list[CriterionScoreItem] = []
+
+
+class TeamScoreBreakdownOut(BaseModel):
+    team_id: UUID
+    team_name: str
+    cohort_id: UUID
+    status: str
+    qualification: str | None = None
+    final_score: float | None = None
+    score_percent: float | None = None
+    raw_judge_score: float | None = None
+    timing_adjustment: float | None = None
+    timing_badge: str | None = None
+    is_timing_override: bool = False
+    timing_override_notes: str | None = None
+    final_locked_at: datetime | None = None
+    first_locked_at: datetime | None = None
+    judges: list[JudgeEvaluationDetailOut] = []
 
 
 class CompetitionJudgeOut(BaseModel):

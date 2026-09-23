@@ -1,8 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { isAxiosError } from "axios";
-import { useMutation } from "@tanstack/react-query";
-import { ArrowRight, CheckCircle2, Flag, Lock } from "lucide-react";
+import { useMutation, useQuery } from "@tanstack/react-query";
+import { ArrowRight, CheckCircle2, Flag, Lock, Sparkles } from "lucide-react";
 import { finalSubmitChecklist } from "@/api/lms";
+import { getCohortTimingWindowStudentApi } from "@/api/competitions";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { useToast } from "@/components/ui/toast";
 import { cn } from "@/lib/utils";
 import type { CheckpointGroup } from "./roadmap";
@@ -355,6 +357,7 @@ export function FinalGateBar({
   lockedByName,
   pct = 0,
   remainingCount,
+  cohortId,
 }: {
   groups: CheckpointGroup[];
   teamReady: boolean;
@@ -367,12 +370,30 @@ export function FinalGateBar({
   lockedByName?: string | null;
   pct?: number;
   remainingCount: number;
+  cohortId?: string | null;
 }) {
   const toast = useToast();
   const cardRef = useRef<HTMLDivElement | null>(null);
   const [celebrating, setCelebrating] = useState(false);
   const [celebrationOrigin, setCelebrationOrigin] = useState<{ x: number; y: number } | null>(null);
   const [snapping, setSnapping] = useState(false);
+  const [confirmModalOpen, setConfirmModalOpen] = useState(false);
+
+  const { data: timingData } = useQuery({
+    queryKey: ["competitions-timing-student", cohortId],
+    queryFn: () => getCohortTimingWindowStudentApi(cohortId!),
+    enabled: !!cohortId,
+    refetchInterval: 30_000,
+  });
+  const activeWindow = timingData?.active_window;
+
+  const formatTimeRemaining = (seconds: number) => {
+    if (seconds <= 0) return "Closing now";
+    const h = Math.floor(seconds / 3600);
+    const m = Math.floor((seconds % 3600) / 60);
+    if (h > 0) return `${h}h ${m}m remaining`;
+    return `${m}m remaining`;
+  };
 
   const triggerCelebration = useCallback(() => {
     if (cardRef.current) {
@@ -596,11 +617,24 @@ export function FinalGateBar({
               </div>
 
               <div className="min-w-0 flex-1">
-                <div className="flex items-center gap-2 mb-0.5">
+                <div className="flex items-center gap-2 mb-0.5 flex-wrap">
                   <span className="text-[11px] font-bold uppercase tracking-[0.1em] text-primary flex items-center gap-1.5">
                     <span className="w-1.5 h-1.5 rounded-full bg-primary animate-ping" />
                     ALL TASKS CLEAR
                   </span>
+                  {activeWindow && (
+                    <span className={`inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full border ${
+                      activeWindow.points > 0
+                        ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/30"
+                        : activeWindow.points < 0
+                        ? "bg-rose-500/10 text-rose-400 border-rose-500/30"
+                        : "bg-blue-500/10 text-blue-400 border-blue-500/30"
+                    }`}>
+                      <Sparkles size={11} />
+                      {activeWindow.badge || `${activeWindow.points > 0 ? `+${activeWindow.points}` : activeWindow.points} pts`}
+                      {activeWindow.seconds_remaining > 0 && ` · ${formatTimeRemaining(activeWindow.seconds_remaining)}`}
+                    </span>
+                  )}
                 </div>
                 <div className="font-display font-bold text-[16px] sm:text-[18px] text-foreground tracking-tight">
                   Lock Final Submission
@@ -612,11 +646,7 @@ export function FinalGateBar({
             <button
               type="button"
               disabled={finalSubmitMutation.isPending}
-              onClick={() => {
-                if (confirm("Are you sure you want to submit team's work? You won't be able to make further edits.")) {
-                  handleLockClick();
-                }
-              }}
+              onClick={() => setConfirmModalOpen(true)}
               className="w-full sm:w-auto justify-center flex items-center gap-2 px-5 py-3 sm:py-2.5 rounded-xl bg-primary hover:bg-[#b895ff] text-primary-foreground font-extrabold text-sm tracking-wide shadow-md shadow-primary/25 hover:shadow-lg hover:shadow-primary/35 hover:scale-[1.03] hover:-translate-y-0.5 active:scale-95 active:translate-y-0 transition-all duration-150 ease-out shrink-0 cursor-pointer disabled:opacity-50 disabled:pointer-events-none"
             >
               <span>{finalSubmitMutation.isPending ? "Locking…" : "Lock & Submit"}</span>
@@ -703,6 +733,76 @@ export function FinalGateBar({
           );
         })()
       )}
+
+      {/* SpacePoint-themed Submission Lock Confirmation Modal */}
+      <Dialog open={confirmModalOpen} onOpenChange={setConfirmModalOpen}>
+        <DialogContent className="max-w-md p-6 bg-card border-border">
+          <DialogHeader>
+            <div className="flex items-center gap-2 mb-1">
+              <span className="text-[10px] font-bold uppercase tracking-wider text-primary bg-primary/10 border border-primary/20 px-2 py-0.5 rounded-full">
+                Final Submission Gate
+              </span>
+            </div>
+            <DialogTitle className="text-xl font-bold font-display text-foreground">
+              Lock In Team Deliverables?
+            </DialogTitle>
+          </DialogHeader>
+
+          <div className="mt-3 space-y-4">
+            <p className="text-xs text-muted-foreground leading-relaxed">
+              You are about to finalize and lock your team's checklist. Once locked, checklist items cannot be edited.
+            </p>
+
+            {/* Active Timing Incentive Highlight Card */}
+            {activeWindow && (
+              <div className={`p-4 rounded-xl border space-y-1.5 ${
+                activeWindow.points > 0
+                  ? "bg-emerald-500/10 border-emerald-500/30 text-emerald-400"
+                  : activeWindow.points < 0
+                  ? "bg-rose-500/10 border-rose-500/30 text-rose-400"
+                  : "bg-blue-500/10 border-blue-500/30 text-blue-400"
+              }`}>
+                <div className="flex items-center justify-between text-xs font-bold uppercase tracking-wider">
+                  <span className="flex items-center gap-1.5">
+                    <Sparkles size={13} /> Active Window Incentive
+                  </span>
+                  <span>{activeWindow.points > 0 ? `+${activeWindow.points}` : activeWindow.points} pts</span>
+                </div>
+                <div className="text-sm font-extrabold text-foreground">
+                  {activeWindow.name}
+                </div>
+                <div className="text-xs text-muted-foreground">
+                  {activeWindow.seconds_remaining > 0
+                    ? `Locking now secures your ${activeWindow.name} incentive (${formatTimeRemaining(activeWindow.seconds_remaining)}).`
+                    : "Final deadline passed."}
+                </div>
+              </div>
+            )}
+
+            <div className="flex items-center justify-end gap-2 pt-2 border-t border-border">
+              <button
+                type="button"
+                onClick={() => setConfirmModalOpen(false)}
+                className="px-4 py-2 rounded-xl border border-border text-xs font-semibold text-foreground hover:bg-muted transition-colors cursor-pointer"
+              >
+                Go Back
+              </button>
+              <button
+                type="button"
+                disabled={finalSubmitMutation.isPending}
+                onClick={() => {
+                  setConfirmModalOpen(false);
+                  handleLockClick();
+                }}
+                className="flex items-center gap-1.5 px-5 py-2 rounded-xl bg-primary text-primary-foreground text-xs font-bold hover:bg-[#b895ff] transition-all shadow-md shadow-primary/25 disabled:opacity-50 cursor-pointer"
+              >
+                <Lock size={13} />
+                {finalSubmitMutation.isPending ? "Locking…" : "Confirm & Lock Now"}
+              </button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
     </>
   );
 }

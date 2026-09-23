@@ -49,6 +49,14 @@ export interface CompetitionLeaderboardRow {
   /** Sibling cohort(s) under the same program with a same-named team —
    * inferred, not stored; null means not advanced (yet). */
   advanced_to: string | null
+  timing_adjustment?: number | null
+  timing_badge?: string | null
+  timing_tier_name?: string | null
+  is_timing_override?: boolean
+  timing_override_notes?: string | null
+  final_locked_at?: string | null
+  first_locked_at?: string | null
+  raw_judge_score?: number | null
 }
 
 export interface CompetitionStudentResult {
@@ -61,6 +69,61 @@ export interface CompetitionStudentResult {
   locked: boolean
   locked_at: string | null
   published: boolean
+  timing_adjustment?: number | null
+  timing_badge?: string | null
+}
+
+export interface SubmissionWindowItem {
+  id: string
+  name: string
+  cutoff_at: string
+  points: number
+  badge?: string | null
+  color?: string | null
+  description?: string | null
+}
+
+export interface TeamTimingAdjustmentUpdate {
+  override_points: number | null
+  notes?: string | null
+}
+
+export interface CriterionScoreItem {
+  key: string
+  label: string
+  max_points: number
+  awarded_points?: number | null
+  comment?: string | null
+}
+
+export interface JudgeEvaluationDetail {
+  judge_user_id: string
+  judge_name: string
+  judge_email: string
+  submitted_at?: string | null
+  total_points: number
+  bonus_points: number
+  timing_adjustment: number
+  notes?: string | null
+  criteria: CriterionScoreItem[]
+}
+
+export interface TeamScoreBreakdown {
+  team_id: string
+  team_name: string
+  cohort_id: string
+  status: string
+  qualification?: string | null
+  final_score?: number | null
+  score_percent?: number | null
+  raw_judge_score?: number | null
+  timing_adjustment?: number | null
+  timing_badge?: string | null
+  is_timing_override: boolean
+  timing_override_notes?: string | null
+  final_locked_at?: string | null
+  first_locked_at?: string | null
+  judges: JudgeEvaluationDetail[]
 }
 
 export interface CompetitionJudge {
@@ -659,6 +722,24 @@ export const downloadCompetitionCertificatesApi = async (
 
 export const getStudentCompetitionResultApi = (cohortId: string) =>
   api.get<CompetitionStudentResult>(`/competitions/student/cohorts/${cohortId}/my-result`).then((r) => r.data)
+
+export const getCohortSubmissionWindowsApi = (cohortId: string) =>
+  api.get<SubmissionWindowItem[]>(`/competitions/admin/cohorts/${cohortId}/submission-windows`).then((r) => r.data)
+
+export const updateCohortSubmissionWindowsApi = (cohortId: string, windows: SubmissionWindowItem[]) =>
+  api.put<SubmissionWindowItem[]>(`/competitions/admin/cohorts/${cohortId}/submission-windows`, { windows }).then((r) => r.data)
+
+export const updateTeamTimingAdjustmentApi = (cohortId: string, teamId: string, body: TeamTimingAdjustmentUpdate) =>
+  api.patch<TeamScoreBreakdown>(`/competitions/admin/cohorts/${cohortId}/teams/${teamId}/timing-adjustment`, body).then((r) => r.data)
+
+export const getTeamScoreBreakdownApi = (cohortId: string, teamId: string) =>
+  api.get<TeamScoreBreakdown>(`/competitions/admin/cohorts/${cohortId}/teams/${teamId}/score-breakdown`).then((r) => r.data)
+
+export const getCohortTimingWindowStudentApi = (cohortId: string) =>
+  api.get<{
+    windows: SubmissionWindowItem[]
+    active_window: (SubmissionWindowItem & { seconds_remaining: number; is_active: boolean }) | null
+  }>(`/competitions/student/cohorts/${cohortId}/timing-window`).then((r) => r.data)
 
 
 

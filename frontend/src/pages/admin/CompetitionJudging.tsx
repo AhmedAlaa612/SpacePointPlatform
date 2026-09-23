@@ -1,12 +1,15 @@
 import { useEffect, useRef, useState } from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { Link, useParams } from "@tanstack/react-router"
-import { ArrowLeft, ArrowUpRight, Award, Download, Mail, Plus, Printer, Search, Trash2, Trophy, Upload, UserPlus, UserMinus, Pencil, X, Check } from "lucide-react"
+import { ArrowLeft, ArrowUpRight, Award, Clock, Download, Eye, Mail, Plus, Printer, Search, Trash2, Trophy, Upload, UserPlus, UserMinus, Pencil, X, Check } from "lucide-react"
 import { getCohortApi, getCohortsApi } from "@/api/sessions/cohorts"
 import type { Cohort, ProgramCertificateTemplate } from "@/types/sessions"
 import { searchStaffApi, listInviteCodesApi, type StaffOption } from "@/api/lms_admin"
 import { UserProfileModal } from "@/components/UserProfileModal"
 import { CompetitionCertificatesModal } from "@/pages/admin/components/CompetitionCertificatesModal"
+import { TeamScoreBreakdownModal } from "@/components/competitions/TeamScoreBreakdownModal"
+import { TimingOverrideModal } from "@/components/competitions/TimingOverrideModal"
+import { SubmissionWindowsModal } from "@/components/competitions/SubmissionWindowsModal"
 import { listProgramCertificateTemplatesApi } from "@/api/sessions/programCertificateTemplates"
 import {
   advanceCohortTeamsApi, assignExistingStudentsApi, createCohortTeamApi, deleteTeamApi, downloadCohortResultsWorkbookApi,
@@ -1347,6 +1350,10 @@ function ResultsTab({
     onError: (e: any) => toast.error(getErrorMessage(e, "Failed to advance teams")),
   })
 
+  const [windowsModalOpen, setWindowsModalOpen] = useState(false)
+  const [breakdownTeamId, setBreakdownTeamId] = useState<string | null>(null)
+  const [overrideTeam, setOverrideTeam] = useState<CompetitionLeaderboardRow | null>(null)
+
   if (isLoading) return <Spinner />
 
   const toggleTeam = (teamId: string) => {
@@ -1389,6 +1396,13 @@ function ResultsTab({
           className="h-9 px-4 border border-border rounded-xl text-sm font-medium text-foreground hover:bg-muted transition-colors"
         >
           {showTop20 ? "Show all teams" : "Filter to Top 20"}
+        </button>
+        <button
+          onClick={() => setWindowsModalOpen(true)}
+          title="Configure tiered submission deadlines and timing incentives"
+          className="flex items-center gap-1.5 h-9 px-4 border border-border rounded-xl text-sm font-medium text-foreground hover:bg-muted transition-colors"
+        >
+          <Clock size={14} className="text-primary" /> Submission Windows
         </button>
         <button
           onClick={async () => {
@@ -1512,13 +1526,49 @@ function ResultsTab({
         </p>
       )}
 
-      <LeaderboardTable rows={showTop20 ? top20 : board} selected={selected} onToggle={toggleTeam} />
+      <LeaderboardTable
+        rows={showTop20 ? top20 : board}
+        selected={selected}
+        onToggle={toggleTeam}
+        onInspectTeam={(teamId) => setBreakdownTeamId(teamId)}
+        onEditTiming={(team) => setOverrideTeam(team)}
+      />
+
+      <SubmissionWindowsModal
+        cohortId={cohortId}
+        open={windowsModalOpen}
+        onClose={() => setWindowsModalOpen(false)}
+      />
+
+      <TeamScoreBreakdownModal
+        cohortId={cohortId}
+        teamId={breakdownTeamId}
+        open={!!breakdownTeamId}
+        onClose={() => setBreakdownTeamId(null)}
+      />
+
+      <TimingOverrideModal
+        cohortId={cohortId}
+        team={overrideTeam}
+        open={!!overrideTeam}
+        onClose={() => setOverrideTeam(null)}
+      />
     </div>
   )
 }
 
-function LeaderboardTable({ rows, selected, onToggle }: {
-  rows: CompetitionLeaderboardRow[]; selected?: Set<string>; onToggle?: (teamId: string) => void
+function LeaderboardTable({
+  rows,
+  selected,
+  onToggle,
+  onInspectTeam,
+  onEditTiming,
+}: {
+  rows: CompetitionLeaderboardRow[]
+  selected?: Set<string>
+  onToggle?: (teamId: string) => void
+  onInspectTeam?: (teamId: string) => void
+  onEditTiming?: (team: CompetitionLeaderboardRow) => void
 }) {
   if (rows.length === 0) return <EmptyState title="No teams yet" hint="Teams appear here once they're formed for this cohort." />
   return (
@@ -1529,13 +1579,16 @@ function LeaderboardTable({ rows, selected, onToggle }: {
             {onToggle && <th className="py-2 pr-3 w-8" />}
             <th className="py-2 pr-3">Rank</th>
             <th className="py-2 pr-3">Team</th>
-            <th className="py-2 pr-3">Avg. score</th>
-            <th className="py-2 pr-3">Per judge</th>
+            <th className="py-2 pr-3">Final Score</th>
+            <th className="py-2 pr-3">Rubric Score</th>
+            <th className="py-2 pr-3">Timing Adj.</th>
+            <th className="py-2 pr-3">Per Judge</th>
+            <th className="py-2 pr-3 text-right">Inspection</th>
           </tr>
         </thead>
         <tbody>
           {rows.map((r) => (
-            <tr key={r.team_id} className="border-b border-border/50">
+            <tr key={r.team_id} className="border-b border-border/50 hover:bg-muted/15 transition-colors">
               {onToggle && (
                 <td className="py-2 pr-3 align-top">
                   <input
@@ -1571,30 +1624,76 @@ function LeaderboardTable({ rows, selected, onToggle }: {
                   )}
                 </div>
               </td>
+              {/* Final Score */}
               <td className="py-2 pr-3 tabular-nums align-top">
                 <div className="flex flex-col">
-                  <span>{r.score ?? "—"}</span>
+                  <span className="font-bold text-foreground">{r.score ?? "—"}</span>
                   {r.score_percent !== null && r.score_percent !== undefined && (
                     <span className="text-xs text-muted-foreground font-normal">{r.score_percent}%</span>
                   )}
                 </div>
               </td>
-              <td className="py-2 pr-3">
+              {/* Rubric Score (pure judge average) */}
+              <td className="py-2 pr-3 tabular-nums align-top text-muted-foreground">
+                <span>{r.raw_judge_score !== null && r.raw_judge_score !== undefined ? r.raw_judge_score : (r.score ?? "—")}</span>
+              </td>
+              {/* Timing Adjustment (clickable to override) */}
+              <td className="py-2 pr-3 align-top">
+                <button
+                  type="button"
+                  onClick={() => onEditTiming?.(r)}
+                  title="Click to manually override or inspect timing points"
+                  className={`inline-flex items-center gap-1 text-xs font-semibold px-2 py-0.5 rounded-full border transition-transform hover:scale-105 cursor-pointer ${
+                    (r.timing_adjustment ?? 0) > 0
+                      ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/30"
+                      : (r.timing_adjustment ?? 0) < 0
+                      ? "bg-rose-500/10 text-rose-400 border-rose-500/30"
+                      : "bg-muted text-muted-foreground border-border"
+                  }`}
+                >
+                  <span>
+                    {(r.timing_adjustment ?? 0) > 0 ? `+${r.timing_adjustment}` : (r.timing_adjustment ?? 0)}
+                  </span>
+                  {r.is_timing_override && (
+                    <span className="text-[9px] bg-purple-500/20 text-purple-300 px-1 rounded uppercase font-bold">
+                      Override
+                    </span>
+                  )}
+                  <Pencil size={10} className="text-muted-foreground hover:text-foreground ml-0.5" />
+                </button>
+              </td>
+              {/* Per Judge chips (clicking opens breakdown) */}
+              <td className="py-2 pr-3 align-top">
                 {r.judge_scores.length === 0 ? (
-                  <span className="text-muted-foreground">Not scored yet</span>
+                  <span className="text-muted-foreground text-xs">Not scored yet</span>
                 ) : (
                   <div className="flex flex-wrap gap-1.5">
                     {r.judge_scores.map((js) => (
-                      <span
+                      <button
+                        type="button"
                         key={js.judge_user_id}
-                        className="inline-flex items-center gap-1 text-xs bg-muted/60 rounded-full px-2 py-0.5 whitespace-nowrap"
+                        onClick={() => onInspectTeam?.(r.team_id)}
+                        title={`Click to inspect ${js.judge_name}'s rubric breakdown and comments`}
+                        className="inline-flex items-center gap-1 text-xs bg-muted/60 hover:bg-primary/20 hover:border-primary/40 border border-transparent rounded-full px-2 py-0.5 whitespace-nowrap transition-colors cursor-pointer"
                       >
                         <span className="text-muted-foreground">{js.judge_name}</span>
-                        <span className="font-semibold tabular-nums">{js.total_points}</span>
-                      </span>
+                        <span className="font-semibold tabular-nums text-foreground">{js.total_points}</span>
+                      </button>
                     ))}
                   </div>
                 )}
+              </td>
+              {/* Inspection button */}
+              <td className="py-2 pr-3 text-right align-top">
+                <button
+                  type="button"
+                  onClick={() => onInspectTeam?.(r.team_id)}
+                  title="Inspect criteria breakdown and judge comments"
+                  className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-medium border border-border text-muted-foreground hover:text-foreground hover:bg-muted transition-colors cursor-pointer"
+                >
+                  <Eye size={12} className="text-primary" />
+                  <span>Breakdown</span>
+                </button>
               </td>
             </tr>
           ))}

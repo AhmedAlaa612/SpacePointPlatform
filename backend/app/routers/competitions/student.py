@@ -29,3 +29,24 @@ async def get_my_cohort_competition_result(
 ):
     result = await get_student_team_result(db, cohort_id=cohort_id, user_id=current.id)
     return CompetitionStudentResultOut(**result)
+
+
+@router.get("/cohorts/{cohort_id}/timing-window")
+async def get_cohort_timing_window(
+    cohort_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    current: User = Depends(get_current_active_user),
+):
+    from app.models.sessions.cohort import Cohort
+    from app.services.competitions.timing_windows import get_current_active_window
+    cohort = await db.get(Cohort, cohort_id)
+    if cohort is None:
+        from fastapi import HTTPException, status
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Cohort not found")
+    windows = cohort.submission_windows or []
+    active = get_current_active_window(windows)
+    return {
+        "windows": windows,
+        "active_window": active,
+    }
+

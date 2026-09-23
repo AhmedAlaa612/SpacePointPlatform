@@ -224,24 +224,11 @@ async def list_judges_with_progress(db: AsyncSession, *, cohort_id: uuid.UUID) -
 # ── Leaderboard, publish, export ────────────────────────────────────────
 
 async def leaderboard(db: AsyncSession, *, cohort_id: uuid.UUID) -> list[dict]:
-    """Every team in this cohort, ranked by the average of every judge's
-    `total_points` — `None` (last, `status="unscored"`) for a team no judge
-    has scored yet. Only counts `submitted=True` rows, so a judge's
-    in-progress autosaved draft never moves the standings. Carries each
-    individual judge's own score too (`judge_scores`) — ops reviewing a
-    result needs to see who scored what, not just the blended average a
-    judge themselves is blind to (see the model's own blindness note).
-    Also carries `advanced_to` — there's no stored "this team advanced"
-    flag (`advance_teams` is itself just idempotent re-resolution by
-    name), so this is inferred for display: a same-named team in a
-    sibling cohort under the same program, created *after* this one
-    (`created_at`, a proxy for which stage is later since there's no
-    explicit phase-order field) — so a Finalists team doesn't turn
-    around and read as having "advanced to" its own Qualifier stage."""
-    teams = (await db.execute(select(Team).where(Team.cohort_id == cohort_id))).scalars().all()
-
-    cohort = await db.get(Cohort, cohort_id)
+    """Standings for a cohort. Returns one row per team with final aggregated
+    scores, timing adjustments (dynamic or overridden), and judge details."""
+    teams = (await db.execute(select(Team).where(Team.cohort_id == cohort_id).order_by(Team.name))).scalars().all()
     advanced_to_by_name: dict[str, list[str]] = {}
+    cohort = await db.scalar(select(Cohort).where(Cohort.id == cohort_id))
     if cohort is not None:
         siblings = (await db.execute(
             select(Cohort).where(
@@ -288,18 +275,30 @@ async def leaderboard(db: AsyncSession, *, cohort_id: uuid.UUID) -> list[dict]:
         pts_list = team_raw_points.get(team.id, [])
         pct_list = team_normalized_percentages.get(team.id, [])
         count = len(pts_list)
-        avg_score = round(sum(pts_list) / count, 1) if count > 0 else None
+        raw_judge_score = round(sum(pts_list) / count, 1) if count > 0 else None
         avg_pct = round(sum(pct_list) / count, 1) if count > 0 else None
+
+        timing_info = resolve_team_timing(cohort, team)
+        timing_pts = timing_info["points"]
+        final_score = round(raw_judge_score + timing_pts, 1) if raw_judge_score is not None else None
 
         out.append({
             "team_id": team.id, "team_name": team.name,
-            "score": avg_score,
+            "score": final_score,
+            "raw_judge_score": raw_judge_score,
             "score_percent": avg_pct,
             "qualification": team.qualification,
             "judges_scored": count,
             "status": "unscored" if count == 0 else "scored",
             "judge_scores": judge_scores_by_team.get(team.id, []),
             "advanced_to": ", ".join(advanced_to_by_name.get(team.name, [])) or None,
+            "timing_adjustment": timing_pts,
+            "timing_badge": timing_info["badge"],
+            "timing_tier_name": timing_info["tier_name"],
+            "is_timing_override": timing_info["is_override"],
+            "timing_override_notes": timing_info["override_notes"],
+            "final_locked_at": team.final_locked_at,
+            "first_locked_at": team.first_locked_at,
         })
 
     # Sort: scored teams first. Official TOP 10 qualifiers occupy the top 10 ranks.
@@ -315,10 +314,98 @@ async def leaderboard(db: AsyncSession, *, cohort_id: uuid.UUID) -> list[dict]:
     return out
 
 
+async def get_team_score_breakdown(
+    db: AsyncSession, *, cohort_id: uuid.UUID, team_id: uuid.UUID
+) -> dict:
+    """Returns the full judge evaluation breakdown for a single team.
+    Includes criteria scores, criteria comments, and judge notes."""
+    cohort = await db.get(Cohort, cohort_id)
+    if cohort is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Cohort not found")
+    team = await db.get(Team, team_id)
+    if team is None or team.cohort_id != cohort_id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Team not found in this cohort")
+
+    rubric_tuple = await get_rubric(db, program_id=cohort.program_id)
+    rubric_criteria = rubric_tuple[1] if rubric_tuple else []
+
+    score_rows = (await db.execute(
+        select(CompetitionScore, User)
+        .join(User, User.id == CompetitionScore.judge_user_id)
+        .where(
+            CompetitionScore.cohort_id == cohort_id,
+            CompetitionScore.team_id == team_id,
+            CompetitionScore.submitted.is_(True),
+        )
+        .order_by(User.full_name)
+    )).all()
+
+    judge_evaluations = []
+    judge_totals = []
+    for comp_score, judge_user in score_rows:
+        judge_totals.append(comp_score.total_points)
+        crit_items = []
+        crit_scores = comp_score.criterion_scores or {}
+        crit_comments = comp_score.criterion_comments or {}
+
+        if rubric_criteria:
+            for c in rubric_criteria:
+                crit_items.append({
+                    "key": c.key,
+                    "label": c.label,
+                    "max_points": c.max_points,
+                    "awarded_points": crit_scores.get(c.key),
+                    "comment": crit_comments.get(c.key),
+                })
+        else:
+            for k, pts in crit_scores.items():
+                crit_items.append({
+                    "key": k,
+                    "label": k,
+                    "max_points": 0,
+                    "awarded_points": pts,
+                    "comment": crit_comments.get(k),
+                })
+
+        judge_evaluations.append({
+            "judge_user_id": judge_user.id,
+            "judge_name": judge_user.full_name or judge_user.email,
+            "judge_email": judge_user.email,
+            "submitted_at": comp_score.submitted_at,
+            "total_points": comp_score.total_points,
+            "bonus_points": comp_score.bonus_points or 0.0,
+            "timing_adjustment": comp_score.timing_adjustment or 0.0,
+            "notes": comp_score.notes,
+            "criteria": crit_items,
+        })
+
+    timing_info = resolve_team_timing(cohort, team)
+    raw_judge_score = round(sum(judge_totals) / len(judge_totals), 1) if judge_totals else None
+    final_score = round(raw_judge_score + timing_info["points"], 1) if raw_judge_score is not None else None
+
+    return {
+        "team_id": team.id,
+        "team_name": team.name,
+        "cohort_id": cohort_id,
+        "status": "scored" if judge_totals else "unscored",
+        "qualification": team.qualification,
+        "raw_judge_score": raw_judge_score,
+        "final_score": final_score,
+        "score_percent": round(100 * (final_score / 110), 1) if final_score is not None else None,
+        "timing_adjustment": timing_info["points"],
+        "timing_badge": timing_info["badge"],
+        "is_timing_override": timing_info["is_override"],
+        "timing_override_notes": timing_info["override_notes"],
+        "final_locked_at": team.final_locked_at,
+        "first_locked_at": team.first_locked_at,
+        "judges": judge_evaluations,
+    }
+
+
 async def get_student_team_result(
     db: AsyncSession, *, cohort_id: uuid.UUID, user_id: uuid.UUID,
 ) -> dict:
-    """Student result view — strictly their own team's result once published.
+    """Student result view -- strictly their own team's result once published.
     Never exposes individual judge scores, judge identities, or other teams.
     """
     from app.models.team import TeamMember
@@ -329,6 +416,9 @@ async def get_student_team_result(
     )
     if team is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="You are not in a team for this cohort")
+
+    cohort = await db.get(Cohort, cohort_id)
+    timing_info = resolve_team_timing(cohort, team)
 
     published = await is_published(db, cohort_id=cohort_id)
     if not published:
@@ -342,6 +432,8 @@ async def get_student_team_result(
             "locked": team.final_locked_at is not None,
             "locked_at": team.final_locked_at,
             "published": False,
+            "timing_adjustment": timing_info["points"],
+            "timing_badge": timing_info["badge"],
         }
 
     agg = (await db.execute(
@@ -351,18 +443,21 @@ async def get_student_team_result(
 
     avg_score = float(agg[0]) if agg and agg[0] is not None else None
     scored_count = agg[1] if agg else 0
-    score_percent = round(100 * (avg_score / 110), 1) if avg_score is not None else None
+    final_score = round(avg_score + timing_info["points"], 1) if avg_score is not None else None
+    score_percent = round(100 * (final_score / 110), 1) if final_score is not None else None
 
     return {
         "team_id": team.id,
         "team_name": team.name,
         "status": "scored" if scored_count > 0 else "unscored",
-        "final_score": round(avg_score, 1) if avg_score is not None else None,
+        "final_score": final_score,
         "score_percent": score_percent,
         "qualification": team.qualification,
         "locked": team.final_locked_at is not None,
         "locked_at": team.final_locked_at,
         "published": True,
+        "timing_adjustment": timing_info["points"],
+        "timing_badge": timing_info["badge"],
     }
 
 
