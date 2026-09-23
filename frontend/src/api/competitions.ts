@@ -642,6 +642,9 @@ export interface CompetitionCertificateRecipient {
 }
 
 export interface CompetitionCertificateRecipientsSummary {
+  program_name?: string
+  cohort_name?: string
+  dates?: string
   total_registered: number
   submission_items_total: number
   required_submissions_total: number

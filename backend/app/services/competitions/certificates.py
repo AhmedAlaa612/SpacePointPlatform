@@ -61,6 +61,7 @@ def render_certificate_email(
     {student_name}, {program_name}, {cohort_name}, {dates}, {team_name}, {certificate_type}
     """
     type_label = "Participation" if certificate_type == "participation" else "Completion"
+    full_program_title = format_certificate_program_title(program_name, cohort_name)
     team_display = team_name or ""
     team_snippet = f" with team <strong>{escape(team_name)}</strong>" if team_name else ""
 
@@ -69,7 +70,7 @@ def render_certificate_email(
         subject = (
             custom_subject
             .replace("{student_name}", student_name)
-            .replace("{program_name}", program_name)
+            .replace("{program_name}", full_program_title)
             .replace("{cohort_name}", cohort_name)
             .replace("{cohort}", cohort_name)
             .replace("{dates}", dates)
@@ -78,9 +79,9 @@ def render_certificate_email(
         )
     else:
         if certificate_type == "participation":
-            subject = f"Your Certificate of Participation — {program_name}"
+            subject = f"Your Certificate of Participation — {full_program_title}"
         else:
-            subject = f"Your SpacePoint certificate — {program_name}"
+            subject = f"Your SpacePoint certificate — {full_program_title}"
 
     # Body
     if custom_body and custom_body.strip():
@@ -88,7 +89,7 @@ def render_certificate_email(
         body_html = (
             custom_body
             .replace("{student_name}", escape(student_name))
-            .replace("{program_name}", escape(program_name))
+            .replace("{program_name}", escape(full_program_title))
             .replace("{cohort_name}", escape(cohort_name))
             .replace("{cohort}", escape(cohort_name))
             .replace("{dates}", escape(dates))
@@ -101,14 +102,14 @@ def render_certificate_email(
         if certificate_type == "participation":
             body_html = (
                 f"<p>Hi {escape(student_name)},</p>"
-                f"<p>Thank you for participating in <strong>{escape(program_name)}</strong>{team_snippet} ({escape(dates)})!</p>"
+                f"<p>Thank you for participating in <strong>{escape(full_program_title)}</strong>{team_snippet} ({escape(dates)})!</p>"
                 "<p>Your certificate of participation is attached to this email as a PDF.</p>"
                 "<p>— SpacePoint</p>"
             )
         else:
             body_html = (
                 f"<p>Hi {escape(student_name)},</p>"
-                f"<p>Congratulations on completing <strong>{escape(program_name)}</strong> ({escape(dates)})!</p>"
+                f"<p>Congratulations on completing <strong>{escape(full_program_title)}</strong> ({escape(dates)})!</p>"
                 "<p>Your certificate of completion is attached to this email as a PDF.</p>"
                 "<p>— SpacePoint</p>"
             )
@@ -198,8 +199,13 @@ async def get_cohort_certificate_recipients(
             "email_body": t.email_body,
         })
 
+    cohort_dates = format_cohort_dates(cohort)
+
     if not registrations:
         return {
+            "program_name": program.name if program else None,
+            "cohort_name": cohort.name if cohort else None,
+            "dates": cohort_dates,
             "total_registered": 0,
             "submission_items_total": len(submission_items),
             "required_submissions_total": total_required,
@@ -375,6 +381,9 @@ async def get_cohort_certificate_recipients(
     recipients.sort(key=lambda r: r["student_name"] or "")
 
     return {
+        "program_name": program.name if program else None,
+        "cohort_name": cohort.name if cohort else None,
+        "dates": cohort_dates,
         "total_registered": len(registrations),
         "submission_items_total": len(submission_items),
         "required_submissions_total": total_required,

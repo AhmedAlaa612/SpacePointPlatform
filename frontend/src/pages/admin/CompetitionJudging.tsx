@@ -134,6 +134,7 @@ export default function CompetitionJudging() {
       <CompetitionCertificatesModal
         cohortId={cohort.id}
         cohortName={cohort.name}
+        programName={cohort.program_name ?? undefined}
         open={certificatesOpen}
         onClose={() => setCertificatesOpen(false)}
       />

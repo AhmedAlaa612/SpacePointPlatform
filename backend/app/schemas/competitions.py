@@ -600,6 +600,9 @@ class CompetitionCertificateRecipientOut(BaseModel):
 
 
 class CompetitionCertificateRecipientsSummaryOut(BaseModel):
+    program_name: str | None = None
+    cohort_name: str | None = None
+    dates: str | None = None
     total_registered: int
     submission_items_total: int
     required_submissions_total: int

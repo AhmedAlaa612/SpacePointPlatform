@@ -379,6 +379,8 @@ async def test_locked_only_and_participation_filters_and_custom_emails(db, clien
     )
     assert resp_locked.status_code == 200, resp_locked.text
     locked_data = resp_locked.json()
+    assert locked_data["program_name"] == program.name
+    assert locked_data["cohort_name"] == cohort.name
     assert locked_data["locked_only_count"] == 1
     assert locked_data["participation_count"] == 1
     assert len(locked_data["recipients"]) == 1

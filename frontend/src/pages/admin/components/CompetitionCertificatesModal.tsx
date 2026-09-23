@@ -3,7 +3,7 @@ import { createPortal } from "react-dom"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import {
   Award, Check, ChevronDown, ChevronUp, Download, Eye, Loader2, Mail,
-  RefreshCw, Search, ShieldCheck, Sparkles, X,
+  RefreshCw, Search, ShieldCheck, X,
 } from "lucide-react"
 import {
   type CertificateFilterMode,
@@ -17,6 +17,7 @@ import { getErrorMessage } from "@/lib/utils"
 interface CompetitionCertificatesModalProps {
   cohortId: string
   cohortName: string
+  programName?: string
   open: boolean
   onClose: () => void
 }
@@ -24,6 +25,7 @@ interface CompetitionCertificatesModalProps {
 export function CompetitionCertificatesModal({
   cohortId,
   cohortName,
+  programName,
   open,
   onClose,
 }: CompetitionCertificatesModalProps) {
@@ -73,6 +75,17 @@ export function CompetitionCertificatesModal({
     return availableTemplates.find((t) => t.id === selectedTemplateId) || availableTemplates[0]
   }, [availableTemplates, selectedTemplateId])
 
+  const effectiveProgramTitle = useMemo(() => {
+    const p = (data?.program_name || programName || "").trim()
+    const c = (data?.cohort_name || cohortName || "").trim()
+    if (p && c && p.toLowerCase() !== c.toLowerCase()) {
+      return `${p} - ${c}`
+    }
+    return p || c || "SpacePoint"
+  }, [data?.program_name, data?.cohort_name, programName, cohortName])
+
+  const effectiveDates = data?.dates || "October 2026"
+
   // Synchronize email subject and body when template or filter changes (unless user manually typed custom copy)
   useEffect(() => {
     if (hasManuallyEditedEmail) return
@@ -81,9 +94,9 @@ export function CompetitionCertificatesModal({
       setEmailSubject(selectedTemplate.email_subject)
     } else {
       if (filter === "participation") {
-        setEmailSubject(`Your Certificate of Participation — ${cohortName || "SpacePoint"}`)
+        setEmailSubject(`Your Certificate of Participation — ${effectiveProgramTitle}`)
       } else {
-        setEmailSubject(`Your SpacePoint certificate — ${cohortName || "SpacePoint"}`)
+        setEmailSubject(`Your SpacePoint certificate — ${effectiveProgramTitle}`)
       }
     }
 
@@ -100,7 +113,7 @@ export function CompetitionCertificatesModal({
         )
       }
     }
-  }, [selectedTemplate, filter, cohortName, hasManuallyEditedEmail])
+  }, [selectedTemplate, filter, effectiveProgramTitle, hasManuallyEditedEmail])
 
   const handleResetEmail = () => {
     setHasManuallyEditedEmail(false)
@@ -109,8 +122,8 @@ export function CompetitionCertificatesModal({
     } else {
       setEmailSubject(
         filter === "participation"
-          ? `Your Certificate of Participation — ${cohortName || "SpacePoint"}`
-          : `Your SpacePoint certificate — ${cohortName || "SpacePoint"}`,
+          ? `Your Certificate of Participation — ${effectiveProgramTitle}`
+          : `Your SpacePoint certificate — ${effectiveProgramTitle}`,
       )
     }
 
@@ -247,12 +260,13 @@ export function CompetitionCertificatesModal({
     const sName = sampleRecipient.student_name
     const tName = sampleRecipient.team_name || "Team"
     const cType = (sampleRecipient.certificate_type_earned === "participation" || filter === "participation") ? "Participation" : "Completion"
+    const cName = data?.cohort_name || cohortName
     let body = emailBody
       .replace(/\{student_name\}/g, sName)
-      .replace(/\{program_name\}/g, cohortName)
-      .replace(/\{cohort_name\}/g, cohortName)
-      .replace(/\{cohort\}/g, cohortName)
-      .replace(/\{dates\}/g, "October 2026")
+      .replace(/\{program_name\}/g, effectiveProgramTitle)
+      .replace(/\{cohort_name\}/g, cName)
+      .replace(/\{cohort\}/g, cName)
+      .replace(/\{dates\}/g, effectiveDates)
       .replace(/\{team_name\}/g, tName)
       .replace(/\{certificate_type\}/g, cType)
 
@@ -260,21 +274,22 @@ export function CompetitionCertificatesModal({
       body = body.split("\n").join("<br/>")
     }
     return body
-  }, [emailBody, sampleRecipient, cohortName, filter])
+  }, [emailBody, sampleRecipient, effectiveProgramTitle, data?.cohort_name, cohortName, effectiveDates, filter])
 
   const renderedPreviewSubject = useMemo(() => {
     const sName = sampleRecipient.student_name
     const tName = sampleRecipient.team_name || "Team"
     const cType = (sampleRecipient.certificate_type_earned === "participation" || filter === "participation") ? "Participation" : "Completion"
+    const cName = data?.cohort_name || cohortName
     return emailSubject
       .replace(/\{student_name\}/g, sName)
-      .replace(/\{program_name\}/g, cohortName)
-      .replace(/\{cohort_name\}/g, cohortName)
-      .replace(/\{cohort\}/g, cohortName)
-      .replace(/\{dates\}/g, "October 2026")
+      .replace(/\{program_name\}/g, effectiveProgramTitle)
+      .replace(/\{cohort_name\}/g, cName)
+      .replace(/\{cohort\}/g, cName)
+      .replace(/\{dates\}/g, effectiveDates)
       .replace(/\{team_name\}/g, tName)
       .replace(/\{certificate_type\}/g, cType)
-  }, [emailSubject, sampleRecipient, cohortName, filter])
+  }, [emailSubject, sampleRecipient, effectiveProgramTitle, data?.cohort_name, cohortName, effectiveDates, filter])
 
   if (!open) return null
 
@@ -444,8 +459,7 @@ export function CompetitionCertificatesModal({
           <div className="p-3.5 bg-muted/40 border border-border rounded-xl flex flex-col gap-3 text-xs animate-in fade-in-50 duration-200">
             <div className="flex items-center justify-between flex-wrap gap-2">
               <div className="flex items-center gap-2">
-                <span className="font-semibold text-foreground flex items-center gap-1.5">
-                  <Sparkles size={14} className="text-primary" />
+                <span className="font-semibold text-foreground">
                   Customize Email Copy
                 </span>
                 {hasManuallyEditedEmail ? (
@@ -505,7 +519,7 @@ export function CompetitionCertificatesModal({
                       setEmailSubject(e.target.value)
                       setHasManuallyEditedEmail(true)
                     }}
-                    placeholder={`Your SpacePoint certificate — ${cohortName}`}
+                    placeholder={`Your SpacePoint certificate — ${effectiveProgramTitle}`}
                     className="w-full h-8 px-2.5 rounded-lg border border-border bg-background text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
                   />
                 </div>
