@@ -31,6 +31,7 @@ from app.schemas.competitions import (
     CompetitionImportRowOut, CompetitionJudgeInviteIn, CompetitionJudgeOut, CompetitionJudgeProgressOut,
     CompetitionLeaderboardRowOut, CompetitionPublicationOut, CompetitionRubricIn, CompetitionRubricOut,
     CompetitionTeamCreateIn, CompetitionTeamMemberIn, CompetitionTeamOut, CompetitionTeamRenameIn,
+    CohortSubmissionWindowsUpdate, TeamTimingAdjustmentUpdate, TeamScoreBreakdownOut,
 )
 from app.services.competitions import analytics as analytics_service
 from app.services.competitions import certificates as certificates_service
@@ -527,5 +528,62 @@ async def download_cohort_certificates_post(
         media_type="application/pdf",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
+
+
+# ── Submission Windows & Timing Adjustments ─────────────────────────────
+
+@router.get("/cohorts/{cohort_id}/submission-windows")
+async def get_cohort_submission_windows(
+    cohort_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+):
+    """Retrieve configured submission time windows for a cohort."""
+    cohort = await _get_cohort_or_404(db, cohort_id)
+    return cohort.submission_windows or []
+
+
+@router.put("/cohorts/{cohort_id}/submission-windows")
+async def update_cohort_submission_windows(
+    cohort_id: uuid.UUID,
+    body: CohortSubmissionWindowsUpdate,
+    db: AsyncSession = Depends(get_db),
+):
+    """Save or update submission time windows for a cohort."""
+    cohort = await _get_cohort_or_404(db, cohort_id)
+    cohort.submission_windows = [w.model_dump() for w in body.windows]
+    await db.commit()
+    return cohort.submission_windows
+
+
+@router.patch("/cohorts/{cohort_id}/teams/{team_id}/timing-adjustment", response_model=TeamScoreBreakdownOut)
+async def update_team_timing_adjustment(
+    cohort_id: uuid.UUID,
+    team_id: uuid.UUID,
+    body: TeamTimingAdjustmentUpdate,
+    db: AsyncSession = Depends(get_db),
+):
+    """Manual Ops override for a team's timing bonus/deduction points."""
+    team = await db.get(Team, team_id)
+    if team is None or team.cohort_id != cohort_id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Team not found in this cohort")
+    team.timing_adjustment_override = body.override_points
+    team.timing_adjustment_notes = body.notes
+    await db.commit()
+    breakdown = await judging_service.get_team_score_breakdown(db, cohort_id=cohort_id, team_id=team_id)
+    return TeamScoreBreakdownOut(**breakdown)
+
+
+# ── Score Breakdown & Comments Inspector ────────────────────────────────
+
+@router.get("/cohorts/{cohort_id}/teams/{team_id}/score-breakdown", response_model=TeamScoreBreakdownOut)
+async def get_team_score_breakdown(
+    cohort_id: uuid.UUID,
+    team_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+):
+    """Returns the full evaluation breakdown per judge for Ops inspection,
+    including individual criteria scores, criterion comments, and judge notes."""
+    breakdown = await judging_service.get_team_score_breakdown(db, cohort_id=cohort_id, team_id=team_id)
+    return TeamScoreBreakdownOut(**breakdown)
 
 

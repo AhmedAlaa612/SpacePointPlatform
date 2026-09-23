@@ -184,7 +184,10 @@ async def finalize_team_submission(db: AsyncSession, *, team_id: uuid.UUID, lock
     if team is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Team not found")
     if team.final_locked_at is None:
-        team.final_locked_at = datetime.now(timezone.utc)
+        now = datetime.now(timezone.utc)
+        team.final_locked_at = now
+        if team.first_locked_at is None:
+            team.first_locked_at = now
         team.final_locked_by = locked_by_user_id
         await db.flush()
     return team
@@ -194,7 +197,7 @@ async def unlock_team_submission(db: AsyncSession, *, team_id: uuid.UUID) -> Tea
     """Ops-only reopen — clears both lock columns so the team's checklist
     writes are unblocked again. See `Team.final_locked_at`'s own docstring
     for why this is the only way a lock ever clears (a team can never
-    re-open its own submission)."""
+    re-open its own submission). first_locked_at is preserved for auditing."""
     team = await db.get(Team, team_id)
     if team is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Team not found")
