@@ -52,6 +52,10 @@ class ProgramCertificateTemplate(Base):
     signature_width = Column(Numeric(6, 2), nullable=False, default=140.0)
     signature_height = Column(Numeric(6, 2), nullable=False, default=50.0)
 
+    # Email notification settings per template
+    email_subject = Column(String(255), nullable=True)
+    email_body = Column(Text, nullable=True)
+
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
     updated_at = Column(
         DateTime(timezone=True),

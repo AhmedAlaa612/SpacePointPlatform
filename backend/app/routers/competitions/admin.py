@@ -452,7 +452,7 @@ async def post_cohort_unpublish(cohort_id: uuid.UUID, db: AsyncSession = Depends
 @router.get("/cohorts/{cohort_id}/certificates/recipients", response_model=CompetitionCertificateRecipientsSummaryOut)
 async def get_cohort_certificate_recipients(
     cohort_id: uuid.UUID,
-    filter: Literal["at_least_one", "all_completed", "all"] = Query("all"),
+    filter: Literal["locked_only", "participation", "at_least_one", "all_completed", "all"] = Query("all"),
     db: AsyncSession = Depends(get_db),
 ):
     await _get_cohort_or_404(db, cohort_id)
@@ -477,6 +477,9 @@ async def post_cohort_certificates_send(
         theme=body.theme,
         template_id=body.template_id,
         skip_already_issued=body.skip_already_issued,
+        custom_email_subject=body.custom_email_subject,
+        custom_email_body=body.custom_email_body,
+        save_email_to_template=body.save_email_to_template,
     )
     return CompetitionCertificateSendResultOut(**result)
 
@@ -484,7 +487,7 @@ async def post_cohort_certificates_send(
 @router.get("/cohorts/{cohort_id}/certificates/download")
 async def download_cohort_certificates(
     cohort_id: uuid.UUID,
-    filter: Literal["at_least_one", "all_completed", "all"] = Query("at_least_one"),
+    filter: Literal["locked_only", "participation", "at_least_one", "all_completed", "all"] = Query("at_least_one"),
     theme: str = Query("dark"),
     template_id: str | None = Query(None),
     registration_ids: list[uuid.UUID] | None = Query(None),

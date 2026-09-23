@@ -23,6 +23,7 @@ import {
   type CompetitionAssignStudentsResult, type CompetitionImportPreviewRow, type CompetitionImportResult,
   type CompetitionJudgeProgress,
   type CompetitionLeaderboardRow, type CompetitionPublication, type CompetitionRubric, type CompetitionTeam,
+  type CertificateFilterMode,
 } from "@/api/competitions"
 import { CompetitionAnalysisTab } from "@/pages/admin/components/CompetitionAnalysis"
 import { PageHeader, Spinner, EmptyState } from "@/components/ui/primitives"
@@ -1273,7 +1274,7 @@ function ResultsTab({
   })
 
   const handleDownloadCertificates = async (
-    filter: "at_least_one" | "all_completed",
+    filter: CertificateFilterMode,
     theme: "dark" | "light" | "custom",
     templateId?: string,
     templateName?: string,
@@ -1288,10 +1289,16 @@ function ResultsTab({
         null,
         templateId,
       )
+      const filterLabel =
+        filter === "locked_only"
+          ? "locked only (completion)"
+          : filter === "participation"
+          ? "participation"
+          : filter === "at_least_one"
+          ? "≥ 1 submission"
+          : "completed all"
       toast.success(
-        `Downloaded ${templateName || theme} certificates for ${
-          filter === "at_least_one" ? "≥ 1 submission" : "completed all"
-        }`,
+        `Downloaded ${templateName || theme} certificates for ${filterLabel}`,
       )
     } catch (e: unknown) {
       toast.error(getErrorMessage(e, "Failed to download certificates PDF"))
@@ -1440,19 +1447,38 @@ function ResultsTab({
             </button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" className="w-64 max-h-96 overflow-y-auto">
-            <div className="px-2 py-1 text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">
-              At least 1 submission
+            <div className="px-2 py-1 text-[11px] font-semibold text-emerald-600 dark:text-emerald-400 uppercase tracking-wider">
+              Locked only (Completion)
             </div>
-            <DropdownMenuItem onClick={() => handleDownloadCertificates("at_least_one", "dark")}>
+            <DropdownMenuItem onClick={() => handleDownloadCertificates("locked_only", "dark")}>
               Dark background
             </DropdownMenuItem>
-            <DropdownMenuItem onClick={() => handleDownloadCertificates("at_least_one", "light")}>
+            <DropdownMenuItem onClick={() => handleDownloadCertificates("locked_only", "light")}>
               Light background
             </DropdownMenuItem>
             {programTemplates.map((tmpl: ProgramCertificateTemplate) => (
               <DropdownMenuItem
-                key={`at-least-one-${tmpl.id}`}
-                onClick={() => handleDownloadCertificates("at_least_one", "custom", tmpl.id, tmpl.name)}
+                key={`locked-only-${tmpl.id}`}
+                onClick={() => handleDownloadCertificates("locked_only", "custom", tmpl.id, tmpl.name)}
+                className="truncate"
+              >
+                {tmpl.name}
+              </DropdownMenuItem>
+            ))}
+            <DropdownMenuSeparator />
+            <div className="px-2 py-1 text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">
+              Participation (≥ 1 submission)
+            </div>
+            <DropdownMenuItem onClick={() => handleDownloadCertificates("participation", "dark")}>
+              Dark background
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={() => handleDownloadCertificates("participation", "light")}>
+              Light background
+            </DropdownMenuItem>
+            {programTemplates.map((tmpl: ProgramCertificateTemplate) => (
+              <DropdownMenuItem
+                key={`participation-${tmpl.id}`}
+                onClick={() => handleDownloadCertificates("participation", "custom", tmpl.id, tmpl.name)}
                 className="truncate"
               >
                 {tmpl.name}

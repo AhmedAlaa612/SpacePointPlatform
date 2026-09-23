@@ -59,6 +59,8 @@ export interface ProgramCertificateTemplate {
   signature_y: number;
   signature_width: number;
   signature_height: number;
+  email_subject?: string | null;
+  email_body?: string | null;
   created_at: string;
   updated_at?: string | null;
 }

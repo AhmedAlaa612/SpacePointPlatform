@@ -42,6 +42,10 @@ class ProgramCertificateTemplateBase(BaseModel):
     signature_width: float = 140.0
     signature_height: float = 50.0
 
+    # Email notification settings
+    email_subject: str | None = None
+    email_body: str | None = None
+
 
 class ProgramCertificateTemplateCreate(ProgramCertificateTemplateBase):
     pass
@@ -72,6 +76,9 @@ class ProgramCertificateTemplateUpdate(BaseModel):
     signature_y: float | None = None
     signature_width: float | None = None
     signature_height: float | None = None
+
+    email_subject: str | None = None
+    email_body: str | None = None
 
 
 class ProgramCertificateTemplateOut(ProgramCertificateTemplateBase):

@@ -93,6 +93,10 @@ export function ProgramCertificateStudioModal({ program, onClose, onUpdated }: P
   const [sigWidth, setSigWidth] = useState(140)
   const [sigHeight, setSigHeight] = useState(50)
 
+  // Custom email subject and body per template
+  const [emailSubject, setEmailSubject] = useState("")
+  const [emailBody, setEmailBody] = useState("")
+
   // Sample student name for live testing
   const [testStudentName, setTestStudentName] = useState("Ahmed Mubarak Albalushi")
   const [isUploadingBg, setIsUploadingBg] = useState(false)
@@ -115,6 +119,8 @@ export function ProgramCertificateStudioModal({ program, onClose, onUpdated }: P
       setBodyColor("#9778be")
       setBodyMaxWidth(600)
       setShowSignature(false)
+      setEmailSubject("")
+      setEmailBody("")
     } else if (activeTab === "stock_light") {
       setName("Stock Light Default")
       setBackgroundType("light")
@@ -129,6 +135,8 @@ export function ProgramCertificateStudioModal({ program, onClose, onUpdated }: P
       setBodyColor("#67388f")
       setBodyMaxWidth(600)
       setShowSignature(false)
+      setEmailSubject("")
+      setEmailBody("")
     } else if (activeTab === "new") {
       setName("New Program Certificate")
       setBackgroundType("custom")
@@ -148,6 +156,8 @@ export function ProgramCertificateStudioModal({ program, onClose, onUpdated }: P
       setIsCustomX(false)
       setSigWidth(140)
       setSigHeight(50)
+      setEmailSubject("")
+      setEmailBody("")
     } else {
       const existing = templates.find((t) => t.id === activeTab)
       if (existing) {
@@ -175,6 +185,8 @@ export function ProgramCertificateStudioModal({ program, onClose, onUpdated }: P
           setSigX(null)
           setIsCustomX(false)
         }
+        setEmailSubject(existing.email_subject || "")
+        setEmailBody(existing.email_body || "")
       }
     }
   }, [activeTab, templates])
@@ -215,6 +227,8 @@ export function ProgramCertificateStudioModal({ program, onClose, onUpdated }: P
         signature_y: sigY,
         signature_width: sigWidth,
         signature_height: sigHeight,
+        email_subject: emailSubject.trim() || null,
+        email_body: emailBody.trim() || null,
       }
 
       if (currentCustomTemplate) {
@@ -903,6 +917,52 @@ export function ProgramCertificateStudioModal({ program, onClose, onUpdated }: P
                     </div>
                   )}
                 </div>
+
+            {/* Certificate Email Template (2026-09) */}
+            <div className="p-3 bg-card border border-border rounded-xl flex flex-col gap-2.5">
+              <div className="flex items-center justify-between">
+                <label className="text-xs font-semibold text-foreground uppercase tracking-wider">
+                  Email Notification Copy
+                </label>
+                <span className="text-[10px] text-muted-foreground">Optional</span>
+              </div>
+              <p className="text-[11px] text-muted-foreground leading-relaxed">
+                Configure the email subject and body sent with this certificate. Leave blank to use system defaults.
+              </p>
+              <div>
+                <label className="text-[11px] text-muted-foreground font-medium mb-1 block">Subject Line</label>
+                <input
+                  type="text"
+                  value={emailSubject}
+                  onChange={(e) => setEmailSubject(e.target.value)}
+                  placeholder={`Your SpacePoint certificate — ${program.name}`}
+                  className="w-full h-8 px-2.5 rounded-lg border border-border bg-background text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
+                />
+              </div>
+              <div>
+                <label className="text-[11px] text-muted-foreground font-medium mb-1 block">Email Body (HTML supported)</label>
+                <textarea
+                  rows={4}
+                  value={emailBody}
+                  onChange={(e) => setEmailBody(e.target.value)}
+                  placeholder={`<p>Hi {student_name},</p>\n<p>Congratulations on completing {program_name} ({dates})!</p>\n<p>Your certificate is attached.</p>`}
+                  className="w-full p-2.5 rounded-lg border border-border bg-background text-xs text-foreground font-mono focus:outline-none focus:ring-1 focus:ring-primary"
+                />
+              </div>
+              <div className="flex items-center gap-1 flex-wrap pt-0.5">
+                <span className="text-[10px] text-muted-foreground font-medium">Insert:</span>
+                {["{student_name}", "{program_name}", "{dates}", "{team_name}", "{certificate_type}"].map((token) => (
+                  <button
+                    key={token}
+                    type="button"
+                    onClick={() => setEmailBody((prev) => (prev ? `${prev} ${token}` : token))}
+                    className="text-[10px] px-1.5 py-0.5 rounded bg-muted/80 hover:bg-muted text-foreground transition-colors font-mono"
+                  >
+                    {token}
+                  </button>
+                ))}
+              </div>
+            </div>
 
             {/* Test Student Name Input */}
             <div className="p-3 bg-muted/20 border border-border rounded-xl">
