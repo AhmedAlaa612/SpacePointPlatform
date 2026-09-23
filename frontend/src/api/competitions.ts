@@ -631,8 +631,11 @@ export interface CompetitionCertificateRecipient {
   submissions_total: number
   required_submissions_total: number
   team_locked: boolean
+  meets_locked_only: boolean
+  meets_participation: boolean
   meets_at_least_one: boolean
   meets_all_completed: boolean
+  certificate_type_earned?: "completion" | "participation" | null
   certificate_issued: boolean
   certificate_id?: string | null
   certificate_generated_at?: string | null
@@ -642,19 +645,33 @@ export interface CompetitionCertificateRecipientsSummary {
   total_registered: number
   submission_items_total: number
   required_submissions_total: number
+  locked_only_count: number
+  participation_count: number
   at_least_one_count: number
   all_completed_count: number
   recipients: CompetitionCertificateRecipient[]
-  templates?: Array<{ id: string; name: string; is_default: boolean }> | null
+  templates?: Array<{
+    id: string
+    name: string
+    is_default: boolean
+    background_type?: string
+    email_subject?: string | null
+    email_body?: string | null
+  }> | null
   default_template_id?: string | null
 }
 
+export type CertificateFilterMode = "locked_only" | "participation" | "all_completed" | "at_least_one" | "all"
+
 export interface CompetitionCertificateSendIn {
-  filter: "at_least_one" | "all_completed" | "custom" | "all"
+  filter: CertificateFilterMode | "custom"
   registration_ids?: string[] | null
   theme?: "dark" | "light" | string
   template_id?: string | null
   skip_already_issued?: boolean
+  custom_email_subject?: string | null
+  custom_email_body?: string | null
+  save_email_to_template?: boolean
 }
 
 export interface CompetitionCertificateSendResult {
@@ -667,7 +684,7 @@ export interface CompetitionCertificateSendResult {
 
 export const getCohortCertificateRecipientsApi = (
   cohortId: string,
-  filter: "at_least_one" | "all_completed" | "all" = "all",
+  filter: CertificateFilterMode = "all",
 ) =>
   api
     .get<CompetitionCertificateRecipientsSummary>(
@@ -690,7 +707,7 @@ export const sendCohortCertificatesApi = (
 export const downloadCompetitionCertificatesApi = async (
   cohortId: string,
   cohortName: string,
-  filter: "at_least_one" | "all_completed" | "all",
+  filter: CertificateFilterMode | "custom",
   theme: "dark" | "light" | string = "dark",
   registrationIds?: string[] | null,
   templateId?: string | null,

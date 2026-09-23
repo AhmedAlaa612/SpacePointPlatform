@@ -589,8 +589,11 @@ class CompetitionCertificateRecipientOut(BaseModel):
     submissions_total: int
     required_submissions_total: int
     team_locked: bool = False
+    meets_locked_only: bool = False
+    meets_participation: bool = False
     meets_at_least_one: bool
     meets_all_completed: bool
+    certificate_type_earned: str | None = None
     certificate_issued: bool
     certificate_id: UUID | None = None
     certificate_generated_at: datetime | None = None
@@ -600,6 +603,8 @@ class CompetitionCertificateRecipientsSummaryOut(BaseModel):
     total_registered: int
     submission_items_total: int
     required_submissions_total: int
+    locked_only_count: int = 0
+    participation_count: int = 0
     at_least_one_count: int
     all_completed_count: int
     recipients: list[CompetitionCertificateRecipientOut]
@@ -608,15 +613,18 @@ class CompetitionCertificateRecipientsSummaryOut(BaseModel):
 
 
 class CompetitionCertificateSendIn(BaseModel):
-    filter: Literal["at_least_one", "all_completed", "custom", "all"] = "at_least_one"
+    filter: Literal["locked_only", "participation", "at_least_one", "all_completed", "custom", "all"] = "at_least_one"
     registration_ids: list[UUID] | None = None
     theme: str = "dark"
     template_id: str | None = None
     skip_already_issued: bool = True
+    custom_email_subject: str | None = None
+    custom_email_body: str | None = None
+    save_email_to_template: bool = False
 
 
 class CompetitionCertificateDownloadIn(BaseModel):
-    filter: Literal["at_least_one", "all_completed", "all"] = "at_least_one"
+    filter: Literal["locked_only", "participation", "at_least_one", "all_completed", "all"] = "at_least_one"
     theme: str = "dark"
     template_id: str | None = None
     registration_ids: list[UUID] | None = None

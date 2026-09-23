@@ -331,3 +331,99 @@ async def test_download_cohort_certificates_pdf(db, client):
     reader_get = PdfReader(io.BytesIO(resp_get_selected.content))
     assert len(reader_get.pages) == 1
 
+
+@pytest.mark.asyncio
+async def test_locked_only_and_participation_filters_and_custom_emails(db, client):
+    from datetime import datetime, timezone
+    from app.models.sessions.program_certificate_template import ProgramCertificateTemplate
+
+    ops = await _ops(db)
+    program, cohort, lms_program, (item1, item2) = await _setup_competition_cohort(db)
+
+    # Custom template with email subject and body configured
+    custom_template = ProgramCertificateTemplate(
+        id=uuid.uuid4(),
+        program_id=program.id,
+        name="Custom Winner Cert",
+        is_default=True,
+        background_type="dark",
+        email_subject="Exclusive Award — {program_name} ({certificate_type})",
+        email_body="<p>Greetings {student_name}, team {team_name} earned {certificate_type}!</p>",
+    )
+    db.add(custom_template)
+
+    # Student 1: locked team (even with 1 submission, team locked -> locked_only / completion)
+    s1, r1 = await _student(db, "Locked Student Alpha", cohort=cohort)
+    team1 = await create_team(db, cohort_id=cohort.id, name="Team Locked", created_by=s1.id)
+    team1.final_locked_at = datetime.now(timezone.utc)
+    p1 = LmsProgramTeamItemProgress(
+        id=uuid.uuid4(), item_id=item1.id, team_id=team1.id, status="done",
+        submitted_url="https://example.com/locked-p1",
+    )
+    db.add(p1)
+
+    # Student 2: submitted 1 item, but team is NOT locked -> participation
+    s2, r2 = await _student(db, "Participant Beta", cohort=cohort)
+    team2 = await create_team(db, cohort_id=cohort.id, name="Team Active", created_by=s2.id)
+    p2 = LmsProgramTeamItemProgress(
+        id=uuid.uuid4(), item_id=item1.id, team_id=team2.id, status="done",
+        submitted_url="https://example.com/part-p1",
+    )
+    db.add(p2)
+    await db.commit()
+
+    # 1. Test get recipients with locked_only filter
+    resp_locked = await client.get(
+        f"/competitions/admin/cohorts/{cohort.id}/certificates/recipients?filter=locked_only",
+        headers=_headers(ops),
+    )
+    assert resp_locked.status_code == 200, resp_locked.text
+    locked_data = resp_locked.json()
+    assert locked_data["locked_only_count"] == 1
+    assert locked_data["participation_count"] == 1
+    assert len(locked_data["recipients"]) == 1
+    assert locked_data["recipients"][0]["student_name"] == "Locked Student Alpha"
+    assert locked_data["recipients"][0]["certificate_type_earned"] == "completion"
+    assert locked_data["recipients"][0]["team_locked"] is True
+
+    # 2. Test get recipients with participation filter
+    resp_part = await client.get(
+        f"/competitions/admin/cohorts/{cohort.id}/certificates/recipients?filter=participation",
+        headers=_headers(ops),
+    )
+    assert resp_part.status_code == 200
+    part_data = resp_part.json()
+    assert len(part_data["recipients"]) == 1
+    assert part_data["recipients"][0]["student_name"] == "Participant Beta"
+    assert part_data["recipients"][0]["certificate_type_earned"] == "participation"
+    assert part_data["recipients"][0]["team_locked"] is False
+
+    # 3. Test sending with custom email override & save_email_to_template
+    with patch("app.services.competitions.certificates.try_send_email") as mock_email:
+        mock_email.return_value = None
+        send_resp = await client.post(
+            f"/competitions/admin/cohorts/{cohort.id}/certificates/send",
+            headers=_headers(ops),
+            json={
+                "filter": "locked_only",
+                "template_id": str(custom_template.id),
+                "custom_email_subject": "Custom Header for {student_name}",
+                "custom_email_body": "<p>Hello {student_name}, congrats to {team_name}!</p>",
+                "save_email_to_template": True,
+            },
+        )
+        assert send_resp.status_code == 200, send_resp.text
+        res = send_resp.json()
+        assert res["sent_count"] == 1
+        assert mock_email.called
+        call_args = mock_email.call_args[0]
+        # subject check
+        assert call_args[1] == "Custom Header for Locked Student Alpha"
+        # body check
+        assert "Hello Locked Student Alpha, congrats to Team Locked!" in call_args[2]
+
+    # Check that custom template email copy was updated in DB
+    await db.refresh(custom_template)
+    assert custom_template.email_subject == "Custom Header for {student_name}"
+    assert custom_template.email_body == "<p>Hello {student_name}, congrats to {team_name}!</p>"
+

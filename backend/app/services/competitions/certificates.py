@@ -46,21 +46,85 @@ from app.services.sessions.registration import ACTIVE_REGISTRATION_STATUSES, for
 from app.services.sessions.staffing import resolve_session_location_display
 
 
+def render_certificate_email(
+    *,
+    student_name: str,
+    program_name: str,
+    cohort_name: str = "",
+    dates: str = "",
+    team_name: str | None = None,
+    certificate_type: str = "completion",  # "completion" | "participation"
+    custom_subject: str | None = None,
+    custom_body: str | None = None,
+) -> tuple[str, str]:
+    """Renders (subject, body_html) substituting available tokens:
+    {student_name}, {program_name}, {cohort_name}, {dates}, {team_name}, {certificate_type}
+    """
+    type_label = "Participation" if certificate_type == "participation" else "Completion"
+    team_display = team_name or ""
+    team_snippet = f" with team <strong>{escape(team_name)}</strong>" if team_name else ""
+
+    # Subject
+    if custom_subject and custom_subject.strip():
+        subject = (
+            custom_subject
+            .replace("{student_name}", student_name)
+            .replace("{program_name}", program_name)
+            .replace("{cohort_name}", cohort_name)
+            .replace("{cohort}", cohort_name)
+            .replace("{dates}", dates)
+            .replace("{team_name}", team_display)
+            .replace("{certificate_type}", type_label)
+        )
+    else:
+        if certificate_type == "participation":
+            subject = f"Your Certificate of Participation — {program_name}"
+        else:
+            subject = f"Your SpacePoint certificate — {program_name}"
+
+    # Body
+    if custom_body and custom_body.strip():
+        # Replace tokens in custom body
+        body_html = (
+            custom_body
+            .replace("{student_name}", escape(student_name))
+            .replace("{program_name}", escape(program_name))
+            .replace("{cohort_name}", escape(cohort_name))
+            .replace("{cohort}", escape(cohort_name))
+            .replace("{dates}", escape(dates))
+            .replace("{team_name}", escape(team_display))
+            .replace("{certificate_type}", type_label)
+        )
+    else:
+        if certificate_type == "participation":
+            body_html = (
+                f"<p>Hi {escape(student_name)},</p>"
+                f"<p>Thank you for participating in <strong>{escape(program_name)}</strong>{team_snippet} ({escape(dates)})!</p>"
+                "<p>Your certificate of participation is attached to this email as a PDF.</p>"
+                "<p>— SpacePoint</p>"
+            )
+        else:
+            body_html = (
+                f"<p>Hi {escape(student_name)},</p>"
+                f"<p>Congratulations on completing <strong>{escape(program_name)}</strong> ({escape(dates)})!</p>"
+                "<p>Your certificate of completion is attached to this email as a PDF.</p>"
+                "<p>— SpacePoint</p>"
+            )
+
+    return subject, body_html
+
+
 def _cert_email_body(student_name: str, program_name: str, dates: str) -> str:
-    return (
-        f"<p>Hi {escape(student_name)},</p>"
-        f"<p>Congratulations on completing <strong>{escape(program_name)}</strong> ({escape(dates)})!</p>"
-        "<p>Your certificate of completion is attached to this email as a PDF.</p>"
-        "<p>— SpacePoint</p>"
-    )
+    _, body = render_certificate_email(student_name=student_name, program_name=program_name, dates=dates)
+    return body
 
 
 async def get_cohort_certificate_recipients(
     db: AsyncSession, *, cohort_id: uuid.UUID, filter_type: str = "all",
 ) -> dict:
     """Computes submission stats for every active registrant in this cohort,
-    evaluating whether they completed at least one submission or all required
-    submissions.
+    evaluating whether they completed at least one submission, locked only,
+    or all required submissions.
     """
     cohort = await db.get(Cohort, cohort_id)
     if cohort is None:
@@ -104,8 +168,22 @@ async def get_cohort_certificate_recipients(
     )).scalars().all()
 
     available_templates = [
-        {"id": "dark", "name": "Dark Default", "is_default": default_tid is None, "background_type": "dark"},
-        {"id": "light", "name": "Light Default", "is_default": False, "background_type": "light"},
+        {
+            "id": "dark",
+            "name": "Dark Default",
+            "is_default": default_tid is None,
+            "background_type": "dark",
+            "email_subject": None,
+            "email_body": None,
+        },
+        {
+            "id": "light",
+            "name": "Light Default",
+            "is_default": False,
+            "background_type": "light",
+            "email_subject": None,
+            "email_body": None,
+        },
     ]
     for t in templates_rows:
         is_def = t.is_default or (default_tid == str(t.id))
@@ -114,6 +192,8 @@ async def get_cohort_certificate_recipients(
             "name": t.name,
             "is_default": is_def,
             "background_type": t.background_type,
+            "email_subject": t.email_subject,
+            "email_body": t.email_body,
         })
 
     if not registrations:
@@ -213,6 +293,8 @@ async def get_cohort_certificate_recipients(
 
     # 7. Evaluate each student
     recipients = []
+    locked_only_count = 0
+    participation_count = 0
     at_least_one_count = 0
     all_completed_count = 0
 
@@ -236,7 +318,13 @@ async def get_cohort_certificate_recipients(
         team_locked = bool(team and team.final_locked_at is not None)
         has_all_required = total_required > 0 and required_item_ids.issubset(submitted_item_ids)
         meets_all_completed = has_all_required or team_locked
+        meets_locked_only = team_locked
+        meets_participation = meets_at_least_one and not team_locked
 
+        if meets_locked_only:
+            locked_only_count += 1
+        if meets_participation:
+            participation_count += 1
         if meets_at_least_one:
             at_least_one_count += 1
         if meets_all_completed:
@@ -245,10 +333,19 @@ async def get_cohort_certificate_recipients(
         cert = existing_certs.get(reg.id)
 
         # Check filter condition
+        if filter_type == "locked_only" and not meets_locked_only:
+            continue
+        if filter_type == "participation" and not meets_participation:
+            continue
         if filter_type == "at_least_one" and not meets_at_least_one:
             continue
         if filter_type == "all_completed" and not meets_all_completed:
             continue
+
+        certificate_type_earned = (
+            "completion" if (team_locked or meets_all_completed)
+            else ("participation" if meets_at_least_one else None)
+        )
 
         recipients.append({
             "registration_id": reg.id,
@@ -262,8 +359,11 @@ async def get_cohort_certificate_recipients(
             "submissions_total": len(submission_items),
             "required_submissions_total": total_required,
             "team_locked": team_locked,
+            "meets_locked_only": meets_locked_only,
+            "meets_participation": meets_participation,
             "meets_at_least_one": meets_at_least_one,
             "meets_all_completed": meets_all_completed,
+            "certificate_type_earned": certificate_type_earned,
             "certificate_issued": cert is not None,
             "certificate_id": cert.id if cert else None,
             "certificate_generated_at": cert.generated_at if cert else None,
@@ -276,6 +376,8 @@ async def get_cohort_certificate_recipients(
         "total_registered": len(registrations),
         "submission_items_total": len(submission_items),
         "required_submissions_total": total_required,
+        "locked_only_count": locked_only_count,
+        "participation_count": participation_count,
         "at_least_one_count": at_least_one_count,
         "all_completed_count": all_completed_count,
         "recipients": recipients,
@@ -348,6 +450,7 @@ async def _resolve_certificate_template(
                     sig_bytes = None
 
         return {
+            "template_obj": selected_template,
             "is_custom": True,
             "theme": selected_template.background_type if selected_template.background_type in ("dark", "light") else "dark",
             "background_bytes": bg_bytes,
@@ -368,9 +471,12 @@ async def _resolve_certificate_template(
             "signature_height": float(selected_template.signature_height),
             "signatory_name": sig_name,
             "signatory_title": sig_title,
+            "email_subject": selected_template.email_subject,
+            "email_body": selected_template.email_body,
         }
 
     return {
+        "template_obj": None,
         "is_custom": False,
         "theme": effective_theme,
         "background_bytes": None,
@@ -391,6 +497,8 @@ async def _resolve_certificate_template(
         "signature_height": 50.0,
         "signatory_name": sig_name,
         "signatory_title": sig_title,
+        "email_subject": None,
+        "email_body": None,
     }
 
 
@@ -404,9 +512,12 @@ async def send_cohort_certificates(
     theme: str = "dark",
     template_id: str | None = None,
     skip_already_issued: bool = True,
+    custom_email_subject: str | None = None,
+    custom_email_body: str | None = None,
+    save_email_to_template: bool = False,
 ) -> dict:
-    """Issues and emails completion certificates to the qualifying or selected
-    students in the cohort. Updates registration status to 'completed'.
+    """Issues and emails completion or participation certificates to the qualifying
+    or selected students in the cohort. Updates registration status to 'completed'.
     """
     cohort = await db.get(Cohort, cohort_id)
     if cohort is None:
@@ -427,6 +538,10 @@ async def send_cohort_certificates(
             except (ValueError, TypeError):
                 pass
         target_ids = [rid for rid in all_recipients if rid in target_id_set]
+    elif filter_type == "locked_only":
+        target_ids = [rid for rid, r in all_recipients.items() if r["meets_locked_only"]]
+    elif filter_type == "participation":
+        target_ids = [rid for rid, r in all_recipients.items() if r["meets_participation"]]
     elif filter_type == "all_completed":
         target_ids = [rid for rid, r in all_recipients.items() if r["meets_all_completed"]]
     elif filter_type == "at_least_one":
@@ -466,20 +581,20 @@ async def send_cohort_certificates(
     location = await resolve_session_location_display(db, None, cohort)
     layout = await _resolve_certificate_template(db, program=program, template_id=template_id, theme=theme)
 
+    # Persist custom email template to template if requested
+    if save_email_to_template and layout.get("template_obj"):
+        tmpl: ProgramCertificateTemplate = layout["template_obj"]
+        if custom_email_subject is not None:
+            tmpl.email_subject = custom_email_subject.strip() or None
+        if custom_email_body is not None:
+            tmpl.email_body = custom_email_body.strip() or None
+        await db.flush()
+
     template = (await db.execute(
         select(DocumentTemplate).where(DocumentTemplate.key == "student_completion")
     )).scalars().first()
 
-    template_body = layout["body_text_template"] or (template.body_text if template else "For successfully completing<br/>{program_name}<br/>{dates}")
     cohort_title = cohort.name if cohort and cohort.name else ""
-    body_text = (
-        template_body
-        .replace("{program_name}", escape(program.name))
-        .replace("{cohort_name}", escape(cohort_title))
-        .replace("{cohort}", escape(cohort_title))
-        .replace("{dates}", escape(dates))
-        .replace("{location}", escape(location.get("name") or ""))
-    )
 
     sent_count = 0
     skipped_count = 0
@@ -499,11 +614,36 @@ async def send_cohort_certificates(
             skipped_count += 1
             continue
 
+        rec_info = all_recipients.get(reg_id, {})
+        cert_type = rec_info.get("certificate_type_earned") or (
+            "completion" if rec_info.get("team_locked") else "participation"
+        )
+        type_title = "Participation" if cert_type == "participation" else "Completion"
+
+        if layout.get("body_text_template"):
+            raw_body_template = layout["body_text_template"]
+        else:
+            if cert_type == "participation":
+                raw_body_template = "For active participation in<br/>{program_name}<br/>{dates}"
+            else:
+                raw_body_template = template.body_text if template else "For successfully completing<br/>{program_name}<br/>{dates}"
+
+        student_body_text = (
+            raw_body_template
+            .replace("{program_name}", escape(program.name))
+            .replace("{cohort_name}", escape(cohort_title))
+            .replace("{cohort}", escape(cohort_title))
+            .replace("{dates}", escape(dates))
+            .replace("{location}", escape(location.get("name") or ""))
+            .replace("{certificate_type}", type_title)
+            .replace("{type}", type_title)
+        )
+
         try:
             cert_bytes = await asyncio.to_thread(
                 generate_completion_certificate_pdf,
                 recipient_name=contact.full_name,
-                body_text_template=body_text,
+                body_text_template=student_body_text,
                 background_bytes=layout["background_bytes"],
                 theme=layout["theme"],
                 name_font_size=layout["name_font_size"],
@@ -545,11 +685,21 @@ async def send_cohort_certificates(
 
             # Email the cert as a PDF attachment
             if contact.email:
-                filename = f"SpacePoint_Certificate_{program.name.replace(' ', '_')}.pdf"
+                email_subj, email_body = render_certificate_email(
+                    student_name=contact.full_name,
+                    program_name=program.name,
+                    cohort_name=cohort_title,
+                    dates=dates,
+                    team_name=rec_info.get("team_name"),
+                    certificate_type=cert_type,
+                    custom_subject=custom_email_subject or layout.get("email_subject"),
+                    custom_body=custom_email_body or layout.get("email_body"),
+                )
+                filename = f"SpacePoint_{type_title}_Certificate_{program.name.replace(' ', '_')}.pdf"
                 await try_send_email(
                     contact.email,
-                    f"Your SpacePoint certificate — {program.name}",
-                    _cert_email_body(contact.full_name, program.name, dates),
+                    email_subj,
+                    email_body,
                     html=True,
                     attachments=[(filename, cert_bytes, "pdf")],
                 )
@@ -573,7 +723,7 @@ async def render_cohort_certificates_pdf(
     db: AsyncSession,
     *,
     cohort_id: uuid.UUID,
-    filter_type: Literal["at_least_one", "all_completed", "all"] = "at_least_one",
+    filter_type: Literal["locked_only", "participation", "at_least_one", "all_completed", "all"] = "at_least_one",
     theme: str = "dark",
     template_id: str | None = None,
     registration_ids: list[uuid.UUID] | None = None,
@@ -610,16 +760,7 @@ async def render_cohort_certificates_pdf(
         select(DocumentTemplate).where(DocumentTemplate.key == "student_completion")
     )).scalars().first()
 
-    template_body = layout["body_text_template"] or (template.body_text if template else "For successfully completing<br/>{program_name}<br/>{dates}")
     cohort_title = cohort.name if cohort and cohort.name else ""
-    body_text = (
-        template_body
-        .replace("{program_name}", escape(program.name))
-        .replace("{cohort_name}", escape(cohort_title))
-        .replace("{cohort}", escape(cohort_title))
-        .replace("{dates}", escape(dates))
-        .replace("{location}", escape(location.get("name") or ""))
-    )
 
     def _render(name: str, body: str) -> bytes:
         return generate_completion_certificate_pdf(
@@ -645,10 +786,34 @@ async def render_cohort_certificates_pdf(
             signatory_title=layout.get("signatory_title"),
         )
 
-    pages = [
-        await asyncio.to_thread(_render, r["student_name"], body_text)
-        for r in recipients
-    ]
+    pages = []
+    for r in recipients:
+        rec_info = r
+        cert_type = rec_info.get("certificate_type_earned") or (
+            "completion" if rec_info.get("team_locked") else "participation"
+        )
+        type_title = "Participation" if cert_type == "participation" else "Completion"
+
+        if layout.get("body_text_template"):
+            raw_body_template = layout["body_text_template"]
+        else:
+            if cert_type == "participation":
+                raw_body_template = "For active participation in<br/>{program_name}<br/>{dates}"
+            else:
+                raw_body_template = template.body_text if template else "For successfully completing<br/>{program_name}<br/>{dates}"
+
+        student_body = (
+            raw_body_template
+            .replace("{program_name}", escape(program.name))
+            .replace("{cohort_name}", escape(cohort_title))
+            .replace("{cohort}", escape(cohort_title))
+            .replace("{dates}", escape(dates))
+            .replace("{location}", escape(location.get("name") or ""))
+            .replace("{certificate_type}", type_title)
+            .replace("{type}", type_title)
+        )
+        pages.append(await asyncio.to_thread(_render, r["student_name"], student_body))
+
     merged = await asyncio.to_thread(merge_certificate_pdfs, pages)
     safe_name = "".join(c for c in cohort.name if c.isalnum() or c in " -_").strip().replace(" ", "_")
     theme_suffix = layout["theme"] if not layout.get("is_custom") else "custom"
