@@ -95,6 +95,8 @@ def render_certificate_email(
             .replace("{team_name}", escape(team_display))
             .replace("{certificate_type}", type_label)
         )
+        if "<p" not in body_html.lower() and "<br" not in body_html.lower() and "<div" not in body_html.lower():
+            body_html = "<br/>".join(body_html.split("\n"))
     else:
         if certificate_type == "participation":
             body_html = (
@@ -640,72 +642,74 @@ async def send_cohort_certificates(
         )
 
         try:
-            cert_bytes = await asyncio.to_thread(
-                generate_completion_certificate_pdf,
-                recipient_name=contact.full_name,
-                body_text_template=student_body_text,
-                background_bytes=layout["background_bytes"],
-                theme=layout["theme"],
-                name_font_size=layout["name_font_size"],
-                name_y=layout["name_y"],
-                name_color=layout["name_color"],
-                body_font_size=layout["body_font_size"],
-                body_y=layout["body_y"],
-                body_color=layout["body_color"],
-                body_max_width=layout["body_max_width"],
-                body_alignment=layout["body_alignment"],
-                show_signature=layout["show_signature"],
-                signature_bytes=layout["signature_bytes"],
-                signature_x=layout["signature_x"],
-                signature_y=layout["signature_y"],
-                signature_width=layout["signature_width"],
-                signature_height=layout["signature_height"],
-                signatory_name=layout.get("signatory_name"),
-                signatory_title=layout.get("signatory_title"),
-            )
-
-            if existing is None:
-                certificate = Certificate(
-                    id=uuid.uuid4(),
-                    contact_id=contact.id,
-                    registration_id=reg.id,
-                    type=CertificateType.student_completion,
-                    workshop_name=program.name,
-                    workshop_date=dates,
-                    location=location.get("name"),
-                    generated_by=actor_user_id,
-                )
-                db.add(certificate)
-            else:
-                existing.generated_at = datetime.now(timezone.utc)
-                existing.generated_by = actor_user_id
-
-            reg.status = "completed"
-            await db.flush()
-
-            # Email the cert as a PDF attachment
-            if contact.email:
-                email_subj, email_body = render_certificate_email(
-                    student_name=contact.full_name,
-                    program_name=program.name,
-                    cohort_name=cohort_title,
-                    dates=dates,
-                    team_name=rec_info.get("team_name"),
-                    certificate_type=cert_type,
-                    custom_subject=custom_email_subject or layout.get("email_subject"),
-                    custom_body=custom_email_body or layout.get("email_body"),
-                )
-                filename = f"SpacePoint_{type_title}_Certificate_{program.name.replace(' ', '_')}.pdf"
-                await try_send_email(
-                    contact.email,
-                    email_subj,
-                    email_body,
-                    html=True,
-                    attachments=[(filename, cert_bytes, "pdf")],
+            async with db.begin_nested():
+                cert_bytes = await asyncio.to_thread(
+                    generate_completion_certificate_pdf,
+                    recipient_name=contact.full_name,
+                    body_text_template=student_body_text,
+                    background_bytes=layout["background_bytes"],
+                    theme=layout["theme"],
+                    name_font_size=layout["name_font_size"],
+                    name_y=layout["name_y"],
+                    name_color=layout["name_color"],
+                    body_font_size=layout["body_font_size"],
+                    body_y=layout["body_y"],
+                    body_color=layout["body_color"],
+                    body_max_width=layout["body_max_width"],
+                    body_alignment=layout["body_alignment"],
+                    show_signature=layout["show_signature"],
+                    signature_bytes=layout["signature_bytes"],
+                    signature_x=layout["signature_x"],
+                    signature_y=layout["signature_y"],
+                    signature_width=layout["signature_width"],
+                    signature_height=layout["signature_height"],
+                    signatory_name=layout.get("signatory_name"),
+                    signatory_title=layout.get("signatory_title"),
                 )
 
-            sent_count += 1
-            recipient_names.append(contact.full_name)
+                if existing is None:
+                    certificate = Certificate(
+                        id=uuid.uuid4(),
+                        contact_id=contact.id,
+                        registration_id=reg.id,
+                        type=CertificateType.student_completion,
+                        workshop_name=program.name,
+                        workshop_date=dates,
+                        location=location.get("name"),
+                        generated_by=actor_user_id,
+                    )
+                    db.add(certificate)
+                else:
+                    existing.generated_at = datetime.now(timezone.utc)
+                    existing.generated_by = actor_user_id
+
+                reg.status = "completed"
+                await db.flush()
+
+                # Email the cert as a PDF attachment
+                if contact.email:
+                    email_subj, email_body = render_certificate_email(
+                        student_name=contact.full_name,
+                        program_name=program.name,
+                        cohort_name=cohort_title,
+                        dates=dates,
+                        team_name=rec_info.get("team_name"),
+                        certificate_type=cert_type,
+                        custom_subject=custom_email_subject or layout.get("email_subject"),
+                        custom_body=custom_email_body or layout.get("email_body"),
+                    )
+                    safe_pname = "".join(c for c in program.name if c.isalnum() or c in " -_").strip().replace(" ", "_")
+                    filename = f"SpacePoint_{type_title}_Certificate_{safe_pname or 'Program'}.pdf"
+                    await try_send_email(
+                        contact.email,
+                        email_subj,
+                        email_body,
+                        html=True,
+                        attachments=[(filename, cert_bytes, "pdf")],
+                    )
+
+                sent_count += 1
+                recipient_names.append(contact.full_name)
         except Exception as exc:
             errors.append(f"{contact.full_name}: {exc}")
 

@@ -247,7 +247,7 @@ export function CompetitionCertificatesModal({
     const sName = sampleRecipient.student_name
     const tName = sampleRecipient.team_name || "Team"
     const cType = (sampleRecipient.certificate_type_earned === "participation" || filter === "participation") ? "Participation" : "Completion"
-    return emailBody
+    let body = emailBody
       .replace(/\{student_name\}/g, sName)
       .replace(/\{program_name\}/g, cohortName)
       .replace(/\{cohort_name\}/g, cohortName)
@@ -255,6 +255,11 @@ export function CompetitionCertificatesModal({
       .replace(/\{dates\}/g, "October 2026")
       .replace(/\{team_name\}/g, tName)
       .replace(/\{certificate_type\}/g, cType)
+
+    if (!body.includes("<p") && !body.includes("<br") && !body.includes("<div")) {
+      body = body.split("\n").join("<br/>")
+    }
+    return body
   }, [emailBody, sampleRecipient, cohortName, filter])
 
   const renderedPreviewSubject = useMemo(() => {
