@@ -4,6 +4,7 @@ as well as Ops manual overrides for competition teams.
 """
 from __future__ import annotations
 
+import json
 import uuid
 from datetime import datetime, timezone
 from typing import Any
@@ -46,8 +47,12 @@ def resolve_team_timing(cohort: Cohort | None, team: Team | None) -> dict[str, A
         }
 
     # 1. Manual Ops Override
-    if team.timing_adjustment_override is not None:
-        pts = float(team.timing_adjustment_override)
+    override_val = getattr(team, "timing_adjustment_override", None)
+    if override_val is not None:
+        try:
+            pts = float(override_val)
+        except (ValueError, TypeError):
+            pts = 0.0
         sign = "+" if pts > 0 else ""
         return {
             "points": pts,
@@ -55,13 +60,24 @@ def resolve_team_timing(cohort: Cohort | None, team: Team | None) -> dict[str, A
             "tier_name": "Manual Override",
             "color": "purple",
             "is_override": True,
-            "override_notes": team.timing_adjustment_notes,
-            "locked_at": team.final_locked_at,
-            "first_locked_at": team.first_locked_at,
+            "override_notes": getattr(team, "timing_adjustment_notes", None),
+            "locked_at": getattr(team, "final_locked_at", None),
+            "first_locked_at": getattr(team, "first_locked_at", None),
         }
 
-    locked_at = parse_datetime(team.final_locked_at)
-    if not cohort or not cohort.submission_windows or not locked_at:
+    locked_at = parse_datetime(getattr(team, "final_locked_at", None))
+    windows_raw = getattr(cohort, "submission_windows", None) if cohort else None
+    if isinstance(windows_raw, str):
+        try:
+            windows_raw = json.loads(windows_raw)
+        except Exception:
+            windows_raw = []
+    if not isinstance(windows_raw, list):
+        windows_raw = []
+
+    valid_windows = [w for w in windows_raw if isinstance(w, dict)]
+
+    if not valid_windows or not locked_at:
         return {
             "points": 0.0,
             "badge": None,
@@ -69,20 +85,24 @@ def resolve_team_timing(cohort: Cohort | None, team: Team | None) -> dict[str, A
             "color": None,
             "is_override": False,
             "override_notes": None,
-            "locked_at": team.final_locked_at,
-            "first_locked_at": team.first_locked_at,
+            "locked_at": getattr(team, "final_locked_at", None),
+            "first_locked_at": getattr(team, "first_locked_at", None),
         }
 
     # Sort windows by cutoff_at ascending
     windows = sorted(
-        cohort.submission_windows,
+        valid_windows,
         key=lambda w: parse_datetime(w.get("cutoff_at")) or datetime.max.replace(tzinfo=timezone.utc),
     )
 
     for w in windows:
         cutoff = parse_datetime(w.get("cutoff_at"))
         if cutoff and locked_at <= cutoff:
-            pts = float(w.get("points", 0.0))
+            pts_raw = w.get("points")
+            try:
+                pts = float(pts_raw) if pts_raw is not None else 0.0
+            except (ValueError, TypeError):
+                pts = 0.0
             return {
                 "points": pts,
                 "badge": w.get("badge") or f"{w.get('name', 'Tier')} ({'+' if pts > 0 else ''}{pts:g})",
@@ -90,14 +110,18 @@ def resolve_team_timing(cohort: Cohort | None, team: Team | None) -> dict[str, A
                 "color": w.get("color") or ("emerald" if pts > 0 else ("rose" if pts < 0 else "blue")),
                 "is_override": False,
                 "override_notes": None,
-                "locked_at": team.final_locked_at,
-                "first_locked_at": team.first_locked_at,
+                "locked_at": getattr(team, "final_locked_at", None),
+                "first_locked_at": getattr(team, "first_locked_at", None),
             }
 
     # Passed all cutoffs -> take the last window (critical late / lockout)
     if windows:
         last = windows[-1]
-        pts = float(last.get("points", 0.0))
+        pts_raw = last.get("points")
+        try:
+            pts = float(pts_raw) if pts_raw is not None else 0.0
+        except (ValueError, TypeError):
+            pts = 0.0
         return {
             "points": pts,
             "badge": last.get("badge") or f"{last.get('name', 'Late')} ({'+' if pts > 0 else ''}{pts:g})",
@@ -105,8 +129,8 @@ def resolve_team_timing(cohort: Cohort | None, team: Team | None) -> dict[str, A
             "color": last.get("color") or "rose",
             "is_override": False,
             "override_notes": None,
-            "locked_at": team.final_locked_at,
-            "first_locked_at": team.first_locked_at,
+            "locked_at": getattr(team, "final_locked_at", None),
+            "first_locked_at": getattr(team, "first_locked_at", None),
         }
 
     return {
@@ -116,23 +140,33 @@ def resolve_team_timing(cohort: Cohort | None, team: Team | None) -> dict[str, A
         "color": None,
         "is_override": False,
         "override_notes": None,
-        "locked_at": team.final_locked_at,
-        "first_locked_at": team.first_locked_at,
+        "locked_at": getattr(team, "final_locked_at", None),
+        "first_locked_at": getattr(team, "first_locked_at", None),
     }
 
 
-def get_current_active_window(windows: list[dict[str, Any]] | None, now_dt: datetime | None = None) -> dict[str, Any] | None:
+def get_current_active_window(windows: Any, now_dt: datetime | None = None) -> dict[str, Any] | None:
     """Finds the submission window currently active for a team locking right now.
     Returns window details and `seconds_remaining` until this window's cutoff.
     """
-    if not windows:
+    if isinstance(windows, str):
+        try:
+            windows = json.loads(windows)
+        except Exception:
+            windows = []
+    if not isinstance(windows, list):
         return None
+
+    valid_windows = [w for w in windows if isinstance(w, dict)]
+    if not valid_windows:
+        return None
+
     now = now_dt or datetime.now(timezone.utc)
     if not now.tzinfo:
         now = now.replace(tzinfo=timezone.utc)
 
     sorted_windows = sorted(
-        windows,
+        valid_windows,
         key=lambda w: parse_datetime(w.get("cutoff_at")) or datetime.max.replace(tzinfo=timezone.utc),
     )
 

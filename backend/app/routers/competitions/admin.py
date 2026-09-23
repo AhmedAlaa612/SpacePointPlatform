@@ -5,6 +5,7 @@ competition's rubric and judge roster are program/cohort configuration,
 not a separate permission concept.
 """
 
+import logging
 import uuid
 from typing import Literal
 
@@ -12,6 +13,8 @@ from arq.connections import ArqRedis
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
 from fastapi.responses import Response
 from sqlalchemy.ext.asyncio import AsyncSession
+
+logger = logging.getLogger(__name__)
 
 from app.core.dependencies import get_current_active_user, require_lms_content
 from app.db.session import get_db
@@ -382,8 +385,12 @@ async def post_cohort_advance_teams(
 @router.get("/cohorts/{cohort_id}/leaderboard", response_model=list[CompetitionLeaderboardRowOut])
 async def get_cohort_leaderboard(cohort_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
     await _get_cohort_or_404(db, cohort_id)
-    rows = await judging_service.leaderboard(db, cohort_id=cohort_id)
-    return [CompetitionLeaderboardRowOut(**row) for row in rows]
+    try:
+        rows = await judging_service.leaderboard(db, cohort_id=cohort_id)
+        return [CompetitionLeaderboardRowOut(**row) for row in rows]
+    except Exception as exc:
+        logger.exception("Failed to get leaderboard for cohort %s: %s", cohort_id, exc)
+        raise
 
 
 @router.get("/cohorts/{cohort_id}/export-top20", response_model=list[CompetitionLeaderboardRowOut])

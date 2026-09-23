@@ -9,6 +9,7 @@ aggregate (`leaderboard`) is ever shared, and only once published.
 
 from __future__ import annotations
 
+import logging
 import uuid
 from datetime import datetime, timezone
 
@@ -23,6 +24,9 @@ from app.models.competitions.judging import (
 from app.models.sessions.cohort import Cohort
 from app.models.team import Team
 from app.models.user import User
+from app.services.competitions.timing_windows import resolve_team_timing
+
+logger = logging.getLogger(__name__)
 
 
 # ── Rubric ───────────────────────────────────────────────────────────────
@@ -252,7 +256,7 @@ async def leaderboard(db: AsyncSession, *, cohort_id: uuid.UUID) -> list[dict]:
 
     score_rows = (await db.execute(
         select(CompetitionScore.team_id, CompetitionScore.judge_user_id, CompetitionScore.total_points, User.full_name, User.email)
-        .join(User, User.id == CompetitionScore.judge_user_id)
+        .outerjoin(User, User.id == CompetitionScore.judge_user_id)
         .where(CompetitionScore.cohort_id == cohort_id, CompetitionScore.submitted.is_(True))
         .order_by(User.full_name)
     )).all()
@@ -261,14 +265,25 @@ async def leaderboard(db: AsyncSession, *, cohort_id: uuid.UUID) -> list[dict]:
     team_raw_points: dict[uuid.UUID, list[float]] = {}
 
     for team_id, judge_user_id, total_points, judge_name, judge_email in score_rows:
+        try:
+            pts = float(total_points) if total_points is not None else 0.0
+        except (ValueError, TypeError):
+            pts = 0.0
+
+        safe_judge_name = (judge_name or "").strip() or "Judge"
+
         judge_scores_by_team.setdefault(team_id, []).append({
-            "judge_user_id": judge_user_id, "judge_name": judge_name, "total_points": total_points,
+            "judge_user_id": judge_user_id,
+            "judge_name": safe_judge_name,
+            "total_points": pts,
         })
-        team_raw_points.setdefault(team_id, []).append(total_points)
+        team_raw_points.setdefault(team_id, []).append(pts)
+
         # Normalize each judge to their scale: Judge 1 = 110, Judge 2 = 95 (common 100% scale)
         email_str = (judge_email or "").lower()
-        scale = 110.0 if "judge1" in email_str else (95.0 if "judge2" in email_str else (110.0 if total_points > 100 else 100.0))
-        team_normalized_percentages.setdefault(team_id, []).append((total_points / scale) * 100.0)
+        scale = 110.0 if "judge1" in email_str else (95.0 if "judge2" in email_str else (110.0 if pts > 100 else 100.0))
+        pct = (pts / scale) * 100.0 if scale > 0 else 0.0
+        team_normalized_percentages.setdefault(team_id, []).append(pct)
 
     out = []
     for team in teams:
@@ -279,26 +294,30 @@ async def leaderboard(db: AsyncSession, *, cohort_id: uuid.UUID) -> list[dict]:
         avg_pct = round(sum(pct_list) / count, 1) if count > 0 else None
 
         timing_info = resolve_team_timing(cohort, team)
-        timing_pts = timing_info["points"]
+        try:
+            timing_pts = float(timing_info.get("points") or 0.0)
+        except (ValueError, TypeError):
+            timing_pts = 0.0
         final_score = round(raw_judge_score + timing_pts, 1) if raw_judge_score is not None else None
 
         out.append({
-            "team_id": team.id, "team_name": team.name,
+            "team_id": team.id,
+            "team_name": team.name,
             "score": final_score,
             "raw_judge_score": raw_judge_score,
             "score_percent": avg_pct,
-            "qualification": team.qualification,
+            "qualification": getattr(team, "qualification", None),
             "judges_scored": count,
             "status": "unscored" if count == 0 else "scored",
             "judge_scores": judge_scores_by_team.get(team.id, []),
             "advanced_to": ", ".join(advanced_to_by_name.get(team.name, [])) or None,
             "timing_adjustment": timing_pts,
-            "timing_badge": timing_info["badge"],
-            "timing_tier_name": timing_info["tier_name"],
-            "is_timing_override": timing_info["is_override"],
-            "timing_override_notes": timing_info["override_notes"],
-            "final_locked_at": team.final_locked_at,
-            "first_locked_at": team.first_locked_at,
+            "timing_badge": timing_info.get("badge"),
+            "timing_tier_name": timing_info.get("tier_name"),
+            "is_timing_override": bool(timing_info.get("is_override")),
+            "timing_override_notes": timing_info.get("override_notes"),
+            "final_locked_at": getattr(team, "final_locked_at", None),
+            "first_locked_at": getattr(team, "first_locked_at", None),
         })
 
     # Sort: scored teams first. Official TOP 10 qualifiers occupy the top 10 ranks.
@@ -419,6 +438,10 @@ async def get_student_team_result(
 
     cohort = await db.get(Cohort, cohort_id)
     timing_info = resolve_team_timing(cohort, team)
+    try:
+        timing_pts = float(timing_info.get("points") or 0.0)
+    except (ValueError, TypeError):
+        timing_pts = 0.0
 
     published = await is_published(db, cohort_id=cohort_id)
     if not published:
@@ -429,11 +452,11 @@ async def get_student_team_result(
             "final_score": None,
             "score_percent": None,
             "qualification": None,
-            "locked": team.final_locked_at is not None,
-            "locked_at": team.final_locked_at,
+            "locked": getattr(team, "final_locked_at", None) is not None,
+            "locked_at": getattr(team, "final_locked_at", None),
             "published": False,
-            "timing_adjustment": timing_info["points"],
-            "timing_badge": timing_info["badge"],
+            "timing_adjustment": timing_pts,
+            "timing_badge": timing_info.get("badge"),
         }
 
     agg = (await db.execute(
@@ -443,7 +466,7 @@ async def get_student_team_result(
 
     avg_score = float(agg[0]) if agg and agg[0] is not None else None
     scored_count = agg[1] if agg else 0
-    final_score = round(avg_score + timing_info["points"], 1) if avg_score is not None else None
+    final_score = round(avg_score + timing_pts, 1) if avg_score is not None else None
     score_percent = round(100 * (final_score / 110), 1) if final_score is not None else None
 
     return {
@@ -452,12 +475,12 @@ async def get_student_team_result(
         "status": "scored" if scored_count > 0 else "unscored",
         "final_score": final_score,
         "score_percent": score_percent,
-        "qualification": team.qualification,
-        "locked": team.final_locked_at is not None,
-        "locked_at": team.final_locked_at,
+        "qualification": getattr(team, "qualification", None),
+        "locked": getattr(team, "final_locked_at", None) is not None,
+        "locked_at": getattr(team, "final_locked_at", None),
         "published": True,
-        "timing_adjustment": timing_info["points"],
-        "timing_badge": timing_info["badge"],
+        "timing_adjustment": timing_pts,
+        "timing_badge": timing_info.get("badge"),
     }
 
 

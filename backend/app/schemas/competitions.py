@@ -106,8 +106,8 @@ class CompetitionScoreOut(BaseModel):
 
 class CompetitionJudgeScoreOut(BaseModel):
     judge_user_id: UUID
-    judge_name: str
-    total_points: float
+    judge_name: str = "Judge"
+    total_points: float = 0.0
 
 
 class CompetitionLeaderboardRowOut(BaseModel):
