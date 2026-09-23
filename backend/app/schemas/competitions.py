@@ -635,9 +635,10 @@ class CompetitionCertificateDownloadIn(BaseModel):
 
 
 class CompetitionCertificateSendResultOut(BaseModel):
-    sent_count: int
-    skipped_count: int
-    total_targeted: int
-    recipient_names: list[str]
-    errors: list[str]
+    status: str = "queued"
+    sent_count: int = 0
+    skipped_count: int = 0
+    total_targeted: int = 0
+    recipient_names: list[str] = []
+    errors: list[str] = []
 

@@ -719,6 +719,8 @@ async def send_cohort_certificates(
 
                 sent_count += 1
                 recipient_names.append(contact.full_name)
+                await db.commit()
+                await asyncio.sleep(0.1)
         except Exception as exc:
             errors.append(f"{contact.full_name}: {exc}")
 

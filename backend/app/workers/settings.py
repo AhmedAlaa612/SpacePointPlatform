@@ -80,6 +80,13 @@ async def safe_enqueue(
         )
         return "inline"
 
+    if function == "send_cohort_certificates_job":
+        from app.workers.tasks.certificates import send_cohort_certificates_job
+        asyncio.create_task(
+            send_cohort_certificates_job(None, *args, **kwargs)
+        )
+        return "inline"
+
     logger.warning(
         "Task %r could not be queued and has no in-process fallback — skipped", function
     )

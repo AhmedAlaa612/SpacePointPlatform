@@ -240,7 +240,11 @@ export function CompetitionCertificatesModal({
       })
     },
     onSuccess: (res) => {
-      toast.success(`Certificates sent: ${res.sent_count} sent, ${res.skipped_count} skipped`)
+      if (res.status === "queued" || res.status === "inline") {
+        toast.success(`Dispatching ${res.total_targeted} certificate(s) in background...`)
+      } else {
+        toast.success(`Certificates sent: ${res.sent_count} sent, ${res.skipped_count} skipped`)
+      }
       queryClient.invalidateQueries({ queryKey: ["cohort-certificates-recipients", cohortId] })
       queryClient.invalidateQueries({ queryKey: ["sessions-cohort-registrations", cohortId] })
       queryClient.invalidateQueries({ queryKey: ["program-certificate-templates"] })

@@ -678,6 +678,7 @@ export interface CompetitionCertificateSendIn {
 }
 
 export interface CompetitionCertificateSendResult {
+  status?: string
   sent_count: number
   skipped_count: number
   total_targeted: number

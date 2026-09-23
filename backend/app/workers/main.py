@@ -19,6 +19,7 @@ from app.core.config import settings
 from app.core.log_context import configure_logging
 from app.workers.heartbeat import heartbeat
 from app.workers.settings import redis_settings
+from app.workers.tasks.certificates import send_cohort_certificates_job
 from app.workers.tasks.cohort_interest import send_cohort_interest_notifications
 from app.workers.tasks.imports import send_import_batch_emails
 from app.workers.tasks.inventory import send_inventory_reminders
@@ -51,6 +52,7 @@ class WorkerSettings:
         send_call_invite_emails,
         send_cohort_call_invite_emails,
         send_inventory_reminders,
+        func(send_cohort_certificates_job, timeout=600),
         # arq's default job_timeout is 300s — fine for every other job here.
         # transcode_video is CPU-bound and runs long; it's on a separate queue
         # with max_jobs=1 (see VideoWorkerSettings below) to avoid blocking

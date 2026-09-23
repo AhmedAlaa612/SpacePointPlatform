@@ -18,6 +18,7 @@ logger = logging.getLogger(__name__)
 
 from app.core.dependencies import get_current_active_user, require_lms_content
 from app.db.session import get_db
+from app.workers.settings import get_arq_redis, safe_enqueue
 from app.models.sessions.cohort import Cohort
 from app.models.sessions.program import Program
 from app.models.user import User
@@ -473,22 +474,72 @@ async def post_cohort_certificates_send(
     body: CompetitionCertificateSendIn,
     db: AsyncSession = Depends(get_db),
     current: User = Depends(get_current_active_user),
+    arq_redis: ArqRedis | None = Depends(get_arq_redis),
 ):
     await _get_cohort_or_404(db, cohort_id)
-    result = await certificates_service.send_cohort_certificates(
-        db,
-        cohort_id=cohort_id,
-        actor_user_id=current.id,
+
+    # Quickly resolve recipient count to report back to admin
+    recip_summary = await certificates_service.get_cohort_certificate_recipients(
+        db, cohort_id=cohort_id, filter_type=body.filter
+    )
+    target_ids: list[str] = []
+    selected_set = {str(r) for r in body.registration_ids} if body.registration_ids else None
+    for r in recip_summary.get("recipients", []):
+        rid_str = str(r["registration_id"])
+        if selected_set is not None and rid_str not in selected_set:
+            continue
+        if body.skip_already_issued and r.get("certificate_issued"):
+            continue
+        target_ids.append(rid_str)
+
+    if not target_ids:
+        return CompetitionCertificateSendResultOut(
+            status="sent",
+            sent_count=0,
+            skipped_count=recip_summary.get("total_students", 0),
+            total_targeted=0,
+            recipient_names=[],
+            errors=[],
+        )
+
+    # If requested to save email template, persist it immediately
+    if body.save_email_to_template and body.template_id:
+        try:
+            tmpl_uuid = uuid.UUID(str(body.template_id))
+            from app.models.competitions.certificates import ProgramCertificateTemplate
+            tmpl = await db.get(ProgramCertificateTemplate, tmpl_uuid)
+            if tmpl:
+                if body.custom_email_subject is not None:
+                    tmpl.email_subject = body.custom_email_subject.strip() or None
+                if body.custom_email_body is not None:
+                    tmpl.email_body = body.custom_email_body.strip() or None
+                await db.commit()
+        except Exception as exc:
+            logger.warning("Could not persist email template synchronously: %s", exc)
+
+    status_result = await safe_enqueue(
+        arq_redis,
+        "send_cohort_certificates_job",
+        str(cohort_id),
+        str(current.id),
         filter_type=body.filter,
-        registration_ids=body.registration_ids,
+        registration_ids=target_ids,
         theme=body.theme,
         template_id=body.template_id,
         skip_already_issued=body.skip_already_issued,
         custom_email_subject=body.custom_email_subject,
         custom_email_body=body.custom_email_body,
-        save_email_to_template=body.save_email_to_template,
+        save_email_to_template=False,
     )
-    return CompetitionCertificateSendResultOut(**result)
+
+    return CompetitionCertificateSendResultOut(
+        status=status_result,
+        sent_count=0,
+        skipped_count=0,
+        total_targeted=len(target_ids),
+        recipient_names=[],
+        errors=[],
+    )
 
 
 @router.get("/cohorts/{cohort_id}/certificates/download")
