@@ -92,11 +92,11 @@ function ensureLoaded(): void {
  *
  * `vertical_padding` on mobile: the LearnMobileTabBar is a fixed bottom bar
  * ~112 px tall (two rows: tab icons + the Back-to-portal / utility strip,
- * sized for the staff case per the shell's own comment).  Intercom's launcher
- * defaults to `bottom: 20 px` — without this override it sits *behind* the
- * bar and appears invisible on iPhone / iPad.  130 px clears the tallest
- * (staff) variant with room to spare.  Desktop gets the default 20 px because
- * there is no bottom bar there (`LearnSidebar` is on the left edge). */
+ * sized for the staff case per the shell's own comment), plus up to ~34 px
+ * of iOS safe-area-inset-bottom on Face ID devices (absorbed by the tab
+ * bar's `pb-[env(safe-area-inset-bottom)]`).  180 px places the launcher
+ * comfortably above the bar with visible breathing room on every iPhone/iPad
+ * variant.  Desktop gets the default 20 px — no bottom bar there. */
 export function boot(payload: FinBootPayload = {}): void {
   if (!isFinEnabled()) return;
   ensureLoaded();
@@ -109,7 +109,7 @@ export function boot(payload: FinBootPayload = {}): void {
 
   window.Intercom?.("boot", {
     app_id: APP_ID,
-    vertical_padding: isMobile ? 130 : 20,
+    vertical_padding: isMobile ? 180 : 20,
     ...payload,
   });
 }
