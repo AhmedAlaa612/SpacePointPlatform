@@ -146,6 +146,12 @@ export function boot(payload: FinBootPayload = {}): void {
   if (!isFinEnabled()) return;
   ensureLoaded();
 
+  // Always disconnect any previous observer first — without this, an observer
+  // started during a mobile boot can bleed into a desktop boot and move the
+  // launcher on desktop too.
+  launcherObserver?.disconnect();
+  launcherObserver = null;
+
   // isMobile: the same md breakpoint the shell uses (768 px).
   const isMobile = window.innerWidth < 768;
 
@@ -159,10 +165,8 @@ export function boot(payload: FinBootPayload = {}): void {
     ...payload,
   });
 
-  // Suspenders — direct DOM override that fires after Intercom injects the
-  // launcher element and stamps its own inline style on it.
+  // Suspenders — direct DOM override, mobile only.
   if (isMobile) {
-    launcherObserver?.disconnect();
     launcherObserver = watchAndPositionLauncher(160);
   }
 }
