@@ -23,6 +23,12 @@ const APP_ID: string = import.meta.env.VITE_INTERCOM_APP_ID ?? "";
 
 const SCRIPT_ID = "intercom-widget";
 
+/** Holds the MutationObserver that repositions the launcher on mobile,
+ *  so we can disconnect it on shutdown and avoid a live observer after the
+ *  widget is torn down. */
+let launcherObserver: MutationObserver | null = null;
+
+
 type IntercomCommand = "boot" | "update" | "shutdown" | "reattach_activator";
 
 /** The messenger's global. Before the real script lands this is our own queue
@@ -88,37 +94,77 @@ function ensureLoaded(): void {
   document.head.appendChild(script);
 }
 
+/** Stamps `bottom` directly on whatever element Intercom injects for its
+ *  launcher so it sits above the mobile tab bar.
+ *
+ *  Why not vertical_padding in boot(): Intercom's script sets
+ *  `style="bottom:20px"` on the launcher iframe *after* the boot call
+ *  resolves, overwriting the boot parameter every time.  CSS !important in
+ *  our stylesheet also fails because Intercom's newer Fin builds use
+ *  unpublished/hashed class names that differ between releases.
+ *
+ *  A MutationObserver fires *after* the element is inserted (and after
+ *  Intercom has set its own inline style), so setProperty(…,'important')
+ *  wins the race reliably.  The observer stays connected so it also catches
+ *  Intercom re-stamping the style on messenger open/close cycles. */
+function watchAndPositionLauncher(bottomPx: number): MutationObserver {
+  // Every known selector Intercom has used for its launcher iframe across
+  // messenger versions.  We try all of them on every mutation.
+  const SELECTORS = [
+    ".intercom-launcher-frame",
+    ".intercom-lightweight-app-launcher",
+    '[name="intercom-launcher-frame"]',
+    "#intercom-container iframe",
+  ];
+
+  function stamp(): void {
+    for (const sel of SELECTORS) {
+      const el = document.querySelector<HTMLElement>(sel);
+      if (el) {
+        el.style.setProperty("bottom", `${bottomPx}px`, "important");
+        return;
+      }
+    }
+  }
+
+  const observer = new MutationObserver(stamp);
+  observer.observe(document.body, { childList: true, subtree: true });
+
+  // Also try immediately in case the element already exists.
+  stamp();
+
+  return observer;
+}
+
 /** Show the messenger.
  *
- * `vertical_padding` on mobile: the LearnMobileTabBar is a fixed bottom bar
- * ~112 px tall (two rows: tab icons + the Back-to-portal / utility strip,
- * sized for the staff case per the shell's own comment), plus up to ~34 px
- * of iOS safe-area-inset-bottom on Face ID devices (absorbed by the tab
- * bar's `pb-[env(safe-area-inset-bottom)]`).  180 px places the launcher
- * comfortably above the bar with visible breathing room on every iPhone/iPad
- * variant.  Desktop gets the default 20 px — no bottom bar there. */
+ * On mobile the launcher is repositioned above the LearnMobileTabBar
+ * (~112 px tall for staff + safe-area-inset-bottom on Face ID devices)
+ * via a MutationObserver rather than vertical_padding — see
+ * watchAndPositionLauncher above for why. */
 export function boot(payload: FinBootPayload = {}): void {
   if (!isFinEnabled()) return;
   ensureLoaded();
 
-  // isMobile: the same md breakpoint the shell uses (768 px).  We read it at
-  // boot time rather than wiring a resize listener — the widget is mounted
-  // once per session and the breakpoint crossing that matters is the one the
-  // student lands on, not subsequent resizes.
+  // isMobile: the same md breakpoint the shell uses (768 px).
   const isMobile = window.innerWidth < 768;
 
-  // Shutdown before every boot so Intercom always picks up the current
-  // vertical_padding rather than restoring a cached launcher position from
-  // its session cookie.  Without this, a deploy that changes vertical_padding
-  // has no effect until the user's Intercom cookie expires — the widget
-  // silently ignores the new value and keeps the old position.
+  // Shutdown before every boot so Intercom starts from a clean state
+  // rather than restoring a stale cached session from its cookie.
   window.Intercom?.("shutdown");
 
   window.Intercom?.("boot", {
     app_id: APP_ID,
-    vertical_padding: isMobile ? 180 : 20,
+    vertical_padding: isMobile ? 180 : 20, // belt
     ...payload,
   });
+
+  // Suspenders — direct DOM override that fires after Intercom injects the
+  // launcher element and stamps its own inline style on it.
+  if (isMobile) {
+    launcherObserver?.disconnect();
+    launcherObserver = watchAndPositionLauncher(160);
+  }
 }
 
 /** Hide the messenger and **clear the local conversation**.
@@ -130,5 +176,7 @@ export function boot(payload: FinBootPayload = {}): void {
  * shared school and lab machines — that is a real leak, not a hypothetical. */
 export function shutdown(): void {
   if (!isFinEnabled()) return;
+  launcherObserver?.disconnect();
+  launcherObserver = null;
   window.Intercom?.("shutdown");
 }
