@@ -121,15 +121,20 @@ function watchAndPositionLauncher(translateUpPx: number): () => void {
   ];
 
   let styleObserver: MutationObserver | null = null;
+  let watchedEl: HTMLElement | null = null;
 
   function stamp(el: HTMLElement): void {
     el.style.setProperty("transform", `translateY(-${translateUpPx}px)`, "important");
   }
 
   function attachTo(el: HTMLElement): void {
-    if (styleObserver) return; // already watching this element
+    if (el === watchedEl) return; // same element — already watching, nothing to do
+
+    // Different element (Intercom swapped the iframe, e.g. on notification
+    // badge) — disconnect from the old one and attach to the new one.
+    styleObserver?.disconnect();
+    watchedEl = el;
     stamp(el);
-    // Watch only this element's style attribute — cheap and targeted.
     styleObserver = new MutationObserver(() => stamp(el));
     styleObserver.observe(el, { attributes: true, attributeFilter: ["style"] });
   }
@@ -157,6 +162,7 @@ function watchAndPositionLauncher(translateUpPx: number): () => void {
     insertionObserver.disconnect();
     styleObserver?.disconnect();
     styleObserver = null;
+    watchedEl = null;
   };
 }
 
