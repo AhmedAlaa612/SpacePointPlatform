@@ -45,43 +45,34 @@ interface IntercomFn {
 declare global {
   interface Window {
     Intercom?: IntercomFn;
+    // Intercom reads this object at script load time before any boot() call.
+    intercomSettings?: Record<string, unknown>;
   }
 }
 
-/** What the messenger is booted with.
- *
- * Deliberately **only** the token. Intercom reads identity from the JWT's
- * signed claims, and passing unsigned `user_id`/`name`/`email` alongside it
- * is precisely what Messenger Security rejects — it answers the boot ping
- * with a 403 and the widget never opens. Nothing is lost by omitting them:
- * the backend puts every attribute inside the token
- * (`services/lms/support.py::chat_identity`), so the contact record and the
- * Inbox still get the name, email, roles, team, cohort and card id.
- *
- * Omit it entirely to boot as an anonymous visitor.
- *
- * This type is narrow on purpose. An earlier version accepted the whole
- * identity object and the caller spread it in wholesale, which is how the
- * unsigned fields got sent in the first place. */
+/** What the messenger is booted with. */
 export interface FinBootPayload {
   intercom_user_jwt?: string;
 }
 
-/** Whether an App ID was baked into this build. Callers check this rather
- * than guessing from `window.Intercom`, which is also set by our own stub. */
+/** Whether an App ID was baked into this build. */
 export function isFinEnabled(): boolean {
   return APP_ID.length > 0;
 }
 
-/** Inject the widget script once. Idempotent: safe to call on every boot,
- * which matters because React re-runs effects (twice per mount under
- * StrictMode in dev) and the student shell mounts on every `/learn/*` route. */
-function ensureLoaded(): void {
+/** Inject the widget script once. Sets window.intercomSettings first so
+ *  Intercom reads vertical_padding during its own initialisation (before
+ *  any boot/update call). */
+function ensureLoaded(verticalPadding: number): void {
   if (document.getElementById(SCRIPT_ID)) return;
 
-  // Queue stub — commands issued before the script finishes downloading are
-  // pushed onto `q` and replayed by Intercom once it takes over the global.
-  // Without this, the `boot` below is simply lost on a cold load.
+  // intercomSettings is read by Intercom's script at load time — more
+  // reliable than boot/update which race against the script's own init.
+  window.intercomSettings = {
+    app_id: APP_ID,
+    vertical_padding: verticalPadding,
+  };
+
   if (typeof window.Intercom !== "function") {
     const stub = ((...args: unknown[]) => {
       stub.q?.push(args);
@@ -97,76 +88,120 @@ function ensureLoaded(): void {
   document.head.appendChild(script);
 }
 
-/** Watches for #intercom-container to appear (or re-appear after a
- *  notification swap) and calls Intercom('update', { vertical_padding })
- *  each time — letting Intercom handle its own positioning rather than
- *  fighting it with CSS transforms or inline style overrides.
+/** Ensures vertical_padding stays at our target value by calling
+ *  Intercom('update') whenever:
+ *  — the container first appears (covers normal boot)
+ *  — the container is re-inserted (notification badge swap)
+ *  — the launcher iframe's style attribute is changed (Intercom re-stamp)
+ *  — 500 ms and 1500 ms after boot (catches delayed initialisation resets)
  *
- *  Why `update` after insertion rather than just `boot` with vertical_padding:
- *  Intercom applies the boot-time vertical_padding before the widget DOM
- *  exists, then re-stamps its own default (20 px) once the iframe is
- *  inserted.  Calling `update` after the container appears gives it the value
- *  post-insertion, which wins reliably.  On notification events Intercom
- *  removes and re-inserts the container; the MutationObserver catches each
- *  re-insertion and calls `update` again so the position is always correct. */
+ *  A debounce prevents rapid-fire update loops when the style observer and
+ *  Intercom's own code fire in quick succession. */
 function watchAndApplyPadding(padding: number): () => void {
-  let lastContainer: Element | null = null;
+  const LAUNCHER_SELECTORS = [
+    ".intercom-launcher-frame",
+    ".intercom-lightweight-app-launcher",
+    '[name="intercom-launcher-frame"]',
+  ];
 
-  function apply(): void {
-    window.Intercom?.("update", { vertical_padding: padding });
+  let debounceTimer: ReturnType<typeof setTimeout> | null = null;
+  let styleObserver: MutationObserver | null = null;
+  let lastContainer: Element | null = null;
+  const timers: ReturnType<typeof setTimeout>[] = [];
+
+  function scheduleUpdate(): void {
+    if (debounceTimer) clearTimeout(debounceTimer);
+    debounceTimer = setTimeout(() => {
+      debounceTimer = null;
+      window.Intercom?.("update", { vertical_padding: padding });
+    }, 80);
   }
 
-  const observer = new MutationObserver(() => {
+  function attachStyleWatcher(container: Element): void {
+    styleObserver?.disconnect();
+
+    // Find the launcher iframe inside the container and watch its style —
+    // Intercom re-stamps bottom: 20px on it after insertion.
+    for (const sel of LAUNCHER_SELECTORS) {
+      const el = container.querySelector<HTMLElement>(sel);
+      if (el) {
+        styleObserver = new MutationObserver(scheduleUpdate);
+        styleObserver.observe(el, { attributes: true, attributeFilter: ["style"] });
+        return;
+      }
+    }
+
+    // Launcher not yet inside the container — watch for it to appear.
+    const inner = new MutationObserver(() => {
+      for (const sel of LAUNCHER_SELECTORS) {
+        const el = container.querySelector<HTMLElement>(sel);
+        if (el) {
+          inner.disconnect();
+          styleObserver?.disconnect();
+          styleObserver = new MutationObserver(scheduleUpdate);
+          styleObserver.observe(el, { attributes: true, attributeFilter: ["style"] });
+          return;
+        }
+      }
+    });
+    inner.observe(container, { childList: true, subtree: true });
+    styleObserver = inner;
+  }
+
+  const containerObserver = new MutationObserver(() => {
     const el = document.querySelector("#intercom-container");
     if (el && el !== lastContainer) {
       lastContainer = el;
-      apply();
+      attachStyleWatcher(el);
+      scheduleUpdate();
     }
   });
+  containerObserver.observe(document.body, { childList: true, subtree: true });
 
-  observer.observe(document.body, { childList: true, subtree: true });
-
-  // Handle the case where the container already exists.
+  // Handle container already in DOM.
   const existing = document.querySelector("#intercom-container");
   if (existing) {
     lastContainer = existing;
-    apply();
+    attachStyleWatcher(existing);
+    scheduleUpdate();
   }
 
+  // Catch delayed resets — Intercom sometimes re-stamps 500–1500 ms after boot.
+  timers.push(setTimeout(scheduleUpdate, 500));
+  timers.push(setTimeout(scheduleUpdate, 1500));
+
   return () => {
-    observer.disconnect();
+    containerObserver.disconnect();
+    styleObserver?.disconnect();
+    if (debounceTimer) clearTimeout(debounceTimer);
+    timers.forEach(clearTimeout);
     lastContainer = null;
   };
 }
 
-/** Show the messenger.
- *
- * On mobile, after Intercom inserts its container we call
- * `Intercom('update', { vertical_padding: 150 })` — Intercom's own API for
- * raising the launcher above the bottom of the screen.  This moves the
- * button, the notification badge, and positions the chat window correctly
- * without any CSS hacks or z-index interference. */
+/** Show the messenger. */
 export function boot(payload: FinBootPayload = {}): void {
   if (!isFinEnabled()) return;
-  ensureLoaded();
 
   cleanupLauncher?.();
   cleanupLauncher = null;
 
   const isMobile = window.innerWidth < 768;
+  const verticalPadding = isMobile ? 150 : 20;
 
-  // Shutdown before every boot so Intercom starts from a clean state
-  // rather than restoring a stale cached session from its cookie.
+  ensureLoaded(verticalPadding);
+
+  // Shutdown before every boot so Intercom starts from a clean state.
   window.Intercom?.("shutdown");
 
   window.Intercom?.("boot", {
     app_id: APP_ID,
-    vertical_padding: isMobile ? 150 : 20,
+    vertical_padding: verticalPadding,
     ...payload,
   });
 
   if (isMobile) {
-    cleanupLauncher = watchAndApplyPadding(150);
+    cleanupLauncher = watchAndApplyPadding(verticalPadding);
   }
 }
 
