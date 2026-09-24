@@ -10,6 +10,7 @@ Evaluates whether an instructor has uploaded all required compliance documents:
 
 from __future__ import annotations
 
+import re
 from dataclasses import asdict, dataclass
 from datetime import datetime
 from typing import Any, Sequence
@@ -59,11 +60,32 @@ CHECKLIST_SPECS = [
 ]
 
 
-def _match_key(doc_type: str) -> str | None:
+def _extract_display_filename(file_path: str | None, file_url: str | None, fallback: str) -> str:
+    candidate = file_path or (file_url.split("?")[0] if file_url else None)
+    if candidate:
+        name = candidate.split("/")[-1]
+        # Remove leading UUID or numeric prefixes
+        name = re.sub(r"^[0-9a-fA-F\-]{36}_?", "", name)
+        name = re.sub(r"^\d+_", "", name)
+        name = name.replace("_", " ").strip()
+        if name:
+            return name
+    return fallback
+
+
+def _match_key(doc_type: str, file_path: str | None = None, file_url: str | None = None) -> str | None:
     norm = doc_type.strip().lower()
     for key, aliases in DOC_TYPE_ALIASES.items():
         if norm in aliases or any(norm.startswith(a) for a in aliases):
             return key
+    # Also check if filename strongly hints at the document type
+    candidate = file_path or (file_url.split("?")[0] if file_url else "")
+    fname = candidate.split("/")[-1].lower()
+    if fname:
+        for key in ["passport", "visa", "clearance", "photo"]:
+            for alias in DOC_TYPE_ALIASES[key]:
+                if alias in fname:
+                    return key
     return None
 
 
@@ -107,13 +129,15 @@ def evaluate_instructor_compliance(
     sorted_docs = sorted(documents, key=lambda d: d.uploaded_at or datetime.min, reverse=True)
 
     for doc in sorted_docs:
-        key = _match_key(doc.document_type)
+        key = _match_key(doc.document_type, doc.file_path, doc.file_url)
         if key and key not in matched_by_key:
             matched_by_key[key] = doc
         else:
+            display_name = _extract_display_filename(doc.file_path, doc.file_url, doc.document_type)
             other_docs.append({
                 "id": str(doc.id),
                 "document_type": doc.document_type,
+                "file_name": display_name,
                 "file_url": doc.file_url,
                 "uploaded_at": doc.uploaded_at.isoformat() if doc.uploaded_at else None,
             })

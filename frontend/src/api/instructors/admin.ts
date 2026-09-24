@@ -72,6 +72,7 @@ export interface InstructorChecklistItem {
 export interface InstructorOtherDocument {
   id: string
   document_type: string
+  file_name?: string | null
   file_url: string | null
   uploaded_at: string | null
 }

@@ -122,7 +122,7 @@ function InstructorDocumentsDialog({ userId, name, onClose }: { userId: string; 
                             <span className={`text-[10px] uppercase font-bold px-1.5 py-0.5 rounded ${
                               item.uploaded ? "text-emerald-600 dark:text-emerald-400 bg-emerald-500/10" : "text-amber-600 dark:text-amber-400 bg-amber-500/10"
                             }`}>
-                              {item.uploaded ? "Verified" : "Missing"}
+                              {item.uploaded ? "Uploaded" : "Missing"}
                             </span>
                           ) : null}
                         </div>
@@ -159,25 +159,37 @@ function InstructorDocumentsDialog({ userId, name, onClose }: { userId: string; 
                   Other Uploaded Documents ({data.other_documents.length})
                 </p>
                 <div className="space-y-1.5 max-h-44 overflow-y-auto pr-1">
-                  {data.other_documents.map((doc) => (
-                    <div key={doc.id} className="flex items-center justify-between gap-2 p-2.5 rounded-lg border bg-card/40 text-xs">
-                      <div className="min-w-0">
-                        <p className="font-medium text-foreground truncate">{doc.document_type}</p>
-                        {doc.uploaded_at && (
-                          <p className="text-[10px] text-muted-foreground mt-0.5">
-                            Uploaded {new Date(doc.uploaded_at).toLocaleDateString()}
-                          </p>
+                  {data.other_documents.map((doc, idx) => {
+                    const hasDistinctName = doc.file_name && doc.file_name.toLowerCase() !== doc.document_type.toLowerCase()
+                    const displayTitle = hasDistinctName
+                      ? doc.file_name
+                      : data.other_documents.filter(d => d.document_type === doc.document_type).length > 1
+                      ? `${doc.document_type} (${idx + 1})`
+                      : doc.document_type
+
+                    return (
+                      <div key={doc.id} className="flex items-center justify-between gap-2 p-2.5 rounded-lg border bg-card/40 text-xs">
+                        <div className="min-w-0">
+                          <p className="font-medium text-foreground truncate">{displayTitle}</p>
+                          <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground mt-0.5">
+                            {hasDistinctName && (
+                              <span className="font-medium text-foreground/80">{doc.document_type} ·</span>
+                            )}
+                            {doc.uploaded_at && (
+                              <span>Uploaded {new Date(doc.uploaded_at).toLocaleDateString()}</span>
+                            )}
+                          </div>
+                        </div>
+                        {doc.file_url && (
+                          <a href={doc.file_url} target="_blank" rel="noreferrer">
+                            <Button size="sm" variant="ghost" className="h-7 px-2 text-xs">
+                              <FileText size={12} className="mr-1" /> View
+                            </Button>
+                          </a>
                         )}
                       </div>
-                      {doc.file_url && (
-                        <a href={doc.file_url} target="_blank" rel="noreferrer">
-                          <Button size="sm" variant="ghost" className="h-7 px-2 text-xs">
-                            <FileText size={12} className="mr-1" /> View
-                          </Button>
-                        </a>
-                      )}
-                    </div>
-                  ))}
+                    )
+                  })}
                 </div>
               </div>
             )}
@@ -368,9 +380,6 @@ export default function InstructorsAdminInstructors() {
             <span className="text-sm font-semibold text-primary">
               {selectedIds.length} instructor{selectedIds.length === 1 ? "" : "s"} selected
             </span>
-            <span className="text-xs text-muted-foreground hidden sm:inline">
-              (Each will have a dedicated folder in the ZIP archive)
-            </span>
           </div>
           <div className="flex items-center gap-2 w-full sm:w-auto">
             <Button
@@ -432,12 +441,9 @@ export default function InstructorsAdminInstructors() {
               >
                 {/* Main info section */}
                 <div className="flex items-start gap-3 min-w-0 flex-1">
-                  <div
-                    className="flex items-center shrink-0 pt-0.5"
-                    onClick={(e) => {
-                      e.stopPropagation()
-                      toggleSelect(i.id)
-                    }}
+                  <label
+                    className="flex items-center shrink-0 pt-0.5 cursor-pointer"
+                    onClick={(e) => e.stopPropagation()}
                   >
                     <input
                       type="checkbox"
@@ -445,7 +451,7 @@ export default function InstructorsAdminInstructors() {
                       onChange={() => toggleSelect(i.id)}
                       className="w-4 h-4 rounded border-border text-primary focus:ring-primary cursor-pointer accent-primary"
                     />
-                  </div>
+                  </label>
 
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center justify-between gap-2">
@@ -525,19 +531,9 @@ export default function InstructorsAdminInstructors() {
                       setDocumentsFor({ id: i.id, name: i.full_name })
                     }}
                   >
-                    {i.docs_compliance?.is_complete ? (
-                      <>
-                        <CheckCircle2 size={13} className="mr-1.5 shrink-0 text-emerald-500" />
-                        <span className="hidden sm:inline">Docs on file ({i.docs_compliance.uploaded_count}/{i.docs_compliance.total_required})</span>
-                        <span className="sm:hidden">Docs ({i.docs_compliance.uploaded_count}/{i.docs_compliance.total_required})</span>
-                      </>
-                    ) : (
-                      <>
-                        <AlertTriangle size={13} className="mr-1.5 shrink-0 text-amber-500" />
-                        <span className="hidden sm:inline">Missing docs ({i.docs_compliance ? i.docs_compliance.missing_docs.length : "!"})</span>
-                        <span className="sm:hidden">Missing docs ({i.docs_compliance ? i.docs_compliance.missing_docs.length : "!"})</span>
-                      </>
-                    )}
+                    <FileText size={13} className="mr-1.5 shrink-0" />
+                    <span className="hidden sm:inline">View documents</span>
+                    <span className="sm:hidden">Documents</span>
                   </Button>
                   <div className="hidden lg:block shrink-0">
                     <StatusPill status={i.status} />
