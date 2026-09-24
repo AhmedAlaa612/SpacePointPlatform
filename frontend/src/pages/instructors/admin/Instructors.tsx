@@ -211,7 +211,7 @@ function BankDetailsDialog({ userId, name, onClose }: { userId: string; name: st
             {rows.map(([label, value]) => (
               <div key={label}>
                 <p className="text-xs text-muted-foreground uppercase tracking-wider font-medium mb-0.5">{label}</p>
-                <p className="text-sm text-foreground">{value?.trim() || <span className="text-muted-foreground italic">Not set</span>}</p>
+                <p className="text-sm text-foreground break-all">{value?.trim() || <span className="text-muted-foreground italic">Not set</span>}</p>
               </div>
             ))}
           </div>
@@ -354,16 +354,16 @@ export default function InstructorsAdminInstructors() {
         {filtersActive && (
           <button
             onClick={() => { setSearch(""); setCityId(""); setDeliverCityId(""); setBankFilter(""); setDocFilter("") }}
-            className="h-9 px-3 text-sm text-muted-foreground hover:text-foreground transition-colors"
+            className="h-9 px-3 text-sm text-muted-foreground hover:text-foreground transition-colors self-start sm:self-auto"
           >
-            Clear
+            Clear filters
           </button>
         )}
       </div>
 
       {/* Batch selection toolbar */}
       {selectedIds.length > 0 && (
-        <div className="flex flex-wrap items-center justify-between gap-3 p-3.5 px-4 rounded-xl bg-primary/10 border border-primary/20 text-foreground animate-fade-in">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-3.5 px-4 rounded-xl bg-primary/10 border border-primary/20 text-foreground animate-fade-in">
           <div className="flex items-center gap-2.5">
             <span className="text-sm font-semibold text-primary">
               {selectedIds.length} instructor{selectedIds.length === 1 ? "" : "s"} selected
@@ -372,17 +372,17 @@ export default function InstructorsAdminInstructors() {
               (Each will have a dedicated folder in the ZIP archive)
             </span>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 w-full sm:w-auto">
             <Button
               size="sm"
               disabled={batchDownloading}
               onClick={handleBatchDownload}
-              className="gap-1.5 shadow-sm"
+              className="gap-1.5 shadow-sm flex-1 sm:flex-initial text-xs h-8"
             >
               {batchDownloading ? (
                 <span className="w-3.5 h-3.5 border-2 border-primary-foreground border-t-transparent rounded-full animate-spin mr-1" />
               ) : (
-                <Download size={14} className="mr-1" />
+                <Download size={13} className="mr-1" />
               )}
               Download Documents (.zip)
             </Button>
@@ -390,7 +390,7 @@ export default function InstructorsAdminInstructors() {
               size="sm"
               variant="ghost"
               onClick={() => setSelectedIds([])}
-              className="text-xs text-muted-foreground hover:text-foreground"
+              className="text-xs text-muted-foreground hover:text-foreground shrink-0 h-8"
             >
               Clear selection
             </Button>
@@ -401,7 +401,7 @@ export default function InstructorsAdminInstructors() {
       {filteredInstructors.length === 0 ? (
         <EmptyState title={(instructors ?? []).length === 0 ? "No approved instructors yet" : "No instructors match your filters"} />
       ) : (
-        <div className="space-y-2">
+        <div className="space-y-2.5">
           <div className="flex items-center justify-between px-1 py-1 text-xs text-muted-foreground">
             <label className="flex items-center gap-2 cursor-pointer hover:text-foreground transition-colors select-none">
               <input
@@ -424,15 +424,16 @@ export default function InstructorsAdminInstructors() {
                 tabIndex={0}
                 onClick={() => setProfileUserId(i.id)}
                 onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setProfileUserId(i.id) } }}
-                className={`w-full flex items-center justify-between gap-3 p-3 rounded-lg border text-left transition-colors cursor-pointer ${
+                className={`w-full flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3 p-3.5 sm:p-4 rounded-xl border text-left transition-colors cursor-pointer ${
                   isSelected
                     ? "bg-primary/5 border-primary/40 shadow-xs"
                     : "bg-card border-border hover:border-muted-foreground/30"
                 }`}
               >
-                <div className="flex items-center gap-3 min-w-0">
+                {/* Main info section */}
+                <div className="flex items-start gap-3 min-w-0 flex-1">
                   <div
-                    className="flex items-center shrink-0 pr-0.5"
+                    className="flex items-center shrink-0 pt-0.5"
                     onClick={(e) => {
                       e.stopPropagation()
                       toggleSelect(i.id)
@@ -445,63 +446,79 @@ export default function InstructorsAdminInstructors() {
                       className="w-4 h-4 rounded border-border text-primary focus:ring-primary cursor-pointer accent-primary"
                     />
                   </div>
-                  <div className="min-w-0">
-                    <p className="text-sm font-medium">{i.full_name}</p>
+
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center justify-between gap-2">
+                      <p className="text-sm font-semibold text-foreground truncate">{i.full_name}</p>
+                      <div className="lg:hidden shrink-0">
+                        <StatusPill status={i.status} />
+                      </div>
+                    </div>
                     <p className="text-xs text-muted-foreground truncate">{i.email}</p>
-                    <div className="flex flex-wrap items-center gap-x-2 gap-y-1 mt-1.5 text-xs text-muted-foreground">
-                      <span className="inline-flex items-center gap-1">
-                        <MapPin size={11} />
+
+                    <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1.5 mt-2 text-xs text-muted-foreground">
+                      <span className="inline-flex items-center gap-1 shrink-0 whitespace-nowrap">
+                        <MapPin size={11} className="shrink-0" />
                         {i.city_name ?? <span className="italic">No city</span>}
                       </span>
                       {i.deliver_city_names.length > 0 && (
-                        <span className="truncate">· Works in {i.deliver_city_names.join(", ")}</span>
+                        <span className="shrink-0 whitespace-nowrap">
+                          · Works in {i.deliver_city_names.join(", ")}
+                        </span>
                       )}
                       {i.bank_details_complete ? (
-                        <span className="inline-flex items-center gap-1 text-emerald-600 dark:text-emerald-400">
-                          <CheckCircle2 size={11} /> Bank details on file
+                        <span className="inline-flex items-center gap-1 text-emerald-600 dark:text-emerald-400 shrink-0 whitespace-nowrap">
+                          <CheckCircle2 size={11} className="shrink-0" /> Bank details on file
                         </span>
                       ) : (
-                        <span className="inline-flex items-center gap-1 text-amber-600 dark:text-amber-400">
-                          <AlertTriangle size={11} /> Bank details missing
+                        <span className="inline-flex items-center gap-1 text-amber-600 dark:text-amber-400 shrink-0 whitespace-nowrap">
+                          <AlertTriangle size={11} className="shrink-0" /> Bank details missing
                         </span>
                       )}
                       {i.docs_compliance ? (
                         i.docs_compliance.is_complete ? (
-                          <span className="inline-flex items-center gap-1 text-emerald-600 dark:text-emerald-400">
-                            <CheckCircle2 size={11} /> Docs complete
+                          <span className="inline-flex items-center gap-1 text-emerald-600 dark:text-emerald-400 shrink-0 whitespace-nowrap">
+                            <CheckCircle2 size={11} className="shrink-0" /> Docs complete
                           </span>
                         ) : (
-                          <span className="inline-flex items-center gap-1 text-amber-600 dark:text-amber-400">
-                            <AlertTriangle size={11} /> Missing {i.docs_compliance.missing_docs.length} docs
+                          <span className="inline-flex items-center gap-1 text-amber-600 dark:text-amber-400 shrink-0 whitespace-nowrap">
+                            <AlertTriangle size={11} className="shrink-0" /> Missing {i.docs_compliance.missing_docs.length} docs
                           </span>
                         )
                       ) : null}
                     </div>
                   </div>
                 </div>
-                <div className="flex items-center gap-2 shrink-0">
+
+                {/* Actions row */}
+                <div className="flex flex-wrap lg:flex-nowrap items-center gap-2 pt-2.5 lg:pt-0 border-t border-border/40 lg:border-0 shrink-0">
                   <Button
                     size="sm"
                     variant="outline"
+                    className="h-8 text-xs flex-1 sm:flex-initial justify-center"
                     onClick={(e) => { e.stopPropagation(); void navigate({ to: `/instructors/admin/instructors/${i.id}/performance` }) }}
                   >
-                    <LineChart size={14} className="mr-1.5" /> Performance
+                    <LineChart size={13} className="mr-1.5 shrink-0" />
+                    <span>Performance</span>
                   </Button>
                   <Button
                     size="sm"
                     variant="outline"
+                    className="h-8 text-xs flex-1 sm:flex-initial justify-center"
                     onClick={(e) => { e.stopPropagation(); setBankDetailsFor({ id: i.id, name: i.full_name }) }}
                   >
-                    <Banknote size={14} className="mr-1.5" /> View bank details
+                    <Banknote size={13} className="mr-1.5 shrink-0" />
+                    <span className="hidden sm:inline">View bank details</span>
+                    <span className="sm:hidden">Bank details</span>
                   </Button>
                   <Button
                     size="sm"
                     variant="outline"
-                    className={
+                    className={`h-8 text-xs flex-1 sm:flex-initial justify-center ${
                       i.docs_compliance?.is_complete
                         ? "text-emerald-600 dark:text-emerald-400 border-emerald-500/30 hover:bg-emerald-500/10"
                         : "text-amber-600 dark:text-amber-400 border-amber-500/30 hover:bg-amber-500/10"
-                    }
+                    }`}
                     title="View documents & compliance checklist"
                     onClick={(e) => {
                       e.stopPropagation()
@@ -510,17 +527,21 @@ export default function InstructorsAdminInstructors() {
                   >
                     {i.docs_compliance?.is_complete ? (
                       <>
-                        <CheckCircle2 size={14} className="mr-1.5 text-emerald-500" />
-                        Docs on file ({i.docs_compliance.uploaded_count}/{i.docs_compliance.total_required})
+                        <CheckCircle2 size={13} className="mr-1.5 shrink-0 text-emerald-500" />
+                        <span className="hidden sm:inline">Docs on file ({i.docs_compliance.uploaded_count}/{i.docs_compliance.total_required})</span>
+                        <span className="sm:hidden">Docs ({i.docs_compliance.uploaded_count}/{i.docs_compliance.total_required})</span>
                       </>
                     ) : (
                       <>
-                        <AlertTriangle size={14} className="mr-1.5 text-amber-500" />
-                        Missing docs ({i.docs_compliance ? i.docs_compliance.missing_docs.length : "!"})
+                        <AlertTriangle size={13} className="mr-1.5 shrink-0 text-amber-500" />
+                        <span className="hidden sm:inline">Missing docs ({i.docs_compliance ? i.docs_compliance.missing_docs.length : "!"})</span>
+                        <span className="sm:hidden">Missing docs ({i.docs_compliance ? i.docs_compliance.missing_docs.length : "!"})</span>
                       </>
                     )}
                   </Button>
-                  <StatusPill status={i.status} />
+                  <div className="hidden lg:block shrink-0">
+                    <StatusPill status={i.status} />
+                  </div>
                 </div>
               </div>
             )
