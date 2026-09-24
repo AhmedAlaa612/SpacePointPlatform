@@ -13,6 +13,8 @@ import io
 import os
 import re
 import zipfile
+from datetime import datetime, timezone
+from typing import Sequence
 from uuid import UUID
 
 import httpx
@@ -82,16 +84,12 @@ async def _get_file_bytes(
     return None
 
 
-async def build_user_documents_zip(
+async def get_user_document_items(
     user_id: UUID,
     db: AsyncSession,
     include_generated: bool = False,
-) -> tuple[bytes, str]:
-    """Compile all uploaded documents for a user into a ZIP archive.
-
-    Returns (zip_bytes, zip_filename).
-    Raises HTTPException(404) if user not found or no documents are available.
-    """
+) -> tuple[User, list[tuple[str, bytes]]]:
+    """Retrieve all document files (filename, bytes) for a user."""
     user = (await db.execute(select(User).where(User.id == user_id))).scalars().first()
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
@@ -209,6 +207,20 @@ async def build_user_documents_zip(
 
         files_to_zip.append((final_name, data))
 
+    return user, files_to_zip
+
+
+async def build_user_documents_zip(
+    user_id: UUID,
+    db: AsyncSession,
+    include_generated: bool = False,
+) -> tuple[bytes, str]:
+    """Compile all uploaded documents for a single user into a ZIP archive.
+
+    Returns (zip_bytes, zip_filename).
+    Raises HTTPException(404) if user not found or no documents are available.
+    """
+    user, files_to_zip = await get_user_document_items(user_id, db, include_generated)
     if not files_to_zip:
         raise HTTPException(
             status_code=404,
@@ -225,5 +237,57 @@ async def build_user_documents_zip(
 
     safe_name = "".join(c for c in user.full_name if c.isalnum() or c in " -_").strip().replace(" ", "_")
     zip_filename = f"{safe_name or str(user.id)}_documents.zip"
+
+    return zip_bytes, zip_filename
+
+
+async def build_multi_users_documents_zip(
+    user_ids: Sequence[UUID],
+    db: AsyncSession,
+    include_generated: bool = False,
+) -> tuple[bytes, str]:
+    """Compile uploaded documents for multiple users into a single ZIP archive,
+    with a dedicated folder for each user named after them.
+    """
+    if not user_ids:
+        raise HTTPException(status_code=400, detail="No users specified.")
+
+    zip_buffer = io.BytesIO()
+    total_files = 0
+    used_folder_names: dict[str, int] = {}
+
+    with zipfile.ZipFile(zip_buffer, mode="w", compression=zipfile.ZIP_DEFLATED) as zf:
+        for uid in user_ids:
+            try:
+                user, files = await get_user_document_items(uid, db, include_generated)
+            except HTTPException:
+                continue
+
+            base_folder = "".join(c for c in user.full_name if c.isalnum() or c in " -_").strip().replace(" ", "_")
+            if not base_folder:
+                base_folder = f"User_{str(uid)[:8]}"
+
+            # Disambiguate folder names if users share identical names
+            count = used_folder_names.get(base_folder.lower(), 0)
+            used_folder_names[base_folder.lower()] = count + 1
+            folder_name = base_folder if count == 0 else f"{base_folder}_{count + 1}"
+
+            if not files:
+                zf.writestr(
+                    f"{folder_name}/_no_documents_uploaded.txt",
+                    f"No uploaded documents found for {user.full_name} ({user.email}).\n".encode("utf-8"),
+                )
+                total_files += 1
+            else:
+                for fname, file_bytes in files:
+                    zf.writestr(f"{folder_name}/{fname}", file_bytes)
+                    total_files += 1
+
+    if total_files == 0:
+        raise HTTPException(status_code=404, detail="No documents found for the selected users.")
+
+    zip_buffer.seek(0)
+    zip_bytes = zip_buffer.getvalue()
+    zip_filename = f"instructors_documents_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}.zip"
 
     return zip_bytes, zip_filename

@@ -1,11 +1,12 @@
 import { useState } from "react"
 import { Link } from "@tanstack/react-router"
 import { useQuery } from "@tanstack/react-query"
-import { BookOpen, CheckCircle2, CreditCard, GraduationCap, Wallet } from "lucide-react"
+import { AlertTriangle, BookOpen, CheckCircle2, CreditCard, GraduationCap, Wallet } from "lucide-react"
 import { listTrainingApi } from "@/api/instructors/training"
 import { getPaymentSummaryApi } from "@/api/instructors/payments"
-import { getIdCardApi } from "@/api/instructors/instructor"
+import { getIdCardApi, getMyDocumentsComplianceApi } from "@/api/instructors/instructor"
 import { useAuth } from "@/context/AuthContext"
+import { Button } from "@/components/ui/button"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Spinner } from "@/pages/instructors/components/common"
 import { cn } from "@/lib/utils"
@@ -23,6 +24,7 @@ export default function InstructorDashboard() {
   const training = useQuery({ queryKey: ["instructor-training"], queryFn: listTrainingApi })
   const summary = useQuery({ queryKey: ["instructor-payment-summary"], queryFn: getPaymentSummaryApi })
   const idCard = useQuery({ queryKey: ["instructor-id-card", "instructor"], queryFn: () => getIdCardApi("instructor") })
+  const docsCompliance = useQuery({ queryKey: ["my-documents-compliance"], queryFn: getMyDocumentsComplianceApi })
   const [cardView, setCardView] = useState<{ side: "front" | "back"; b64: string } | null>(null)
 
   if (training.isLoading || summary.isLoading) return <Spinner />
@@ -37,6 +39,17 @@ export default function InstructorDashboard() {
   const firstName = (currentUser?.full_name ?? "Instructor").split(" ")[0]
 
   const nextSteps = [
+    ...(docsCompliance.data && !docsCompliance.data.is_complete
+      ? [
+          {
+            done: false,
+            icon: <AlertTriangle size={16} className="text-amber-500" />,
+            title: `Upload Mandatory Documents (${docsCompliance.data.uploaded_count}/${docsCompliance.data.total_required})`,
+            desc: `Missing: ${docsCompliance.data.missing_docs.join(", ")}`,
+            to: "/instructors/documents",
+          },
+        ]
+      : []),
     {
       done: cardGenerated,
       icon: <CreditCard size={16} />,
@@ -71,6 +84,33 @@ export default function InstructorDashboard() {
           </span>
         </div>
       </GlassCard>
+
+      {/* Document compliance warning banner */}
+      {docsCompliance.data && !docsCompliance.data.is_complete && (
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 p-4 sm:p-5 rounded-2xl bg-amber-500/10 border border-amber-500/20 text-foreground">
+          <div className="flex items-start sm:items-center gap-3">
+            <div className="p-2 rounded-xl bg-amber-500/20 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5 sm:mt-0">
+              <AlertTriangle size={20} />
+            </div>
+            <div>
+              <h3 className="text-sm font-semibold text-amber-800 dark:text-amber-300">
+                Mandatory Documents Incomplete
+              </h3>
+              <p className="text-xs text-muted-foreground mt-0.5">
+                You have uploaded {docsCompliance.data.uploaded_count} of {docsCompliance.data.total_required} mandatory documents.
+                {docsCompliance.data.missing_docs.length > 0 && (
+                  <span className="font-medium text-foreground"> Missing: {docsCompliance.data.missing_docs.join(", ")}</span>
+                )}
+              </p>
+            </div>
+          </div>
+          <Link to="/instructors/documents" className="shrink-0 self-start sm:self-auto">
+            <Button size="sm" variant="outline" className="border-amber-500/30 text-amber-700 dark:text-amber-300 hover:bg-amber-500/10 text-xs">
+              Upload Missing Documents
+            </Button>
+          </Link>
+        </div>
+      )}
 
       {/* Stat cards */}
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">

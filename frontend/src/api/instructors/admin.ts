@@ -47,6 +47,40 @@ export interface InvitationCode {
   created_at: string
 }
 
+export interface InstructorDocumentsComplianceSummary {
+  is_complete: boolean
+  is_uae_resident: boolean
+  uploaded_count: number
+  total_required: number
+  missing_docs: string[]
+}
+
+export interface InstructorChecklistItem {
+  key: string
+  label: string
+  desc: string
+  mandatory: boolean
+  uploaded: boolean
+  exempt: boolean
+  exemption_reason: string | null
+  document_id: string | null
+  document_type: string | null
+  file_url: string | null
+  uploaded_at: string | null
+}
+
+export interface InstructorOtherDocument {
+  id: string
+  document_type: string
+  file_url: string | null
+  uploaded_at: string | null
+}
+
+export interface InstructorDocumentsComplianceDetail extends InstructorDocumentsComplianceSummary {
+  checklist: InstructorChecklistItem[]
+  other_documents: InstructorOtherDocument[]
+}
+
 export interface InstructorListItem {
   id: string
   full_name: string
@@ -67,6 +101,8 @@ export interface InstructorListItem {
   // Whether all four bank fields are filled in — not the values themselves,
   // those are fetched on demand via getAdminInstructorBankDetailsApi.
   bank_details_complete: boolean
+  // Documents compliance summary
+  docs_compliance?: InstructorDocumentsComplianceSummary
 }
 
 export const getAdminOverviewApi = () => api.get<AdminOverview>("/instructors/admin/overview").then((r) => r.data)
@@ -140,6 +176,9 @@ export const getAdminInstructorDetailApi = (userId: string) =>
 export const getAdminInstructorBankDetailsApi = (userId: string) =>
   api.get<BankDetails>(`/instructors/admin/instructors/${userId}/bank-details`).then((r) => r.data)
 
+export const getAdminInstructorDocumentsComplianceApi = (userId: string) =>
+  api.get<InstructorDocumentsComplianceDetail>(`/instructors/admin/instructors/${userId}/documents-compliance`).then((r) => r.data)
+
 export const getSettingsApi = () => api.get<Record<string, string>>("/instructors/admin/settings").then((r) => r.data)
 
 export const upsertSettingApi = (key: string, value: string) =>
@@ -152,4 +191,41 @@ export const uploadAdminSignatureApi = (file: File) => {
 }
 
 export { downloadUserDocumentsZipApi as downloadInstructorDocumentsZipApi } from "@/api/admin/users"
+
+export const downloadBatchInstructorDocumentsZipApi = async (
+  userIds: string[],
+  includeGenerated = false
+) => {
+  try {
+    const res = await api.post(
+      "/instructors/admin/instructors/documents/batch-zip",
+      { user_ids: userIds, include_generated: includeGenerated },
+      { responseType: "blob" }
+    )
+    const blob = res.data as Blob
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement("a")
+    a.href = url
+    a.download = `instructors_documents_${new Date().toISOString().slice(0, 10)}.zip`
+    document.body.appendChild(a)
+    a.click()
+    document.body.removeChild(a)
+    URL.revokeObjectURL(url)
+    return { ok: true }
+  } catch (err: any) {
+    let msg = "Failed to download batch documents"
+    if (err?.response?.data instanceof Blob) {
+      try {
+        const text = await err.response.data.text()
+        const json = JSON.parse(text)
+        if (json.detail) msg = json.detail
+      } catch {
+        // fallback
+      }
+    } else if (err?.response?.data?.detail) {
+      msg = err.response.data.detail
+    }
+    throw new Error(msg)
+  }
+}
 

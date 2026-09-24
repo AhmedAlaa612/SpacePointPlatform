@@ -22,7 +22,7 @@ import {
   createDocumentRequestApi,
   getAvailableTemplatesApi,
 } from "@/api/documents"
-import { getProfileApi, signContractApi } from "@/api/instructors/instructor"
+import { getProfileApi, signContractApi, getMyDocumentsComplianceApi } from "@/api/instructors/instructor"
 import {
   createRoleRequestApi,
   getMyRoleRequestsApi,
@@ -35,14 +35,24 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { SignaturePad } from "@/pages/instructors/components/SignaturePad"
 
-const DOC_TYPES = ["ID Card", "Passport", "Personal Picture", "Contract", "Visa", "CV", "Other"]
+const DOC_TYPES = [
+  "Emirates ID / National ID",
+  "Passport",
+  "Personal Picture",
+  "Clearance Document",
+  "Residence Visa",
+  "Contract",
+  "CV",
+  "Other",
+]
 
-const CHECKLIST: { type: string; desc: string }[] = [
-  { type: "ID Card", desc: "UAE Emirates ID (front & back copy) or National ID card." },
-  { type: "Passport", desc: "High-quality copy of your passport information page." },
-  { type: "Personal Picture", desc: "Professional high-resolution headshot for portal." },
+const CHECKLIST: { type: string; desc: string; badge?: string }[] = [
+  { type: "Emirates ID / National ID", desc: "UAE Emirates ID (front & back) if UAE resident, or national ID if international.", badge: "Mandatory" },
+  { type: "Passport", desc: "High-quality copy of your passport information page.", badge: "Mandatory" },
+  { type: "Personal Picture", desc: "Professional high-resolution passport-style headshot.", badge: "Mandatory" },
+  { type: "Clearance Document", desc: "Police clearance certificate or certificate of good conduct.", badge: "Mandatory" },
+  { type: "Residence Visa", desc: "UAE Residency Visa copy (mandatory for UAE expats; exempt for international instructors, who may still upload if held).", badge: "UAE Residents" },
   { type: "Contract", desc: "Signed copy of your SpacePoint Instructor contract." },
-  { type: "Visa", desc: "UAE Residency Visa copy (if applicable)." },
   { type: "CV", desc: "Your latest professional CV or resume." },
 ]
 
@@ -99,6 +109,12 @@ export default function PersonalDocuments() {
     enabled: canUseVault,
   })
 
+  const { data: compliance } = useQuery({
+    queryKey: ["my-documents-compliance"],
+    queryFn: getMyDocumentsComplianceApi,
+    enabled: canUseVault,
+  })
+
   const { data: internLetter } = useQuery({
     queryKey: ["my-internship-letter"],
     queryFn: getMyInternshipLetterApi,
@@ -138,6 +154,7 @@ export default function PersonalDocuments() {
     mutationFn: () => uploadDocumentApi(docType, selectedFile!),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["personal-documents"] })
+      qc.invalidateQueries({ queryKey: ["my-documents-compliance"] })
       setSelectedFile(null)
       if (fileRef.current) fileRef.current.value = ""
     },
@@ -146,7 +163,10 @@ export default function PersonalDocuments() {
 
   const remove = useMutation({
     mutationFn: (id: string) => deleteDocumentApi(id),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["personal-documents"] }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["personal-documents"] })
+      qc.invalidateQueries({ queryKey: ["my-documents-compliance"] })
+    },
     onError: (err: any) => alert(err?.response?.data?.detail || "Failed to delete document."),
   })
 
@@ -414,18 +434,64 @@ export default function PersonalDocuments() {
                 </div>
 
                 <div className="bg-primary/5 border border-primary/15 rounded-2xl p-5 flex flex-col gap-3">
-                  <h4 className="text-[11px] uppercase tracking-wider text-primary font-bold">
-                    Required Documents Checklist
-                  </h4>
+                  <div className="flex items-center justify-between">
+                    <h4 className="text-[11px] uppercase tracking-wider text-primary font-bold">
+                      Required Documents Checklist
+                    </h4>
+                    {compliance && (
+                      <span className={`text-[11px] font-semibold px-2 py-0.5 rounded-full ${
+                        compliance.is_complete
+                          ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20"
+                          : "bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20"
+                      }`}>
+                        {compliance.is_complete ? "Complete" : `${compliance.uploaded_count}/${compliance.total_required} Uploaded`}
+                      </span>
+                    )}
+                  </div>
                   <ul className="flex flex-col gap-3 text-xs text-muted-foreground">
-                    {CHECKLIST.map((c) => (
-                      <li key={c.type} className="flex items-start gap-2">
-                        <span className="text-primary mt-0.5">•</span>
-                        <div>
-                          <strong className="text-foreground">{c.type}:</strong> {c.desc}
-                        </div>
-                      </li>
-                    ))}
+                    {CHECKLIST.map((c) => {
+                      const itemStatus = compliance?.checklist?.find(
+                        (i) =>
+                          i.label.toLowerCase() === c.type.toLowerCase() ||
+                          (c.type.startsWith("Emirates ID") && i.key === "emirates_id") ||
+                          (c.type.startsWith("Clearance") && i.key === "clearance") ||
+                          (c.type.startsWith("Personal Picture") && i.key === "photo") ||
+                          (c.type.startsWith("Residence Visa") && i.key === "visa") ||
+                          (c.type.startsWith("Passport") && i.key === "passport")
+                      )
+                      const isUploaded = itemStatus?.uploaded
+                      const isExempt = itemStatus?.exempt
+                      return (
+                        <li key={c.type} className="flex items-start gap-2">
+                          {isUploaded ? (
+                            <CheckCircle2 size={14} className="text-emerald-500 mt-0.5 shrink-0" />
+                          ) : (
+                            <span className="text-primary mt-0.5 shrink-0">•</span>
+                          )}
+                          <div className="flex-1">
+                            <div className="flex items-center gap-1.5 flex-wrap">
+                              <strong className={isUploaded ? "text-foreground line-through opacity-80" : "text-foreground"}>
+                                {c.type}:
+                              </strong>
+                              {isUploaded ? (
+                                <span className="text-[10px] uppercase font-semibold text-emerald-600 dark:text-emerald-400">
+                                  Uploaded
+                                </span>
+                              ) : isExempt ? (
+                                <span className="text-[10px] uppercase font-semibold text-muted-foreground px-1.5 py-0.5 rounded bg-muted/60">
+                                  Exempt (Non-UAE)
+                                </span>
+                              ) : c.badge ? (
+                                <span className="text-[10px] uppercase font-semibold text-amber-600 dark:text-amber-400">
+                                  {c.badge}
+                                </span>
+                              ) : null}
+                            </div>
+                            <span className="text-[11px] leading-relaxed">{c.desc}</span>
+                          </div>
+                        </li>
+                      )
+                    })}
                   </ul>
                 </div>
               </div>

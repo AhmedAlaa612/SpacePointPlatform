@@ -37,3 +37,8 @@ export const getBankDetailsApi = () =>
 
 export const updateBankDetailsApi = (data: Partial<BankDetails>) =>
   api.put<BankDetails>("/instructors/bank-details", data).then((r) => r.data)
+
+import type { InstructorDocumentsComplianceDetail } from "./admin"
+
+export const getMyDocumentsComplianceApi = () =>
+  api.get<InstructorDocumentsComplianceDetail>("/instructors/documents/compliance").then((r) => r.data)

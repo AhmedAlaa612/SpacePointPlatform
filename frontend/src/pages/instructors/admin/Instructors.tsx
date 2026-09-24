@@ -1,14 +1,192 @@
 import { useMemo, useState } from "react"
 import { useNavigate } from "@tanstack/react-router"
 import { useQuery } from "@tanstack/react-query"
-import { AlertTriangle, Banknote, CheckCircle2, Download, LineChart, MapPin } from "lucide-react"
-import { getAdminInstructorBankDetailsApi, listAdminInstructorsApi } from "@/api/instructors/admin"
+import { AlertTriangle, Banknote, CheckCircle2, Download, FileText, LineChart, MapPin } from "lucide-react"
+import {
+  downloadBatchInstructorDocumentsZipApi,
+  getAdminInstructorBankDetailsApi,
+  getAdminInstructorDocumentsComplianceApi,
+  listAdminInstructorsApi,
+} from "@/api/instructors/admin"
 import { downloadUserDocumentsZipApi } from "@/api/admin/users"
 import { UserProfileModal } from "@/components/UserProfileModal"
 import { Button } from "@/components/ui/button"
 import { useToast } from "@/components/ui/toast"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { EmptyState, PageHeader, Spinner, StatusPill } from "@/pages/instructors/components/common"
+
+function InstructorDocumentsDialog({ userId, name, onClose }: { userId: string; name: string; onClose: () => void }) {
+  const toast = useToast()
+  const [downloading, setDownloading] = useState(false)
+  const { data, isLoading } = useQuery({
+    queryKey: ["admin-instructor-documents-compliance", userId],
+    queryFn: () => getAdminInstructorDocumentsComplianceApi(userId),
+  })
+
+  return (
+    <Dialog open onOpenChange={(open) => !open && onClose()}>
+      <DialogContent className="max-w-xl max-h-[85vh] overflow-y-auto">
+        <DialogHeader className="pb-3 border-b">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pr-6">
+            <div>
+              <DialogTitle className="text-base sm:text-lg">Instructor Documents — {name}</DialogTitle>
+              {data && (
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  {data.is_complete ? (
+                    <span className="text-emerald-600 dark:text-emerald-400 font-medium">
+                      All mandatory documents on file ({data.uploaded_count}/{data.total_required})
+                    </span>
+                  ) : (
+                    <span className="text-amber-600 dark:text-amber-400 font-medium">
+                      Missing {data.missing_docs.length} mandatory document{data.missing_docs.length === 1 ? "" : "s"} ({data.uploaded_count}/{data.total_required} uploaded)
+                    </span>
+                  )}
+                  {data.is_uae_resident ? " · UAE Resident" : " · Non-UAE (Visa Exempt)"}
+                </p>
+              )}
+            </div>
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={downloading}
+              className="shrink-0 self-start sm:self-auto text-xs"
+              onClick={async () => {
+                try {
+                  setDownloading(true)
+                  await downloadUserDocumentsZipApi(userId, name)
+                  toast.success(`Downloaded documents for ${name}`)
+                } catch (err: any) {
+                  toast.error(err?.message || "Failed to download documents")
+                } finally {
+                  setDownloading(false)
+                }
+              }}
+            >
+              {downloading ? (
+                <span className="w-3.5 h-3.5 border-2 border-primary border-t-transparent rounded-full animate-spin mr-1.5" />
+              ) : (
+                <Download size={13} className="mr-1.5" />
+              )}
+              Download ZIP
+            </Button>
+          </div>
+        </DialogHeader>
+
+        {isLoading ? (
+          <div className="py-8"><Spinner /></div>
+        ) : (
+          <div className="flex flex-col gap-5 pt-1">
+            {/* Mandatory checklist */}
+            <div className="flex flex-col gap-2.5">
+              <div className="flex items-center justify-between">
+                <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                  Mandatory Checklist
+                </p>
+                <span className={`text-[11px] font-semibold px-2 py-0.5 rounded-full ${
+                  data?.is_complete
+                    ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20"
+                    : "bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20"
+                }`}>
+                  {data?.is_complete ? "All Complete" : `${data?.uploaded_count}/${data?.total_required} Complete`}
+                </span>
+              </div>
+
+              <div className="space-y-2">
+                {data?.checklist?.map((item) => (
+                  <div
+                    key={item.key}
+                    className={`flex items-center justify-between gap-3 p-3 rounded-xl border transition-colors ${
+                      item.uploaded
+                        ? "bg-emerald-500/5 border-emerald-500/20"
+                        : item.exempt
+                        ? "bg-muted/30 border-border"
+                        : "bg-amber-500/5 border-amber-500/20"
+                    }`}
+                  >
+                    <div className="flex items-start gap-2.5 min-w-0">
+                      {item.uploaded ? (
+                        <CheckCircle2 size={16} className="text-emerald-500 mt-0.5 shrink-0" />
+                      ) : item.exempt ? (
+                        <span className="w-4 h-4 mt-0.5 rounded-full bg-muted flex items-center justify-center text-[10px] text-muted-foreground shrink-0">−</span>
+                      ) : (
+                        <AlertTriangle size={16} className="text-amber-500 mt-0.5 shrink-0" />
+                      )}
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          <span className="text-xs font-semibold text-foreground">{item.label}</span>
+                          {item.exempt ? (
+                            <span className="text-[10px] uppercase font-bold text-muted-foreground px-1.5 py-0.5 rounded bg-muted/60">
+                              Exempt (Non-UAE)
+                            </span>
+                          ) : item.mandatory ? (
+                            <span className={`text-[10px] uppercase font-bold px-1.5 py-0.5 rounded ${
+                              item.uploaded ? "text-emerald-600 dark:text-emerald-400 bg-emerald-500/10" : "text-amber-600 dark:text-amber-400 bg-amber-500/10"
+                            }`}>
+                              {item.uploaded ? "Verified" : "Missing"}
+                            </span>
+                          ) : null}
+                        </div>
+                        <p className="text-[11px] text-muted-foreground mt-0.5">{item.desc}</p>
+                        {item.uploaded_at && (
+                          <p className="text-[10px] text-muted-foreground mt-0.5">
+                            Uploaded {new Date(item.uploaded_at).toLocaleDateString()}
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                    <div className="shrink-0">
+                      {item.uploaded && item.file_url ? (
+                        <a href={item.file_url} target="_blank" rel="noreferrer">
+                          <Button size="sm" variant="ghost" className="h-7 px-2.5 text-xs text-primary hover:text-primary">
+                            <FileText size={13} className="mr-1" /> View
+                          </Button>
+                        </a>
+                      ) : item.exempt ? (
+                        <span className="text-[11px] text-muted-foreground italic px-2">Optional</span>
+                      ) : (
+                        <span className="text-[11px] text-amber-600 dark:text-amber-400 font-medium px-2">Required</span>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Other uploaded documents */}
+            {data?.other_documents && data.other_documents.length > 0 && (
+              <div className="flex flex-col gap-2 pt-2 border-t">
+                <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                  Other Uploaded Documents ({data.other_documents.length})
+                </p>
+                <div className="space-y-1.5 max-h-44 overflow-y-auto pr-1">
+                  {data.other_documents.map((doc) => (
+                    <div key={doc.id} className="flex items-center justify-between gap-2 p-2.5 rounded-lg border bg-card/40 text-xs">
+                      <div className="min-w-0">
+                        <p className="font-medium text-foreground truncate">{doc.document_type}</p>
+                        {doc.uploaded_at && (
+                          <p className="text-[10px] text-muted-foreground mt-0.5">
+                            Uploaded {new Date(doc.uploaded_at).toLocaleDateString()}
+                          </p>
+                        )}
+                      </div>
+                      {doc.file_url && (
+                        <a href={doc.file_url} target="_blank" rel="noreferrer">
+                          <Button size="sm" variant="ghost" className="h-7 px-2 text-xs">
+                            <FileText size={12} className="mr-1" /> View
+                          </Button>
+                        </a>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+      </DialogContent>
+    </Dialog>
+  )
+}
 
 function BankDetailsDialog({ userId, name, onClose }: { userId: string; name: string; onClose: () => void }) {
   const { data, isLoading } = useQuery({
@@ -48,12 +226,15 @@ export default function InstructorsAdminInstructors() {
   const toast = useToast()
   const { data: instructors, isLoading } = useQuery({ queryKey: ["admin-instructors"], queryFn: listAdminInstructorsApi })
   const [profileUserId, setProfileUserId] = useState<string | null>(null)
-  const [downloadingUserId, setDownloadingUserId] = useState<string | null>(null)
   const [bankDetailsFor, setBankDetailsFor] = useState<{ id: string; name: string } | null>(null)
+  const [documentsFor, setDocumentsFor] = useState<{ id: string; name: string } | null>(null)
+  const [selectedIds, setSelectedIds] = useState<string[]>([])
+  const [batchDownloading, setBatchDownloading] = useState(false)
   const [search, setSearch] = useState("")
   const [cityId, setCityId] = useState("")
   const [deliverCityId, setDeliverCityId] = useState("")
   const [bankFilter, setBankFilter] = useState<"" | "missing" | "complete">("")
+  const [docFilter, setDocFilter] = useState<"" | "missing" | "complete">("")
 
   // Options come from the loaded rows rather than /public/cities: the point of
   // these filters is to narrow THIS list, so offering cities no instructor is
@@ -81,11 +262,43 @@ export default function InstructorsAdminInstructors() {
       if (deliverCityId && !i.deliver_city_ids.includes(deliverCityId)) return false
       if (bankFilter === "missing" && i.bank_details_complete) return false
       if (bankFilter === "complete" && !i.bank_details_complete) return false
+      if (docFilter === "missing" && i.docs_compliance?.is_complete) return false
+      if (docFilter === "complete" && !i.docs_compliance?.is_complete) return false
       return true
     })
-  }, [instructors, search, cityId, deliverCityId, bankFilter])
+  }, [instructors, search, cityId, deliverCityId, bankFilter, docFilter])
 
-  const filtersActive = !!(search.trim() || cityId || deliverCityId || bankFilter)
+  const allFilteredIds = useMemo(() => filteredInstructors.map((i) => i.id), [filteredInstructors])
+  const isAllSelected = allFilteredIds.length > 0 && allFilteredIds.every((id) => selectedIds.includes(id))
+
+  const toggleSelectAll = () => {
+    if (isAllSelected) {
+      setSelectedIds([])
+    } else {
+      setSelectedIds(allFilteredIds)
+    }
+  }
+
+  const toggleSelect = (id: string) => {
+    setSelectedIds((prev) =>
+      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
+    )
+  }
+
+  const handleBatchDownload = async () => {
+    if (selectedIds.length === 0) return
+    try {
+      setBatchDownloading(true)
+      await downloadBatchInstructorDocumentsZipApi(selectedIds)
+      toast.success(`Downloaded documents archive for ${selectedIds.length} instructors`)
+    } catch (err: any) {
+      toast.error(err?.message || "Failed to download batch documents")
+    } finally {
+      setBatchDownloading(false)
+    }
+  }
+
+  const filtersActive = !!(search.trim() || cityId || deliverCityId || bankFilter || docFilter)
 
   if (isLoading) return <Spinner />
 
@@ -129,9 +342,18 @@ export default function InstructorsAdminInstructors() {
           <option value="missing">Bank details missing</option>
           <option value="complete">Bank details on file</option>
         </select>
+        <select
+          value={docFilter}
+          onChange={(e) => setDocFilter(e.target.value as "" | "missing" | "complete")}
+          className="h-9 px-3 w-full sm:w-56 border border-border bg-card text-foreground rounded-xl text-sm focus:outline-none focus:border-primary transition-colors"
+        >
+          <option value="">Any document status</option>
+          <option value="complete">All documents complete</option>
+          <option value="missing">Missing mandatory documents</option>
+        </select>
         {filtersActive && (
           <button
-            onClick={() => { setSearch(""); setCityId(""); setDeliverCityId(""); setBankFilter("") }}
+            onClick={() => { setSearch(""); setCityId(""); setDeliverCityId(""); setBankFilter(""); setDocFilter("") }}
             className="h-9 px-3 text-sm text-muted-foreground hover:text-foreground transition-colors"
           >
             Clear
@@ -139,85 +361,170 @@ export default function InstructorsAdminInstructors() {
         )}
       </div>
 
+      {/* Batch selection toolbar */}
+      {selectedIds.length > 0 && (
+        <div className="flex flex-wrap items-center justify-between gap-3 p-3.5 px-4 rounded-xl bg-primary/10 border border-primary/20 text-foreground animate-fade-in">
+          <div className="flex items-center gap-2.5">
+            <span className="text-sm font-semibold text-primary">
+              {selectedIds.length} instructor{selectedIds.length === 1 ? "" : "s"} selected
+            </span>
+            <span className="text-xs text-muted-foreground hidden sm:inline">
+              (Each will have a dedicated folder in the ZIP archive)
+            </span>
+          </div>
+          <div className="flex items-center gap-2">
+            <Button
+              size="sm"
+              disabled={batchDownloading}
+              onClick={handleBatchDownload}
+              className="gap-1.5 shadow-sm"
+            >
+              {batchDownloading ? (
+                <span className="w-3.5 h-3.5 border-2 border-primary-foreground border-t-transparent rounded-full animate-spin mr-1" />
+              ) : (
+                <Download size={14} className="mr-1" />
+              )}
+              Download Documents (.zip)
+            </Button>
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={() => setSelectedIds([])}
+              className="text-xs text-muted-foreground hover:text-foreground"
+            >
+              Clear selection
+            </Button>
+          </div>
+        </div>
+      )}
+
       {filteredInstructors.length === 0 ? (
         <EmptyState title={(instructors ?? []).length === 0 ? "No approved instructors yet" : "No instructors match your filters"} />
       ) : (
         <div className="space-y-2">
-          {filteredInstructors.map((i) => (
-            <div
-              key={i.id}
-              role="button"
-              tabIndex={0}
-              onClick={() => setProfileUserId(i.id)}
-              onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setProfileUserId(i.id) } }}
-              className="w-full flex items-center justify-between gap-3 p-3 rounded-lg border bg-card text-left hover:border-muted-foreground/30 transition-colors cursor-pointer"
-            >
-              <div className="min-w-0">
-                <p className="text-sm font-medium">{i.full_name}</p>
-                <p className="text-xs text-muted-foreground truncate">{i.email}</p>
-                <div className="flex flex-wrap items-center gap-x-2 gap-y-1 mt-1.5 text-xs text-muted-foreground">
-                  <span className="inline-flex items-center gap-1">
-                    <MapPin size={11} />
-                    {i.city_name ?? <span className="italic">No city</span>}
-                  </span>
-                  {i.deliver_city_names.length > 0 && (
-                    <span className="truncate">· Works in {i.deliver_city_names.join(", ")}</span>
-                  )}
-                  {i.bank_details_complete ? (
-                    <span className="inline-flex items-center gap-1 text-emerald-600 dark:text-emerald-400">
-                      <CheckCircle2 size={11} /> Bank details on file
-                    </span>
-                  ) : (
-                    <span className="inline-flex items-center gap-1 text-amber-600 dark:text-amber-400">
-                      <AlertTriangle size={11} /> Bank details missing
-                    </span>
-                  )}
+          <div className="flex items-center justify-between px-1 py-1 text-xs text-muted-foreground">
+            <label className="flex items-center gap-2 cursor-pointer hover:text-foreground transition-colors select-none">
+              <input
+                type="checkbox"
+                checked={isAllSelected}
+                onChange={toggleSelectAll}
+                className="w-4 h-4 rounded border-border text-primary focus:ring-primary cursor-pointer accent-primary"
+              />
+              <span className="font-medium">Select all ({filteredInstructors.length})</span>
+            </label>
+            <span>Showing {filteredInstructors.length} instructors</span>
+          </div>
+
+          {filteredInstructors.map((i) => {
+            const isSelected = selectedIds.includes(i.id)
+            return (
+              <div
+                key={i.id}
+                role="button"
+                tabIndex={0}
+                onClick={() => setProfileUserId(i.id)}
+                onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setProfileUserId(i.id) } }}
+                className={`w-full flex items-center justify-between gap-3 p-3 rounded-lg border text-left transition-colors cursor-pointer ${
+                  isSelected
+                    ? "bg-primary/5 border-primary/40 shadow-xs"
+                    : "bg-card border-border hover:border-muted-foreground/30"
+                }`}
+              >
+                <div className="flex items-center gap-3 min-w-0">
+                  <div
+                    className="flex items-center shrink-0 pr-0.5"
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      toggleSelect(i.id)
+                    }}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={isSelected}
+                      onChange={() => toggleSelect(i.id)}
+                      className="w-4 h-4 rounded border-border text-primary focus:ring-primary cursor-pointer accent-primary"
+                    />
+                  </div>
+                  <div className="min-w-0">
+                    <p className="text-sm font-medium">{i.full_name}</p>
+                    <p className="text-xs text-muted-foreground truncate">{i.email}</p>
+                    <div className="flex flex-wrap items-center gap-x-2 gap-y-1 mt-1.5 text-xs text-muted-foreground">
+                      <span className="inline-flex items-center gap-1">
+                        <MapPin size={11} />
+                        {i.city_name ?? <span className="italic">No city</span>}
+                      </span>
+                      {i.deliver_city_names.length > 0 && (
+                        <span className="truncate">· Works in {i.deliver_city_names.join(", ")}</span>
+                      )}
+                      {i.bank_details_complete ? (
+                        <span className="inline-flex items-center gap-1 text-emerald-600 dark:text-emerald-400">
+                          <CheckCircle2 size={11} /> Bank details on file
+                        </span>
+                      ) : (
+                        <span className="inline-flex items-center gap-1 text-amber-600 dark:text-amber-400">
+                          <AlertTriangle size={11} /> Bank details missing
+                        </span>
+                      )}
+                      {i.docs_compliance ? (
+                        i.docs_compliance.is_complete ? (
+                          <span className="inline-flex items-center gap-1 text-emerald-600 dark:text-emerald-400">
+                            <CheckCircle2 size={11} /> Docs complete
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center gap-1 text-amber-600 dark:text-amber-400">
+                            <AlertTriangle size={11} /> Missing {i.docs_compliance.missing_docs.length} docs
+                          </span>
+                        )
+                      ) : null}
+                    </div>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2 shrink-0">
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={(e) => { e.stopPropagation(); void navigate({ to: `/instructors/admin/instructors/${i.id}/performance` }) }}
+                  >
+                    <LineChart size={14} className="mr-1.5" /> Performance
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={(e) => { e.stopPropagation(); setBankDetailsFor({ id: i.id, name: i.full_name }) }}
+                  >
+                    <Banknote size={14} className="mr-1.5" /> View bank details
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className={
+                      i.docs_compliance?.is_complete
+                        ? "text-emerald-600 dark:text-emerald-400 border-emerald-500/30 hover:bg-emerald-500/10"
+                        : "text-amber-600 dark:text-amber-400 border-amber-500/30 hover:bg-amber-500/10"
+                    }
+                    title="View documents & compliance checklist"
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      setDocumentsFor({ id: i.id, name: i.full_name })
+                    }}
+                  >
+                    {i.docs_compliance?.is_complete ? (
+                      <>
+                        <CheckCircle2 size={14} className="mr-1.5 text-emerald-500" />
+                        Docs on file ({i.docs_compliance.uploaded_count}/{i.docs_compliance.total_required})
+                      </>
+                    ) : (
+                      <>
+                        <AlertTriangle size={14} className="mr-1.5 text-amber-500" />
+                        Missing docs ({i.docs_compliance ? i.docs_compliance.missing_docs.length : "!"})
+                      </>
+                    )}
+                  </Button>
+                  <StatusPill status={i.status} />
                 </div>
               </div>
-              <div className="flex items-center gap-2 shrink-0">
-                <Button
-                  size="sm"
-                  variant="outline"
-                  onClick={(e) => { e.stopPropagation(); void navigate({ to: `/instructors/admin/instructors/${i.id}/performance` }) }}
-                >
-                  <LineChart size={14} className="mr-1.5" /> Performance
-                </Button>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  onClick={(e) => { e.stopPropagation(); setBankDetailsFor({ id: i.id, name: i.full_name }) }}
-                >
-                  <Banknote size={14} className="mr-1.5" /> View bank details
-                </Button>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  title="Download all uploaded documents in a zip file"
-                  disabled={downloadingUserId === i.id}
-                  onClick={async (e) => {
-                    e.stopPropagation()
-                    try {
-                      setDownloadingUserId(i.id)
-                      await downloadUserDocumentsZipApi(i.id, i.full_name)
-                      toast.success(`Downloaded documents for ${i.full_name}`)
-                    } catch (err: any) {
-                      toast.error(err.message || "Failed to download documents")
-                    } finally {
-                      setDownloadingUserId(null)
-                    }
-                  }}
-                >
-                  {downloadingUserId === i.id ? (
-                    <span className="w-3.5 h-3.5 border-2 border-primary border-t-transparent rounded-full animate-spin mr-1.5" />
-                  ) : (
-                    <Download size={14} className="mr-1.5" />
-                  )}
-                  Documents (.zip)
-                </Button>
-                <StatusPill status={i.status} />
-              </div>
-            </div>
-          ))}
+            )
+          })}
         </div>
       )}
 
@@ -229,6 +536,13 @@ export default function InstructorsAdminInstructors() {
           userId={bankDetailsFor.id}
           name={bankDetailsFor.name}
           onClose={() => setBankDetailsFor(null)}
+        />
+      )}
+      {documentsFor && (
+        <InstructorDocumentsDialog
+          userId={documentsFor.id}
+          name={documentsFor.name}
+          onClose={() => setDocumentsFor(null)}
         />
       )}
     </div>

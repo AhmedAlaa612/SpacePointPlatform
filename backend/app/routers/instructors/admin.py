@@ -31,11 +31,13 @@ from app.models.instructors.assessment_submission import AssessmentSubmission
 from app.models.instructors.presentation_submission import PresentationSubmission
 from app.models.instructors.video_submission import VideoSubmission
 from app.models.user import User
+from app.services.documents.compliance import evaluate_instructor_compliance
 from app.services.documents.id_card import ensure_card_number
-from app.services.documents.user_zip import build_user_documents_zip
+from app.services.documents.user_zip import build_multi_users_documents_zip, build_user_documents_zip
 from app.schemas.instructors.admin import (
     AdminOverviewOut,
     AdminReviewUpdate,
+    BatchDocumentsZipRequest,
     FacilitatorCreate,
     InvitationCodeCreate,
     InvitationCodeUpdate,
@@ -646,18 +648,30 @@ async def list_instructors(db: AsyncSession = Depends(get_db), current_user: Use
             needed.add(p.city_of_residence_id)
         needed.update(p.deliver_city_ids or [] if p else [])
     city_names: dict[uuid.UUID, str] = {}
+    city_countries: dict[uuid.UUID, str] = {}
     if needed:
         found = (await db.execute(select(City).where(City.id.in_(needed)))).scalars().all()
         city_names = {c.id: c.name for c in found}
+        city_countries = {c.id: c.country for c in found}
 
     # One lookup for every instructor's bank row, rather than per-row — same
     # batching precedent as city_names above. Only completeness is exposed
     # here; the actual account/IBAN values are fetched on demand via the
     # dedicated bank-details endpoint below, not handed out in bulk.
+    user_ids = [u.id for u, _ in rows]
     bank_rows = (await db.execute(
-        select(InstructorBankDetails).where(InstructorBankDetails.user_id.in_([u.id for u, _ in rows]))
+        select(InstructorBankDetails).where(InstructorBankDetails.user_id.in_(user_ids))
     )).scalars().all()
     bank_complete = {b.user_id: b.is_complete for b in bank_rows}
+
+    # Batch lookup for instructor documents compliance
+    docs_by_user: dict[uuid.UUID, list[InstructorDocument]] = {}
+    if user_ids:
+        doc_rows = (await db.execute(
+            select(InstructorDocument).where(InstructorDocument.user_id.in_(user_ids))
+        )).scalars().all()
+        for doc in doc_rows:
+            docs_by_user.setdefault(doc.user_id, []).append(doc)
 
     out = []
     for u, p in rows:
@@ -666,6 +680,9 @@ async def list_instructors(db: AsyncSession = Depends(get_db), current_user: Use
         # display-only fallback with no id, so it can be shown but not
         # filtered on (the filter's options are built from ids).
         city_id = u.city_id or (p.city_of_residence_id if p else None)
+        residence_country = city_countries.get(city_id) if city_id else None
+        compliance = evaluate_instructor_compliance(u, docs_by_user.get(u.id, []), city_country=residence_country)
+
         out.append({
             "id": str(u.id), "full_name": u.full_name, "email": u.email, "status": u.status,
             "linkedin_url": u.linkedin_url, "created_at": u.created_at,
@@ -674,6 +691,13 @@ async def list_instructors(db: AsyncSession = Depends(get_db), current_user: Use
             "deliver_city_ids": [str(i) for i in deliver_ids if i in city_names],
             "deliver_city_names": [city_names[i] for i in deliver_ids if i in city_names],
             "bank_details_complete": bank_complete.get(u.id, False),
+            "docs_compliance": {
+                "is_complete": compliance["is_complete"],
+                "is_uae_resident": compliance["is_uae_resident"],
+                "uploaded_count": compliance["uploaded_count"],
+                "total_required": compliance["total_required"],
+                "missing_docs": compliance["missing_docs"],
+            },
         })
     return out
 
@@ -706,6 +730,35 @@ async def instructor_bank_details(
     return bank or BankDetailsOut()
 
 
+@router.get("/instructors/{user_id}/documents-compliance")
+async def get_instructor_documents_compliance(
+    user_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_admin),
+):
+    """Return full documents compliance checklist & other documents for an instructor."""
+    user = (await db.execute(select(User).where(User.id == user_id, User.roles.any("instructor")))).scalars().first()
+    if not user:
+        raise HTTPException(status_code=404, detail="Instructor not found")
+
+    profile = (await db.execute(select(ApplicantProfile).where(ApplicantProfile.user_id == user_id))).scalars().first()
+    city_id = user.city_id or (profile.city_of_residence_id if profile else None)
+    city_country = None
+    if city_id:
+        city = await db.get(City, city_id)
+        if city:
+            city_country = city.country
+
+    docs = (await db.execute(
+        select(InstructorDocument).where(InstructorDocument.user_id == user_id).order_by(InstructorDocument.uploaded_at.desc())
+    )).scalars().all()
+
+    for doc in docs:
+        doc.file_url = await storage.resolve_url(doc.bucket, doc.file_path, doc.file_url)
+
+    return evaluate_instructor_compliance(user, docs, city_country=city_country)
+
+
 @router.get("/instructors/{user_id}/documents/zip")
 async def download_instructor_documents_zip(
     user_id: uuid.UUID,
@@ -716,6 +769,25 @@ async def download_instructor_documents_zip(
     """Download all uploaded documents for an instructor bundled into a ZIP archive."""
     zip_bytes, zip_filename = await build_user_documents_zip(
         user_id=user_id, db=db, include_generated=include_generated
+    )
+    return Response(
+        content=zip_bytes,
+        media_type="application/zip",
+        headers={"Content-Disposition": f'attachment; filename="{zip_filename}"'},
+    )
+
+
+@router.post("/instructors/documents/batch-zip")
+async def download_batch_instructor_documents_zip(
+    body: BatchDocumentsZipRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_admin),
+):
+    """Download documents for multiple instructors bundled into a single ZIP with per-instructor folders."""
+    zip_bytes, zip_filename = await build_multi_users_documents_zip(
+        user_ids=body.user_ids,
+        db=db,
+        include_generated=body.include_generated,
     )
     return Response(
         content=zip_bytes,

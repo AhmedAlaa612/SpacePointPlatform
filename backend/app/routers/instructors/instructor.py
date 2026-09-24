@@ -19,6 +19,7 @@ from app.models.instructors.instructor_document import InstructorDocument
 from app.models.instructors.instructor_profile import InstructorProfile
 from app.models.instructors.payment import InstructorBankDetails
 from app.models.user import User
+from app.services.documents.compliance import evaluate_instructor_compliance
 from app.schemas.instructors.instructor import (
     BankDetailsOut,
     BankDetailsUpdate,
@@ -447,6 +448,30 @@ async def list_documents(db: AsyncSession = Depends(get_db), current_user: User 
         select(InstructorDocument).where(InstructorDocument.user_id == current_user.id).order_by(InstructorDocument.uploaded_at.desc())
     )).scalars().all()
     return [await _vault_doc_out(d) for d in rows]
+
+
+@router.get("/documents/compliance")
+async def get_my_documents_compliance(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+):
+    """Compliance status for the logged-in user's mandatory documents."""
+    profile = (await db.execute(select(ApplicantProfile).where(ApplicantProfile.user_id == current_user.id))).scalars().first()
+    city_id = current_user.city_id or (profile.city_of_residence_id if profile else None)
+    city_country = None
+    if city_id:
+        city = await db.get(City, city_id)
+        if city:
+            city_country = city.country
+
+    rows = (await db.execute(
+        select(InstructorDocument).where(InstructorDocument.user_id == current_user.id).order_by(InstructorDocument.uploaded_at.desc())
+    )).scalars().all()
+
+    for doc in rows:
+        doc.file_url = await storage.resolve_url(doc.bucket, doc.file_path, doc.file_url)
+
+    return evaluate_instructor_compliance(current_user, rows, city_country=city_country)
 
 
 @router.post("/documents", response_model=InstructorDocumentOut, status_code=201)
