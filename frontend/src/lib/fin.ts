@@ -88,11 +88,30 @@ function ensureLoaded(): void {
   document.head.appendChild(script);
 }
 
-/** Show the messenger. */
+/** Show the messenger.
+ *
+ * `vertical_padding` on mobile: the LearnMobileTabBar is a fixed bottom bar
+ * ~112 px tall (two rows: tab icons + the Back-to-portal / utility strip,
+ * sized for the staff case per the shell's own comment).  Intercom's launcher
+ * defaults to `bottom: 20 px` — without this override it sits *behind* the
+ * bar and appears invisible on iPhone / iPad.  130 px clears the tallest
+ * (staff) variant with room to spare.  Desktop gets the default 20 px because
+ * there is no bottom bar there (`LearnSidebar` is on the left edge). */
 export function boot(payload: FinBootPayload = {}): void {
   if (!isFinEnabled()) return;
   ensureLoaded();
-  window.Intercom?.("boot", { app_id: APP_ID, ...payload });
+
+  // isMobile: the same md breakpoint the shell uses (768 px).  We read it at
+  // boot time rather than wiring a resize listener — the widget is mounted
+  // once per session and the breakpoint crossing that matters is the one the
+  // student lands on, not subsequent resizes.
+  const isMobile = window.innerWidth < 768;
+
+  window.Intercom?.("boot", {
+    app_id: APP_ID,
+    vertical_padding: isMobile ? 130 : 20,
+    ...payload,
+  });
 }
 
 /** Hide the messenger and **clear the local conversation**.
