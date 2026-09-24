@@ -107,6 +107,13 @@ export function boot(payload: FinBootPayload = {}): void {
   // student lands on, not subsequent resizes.
   const isMobile = window.innerWidth < 768;
 
+  // Shutdown before every boot so Intercom always picks up the current
+  // vertical_padding rather than restoring a cached launcher position from
+  // its session cookie.  Without this, a deploy that changes vertical_padding
+  // has no effect until the user's Intercom cookie expires — the widget
+  // silently ignores the new value and keeps the old position.
+  window.Intercom?.("shutdown");
+
   window.Intercom?.("boot", {
     app_id: APP_ID,
     vertical_padding: isMobile ? 180 : 20,
