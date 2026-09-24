@@ -1,8 +1,9 @@
 import { useState } from "react"
 import { useQuery } from "@tanstack/react-query"
-import { ExternalLink, FileText, Video } from "lucide-react"
+import { ExternalLink, FileText, Video, Download } from "lucide-react"
 import { getLibraryResourceUrlApi, listLibraryApi } from "@/api/instructors/training"
 import type { LibraryResource } from "@/types/instructors"
+import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { EmptyState, PageHeader, Spinner } from "@/pages/instructors/components/common"
@@ -34,6 +35,40 @@ export default function Library() {
   return (
     <div>
       <PageHeader title="Curriculum Library" subtitle="Shared workshop materials from your facilitators." />
+
+      {/* Official Clearance Document Templates Banner */}
+      <div className="mb-6 rounded-2xl border border-primary/20 bg-primary/5 p-4 sm:p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+        <div className="flex items-start sm:items-center gap-3">
+          <div className="p-2.5 rounded-xl bg-primary/10 text-primary shrink-0">
+            <FileText size={20} />
+          </div>
+          <div>
+            <h3 className="text-sm font-semibold text-foreground">
+              Official Security Clearance Form Templates
+            </h3>
+            <p className="text-xs text-muted-foreground mt-0.5">
+              Required for all instructors. Download the blank clearance forms, fill them in, and upload to Personal Documents.
+            </p>
+          </div>
+        </div>
+        <div className="flex items-center gap-2 shrink-0 self-start sm:self-auto flex-wrap">
+          <a href="/templates/clearance/Clearance_Form_1.pdf" download="Clearance_Form_1.pdf">
+            <Button size="sm" variant="outline" className="text-xs h-8">
+              <Download size={13} className="mr-1.5" /> Form 1 (PDF)
+            </Button>
+          </a>
+          <a href="/templates/clearance/Clearance_Form_2.docx" download="Clearance_Form_2.docx">
+            <Button size="sm" variant="outline" className="text-xs h-8">
+              <Download size={13} className="mr-1.5" /> Form 2 (Word)
+            </Button>
+          </a>
+          <a href="/templates/clearance/Clearance_Forms_Templates.zip" download="Clearance_Forms_Templates.zip">
+            <Button size="sm" variant="default" className="text-xs h-8">
+              <Download size={13} className="mr-1.5" /> All (.ZIP)
+            </Button>
+          </a>
+        </div>
+      </div>
 
       {(modules ?? []).length === 0 ? (
         <EmptyState title="No resources yet" hint="Facilitators add shared materials here." />

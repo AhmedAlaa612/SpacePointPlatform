@@ -1,7 +1,7 @@
 import { useState } from "react"
 import { Link } from "@tanstack/react-router"
 import { useQuery } from "@tanstack/react-query"
-import { AlertTriangle, BookOpen, CheckCircle2, CreditCard, GraduationCap, Wallet } from "lucide-react"
+import { AlertTriangle, BookOpen, CheckCircle2, CreditCard, Download, FileText, GraduationCap, Wallet } from "lucide-react"
 import { listTrainingApi } from "@/api/instructors/training"
 import { getPaymentSummaryApi } from "@/api/instructors/payments"
 import { getIdCardApi, getMyDocumentsComplianceApi } from "@/api/instructors/instructor"
@@ -26,6 +26,7 @@ export default function InstructorDashboard() {
   const idCard = useQuery({ queryKey: ["instructor-id-card", "instructor"], queryFn: () => getIdCardApi("instructor") })
   const docsCompliance = useQuery({ queryKey: ["my-documents-compliance"], queryFn: getMyDocumentsComplianceApi })
   const [cardView, setCardView] = useState<{ side: "front" | "back"; b64: string } | null>(null)
+  const [clearanceModalOpen, setClearanceModalOpen] = useState(false)
 
   if (training.isLoading || summary.isLoading) return <Spinner />
 
@@ -38,6 +39,10 @@ export default function InstructorDashboard() {
   const cardGenerated = !!(card?.card_id || card?.generated_at)
   const firstName = (currentUser?.full_name ?? "Instructor").split(" ")[0]
 
+  const isClearanceMissing = docsCompliance.data?.missing_docs?.some((d: string) =>
+    d.toLowerCase().includes("clearance")
+  )
+
   const nextSteps = [
     ...(docsCompliance.data && !docsCompliance.data.is_complete
       ? [
@@ -46,6 +51,17 @@ export default function InstructorDashboard() {
             icon: <AlertTriangle size={16} className="text-amber-500" />,
             title: `Upload Mandatory Documents (${docsCompliance.data.uploaded_count}/${docsCompliance.data.total_required})`,
             desc: `Missing: ${docsCompliance.data.missing_docs.join(", ")}`,
+            to: "/instructors/personal-documents",
+          },
+        ]
+      : []),
+    ...(isClearanceMissing
+      ? [
+          {
+            done: false,
+            icon: <FileText size={16} className="text-primary" />,
+            title: "Download Clearance Form Templates",
+            desc: "Download official clearance forms, fill and sign them, then upload to Personal Documents.",
             to: "/instructors/personal-documents",
           },
         ]
@@ -104,11 +120,22 @@ export default function InstructorDashboard() {
               </p>
             </div>
           </div>
-          <Link to="/instructors/personal-documents" className="shrink-0 self-start sm:self-auto">
-            <Button size="sm" variant="outline" className="border-amber-500/30 text-amber-700 dark:text-amber-300 hover:bg-amber-500/10 text-xs">
-              Upload Missing Documents
+          <div className="flex items-center gap-2 shrink-0 self-start sm:self-auto flex-wrap">
+            <Button
+              size="sm"
+              variant="outline"
+              type="button"
+              onClick={() => setClearanceModalOpen(true)}
+              className="border-amber-500/40 text-amber-800 dark:text-amber-200 hover:bg-amber-500/15 text-xs font-semibold"
+            >
+              <Download size={13} className="mr-1.5" /> Download Clearance Forms
             </Button>
-          </Link>
+            <Link to="/instructors/personal-documents">
+              <Button size="sm" className="text-xs font-semibold">
+                Upload Missing Documents
+              </Button>
+            </Link>
+          </div>
         </div>
       )}
 
@@ -217,7 +244,7 @@ export default function InstructorDashboard() {
       </GlassCard>
 
       {/* Quick links */}
-      <div className="grid gap-4 sm:grid-cols-3">
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <Link to="/instructors/library">
           <GlassCard className="h-full transition-colors hover:border-primary/40 hover:bg-foreground/5">
             <BookOpen size={18} className="text-primary" />
@@ -232,6 +259,21 @@ export default function InstructorDashboard() {
             <p className="mt-1 text-sm text-muted-foreground">View and sign your facilitator payment letters.</p>
           </GlassCard>
         </Link>
+        <div
+          role="button"
+          tabIndex={0}
+          onClick={() => setClearanceModalOpen(true)}
+          className="cursor-pointer"
+        >
+          <GlassCard className="h-full transition-colors hover:border-primary/40 hover:bg-foreground/5 group">
+            <div className="flex items-center justify-between">
+              <FileText size={18} className="text-primary" />
+              <Download size={14} className="text-muted-foreground group-hover:text-primary transition-colors" />
+            </div>
+            <p className="mt-2 font-semibold">Clearance Forms</p>
+            <p className="mt-1 text-sm text-muted-foreground">Download official clearance templates to fill and upload.</p>
+          </GlassCard>
+        </div>
         <Link to="/instructors/profile">
           <GlassCard className="h-full transition-colors hover:border-primary/40 hover:bg-foreground/5">
             <CreditCard size={18} className="text-primary" />
@@ -240,6 +282,76 @@ export default function InstructorDashboard() {
           </GlassCard>
         </Link>
       </div>
+
+      {/* Clearance forms modal */}
+      <Dialog open={clearanceModalOpen} onOpenChange={setClearanceModalOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-base">
+              <FileText className="text-primary size-5" />
+              Security Clearance Form Templates
+            </DialogTitle>
+          </DialogHeader>
+          <div className="flex flex-col gap-4 text-xs pt-1">
+            <p className="text-muted-foreground leading-relaxed">
+              SpacePoint instructors must submit a completed security clearance document. Download the official templates below, fill in your details, and upload the signed copies to your documents vault.
+            </p>
+
+            <div className="flex flex-col gap-2 rounded-xl border border-border p-3 bg-muted/20">
+              <div className="flex items-center justify-between gap-3 p-2.5 rounded-lg bg-background border border-border/60">
+                <div className="flex items-center gap-2.5 min-w-0">
+                  <FileText size={16} className="text-primary shrink-0" />
+                  <div className="min-w-0">
+                    <p className="font-semibold text-foreground truncate">Clearance Form 1 (PDF)</p>
+                    <p className="text-[11px] text-muted-foreground">Official UAE Security Clearance form (وثيقة تعارف)</p>
+                  </div>
+                </div>
+                <a href="/templates/clearance/Clearance_Form_1.pdf" download="Clearance_Form_1.pdf">
+                  <Button size="sm" variant="outline" className="h-7 text-xs px-2.5 shrink-0">
+                    <Download size={12} className="mr-1" /> PDF
+                  </Button>
+                </a>
+              </div>
+
+              <div className="flex items-center justify-between gap-3 p-2.5 rounded-lg bg-background border border-border/60">
+                <div className="flex items-center gap-2.5 min-w-0">
+                  <FileText size={16} className="text-primary shrink-0" />
+                  <div className="min-w-0">
+                    <p className="font-semibold text-foreground truncate">Clearance Form 2 (Word)</p>
+                    <p className="text-[11px] text-muted-foreground">Editable Word document template</p>
+                  </div>
+                </div>
+                <a href="/templates/clearance/Clearance_Form_2.docx" download="Clearance_Form_2.docx">
+                  <Button size="sm" variant="outline" className="h-7 text-xs px-2.5 shrink-0">
+                    <Download size={12} className="mr-1" /> Word
+                  </Button>
+                </a>
+              </div>
+            </div>
+
+            <div className="flex flex-col sm:flex-row items-center justify-between gap-2 pt-2 border-t">
+              <a
+                href="/templates/clearance/Clearance_Forms_Templates.zip"
+                download="Clearance_Forms_Templates.zip"
+                className="w-full sm:w-auto"
+              >
+                <Button size="sm" variant="secondary" className="w-full sm:w-auto text-xs gap-1.5">
+                  <Download size={13} /> Download All (.ZIP)
+                </Button>
+              </a>
+              <Link
+                to="/instructors/personal-documents"
+                onClick={() => setClearanceModalOpen(false)}
+                className="w-full sm:w-auto"
+              >
+                <Button size="sm" className="w-full sm:w-auto text-xs gap-1.5">
+                  Go to Upload Vault →
+                </Button>
+              </Link>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       {/* ID card image viewer */}
       <Dialog open={!!cardView} onOpenChange={(o) => !o && setCardView(null)}>
