@@ -23,18 +23,23 @@ const APP_ID: string = import.meta.env.VITE_INTERCOM_APP_ID ?? "";
 
 const SCRIPT_ID = "intercom-widget";
 
-/** Cleanup callback returned by watchAndPositionLauncher — disconnects both
- *  MutationObservers.  Null when no observer is running (desktop, or before
- *  first mobile boot). */
+/** Cleanup callback returned by watchAndPositionLauncher — disconnects the
+ *  MutationObserver.  Null when no observer is running (desktop / pre-boot). */
 let cleanupLauncher: (() => void) | null = null;
 
-type IntercomCommand = "boot" | "update" | "shutdown" | "reattach_activator";
+type IntercomCommand =
+  | "boot"
+  | "update"
+  | "shutdown"
+  | "reattach_activator"
+  | "onShow"
+  | "onHide";
 
 /** The messenger's global. Before the real script lands this is our own queue
  * stub; afterwards Intercom replaces it with the real implementation and
  * replays `q`. */
 interface IntercomFn {
-  (command: IntercomCommand, payload?: Record<string, unknown>): void;
+  (command: IntercomCommand, payload?: Record<string, unknown> | (() => void)): void;
   q?: unknown[][];
 }
 
@@ -93,91 +98,91 @@ function ensureLoaded(): void {
   document.head.appendChild(script);
 }
 
-/** Lifts the Fin launcher button above the mobile tab bar using
- *  `transform: translateY` rather than overriding `bottom`.
+/** Lifts the entire Intercom widget container above the mobile tab bar.
  *
- *  Why translateY and not bottom:
- *  Intercom sizes the chat *window* relative to the launcher's `bottom`
- *  value.  Overriding `bottom` directly makes Intercom recalculate a shorter
- *  panel height — on a phone this clips the top of the conversation.
- *  `translateY` shifts the button visually without touching `bottom`, so the
- *  chat always opens at full height as if the launcher were at 20 px.
+ *  Why #intercom-container and not the launcher iframe:
+ *  The notification badge (unread message count) is a *separate* element
+ *  from the launcher iframe — targeting the iframe alone moved the button
+ *  but left the badge at the original bottom position.  Translating the
+ *  shared parent container moves both together.
  *
- *  Why not `#intercom-container iframe` in the selectors:
- *  That selector matches *all* iframes in the container, including the chat
- *  window iframe — stamping a transform on it too garbles the layout.  Only
- *  selectors that exclusively target the launcher button are used.
- *
- *  Two-phase observation:
- *  Phase 1 (childList on body) — detects when Intercom inserts the launcher.
- *  Phase 2 (attributes on the element) — re-stamps whenever Intercom
- *  rewrites the element's inline style (~1 s after insertion). */
+ *  Why onShow / onHide toggling:
+ *  `transform` on the container creates a new stacking context.  When the
+ *  chat panel is open it must render from the viewport bottom, not from
+ *  the translated position.  Intercom's own `onShow` / `onHide` callbacks
+ *  let us remove the transform the moment the panel opens and re-apply it
+ *  the moment it closes — the launcher and badge stay raised whenever the
+ *  chat is not in use. */
 function watchAndPositionLauncher(translateUpPx: number): () => void {
-  // Selectors for the launcher button only — not the chat window iframe.
-  const SELECTORS = [
-    ".intercom-launcher-frame",
-    ".intercom-lightweight-app-launcher",
-    '[name="intercom-launcher-frame"]',
-  ];
-
   let styleObserver: MutationObserver | null = null;
-  let watchedEl: HTMLElement | null = null;
+  let isOpen = false;
 
-  function stamp(el: HTMLElement): void {
+  function applyTransform(el: HTMLElement): void {
+    if (isOpen) return; // don't move while the chat panel is visible
     el.style.setProperty("transform", `translateY(-${translateUpPx}px)`, "important");
   }
 
+  function clearTransform(el: HTMLElement): void {
+    el.style.removeProperty("transform");
+  }
+
   function attachTo(el: HTMLElement): void {
-    if (el === watchedEl) return; // same element — already watching, nothing to do
+    applyTransform(el);
 
-    // Different element (Intercom swapped the iframe, e.g. on notification
-    // badge) — disconnect from the old one and attach to the new one.
+    // Re-apply whenever Intercom rewrites the container's inline style.
     styleObserver?.disconnect();
-    watchedEl = el;
-    stamp(el);
-    styleObserver = new MutationObserver(() => stamp(el));
+    styleObserver = new MutationObserver(() => applyTransform(el));
     styleObserver.observe(el, { attributes: true, attributeFilter: ["style"] });
+
+    // Remove transform when chat opens so the panel renders at full height
+    // from the viewport bottom; restore it when chat closes.
+    window.Intercom?.("onShow", () => {
+      isOpen = true;
+      clearTransform(el);
+    });
+    window.Intercom?.("onHide", () => {
+      isOpen = false;
+      applyTransform(el);
+    });
   }
 
-  function findLauncher(): HTMLElement | null {
-    for (const sel of SELECTORS) {
-      const el = document.querySelector<HTMLElement>(sel);
-      if (el) return el;
-    }
-    return null;
-  }
-
-  // Phase 1: watch for the launcher being inserted into the DOM.
+  // Watch for #intercom-container being inserted into the DOM.
   const insertionObserver = new MutationObserver(() => {
-    const el = findLauncher();
-    if (el) attachTo(el);
+    const el = document.querySelector<HTMLElement>("#intercom-container");
+    if (el) {
+      insertionObserver.disconnect(); // found it — no need to keep watching
+      attachTo(el);
+    }
   });
   insertionObserver.observe(document.body, { childList: true, subtree: true });
 
-  // Try immediately — element may already be present on re-boots.
-  const existing = findLauncher();
-  if (existing) attachTo(existing);
+  // Try immediately in case the container already exists.
+  const existing = document.querySelector<HTMLElement>("#intercom-container");
+  if (existing) {
+    insertionObserver.disconnect();
+    attachTo(existing);
+  }
 
   return () => {
     insertionObserver.disconnect();
     styleObserver?.disconnect();
     styleObserver = null;
-    watchedEl = null;
   };
 }
 
 /** Show the messenger.
  *
- * On mobile the launcher button is lifted above the LearnMobileTabBar
- * (~112 px tall for staff + safe-area-inset-bottom on Face ID devices)
- * via a MutationObserver + translateY — see watchAndPositionLauncher for why
- * neither vertical_padding nor a bottom override works reliably. */
+ * On mobile the entire widget container is lifted above the LearnMobileTabBar
+ * (~112 px for staff + safe-area-inset-bottom on Face ID devices) by
+ * translating #intercom-container.  The transform is removed while the chat
+ * panel is open (via onShow/onHide) so the panel always renders full-height
+ * from the viewport bottom.  See watchAndPositionLauncher for full rationale. */
 export function boot(payload: FinBootPayload = {}): void {
   if (!isFinEnabled()) return;
   ensureLoaded();
 
   // Always clean up any previous observer first so a mobile observer can
-  // never bleed into a desktop boot and move the launcher there too.
+  // never bleed into a desktop boot.
   cleanupLauncher?.();
   cleanupLauncher = null;
 
@@ -190,11 +195,10 @@ export function boot(payload: FinBootPayload = {}): void {
 
   window.Intercom?.("boot", {
     app_id: APP_ID,
-    vertical_padding: isMobile ? 180 : 20, // belt — works if Intercom honours it
+    vertical_padding: isMobile ? 180 : 20,
     ...payload,
   });
 
-  // Suspenders — direct DOM override that wins regardless, mobile only.
   if (isMobile) {
     cleanupLauncher = watchAndPositionLauncher(120);
   }
