@@ -23,11 +23,10 @@ const APP_ID: string = import.meta.env.VITE_INTERCOM_APP_ID ?? "";
 
 const SCRIPT_ID = "intercom-widget";
 
-/** Holds the MutationObserver that repositions the launcher on mobile,
- *  so we can disconnect it on shutdown and avoid a live observer after the
- *  widget is torn down. */
-let launcherObserver: MutationObserver | null = null;
-
+/** Cleanup callback returned by watchAndPositionLauncher — disconnects both
+ *  MutationObservers.  Null when no observer is running (desktop, or before
+ *  first mobile boot). */
+let cleanupLauncher: (() => void) | null = null;
 
 type IntercomCommand = "boot" | "update" | "shutdown" | "reattach_activator";
 
@@ -94,65 +93,89 @@ function ensureLoaded(): void {
   document.head.appendChild(script);
 }
 
-/** Stamps `bottom` directly on whatever element Intercom injects for its
- *  launcher so it sits above the mobile tab bar.
+/** Lifts the Fin launcher button above the mobile tab bar using
+ *  `transform: translateY` rather than overriding `bottom`.
  *
- *  Why not vertical_padding in boot(): Intercom's script sets
- *  `style="bottom:20px"` on the launcher iframe *after* the boot call
- *  resolves, overwriting the boot parameter every time.  CSS !important in
- *  our stylesheet also fails because Intercom's newer Fin builds use
- *  unpublished/hashed class names that differ between releases.
+ *  Why translateY and not bottom:
+ *  Intercom sizes the chat *window* relative to the launcher's `bottom`
+ *  value.  Overriding `bottom` directly makes Intercom recalculate a shorter
+ *  panel height — on a phone this clips the top of the conversation.
+ *  `translateY` shifts the button visually without touching `bottom`, so the
+ *  chat always opens at full height as if the launcher were at 20 px.
  *
- *  A MutationObserver fires *after* the element is inserted (and after
- *  Intercom has set its own inline style), so setProperty(…,'important')
- *  wins the race reliably.  The observer stays connected so it also catches
- *  Intercom re-stamping the style on messenger open/close cycles. */
-function watchAndPositionLauncher(bottomPx: number): MutationObserver {
-  // Every known selector Intercom has used for its launcher iframe across
-  // messenger versions.  We try all of them on every mutation.
+ *  Why not `#intercom-container iframe` in the selectors:
+ *  That selector matches *all* iframes in the container, including the chat
+ *  window iframe — stamping a transform on it too garbles the layout.  Only
+ *  selectors that exclusively target the launcher button are used.
+ *
+ *  Two-phase observation:
+ *  Phase 1 (childList on body) — detects when Intercom inserts the launcher.
+ *  Phase 2 (attributes on the element) — re-stamps whenever Intercom
+ *  rewrites the element's inline style (~1 s after insertion). */
+function watchAndPositionLauncher(translateUpPx: number): () => void {
+  // Selectors for the launcher button only — not the chat window iframe.
   const SELECTORS = [
     ".intercom-launcher-frame",
     ".intercom-lightweight-app-launcher",
     '[name="intercom-launcher-frame"]',
-    "#intercom-container iframe",
   ];
 
-  function stamp(): void {
-    for (const sel of SELECTORS) {
-      const el = document.querySelector<HTMLElement>(sel);
-      if (el) {
-        el.style.setProperty("bottom", `${bottomPx}px`, "important");
-        return;
-      }
-    }
+  let styleObserver: MutationObserver | null = null;
+
+  function stamp(el: HTMLElement): void {
+    el.style.setProperty("transform", `translateY(-${translateUpPx}px)`, "important");
   }
 
-  const observer = new MutationObserver(stamp);
-  observer.observe(document.body, { childList: true, subtree: true });
+  function attachTo(el: HTMLElement): void {
+    if (styleObserver) return; // already watching this element
+    stamp(el);
+    // Watch only this element's style attribute — cheap and targeted.
+    styleObserver = new MutationObserver(() => stamp(el));
+    styleObserver.observe(el, { attributes: true, attributeFilter: ["style"] });
+  }
 
-  // Also try immediately in case the element already exists.
-  stamp();
+  function findLauncher(): HTMLElement | null {
+    for (const sel of SELECTORS) {
+      const el = document.querySelector<HTMLElement>(sel);
+      if (el) return el;
+    }
+    return null;
+  }
 
-  return observer;
+  // Phase 1: watch for the launcher being inserted into the DOM.
+  const insertionObserver = new MutationObserver(() => {
+    const el = findLauncher();
+    if (el) attachTo(el);
+  });
+  insertionObserver.observe(document.body, { childList: true, subtree: true });
+
+  // Try immediately — element may already be present on re-boots.
+  const existing = findLauncher();
+  if (existing) attachTo(existing);
+
+  return () => {
+    insertionObserver.disconnect();
+    styleObserver?.disconnect();
+    styleObserver = null;
+  };
 }
 
 /** Show the messenger.
  *
- * On mobile the launcher is repositioned above the LearnMobileTabBar
+ * On mobile the launcher button is lifted above the LearnMobileTabBar
  * (~112 px tall for staff + safe-area-inset-bottom on Face ID devices)
- * via a MutationObserver rather than vertical_padding — see
- * watchAndPositionLauncher above for why. */
+ * via a MutationObserver + translateY — see watchAndPositionLauncher for why
+ * neither vertical_padding nor a bottom override works reliably. */
 export function boot(payload: FinBootPayload = {}): void {
   if (!isFinEnabled()) return;
   ensureLoaded();
 
-  // Always disconnect any previous observer first — without this, an observer
-  // started during a mobile boot can bleed into a desktop boot and move the
-  // launcher on desktop too.
-  launcherObserver?.disconnect();
-  launcherObserver = null;
+  // Always clean up any previous observer first so a mobile observer can
+  // never bleed into a desktop boot and move the launcher there too.
+  cleanupLauncher?.();
+  cleanupLauncher = null;
 
-  // isMobile: the same md breakpoint the shell uses (768 px).
+  // isMobile: matches the shell's md breakpoint (768 px).
   const isMobile = window.innerWidth < 768;
 
   // Shutdown before every boot so Intercom starts from a clean state
@@ -161,13 +184,13 @@ export function boot(payload: FinBootPayload = {}): void {
 
   window.Intercom?.("boot", {
     app_id: APP_ID,
-    vertical_padding: isMobile ? 180 : 20, // belt
+    vertical_padding: isMobile ? 180 : 20, // belt — works if Intercom honours it
     ...payload,
   });
 
-  // Suspenders — direct DOM override, mobile only.
+  // Suspenders — direct DOM override that wins regardless, mobile only.
   if (isMobile) {
-    launcherObserver = watchAndPositionLauncher(160);
+    cleanupLauncher = watchAndPositionLauncher(120);
   }
 }
 
@@ -180,7 +203,7 @@ export function boot(payload: FinBootPayload = {}): void {
  * shared school and lab machines — that is a real leak, not a hypothetical. */
 export function shutdown(): void {
   if (!isFinEnabled()) return;
-  launcherObserver?.disconnect();
-  launcherObserver = null;
+  cleanupLauncher?.();
+  cleanupLauncher = null;
   window.Intercom?.("shutdown");
 }
