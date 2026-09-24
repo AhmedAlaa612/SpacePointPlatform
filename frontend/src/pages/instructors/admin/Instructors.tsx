@@ -1,10 +1,12 @@
 import { useMemo, useState } from "react"
 import { useNavigate } from "@tanstack/react-router"
 import { useQuery } from "@tanstack/react-query"
-import { AlertTriangle, Banknote, CheckCircle2, LineChart, MapPin } from "lucide-react"
+import { AlertTriangle, Banknote, CheckCircle2, Download, LineChart, MapPin } from "lucide-react"
 import { getAdminInstructorBankDetailsApi, listAdminInstructorsApi } from "@/api/instructors/admin"
+import { downloadUserDocumentsZipApi } from "@/api/admin/users"
 import { UserProfileModal } from "@/components/UserProfileModal"
 import { Button } from "@/components/ui/button"
+import { useToast } from "@/components/ui/toast"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { EmptyState, PageHeader, Spinner, StatusPill } from "@/pages/instructors/components/common"
 
@@ -43,8 +45,10 @@ function BankDetailsDialog({ userId, name, onClose }: { userId: string; name: st
 
 export default function InstructorsAdminInstructors() {
   const navigate = useNavigate()
+  const toast = useToast()
   const { data: instructors, isLoading } = useQuery({ queryKey: ["admin-instructors"], queryFn: listAdminInstructorsApi })
   const [profileUserId, setProfileUserId] = useState<string | null>(null)
+  const [downloadingUserId, setDownloadingUserId] = useState<string | null>(null)
   const [bankDetailsFor, setBankDetailsFor] = useState<{ id: string; name: string } | null>(null)
   const [search, setSearch] = useState("")
   const [cityId, setCityId] = useState("")
@@ -184,6 +188,31 @@ export default function InstructorsAdminInstructors() {
                   onClick={(e) => { e.stopPropagation(); setBankDetailsFor({ id: i.id, name: i.full_name }) }}
                 >
                   <Banknote size={14} className="mr-1.5" /> View bank details
+                </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  title="Download all uploaded documents in a zip file"
+                  disabled={downloadingUserId === i.id}
+                  onClick={async (e) => {
+                    e.stopPropagation()
+                    try {
+                      setDownloadingUserId(i.id)
+                      await downloadUserDocumentsZipApi(i.id, i.full_name)
+                      toast.success(`Downloaded documents for ${i.full_name}`)
+                    } catch (err: any) {
+                      toast.error(err.message || "Failed to download documents")
+                    } finally {
+                      setDownloadingUserId(null)
+                    }
+                  }}
+                >
+                  {downloadingUserId === i.id ? (
+                    <span className="w-3.5 h-3.5 border-2 border-primary border-t-transparent rounded-full animate-spin mr-1.5" />
+                  ) : (
+                    <Download size={14} className="mr-1.5" />
+                  )}
+                  Documents (.zip)
                 </Button>
                 <StatusPill status={i.status} />
               </div>

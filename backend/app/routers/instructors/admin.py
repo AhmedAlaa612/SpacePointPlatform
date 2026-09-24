@@ -32,6 +32,7 @@ from app.models.instructors.presentation_submission import PresentationSubmissio
 from app.models.instructors.video_submission import VideoSubmission
 from app.models.user import User
 from app.services.documents.id_card import ensure_card_number
+from app.services.documents.user_zip import build_user_documents_zip
 from app.schemas.instructors.admin import (
     AdminOverviewOut,
     AdminReviewUpdate,
@@ -703,6 +704,24 @@ async def instructor_bank_details(
         select(InstructorBankDetails).where(InstructorBankDetails.user_id == user_id)
     )).scalars().first()
     return bank or BankDetailsOut()
+
+
+@router.get("/instructors/{user_id}/documents/zip")
+async def download_instructor_documents_zip(
+    user_id: uuid.UUID,
+    include_generated: bool = False,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_admin),
+):
+    """Download all uploaded documents for an instructor bundled into a ZIP archive."""
+    zip_bytes, zip_filename = await build_user_documents_zip(
+        user_id=user_id, db=db, include_generated=include_generated
+    )
+    return Response(
+        content=zip_bytes,
+        media_type="application/zip",
+        headers={"Content-Disposition": f'attachment; filename="{zip_filename}"'},
+    )
 
 
 # Settings moved to app.routers.admin.settings

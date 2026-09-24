@@ -7,7 +7,7 @@ from datetime import datetime, timezone
 from typing import List
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -36,6 +36,7 @@ from app.services.documents.card_id import format_card_id
 from app.services import storage, user as user_service
 from app.services.countries import COUNTRY_NAMES
 from app.services.documents.id_card import ensure_card_id, render_card_back_png, render_card_png
+from app.services.documents.user_zip import build_user_documents_zip
 
 router = APIRouter(prefix="/users", tags=["admin"])
 
@@ -213,6 +214,24 @@ async def get_user_dossier(id: UUID, db: AsyncSession = Depends(get_db), current
         ))
 
     return UserDossierOut(items=items)
+
+
+@router.get("/{id}/documents/zip")
+async def download_user_documents_zip(
+    id: UUID,
+    include_generated: bool = Query(False, description="Include system-generated documents/certificates in addition to uploaded documents"),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_admin),
+):
+    """Download all uploaded documents for a user bundled into a ZIP archive."""
+    zip_bytes, zip_filename = await build_user_documents_zip(
+        user_id=id, db=db, include_generated=include_generated
+    )
+    return Response(
+        content=zip_bytes,
+        media_type="application/zip",
+        headers={"Content-Disposition": f'attachment; filename="{zip_filename}"'},
+    )
 
 
 @router.get("/{id}/id-card", response_model=IdCardOut)

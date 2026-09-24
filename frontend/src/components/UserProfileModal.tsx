@@ -1,13 +1,15 @@
 import { useState } from "react"
 import { createPortal } from "react-dom"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { X, FileText, ExternalLink, CreditCard, Trash2 } from "lucide-react"
+import { X, FileText, ExternalLink, CreditCard, Trash2, Download } from "lucide-react"
 import { getUserProfileApi, getUserStatsApi } from "@/api/auth"
-import { getUserDossierApi, getUserIdCardApi, type DossierItem } from "@/api/admin/users"
+import { getUserDossierApi, getUserIdCardApi, downloadUserDocumentsZipApi, type DossierItem } from "@/api/admin/users"
 import { deleteGeneratedDocumentApi } from "@/api/documents"
 import { deleteCertificateApi } from "@/api/instructors/payments_admin"
 import { ROLE_LABEL } from "@/types/shared"
+import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
+import { useToast } from "@/components/ui/toast"
 import { ROLE_BADGE, AmbassadorCard, TeacherCard, InstructorCard, StudentCard } from "@/components/ProfileStatsCards"
 import { getCountries } from "@/lib/countries"
 
@@ -55,7 +57,15 @@ function IdCardDialog({ userId, role, onClose }: { userId: string; role: string;
   )
 }
 
-function DossierSection({ userId }: { userId: string }) {
+function DossierSection({
+  userId,
+  downloading,
+  onDownloadZip,
+}: {
+  userId: string
+  downloading?: boolean
+  onDownloadZip?: () => void
+}) {
   const [cardView, setCardView] = useState<string | null>(null)
   const qc = useQueryClient()
   const { data, isLoading } = useQuery({
@@ -76,7 +86,26 @@ function DossierSection({ userId }: { userId: string }) {
   return (
     <Card>
       <CardContent className="p-5 flex flex-col gap-3">
-        <p className="text-xs text-muted-foreground font-semibold uppercase tracking-wider">Documents</p>
+        <div className="flex items-center justify-between">
+          <p className="text-xs text-muted-foreground font-semibold uppercase tracking-wider">Documents</p>
+          {onDownloadZip && (
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={downloading}
+              onClick={onDownloadZip}
+              className="h-7 text-xs gap-1.5"
+              title="Download all uploaded documents in a zip file"
+            >
+              {downloading ? (
+                <span className="w-3 h-3 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+              ) : (
+                <Download size={12} />
+              )}
+              Download ZIP
+            </Button>
+          )}
+        </div>
         {isLoading ? (
           <div className="py-4 flex justify-center"><div className="w-5 h-5 border-2 border-primary border-t-transparent rounded-full animate-spin" /></div>
         ) : Object.keys(groups).length === 0 ? (
@@ -157,6 +186,20 @@ export function UserProfileModal({ userId, onClose }: Props) {
   })
 
   const isLoading = loadingUser || loadingStats
+  const [downloading, setDownloading] = useState(false)
+  const toast = useToast()
+
+  const handleDownloadZip = async () => {
+    try {
+      setDownloading(true)
+      await downloadUserDocumentsZipApi(userId, user?.full_name)
+      toast.success("Downloaded documents zip successfully")
+    } catch (err: any) {
+      toast.error(err.message || "Failed to download documents")
+    } finally {
+      setDownloading(false)
+    }
+  }
 
   return createPortal(
     <div
@@ -167,12 +210,29 @@ export function UserProfileModal({ userId, onClose }: Props) {
         {/* Header */}
         <div className="flex items-center justify-between px-5 py-4 border-b border-border shrink-0">
           <p className="text-sm font-semibold text-foreground">Profile</p>
-          <button
-            onClick={onClose}
-            className="p-1.5 rounded-lg text-muted-foreground hover:bg-muted transition-colors"
-          >
-            <X size={16} />
-          </button>
+          <div className="flex items-center gap-2">
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={downloading || isLoading || !user}
+              onClick={handleDownloadZip}
+              className="h-8 text-xs gap-1.5"
+              title="Download all uploaded documents in a zip file"
+            >
+              {downloading ? (
+                <span className="w-3.5 h-3.5 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+              ) : (
+                <Download size={13} />
+              )}
+              Download Documents (.zip)
+            </Button>
+            <button
+              onClick={onClose}
+              className="p-1.5 rounded-lg text-muted-foreground hover:bg-muted transition-colors"
+            >
+              <X size={16} />
+            </button>
+          </div>
         </div>
 
         {/* Scrollable body */}
@@ -313,7 +373,11 @@ export function UserProfileModal({ userId, onClose }: Props) {
                 )}
                 {stats?.student && <StudentCard stats={stats.student} />}
 
-                <DossierSection userId={userId} />
+                <DossierSection
+                  userId={userId}
+                  downloading={downloading}
+                  onDownloadZip={handleDownloadZip}
+                />
               </>
             )}
           </div>

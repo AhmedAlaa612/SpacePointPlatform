@@ -150,3 +150,6 @@ export const uploadAdminSignatureApi = (file: File) => {
   form.append("file", file)
   return api.post<{ admin_signature_url: string }>("/instructors/admin/settings/admin-signature", form).then((r) => r.data)
 }
+
+export { downloadUserDocumentsZipApi as downloadInstructorDocumentsZipApi } from "@/api/admin/users"
+
