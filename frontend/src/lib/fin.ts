@@ -23,7 +23,7 @@ const APP_ID: string = import.meta.env.VITE_INTERCOM_APP_ID ?? "";
 
 const SCRIPT_ID = "intercom-widget";
 
-/** Cleanup callback returned by watchAndPositionLauncher. Null on desktop. */
+/** Cleanup for the padding watcher. Null when not running. */
 let cleanupLauncher: (() => void) | null = null;
 
 type IntercomCommand =
@@ -97,94 +97,55 @@ function ensureLoaded(): void {
   document.head.appendChild(script);
 }
 
-/** Lifts the Intercom widget above the mobile tab bar.
+/** Watches for #intercom-container to appear (or re-appear after a
+ *  notification swap) and calls Intercom('update', { vertical_padding })
+ *  each time — letting Intercom handle its own positioning rather than
+ *  fighting it with CSS transforms or inline style overrides.
  *
- *  Strategy: translate #intercom-container (shared parent of the launcher
- *  button AND the notification badge) so both move together.
- *
- *  Two known pitfalls addressed here:
- *
- *  1. z-index regression — applying `transform` creates a new stacking
- *     context on the container, which can cause Intercom's internal z-index
- *     to lose its fight against z-30 on the tab bar.  We stamp a very high
- *     z-index on the container at the same time as the transform so it
- *     always wins.
- *
- *  2. Not sticking — Intercom removes and re-inserts #intercom-container
- *     whenever a notification arrives.  The insertionObserver must stay
- *     connected (not disconnected on first find) and use element-identity
- *     tracking to re-attach to every new container instance.
- *
- *  3. Chat panel clipping — when the panel opens we remove the transform so
- *     the panel renders full-height from the viewport bottom, then restore it
- *     on close via Intercom's onShow / onHide events. */
-function watchAndPositionLauncher(translateUpPx: number): () => void {
-  // Intercom's own z-index is typically 2147483001 — we match it so the
-  // launcher stays above the tab bar's z-30 after the transform creates a
-  // new stacking context on the container.
-  const INTERCOM_Z = "2147483001";
+ *  Why `update` after insertion rather than just `boot` with vertical_padding:
+ *  Intercom applies the boot-time vertical_padding before the widget DOM
+ *  exists, then re-stamps its own default (20 px) once the iframe is
+ *  inserted.  Calling `update` after the container appears gives it the value
+ *  post-insertion, which wins reliably.  On notification events Intercom
+ *  removes and re-inserts the container; the MutationObserver catches each
+ *  re-insertion and calls `update` again so the position is always correct. */
+function watchAndApplyPadding(padding: number): () => void {
+  let lastContainer: Element | null = null;
 
-  let styleObserver: MutationObserver | null = null;
-  let attachedEl: HTMLElement | null = null;
-  let isOpen = false;
-
-  function applyTransform(el: HTMLElement): void {
-    if (isOpen) return;
-    el.style.setProperty("transform", `translateY(-${translateUpPx}px)`, "important");
-    el.style.setProperty("z-index", INTERCOM_Z, "important");
+  function apply(): void {
+    window.Intercom?.("update", { vertical_padding: padding });
   }
 
-  function clearTransform(el: HTMLElement): void {
-    el.style.removeProperty("transform");
-    // Keep z-index so the panel itself is still above the tab bar when open.
-    el.style.setProperty("z-index", INTERCOM_Z, "important");
-  }
-
-  function attachTo(el: HTMLElement): void {
-    // Detach from any previously watched container (Intercom re-inserted it).
-    styleObserver?.disconnect();
-    attachedEl = el;
-
-    applyTransform(el);
-
-    // Re-apply whenever Intercom rewrites the container's inline style.
-    styleObserver = new MutationObserver(() => applyTransform(el));
-    styleObserver.observe(el, { attributes: true, attributeFilter: ["style"] });
-
-    // Remove transform when the chat panel opens so it renders at full height;
-    // restore when it closes.
-    window.Intercom?.("onShow", () => {
-      isOpen = true;
-      clearTransform(el);
-    });
-    window.Intercom?.("onHide", () => {
-      isOpen = false;
-      applyTransform(el);
-    });
-  }
-
-  // Keep the observer connected — Intercom removes and re-inserts
-  // #intercom-container on notification events, so we must detect every
-  // new insertion, not just the first one.
-  const insertionObserver = new MutationObserver(() => {
-    const el = document.querySelector<HTMLElement>("#intercom-container");
-    if (el && el !== attachedEl) attachTo(el);
+  const observer = new MutationObserver(() => {
+    const el = document.querySelector("#intercom-container");
+    if (el && el !== lastContainer) {
+      lastContainer = el;
+      apply();
+    }
   });
-  insertionObserver.observe(document.body, { childList: true, subtree: true });
 
-  // Handle the case where the container already exists when boot() runs.
-  const existing = document.querySelector<HTMLElement>("#intercom-container");
-  if (existing) attachTo(existing);
+  observer.observe(document.body, { childList: true, subtree: true });
+
+  // Handle the case where the container already exists.
+  const existing = document.querySelector("#intercom-container");
+  if (existing) {
+    lastContainer = existing;
+    apply();
+  }
 
   return () => {
-    insertionObserver.disconnect();
-    styleObserver?.disconnect();
-    styleObserver = null;
-    attachedEl = null;
+    observer.disconnect();
+    lastContainer = null;
   };
 }
 
-/** Show the messenger. */
+/** Show the messenger.
+ *
+ * On mobile, after Intercom inserts its container we call
+ * `Intercom('update', { vertical_padding: 150 })` — Intercom's own API for
+ * raising the launcher above the bottom of the screen.  This moves the
+ * button, the notification badge, and positions the chat window correctly
+ * without any CSS hacks or z-index interference. */
 export function boot(payload: FinBootPayload = {}): void {
   if (!isFinEnabled()) return;
   ensureLoaded();
@@ -194,17 +155,18 @@ export function boot(payload: FinBootPayload = {}): void {
 
   const isMobile = window.innerWidth < 768;
 
-  // Shutdown before every boot so Intercom starts from a clean state.
+  // Shutdown before every boot so Intercom starts from a clean state
+  // rather than restoring a stale cached session from its cookie.
   window.Intercom?.("shutdown");
 
   window.Intercom?.("boot", {
     app_id: APP_ID,
-    vertical_padding: isMobile ? 180 : 20,
+    vertical_padding: isMobile ? 150 : 20,
     ...payload,
   });
 
   if (isMobile) {
-    cleanupLauncher = watchAndPositionLauncher(120);
+    cleanupLauncher = watchAndApplyPadding(150);
   }
 }
 
