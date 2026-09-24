@@ -1,11 +1,11 @@
 """Bundles a user's uploaded documents into a single ZIP archive.
 
 Supports all roles (instructors, facilitators, applicants, interns, etc.):
-- Personal Vault documents (Emirates ID, Passport, Visa, CV, etc.) from `instructor_documents`
+- Personal Vault documents (Emirates ID, Passport, Visa, Clearance, Photo, etc.) from `instructor_documents`
 - Application CV / Resume from `applications`
-- Onboarding module submissions from `module_submissions`
 - Signed contracts from `instructor_profiles`
 - Signed payment letters from `payment_letters`
+- (Optional) Module submissions from onboarding checklist if include_module_submissions=True
 - (Optional) System-generated certificates/letters if include_generated=True.
 """
 
@@ -88,6 +88,7 @@ async def get_user_document_items(
     user_id: UUID,
     db: AsyncSession,
     include_generated: bool = False,
+    include_module_submissions: bool = False,
 ) -> tuple[User, list[tuple[str, bytes]]]:
     """Retrieve all document files (filename, bytes) for a user."""
     user = (await db.execute(select(User).where(User.id == user_id))).scalars().first()
@@ -120,18 +121,19 @@ async def get_user_document_items(
         if app_row.cv_path or app_row.cv_url:
             items_to_fetch.append(("CV_Resume", "cvs", app_row.cv_path, app_row.cv_url))
 
-    # 3. Module Submissions (checklist onboarding modules)
-    subs = (
-        await db.execute(
-            select(ModuleSubmission, ChecklistModule.title)
-            .join(ChecklistModule, ChecklistModule.id == ModuleSubmission.module_id)
-            .where(ModuleSubmission.user_id == user_id)
-        )
-    ).all()
-    for sub, module_title in subs:
-        if sub.file_path or sub.file_url:
-            label = f"{module_title}_{sub.original_filename or 'submission'}"
-            items_to_fetch.append((label, sub.bucket, sub.file_path, sub.file_url))
+    # 3. Module Submissions (checklist onboarding modules) - excluded unless explicitly requested
+    if include_module_submissions:
+        subs = (
+            await db.execute(
+                select(ModuleSubmission, ChecklistModule.title)
+                .join(ChecklistModule, ChecklistModule.id == ModuleSubmission.module_id)
+                .where(ModuleSubmission.user_id == user_id)
+            )
+        ).all()
+        for sub, module_title in subs:
+            if sub.file_path or sub.file_url:
+                label = f"{module_title}_{sub.original_filename or 'submission'}"
+                items_to_fetch.append((label, sub.bucket, sub.file_path, sub.file_url))
 
     # 4. Instructor Profile - signed contract
     profile = (
@@ -214,13 +216,16 @@ async def build_user_documents_zip(
     user_id: UUID,
     db: AsyncSession,
     include_generated: bool = False,
+    include_module_submissions: bool = False,
 ) -> tuple[bytes, str]:
     """Compile all uploaded documents for a single user into a ZIP archive.
 
     Returns (zip_bytes, zip_filename).
     Raises HTTPException(404) if user not found or no documents are available.
     """
-    user, files_to_zip = await get_user_document_items(user_id, db, include_generated)
+    user, files_to_zip = await get_user_document_items(
+        user_id, db, include_generated=include_generated, include_module_submissions=include_module_submissions
+    )
     if not files_to_zip:
         raise HTTPException(
             status_code=404,
@@ -245,6 +250,7 @@ async def build_multi_users_documents_zip(
     user_ids: Sequence[UUID],
     db: AsyncSession,
     include_generated: bool = False,
+    include_module_submissions: bool = False,
 ) -> tuple[bytes, str]:
     """Compile uploaded documents for multiple users into a single ZIP archive,
     with a dedicated folder for each user named after them.
@@ -259,7 +265,9 @@ async def build_multi_users_documents_zip(
     with zipfile.ZipFile(zip_buffer, mode="w", compression=zipfile.ZIP_DEFLATED) as zf:
         for uid in user_ids:
             try:
-                user, files = await get_user_document_items(uid, db, include_generated)
+                user, files = await get_user_document_items(
+                    uid, db, include_generated=include_generated, include_module_submissions=include_module_submissions
+                )
             except HTTPException:
                 continue
 
