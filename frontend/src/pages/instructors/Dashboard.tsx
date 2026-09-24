@@ -46,7 +46,7 @@ export default function InstructorDashboard() {
             icon: <AlertTriangle size={16} className="text-amber-500" />,
             title: `Upload Mandatory Documents (${docsCompliance.data.uploaded_count}/${docsCompliance.data.total_required})`,
             desc: `Missing: ${docsCompliance.data.missing_docs.join(", ")}`,
-            to: "/instructors/documents",
+            to: "/instructors/personal-documents",
           },
         ]
       : []),
@@ -55,7 +55,7 @@ export default function InstructorDashboard() {
       icon: <CreditCard size={16} />,
       title: cardGenerated ? "Instructor ID Card — Generated ✓" : "Generate your Instructor ID Card",
       desc: "View or regenerate your SpacePoint ID card.",
-      to: "/instructors/documents",
+      to: "/instructors/id-card",
     },
     {
       done: completedVideos > 0,
@@ -104,7 +104,7 @@ export default function InstructorDashboard() {
               </p>
             </div>
           </div>
-          <Link to="/instructors/documents" className="shrink-0 self-start sm:self-auto">
+          <Link to="/instructors/personal-documents" className="shrink-0 self-start sm:self-auto">
             <Button size="sm" variant="outline" className="border-amber-500/30 text-amber-700 dark:text-amber-300 hover:bg-amber-500/10 text-xs">
               Upload Missing Documents
             </Button>
@@ -177,7 +177,7 @@ export default function InstructorDashboard() {
             </>
           ) : (
             <Link
-              to="/instructors/documents"
+              to="/instructors/id-card"
               className="mt-3 inline-flex rounded-lg bg-primary px-3 py-1.5 text-xs font-semibold text-primary-foreground hover:bg-primary/90"
             >
               Generate Card
