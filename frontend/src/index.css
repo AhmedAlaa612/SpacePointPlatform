@@ -304,3 +304,17 @@ select option {
   scrollbar-width: none;  /* Firefox */
 }
 
+/* Intercom Fin launcher position on mobile.
+   Intercom's script sets `style="bottom: 20px"` as an inline style directly
+   on the .intercom-launcher-frame iframe — whatever we pass as vertical_padding
+   in boot() gets overwritten by that inline style.  CSS `!important` beats
+   inline styles, so this is the reliable override.
+   160 px sits the launcher button visibly above the LearnMobileTabBar
+   (≈ 112 px tall for staff, plus safe-area-inset-bottom on Face ID phones).
+   The media query matches the shell's own md breakpoint (768 px) so desktop
+   is completely unaffected. */
+@media (max-width: 767px) {
+  .intercom-launcher-frame {
+    bottom: 160px !important;
+  }
+}
