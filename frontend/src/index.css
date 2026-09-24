@@ -237,6 +237,22 @@
   textarea::placeholder {
     color: hsl(var(--muted-foreground));
   }
+
+  /* iOS Safari zooms in on any input/select/textarea whose font-size is below
+     16 px (1 rem) and does NOT zoom back out automatically — leaving the user
+     staring at a magnified page until they pinch to reset.  The rule above
+     sets 0.875 rem (14 px) which is fine on desktop but triggers the zoom on
+     iPhone / iPad.  This override bumps it to exactly 1 rem on narrow
+     viewports (< 768 px, matching Tailwind's md breakpoint) so the OS never
+     fires the zoom, while keeping the tighter 14 px size on desktop where the
+     screen is large enough that it reads comfortably. */
+  @media (max-width: 767px) {
+    input:not([type="checkbox"]):not([type="radio"]):not(.hidden):not(.sr-only),
+    select:not(.hidden):not(.sr-only),
+    textarea:not(.hidden):not(.sr-only) {
+      font-size: 1rem;
+    }
+  }
 }
 
 @layer components {
@@ -252,6 +268,13 @@
     line-height: 1.25rem;
     outline: none;
     transition: border-color 0.15s ease-in-out, box-shadow 0.15s ease-in-out;
+  }
+
+  /* Same iOS zoom prevention as the base-layer inputs above. */
+  @media (max-width: 767px) {
+    .input {
+      font-size: 1rem;
+    }
   }
 
   .input:focus {
