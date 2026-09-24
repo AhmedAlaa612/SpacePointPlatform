@@ -143,6 +143,15 @@ function InstructorDocumentsDialog({ userId, name, onClose }: { userId: string; 
                         </a>
                       ) : item.exempt ? (
                         <span className="text-[11px] text-muted-foreground italic px-2">Optional</span>
+                      ) : item.key === "clearance" ? (
+                        <div className="flex items-center gap-1.5">
+                          <span className="text-[11px] text-amber-600 dark:text-amber-400 font-medium px-1">Required</span>
+                          <a href="/templates/clearance/Clearance_Forms_Templates.zip" download="Clearance_Forms_Templates.zip">
+                            <Button size="sm" variant="outline" className="h-6 text-[11px] px-2">
+                              <Download size={11} className="mr-1" /> Template
+                            </Button>
+                          </a>
+                        </div>
                       ) : (
                         <span className="text-[11px] text-amber-600 dark:text-amber-400 font-medium px-2">Required</span>
                       )}

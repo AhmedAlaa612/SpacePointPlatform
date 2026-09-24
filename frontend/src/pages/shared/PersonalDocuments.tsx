@@ -50,7 +50,7 @@ const CHECKLIST: { type: string; desc: string; badge?: string }[] = [
   { type: "Emirates ID / National ID", desc: "UAE Emirates ID (front & back) if UAE resident, or national ID if international.", badge: "Mandatory" },
   { type: "Passport", desc: "High-quality copy of your passport information page.", badge: "Mandatory" },
   { type: "Personal Picture", desc: "Professional high-resolution passport-style headshot.", badge: "Mandatory" },
-  { type: "Clearance Document", desc: "Police clearance certificate or certificate of good conduct.", badge: "Mandatory" },
+  { type: "Clearance Document", desc: "Security clearance form or good conduct certificate (download official templates, fill out, and upload).", badge: "Mandatory" },
   { type: "Residence Visa", desc: "UAE Residency Visa copy (mandatory for UAE expats; exempt for international instructors, who may still upload if held).", badge: "UAE Residents" },
   { type: "Contract", desc: "Signed copy of your SpacePoint Instructor contract." },
   { type: "CV", desc: "Your latest professional CV or resume." },
@@ -488,6 +488,38 @@ export default function PersonalDocuments() {
                               ) : null}
                             </div>
                             <span className="text-[11px] leading-relaxed">{c.desc}</span>
+                            {c.type === "Clearance Document" && (
+                              <div className="mt-2 flex flex-wrap items-center gap-1.5 pt-1.5 border-t border-primary/10">
+                                <span className="text-[10px] text-muted-foreground font-medium mr-1">Templates:</span>
+                                <a
+                                  href="/templates/clearance/Clearance_Form_1.pdf"
+                                  download="Clearance_Form_1.pdf"
+                                  target="_blank"
+                                  rel="noreferrer"
+                                  className="inline-flex items-center gap-1 text-[11px] font-medium text-primary hover:underline bg-primary/10 hover:bg-primary/15 px-2 py-0.5 rounded transition-colors"
+                                >
+                                  <Download size={11} /> Form 1 (PDF)
+                                </a>
+                                <a
+                                  href="/templates/clearance/Clearance_Form_2.docx"
+                                  download="Clearance_Form_2.docx"
+                                  target="_blank"
+                                  rel="noreferrer"
+                                  className="inline-flex items-center gap-1 text-[11px] font-medium text-primary hover:underline bg-primary/10 hover:bg-primary/15 px-2 py-0.5 rounded transition-colors"
+                                >
+                                  <Download size={11} /> Form 2 (Word)
+                                </a>
+                                <a
+                                  href="/templates/clearance/Clearance_Forms_Templates.zip"
+                                  download="Clearance_Forms_Templates.zip"
+                                  target="_blank"
+                                  rel="noreferrer"
+                                  className="inline-flex items-center gap-1 text-[11px] font-medium text-primary hover:underline bg-primary/10 hover:bg-primary/15 px-2 py-0.5 rounded transition-colors"
+                                >
+                                  <Download size={11} /> All (.ZIP)
+                                </a>
+                              </div>
+                            )}
                           </div>
                         </li>
                       )
@@ -505,6 +537,53 @@ export default function PersonalDocuments() {
                   }}
                   className="flex flex-col gap-4"
                 >
+                  {docType === "Clearance Document" && (
+                    <div className="rounded-xl border border-blue-500/25 bg-blue-500/10 p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
+                      <div className="flex items-start gap-2.5">
+                        <FileText className="w-4 h-4 text-blue-600 dark:text-blue-400 mt-0.5 shrink-0" />
+                        <div>
+                          <p className="font-semibold text-blue-900 dark:text-blue-200">
+                            Clearance Document Templates
+                          </p>
+                          <p className="text-muted-foreground text-[11px] mt-0.5">
+                            Download the required forms below, fill them out with your details, and upload the signed copies.
+                          </p>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-1.5 shrink-0 flex-wrap">
+                        <a
+                          href="/templates/clearance/Clearance_Form_1.pdf"
+                          download="Clearance_Form_1.pdf"
+                          target="_blank"
+                          rel="noreferrer"
+                        >
+                          <Button size="sm" variant="outline" type="button" className="h-7 text-xs px-2.5 border-blue-500/30 bg-background/50 hover:bg-background">
+                            <Download size={12} className="mr-1 text-blue-500" /> Form 1 (PDF)
+                          </Button>
+                        </a>
+                        <a
+                          href="/templates/clearance/Clearance_Form_2.docx"
+                          download="Clearance_Form_2.docx"
+                          target="_blank"
+                          rel="noreferrer"
+                        >
+                          <Button size="sm" variant="outline" type="button" className="h-7 text-xs px-2.5 border-blue-500/30 bg-background/50 hover:bg-background">
+                            <Download size={12} className="mr-1 text-blue-500" /> Form 2 (Word)
+                          </Button>
+                        </a>
+                        <a
+                          href="/templates/clearance/Clearance_Forms_Templates.zip"
+                          download="Clearance_Forms_Templates.zip"
+                          target="_blank"
+                          rel="noreferrer"
+                        >
+                          <Button size="sm" variant="default" type="button" className="h-7 text-xs px-2.5 bg-blue-600 hover:bg-blue-700 text-white">
+                            <Download size={12} className="mr-1" /> All (.ZIP)
+                          </Button>
+                        </a>
+                      </div>
+                    </div>
+                  )}
                   <div>
                     <label className="block text-[11px] uppercase tracking-wider text-muted-foreground mb-2 font-semibold">
                       File Upload
