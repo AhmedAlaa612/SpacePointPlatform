@@ -278,7 +278,6 @@ function BatchDownloadModal({
 
   const selectAll = () => setSelectedTypes(DOCUMENT_TYPE_OPTIONS.map((d) => d.id))
   const deselectAll = () => setSelectedTypes([])
-  const selectVisaAndCv = () => setSelectedTypes(["visa", "cv"])
 
   return (
     <Dialog open={open} onOpenChange={(o) => !o && !downloading && onClose()}>
@@ -305,7 +304,7 @@ function BatchDownloadModal({
                 onClick={selectAll}
                 className="text-[11px] text-primary hover:underline font-medium"
               >
-                All
+                Select All
               </button>
               <span className="text-muted-foreground">·</span>
               <button
@@ -313,15 +312,7 @@ function BatchDownloadModal({
                 onClick={deselectAll}
                 className="text-[11px] text-muted-foreground hover:text-foreground font-medium"
               >
-                None
-              </button>
-              <span className="text-muted-foreground">·</span>
-              <button
-                type="button"
-                onClick={selectVisaAndCv}
-                className="text-[11px] text-primary font-medium hover:underline bg-primary/10 px-1.5 py-0.5 rounded"
-              >
-                Visa & CV only
+                Clear
               </button>
             </div>
           </div>
