@@ -111,12 +111,12 @@ export default function InstructorDashboard() {
               variant="outline"
               type="button"
               onClick={() => setClearanceModalOpen(true)}
-              className="border-amber-500/40 text-amber-800 dark:text-amber-200 hover:bg-amber-500/15 text-xs font-semibold"
+              className="h-8 px-3 border-amber-500/40 text-amber-800 dark:text-amber-200 hover:bg-amber-500/15 text-xs font-semibold"
             >
               <Download size={13} className="mr-1.5" /> Download Clearance Forms
             </Button>
             <Link to="/instructors/personal-documents">
-              <Button size="sm" className="text-xs font-semibold">
+              <Button size="sm" className="h-8 px-3 text-xs font-semibold">
                 Upload Missing Documents
               </Button>
             </Link>
