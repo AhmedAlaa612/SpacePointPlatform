@@ -39,10 +39,6 @@ export default function InstructorDashboard() {
   const cardGenerated = !!(card?.card_id || card?.generated_at)
   const firstName = (currentUser?.full_name ?? "Instructor").split(" ")[0]
 
-  const isClearanceMissing = docsCompliance.data?.missing_docs?.some((d: string) =>
-    d.toLowerCase().includes("clearance")
-  )
-
   const nextSteps = [
     ...(docsCompliance.data && !docsCompliance.data.is_complete
       ? [
@@ -51,17 +47,6 @@ export default function InstructorDashboard() {
             icon: <AlertTriangle size={16} className="text-amber-500" />,
             title: `Upload Mandatory Documents (${docsCompliance.data.uploaded_count}/${docsCompliance.data.total_required})`,
             desc: `Missing: ${docsCompliance.data.missing_docs.join(", ")}`,
-            to: "/instructors/personal-documents",
-          },
-        ]
-      : []),
-    ...(isClearanceMissing
-      ? [
-          {
-            done: false,
-            icon: <FileText size={16} className="text-primary" />,
-            title: "Download Clearance Form Templates",
-            desc: "Download official clearance forms, fill and sign them, then upload to Personal Documents.",
             to: "/instructors/personal-documents",
           },
         ]
@@ -244,7 +229,7 @@ export default function InstructorDashboard() {
       </GlassCard>
 
       {/* Quick links */}
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
         <Link to="/instructors/library">
           <GlassCard className="h-full transition-colors hover:border-primary/40 hover:bg-foreground/5">
             <BookOpen size={18} className="text-primary" />
@@ -259,21 +244,6 @@ export default function InstructorDashboard() {
             <p className="mt-1 text-sm text-muted-foreground">View and sign your facilitator payment letters.</p>
           </GlassCard>
         </Link>
-        <div
-          role="button"
-          tabIndex={0}
-          onClick={() => setClearanceModalOpen(true)}
-          className="cursor-pointer"
-        >
-          <GlassCard className="h-full transition-colors hover:border-primary/40 hover:bg-foreground/5 group">
-            <div className="flex items-center justify-between">
-              <FileText size={18} className="text-primary" />
-              <Download size={14} className="text-muted-foreground group-hover:text-primary transition-colors" />
-            </div>
-            <p className="mt-2 font-semibold">Clearance Forms</p>
-            <p className="mt-1 text-sm text-muted-foreground">Download official clearance templates to fill and upload.</p>
-          </GlassCard>
-        </div>
         <Link to="/instructors/profile">
           <GlassCard className="h-full transition-colors hover:border-primary/40 hover:bg-foreground/5">
             <CreditCard size={18} className="text-primary" />
