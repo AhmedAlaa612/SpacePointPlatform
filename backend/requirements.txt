@@ -3,7 +3,8 @@ fastapi
 uvicorn[standard]
 
 # Database (async)
-sqlalchemy
+sqlalchemy[asyncio]
+greenlet
 asyncpg
 alembic
 psycopg2-binary  # sync driver used only by scripts/migrate_legacy.py to read the legacy DB
