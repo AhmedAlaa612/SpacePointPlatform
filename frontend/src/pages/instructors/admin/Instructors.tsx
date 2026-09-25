@@ -696,11 +696,7 @@ export default function InstructorsAdminInstructors() {
                   <Button
                     size="sm"
                     variant="outline"
-                    className={`h-8 text-xs flex-1 sm:flex-initial justify-center ${
-                      i.docs_compliance?.is_complete
-                        ? "text-emerald-600 dark:text-emerald-400 border-emerald-500/30 hover:bg-emerald-500/10"
-                        : "text-amber-600 dark:text-amber-400 border-amber-500/30 hover:bg-amber-500/10"
-                    }`}
+                    className="h-8 text-xs flex-1 sm:flex-initial justify-center"
                     title="View documents & compliance checklist"
                     onClick={(e) => {
                       e.stopPropagation()
