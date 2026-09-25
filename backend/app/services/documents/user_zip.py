@@ -93,6 +93,10 @@ def _normalize_category(doc_type: str) -> str:
     if "picture" in dt or "photo" in dt or "headshot" in dt:
         return "photo"
     if "clearance" in dt or "conduct" in dt:
+        if "2" in dt or "form 2" in dt:
+            return "clearance_2"
+        if "1" in dt or "form 1" in dt:
+            return "clearance_1"
         return "clearance"
     if "visa" in dt:
         return "visa"
@@ -124,6 +128,17 @@ async def get_user_document_items(
     allowed_cats: set[str] | None = None
     if document_types is not None and len(document_types) > 0:
         allowed_cats = {_normalize_category(t) for t in document_types}
+        if "clearance" in allowed_cats:
+            allowed_cats.update({"clearance_1", "clearance_2"})
+
+    def is_cat_allowed(c: str) -> bool:
+        if allowed_cats is None:
+            return True
+        if c in allowed_cats:
+            return True
+        if c == "clearance" and ("clearance_1" in allowed_cats or "clearance_2" in allowed_cats):
+            return True
+        return False
 
     items_to_fetch: list[tuple[str, str | None, str | None, str | None]] = []
 
@@ -138,7 +153,7 @@ async def get_user_document_items(
     for doc in vault_docs:
         label = doc.document_type or "Document"
         cat = _normalize_category(doc.document_type or "other")
-        if allowed_cats is not None and cat not in allowed_cats:
+        if not is_cat_allowed(cat):
             continue
         items_to_fetch.append((label, doc.bucket, doc.file_path, doc.file_url))
 

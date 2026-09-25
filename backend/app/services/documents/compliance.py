@@ -22,6 +22,14 @@ DOC_TYPE_ALIASES: dict[str, list[str]] = {
     "passport": ["passport"],
     "emirates_id": ["emirates id / national id", "emirates id", "national id", "id card"],
     "photo": ["personal picture", "photo", "passport photo", "personal photo", "passport style photo"],
+    "clearance_1": [
+        "clearance document 1", "clearance document 1 (form 1)", "clearance form 1", "clearance 1",
+        "form 1", "security clearance 1", "clerance 1", "clearance_1", "security clearance form 1",
+    ],
+    "clearance_2": [
+        "clearance document 2", "clearance document 2 (form 2)", "clearance form 2", "clearance 2",
+        "form 2", "security clearance 2", "clerance 2", "clearance_2", "security clearance form 2",
+    ],
     "clearance": ["clearance document", "clearance", "police clearance", "good conduct certificate", "certificate of good conduct"],
     "visa": ["residence visa", "visa", "uae residence visa", "residency visa"],
 }
@@ -46,9 +54,15 @@ CHECKLIST_SPECS = [
         "always_mandatory": True,
     },
     {
-        "key": "clearance",
-        "label": "Clearance Document",
-        "desc": "Police clearance certificate or certificate of good conduct.",
+        "key": "clearance_1",
+        "label": "Clearance Document 1",
+        "desc": "Security clearance form 1 (PDF) — download template, fill, and upload.",
+        "always_mandatory": True,
+    },
+    {
+        "key": "clearance_2",
+        "label": "Clearance Document 2",
+        "desc": "Security clearance form 2 (Word) — download template, fill, and upload.",
         "always_mandatory": True,
     },
     {
@@ -75,6 +89,9 @@ def _extract_display_filename(file_path: str | None, file_url: str | None, fallb
 
 def _match_key(doc_type: str, file_path: str | None = None, file_url: str | None = None) -> str | None:
     norm = doc_type.strip().lower()
+    for key in ("clearance_1", "clearance_2"):
+        if norm in DOC_TYPE_ALIASES[key] or any(norm.startswith(a) for a in DOC_TYPE_ALIASES[key]):
+            return key
     for key, aliases in DOC_TYPE_ALIASES.items():
         if norm in aliases or any(norm.startswith(a) for a in aliases):
             return key
@@ -82,8 +99,12 @@ def _match_key(doc_type: str, file_path: str | None = None, file_url: str | None
     candidate = file_path or (file_url.split("?")[0] if file_url else "")
     fname = candidate.split("/")[-1].lower()
     if fname:
+        if "clearance_1" in fname or "form_1" in fname or "form 1" in fname or "clerance.pdf" in fname or "clerance_1" in fname:
+            return "clearance_1"
+        if "clearance_2" in fname or "form_2" in fname or "form 2" in fname or "clerance_2" in fname:
+            return "clearance_2"
         for key in ["passport", "visa", "clearance", "photo"]:
-            for alias in DOC_TYPE_ALIASES[key]:
+            for alias in DOC_TYPE_ALIASES.get(key, []):
                 if alias in fname:
                     return key
     return None
@@ -130,6 +151,11 @@ def evaluate_instructor_compliance(
 
     for doc in sorted_docs:
         key = _match_key(doc.document_type, doc.file_path, doc.file_url)
+        if key == "clearance":
+            if "clearance_1" not in matched_by_key:
+                key = "clearance_1"
+            elif "clearance_2" not in matched_by_key:
+                key = "clearance_2"
         if key and key not in matched_by_key:
             matched_by_key[key] = doc
         else:

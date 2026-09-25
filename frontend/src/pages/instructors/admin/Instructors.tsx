@@ -143,6 +143,24 @@ function InstructorDocumentsDialog({ userId, name, onClose }: { userId: string; 
                         </a>
                       ) : item.exempt ? (
                         <span className="text-[11px] text-muted-foreground italic px-2">Optional</span>
+                      ) : item.key === "clearance_1" ? (
+                        <div className="flex items-center gap-1.5">
+                          <span className="text-[11px] text-amber-600 dark:text-amber-400 font-medium px-1">Required</span>
+                          <a href="/templates/clearance/Clearance_Form_1.pdf" download="Clearance_Form_1.pdf">
+                            <Button size="sm" variant="outline" className="h-6 text-[11px] px-2">
+                              <Download size={11} className="mr-1" /> Template
+                            </Button>
+                          </a>
+                        </div>
+                      ) : item.key === "clearance_2" ? (
+                        <div className="flex items-center gap-1.5">
+                          <span className="text-[11px] text-amber-600 dark:text-amber-400 font-medium px-1">Required</span>
+                          <a href="/templates/clearance/Clearance_Form_2.docx" download="Clearance_Form_2.docx">
+                            <Button size="sm" variant="outline" className="h-6 text-[11px] px-2">
+                              <Download size={11} className="mr-1" /> Template
+                            </Button>
+                          </a>
+                        </div>
                       ) : item.key === "clearance" ? (
                         <div className="flex items-center gap-1.5">
                           <span className="text-[11px] text-amber-600 dark:text-amber-400 font-medium px-1">Required</span>
@@ -247,7 +265,8 @@ const DOCUMENT_TYPE_OPTIONS = [
   { id: "cv", label: "CV / Resume", desc: "Uploaded CV or Application Resume" },
   { id: "emirates_id", label: "Emirates ID / National ID", desc: "Emirates ID (front/back) or National ID" },
   { id: "passport", label: "Passport", desc: "Passport information page copy" },
-  { id: "clearance", label: "Clearance Document", desc: "Police clearance / good conduct certificate" },
+  { id: "clearance_1", label: "Clearance Document 1", desc: "Security clearance form 1 (PDF)" },
+  { id: "clearance_2", label: "Clearance Document 2", desc: "Security clearance form 2 (Word)" },
   { id: "photo", label: "Personal Picture", desc: "Official photo / headshot" },
   { id: "contract", label: "Contract", desc: "Signed instructor agreement" },
   { id: "payment_letters", label: "Payment Letters", desc: "Signed session payment letters" },

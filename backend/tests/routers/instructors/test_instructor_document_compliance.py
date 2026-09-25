@@ -96,10 +96,12 @@ def test_compliance_uae_resident_all_required():
     comp = evaluate_instructor_compliance(user, [])
     assert comp["is_uae_resident"] is True
     assert comp["is_complete"] is False
-    assert comp["total_required"] == 5
+    assert comp["total_required"] == 6
     assert comp["uploaded_count"] == 0
-    assert len(comp["missing_docs"]) == 5
+    assert len(comp["missing_docs"]) == 6
     assert "Residence Visa" in comp["missing_docs"]
+    assert "Clearance Document 1" in comp["missing_docs"]
+    assert "Clearance Document 2" in comp["missing_docs"]
 
 
 def test_compliance_intl_resident_visa_exempt():
@@ -107,7 +109,7 @@ def test_compliance_intl_resident_visa_exempt():
     comp = evaluate_instructor_compliance(user, [])
     assert comp["is_uae_resident"] is False
     assert comp["is_complete"] is False
-    assert comp["total_required"] == 4
+    assert comp["total_required"] == 5
     assert comp["uploaded_count"] == 0
     assert "Residence Visa" not in comp["missing_docs"]
     visa_item = next(it for it in comp["checklist"] if it["key"] == "visa")
@@ -121,14 +123,15 @@ def test_compliance_intl_resident_complete_with_optional_visa():
         InstructorDocument(id=uuid.uuid4(), user_id=user.id, document_type="Passport", file_url="/f1"),
         InstructorDocument(id=uuid.uuid4(), user_id=user.id, document_type="Emirates ID / National ID", file_url="/f2"),
         InstructorDocument(id=uuid.uuid4(), user_id=user.id, document_type="Personal Picture", file_url="/f3"),
-        InstructorDocument(id=uuid.uuid4(), user_id=user.id, document_type="Clearance Document", file_url="/f4"),
-        InstructorDocument(id=uuid.uuid4(), user_id=user.id, document_type="Residence Visa", file_url="/f5"),
+        InstructorDocument(id=uuid.uuid4(), user_id=user.id, document_type="Clearance Document 1", file_url="/f4"),
+        InstructorDocument(id=uuid.uuid4(), user_id=user.id, document_type="Clearance Document 2", file_url="/f5"),
+        InstructorDocument(id=uuid.uuid4(), user_id=user.id, document_type="Residence Visa", file_url="/f6"),
     ]
     comp = evaluate_instructor_compliance(user, docs)
     assert comp["is_uae_resident"] is False
     assert comp["is_complete"] is True
-    assert comp["uploaded_count"] == 4
-    assert comp["total_required"] == 4
+    assert comp["uploaded_count"] == 5
+    assert comp["total_required"] == 5
     assert len(comp["missing_docs"]) == 0
     visa_item = next(it for it in comp["checklist"] if it["key"] == "visa")
     assert visa_item["exempt"] is True
@@ -141,12 +144,13 @@ def test_compliance_legacy_aliases():
         InstructorDocument(id=uuid.uuid4(), user_id=user.id, document_type="passport", file_url="/f1"),
         InstructorDocument(id=uuid.uuid4(), user_id=user.id, document_type="ID Card", file_url="/f2"),
         InstructorDocument(id=uuid.uuid4(), user_id=user.id, document_type="photo", file_url="/f3"),
-        InstructorDocument(id=uuid.uuid4(), user_id=user.id, document_type="Police Clearance", file_url="/f4"),
-        InstructorDocument(id=uuid.uuid4(), user_id=user.id, document_type="Visa", file_url="/f5"),
+        InstructorDocument(id=uuid.uuid4(), user_id=user.id, document_type="Clearance Form 1", file_url="/f4"),
+        InstructorDocument(id=uuid.uuid4(), user_id=user.id, document_type="Clearance Form 2", file_url="/f5"),
+        InstructorDocument(id=uuid.uuid4(), user_id=user.id, document_type="Visa", file_url="/f6"),
     ]
     comp = evaluate_instructor_compliance(user, docs)
     assert comp["is_complete"] is True
-    assert comp["uploaded_count"] == 5
+    assert comp["uploaded_count"] == 6
     assert len(comp["missing_docs"]) == 0
 
 
@@ -168,8 +172,8 @@ async def test_get_my_documents_compliance_api(client, db, uae_instructor, uae_h
     assert data["is_uae_resident"] is True
     assert data["is_complete"] is False
     assert data["uploaded_count"] == 1
-    assert data["total_required"] == 5
-    assert len(data["checklist"]) == 5
+    assert data["total_required"] == 6
+    assert len(data["checklist"]) == 6
 
 
 @pytest.mark.asyncio
@@ -178,8 +182,8 @@ async def test_admin_instructors_compliance_and_detail(client, db, admin_user, a
     doc = InstructorDocument(
         id=uuid.uuid4(),
         user_id=uae_instructor.id,
-        document_type="Clearance Document",
-        file_url="/files/clearance.pdf",
+        document_type="Clearance Document 1",
+        file_url="/files/clearance_1.pdf",
     )
     db.add(doc)
     await db.commit()
@@ -193,7 +197,7 @@ async def test_admin_instructors_compliance_and_detail(client, db, admin_user, a
     assert "docs_compliance" in match
     assert match["docs_compliance"]["is_complete"] is False
     assert match["docs_compliance"]["uploaded_count"] == 1
-    assert match["docs_compliance"]["total_required"] == 5
+    assert match["docs_compliance"]["total_required"] == 6
 
     # Detail compliance
     detail_resp = await client.get(
@@ -204,7 +208,7 @@ async def test_admin_instructors_compliance_and_detail(client, db, admin_user, a
     detail = detail_resp.json()
     assert detail["is_uae_resident"] is True
     assert detail["uploaded_count"] == 1
-    clearance_item = next(it for it in detail["checklist"] if it["key"] == "clearance")
+    clearance_item = next(it for it in detail["checklist"] if it["key"] == "clearance_1")
     assert clearance_item["uploaded"] is True
 
 
