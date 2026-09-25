@@ -304,4 +304,24 @@ select option {
   scrollbar-width: none;  /* Firefox */
 }
 
-
+/* Intercom Fin launcher & notification badge position on mobile.
+   Intercom's mobile messenger defaults to fixed bottom: 20px, which sits directly
+   on top of the LearnMobileTabBar (~112px tall for staff + iOS safe area).
+   Using translateY(-130px) on mobile raises both the launcher icon and the
+   notification badge together (keeping their relative alignment) while leaving
+   the messenger chat window (.intercom-messenger-frame) untouched so it opens
+   at full height with no top/bottom clipping. */
+@media (max-width: 767px) {
+  .intercom-launcher-frame,
+  .intercom-launcher-badge-frame,
+  .intercom-notifications-frame,
+  .intercom-lightweight-app-launcher,
+  iframe[name="intercom-launcher-frame"],
+  iframe[name="intercom-launcher-badge-frame"],
+  iframe[name="intercom-notifications-frame"],
+  iframe[name*="launcher"]:not([name*="messenger"]),
+  iframe[name*="badge"],
+  iframe[name*="notification"] {
+    transform: translateY(-130px) !important;
+  }
+}
