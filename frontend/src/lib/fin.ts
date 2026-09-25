@@ -19,11 +19,12 @@
  * JS, no analytics), so it sets the pattern rather than following one.
  *
  * LAUNCHER POSITION ON MOBILE
- * The launcher sits at the bottom-right corner.  To raise it above the
- * mobile tab bar, set the vertical offset in the Intercom dashboard:
- *   Settings → Messenger → Customize → Launcher → Vertical padding
- * That value is stored server-side and applied by the widget itself —
- * no code change or redeploy needed. */
+ * Intercom's mobile messenger defaults to `bottom: 20px` and ignores vertical
+ * padding configured in the Intercom dashboard on mobile web. To clear the
+ * fixed mobile tab bar (~112px tall + safe area), the launcher and notification
+ * badge frames are shifted up via CSS in `frontend/src/index.css`
+ * (`@media (max-width: 767px) { transform: translateY(-130px) !important }`).
+ * Desktop uses the dashboard vertical padding setting untouched. */
 
 const APP_ID: string = import.meta.env.VITE_INTERCOM_APP_ID ?? "";
 

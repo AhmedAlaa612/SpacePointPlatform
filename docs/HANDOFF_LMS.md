@@ -987,3 +987,39 @@ A brand-new, LMS-checklist-only quiz domain — not documented at all before thi
 - **Not built**: retries of any kind (a genuinely locked-in v1 decision, not a gap); per-question
   time limits beyond the existing per-question timer auto-submitting blank on timeout (that part
   is built — see `CohortQuizAnswer`'s own docstring on `selected_option_index=None`).
+
+---
+
+## 20. Fin (Intercom) Support Assistant on `/learn/*` (2026-09)
+
+The AI student support assistant mounted exclusively on `/learn/*` routes (`LearnShell.tsx`), trained on the competition FAQ in the Intercom dashboard. Deliberately no prompt or answer logic in this codebase — ops authors and updates FAQs directly in Intercom without requiring a deploy.
+
+### Architecture & Components
+- **`frontend/src/components/FinWidget.tsx`**: React wrapper mounted in `LearnShell.tsx` (never in `main.tsx` or portal shells). Renders `null` — manages script loading and identity lifecycle. Waits for `AuthContext` to finish loading before booting to avoid burning anonymous contacts, and executes `shutdown()` on unmount/logout to prevent cross-account chat history leaks on shared lab/school computers.
+- **`frontend/src/lib/fin.ts`**: Pure TS loader and interface with `window.Intercom`. Features queue stubbing before the script loads and exports `boot()`, `shutdown()`, and `isFinEnabled()`. Completely inert when `VITE_INTERCOM_APP_ID` is unset.
+- **`backend/app/routers/lms/support.py`** & **`services/lms/support.py`**: Exposes `GET /lms/support/chat-identity` (`require_lms_student`). Returns signed HS256 JWT when `INTERCOM_IDENTITY_SECRET` is set; returns 503 if secret is empty (frontend gracefully falls back to an anonymous boot so support remains accessible).
+
+### Messenger Security & Identity Claims
+Identity is secured using Intercom Messenger Security (HMAC-SHA256 JWT):
+- Secret: `INTERCOM_IDENTITY_SECRET` (backend runtime environment variable).
+- Frontend passes **only** `intercom_user_jwt` to Intercom `boot()` — passing unsigned attributes (`user_id`, `email`) alongside a signed token causes Intercom Messenger Security to reject the boot with a 403.
+- All verified user attributes are embedded as JWT claims inside the token by `services/lms/support.py`: `user_id`, `name`, `email`, `roles` (space-delimited string for Intercom audience filter compatibility), `cohort`, `team`, `card_id`, and casing variations.
+
+### Mobile View Positioning (`frontend/src/index.css`)
+- **Problem**: Intercom's mobile web messenger defaults to `bottom: 20px` and ignores vertical padding configured in the dashboard or passed to `boot()` on mobile viewports. On `/learn/*`, this places the launcher icon right on top of the fixed mobile bottom bar (`LearnMobileTabBar.tsx`, ~112px tall + up to 34px iOS safe area).
+- **Solution**: Handled entirely in `frontend/src/index.css` under `@media (max-width: 767px)` using `transform: translateY(-130px) !important;`.
+- **Targeting**:
+  - Targets both launcher frames (`.intercom-launcher-frame`, `iframe[name*="launcher"]`) AND notification badge frames (`.intercom-launcher-badge-frame`, `iframe[name*="badge"]`, `iframe[name*="notification"]`). Moving both together by the same transform preserves their relative offset so the unread count badge stays pinned to the launcher icon.
+  - Excludes the messenger chat window (`:not([name*="messenger"])`), ensuring that when a student taps the launcher, the chat window opens at full height from the viewport bottom without being clipped at the top.
+  - Desktop view (`>= 768px`) is unaffected and adheres to the Intercom dashboard layout settings.
+
+### Network / Corporate Firewall Restrictions
+- Intercom relies on real-time WebSocket and HTTP connections to `*.intercom.io` and `*.intercomcdn.com`.
+- On strict school, university, or corporate WiFi networks, firewall/DNS filters may block these domains, causing `net::ERR_TIMED_OUT` (e.g. `api-iam-intercom.io/messenger/web/ping:1`).
+- Switching to mobile data / personal hotspot bypasses the network filter and allows Fin to load immediately.
+- For permanent resolution on restricted campus networks, institutional network administrators must whitelist:
+  - `widget.intercom.io`
+  - `api-iam.intercom.io`
+  - `api.intercom.io`
+  - `nexus.intercom.io`
+  - `js.intercomcdn.com`
