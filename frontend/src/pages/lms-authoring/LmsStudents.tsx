@@ -161,8 +161,14 @@ export default function LmsStudents() {
                   </td>
                   <td className="px-4 py-3 whitespace-nowrap text-right">
                     <button
-                      onClick={() => void navigate({ to: `/lms-authoring/students/${s.id}` })}
-                      className="text-xs font-medium text-muted-foreground hover:text-primary transition-colors"
+                      onClick={() => {
+                        const from = typeof window !== "undefined" ? (window.location.pathname + window.location.search) : undefined
+                        void navigate({
+                          to: `/lms-authoring/students/${s.id}`,
+                          search: (from ? { from } : {}) as never,
+                        })
+                      }}
+                      className="text-xs font-medium text-muted-foreground hover:text-primary transition-colors cursor-pointer"
                       title="Manage enrolments"
                     >
                       Manage

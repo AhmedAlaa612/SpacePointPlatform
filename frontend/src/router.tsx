@@ -799,7 +799,16 @@ const lmsAuthoringRoutes = [
   createRoute({ getParentRoute: pla, path: "/courses", component: LmsCourses }),
   createRoute({ getParentRoute: pla, path: "/courses/$courseId", component: LmsCourseDetail }),
   createRoute({ getParentRoute: pla, path: "/modules/$moduleId", component: LmsModuleDetail }),
-  createRoute({ getParentRoute: pla, path: "/curriculum", component: LmsProgramAdmin }),
+  createRoute({
+    getParentRoute: pla,
+    path: "/curriculum",
+    component: LmsProgramAdmin,
+    validateSearch: (s: Record<string, unknown>) => ({
+      programId: typeof s.programId === "string" ? s.programId : undefined,
+      cohortId: typeof s.cohortId === "string" ? s.cohortId : undefined,
+      tab: typeof s.tab === "string" ? s.tab : undefined,
+    }),
+  }),
   createRoute({ getParentRoute: pla, path: "/learning-paths", component: LmsLearningPaths }),
   createRoute({ getParentRoute: pla, path: "/learning-paths/$pathId", component: LmsLearningPathDetail }),
   createRoute({ getParentRoute: pla, path: "/progress", component: LmsProgressGrid }),
@@ -815,7 +824,14 @@ const lmsAuthoringRoutes = [
       invite_code: typeof s.invite_code === "string" ? s.invite_code : undefined,
     }),
   }),
-  createRoute({ getParentRoute: pla, path: "/students/$userId", component: LmsStudentDetail }),
+  createRoute({
+    getParentRoute: pla,
+    path: "/students/$userId",
+    component: LmsStudentDetail,
+    validateSearch: (s: Record<string, unknown>) => ({
+      from: typeof s.from === "string" ? s.from : undefined,
+    }),
+  }),
   createRoute({ getParentRoute: pla, path: "/invite-codes", component: LmsInviteCodes }),
   createRoute({ getParentRoute: pla, path: "/games", component: LmsGames }),
   createRoute({ getParentRoute: pla, path: "/games/$gameId", component: LmsGameDetail }),

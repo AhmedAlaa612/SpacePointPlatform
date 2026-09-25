@@ -592,7 +592,13 @@ function ProgressRow({
           </div>
 
           <button
-            onClick={() => void navigate({ to: `/lms-authoring/students/${row.user_id}` })}
+            onClick={() => {
+              const from = typeof window !== "undefined" ? (window.location.pathname + window.location.search) : undefined
+              void navigate({
+                to: `/lms-authoring/students/${row.user_id}`,
+                search: (from ? { from } : {}) as never,
+              })
+            }}
             className="min-w-0 flex-1 text-left group cursor-pointer"
           >
             <div className="text-sm sm:text-base font-bold text-foreground group-hover:text-primary transition-colors truncate">

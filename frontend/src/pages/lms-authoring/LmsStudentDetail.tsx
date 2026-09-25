@@ -1,7 +1,7 @@
 import { useState } from "react"
 import { isAxiosError } from "axios"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { useNavigate, useParams } from "@tanstack/react-router"
+import { useNavigate, useParams, useSearch } from "@tanstack/react-router"
 import { ArrowLeft, ChevronDown, Plus, X } from "lucide-react"
 import { PageHeader, EmptyState, Spinner } from "@/components/ui/primitives"
 import { useAuth } from "@/context/AuthContext"
@@ -44,6 +44,10 @@ const RUN_STATUS_LABEL: Record<StudentDesignRun["status"], string> = {
 export default function LmsStudentDetail() {
   const { userId } = useParams({ strict: false }) as { userId: string }
   const navigate = useNavigate()
+  const search = useSearch({ strict: false }) as {
+    invite_code?: string
+    from?: string
+  }
   const queryClient = useQueryClient()
   const { currentUser } = useAuth()
   const isStaff = currentUser?.role !== "instructor"
@@ -107,18 +111,27 @@ export default function LmsStudentDetail() {
   return (
     <div className="flex flex-col gap-6">
       <button
-        // Staff has a full students roster to go back to (`/students`
-        // declares a validateSearch (?invite_code=), so TanStack requires
-        // the search object here with every key present — undefined = back
-        // to the unfiltered list). Instructors never had a roster page of
-        // their own to land on — the only page they can actually reach is
-        // Programs, where the student link that got them here lives.
-        onClick={() => void (isStaff
-          ? navigate({ to: "/lms-authoring/students", search: { invite_code: undefined } })
-          : navigate({ to: "/lms-authoring/curriculum" }))}
-        className="flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground transition-colors w-fit"
+        onClick={() => {
+          if (search.from) {
+            const [path, queryString] = search.from.split("?")
+            const queryParams = queryString
+              ? Object.fromEntries(new URLSearchParams(queryString).entries())
+              : {}
+            void navigate({
+              to: path as any,
+              search: queryParams as never,
+            })
+          } else if (window.history.length > 1) {
+            window.history.back()
+          } else if (isStaff) {
+            void navigate({ to: "/lms-authoring/students", search: { invite_code: undefined } })
+          } else {
+            void navigate({ to: "/lms-authoring/curriculum", search: {} as never })
+          }
+        }}
+        className="flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground transition-colors w-fit cursor-pointer"
       >
-        <ArrowLeft size={14} /> {isStaff ? "Students" : "Programs"}
+        <ArrowLeft size={14} /> {search.from?.includes("curriculum") ? "Programs" : isStaff ? "Students" : "Programs"}
       </button>
 
       <PageHeader

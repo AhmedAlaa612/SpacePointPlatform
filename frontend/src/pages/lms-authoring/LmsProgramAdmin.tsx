@@ -1,5 +1,6 @@
-import { useEffect, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
+import { useNavigate, useSearch } from "@tanstack/react-router"
 import { PageHeader, EmptyState, Spinner } from "@/components/ui/primitives"
 import { useAuth } from "@/context/AuthContext"
 import { getProgramsApi } from "@/api/sessions/programs"
@@ -43,6 +44,12 @@ const SUBTAB_LABEL: Record<SubTab, string> = {
 export default function LmsProgramAdmin() {
   const { currentUser } = useAuth()
   const isStaff = currentUser?.role !== "instructor"
+  const navigate = useNavigate()
+  const search = useSearch({ strict: false }) as {
+    programId?: string
+    cohortId?: string
+    tab?: SubTab
+  }
 
   const { data: staffPrograms = [], isLoading: staffProgramsLoading } = useQuery<Program[]>({
     queryKey: ["sessions-programs"], queryFn: getProgramsApi, enabled: isStaff,
@@ -51,9 +58,34 @@ export default function LmsProgramAdmin() {
     queryKey: ["my-reachable-lms-programs"], queryFn: getMyReachableProgramsApi, enabled: !isStaff,
   })
 
-  const [programId, setProgramId] = useState("")
+  const programId = search.programId ?? ""
   const programsLoading = isStaff ? staffProgramsLoading : myProgramsLoading
   const preloadedProgram = !isStaff ? myPrograms.find((p) => p.program_id === programId) : undefined
+
+  // Auto-select if instructor only has one reachable program
+  useEffect(() => {
+    if (!isStaff && !programId && myPrograms.length === 1 && myPrograms[0]?.program_id) {
+      void navigate({
+        to: "/lms-authoring/curriculum",
+        search: {
+          ...search,
+          programId: myPrograms[0].program_id,
+        } as never,
+        replace: true,
+      })
+    }
+  }, [isStaff, programId, myPrograms, search, navigate])
+
+  const handleProgramChange = (newProgramId: string) => {
+    void navigate({
+      to: "/lms-authoring/curriculum",
+      search: {
+        programId: newProgramId || undefined,
+        cohortId: undefined, // reset cohort when program changes
+        tab: search.tab,
+      } as never,
+    })
+  }
 
   return (
     <div className="flex flex-col gap-6">
@@ -64,7 +96,7 @@ export default function LmsProgramAdmin() {
 
       <div className="max-w-sm">
         <select
-          value={programId} onChange={(e) => setProgramId(e.target.value)}
+          value={programId} onChange={(e) => handleProgramChange(e.target.value)}
           className="w-full h-10 px-3 border border-border bg-card text-foreground rounded-xl text-sm focus:outline-none focus:border-primary transition-colors cursor-pointer"
         >
           <option value="">Select a program…</option>
@@ -92,8 +124,28 @@ function ProgramWorkspace({
   programId, isStaff, preloadedProgram,
 }: { programId: string; isStaff: boolean; preloadedProgram?: LmsProgram }) {
   const queryClient = useQueryClient()
-  const [scope, setScope] = useState<Scope>("program")
-  const [subtab, setSubtab] = useState<SubTab>("checklist")
+  const navigate = useNavigate()
+  const search = useSearch({ strict: false }) as {
+    programId?: string
+    cohortId?: string
+    tab?: SubTab
+  }
+
+  const VALID_SUBTABS: SubTab[] = ["checklist", "missions", "components", "progress", "review"]
+  const rawTab = search.tab as SubTab | undefined
+  const subtab: SubTab = (rawTab && VALID_SUBTABS.includes(rawTab)) ? rawTab : "checklist"
+
+  const setSubtab = (t: SubTab) => {
+    void navigate({
+      to: "/lms-authoring/curriculum",
+      search: {
+        ...search,
+        programId,
+        tab: t,
+      } as never,
+      replace: true,
+    })
+  }
 
   const { data: found = [], isLoading } = useQuery<LmsProgram[]>({
     queryKey: ["lms-program-for-program", programId], queryFn: () => listLmsProgramsApi(programId),
@@ -112,14 +164,36 @@ function ProgramWorkspace({
     ? staffCohorts.map((c) => ({ id: c.id, name: c.name }))
     : instructorCohorts.filter((c) => c.program_id === programId).map((c) => ({ id: c.id, name: c.name }))
 
+  const matchingCohort = search.cohortId ? cohorts.find((c) => c.id === search.cohortId) : undefined
+
+  const scope: Scope = useMemo(() => {
+    if (matchingCohort) {
+      return { cohortId: matchingCohort.id, cohortName: matchingCohort.name }
+    }
+    if (search.cohortId) {
+      return { cohortId: search.cohortId, cohortName: "Cohort" }
+    }
+    if (!isStaff && cohorts.length > 0) {
+      return { cohortId: cohorts[0].id, cohortName: cohorts[0].name }
+    }
+    return "program"
+  }, [matchingCohort, search.cohortId, isStaff, cohorts])
+
   // Instructors don't get a "Program" scope at all — they land straight on
   // their own cohort (operator ask, 2026-08-23), never the master template.
   useEffect(() => {
-    if (!isStaff && scope === "program" && cohorts.length > 0) {
-      setScope({ cohortId: cohorts[0].id, cohortName: cohorts[0].name })
+    if (!isStaff && !search.cohortId && cohorts.length > 0) {
+      void navigate({
+        to: "/lms-authoring/curriculum",
+        search: {
+          ...search,
+          programId,
+          cohortId: cohorts[0].id,
+        } as never,
+        replace: true,
+      })
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isStaff, scope, cohorts.length])
+  }, [isStaff, search.cohortId, cohorts, programId, search, navigate])
 
   const createMutation = useMutation({
     mutationFn: (name: string) => createLmsProgramApi({ program_id: programId, name }),
@@ -150,7 +224,15 @@ function ProgramWorkspace({
       <div className="flex items-center gap-1 border-b border-border overflow-x-auto scrollbar-none no-scrollbar">
         {isStaff && (
           <button
-            onClick={() => setScope("program")}
+            onClick={() => void navigate({
+              to: "/lms-authoring/curriculum",
+              search: {
+                ...search,
+                programId,
+                cohortId: undefined,
+              } as never,
+              replace: true,
+            })}
             className={`px-3 py-2.5 text-sm font-medium border-b-2 -mb-px transition-colors cursor-pointer shrink-0 whitespace-nowrap ${
               scope === "program" ? "border-primary text-foreground" : "border-transparent text-muted-foreground hover:text-foreground"
             }`}
@@ -161,7 +243,15 @@ function ProgramWorkspace({
         {cohorts.map((c) => (
           <button
             key={c.id}
-            onClick={() => setScope({ cohortId: c.id, cohortName: c.name })}
+            onClick={() => void navigate({
+              to: "/lms-authoring/curriculum",
+              search: {
+                ...search,
+                programId,
+                cohortId: c.id,
+              } as never,
+              replace: true,
+            })}
             className={`px-3 py-2.5 text-sm font-medium border-b-2 -mb-px transition-colors cursor-pointer shrink-0 whitespace-nowrap ${
               typeof scope === "object" && scope.cohortId === c.id ? "border-primary text-foreground" : "border-transparent text-muted-foreground hover:text-foreground"
             }`}
