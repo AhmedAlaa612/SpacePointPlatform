@@ -163,8 +163,8 @@ function DrawerBody({
         <h2 className="font-display text-[26px] md:text-2xl font-extrabold tracking-tight text-foreground">{item.title}</h2>
         {item.description && <p className="text-base text-muted-foreground">{item.description}</p>}
         {item.deadline_at && (
-          <p className="text-sm text-muted-foreground">
-            Due {new Date(item.deadline_at).toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}
+          <p className={`text-sm ${pastDeadline ? "text-amber-600 dark:text-amber-500 font-medium" : "text-muted-foreground"}`}>
+            {pastDeadline ? "Deadline passed · " : ""}Due {new Date(item.deadline_at).toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}
           </p>
         )}
       </div>
@@ -502,6 +502,18 @@ function DrawerBody({
         )
       )}
 
+      {item.item_type === "quiz" && pastDeadline && !done && (
+        <p className="text-sm font-medium text-amber-600 dark:text-amber-500">
+          Deadline passed — no longer accepting quiz attempts
+        </p>
+      )}
+
+      {isSelfCheck && pastDeadline && !done && !awaiting && (
+        <p className="text-sm font-medium text-amber-600 dark:text-amber-500">
+          Deadline passed — this step can no longer be completed
+        </p>
+      )}
+
       {/* Exactly one primary action, whatever this item's type. */}
       <div className="mt-auto pt-3 flex flex-col gap-2.5 border-t border-border">
         {teamFinalLocked && item.scope === "team" ? (
@@ -514,7 +526,13 @@ function DrawerBody({
               <p className="text-xs text-muted-foreground text-center">View the guide above first</p>
             )}
             {isAutoTracked && (
-              <Button onClick={doWork} className="h-[52px] text-base gap-2">{workLabel}</Button>
+              <Button
+                disabled={item.item_type === "quiz" && pastDeadline && !done}
+                onClick={doWork}
+                className="h-[52px] text-base gap-2"
+              >
+                {item.item_type === "quiz" && pastDeadline && !done ? "Deadline passed" : workLabel}
+              </Button>
             )}
             {isTeamSetup && !pastDeadline && (
               <Button
@@ -589,11 +607,17 @@ function DrawerBody({
             )}
             {isSelfCheck && !done && !awaiting && (
               <Button
-                disabled={!canSubmit || completeMutation.isPending}
+                disabled={!canSubmit || completeMutation.isPending || pastDeadline}
                 onClick={() => completeMutation.mutate()}
                 className="h-[52px] text-base"
               >
-                {completeMutation.isPending ? "Marking done…" : item.requires_confirmation ? "Mark as done (needs sign-off)" : "Mark as done"}
+                {pastDeadline
+                  ? "Deadline passed"
+                  : completeMutation.isPending
+                  ? "Marking done…"
+                  : item.requires_confirmation
+                  ? "Mark as done (needs sign-off)"
+                  : "Mark as done"}
               </Button>
             )}
           </>

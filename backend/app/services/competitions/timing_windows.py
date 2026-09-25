@@ -107,31 +107,32 @@ def resolve_team_timing(cohort: Cohort | None, team: Team | None) -> dict[str, A
                 "points": pts,
                 "badge": w.get("badge") or f"{w.get('name', 'Tier')} ({'+' if pts > 0 else ''}{pts:g})",
                 "tier_name": w.get("name"),
-                "color": w.get("color") or ("emerald" if pts > 0 else ("rose" if pts < 0 else "blue")),
+                "color": w.get("color") or ("green" if pts > 0 else ("rose" if pts < 0 else "white")),
                 "is_override": False,
                 "override_notes": None,
                 "locked_at": getattr(team, "final_locked_at", None),
                 "first_locked_at": getattr(team, "first_locked_at", None),
             }
 
-    # Passed all cutoffs -> take the last window (critical late / lockout)
-    if windows:
+    # Passed all cutoffs -> if last window was a penalty (pts < 0), apply it; otherwise 0.0
+    if windows and not windows[-1].get("is_deadline"):
         last = windows[-1]
         pts_raw = last.get("points")
         try:
             pts = float(pts_raw) if pts_raw is not None else 0.0
         except (ValueError, TypeError):
             pts = 0.0
-        return {
-            "points": pts,
-            "badge": last.get("badge") or f"{last.get('name', 'Late')} ({'+' if pts > 0 else ''}{pts:g})",
-            "tier_name": last.get("name"),
-            "color": last.get("color") or "rose",
-            "is_override": False,
-            "override_notes": None,
-            "locked_at": getattr(team, "final_locked_at", None),
-            "first_locked_at": getattr(team, "first_locked_at", None),
-        }
+        if pts < 0:
+            return {
+                "points": pts,
+                "badge": last.get("badge") or f"{last.get('name', 'Late')} ({pts:g})",
+                "tier_name": last.get("name"),
+                "color": last.get("color") or "rose",
+                "is_override": False,
+                "override_notes": None,
+                "locked_at": getattr(team, "final_locked_at", None),
+                "first_locked_at": getattr(team, "first_locked_at", None),
+            }
 
     return {
         "points": 0.0,
@@ -145,9 +146,30 @@ def resolve_team_timing(cohort: Cohort | None, team: Team | None) -> dict[str, A
     }
 
 
+def is_cohort_deadline_passed(windows: Any, now_dt: datetime | None = None) -> bool:
+    """Returns True if any window marked with `is_deadline=True` has a cutoff in the past."""
+    if isinstance(windows, str):
+        try:
+            windows = json.loads(windows)
+        except Exception:
+            windows = []
+    if not isinstance(windows, list):
+        return False
+    now = now_dt or datetime.now(timezone.utc)
+    if not now.tzinfo:
+        now = now.replace(tzinfo=timezone.utc)
+    for w in windows:
+        if isinstance(w, dict) and w.get("is_deadline"):
+            cutoff = parse_datetime(w.get("cutoff_at"))
+            if cutoff and now > cutoff:
+                return True
+    return False
+
+
 def get_current_active_window(windows: Any, now_dt: datetime | None = None) -> dict[str, Any] | None:
     """Finds the submission window currently active for a team locking right now.
     Returns window details and `seconds_remaining` until this window's cutoff.
+    If all windows have expired, returns None (displays literally nothing).
     """
     if isinstance(windows, str):
         try:
@@ -180,13 +202,5 @@ def get_current_active_window(windows: Any, now_dt: datetime | None = None) -> d
                 "is_active": True,
             }
 
-    # All cutoffs expired
-    if sorted_windows:
-        last = sorted_windows[-1]
-        return {
-            **last,
-            "seconds_remaining": 0,
-            "is_active": False,
-            "is_past_all_cutoffs": True,
-        }
+    # All cutoffs expired -> return None (display literally nothing like if no window was set)
     return None

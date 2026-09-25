@@ -38,15 +38,19 @@ async def get_cohort_timing_window(
     current: User = Depends(get_current_active_user),
 ):
     from app.models.sessions.cohort import Cohort
-    from app.services.competitions.timing_windows import get_current_active_window
+    from app.services.competitions.timing_windows import get_current_active_window, is_cohort_deadline_passed
     cohort = await db.get(Cohort, cohort_id)
     if cohort is None:
         from fastapi import HTTPException, status
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Cohort not found")
     windows = cohort.submission_windows or []
     active = get_current_active_window(windows)
+    deadline_passed = is_cohort_deadline_passed(windows)
+    deadline_window = next((w for w in windows if isinstance(w, dict) and w.get("is_deadline")), None)
     return {
         "windows": windows,
         "active_window": active,
+        "is_deadline_passed": deadline_passed,
+        "deadline_cutoff_at": deadline_window.get("cutoff_at") if deadline_window else None,
     }
 

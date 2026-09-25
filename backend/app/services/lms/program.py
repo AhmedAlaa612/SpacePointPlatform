@@ -199,11 +199,7 @@ def validate_item_payload(body: LmsProgramItemIn) -> None:
         raise HTTPException(
             status.HTTP_400_BAD_REQUEST, detail="A team_setup item is always team-scoped",
         )
-    if body.deadline_at is not None and body.item_type not in ("submission", "team_setup"):
-        raise HTTPException(
-            status.HTTP_400_BAD_REQUEST,
-            detail="Only a submission or team_setup item can have a deadline",
-        )
+
     if body.submission_multi_link and body.item_type != "submission":
         raise HTTPException(
             status.HTTP_400_BAD_REQUEST, detail="Only a submission item can take multiple links",

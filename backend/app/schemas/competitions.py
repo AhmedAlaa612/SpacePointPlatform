@@ -155,8 +155,9 @@ class SubmissionWindowItem(BaseModel):
     cutoff_at: str  # ISO string
     points: float = 0.0
     badge: str | None = None
-    color: str | None = "blue"
+    color: str | None = "green"
     description: str | None = None
+    is_deadline: bool = False
 
 
 class CohortSubmissionWindowsUpdate(BaseModel):

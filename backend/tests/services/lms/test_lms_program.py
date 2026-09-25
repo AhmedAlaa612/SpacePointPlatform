@@ -1222,13 +1222,19 @@ def test_team_setup_accepts_a_deadline():
     validate_item_payload(body)  # does not raise
 
 
-def test_only_submission_and_team_setup_items_can_have_a_deadline():
-    body = LmsProgramItemIn(
-        item_type="manual", title="Do a thing", deadline_at=datetime(2030, 1, 1, tzinfo=timezone.utc),
+def test_individual_items_and_quizzes_accept_a_deadline():
+    quiz_body = LmsProgramItemIn(
+        item_type="quiz", title="Knowledge Check",
+        cohort_quiz_template_id=uuid.uuid4(),
+        deadline_at=datetime(2030, 1, 1, tzinfo=timezone.utc),
     )
-    with pytest.raises(HTTPException) as exc_info:
-        validate_item_payload(body)
-    assert "submission or team_setup" in exc_info.value.detail
+    validate_item_payload(quiz_body)  # does not raise
+
+    manual_body = LmsProgramItemIn(
+        item_type="manual", title="Do a thing",
+        deadline_at=datetime(2030, 1, 1, tzinfo=timezone.utc),
+    )
+    validate_item_payload(manual_body)  # does not raise
 
 
 # ── submission_multi_link authoring validation (2026-09-14) ────────────────

@@ -610,8 +610,10 @@ async def update_cohort_submission_windows(
     db: AsyncSession = Depends(get_db),
 ):
     """Save or update submission time windows for a cohort."""
+    from sqlalchemy.orm.attributes import flag_modified
     cohort = await _get_cohort_or_404(db, cohort_id)
     cohort.submission_windows = [w.model_dump() for w in body.windows]
+    flag_modified(cohort, "submission_windows")
     await db.commit()
     return cohort.submission_windows
 

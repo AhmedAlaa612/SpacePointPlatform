@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { isAxiosError } from "axios";
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { ArrowRight, CheckCircle2, Flag, Lock, Sparkles } from "lucide-react";
+import { ArrowRight, CheckCircle2, Flag, Lock } from "lucide-react";
 import { finalSubmitChecklist } from "@/api/lms";
-import { getCohortTimingWindowStudentApi } from "@/api/competitions";
+import { getCohortTimingWindowStudentApi, type SubmissionWindowItem } from "@/api/competitions";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { useToast } from "@/components/ui/toast";
 import { cn } from "@/lib/utils";
@@ -335,6 +335,82 @@ function SpaceFireworksOverlay({
   return <canvas ref={canvasRef} className="pointer-events-none fixed inset-0 z-[70] h-full w-full overflow-hidden" />;
 }
 
+export function formatCountdown(secs: number): string {
+  if (secs <= 0) return "deadline passed";
+  const d = Math.floor(secs / 86400);
+  const h = Math.floor((secs % 86400) / 3600);
+  const m = Math.floor((secs % 3600) / 60);
+  const s = secs % 60;
+
+  if (d > 0) return `${d}d ${h}h remaining`;
+  if (h > 0) return `${h}h ${m}m remaining`;
+  if (m > 0) return `${m}m ${s}s remaining`;
+  return `${s}s remaining`;
+}
+
+interface ActiveWindowData extends SubmissionWindowItem {
+  seconds_remaining: number;
+  is_active: boolean;
+  is_past_all_cutoffs?: boolean;
+}
+
+function TimingWindowCountdown({
+  activeWindow,
+  align = "right",
+}: {
+  activeWindow: ActiveWindowData;
+  align?: "right" | "left";
+}) {
+  const [secondsLeft, setSecondsLeft] = useState<number>(() => {
+    if (activeWindow.cutoff_at) {
+      const ms = new Date(activeWindow.cutoff_at).getTime() - Date.now();
+      return Math.max(0, Math.floor(ms / 1000));
+    }
+    return Math.max(0, activeWindow.seconds_remaining ?? 0);
+  });
+
+  useEffect(() => {
+    const cutoffMs = activeWindow.cutoff_at ? new Date(activeWindow.cutoff_at).getTime() : null;
+    const calculate = () => {
+      if (cutoffMs && !isNaN(cutoffMs)) {
+        return Math.max(0, Math.floor((cutoffMs - Date.now()) / 1000));
+      }
+      return Math.max(0, activeWindow.seconds_remaining ?? 0);
+    };
+
+    setSecondsLeft(calculate());
+    const interval = setInterval(() => {
+      setSecondsLeft(calculate());
+    }, 1000);
+
+    return () => clearInterval(interval);
+  }, [activeWindow.cutoff_at, activeWindow.seconds_remaining]);
+
+  if (secondsLeft <= 0) return null;
+
+  const ptsText = activeWindow.points !== 0
+    ? ` (${activeWindow.points > 0 ? `+${activeWindow.points}` : activeWindow.points} PTS)`
+    : "";
+  const label = `${activeWindow.name}${ptsText}`.toUpperCase();
+
+  const textColor = activeWindow.color === "rose"
+    ? "text-rose-400"
+    : activeWindow.color === "white"
+    ? "text-zinc-100"
+    : "text-green-400";
+
+  return (
+    <div className={cn(align === "right" ? "text-right" : "text-left", textColor)}>
+      <div className="text-xs sm:text-[12px] font-extrabold tracking-wider uppercase leading-tight">
+        {label}
+      </div>
+      <div className="font-mono text-base sm:text-[17px] font-black tracking-tight leading-tight mt-0.5">
+        {formatCountdown(secondsLeft)}
+      </div>
+    </div>
+  );
+}
+
 /** Design spec §"Final gate bar" — pinned to the bottom of the board
  * (`margin-top:auto` on desktop).
  *
@@ -386,14 +462,7 @@ export function FinalGateBar({
     refetchInterval: 30_000,
   });
   const activeWindow = timingData?.active_window;
-
-  const formatTimeRemaining = (seconds: number) => {
-    if (seconds <= 0) return "Closing now";
-    const h = Math.floor(seconds / 3600);
-    const m = Math.floor((seconds % 3600) / 60);
-    if (h > 0) return `${h}h ${m}m remaining`;
-    return `${m}m remaining`;
-  };
+  const isDeadlinePassed = !!timingData?.is_deadline_passed;
 
   const triggerCelebration = useCallback(() => {
     if (cardRef.current) {
@@ -610,31 +679,16 @@ export function FinalGateBar({
             snapping && "gate-snap-action"
           )}
         >
-          <div className="flex flex-col sm:flex-row sm:items-center gap-3.5 sm:gap-4">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3.5 sm:gap-4">
             <div className="flex items-center gap-3.5 sm:gap-4 flex-1 min-w-0">
               <div className="flex h-10 w-10 sm:h-11 sm:w-11 shrink-0 items-center justify-center rounded-xl bg-primary text-primary-foreground font-bold shadow-sm shadow-primary/20 transition-transform duration-200 group-hover:scale-105">
                 <CheckCircle2 size={20} className="stroke-[2.5]" />
               </div>
 
               <div className="min-w-0 flex-1">
-                <div className="flex items-center gap-2 mb-0.5 flex-wrap">
-                  <span className="text-[11px] font-bold uppercase tracking-[0.1em] text-primary flex items-center gap-1.5">
-                    <span className="w-1.5 h-1.5 rounded-full bg-primary animate-ping" />
-                    ALL TASKS CLEAR
-                  </span>
-                  {activeWindow && (
-                    <span className={`inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full border ${
-                      activeWindow.points > 0
-                        ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/30"
-                        : activeWindow.points < 0
-                        ? "bg-rose-500/10 text-rose-400 border-rose-500/30"
-                        : "bg-blue-500/10 text-blue-400 border-blue-500/30"
-                    }`}>
-                      <Sparkles size={11} />
-                      {activeWindow.badge || `${activeWindow.points > 0 ? `+${activeWindow.points}` : activeWindow.points} pts`}
-                      {activeWindow.seconds_remaining > 0 && ` · ${formatTimeRemaining(activeWindow.seconds_remaining)}`}
-                    </span>
-                  )}
+                <div className="text-[11px] font-bold uppercase tracking-[0.1em] text-primary flex items-center gap-1.5 mb-0.5">
+                  <span className="w-1.5 h-1.5 rounded-full bg-primary animate-ping" />
+                  ALL TASKS CLEAR
                 </div>
                 <div className="font-display font-bold text-[16px] sm:text-[18px] text-foreground tracking-tight">
                   Lock Final Submission
@@ -642,16 +696,41 @@ export function FinalGateBar({
               </div>
             </div>
 
-            {/* Highly Reactive Primary CTA Button — full width on mobile, auto on desktop */}
-            <button
-              type="button"
-              disabled={finalSubmitMutation.isPending}
-              onClick={() => setConfirmModalOpen(true)}
-              className="w-full sm:w-auto justify-center flex items-center gap-2 px-5 py-3 sm:py-2.5 rounded-xl bg-primary hover:bg-[#b895ff] text-primary-foreground font-extrabold text-sm tracking-wide shadow-md shadow-primary/25 hover:shadow-lg hover:shadow-primary/35 hover:scale-[1.03] hover:-translate-y-0.5 active:scale-95 active:translate-y-0 transition-all duration-150 ease-out shrink-0 cursor-pointer disabled:opacity-50 disabled:pointer-events-none"
-            >
-              <span>{finalSubmitMutation.isPending ? "Locking…" : "Lock & Submit"}</span>
-              <ArrowRight size={16} className="stroke-[2.5] transition-transform duration-150 group-hover:translate-x-1" />
-            </button>
+            {/* Mobile-only countdown row */}
+            {activeWindow && !isDeadlinePassed && (
+              <div className="sm:hidden pt-0.5">
+                <TimingWindowCountdown activeWindow={activeWindow} align="left" />
+              </div>
+            )}
+
+            {/* Desktop right-aligned stat column + Action Button (full-width on mobile) */}
+            <div className="flex items-center gap-4 shrink-0 sm:self-center w-full sm:w-auto">
+              {activeWindow && !isDeadlinePassed && (
+                <div className="hidden sm:block">
+                  <TimingWindowCountdown activeWindow={activeWindow} align="right" />
+                </div>
+              )}
+
+              {isDeadlinePassed ? (
+                <button
+                  type="button"
+                  disabled
+                  className="w-full sm:w-auto justify-center flex items-center gap-2 px-6 py-3 sm:py-2.5 rounded-xl bg-rose-500/10 border border-rose-500/25 text-rose-400 font-bold text-sm tracking-wide shrink-0 cursor-not-allowed opacity-90 select-none"
+                >
+                  <span>Deadline Passed</span>
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  disabled={finalSubmitMutation.isPending}
+                  onClick={() => setConfirmModalOpen(true)}
+                  className="w-full sm:w-auto justify-center flex items-center gap-2 px-5 py-3 sm:py-2.5 rounded-xl bg-primary hover:bg-[#b895ff] text-primary-foreground font-extrabold text-sm tracking-wide shadow-md shadow-primary/25 hover:shadow-lg hover:shadow-primary/35 hover:scale-[1.03] hover:-translate-y-0.5 active:scale-95 active:translate-y-0 transition-all duration-150 ease-out shrink-0 cursor-pointer disabled:opacity-50 disabled:pointer-events-none"
+                >
+                  <span>{finalSubmitMutation.isPending ? "Locking…" : "Lock & Submit"}</span>
+                  <ArrowRight size={16} className="stroke-[2.5] transition-transform duration-150 group-hover:translate-x-1" />
+                </button>
+              )}
+            </div>
           </div>
         </div>
       ) : (
@@ -662,14 +741,19 @@ export function FinalGateBar({
 
           if (isUngatedDone) {
             return (
-              <div className="mt-6 md:mt-auto flex items-center gap-4 rounded-2xl bg-card p-4 sm:p-5 border border-border shadow-lg transition-all duration-200 hover:-translate-y-0.5">
-                <div className="flex h-10 w-10 sm:h-11 sm:w-11 shrink-0 items-center justify-center rounded-xl bg-primary/15 text-primary">
-                  <CheckCircle2 size={20} />
+              <div className="mt-6 md:mt-auto flex items-center justify-between gap-4 rounded-2xl bg-card p-4 sm:p-5 border border-border shadow-lg transition-all duration-200 hover:-translate-y-0.5">
+                <div className="flex items-center gap-3.5 min-w-0">
+                  <div className="flex h-10 w-10 sm:h-11 sm:w-11 shrink-0 items-center justify-center rounded-xl bg-primary/15 text-primary">
+                    <CheckCircle2 size={20} />
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <div className="text-[11px] font-bold uppercase tracking-[0.1em] text-primary">{eyebrow}</div>
+                    <div className="font-display font-bold text-[16px] sm:text-[17px] text-foreground">All clear — nice work!</div>
+                  </div>
                 </div>
-                <div className="min-w-0 flex-1">
-                  <div className="text-[11px] font-bold uppercase tracking-[0.1em] text-primary">{eyebrow}</div>
-                  <div className="font-display font-bold text-[16px] sm:text-[17px] text-foreground">All clear — nice work!</div>
-                </div>
+                {activeWindow && !isDeadlinePassed && (
+                  <TimingWindowCountdown activeWindow={activeWindow} align="right" />
+                )}
               </div>
             );
           }
@@ -701,10 +785,19 @@ export function FinalGateBar({
 
                     {/* Headline that wraps cleanly without truncation */}
                     <div className="font-display font-bold text-[15px] sm:text-[17px] text-foreground tracking-tight leading-snug">
-                      {remaining > 0
+                      {isDeadlinePassed
+                        ? "Submission deadline has passed"
+                        : remaining > 0
                         ? "Complete remaining tasks to submit"
                         : "Review & submit deliverables"}
                     </div>
+
+                    {/* Mobile countdown if active */}
+                    {activeWindow && !isDeadlinePassed && (
+                      <div className="mt-2 sm:hidden">
+                        <TimingWindowCountdown activeWindow={activeWindow} align="left" />
+                      </div>
+                    )}
 
                     {/* Mobile sleek progress bar */}
                     <div className="mt-2.5 w-full h-1.5 bg-muted/60 rounded-full overflow-hidden sm:hidden">
@@ -715,16 +808,21 @@ export function FinalGateBar({
                     </div>
                   </div>
 
-                  {/* Desktop progress bar column */}
-                  <div className="hidden sm:flex flex-col items-end shrink-0 pl-3">
-                    <div className="text-[11px] font-bold text-primary mb-1">
-                      {pct}% Complete
-                    </div>
-                    <div className="w-28 h-2.5 bg-muted rounded-full p-0.5 overflow-hidden">
-                      <div
-                        className="h-full rounded-full bg-gradient-to-r from-primary/60 to-primary shadow-[0_0_10px_rgba(168,128,255,0.7)] transition-all duration-500"
-                        style={{ width: `${pct}%` }}
-                      />
+                  {/* Desktop progress bar and countdown column */}
+                  <div className="hidden sm:flex items-center gap-5 shrink-0 pl-3">
+                    {activeWindow && !isDeadlinePassed && (
+                      <TimingWindowCountdown activeWindow={activeWindow} align="right" />
+                    )}
+                    <div className="flex flex-col items-end">
+                      <div className="text-[11px] font-bold text-primary mb-1">
+                        {pct}% Complete
+                      </div>
+                      <div className="w-28 h-2.5 bg-muted rounded-full p-0.5 overflow-hidden">
+                        <div
+                          className="h-full rounded-full bg-gradient-to-r from-primary/60 to-primary shadow-[0_0_10px_rgba(168,128,255,0.7)] transition-all duration-500"
+                          style={{ width: `${pct}%` }}
+                        />
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -755,26 +853,27 @@ export function FinalGateBar({
 
             {/* Active Timing Incentive Highlight Card */}
             {activeWindow && (
-              <div className={`p-4 rounded-xl border space-y-1.5 ${
-                activeWindow.points > 0
-                  ? "bg-emerald-500/10 border-emerald-500/30 text-emerald-400"
-                  : activeWindow.points < 0
+              <div className={cn(
+                "p-4 rounded-xl border space-y-1.5",
+                activeWindow.color === "rose"
                   ? "bg-rose-500/10 border-rose-500/30 text-rose-400"
-                  : "bg-blue-500/10 border-blue-500/30 text-blue-400"
-              }`}>
+                  : activeWindow.color === "white"
+                  ? "bg-white/10 border-white/20 text-zinc-100"
+                  : "bg-green-500/10 border-green-500/30 text-green-400"
+              )}>
                 <div className="flex items-center justify-between text-xs font-bold uppercase tracking-wider">
-                  <span className="flex items-center gap-1.5">
-                    <Sparkles size={13} /> Active Window Incentive
-                  </span>
-                  <span>{activeWindow.points > 0 ? `+${activeWindow.points}` : activeWindow.points} pts</span>
+                  <span>{activeWindow.is_deadline ? "Submission Deadline" : "Timing Window"}</span>
+                  {activeWindow.points !== 0 && (
+                    <span>{activeWindow.points > 0 ? `+${activeWindow.points}` : activeWindow.points} pts</span>
+                  )}
                 </div>
                 <div className="text-sm font-extrabold text-foreground">
                   {activeWindow.name}
                 </div>
                 <div className="text-xs text-muted-foreground">
                   {activeWindow.seconds_remaining > 0
-                    ? `Locking now secures your ${activeWindow.name} incentive (${formatTimeRemaining(activeWindow.seconds_remaining)}).`
-                    : "Final deadline passed."}
+                    ? `Locking now secures your ${activeWindow.name} window (${formatCountdown(activeWindow.seconds_remaining)}).`
+                    : "Window closed."}
                 </div>
               </div>
             )}

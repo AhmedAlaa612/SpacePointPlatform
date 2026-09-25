@@ -1150,7 +1150,7 @@ export function ItemForm({
         submission_link_labels: itemType === "submission" && submissionMultiLink && linkLabels.length > 0
           ? linkLabels.map((l) => ({ label: l.label.trim(), required: l.required, field_type: l.field_type }))
           : null,
-        deadline_at: (itemType === "submission" || itemType === "team_setup") && deadlineAt
+        deadline_at: itemType !== "session" && deadlineAt
           ? new Date(deadlineAt).toISOString() : null,
         session_date: itemType === "session" ? (sessionDate || null) : null,
         session_starts_at: itemType === "session" ? (sessionStartsAt || null) : null,
@@ -1351,31 +1351,13 @@ export function ItemForm({
               </button>
             </div>
           )}
-          <div className="flex flex-col gap-1">
-            <input
-              type="datetime-local" value={deadlineAt} onChange={(e) => setDeadlineAt(e.target.value)}
-              className={inputCls}
-            />
-            <span className="text-[11px] text-muted-foreground">
-              Deadline (optional). Leave blank for no deadline. After it passes, students can no longer submit or
-              replace a link; already-submitted content and confirmation are unaffected.
-            </span>
-          </div>
         </>
       )}
 
       {itemType === "team_setup" && (
-        <div className="flex flex-col gap-1">
-          <input
-            type="datetime-local" value={deadlineAt} onChange={(e) => setDeadlineAt(e.target.value)}
-            className={inputCls}
-          />
-          <span className="text-[11px] text-muted-foreground">
-            Deadline (optional). Leave blank for no deadline. After it passes, the team can no longer change their
-            name — until then, any teammate can set or change it as many times as they want. A team with no name
-            yet shows their roster team ID as a placeholder.
-          </span>
-        </div>
+        <p className="text-xs text-muted-foreground">
+          Students can name their team directly on this step of the roadmap.
+        </p>
       )}
 
       {itemType === "quiz" && (
@@ -1400,6 +1382,25 @@ export function ItemForm({
           <span className="text-[11px] text-muted-foreground">
             Every student on this checklist gets the exact same, fixed question set — build/edit templates on the
             Quiz Bank page.
+          </span>
+        </div>
+      )}
+
+      {itemType !== "session" && (
+        <div className="flex flex-col gap-1">
+          <label className="text-[11px] font-medium text-muted-foreground">Deadline (optional)</label>
+          <input
+            type="datetime-local" value={deadlineAt} onChange={(e) => setDeadlineAt(e.target.value)}
+            className={inputCls}
+          />
+          <span className="text-[11px] text-muted-foreground">
+            {itemType === "submission"
+              ? "Leave blank for no deadline. After it passes, students can no longer submit or replace answers; already-submitted content and confirmation are unaffected."
+              : itemType === "team_setup"
+              ? "Leave blank for no deadline. After it passes, the team can no longer change their name — until then, any teammate can set or change it as many times as they want."
+              : itemType === "quiz"
+              ? "Leave blank for no deadline. After it passes, students can no longer start or submit this quiz; submitted results remain viewable."
+              : "Leave blank for no deadline. After it passes, students can no longer complete this step."}
           </span>
         </div>
       )}

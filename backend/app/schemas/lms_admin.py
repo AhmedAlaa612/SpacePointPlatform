@@ -501,7 +501,7 @@ class LmsProgramItemIn(BaseModel):
     # None keeps (or reverts to) the older free-text student-entered-label
     # behavior.
     submission_link_labels: list[LmsProgramItemLinkLabel] | None = None
-    # submission-only cutoff — validated against item_type in validate_item_payload.
+    # Cutoff deadline for checklist items (submission, quiz, manual, etc.).
     deadline_at: datetime | None = None
     # session-only fields — always self-contained, never a live FK (see
     # LmsProgramItem.session_date's own comment).

@@ -165,11 +165,25 @@ export default function CohortQuizPage() {
   }
 
   if (attemptErrored) {
+    const msg = errorDetail(attemptError, "Couldn't load this quiz.")
+    const isDeadline = msg.toLowerCase().includes("deadline")
     return (
       <div className="mx-auto max-w-xl px-5 py-16 flex flex-col items-center gap-4 text-center">
-        <p className="text-sm text-muted-foreground">{errorDetail(attemptError, "Couldn't load this quiz.")}</p>
-        <div className="flex gap-2">
-          <Button variant="outline" onClick={() => void refetchAttempt()}>Try again</Button>
+        {isDeadline ? (
+          <div className="p-3 rounded-full bg-amber-500/10 text-amber-600 dark:text-amber-500 mb-1">
+            <Clock size={36} />
+          </div>
+        ) : (
+          <div className="p-3 rounded-full bg-destructive/10 text-destructive mb-1">
+            <AlertCircle size={36} />
+          </div>
+        )}
+        <h2 className="font-display text-2xl font-bold text-foreground">
+          {isDeadline ? "Deadline Passed" : "Quiz Unavailable"}
+        </h2>
+        <p className="text-sm text-muted-foreground">{msg}</p>
+        <div className="flex gap-2 mt-2">
+          {!isDeadline && <Button variant="outline" onClick={() => void refetchAttempt()}>Try again</Button>}
           <Button variant="outline" onClick={() => void navigate({ to: `/learn/checklists/${assignmentId}` })}>Back to your program</Button>
         </div>
       </div>

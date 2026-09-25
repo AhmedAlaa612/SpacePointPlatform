@@ -32,7 +32,8 @@ export function SubmissionWindowsModal({ cohortId, open, onClose }: SubmissionWi
   const [name, setName] = useState("")
   const [cutoffAt, setCutoffAt] = useState("")
   const [points, setPoints] = useState<string>("0")
-  const [color, setColor] = useState("emerald")
+  const [color, setColor] = useState("green")
+  const [isDeadline, setIsDeadline] = useState(false)
 
   useEffect(() => {
     if (initialWindows) {
@@ -46,6 +47,7 @@ export function SubmissionWindowsModal({ cohortId, open, onClose }: SubmissionWi
     onSuccess: () => {
       toast.success("Submission windows saved successfully")
       queryClient.invalidateQueries({ queryKey: ["competitions-submission-windows", cohortId] })
+      queryClient.invalidateQueries({ queryKey: ["competitions-timing-student", cohortId] })
       queryClient.invalidateQueries({ queryKey: ["competitions-leaderboard", cohortId] })
       onClose()
     },
@@ -58,7 +60,7 @@ export function SubmissionWindowsModal({ cohortId, open, onClose }: SubmissionWi
 
   const handleAddWindow = () => {
     if (!name.trim()) {
-      toast.error("Please enter a bracket name (e.g. 'Early Bird')")
+      toast.error("Please enter a bracket name (e.g. 'Early Bird' or 'Final Deadline')")
       return
     }
     if (!cutoffAt) {
@@ -80,6 +82,7 @@ export function SubmissionWindowsModal({ cohortId, open, onClose }: SubmissionWi
       points: pts,
       badge: badgeLabel,
       color,
+      is_deadline: isDeadline,
     }
 
     // Insert and sort by cutoff
@@ -92,6 +95,7 @@ export function SubmissionWindowsModal({ cohortId, open, onClose }: SubmissionWi
     setName("")
     setCutoffAt("")
     setPoints("0")
+    setIsDeadline(false)
   }
 
   const handleDeleteWindow = (id: string) => {
@@ -115,7 +119,7 @@ export function SubmissionWindowsModal({ cohortId, open, onClose }: SubmissionWi
             Submission Windows & Timing Incentives
           </DialogTitle>
           <p className="text-xs text-muted-foreground mt-0.5">
-            Configure tiered deadlines (Early Bird bonuses, On-Time, and Late deductions).
+            Configure tiered deadlines (bonuses, deductions, and hard submission deadlines).
             The platform dynamically evaluates each team's submission timestamp against these brackets.
           </p>
         </DialogHeader>
@@ -143,6 +147,12 @@ export function SubmissionWindowsModal({ cohortId, open, onClose }: SubmissionWi
                 <div className="space-y-2">
                   {windows.map((w, index) => {
                     const cutoffDate = new Date(w.cutoff_at)
+                    const colorStyle = w.color === "rose"
+                      ? "bg-rose-500/10 text-rose-400 border-rose-500/30"
+                      : w.color === "white"
+                      ? "bg-white/10 text-zinc-100 border-white/20"
+                      : "bg-green-500/10 text-green-400 border-green-500/30";
+
                     return (
                       <div
                         key={w.id}
@@ -155,13 +165,12 @@ export function SubmissionWindowsModal({ cohortId, open, onClose }: SubmissionWi
                           <div className="min-w-0">
                             <div className="flex items-center gap-2 flex-wrap">
                               <span className="text-sm font-bold text-foreground">{w.name}</span>
-                              <span className={`text-[11px] font-bold px-2 py-0.5 rounded-full border ${
-                                w.points > 0
-                                  ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/30"
-                                  : w.points < 0
-                                  ? "bg-rose-500/10 text-rose-400 border-rose-500/30"
-                                  : "bg-blue-500/10 text-blue-400 border-blue-500/30"
-                              }`}>
+                              {w.is_deadline && (
+                                <span className="text-[10px] font-extrabold uppercase px-1.5 py-0.5 rounded bg-rose-500/15 border border-rose-500/30 text-rose-400 tracking-wider">
+                                  Hard Deadline
+                                </span>
+                              )}
+                              <span className={`text-[11px] font-bold px-2 py-0.5 rounded-full border ${colorStyle}`}>
                                 {w.points > 0 ? `+${w.points}` : w.points} pts
                               </span>
                             </div>
@@ -231,10 +240,9 @@ export function SubmissionWindowsModal({ cohortId, open, onClose }: SubmissionWi
                     onChange={(e) => setColor(e.target.value)}
                     className="w-full h-9 px-2 rounded-lg border border-border bg-card text-foreground text-xs focus:outline-none focus:border-primary cursor-pointer"
                   >
-                    <option value="emerald">Emerald (Bonus)</option>
-                    <option value="blue">Blue (Standard)</option>
-                    <option value="amber">Amber (Grace / Warning)</option>
-                    <option value="rose">Rose (Penalty / Critical)</option>
+                    <option value="green">Green</option>
+                    <option value="rose">Rose</option>
+                    <option value="white">White</option>
                   </select>
                 </div>
               </div>
@@ -249,6 +257,19 @@ export function SubmissionWindowsModal({ cohortId, open, onClose }: SubmissionWi
                   onChange={(e) => setCutoffAt(e.target.value)}
                   className="w-full h-9 px-3 rounded-lg border border-border bg-card text-foreground text-xs focus:outline-none focus:border-primary"
                 />
+              </div>
+
+              <div className="flex items-center gap-2 pt-1 pb-1">
+                <input
+                  type="checkbox"
+                  id="isDeadlineCheckbox"
+                  checked={isDeadline}
+                  onChange={(e) => setIsDeadline(e.target.checked)}
+                  className="h-4 w-4 rounded border-border text-primary focus:ring-primary cursor-pointer"
+                />
+                <label htmlFor="isDeadlineCheckbox" className="text-xs font-semibold text-foreground cursor-pointer select-none">
+                  Hard Submission Deadline
+                </label>
               </div>
 
               <button

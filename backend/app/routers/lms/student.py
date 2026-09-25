@@ -666,6 +666,8 @@ async def complete_program_item(
     assignment, item, individual = await _own_progress_row(db, assignment_id=assignment_id, item_id=item_id, user=current)
     if item.item_type in ("course", "mission_run", "quiz"):
         raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="This item is tracked automatically")
+    if item.deadline_at is not None and datetime.now(timezone.utc) > item.deadline_at:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="The deadline for this step has passed")
     if await checklist_item_locked(db, assignment=assignment, item=item):
         raise HTTPException(status.HTTP_409_CONFLICT, detail="This step isn't unlocked yet")
     if await team_final_locked(db, assignment=assignment, item=item):
@@ -912,6 +914,14 @@ async def final_submit_program(
     ready, reason = await team_final_submit_readiness(db, assignment=assignment)
     if not ready:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, detail=reason or "Not every required item is done yet")
+
+    if assignment.cohort_id:
+        from app.models.sessions.cohort import Cohort
+        from app.services.competitions.timing_windows import is_cohort_deadline_passed
+        cohort = await db.get(Cohort, assignment.cohort_id)
+        if cohort and cohort.submission_windows and is_cohort_deadline_passed(cohort.submission_windows):
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="The submission deadline for this cohort has passed")
+
     await finalize_team_submission(db, team_id=team.id, locked_by_user_id=current.id)
     await db.commit()
     checklist = await get_student_checklist(db, assignment_id=assignment_id, user_id=current.id)
@@ -935,8 +945,13 @@ async def start_cohort_quiz(
         raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="This item is not a quiz")
     if await checklist_item_locked(db, assignment=assignment, item=item):
         raise HTTPException(status.HTTP_409_CONFLICT, detail="This step isn't unlocked yet")
-    attempt = await cohort_quiz_service.start_attempt(db, item=item, user_id=current.id, cohort_id=assignment.cohort_id)
-    await db.commit()
+    attempt = await cohort_quiz_service.get_own_attempt(db, program_item_id=item_id, user_id=current.id)
+    if item.deadline_at is not None and datetime.now(timezone.utc) > item.deadline_at:
+        if attempt is None or attempt.status != "submitted":
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="The deadline for this quiz has passed")
+    if attempt is None:
+        attempt = await cohort_quiz_service.start_attempt(db, item=item, user_id=current.id, cohort_id=assignment.cohort_id)
+        await db.commit()
     questions = await cohort_quiz_service.get_attempt_questions(db, attempt)
     return CohortQuizAttemptOut(
         id=attempt.id, program_item_id=attempt.program_item_id, status=attempt.status, total=attempt.total,
@@ -956,6 +971,8 @@ async def submit_cohort_quiz(
     assignment, item, progress = await _own_progress_row(db, assignment_id=assignment_id, item_id=item_id, user=current)
     if item.item_type != "quiz":
         raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="This item is not a quiz")
+    if item.deadline_at is not None and datetime.now(timezone.utc) > item.deadline_at:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="The deadline for this quiz has passed")
     # Re-checked here too, not just in start_cohort_quiz — the item's
     # gating can change between start and submit (same defensive posture
     # submit_program_item takes for a submission item).

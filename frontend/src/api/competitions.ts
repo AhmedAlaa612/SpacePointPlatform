@@ -81,6 +81,7 @@ export interface SubmissionWindowItem {
   badge?: string | null
   color?: string | null
   description?: string | null
+  is_deadline?: boolean
 }
 
 export interface TeamTimingAdjustmentUpdate {
@@ -756,11 +757,15 @@ export const updateTeamTimingAdjustmentApi = (cohortId: string, teamId: string, 
 export const getTeamScoreBreakdownApi = (cohortId: string, teamId: string) =>
   api.get<TeamScoreBreakdown>(`/competitions/admin/cohorts/${cohortId}/teams/${teamId}/score-breakdown`).then((r) => r.data)
 
+export interface CohortTimingWindowResponse {
+  windows: SubmissionWindowItem[]
+  active_window: (SubmissionWindowItem & { seconds_remaining: number; is_active: boolean }) | null
+  is_deadline_passed?: boolean
+  deadline_cutoff_at?: string | null
+}
+
 export const getCohortTimingWindowStudentApi = (cohortId: string) =>
-  api.get<{
-    windows: SubmissionWindowItem[]
-    active_window: (SubmissionWindowItem & { seconds_remaining: number; is_active: boolean }) | null
-  }>(`/competitions/student/cohorts/${cohortId}/timing-window`).then((r) => r.data)
+  api.get<CohortTimingWindowResponse>(`/competitions/student/cohorts/${cohortId}/timing-window`).then((r) => r.data)
 
 
 
