@@ -242,6 +242,161 @@ function BankDetailsDialog({ userId, name, onClose }: { userId: string; name: st
   )
 }
 
+const DOCUMENT_TYPE_OPTIONS = [
+  { id: "visa", label: "Residence Visa", desc: "UAE Residency Visa copies" },
+  { id: "cv", label: "CV / Resume", desc: "Uploaded CV or Application Resume" },
+  { id: "emirates_id", label: "Emirates ID / National ID", desc: "Emirates ID (front/back) or National ID" },
+  { id: "passport", label: "Passport", desc: "Passport information page copy" },
+  { id: "clearance", label: "Clearance Document", desc: "Police clearance / good conduct certificate" },
+  { id: "photo", label: "Personal Picture", desc: "Official photo / headshot" },
+  { id: "contract", label: "Contract", desc: "Signed instructor agreement" },
+  { id: "payment_letters", label: "Payment Letters", desc: "Signed session payment letters" },
+  { id: "other", label: "Other Uploaded Documents", desc: "Any additional uploaded files" },
+]
+
+function BatchDownloadModal({
+  open,
+  onClose,
+  selectedCount,
+  onDownload,
+  downloading,
+}: {
+  open: boolean
+  onClose: () => void
+  selectedCount: number
+  onDownload: (docTypes: string[], includeGen: boolean) => Promise<void>
+  downloading: boolean
+}) {
+  const [selectedTypes, setSelectedTypes] = useState<string[]>(DOCUMENT_TYPE_OPTIONS.map((d) => d.id))
+  const [includeGen, setIncludeGen] = useState(false)
+
+  const toggleType = (id: string) => {
+    setSelectedTypes((prev) =>
+      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
+    )
+  }
+
+  const selectAll = () => setSelectedTypes(DOCUMENT_TYPE_OPTIONS.map((d) => d.id))
+  const deselectAll = () => setSelectedTypes([])
+  const selectVisaAndCv = () => setSelectedTypes(["visa", "cv"])
+
+  return (
+    <Dialog open={open} onOpenChange={(o) => !o && !downloading && onClose()}>
+      <DialogContent className="max-w-md max-h-[90vh] overflow-y-auto">
+        <DialogHeader className="pb-3 border-b">
+          <DialogTitle className="text-base font-bold flex items-center gap-2">
+            <Download size={18} className="text-primary" />
+            Download Documents ({selectedCount} Instructor{selectedCount === 1 ? "" : "s"})
+          </DialogTitle>
+          <p className="text-xs text-muted-foreground mt-0.5">
+            Select the document types to include in the ZIP. Each instructor will have a dedicated folder.
+          </p>
+        </DialogHeader>
+
+        <div className="flex flex-col gap-4 py-2">
+          {/* Quick presets */}
+          <div className="flex items-center justify-between gap-2 flex-wrap text-xs">
+            <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+              Selected ({selectedTypes.length}/{DOCUMENT_TYPE_OPTIONS.length}):
+            </span>
+            <div className="flex items-center gap-1.5">
+              <button
+                type="button"
+                onClick={selectAll}
+                className="text-[11px] text-primary hover:underline font-medium"
+              >
+                All
+              </button>
+              <span className="text-muted-foreground">·</span>
+              <button
+                type="button"
+                onClick={deselectAll}
+                className="text-[11px] text-muted-foreground hover:text-foreground font-medium"
+              >
+                None
+              </button>
+              <span className="text-muted-foreground">·</span>
+              <button
+                type="button"
+                onClick={selectVisaAndCv}
+                className="text-[11px] text-primary font-medium hover:underline bg-primary/10 px-1.5 py-0.5 rounded"
+              >
+                Visa & CV only
+              </button>
+            </div>
+          </div>
+
+          {/* Checklist */}
+          <div className="space-y-1.5 max-h-64 overflow-y-auto pr-1">
+            {DOCUMENT_TYPE_OPTIONS.map((opt) => {
+              const checked = selectedTypes.includes(opt.id)
+              return (
+                <label
+                  key={opt.id}
+                  onClick={(e) => e.stopPropagation()}
+                  className={`flex items-start gap-3 p-2.5 rounded-xl border text-xs cursor-pointer transition-colors ${
+                    checked
+                      ? "bg-primary/5 border-primary/30"
+                      : "bg-card/40 border-border hover:bg-muted/40"
+                  }`}
+                >
+                  <input
+                    type="checkbox"
+                    checked={checked}
+                    onChange={() => toggleType(opt.id)}
+                    className="mt-0.5 rounded border-border text-primary focus:ring-primary h-4 w-4"
+                  />
+                  <div className="min-w-0 flex-1">
+                    <p className={`font-semibold ${checked ? "text-foreground" : "text-muted-foreground"}`}>
+                      {opt.label}
+                    </p>
+                    <p className="text-[11px] text-muted-foreground mt-0.5">{opt.desc}</p>
+                  </div>
+                </label>
+              )
+            })}
+          </div>
+
+          {/* Additional toggles */}
+          <div className="pt-2 border-t">
+            <label
+              onClick={(e) => e.stopPropagation()}
+              className="flex items-center gap-2.5 text-xs text-muted-foreground hover:text-foreground cursor-pointer"
+            >
+              <input
+                type="checkbox"
+                checked={includeGen}
+                onChange={(e) => setIncludeGen(e.target.checked)}
+                className="rounded border-border text-primary focus:ring-primary h-4 w-4"
+              />
+              <span>Include system-generated certificates & documents</span>
+            </label>
+          </div>
+        </div>
+
+        <div className="flex items-center justify-end gap-2 pt-3 border-t">
+          <Button size="sm" variant="ghost" onClick={onClose} disabled={downloading}>
+            Cancel
+          </Button>
+          <Button
+            size="sm"
+            disabled={selectedTypes.length === 0 || downloading}
+            onClick={() => onDownload(selectedTypes, includeGen)}
+            className="gap-1.5"
+          >
+            {downloading ? (
+              <span className="w-3.5 h-3.5 border-2 border-primary-foreground border-t-transparent rounded-full animate-spin mr-1" />
+            ) : (
+              <Download size={13} className="mr-1" />
+            )}
+            Download ZIP {selectedTypes.length > 0 ? `(${selectedTypes.length} types)` : ""}
+          </Button>
+        </div>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
 export default function InstructorsAdminInstructors() {
   const navigate = useNavigate()
   const toast = useToast()
@@ -251,6 +406,7 @@ export default function InstructorsAdminInstructors() {
   const [documentsFor, setDocumentsFor] = useState<{ id: string; name: string } | null>(null)
   const [selectedIds, setSelectedIds] = useState<string[]>([])
   const [batchDownloading, setBatchDownloading] = useState(false)
+  const [batchModalOpen, setBatchModalOpen] = useState(false)
   const [search, setSearch] = useState("")
   const [cityId, setCityId] = useState("")
   const [deliverCityId, setDeliverCityId] = useState("")
@@ -306,12 +462,13 @@ export default function InstructorsAdminInstructors() {
     )
   }
 
-  const handleBatchDownload = async () => {
+  const handleBatchDownload = async (docTypes: string[], includeGen: boolean) => {
     if (selectedIds.length === 0) return
     try {
       setBatchDownloading(true)
-      await downloadBatchInstructorDocumentsZipApi(selectedIds)
+      await downloadBatchInstructorDocumentsZipApi(selectedIds, includeGen, docTypes)
       toast.success(`Downloaded documents archive for ${selectedIds.length} instructors`)
+      setBatchModalOpen(false)
     } catch (err: any) {
       toast.error(err?.message || "Failed to download batch documents")
     } finally {
@@ -394,7 +551,7 @@ export default function InstructorsAdminInstructors() {
             <Button
               size="sm"
               disabled={batchDownloading}
-              onClick={handleBatchDownload}
+              onClick={() => setBatchModalOpen(true)}
               className="gap-1.5 shadow-sm flex-1 sm:flex-initial text-xs h-8"
             >
               {batchDownloading ? (
@@ -569,6 +726,15 @@ export default function InstructorsAdminInstructors() {
           userId={documentsFor.id}
           name={documentsFor.name}
           onClose={() => setDocumentsFor(null)}
+        />
+      )}
+      {batchModalOpen && (
+        <BatchDownloadModal
+          open={batchModalOpen}
+          onClose={() => setBatchModalOpen(false)}
+          selectedCount={selectedIds.length}
+          onDownload={handleBatchDownload}
+          downloading={batchDownloading}
         />
       )}
     </div>

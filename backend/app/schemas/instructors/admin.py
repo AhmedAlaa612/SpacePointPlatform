@@ -9,6 +9,7 @@ from app.models.enums import ApplicationStatus, ModuleSubmissionStatus
 class BatchDocumentsZipRequest(BaseModel):
     user_ids: List[uuid.UUID]
     include_generated: bool = False
+    document_types: Optional[List[str]] = None
 
 
 class AdminReviewUpdate(BaseModel):

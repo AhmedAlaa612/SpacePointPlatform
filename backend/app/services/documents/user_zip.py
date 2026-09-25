@@ -84,16 +84,46 @@ async def _get_file_bytes(
     return None
 
 
+def _normalize_category(doc_type: str) -> str:
+    dt = doc_type.strip().lower().replace("_", " ").replace("-", " ")
+    if "emirates" in dt or "national id" in dt or dt == "id card":
+        return "emirates_id"
+    if "passport" in dt:
+        return "passport"
+    if "picture" in dt or "photo" in dt or "headshot" in dt:
+        return "photo"
+    if "clearance" in dt or "conduct" in dt:
+        return "clearance"
+    if "visa" in dt:
+        return "visa"
+    if "cv" in dt or "resume" in dt:
+        return "cv"
+    if "contract" in dt:
+        return "contract"
+    if "payment" in dt or "letter" in dt:
+        return "payment_letters"
+    if "module" in dt or "submission" in dt:
+        return "module_submissions"
+    if "certificate" in dt or "cert" in dt:
+        return "certificates"
+    return "other"
+
+
 async def get_user_document_items(
     user_id: UUID,
     db: AsyncSession,
     include_generated: bool = False,
     include_module_submissions: bool = False,
+    document_types: Sequence[str] | None = None,
 ) -> tuple[User, list[tuple[str, bytes]]]:
     """Retrieve all document files (filename, bytes) for a user."""
     user = (await db.execute(select(User).where(User.id == user_id))).scalars().first()
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
+
+    allowed_cats: set[str] | None = None
+    if document_types is not None and len(document_types) > 0:
+        allowed_cats = {_normalize_category(t) for t in document_types}
 
     items_to_fetch: list[tuple[str, str | None, str | None, str | None]] = []
 
@@ -107,22 +137,26 @@ async def get_user_document_items(
     ).scalars().all()
     for doc in vault_docs:
         label = doc.document_type or "Document"
+        cat = _normalize_category(doc.document_type or "other")
+        if allowed_cats is not None and cat not in allowed_cats:
+            continue
         items_to_fetch.append((label, doc.bucket, doc.file_path, doc.file_url))
 
     # 2. Application CV / Resume
-    applications = (
-        await db.execute(
-            select(Application)
-            .where(Application.email == user.email)
-            .order_by(Application.created_at.desc())
-        )
-    ).scalars().all()
-    for app_row in applications:
-        if app_row.cv_path or app_row.cv_url:
-            items_to_fetch.append(("CV_Resume", "cvs", app_row.cv_path, app_row.cv_url))
+    if allowed_cats is None or "cv" in allowed_cats:
+        applications = (
+            await db.execute(
+                select(Application)
+                .where(Application.email == user.email)
+                .order_by(Application.created_at.desc())
+            )
+        ).scalars().all()
+        for app_row in applications:
+            if app_row.cv_path or app_row.cv_url:
+                items_to_fetch.append(("CV_Resume", "cvs", app_row.cv_path, app_row.cv_url))
 
     # 3. Module Submissions (checklist onboarding modules) - excluded unless explicitly requested
-    if include_module_submissions:
+    if include_module_submissions or (allowed_cats is not None and "module_submissions" in allowed_cats):
         subs = (
             await db.execute(
                 select(ModuleSubmission, ChecklistModule.title)
@@ -136,39 +170,41 @@ async def get_user_document_items(
                 items_to_fetch.append((label, sub.bucket, sub.file_path, sub.file_url))
 
     # 4. Instructor Profile - signed contract
-    profile = (
-        await db.execute(
-            select(InstructorProfile).where(InstructorProfile.user_id == user_id)
-        )
-    ).scalars().first()
-    if profile:
-        if profile.signed_contract_path or profile.signed_contract_url:
-            items_to_fetch.append(
-                ("Signed_Contract", "contracts", profile.signed_contract_path, profile.signed_contract_url)
+    if allowed_cats is None or "contract" in allowed_cats:
+        profile = (
+            await db.execute(
+                select(InstructorProfile).where(InstructorProfile.user_id == user_id)
             )
-        elif include_generated and (profile.contract_path or profile.contract_url):
-            items_to_fetch.append(
-                ("Contract", "contracts", profile.contract_path, profile.contract_url)
-            )
+        ).scalars().first()
+        if profile:
+            if profile.signed_contract_path or profile.signed_contract_url:
+                items_to_fetch.append(
+                    ("Signed_Contract", "contracts", profile.signed_contract_path, profile.signed_contract_url)
+                )
+            elif include_generated and (profile.contract_path or profile.contract_url):
+                items_to_fetch.append(
+                    ("Contract", "contracts", profile.contract_path, profile.contract_url)
+                )
 
     # 5. Payment Letters - signed letters
-    letters = (
-        await db.execute(
-            select(PaymentLetter).where(PaymentLetter.instructor_user_id == user_id)
-        )
-    ).scalars().all()
-    for letter in letters:
-        if letter.signed_pdf_path or letter.signed_pdf_url:
-            items_to_fetch.append(
-                (f"Signed_Payment_Letter_{letter.reference}", "payment-letters", letter.signed_pdf_path, letter.signed_pdf_url)
+    if allowed_cats is None or "payment_letters" in allowed_cats:
+        letters = (
+            await db.execute(
+                select(PaymentLetter).where(PaymentLetter.instructor_user_id == user_id)
             )
-        elif include_generated and (letter.pdf_path or letter.pdf_url):
-            items_to_fetch.append(
-                (f"Payment_Letter_{letter.reference}", "payment-letters", letter.pdf_path, letter.pdf_url)
-            )
+        ).scalars().all()
+        for letter in letters:
+            if letter.signed_pdf_path or letter.signed_pdf_url:
+                items_to_fetch.append(
+                    (f"Signed_Payment_Letter_{letter.reference}", "payment-letters", letter.signed_pdf_path, letter.signed_pdf_url)
+                )
+            elif include_generated and (letter.pdf_path or letter.pdf_url):
+                items_to_fetch.append(
+                    (f"Payment_Letter_{letter.reference}", "payment-letters", letter.pdf_path, letter.pdf_url)
+                )
 
     # 6. Generated certificates and documents if requested
-    if include_generated:
+    if include_generated or (allowed_cats is not None and ("certificates" in allowed_cats or "generated" in allowed_cats)):
         docs = (
             await db.execute(select(Document).where(Document.user_id == user_id))
         ).scalars().all()
@@ -217,6 +253,7 @@ async def build_user_documents_zip(
     db: AsyncSession,
     include_generated: bool = False,
     include_module_submissions: bool = False,
+    document_types: Sequence[str] | None = None,
 ) -> tuple[bytes, str]:
     """Compile all uploaded documents for a single user into a ZIP archive.
 
@@ -224,7 +261,11 @@ async def build_user_documents_zip(
     Raises HTTPException(404) if user not found or no documents are available.
     """
     user, files_to_zip = await get_user_document_items(
-        user_id, db, include_generated=include_generated, include_module_submissions=include_module_submissions
+        user_id,
+        db,
+        include_generated=include_generated,
+        include_module_submissions=include_module_submissions,
+        document_types=document_types,
     )
     if not files_to_zip:
         raise HTTPException(
@@ -251,6 +292,7 @@ async def build_multi_users_documents_zip(
     db: AsyncSession,
     include_generated: bool = False,
     include_module_submissions: bool = False,
+    document_types: Sequence[str] | None = None,
 ) -> tuple[bytes, str]:
     """Compile uploaded documents for multiple users into a single ZIP archive,
     with a dedicated folder for each user named after them.
@@ -266,7 +308,11 @@ async def build_multi_users_documents_zip(
         for uid in user_ids:
             try:
                 user, files = await get_user_document_items(
-                    uid, db, include_generated=include_generated, include_module_submissions=include_module_submissions
+                    uid,
+                    db,
+                    include_generated=include_generated,
+                    include_module_submissions=include_module_submissions,
+                    document_types=document_types,
                 )
             except HTTPException:
                 continue

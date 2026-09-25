@@ -788,6 +788,7 @@ async def download_batch_instructor_documents_zip(
         user_ids=body.user_ids,
         db=db,
         include_generated=body.include_generated,
+        document_types=body.document_types,
     )
     return Response(
         content=zip_bytes,

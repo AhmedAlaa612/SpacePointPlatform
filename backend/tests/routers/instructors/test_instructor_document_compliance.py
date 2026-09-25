@@ -242,3 +242,62 @@ async def test_admin_batch_documents_zip_success(client, db, admin_user, admin_h
         assert any(name.startswith("UAE_Instructor/") and name.endswith("Passport.pdf") for name in namelist)
         # Should have folder for Intl Instructor with _no_documents_uploaded.txt marker
         assert any(name.startswith("Intl_Instructor/") and "_no_documents_uploaded.txt" in name for name in namelist)
+
+
+@pytest.mark.asyncio
+async def test_batch_instructor_documents_zip_filtered_by_document_types(
+    client,
+    admin_headers,
+    db,
+):
+    """Admin downloads batch documents filtered by specific document types (e.g. visa and cv only)."""
+    uid = uuid.uuid4()
+    instructor = User(
+        id=uid,
+        email=f"filter_test_{uid.hex[:6]}@example.com",
+        full_name="Filter Test Instructor",
+        password_hash=get_password_hash("password"),
+        roles=["instructor"],
+        status="active",
+    )
+    db.add(instructor)
+    await db.commit()
+
+    # Upload Passport and Residence Visa
+    pass_path = f"test_pass_{uid.hex[:6]}.pdf"
+    visa_path = f"test_visa_{uid.hex[:6]}.pdf"
+    await storage.upload_to_path("instructor-documents", pass_path, b"%PDF-1.4 passport", "application/pdf")
+    await storage.upload_to_path("instructor-documents", visa_path, b"%PDF-1.4 visa", "application/pdf")
+
+    doc_pass = InstructorDocument(
+        id=uuid.uuid4(),
+        user_id=instructor.id,
+        document_type="Passport",
+        bucket="instructor-documents",
+        file_path=pass_path,
+        file_url=f"/files/instructor-documents/{pass_path}",
+    )
+    doc_visa = InstructorDocument(
+        id=uuid.uuid4(),
+        user_id=instructor.id,
+        document_type="Residence Visa",
+        bucket="instructor-documents",
+        file_path=visa_path,
+        file_url=f"/files/instructor-documents/{visa_path}",
+    )
+    db.add_all([doc_pass, doc_visa])
+    await db.commit()
+
+    # Filter by visa and cv only -> should include visa, exclude passport
+    resp = await client.post(
+        "/instructors/admin/instructors/documents/batch-zip",
+        json={"user_ids": [str(instructor.id)], "document_types": ["visa", "cv"]},
+        headers=admin_headers,
+    )
+    assert resp.status_code == 200
+    with zipfile.ZipFile(io.BytesIO(resp.content)) as zf:
+        namelist = zf.namelist()
+        # Visa must be present
+        assert any("Residence_Visa" in name or "visa" in name.lower() for name in namelist)
+        # Passport must NOT be present
+        assert not any("Passport" in name for name in namelist)

@@ -195,12 +195,17 @@ export { downloadUserDocumentsZipApi as downloadInstructorDocumentsZipApi } from
 
 export const downloadBatchInstructorDocumentsZipApi = async (
   userIds: string[],
-  includeGenerated = false
+  includeGenerated = false,
+  documentTypes?: string[]
 ) => {
   try {
     const res = await api.post(
       "/instructors/admin/instructors/documents/batch-zip",
-      { user_ids: userIds, include_generated: includeGenerated },
+      {
+        user_ids: userIds,
+        include_generated: includeGenerated,
+        document_types: documentTypes && documentTypes.length > 0 ? documentTypes : undefined,
+      },
       { responseType: "blob" }
     )
     const blob = res.data as Blob
