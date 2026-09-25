@@ -30,13 +30,19 @@ const APP_ID: string = import.meta.env.VITE_INTERCOM_APP_ID ?? "";
 
 const SCRIPT_ID = "intercom-widget";
 
-type IntercomCommand = "boot" | "update" | "shutdown" | "reattach_activator";
+type IntercomCommand =
+  | "boot"
+  | "update"
+  | "shutdown"
+  | "reattach_activator"
+  | "onShow"
+  | "onHide";
 
 /** The messenger's global. Before the real script lands this is our own queue
  * stub; afterwards Intercom replaces it with the real implementation and
  * replays `q`. */
 interface IntercomFn {
-  (command: IntercomCommand, payload?: Record<string, unknown>): void;
+  (command: IntercomCommand, payload?: Record<string, unknown> | (() => void)): void;
   q?: unknown[][];
 }
 
@@ -105,6 +111,14 @@ export function boot(payload: FinBootPayload = {}): void {
   window.Intercom?.("shutdown");
 
   window.Intercom?.("boot", { app_id: APP_ID, ...payload });
+
+  // Track chat open/close state on body so mobile styles can deactivate transforms while chatting
+  window.Intercom?.("onShow", () => {
+    document.body.classList.add("intercom-chat-open");
+  });
+  window.Intercom?.("onHide", () => {
+    document.body.classList.remove("intercom-chat-open");
+  });
 }
 
 /** Hide the messenger and **clear the local conversation**.
@@ -116,5 +130,6 @@ export function boot(payload: FinBootPayload = {}): void {
  * shared school and lab machines — that is a real leak, not a hypothetical. */
 export function shutdown(): void {
   if (!isFinEnabled()) return;
+  document.body.classList.remove("intercom-chat-open");
   window.Intercom?.("shutdown");
 }

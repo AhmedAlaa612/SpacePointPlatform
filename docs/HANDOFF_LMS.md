@@ -1007,11 +1007,12 @@ Identity is secured using Intercom Messenger Security (HMAC-SHA256 JWT):
 
 ### Mobile View Positioning (`frontend/src/index.css`)
 - **Problem**: Intercom's mobile web messenger defaults to `bottom: 20px` and ignores vertical padding configured in the dashboard or passed to `boot()` on mobile viewports. On `/learn/*`, this places the launcher icon right on top of the fixed mobile bottom bar (`LearnMobileTabBar.tsx`, ~112px tall + up to 34px iOS safe area).
-- **Solution**: Handled entirely in `frontend/src/index.css` under `@media (max-width: 767px)` using `transform: translateY(-130px) !important;`.
-- **Targeting**:
-  - Targets both launcher frames (`.intercom-launcher-frame`, `iframe[name*="launcher"]`) AND notification badge frames (`.intercom-launcher-badge-frame`, `iframe[name*="badge"]`, `iframe[name*="notification"]`). Moving both together by the same transform preserves their relative offset so the unread count badge stays pinned to the launcher icon.
-  - Excludes the messenger chat window (`:not([name*="messenger"])`), ensuring that when a student taps the launcher, the chat window opens at full height from the viewport bottom without being clipped at the top.
-  - Desktop view (`>= 768px`) is unaffected and adheres to the Intercom dashboard layout settings.
+- **Solution**: Handled in `frontend/src/index.css` under `@media (max-width: 767px)`:
+  - Pins `#intercom-container` to the screen viewport (`position: fixed !important; bottom: 0; right: 0; pointer-events: none !important;`) so it never scrolls with document content on long pages.
+  - Targets direct children (`#intercom-container > *:not([class*="messenger"]):not([name*="messenger"]):not([class*="modal"]):not([class*="sheet"])`) with `transform: translateY(-130px) !important;`.
+  - Both the launcher button and notification badge move up together in exact lockstep by -130px, so the red badge docks seamlessly into the circular cutout of the launcher icon without double-translation.
+  - The chat window (`.intercom-messenger`) is strictly excluded, and `fin.ts` listens to `onShow`/`onHide` to disable transforms while chatting so the conversation window opens at full viewport height without top/bottom clipping or obstructions.
+  - Desktop view (`>= 768px`) is completely unaffected and adheres to the Intercom dashboard layout settings.
 
 ### Network / Corporate Firewall Restrictions
 - Intercom relies on real-time WebSocket and HTTP connections to `*.intercom.io` and `*.intercomcdn.com`.
