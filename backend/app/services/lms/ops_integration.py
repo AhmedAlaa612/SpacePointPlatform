@@ -62,12 +62,20 @@ async def get_or_create_student_account(db: AsyncSession, contact_id: uuid.UUID)
         logger.warning("get_or_create_student_account: contact %s has no email, skipping", contact_id)
         return None, False
 
-    dup = (await db.execute(select(User.id).where(User.email == contact.email))).first()
-    if dup:
-        logger.warning(
-            "get_or_create_student_account: email %s is already on a different account, skipping", contact.email
+    dup = (await db.execute(
+        select(User).where(User.email == contact.email).order_by(User.created_at)
+    )).scalars().first()
+    if dup is not None:
+        logger.info(
+            "get_or_create_student_account: reusing existing account %s for email %s", dup.id, contact.email
         )
-        return None, False
+        if "student" not in dup.role_values:
+            dup.roles = [*dup.roles, "student"]
+        if dup.contact_id is None:
+            dup.contact_id = contact_id
+        await assign_nickname(db, dup)
+        await ensure_card_number(db, dup)
+        return dup, False
 
     user = User(
         id=uuid.uuid4(),

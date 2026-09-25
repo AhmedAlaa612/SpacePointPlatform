@@ -158,7 +158,7 @@ async def test_no_email_skips_account_creation_without_raising(db):
 
 
 @pytest.mark.asyncio
-async def test_email_collision_with_a_different_account_skips_without_raising(db):
+async def test_email_collision_with_a_different_account_reuses_user_and_adds_student_role(db):
     contact = await _contact(db, email="taken@example.com")
     other = User(
         id=uuid.uuid4(), full_name="Someone Else", email="taken@example.com",
@@ -168,7 +168,9 @@ async def test_email_collision_with_a_different_account_skips_without_raising(db
     await db.commit()
 
     user, created = await get_or_create_student_account(db, contact.id)
-    assert user is None and created is False
+    assert user is not None and created is False
+    assert user.id == other.id
+    assert "student" in user.role_values
 
 
 async def _attach_checklist(db, *, program, courses: list[Course]) -> LmsProgram:

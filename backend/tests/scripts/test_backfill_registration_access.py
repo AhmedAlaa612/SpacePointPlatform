@@ -8,6 +8,7 @@ from app.models.lms import Course
 from app.models.lms.program import LmsProgram, LmsProgramAssignment, LmsProgramItem
 from app.models.sessions.cohort import Cohort
 from app.models.sessions.program import Program
+from app.models.sessions.registration import Registration
 from app.models.spine.contact import Contact
 from app.models.user import User
 from app.services.sessions.registration import register
@@ -67,6 +68,18 @@ async def _user(db, *, full_name: str, email: str, contact_id=None) -> User:
     db.add(user)
     await db.flush()
     return user
+
+
+async def _raw_registration(db, *, contact, cohort) -> Registration:
+    import secrets
+    reg = Registration(
+        id=uuid.uuid4(), contact_id=contact.id, cohort_id=cohort.id,
+        registered_via="import", payment_status="waived", status="registered",
+        ticket_token=secrets.token_urlsafe(32),
+    )
+    db.add(reg)
+    await db.flush()
+    return reg
 
 
 @pytest.mark.asyncio
@@ -193,8 +206,8 @@ async def test_duplicate_registration_report_finds_same_email_two_contacts(db):
 
     contact_a = await _contact(db, full_name="Dupe One", email=email)
     contact_b = await _contact(db, full_name="Dupe Two", email=email)
-    reg_a = await register(db, contact_id=contact_a.id, cohort_id=cohort.id, registered_via="import", payment_status="waived")
-    reg_b = await register(db, contact_id=contact_b.id, cohort_id=cohort.id, registered_via="import", payment_status="waived")
+    reg_a = await _raw_registration(db, contact=contact_a, cohort=cohort)
+    reg_b = await _raw_registration(db, contact=contact_b, cohort=cohort)
     await db.commit()
 
     dupes = await report_duplicate_registrations(db, cohort_id=cohort.id)
@@ -228,9 +241,9 @@ async def test_cancel_duplicates_keeps_the_earliest_and_cancels_the_rest(db):
     contact_a = await _contact(db, full_name="Dupe One", email=email)
     contact_b = await _contact(db, full_name="Dupe Two", email=email)
     contact_c = await _contact(db, full_name="Dupe Three", email=email)
-    reg_a = await register(db, contact_id=contact_a.id, cohort_id=cohort.id, registered_via="import", payment_status="waived")
-    reg_b = await register(db, contact_id=contact_b.id, cohort_id=cohort.id, registered_via="import", payment_status="waived")
-    reg_c = await register(db, contact_id=contact_c.id, cohort_id=cohort.id, registered_via="import", payment_status="waived")
+    reg_a = await _raw_registration(db, contact=contact_a, cohort=cohort)
+    reg_b = await _raw_registration(db, contact=contact_b, cohort=cohort)
+    reg_c = await _raw_registration(db, contact=contact_c, cohort=cohort)
     await db.commit()
 
     cancelled = await cancel_duplicate_registrations(db, cohort_id=cohort.id)
@@ -275,8 +288,8 @@ async def test_cancel_duplicates_is_idempotent_on_a_second_run(db):
 
     contact_a = await _contact(db, full_name="Dupe One", email=email)
     contact_b = await _contact(db, full_name="Dupe Two", email=email)
-    await register(db, contact_id=contact_a.id, cohort_id=cohort.id, registered_via="import", payment_status="waived")
-    await register(db, contact_id=contact_b.id, cohort_id=cohort.id, registered_via="import", payment_status="waived")
+    await _raw_registration(db, contact=contact_a, cohort=cohort)
+    await _raw_registration(db, contact=contact_b, cohort=cohort)
     await db.commit()
 
     first = await cancel_duplicate_registrations(db, cohort_id=cohort.id)

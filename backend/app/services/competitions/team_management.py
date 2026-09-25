@@ -28,11 +28,12 @@ from app.models.lms.program import LmsProgramTeamItemProgress
 from app.models.missions.mission import MissionAttempt
 from app.models.sessions.cohort import Cohort
 from app.models.sessions.registration import Registration
+from app.models.spine.contact import Contact
 from app.models.team import Team, TeamMember
 from app.models.user import User
 from app.services.lms.ops_integration import sync_registration_lms
 from app.services.sessions.registration import register
-from app.services.spine.identity import resolve_or_create_contact
+from app.services.spine.identity import normalize_email, resolve_or_create_contact
 from app.services.teams import join_team, leave_team, team_member_ids, teams_for_cohort
 
 
@@ -146,9 +147,22 @@ async def register_and_add_member(
         db, full_name=full_name, phone=phone, email=email, contact_roles=["student"],
         role_event_source="desk", organization_name=school,
     )
+    norm_email = normalize_email(email)
     existing = (await db.execute(
-        select(Registration).where(Registration.contact_id == contact.id, Registration.cohort_id == cohort.id)
+        select(Registration)
+        .join(Contact, Contact.id == Registration.contact_id)
+        .where(
+            Registration.cohort_id == cohort.id,
+            Registration.status != "cancelled",
+            (Registration.contact_id == contact.id) | (func.lower(Contact.email) == norm_email),
+        )
+        .order_by(Registration.created_at.asc())
     )).scalars().first()
+    if existing is None:
+        existing = (await db.execute(
+            select(Registration).where(Registration.contact_id == contact.id, Registration.cohort_id == cohort.id)
+        )).scalars().first()
+
     is_new_registration = existing is None
     registration = existing or await register(
         db, contact_id=contact.id, cohort_id=cohort.id, registered_via="desk", payment_status="waived",

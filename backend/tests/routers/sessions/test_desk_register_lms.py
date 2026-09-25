@@ -11,7 +11,7 @@ import pytest
 from sqlalchemy import select
 
 from app.models.lms import Course, Enrollment
-from app.models.lms.program import LmsProgram, LmsProgramItem
+from app.models.lms.program import LmsProgram, LmsProgramAssignment, LmsProgramItem
 from app.models.sessions.cohort import Cohort
 from app.models.sessions.program import Program
 from app.models.spine.contact import Contact
@@ -175,3 +175,76 @@ async def test_cancel_registration_deactivates_its_lms_enrollments(db, client, o
 
     await db.refresh(enrollment)
     assert enrollment.status == "inactive"
+
+
+@pytest.mark.asyncio
+async def test_desk_register_with_pre_existing_user_email_grants_lms_access(db, client, operations_headers):
+    author = await _author(db)
+    program, cohort = await _make_cohort(db)
+    course = Course(id=uuid.uuid4(), title="Curriculum Course", created_by=author.id, is_published=True)
+    db.add(course)
+    await _attach_course_checklist(db, program=program, course=course)
+
+    # User already exists in system with this email (e.g. from an earlier signup or different contact)
+    pre_existing_user = User(
+        id=uuid.uuid4(), full_name="Pre-existing Account", email="pre.existing@example.com",
+        password_hash="x", roles=["operations"], status="active",
+    )
+    db.add(pre_existing_user)
+    await db.commit()
+
+    resp = await client.post(
+        f"/sessions/cohorts/{cohort.id}/registrations",
+        json={
+            "student_name": "Pre-existing Student", "email": "pre.existing@example.com",
+            "phone": "050 999 8888", "city": "Dubai",
+        },
+        headers=operations_headers,
+    )
+    assert resp.status_code == 201, resp.text
+
+    # Verify the user now has student role, is assigned the LMS program, and has active course enrollment
+    await db.refresh(pre_existing_user)
+    assert "student" in pre_existing_user.role_values
+
+    lpa = (await db.execute(
+        select(LmsProgramAssignment).where(
+            LmsProgramAssignment.user_id == pre_existing_user.id,
+            LmsProgramAssignment.cohort_id == cohort.id,
+        )
+    )).scalars().first()
+    assert lpa is not None
+
+    enrollments = (await db.execute(
+        select(Enrollment).where(Enrollment.user_id == pre_existing_user.id)
+    )).scalars().all()
+    assert [e.course_id for e in enrollments] == [course.id]
+    assert enrollments[0].status == "active"
+
+
+@pytest.mark.asyncio
+async def test_desk_register_duplicate_student_email_in_same_cohort_returns_409(db, client, operations_headers):
+    program, cohort = await _make_cohort(db)
+    await db.commit()
+
+    first = await client.post(
+        f"/sessions/cohorts/{cohort.id}/registrations",
+        json={
+            "student_name": "Dupe Student", "email": "dupe.test@example.com",
+            "phone": "050 111 2222", "city": "Dubai",
+        },
+        headers=operations_headers,
+    )
+    assert first.status_code == 201
+
+    # Try registering again with the same email in the same cohort
+    second = await client.post(
+        f"/sessions/cohorts/{cohort.id}/registrations",
+        json={
+            "student_name": "Dupe Student 2", "email": "dupe.test@example.com",
+            "phone": "050 333 4444", "city": "Abu Dhabi",
+        },
+        headers=operations_headers,
+    )
+    assert second.status_code == 409
+    assert "already registered" in second.json()["detail"].lower()

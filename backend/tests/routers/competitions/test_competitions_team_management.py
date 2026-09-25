@@ -14,6 +14,8 @@ from app.core.security import create_access_token
 from app.models.competitions.judging import CompetitionScore
 from app.models.sessions.cohort import Cohort
 from app.models.sessions.program import Program
+from app.models.sessions.registration import Registration
+from app.models.spine.contact import Contact
 from app.models.team import Team
 from app.models.user import User
 from app.services.competitions.judging import upsert_rubric
@@ -309,3 +311,42 @@ async def test_ops_unlocks_a_finally_submitted_team(db, client):
     await db.refresh(locked)
     assert locked.final_locked_at is None
     assert locked.final_locked_by is None
+
+
+@pytest.mark.asyncio
+async def test_ops_adding_registered_student_to_team_reuses_registration_without_duplication(db, client):
+    ops = await _ops(db)
+    _program, cohort = await _program_and_cohort(db)
+    team = await create_team(db, name="Pioneer Team", created_by=ops.id, cohort_id=cohort.id, member_ids=[])
+    from app.services.teams import leave_team
+    await leave_team(db, team_id=team.id, user_id=ops.id)
+    await db.commit()
+
+    student_email = f"student-{uuid.uuid4().hex[:6]}@example.com"
+
+    # 1. Register student via desk register with phone
+    reg_resp = await client.post(
+        f"/sessions/cohorts/{cohort.id}/registrations",
+        json={
+            "student_name": "Test Student", "email": student_email,
+            "phone": "050 111 2222", "city": "Dubai",
+        },
+        headers=_headers(ops),
+    )
+    assert reg_resp.status_code == http_status.HTTP_201_CREATED, reg_resp.text
+
+    # 2. Add student to team via judging assign tab (only providing name and email)
+    team_resp = await client.post(
+        f"/competitions/admin/teams/{team.id}/members",
+        headers=_headers(ops),
+        json={"full_name": "Test Student", "email": student_email},
+    )
+    assert team_resp.status_code == http_status.HTTP_201_CREATED, team_resp.text
+
+    # 3. Check registrations in this cohort for that email — must be exactly 1, no duplicate!
+    regs = (await db.execute(
+        select(Registration)
+        .join(Contact, Contact.id == Registration.contact_id)
+        .where(Registration.cohort_id == cohort.id, Contact.email == student_email)
+    )).scalars().all()
+    assert len(regs) == 1

@@ -36,6 +36,7 @@ from app.services.documents.ticket import ticket_url
 from app.services.documents.ticket_image import render_ticket_png
 from app.services.email import try_send_email
 from app.services.sessions.staffing import resolve_session_location_display
+from app.services.spine.identity import normalize_email
 
 logger = logging.getLogger(__name__)
 
@@ -128,30 +129,48 @@ async def register(
             Registration.contact_id == contact_id, Registration.cohort_id == cohort_id,
         )
     )).scalars().first()
-    if existing is not None and existing.status == "cancelled":
-        existing.status = "registered"
-        existing.ticket_sent_at = None
-        existing.registered_via = registered_via
-        if payment_status is not None:
-            existing.payment_status = payment_status
-        await db.flush()
-        if session_ids:
-            # Replace any coverage from the previous life of this row rather
-            # than adding to it — the caller is stating the full set.
-            await db.execute(
-                sa_delete(RegistrationSession).where(RegistrationSession.registration_id == existing.id)
+
+    norm_email = normalize_email(contact.email)
+    if existing is None and norm_email:
+        existing = (await db.execute(
+            select(Registration)
+            .join(Contact, Contact.id == Registration.contact_id)
+            .where(
+                Registration.cohort_id == cohort_id,
+                func.lower(Contact.email) == norm_email,
             )
-            for session_id in session_ids:
-                db.add(RegistrationSession(id=uuid4(), registration_id=existing.id, session_id=session_id))
-        db.add(Touchpoint(
-            contact_id=contact_id,
-            channel=_CHANNEL_BY_REGISTERED_VIA[registered_via],
-            touchpoint_type="registration",
-            occurred_at=datetime.now(timezone.utc),
-            raw_platform_id=f"registration:{existing.id}:reinstated:{uuid4()}",
-        ))
-        await db.flush()
-        return existing
+            .order_by(Registration.created_at.asc())
+        )).scalars().first()
+
+    if existing is not None:
+        if existing.status == "cancelled":
+            existing.status = "registered"
+            existing.ticket_sent_at = None
+            existing.registered_via = registered_via
+            if payment_status is not None:
+                existing.payment_status = payment_status
+            await db.flush()
+            if session_ids:
+                # Replace any coverage from the previous life of this row rather
+                # than adding to it — the caller is stating the full set.
+                await db.execute(
+                    sa_delete(RegistrationSession).where(RegistrationSession.registration_id == existing.id)
+                )
+                for session_id in session_ids:
+                    db.add(RegistrationSession(id=uuid4(), registration_id=existing.id, session_id=session_id))
+            db.add(Touchpoint(
+                contact_id=existing.contact_id,
+                channel=_CHANNEL_BY_REGISTERED_VIA[registered_via],
+                touchpoint_type="registration",
+                occurred_at=datetime.now(timezone.utc),
+                raw_platform_id=f"registration:{existing.id}:reinstated:{uuid4()}",
+            ))
+            await db.flush()
+            return existing
+        else:
+            raise HTTPException(
+                status.HTTP_409_CONFLICT, detail="This contact is already registered for this cohort"
+            )
 
     registration = Registration(
         id=uuid4(),
