@@ -47,6 +47,7 @@ expect them to exist, and nothing here depends on them.)
 | [`HANDOFF_AMBASSADORS.md`](./HANDOFF_AMBASSADORS.md) | Leads, points/titles/badges, teacher sessions, the task approval state machine |
 | [`HANDOFF_VPS_DEPLOYMENT.md`](./HANDOFF_VPS_DEPLOYMENT.md) | What's actually running on the VPS, the deploy scripts' real behavior (including their auto-rollback logic), storage layout |
 | [`HANDOFF_VIDEO.md`](./HANDOFF_VIDEO.md) | New 2026-09-17 — previously only existed as event-specific migration runbooks (now archived). The current video architecture: per-row storage backend (new uploads always go to R2), the transcode pipeline, playback token/HLS mechanics, the two ARQ workers |
+| [`HANDOFF_WEBSITE.md`](./HANDOFF_WEBSITE.md) | New 2026-09-26. Main website audit & modern architecture handoff: Astro + Tailwind frontend, migration of legacy admin_backend into the unified platform, role-based article drafting, sponsors, and Stripe shop wired to inventory |
 | [`OPS_BACKUPS.md`](./OPS_BACKUPS.md) | Database backup script — usage, cron, restore |
 | [`archive/README.md`](./archive/README.md) | Docs retired 2026-09-17 for describing a finished, one-off event rather than a living domain (an agent-collab scope note, the video R2 migration plan + its pre-deploy review fixes, the competition-day deploy runbook) — kept for history, not current |
 

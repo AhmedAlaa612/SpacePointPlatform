@@ -197,12 +197,10 @@ require_lms_content = RequireRole(["operations", "facilitator"])
 require_instructor_missions = RequireRole(["instructor", "facilitator", "operations"])
 
 # ── Competition domain (2026-08-24) ─────────────────────────────────────────
-# A judge is a temporary, cohort-scoped account with zero ops access — this
-# gate only answers "is this a judge account at all?"; per-cohort scoping
-# (which cohort this specific judge can see) is a separate check,
-# `services/competitions/judges.py::require_judge_cohort_access`, same split
-# `require_instructor_missions`/`cohort_access.py` already use for
-# instructors. Deliberately not listing operations/facilitator here — a
-# judge surface staff needs to see goes through the ops endpoints, not this
-# one, so there's no reason to widen it.
 require_judge = RequireRole(["judge"])
+
+# ── CMS & Website domain (2026-09) ──────────────────────────────────────────
+# Interns, instructors, and facilitators can author and draft articles.
+# Admin and operations review, publish, and manage all site content.
+require_article_author = RequireRole(["intern", "leader", "instructor", "facilitator", "operations"])
+require_cms_editor = RequireRole(["operations"])

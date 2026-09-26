@@ -39,6 +39,8 @@ from app.routers.sessions import router as sessions_router
 from app.routers.spine import router as spine_router
 from app.routers.teams import router as teams_router
 from app.routers.video import router as video_router
+from app.routers.public_cms import router as public_cms_router
+from app.routers.cms_admin import router as cms_admin_router
 from app.workers.heartbeat import HEARTBEAT_KEY
 from app.workers.settings import redis_settings
 
@@ -190,6 +192,10 @@ app.include_router(instructor_assessment_router)
 # — one route for every hls_encrypted video regardless of owner_type. See
 # routers/video.py's module docstring.
 app.include_router(video_router)
+
+# Website CMS & Public APIs (2026-09)
+app.include_router(public_cms_router)
+app.include_router(cms_admin_router)
 
 
 @app.get("/health", tags=["health"])
