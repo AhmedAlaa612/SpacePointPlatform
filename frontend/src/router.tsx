@@ -117,6 +117,8 @@ import InventoryCatalog from "@/pages/operations/inventory/Catalog";
 import InventoryFulfilment from "@/pages/operations/inventory/Fulfilment";
 import DeliverySettings from "@/pages/operations/DeliverySettings";
 import GroundStationDevices from "@/pages/operations/GroundStationDevices";
+import WebsiteManagement from "@/pages/operations/website/WebsiteManagement";
+import MyArticles from "@/pages/cms/MyArticles";
 
 // Unified apply flow
 import ApplyFlow from "@/pages/apply/ApplyFlow";
@@ -693,12 +695,33 @@ const adminCheckInRoute = createRoute({
   },
 });
 
+const adminWebsiteRoute = createRoute({
+  getParentRoute: () => authLayoutRoute,
+  path: "/admin/website",
+  beforeLoad: () => {
+    throw redirect({ to: "/operations/website" });
+  },
+});
+
 /** Shared calendar — instructors/facilitators/ops all read it; the backend
  *  scopes what each of them sees. Distinct from `/operations/calendar`. */
 const sessionsCalendarRoute = createRoute({
   getParentRoute: () => authLayoutRoute,
   path: "/sessions/calendar",
   component: SessionsCalendar,
+});
+
+/** Contributor articles & insights authoring surface. */
+const articlesRoute = createRoute({
+  getParentRoute: () => authLayoutRoute,
+  path: "/articles",
+  beforeLoad: () => {
+    const role = localStorage.getItem("active_role");
+    if (!role || !["intern", "leader", "instructor", "facilitator", "operations", "admin"].includes(role)) {
+      throw redirect({ to: "/" });
+    }
+  },
+  component: MyArticles,
 });
 
 // ── Operations domain (V2 S6-2) — dedicated route tree, separate from admin ──
@@ -747,6 +770,7 @@ const operationsRoutes = [
   createRoute({ getParentRoute: po, path: "/inventory/fulfilment", component: InventoryFulfilment }),
   createRoute({ getParentRoute: po, path: "/delivery-settings", component: DeliverySettings }),
   createRoute({ getParentRoute: po, path: "/ground-station-devices", component: GroundStationDevices }),
+  createRoute({ getParentRoute: po, path: "/website", component: WebsiteManagement }),
 ];
 
 // Judge surface (Competition domain, 2026-08-24) — a temporary, cohort-scoped
@@ -1221,7 +1245,9 @@ const routeTree = rootRoute.addChildren([
     adminContactsRoute,
     adminMergeReviewsRoute,
     adminCheckInRoute,
+    adminWebsiteRoute,
     sessionsCalendarRoute,
+    articlesRoute,
     adminProfileRoute,
     operationsLayoutRoute.addChildren(operationsRoutes),
     judgeLayoutRoute.addChildren(judgeRoutes),
