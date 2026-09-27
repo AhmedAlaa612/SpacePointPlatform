@@ -25,6 +25,7 @@ def upgrade() -> None:
         sa.Column('registration_id', postgresql.UUID(as_uuid=True), sa.ForeignKey('registrations.id', ondelete='SET NULL'), nullable=True),
         sa.Column('matched_contact_id', postgresql.UUID(as_uuid=True), sa.ForeignKey('contacts.id', ondelete='SET NULL'), nullable=True),
         sa.Column('student_name_raw', sa.String(length=255), nullable=True),
+        sa.Column('student_email_raw', sa.String(length=255), nullable=True),
         sa.Column('school_name_raw', sa.String(length=255), nullable=True),
         sa.Column('parent_name', sa.String(length=255), nullable=False),
         sa.Column('relationship', sa.String(length=64), nullable=True),

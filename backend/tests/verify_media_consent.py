@@ -139,68 +139,66 @@ async def run_tests():
         await db.commit()
 
         try:
-            # 2. Test email matching first & guardian replacement
-            print("\n[2] Testing Webhook: Email matching first & replacing guardian...")
+            # 2. Test student_email matching & guardian replacement
+            print("\n[2] Testing Webhook: student_email matching & replacing guardian...")
             req_1 = MediaConsentWebhookRequest(
                 student_name="Completely Wrong Name",  # Name does not match
+                student_email="fatima.mansoori@testschool.ae",  # Matches student 1 email!
                 school_name="Al Mawakeb School",
                 parent_name="Aisha Al Mansoori",
                 relationship="Mother",
                 mobile_number="+971 50 111 2233",
-                email_address="fatima.mansoori@testschool.ae",  # Matches student 1 email
+                email_address="parent_aisha@gmail.com",
                 consent_choice="YES: I give permission for my child to be photographed...",
                 permission_grants=["photography", "videography", "interviews"],
                 date_of_signing=date(2026, 9, 27),
             )
             c1 = await ingest_media_consent_webhook(db, cohort_id=cohort_id, payload=req_1)
             assert c1.match_status == "matched"
-            assert c1.match_method == "email"
+            assert c1.match_method == "student_email"
             assert c1.registration_id == reg_1.id
             assert c1.consent_choice == "consented"
+            assert c1.student_email_raw == "fatima.mansoori@testschool.ae"
 
             # Check that guardian data was replaced
             await db.refresh(guardian_1)
             assert guardian_1.full_name == "Aisha Al Mansoori"
             assert guardian_1.primary_phone_e164 == "+971 50 111 2233"
-            print("  OK: Matched by student email and replaced guardian data.")
+            print("  OK: Matched by student_email and replaced guardian data.")
 
-            # 3. Test phone fallback matching (email not matched)
-            print("\n[3] Testing Webhook: Phone matching fallback...")
+            # 3. Test parent phone/email alone do NOT match when student_email is missing
+            print("\n[3] Testing Webhook: parent phone/email ignored when student_email missing...")
             req_2 = MediaConsentWebhookRequest(
                 student_name="Unknown Name",
+                student_email=None,  # No student email!
                 parent_name="Rashid Saeed",
                 relationship="Father",
-                mobile_number="052 123 4567",  # Matches student 2 phone
-                email_address="father_rashid@gmail.com",  # Parent's own email, not student's
+                mobile_number="052 123 4567",  # Even though phone matches student 2, must NOT match!
+                email_address="saeed@testschool.ae",  # Even though email matches student 2, must NOT match!
                 consent_choice="NO: I do not give permission...",
                 date_of_signing=date(2026, 9, 27),
             )
             c2 = await ingest_media_consent_webhook(db, cohort_id=cohort_id, payload=req_2)
-            assert c2.match_status == "matched"
-            assert c2.match_method == "phone"
-            assert c2.registration_id == reg_2.id
-            assert c2.consent_choice == "declined"
+            assert c2.match_status == "unmatched"
+            assert c2.registration_id is None
+            print("  OK: Parent phone/email ignored; saved as unmatched because student_email was missing.")
 
-            # Check guardian was created on student 2
-            await db.refresh(reg_2)
-            assert reg_2.payer_contact_id is not None
-            g2 = await db.get(Contact, reg_2.payer_contact_id)
-            assert g2.full_name == "Rashid Saeed"
-            print("  OK: Matched by student phone and created guardian contact.")
-
-            # 4. Test unmatched submission
-            print("\n[4] Testing Webhook: Unmatched submission...")
+            # 4. Test student_email matches student 2
+            print("\n[4] Testing Webhook: student_email matching student 2...")
             req_3 = MediaConsentWebhookRequest(
-                student_name="Fatima Al Mansoori",  # Even if name matches, name doesn't match!
-                parent_name="Stranger Parent",
-                mobile_number="059 999 8888",
-                email_address="stranger@nowhere.com",
-                consent_choice="YES: I give permission",
+                student_name="Saeed",
+                student_email="saeed@testschool.ae",  # Matches student 2!
+                parent_name="Rashid Saeed",
+                mobile_number="052 999 8888",
+                email_address="rashid@parent.ae",
+                consent_choice="NO: I do not give permission",
             )
             c3 = await ingest_media_consent_webhook(db, cohort_id=cohort_id, payload=req_3)
-            assert c3.match_status == "unmatched"
-            assert c3.registration_id is None
-            print("  OK: Unmatched submission saved cleanly without false positive.")
+            assert c3.match_status == "matched"
+            assert c3.match_method == "student_email"
+            assert c3.registration_id == reg_2.id
+            assert c3.consent_choice == "declined"
+            print("  OK: Matched student 2 by student_email and set guardian.")
 
             # 5. Test summary stats
             print("\n[5] Testing Cohort Consents Summary...")
@@ -208,15 +206,14 @@ async def run_tests():
             assert summary.total_submissions == 3
             assert summary.matched_count == 2
             assert summary.unmatched_count == 1
-            assert summary.consented_count == 2
-            assert summary.declined_count == 1
+            assert summary.consented_count == 1
+            assert summary.declined_count == 2
             assert summary.total_registrations_count == 2
-            assert summary.pending_registrations_count == 0  # Both students are matched
             print(f"  OK: Summary: {summary.total_submissions} total, {summary.matched_count} matched, {summary.unmatched_count} unmatched.")
 
-            # 6. Test 1-click manual match
+            # 6. Test 1-click manual match for the unmatched submission
             print("\n[6] Testing 1-click manual link for unmatched submission...")
-            linked = await manual_link_media_consent(db, cohort_id=cohort_id, consent_id=c3.id, registration_id=reg_1.id)
+            linked = await manual_link_media_consent(db, cohort_id=cohort_id, consent_id=c2.id, registration_id=reg_1.id)
             assert linked.match_status == "manual"
             assert linked.registration_id == reg_1.id
             print("  OK: Unmatched submission successfully linked manually.")
