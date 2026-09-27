@@ -308,11 +308,11 @@ export function CohortQuizAnalysisPanel({ cohortId }: { cohortId: string }) {
               onChange={(e) => setQuestionSortBy(e.target.value as any)}
               className="h-8 bg-background border border-border text-foreground text-xs rounded-lg px-2.5 focus:outline-none focus:ring-1 focus:ring-primary font-medium"
             >
-              <option value="most_wrong">Most Wrong Answers (Descending)</option>
-              <option value="most_right">Most Right Answers (Descending)</option>
-              <option value="lowest_accuracy">Lowest Accuracy % (Weakest)</option>
-              <option value="highest_accuracy">Highest Accuracy % (Strongest)</option>
-              <option value="total_answers">Most Responses</option>
+              <option value="most_wrong">Most Wrong Answers First</option>
+              <option value="most_right">Most Right Answers First</option>
+              <option value="lowest_accuracy">Hardest Questions First (Lowest % Correct)</option>
+              <option value="highest_accuracy">Easiest Questions First (Highest % Correct)</option>
+              <option value="total_answers">Most Total Responses</option>
             </select>
           </div>
 
