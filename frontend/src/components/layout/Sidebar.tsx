@@ -28,6 +28,7 @@ import {
   QrCode,
   Settings as SettingsIcon,
   Share2,
+  ShoppingBag,
   Target,
   Ticket,
   Trophy,
@@ -134,6 +135,7 @@ const ICONS: Record<string, LucideIcon> = {
   "Component library": Boxes,
   Articles: Newspaper,
   "Website CMS": Globe,
+  Shop: ShoppingBag,
 };
 
 const mk = (label: string, to: string): NavItem => ({ label, to, icon: ICONS[label] ?? FileText });
@@ -163,6 +165,7 @@ const INVENTORY_GROUP = mkGroup("Inventory", undefined, [
   mk("Warehouses", "/operations/inventory/warehouses"),
   mk("Fulfilment", "/operations/inventory/fulfilment"),
   mk("Catalogue", "/operations/inventory/catalog"),
+  mk("Shop", "/operations/inventory/shop"),
 ]);
 
 const PROGRAMS_GROUP = mkGroup("Programs", undefined, [

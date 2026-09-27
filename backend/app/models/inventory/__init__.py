@@ -27,6 +27,8 @@ from app.models.inventory.warehouse_cabin import ItemCabinAssignment, WarehouseC
 from app.models.inventory.movement import Movement
 from app.models.inventory.session_kit import KitCheck, SessionKit
 from app.models.inventory.stock import StockLevel
+from app.models.inventory.shop_item import ShopItem
+from app.models.inventory.shop_order import ShopOrder, ShopOrderItem
 
 __all__ = [
     "City",
@@ -47,4 +49,8 @@ __all__ = [
     "KitCheck",
     "CohortKit",
     "EquipmentReturnFlag",
+    "ShopItem",
+    "ShopOrder",
+    "ShopOrderItem",
 ]
+

@@ -3,13 +3,19 @@ import re
 import unicodedata
 from uuid import UUID
 
-import bleach
-from markdown_it import MarkdownIt
+try:
+    import bleach
+    from markdown_it import MarkdownIt
+    md_parser = MarkdownIt("commonmark", {"html": True}).enable(["table", "strikethrough"])
+    HAS_BLEACH = True
+except ImportError:
+    bleach = None
+    md_parser = None
+    HAS_BLEACH = False
+
 from pydantic import BaseModel, EmailStr
 
 # Initialize Markdown parser with standard CommonMark and table/strikethrough plugins
-md_parser = MarkdownIt("commonmark", {"html": True}).enable(["table", "strikethrough"])
-
 ALLOWED_TAGS = [
     "a", "abbr", "acronym", "b", "blockquote", "code", "em", "i", "li", "ol",
     "p", "strong", "ul", "h1", "h2", "h3", "h4", "h5", "h6", "pre", "span",
@@ -28,14 +34,17 @@ def compile_markdown_to_safe_html(markdown_text: str) -> str:
     """Renders raw markdown to HTML and cleans it with Bleach against XSS attacks."""
     if not markdown_text:
         return ""
-    raw_html = md_parser.render(markdown_text)
-    clean_html = bleach.clean(
-        raw_html,
-        tags=ALLOWED_TAGS,
-        attributes=ALLOWED_ATTRIBUTES,
-        strip=True,
-    )
-    return clean_html
+    if HAS_BLEACH and md_parser:
+        raw_html = md_parser.render(markdown_text)
+        clean_html = bleach.clean(
+            raw_html,
+            tags=ALLOWED_TAGS,
+            attributes=ALLOWED_ATTRIBUTES,
+            strip=True,
+        )
+        return clean_html
+    import html
+    return f"<p>{html.escape(markdown_text)}</p>"
 
 
 def slugify(text: str) -> str:
