@@ -1089,7 +1089,22 @@ async def desk_register(
         send_welcome_email=body.send_welcome_email,
     )
 
-    await db.commit()
+    try:
+        await db.commit()
+    except Exception as exc:
+        await db.rollback()
+        logger.exception("desk_register failed to commit for cohort %s: %s", cohort_id, exc)
+        msg = str(exc)
+        if "unique constraint" in msg.lower() or "uniqueviolation" in msg.lower():
+            if "card_number" in msg.lower():
+                detail = "An ID card number conflict occurred during registration. Please retry."
+            elif "email" in msg.lower():
+                detail = "An account with this email already exists and could not be linked."
+            else:
+                detail = f"Database uniqueness conflict during registration: {msg}"
+        else:
+            detail = f"Could not complete registration: {msg}"
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=detail)
 
     # Ticket email runs on the ARQ queue, not synchronously — same pattern as
     # the public registration endpoint (routers/sessions/public.py). Desk
