@@ -8,6 +8,9 @@ import type {
   SessionInstructor,
   Registration,
   DeskRegistrationInput,
+  CohortMediaConsent,
+  CohortMediaConsentSummary,
+  MediaConsentManualOverrideRequest,
 } from "@/types/sessions"
 
 export const getCohortsApi = (programId?: string) =>
@@ -238,3 +241,12 @@ export interface SessionHistoryResponse {
 
 export const getSessionHistoryApi = (sessionId: string) =>
   api.get<SessionHistoryResponse>(`/sessions/${sessionId}/history`).then((r) => r.data)
+
+export const getCohortMediaConsentsApi = (cohortId: string) =>
+  api.get<CohortMediaConsentSummary>(`/sessions/cohorts/${cohortId}/media-consent`).then((r) => r.data)
+
+export const manualOverrideMediaConsentApi = (cohortId: string, data: MediaConsentManualOverrideRequest) =>
+  api.post<CohortMediaConsent>(`/sessions/cohorts/${cohortId}/media-consent/manual-override`, data).then((r) => r.data)
+
+export const manualMatchMediaConsentApi = (cohortId: string, consentId: string, registrationId: string) =>
+  api.post<CohortMediaConsent>(`/sessions/cohorts/${cohortId}/media-consent/${consentId}/match`, { registration_id: registrationId }).then((r) => r.data)

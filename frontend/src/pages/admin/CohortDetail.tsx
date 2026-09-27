@@ -4,7 +4,7 @@ import { Link, useParams } from "@tanstack/react-router"
 import * as XLSX from "xlsx"
 import {
   ArrowLeft, CalendarPlus, UserPlus, Upload, Ticket, Mail, Wallet, Ban, FileText, Download, FileSpreadsheet, Copy,
-  CheckCircle2, Award, Trash2, Search, Pencil, MoreVertical,
+  CheckCircle2, Award, Trash2, Search, Pencil, MoreVertical, Camera,
 } from "lucide-react"
 import type {
   Cohort, CohortStatus, Program, Session,
@@ -21,6 +21,8 @@ import { CohortKitsPanel } from "@/pages/admin/components/CohortKitsPanel"
 import { CohortRolesPanel } from "@/pages/admin/components/CohortRolesPanel"
 import { AssessmentAssignmentPanel } from "@/pages/admin/components/AssessmentAssignmentPanel"
 import { LmsCohortSection } from "@/pages/lms-authoring/components/LmsCohortSection"
+import { CohortConsentsPanel } from "@/pages/admin/components/CohortConsentsPanel"
+import { MediaConsentModal } from "@/pages/admin/components/MediaConsentModal"
 import { SessionsTable } from "@/pages/admin/components/SessionsTable"
 import {
   getCohortApi, getSessionsApi,
@@ -53,7 +55,7 @@ const WEEKDAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Satur
 /** Sessions and Students are the daily work; Setup is the stuff you touch
  *  once when the cohort is created (2026-08-02). Setup used to sit *between*
  *  the two daily ones, which is what made the page feel endless. */
-type CohortTab = "sessions" | "roles" | "staffing" | "assessment" | "lms" | "students" | "setup"
+type CohortTab = "sessions" | "roles" | "staffing" | "assessment" | "lms" | "students" | "consents" | "setup"
 const TABS: { key: CohortTab; label: string }[] = [
   { key: "sessions", label: "Sessions" },
   // Roles moved out of Staffing (2026-08-28): rate, responsibilities and the
@@ -74,6 +76,7 @@ const TABS: { key: CohortTab; label: string }[] = [
   // ops never has to leave the cohort page for LMS-checklist work.
   { key: "lms", label: "LMS" },
   { key: "students", label: "Students" },
+  { key: "consents", label: "Consents" },
   { key: "setup", label: "Setup" },
 ]
 
@@ -133,6 +136,8 @@ function CohortDetailView({ cohort }: { cohort: Cohort }) {
   const [drawerError, setDrawerError] = useState<string | null>(null)
   const [regSearch, setRegSearch] = useState("")
   const [regLoginFilter, setRegLoginFilter] = useState<"all" | "never" | "has_logged_in">("all")
+  const [regConsentFilter, setRegConsentFilter] = useState<"all" | "consented" | "declined" | "pending">("all")
+  const [consentTarget, setConsentTarget] = useState<Registration | null>(null)
   const [deleteTarget, setDeleteTarget] = useState<Registration | null>(null)
   const [cancelTarget, setCancelTarget] = useState<Registration | null>(null)
   const [certificateTarget, setCertificateTarget] = useState<Registration | null>(null)
@@ -168,11 +173,16 @@ function CohortDetailView({ cohort }: { cohort: Cohort }) {
   const filteredRegistrations = registrations.filter((r) => {
     if (regLoginFilter === "never" && r.last_login_at) return false
     if (regLoginFilter === "has_logged_in" && !r.last_login_at) return false
+    if (regConsentFilter !== "all") {
+      const cStatus = r.media_consent_status ?? "pending"
+      if (cStatus !== regConsentFilter) return false
+    }
     const q = regSearch.trim().toLowerCase()
     if (!q) return true
     return [
       r.student_name, r.student_phone, r.student_email, r.student_grade,
       r.student_organization_name, r.guardian_name, r.guardian_phone,
+      r.media_consent_parent_name, r.media_consent_parent_phone,
       r.status, r.payment_status,
     ].some((v) => (v ?? "").toString().toLowerCase().includes(q))
   })
@@ -187,6 +197,11 @@ function CohortDetailView({ cohort }: { cohort: Cohort }) {
       "Phone": r.student_phone ?? "",
       "Email": r.student_email ?? "",
       "School": r.student_organization_name ?? "",
+      "Media Consent": r.media_consent_status === "consented" ? "Granted (YES)" : r.media_consent_status === "declined" ? "Declined (NO)" : "Pending",
+      "Consent Parent Name": r.media_consent_parent_name ?? r.guardian_name ?? "",
+      "Consent Parent Phone": r.media_consent_parent_phone ?? r.guardian_phone ?? "",
+      "Consent Parent Email": r.media_consent_parent_email ?? "",
+      "Consent Signed Date": r.media_consent_signed_date ?? "",
       "Ticket Sent": r.ticket_sent ? "Yes" : "No",
       "Onboarding Sent": r.onboarding_sent ? "Yes" : "No",
       "Registered At": r.created_at ? new Date(r.created_at).toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric" }) : "",
@@ -199,6 +214,11 @@ function CohortDetailView({ cohort }: { cohort: Cohort }) {
       { wch: 16 }, // Phone
       { wch: 26 }, // Email
       { wch: 22 }, // School
+      { wch: 16 }, // Media Consent
+      { wch: 22 }, // Consent Parent Name
+      { wch: 16 }, // Consent Parent Phone
+      { wch: 24 }, // Consent Parent Email
+      { wch: 14 }, // Consent Signed Date
       { wch: 12 }, // Ticket Sent
       { wch: 16 }, // Onboarding Sent
       { wch: 14 }, // Registered At
@@ -601,6 +621,16 @@ function CohortDetailView({ cohort }: { cohort: Cohort }) {
               <option value="never">Never logged in</option>
               <option value="has_logged_in">Has logged in</option>
             </select>
+            <select
+              value={regConsentFilter}
+              onChange={(e) => setRegConsentFilter(e.target.value as "all" | "consented" | "declined" | "pending")}
+              className="w-auto shrink-0 h-9 px-2.5 bg-background border border-border rounded-xl text-xs focus:outline-none focus:border-primary transition-colors cursor-pointer"
+            >
+              <option value="all">Any media consent</option>
+              <option value="consented">Consent: Granted</option>
+              <option value="declined">Consent: Declined</option>
+              <option value="pending">Consent: Pending</option>
+            </select>
             <button
               onClick={handleExportRegistrations}
               disabled={filteredRegistrations.length === 0}
@@ -641,6 +671,28 @@ function CohortDetailView({ cohort }: { cohort: Cohort }) {
                         className="text-sm font-medium text-foreground hover:text-primary hover:underline transition-colors break-words w-full sm:w-auto text-left"
                       >
                         {r.student_name}
+                      </button>
+                      {/* Media Consent Clickable Badge */}
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          setConsentTarget(r)
+                        }}
+                        className={`text-xs font-semibold px-2 py-0.5 rounded-full transition-colors cursor-pointer ${
+                          r.media_consent_status === "consented"
+                            ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-400 hover:bg-emerald-200"
+                            : r.media_consent_status === "declined"
+                            ? "bg-red-100 text-red-700 dark:bg-red-500/15 dark:text-red-400 hover:bg-red-200"
+                            : "bg-muted text-muted-foreground hover:bg-muted/80 hover:text-foreground"
+                        }`}
+                        title="Click to view details or change Media Consent state"
+                      >
+                        {r.media_consent_status === "consented"
+                          ? "Consent: Granted"
+                          : r.media_consent_status === "declined"
+                          ? "Consent: Declined"
+                          : "Consent: Pending"}
                       </button>
                       {r.ticket_sent ? (
                         <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-blue-100 text-blue-700 dark:bg-blue-500/15 dark:text-blue-400">
@@ -742,6 +794,9 @@ function CohortDetailView({ cohort }: { cohort: Cohort }) {
                         <DropdownMenuItem onClick={() => setPaymentTarget(r)}>
                           <Wallet size={14} /> Confirm payment
                         </DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => setConsentTarget(r)}>
+                          <Camera size={14} /> Media consent
+                        </DropdownMenuItem>
                         <DropdownMenuSeparator />
                         <DropdownMenuItem
                           variant="destructive"
@@ -767,6 +822,12 @@ function CohortDetailView({ cohort }: { cohort: Cohort }) {
         )}
       </div>
 
+      )}
+
+      {tab === "consents" && (
+        <Card className="p-4">
+          <CohortConsentsPanel cohortId={cohort.id} registrations={registrations} />
+        </Card>
       )}
 
       {tab === "setup" && (
@@ -904,6 +965,13 @@ function CohortDetailView({ cohort }: { cohort: Cohort }) {
         <StudentAttendanceModal
           registration={attendanceTarget}
           onClose={() => setAttendanceTarget(null)}
+        />
+      )}
+      {consentTarget && (
+        <MediaConsentModal
+          cohortId={cohort.id}
+          registration={consentTarget}
+          onClose={() => setConsentTarget(null)}
         />
       )}
 

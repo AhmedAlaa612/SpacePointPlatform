@@ -481,6 +481,61 @@ export interface Registration {
   /** The linked LMS account's own last_login_at — null means either no
    * account exists yet, or one does but nobody's ever logged into it. */
   last_login_at: string | null;
+  // 2026-09-27 — Cohort Media Consent tracking
+  media_consent_status?: "consented" | "declined" | "pending";
+  media_consent_id?: string | null;
+  media_consent_parent_name?: string | null;
+  media_consent_parent_phone?: string | null;
+  media_consent_parent_email?: string | null;
+  media_consent_relationship?: string | null;
+  media_consent_signed_date?: string | null;
+  media_consent_grants?: string[];
+  media_consent_notes?: string | null;
+}
+
+export interface CohortMediaConsent {
+  id: string;
+  cohort_id: string;
+  registration_id?: string | null;
+  matched_contact_id?: string | null;
+  matched_student_name?: string | null;
+  student_name_raw?: string | null;
+  school_name_raw?: string | null;
+  parent_name: string;
+  relationship?: string | null;
+  parent_phone?: string | null;
+  parent_email?: string | null;
+  consent_choice: "consented" | "declined" | string;
+  permission_grants: string[];
+  declaration_agreed: boolean;
+  date_of_signing?: string | null;
+  source: string;
+  match_status: "matched" | "unmatched" | "manual" | string;
+  match_method?: "email" | "phone" | "manual" | null;
+  notes?: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CohortMediaConsentSummary {
+  total_submissions: number;
+  matched_count: number;
+  unmatched_count: number;
+  consented_count: number;
+  declined_count: number;
+  pending_registrations_count: number;
+  total_registrations_count: number;
+  items: CohortMediaConsent[];
+}
+
+export interface MediaConsentManualOverrideRequest {
+  registration_id: string;
+  consent_choice: "consented" | "declined" | "pending";
+  parent_name?: string | null;
+  relationship?: string | null;
+  parent_phone?: string | null;
+  parent_email?: string | null;
+  notes?: string | null;
 }
 
 export type ImportRowDisposition = "create" | "link" | "already_registered" | "review" | "error";

@@ -24,6 +24,7 @@ from app.models.sessions.checklist import (
     InstructorSessionDay,
 )
 from app.models.sessions.session_call import SessionCall
+from app.models.sessions.media_consent import CohortMediaConsent
 
 __all__ = [
     "Program",
@@ -56,4 +57,5 @@ __all__ = [
     "InstructorSessionDay",
     "InstructorChecklistProgress",
     "SessionCall",
+    "CohortMediaConsent",
 ]
