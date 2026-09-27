@@ -8,6 +8,10 @@ class ApplicantProfile(Base):
     __tablename__ = "applicant_profiles"
 
     user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), primary_key=True)
+    nationality = Column(String(100), nullable=True)
+    work_status = Column(String(255), nullable=True)
+    fluent_languages = Column(ARRAY(String), nullable=True)
+    graduated_university = Column(String(255), nullable=True)
     university = Column(String(255), nullable=True)
     highest_degree = Column(String(100), nullable=True)
     highest_degree_other = Column(String(255), nullable=True)

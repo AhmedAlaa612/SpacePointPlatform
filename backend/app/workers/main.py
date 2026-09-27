@@ -19,6 +19,7 @@ from app.core.config import settings
 from app.core.log_context import configure_logging
 from app.workers.heartbeat import heartbeat
 from app.workers.settings import redis_settings
+from app.workers.tasks.birthdays import send_daily_birthday_emails
 from app.workers.tasks.certificates import send_cohort_certificates_job
 from app.workers.tasks.cohort_interest import send_cohort_interest_notifications
 from app.workers.tasks.imports import send_import_batch_emails
@@ -60,6 +61,7 @@ class WorkerSettings:
         sync_import_batch_lms_accounts,
         sync_registration_lms_job,
         send_cohort_interest_notifications,
+        send_daily_birthday_emails,
     ]
     cron_jobs = [
         cron(heartbeat, minute=set(range(0, 60, 5)), run_at_startup=True),
@@ -67,6 +69,7 @@ class WorkerSettings:
         # arrives repeatedly is one people learn to ignore, and neither of
         # these situations changes fast enough to warrant it (I2-5).
         cron(send_inventory_reminders, hour={6}, minute={0}),
+        cron(send_daily_birthday_emails, hour={6}, minute={0}),  # 06:00 UTC / 10:00 GST daily
     ]
 
 

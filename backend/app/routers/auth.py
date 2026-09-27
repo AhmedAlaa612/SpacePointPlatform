@@ -35,6 +35,7 @@ from app.schemas.auth import (
 )
 from app.models.enums import UserRole
 from app.models.instructors.applicant_profile import ApplicantProfile
+from app.models.instructors.instructor_profile import InstructorProfile
 from app.models.instructors.video_submission import VideoSubmission
 from app.models.instructors.application_review import ApplicationReview
 from app.services.instructors.application_videos import get_configured_videos
@@ -87,6 +88,12 @@ async def _user_out(db: AsyncSession, user: User, profile: ApplicantProfile | No
         # Skip ids whose city was deleted rather than emitting a null hole.
         deliver_names = [by_id[i] for i in deliver_ids if i in by_id]
 
+    instructor_prof = None
+    if any(r in ("instructor", "facilitator") for r in user.role_values):
+        instructor_prof = (await db.execute(
+            select(InstructorProfile).where(InstructorProfile.user_id == user.id)
+        )).scalars().first()
+
     return {
         "id": str(user.id),
         "full_name": user.full_name,
@@ -109,7 +116,8 @@ async def _user_out(db: AsyncSession, user: User, profile: ApplicantProfile | No
         # by it (bug fix, 2026-08-17).
         "card_number": user.card_number,
         "card_id": format_card_id(user.card_number, user.roles) if user.card_number is not None else None,
-        "date_of_birth": contact.date_of_birth if contact else None,
+        "date_of_birth": user.birthdate or (contact.date_of_birth if contact else None),
+        "birthdate": user.birthdate or (contact.date_of_birth if contact else None),
         "grade": contact.grade if contact else None,
         "city_id": user.city_id,
         "city_name": city.name if city else None,
@@ -121,6 +129,10 @@ async def _user_out(db: AsyncSession, user: User, profile: ApplicantProfile | No
         "deliver_city_ids": profile.deliver_city_ids if profile else None,
         "deliver_city_names": deliver_names or None,
         "has_own_transportation": profile.has_own_transportation if profile else None,
+        "nationality": (instructor_prof.nationality if instructor_prof else None) or (profile.nationality if profile else None),
+        "work_status": (instructor_prof.work_status if instructor_prof else None) or (profile.work_status if profile else None),
+        "fluent_languages": (instructor_prof.fluent_languages if instructor_prof else None) or (profile.fluent_languages if profile else None),
+        "graduated_university": (instructor_prof.graduated_university if instructor_prof else None) or (profile.graduated_university if profile else None),
     }
 
 
@@ -268,6 +280,7 @@ async def student_signup(data: StudentSignupRequest, request: Request, db: Async
         contact_id=contact.id,
         phone=data.phone,
         country=data.country,
+        birthdate=data.date_of_birth,
         city_id=data.city_id,
         city_other=data.city_other,
         invited_by_id=referred_by_ambassador_id,
@@ -668,6 +681,14 @@ async def update_me(
         current_user.city_id = data.city_id
     if data.city_other is not None:
         current_user.city_other = data.city_other or None
+    new_birthdate = data.birthdate or data.date_of_birth
+    if new_birthdate is not None:
+        current_user.birthdate = new_birthdate
+        if current_user.contact_id:
+            from app.models.spine.contact import Contact
+            contact = await db.get(Contact, current_user.contact_id)
+            if contact:
+                contact.date_of_birth = new_birthdate
 
     # Applicant-profile fields (Profile & Settings for instructors/facilitators).
     # Used to silently no-op when the user had no applicant_profile row — true
@@ -818,6 +839,7 @@ async def instructor_apply(
         password_hash=get_password_hash(payload.password),
         roles=[UserRole.applicant],
         country=payload.country,
+        birthdate=payload.birthdate,
         status="active",
         must_change_password=False,
         # Mirrors the teacher-apply pattern above (users.invited_by_id) so the
@@ -846,6 +868,10 @@ async def instructor_apply(
     db.add(ApplicantProfile(
         user_id=user.id,
         cv_path=cv_path,
+        nationality=payload.nationality,
+        work_status=payload.work_status,
+        fluent_languages=payload.fluent_languages,
+        graduated_university=payload.graduated_university or payload.university,
         university=payload.university,
         highest_degree=payload.highest_degree,
         highest_degree_other=payload.highest_degree_other,

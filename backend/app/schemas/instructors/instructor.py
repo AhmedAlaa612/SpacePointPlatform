@@ -9,6 +9,10 @@ class InstructorProfileOut(BaseModel):
     user_id: UUID
     linkedin_url: Optional[str] = None
     photo_url: Optional[str] = None
+    nationality: Optional[str] = None
+    work_status: Optional[str] = None
+    fluent_languages: Optional[list[str]] = None
+    graduated_university: Optional[str] = None
     contract_url: Optional[str] = None
     signed_contract_url: Optional[str] = None
     contract_signed_at: Optional[datetime] = None
@@ -19,6 +23,10 @@ class InstructorProfileOut(BaseModel):
 
 class InstructorProfileUpdate(BaseModel):
     linkedin_url: Optional[str] = None
+    nationality: Optional[str] = None
+    work_status: Optional[str] = None
+    fluent_languages: Optional[list[str]] = None
+    graduated_university: Optional[str] = None
 
 
 class SignContractRequest(BaseModel):

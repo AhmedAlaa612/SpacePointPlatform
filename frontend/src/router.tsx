@@ -117,6 +117,7 @@ import InventoryCatalog from "@/pages/operations/inventory/Catalog";
 import InventoryFulfilment from "@/pages/operations/inventory/Fulfilment";
 import DeliverySettings from "@/pages/operations/DeliverySettings";
 import GroundStationDevices from "@/pages/operations/GroundStationDevices";
+import Birthdays from "@/pages/operations/Birthdays";
 
 // Unified apply flow
 import ApplyFlow from "@/pages/apply/ApplyFlow";
@@ -747,6 +748,7 @@ const operationsRoutes = [
   createRoute({ getParentRoute: po, path: "/inventory/fulfilment", component: InventoryFulfilment }),
   createRoute({ getParentRoute: po, path: "/delivery-settings", component: DeliverySettings }),
   createRoute({ getParentRoute: po, path: "/ground-station-devices", component: GroundStationDevices }),
+  createRoute({ getParentRoute: po, path: "/birthdays", component: Birthdays }),
 ];
 
 // Judge surface (Competition domain, 2026-08-24) — a temporary, cohort-scoped

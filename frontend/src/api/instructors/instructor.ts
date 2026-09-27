@@ -4,8 +4,13 @@ import type { BankDetails, InstructorProfile } from "@/types/instructors"
 export const getProfileApi = () =>
   api.get<InstructorProfile>("/instructors/profile").then((r) => r.data)
 
-export const updateProfileApi = (data: { linkedin_url?: string }) =>
-  api.put<InstructorProfile>("/instructors/profile", data).then((r) => r.data)
+export const updateProfileApi = (data: {
+  linkedin_url?: string
+  nationality?: string
+  work_status?: string
+  fluent_languages?: string[]
+  graduated_university?: string
+}) => api.put<InstructorProfile>("/instructors/profile", data).then((r) => r.data)
 
 export const signContractApi = (signature: string) =>
   api.post<InstructorProfile>("/instructors/contract/sign", { signature }).then((r) => r.data)

@@ -391,3 +391,121 @@ async def send_recommendation_letter_email(to_email: str, name: str) -> bool:
         "— SpacePoint"
     )
     return await try_send_email(to_email, "Your SpacePoint Recommendation Letter", body)
+
+
+async def send_birthday_greeting_email(
+    to_email: str,
+    full_name: str,
+    apod_data: dict,
+) -> bool:
+    """Sends a rich HTML birthday email featuring a NASA Astronomy Picture of the Day
+
+    from a past year on this user's birthdate.
+    """
+    title = apod_data.get("title") or "Cosmic Wonder"
+    explanation = apod_data.get("explanation") or "A breathtaking glimpse of our universe."
+    image_url = apod_data.get("image_url") or "https://images-assets.nasa.gov/image/PIA25421/PIA25421~orig.jpg"
+    year = apod_data.get("year", 2022)
+
+    subject = f"Happy Birthday, {full_name}! 🚀🎂 Your SpacePoint Birthday Cosmic View"
+
+    html_content = f"""<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{subject}</title>
+</head>
+<body style="margin: 0; padding: 0; background-color: #0b0f19; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; color: #e2e8f0;">
+  <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background-color: #0b0f19; padding: 40px 10px;">
+    <tr>
+      <td align="center">
+        <table role="presentation" width="100%" style="max-width: 620px; background: linear-gradient(180deg, #131b2e 0%, #0d1322 100%); border: 1px solid #1e293b; border-radius: 20px; overflow: hidden; box-shadow: 0 20px 40px rgba(0, 0, 0, 0.6);" cellspacing="0" cellpadding="0">
+          <!-- Starry Brand Header -->
+          <tr>
+            <td style="padding: 35px 30px 20px; text-align: center; background: linear-gradient(135deg, rgba(99, 102, 241, 0.25) 0%, rgba(168, 85, 247, 0.25) 100%); border-bottom: 1px solid #1e293b;">
+              <span style="font-size: 13px; font-weight: 700; letter-spacing: 3px; color: #a855f7; text-transform: uppercase;">SPACEPOINT CELEBRATION</span>
+              <h1 style="margin: 12px 0 6px; font-size: 28px; font-weight: 800; color: #ffffff; letter-spacing: -0.5px;">Happy Birthday, {full_name}! 🚀🎂</h1>
+              <p style="margin: 0; font-size: 15px; color: #94a3b8;">Wishing you another incredible orbit around the Sun!</p>
+            </td>
+          </tr>
+
+          <!-- Intro -->
+          <tr>
+            <td style="padding: 28px 32px 16px;">
+              <p style="margin: 0 0 16px; font-size: 15px; line-height: 1.6; color: #cbd5e1;">
+                On your special day, we journeyed into NASA's astronomical archives to see what the cosmos was doing on your birth date back in <strong style="color: #38bdf8;">{year}</strong>:
+              </p>
+            </td>
+          </tr>
+
+          <!-- NASA APOD Card -->
+          <tr>
+            <td style="padding: 0 32px 24px;">
+              <div style="background-color: #090d16; border: 1px solid #334155; border-radius: 14px; overflow: hidden;">
+                <img src="{image_url}" alt="{title}" style="width: 100%; max-height: 380px; object-fit: cover; display: block; border-bottom: 1px solid #1e293b;" />
+                <div style="padding: 20px;">
+                  <span style="display: inline-block; font-size: 11px; font-weight: 700; color: #38bdf8; background-color: rgba(56, 189, 248, 0.1); border: 1px solid rgba(56, 189, 248, 0.3); padding: 3px 8px; border-radius: 6px; margin-bottom: 8px;">NASA APOD ARCHIVE • {year}</span>
+                  <h3 style="margin: 0 0 10px; font-size: 18px; color: #f8fafc; font-weight: 700;">{title}</h3>
+                  <p style="margin: 0; font-size: 13.5px; line-height: 1.6; color: #94a3b8;">{explanation}</p>
+                </div>
+              </div>
+            </td>
+          </tr>
+
+          <!-- Motivational Closing -->
+          <tr>
+            <td style="padding: 0 32px 28px;">
+              <div style="border-left: 3px solid #a855f7; padding-left: 16px; margin-bottom: 24px;">
+                <p style="margin: 0; font-size: 14px; line-height: 1.6; color: #e2e8f0; font-style: italic;">
+                  "The cosmos is within us. We are made of star-stuff. We are a way for the cosmos to know itself."
+                </p>
+                <p style="margin: 6px 0 0; font-size: 12px; color: #64748b;">— Carl Sagan</p>
+              </div>
+
+              <p style="margin: 0 0 24px; font-size: 14.5px; line-height: 1.6; color: #cbd5e1;">
+                Thank you for being an inspiring part of our SpacePoint community. May your upcoming year bring new heights, boundary-pushing discoveries, and stellar achievements!
+              </p>
+
+              <div style="text-align: center; padding: 8px 0;">
+                <a href="{settings.FRONTEND_URL}" target="_blank" style="display: inline-block; background: linear-gradient(135deg, #6366f1 0%, #a855f7 100%); color: #ffffff; text-decoration: none; font-size: 14px; font-weight: 700; padding: 12px 28px; border-radius: 10px; box-shadow: 0 4px 15px rgba(99, 102, 241, 0.4);">
+                  Open SpacePoint Portal
+                </a>
+              </div>
+            </td>
+          </tr>
+
+          <!-- Footer -->
+          <tr>
+            <td style="padding: 20px 30px; text-align: center; border-top: 1px solid #1e293b; background-color: #090d16;">
+              <p style="margin: 0; font-size: 12px; color: #475569;">
+                SpacePoint Platform • Advancing Space Education & Human Exploration
+              </p>
+            </td>
+          </tr>
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>
+"""
+
+    plain_body = (
+        f"Happy Birthday, {full_name}! 🚀🎂\n\n"
+        f"Wishing you a wonderful orbit around the Sun!\n\n"
+        f"Here is what NASA captured on your birthday back in {year}:\n\n"
+        f"Title: {title}\n"
+        f"Image: {image_url}\n\n"
+        f"{explanation}\n\n"
+        f"Best wishes for another year of exploration and success,\n"
+        f"— SpacePoint\n"
+        f"{settings.FRONTEND_URL}\n"
+    )
+
+    return await try_send_email(
+        to=to_email,
+        subject=subject,
+        body=html_content,
+        html=True,
+    )

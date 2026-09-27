@@ -39,6 +39,7 @@ export default function InstructorApplyPage() {
 
   const [form, setForm] = useState({
     full_name: "", phone: "", email: "", password: "",
+    birthdate: "", nationality: "", work_status: "", fluent_languages: "", graduated_university: "",
     university: "", highest_degree: "", highest_degree_other: "",
     city_of_residence_id: "", background_other: "", has_own_transportation: "" as "" | "true" | "false",
     country: "AE",
@@ -138,11 +139,20 @@ export default function InstructorApplyPage() {
 
     setLoading(true)
     try {
+      const langArr = form.fluent_languages
+        ? form.fluent_languages.split(",").map((s) => s.trim()).filter(Boolean)
+        : undefined
+
       const user = await applyInstructorApi({
         full_name: form.full_name,
         phone: form.phone,
         email: emailVal,
         password: form.password,
+        birthdate: form.birthdate || undefined,
+        nationality: form.nationality || undefined,
+        work_status: form.work_status || undefined,
+        fluent_languages: langArr,
+        graduated_university: form.graduated_university || form.university || undefined,
         invite_code: submittedCode,
         university: form.university,
         highest_degree: form.highest_degree,
@@ -284,16 +294,71 @@ export default function InstructorApplyPage() {
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
-                <label className="block text-sm font-medium text-foreground mb-1">University</label>
+                <label className="block text-sm font-medium text-foreground mb-1">
+                  Date of Birth <span className="text-xs text-muted-foreground font-normal">(optional)</span>
+                </label>
+                <input
+                  className="input"
+                  type="date"
+                  value={form.birthdate}
+                  onChange={set("birthdate")}
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-foreground mb-1">Nationality</label>
+                <CountrySelect
+                  className="input"
+                  value={form.nationality}
+                  onChange={(val) => setForm((f) => ({ ...f, nationality: val }))}
+                  valueType="name"
+                  placeholder="Select nationality..."
+                />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-foreground mb-1">Current Work Status</label>
+                <input
+                  className="input"
+                  placeholder="e.g. Space Systems Engineer, Student"
+                  value={form.work_status}
+                  onChange={set("work_status")}
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-foreground mb-1">Fluent Languages</label>
+                <input
+                  className="input"
+                  placeholder="e.g. English, Arabic, French"
+                  value={form.fluent_languages}
+                  onChange={set("fluent_languages")}
+                />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-foreground mb-1">University Enrolled / Attending</label>
                 <input className="input" placeholder="University" value={form.university} onChange={set("university")} required />
               </div>
               <div>
-                <label className="block text-sm font-medium text-foreground mb-1">Highest Degree</label>
-                <select className="input" value={form.highest_degree} onChange={set("highest_degree")} required>
-                  <option value="" disabled>Select...</option>
-                  {DEGREES.map((d) => <option key={d} value={d}>{d}</option>)}
-                </select>
+                <label className="block text-sm font-medium text-foreground mb-1">Graduated University (if completed)</label>
+                <input
+                  className="input"
+                  placeholder="e.g. Khalifa University, UAEU"
+                  value={form.graduated_university}
+                  onChange={set("graduated_university")}
+                />
               </div>
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-foreground mb-1">Highest Degree</label>
+              <select className="input" value={form.highest_degree} onChange={set("highest_degree")} required>
+                <option value="" disabled>Select...</option>
+                {DEGREES.map((d) => <option key={d} value={d}>{d}</option>)}
+              </select>
             </div>
 
             {form.highest_degree === "Other" && (

@@ -83,6 +83,7 @@ export interface User {
   // Resolved from the user's linked Contact — null/absent for staff users
   // without one, or students who never provided them.
   date_of_birth?: string | null;
+  birthdate?: string | null;
   grade?: string | null;
   // The user's own city (2026-08-08), available to every role.
   city_id?: string | null;
@@ -101,6 +102,10 @@ export interface User {
   city_of_residence_name?: string | null;
   deliver_city_names?: string[] | null;
   has_own_transportation?: boolean | null;
+  nationality?: string | null;
+  work_status?: string | null;
+  fluent_languages?: string[] | null;
+  graduated_university?: string | null;
 }
 
 export interface AuthTokens {

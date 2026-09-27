@@ -89,6 +89,9 @@ class Settings(BaseSettings):
     SMTP_PASSWORD: str = ""
     SMTP_FROM: str = ""  # e.g. "SpacePoint <noreply@spacepoint.ae>"
 
+    # NASA APOD API
+    NASA_API_KEY: str = "DEMO_KEY"
+
     # App
     BASE_URL: str = "http://localhost:8000"
     FRONTEND_URL: str = "http://localhost:5173"

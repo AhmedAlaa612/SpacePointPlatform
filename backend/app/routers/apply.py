@@ -52,6 +52,7 @@ async def submit_application(
     country: Optional[str] = Form(None),
     city_id: Optional[str] = Form(None),
     invite_code: Optional[str] = Form(None),
+    birthdate: Optional[str] = Form(None),
     answers: Optional[str] = Form(None),   # JSON string
     cv: Optional[UploadFile] = File(None),
     # Internship request fields (2026-08-20, role="intern" only) — collected
@@ -116,6 +117,8 @@ async def submit_application(
             parsed_answers = json.loads(answers)
         except Exception:
             pass
+    if birthdate:
+        parsed_answers["birthdate"] = birthdate
 
     if role == "intern":
         if preferred_city_id:

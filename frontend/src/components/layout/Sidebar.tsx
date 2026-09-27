@@ -8,6 +8,7 @@ import {
   Bell,
   BookOpen,
   Boxes,
+  Cake,
   CalendarDays,
   ChevronDown,
   ClipboardList,
@@ -113,6 +114,7 @@ const ICONS: Record<string, LucideIcon> = {
   Operations: Warehouse,
   Inventory: Warehouse,
   "Ground Station Devices": Antenna,
+  Birthdays: Cake,
   "Admin Hub": UserCog,
   Kits: Boxes,
   "My Kits & Items": Boxes,
@@ -223,6 +225,7 @@ function getNavItems(pathname: string, activeRole: Role | null): NavItem[] {
       mk("Learn", "/learn"),
       mk("Sessions Calendar", "/operations/calendar"),
       mk("Ground Station Devices", "/operations/ground-station-devices"),
+      mk("Birthdays", "/operations/birthdays"),
     ];
   }
   if (pathname.startsWith("/admin")) {
@@ -438,6 +441,7 @@ function getNavItems(pathname: string, activeRole: Role | null): NavItem[] {
       mk("Learn", "/learn"),
       mk("Sessions Calendar", "/operations/calendar"),
       mk("Ground Station Devices", "/operations/ground-station-devices"),
+      mk("Birthdays", "/operations/birthdays"),
     ];
   }
   if (activeRole === "storekeeper") {

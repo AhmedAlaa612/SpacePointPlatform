@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime, timezone
 
-from sqlalchemy import Boolean, Column, DateTime, ForeignKey, Integer, String, text
+from sqlalchemy import Boolean, Column, Date, DateTime, ForeignKey, Integer, String, text
 from sqlalchemy.dialects.postgresql import ARRAY, ENUM, UUID
 
 from app.db.base import Base
@@ -38,6 +38,7 @@ class User(Base):
     recruit_points_awarded = Column(Boolean, nullable=False, default=False)
     phone = Column(String(50), nullable=True)
     country = Column(String(100), nullable=True)
+    birthdate = Column(Date, nullable=True)
     # Structured (2026-08-08) — independent of the Contact spine's own
     # free-text city (too broad a field to restructure just for this),
     # same precedent as `country` above already being its own copy on User.

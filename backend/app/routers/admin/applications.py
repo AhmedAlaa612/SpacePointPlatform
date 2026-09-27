@@ -124,6 +124,14 @@ async def approve_application(
         raise HTTPException(status_code=400, detail="internship letter details are required to approve an intern application")
 
     import secrets
+    from datetime import date
+    app_birthdate = None
+    if (app.answers or {}).get("birthdate"):
+        try:
+            app_birthdate = date.fromisoformat(app.answers["birthdate"])
+        except Exception:
+            pass
+
     new_user = User(
         full_name=app.full_name,
         email=app.email,
@@ -132,6 +140,7 @@ async def approve_application(
         country=app.country,
         city_id=app.city_id,
         city_other=(app.answers or {}).get("city_other"),
+        birthdate=app_birthdate,
         roles=[user_role],
         status="active",
         invite_code=secrets.token_hex(4).upper(),
@@ -228,12 +237,21 @@ async def onboard_application(
     )).scalars().first()
 
     if new_user is None:
+        from datetime import date
+        app_birthdate = None
+        if (app.answers or {}).get("birthdate"):
+            try:
+                app_birthdate = date.fromisoformat(app.answers["birthdate"])
+            except Exception:
+                pass
+
         new_user = User(
             full_name=app.full_name,
             email=app.email,
             password_hash=app.password_hash,
             phone=app.phone,
             country=app.country,
+            birthdate=app_birthdate,
             roles=[UserRole.applicant],
             status="active",
             invite_code=secrets.token_hex(4).upper(),

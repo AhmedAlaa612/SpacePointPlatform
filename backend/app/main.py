@@ -18,6 +18,7 @@ from app.core.log_context import RequestContextMiddleware, configure_logging
 configure_logging(level=settings.LOG_LEVEL)
 
 from app.routers import admin, auth, documents, notifications
+from app.routers.admin.birthdays import router as birthdays_router
 from app.routers.apply import router as apply_router
 from app.routers.internship import router as internship_router
 from app.routers.files import router as files_router
@@ -135,6 +136,7 @@ app.include_router(apply_router)          # public: /apply/*
 app.include_router(notifications.router)  # shared: /notifications/*
 app.include_router(documents.router)  # shared: /documents/*  (Phase 4)
 app.include_router(admin.router, prefix="/admin")  # shared: /admin/users/*  (generic user management)
+app.include_router(birthdays_router, prefix="/api/v1/admin/birthdays")
 
 # Internship request/letter (2026-08-20) — /me/role-requests, /admin/role-requests/*,
 # /intern/internship-letter/*. Not nested under /interns (kanban domain) or

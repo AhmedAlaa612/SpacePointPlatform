@@ -143,6 +143,10 @@ async def _profile_out(profile: InstructorProfile, user: User) -> InstructorProf
         user_id=profile.user_id,
         linkedin_url=user.linkedin_url,
         photo_url=await storage.resolve_url("profile_pictures", user.photo_path, user.photo_url),
+        nationality=profile.nationality,
+        work_status=profile.work_status,
+        fluent_languages=profile.fluent_languages,
+        graduated_university=profile.graduated_university,
         contract_url=await storage.resolve_url("contracts", profile.contract_path, profile.contract_url),
         signed_contract_url=await storage.resolve_url("contracts", profile.signed_contract_path, profile.signed_contract_url),
         contract_signed_at=profile.contract_signed_at,
@@ -165,6 +169,14 @@ async def update_profile(
     profile = await _get_or_create_profile(db, current_user.id)
     if body.linkedin_url is not None:
         current_user.linkedin_url = body.linkedin_url
+    if body.nationality is not None:
+        profile.nationality = body.nationality
+    if body.work_status is not None:
+        profile.work_status = body.work_status
+    if body.fluent_languages is not None:
+        profile.fluent_languages = body.fluent_languages
+    if body.graduated_university is not None:
+        profile.graduated_university = body.graduated_university
     await db.commit()
     return await _profile_out(profile, current_user)
 

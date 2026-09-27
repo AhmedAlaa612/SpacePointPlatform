@@ -164,6 +164,8 @@ export async function updateMeApi(
     full_name: string
     phone: string
     country: string
+    birthdate: string
+    date_of_birth: string
     linkedin_url: string
     city_id: string
     city_other: string
@@ -193,6 +195,11 @@ export async function applyInstructorApi(data: {
   phone?: string
   email: string
   password: string
+  birthdate?: string
+  nationality?: string
+  work_status?: string
+  fluent_languages?: string[]
+  graduated_university?: string
   invite_code?: string
   university?: string
   highest_degree?: string

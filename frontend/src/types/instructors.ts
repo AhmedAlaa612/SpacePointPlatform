@@ -70,6 +70,10 @@ export interface InstructorProfile {
   user_id: string
   linkedin_url: string | null
   photo_url: string | null
+  nationality?: string | null
+  work_status?: string | null
+  fluent_languages?: string[] | null
+  graduated_university?: string | null
   contract_url: string | null
   signed_contract_url: string | null
   contract_signed_at: string | null

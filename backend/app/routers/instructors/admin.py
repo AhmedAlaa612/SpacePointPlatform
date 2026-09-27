@@ -390,6 +390,10 @@ async def review_applicant(
         contract_bucket, contract_path = "contracts", f"{user_id}/agreement.pdf"
         contract_url = await storage.upload_file(contract_bucket, contract_path, contract_bytes, "application/pdf")
 
+        applicant = (await db.execute(
+            select(ApplicantProfile).where(ApplicantProfile.user_id == user_id)
+        )).scalars().first()
+
         inst_profile = (await db.execute(
             select(InstructorProfile).where(InstructorProfile.user_id == user_id)
         )).scalars().first()
@@ -398,10 +402,25 @@ async def review_applicant(
             inst_profile.contract_path = contract_path
             if inst_profile.instructor_since is None:
                 inst_profile.instructor_since = instructor_since
+            if applicant:
+                if not inst_profile.nationality and applicant.nationality:
+                    inst_profile.nationality = applicant.nationality
+                if not inst_profile.work_status and applicant.work_status:
+                    inst_profile.work_status = applicant.work_status
+                if not inst_profile.fluent_languages and applicant.fluent_languages:
+                    inst_profile.fluent_languages = applicant.fluent_languages
+                if not inst_profile.graduated_university:
+                    inst_profile.graduated_university = applicant.graduated_university or applicant.university
         else:
             db.add(InstructorProfile(
-                user_id=user_id, contract_url=contract_url, contract_path=contract_path,
+                user_id=user_id,
+                contract_url=contract_url,
+                contract_path=contract_path,
                 instructor_since=instructor_since,
+                nationality=applicant.nationality if applicant else None,
+                work_status=applicant.work_status if applicant else None,
+                fluent_languages=applicant.fluent_languages if applicant else None,
+                graduated_university=(applicant.graduated_university or applicant.university) if applicant else None,
             ))
 
         # Completion certificate auto-fires here — this approval is the one clean,

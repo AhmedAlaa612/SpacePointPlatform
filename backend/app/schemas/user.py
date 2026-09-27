@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import date, datetime
 from uuid import UUID
 
 from pydantic import BaseModel, EmailStr
@@ -10,6 +10,7 @@ class UserBase(BaseModel):
     full_name: str
     email: EmailStr
     phone: str | None = None
+    birthdate: date | None = None
 
 
 class UserReadBase(BaseModel):
@@ -23,6 +24,7 @@ class UserReadBase(BaseModel):
     full_name: str
     email: str
     phone: str | None = None
+    birthdate: date | None = None
 
 
 class UserCreate(UserBase):
@@ -36,6 +38,7 @@ class UserUpdate(BaseModel):
     password: str | None = None
     roles: list[UserRole] | None = None
     phone: str | None = None
+    birthdate: date | None = None
     # Student identity in live games. Editable by an admin because a
     # generated nickname occasionally lands somewhere unusable in front of a
     # class, and there was previously no way to change it for someone else.
@@ -62,6 +65,7 @@ class UserSelfUpdate(BaseModel):
     email: EmailStr | None = None
     password: str | None = None
     phone: str | None = None
+    birthdate: date | None = None
 
 
 class UserOut(UserReadBase):
@@ -110,6 +114,11 @@ class InstructorApply(BaseModel):
     # Structured (2026-08-08) — city_of_residence_id/deliver_city_ids
     # reference the admin-configurable `cities` table (GET /public/cities)
     # instead of hand-typed strings.
+    birthdate: date | None = None
+    nationality: str | None = None
+    work_status: str | None = None
+    fluent_languages: list[str] | None = None
+    graduated_university: str | None = None
     city_of_residence_id: UUID | None = None
     deliver_city_ids: list[UUID] | None = None
     background_areas: list[str] | None = None

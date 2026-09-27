@@ -1,7 +1,7 @@
 from datetime import date, datetime, timezone
 
 from sqlalchemy import Column, Date, DateTime, ForeignKey, String, Text
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.dialects.postgresql import ARRAY, UUID
 
 from app.db.base import Base
 
@@ -14,6 +14,10 @@ class InstructorProfile(Base):
     __tablename__ = "instructor_profiles"
 
     user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), primary_key=True)
+    nationality = Column(String(100), nullable=True)
+    work_status = Column(String(255), nullable=True)
+    fluent_languages = Column(ARRAY(String), nullable=True)
+    graduated_university = Column(String(255), nullable=True)
     contract_url = Column(String, nullable=True)         # legacy fallback only — *_path are the source of truth (A2; bucket "contracts")
     signed_contract_url = Column(String, nullable=True)
     contract_path = Column(String, nullable=True)

@@ -301,6 +301,16 @@ export function UserProfileModal({ userId, onClose }: Props) {
                           {user.status}
                         </p>
                       </div>
+                      <div>
+                        <p className="text-xs text-muted-foreground uppercase tracking-wider font-medium mb-0.5">Date of Birth</p>
+                        <p className="text-foreground">
+                          {user.birthdate || user.date_of_birth ? (
+                            new Date(user.birthdate || user.date_of_birth!).toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" })
+                          ) : (
+                            <span className="text-muted-foreground italic">Not set</span>
+                          )}
+                        </p>
+                      </div>
                       {user.created_at && (
                         <div>
                           <p className="text-xs text-muted-foreground uppercase tracking-wider font-medium mb-0.5">Member since</p>
@@ -312,6 +322,39 @@ export function UserProfileModal({ userId, onClose }: Props) {
                     </div>
                   </CardContent>
                 </Card>
+
+                {/* Instructor Details */}
+                {(isInstructor || user.nationality || user.work_status || user.graduated_university || user.fluent_languages?.length) && (
+                  <Card>
+                    <CardContent className="p-5 flex flex-col gap-3">
+                      <p className="text-xs text-muted-foreground font-semibold uppercase tracking-wider">Instructor Details</p>
+                      <div className="grid grid-cols-2 gap-3 text-sm">
+                        <div>
+                          <p className="text-xs text-muted-foreground uppercase tracking-wider font-medium mb-0.5">Nationality</p>
+                          <p className="text-foreground">{user.nationality || <span className="text-muted-foreground italic">Not set</span>}</p>
+                        </div>
+                        <div>
+                          <p className="text-xs text-muted-foreground uppercase tracking-wider font-medium mb-0.5">Work Status</p>
+                          <p className="text-foreground">{user.work_status || <span className="text-muted-foreground italic">Not set</span>}</p>
+                        </div>
+                        <div>
+                          <p className="text-xs text-muted-foreground uppercase tracking-wider font-medium mb-0.5">Graduated University</p>
+                          <p className="text-foreground">{user.graduated_university || <span className="text-muted-foreground italic">Not set</span>}</p>
+                        </div>
+                        <div>
+                          <p className="text-xs text-muted-foreground uppercase tracking-wider font-medium mb-0.5">Fluent Languages</p>
+                          <p className="text-foreground">
+                            {user.fluent_languages?.length ? (
+                              user.fluent_languages.join(", ")
+                            ) : (
+                              <span className="text-muted-foreground italic">Not set</span>
+                            )}
+                          </p>
+                        </div>
+                      </div>
+                    </CardContent>
+                  </Card>
+                )}
 
                 {/* Location — the user's city, plus (instructors only) the
                     cities they're open to work in. Always shown for

@@ -4,6 +4,7 @@ import { Check, Upload, CheckCircle2 } from "lucide-react"
 import { useAuth } from "@/context/AuthContext"
 import { updatePhotoApi, updateMeApi, getUserStatsApi, fetchMe, changePassword } from "@/api/auth"
 import { getIdCardApi } from "@/api/documents"
+import { getProfileApi, updateProfileApi } from "@/api/instructors/instructor"
 import { ROLE_LABEL } from "@/types/shared"
 import { Button } from "@/components/ui/button"
 import { CountrySelect } from "@/components/ui/CountrySelect"
@@ -34,27 +35,47 @@ export default function Profile() {
 
   const [fullName, setFullName] = useState(user?.full_name ?? "")
   const [phone, setPhone] = useState(user?.phone ?? "")
+  const [birthdate, setBirthdate] = useState(user?.birthdate ?? user?.date_of_birth ?? "")
   const [country, setCountry] = useState(user?.country ?? "")
   const countryCities = useCitiesForCountry(country)
   const [cityOfResidenceId, setCityOfResidenceId] = useState("")
   const [cityOther, setCityOther] = useState("")
   const [hasTransport, setHasTransport] = useState(false)
   const [deliverCityIds, setDeliverCityIds] = useState<string[]>([])
+  const [nationality, setNationality] = useState("")
+  const [workStatus, setWorkStatus] = useState("")
+  const [fluentLanguages, setFluentLanguages] = useState("")
+  const [graduatedUniversity, setGraduatedUniversity] = useState("")
   const [saved, setSaved] = useState(false)
   const [pwOpen, setPwOpen] = useState(false)
   const [cropSrc, setCropSrc] = useState<string | null>(null)
   const [cropOpen, setCropOpen] = useState(false)
 
+  const { data: instructorProfile } = useQuery({
+    queryKey: ["instructor-profile"],
+    queryFn: getProfileApi,
+    enabled: isInstructor,
+  })
+
   useEffect(() => {
     if (!me) return
     setFullName(me.full_name ?? "")
     setPhone(me.phone ?? "")
+    setBirthdate(me.birthdate ?? me.date_of_birth ?? "")
     setCountry(me.country ?? "")
     setCityOfResidenceId(me.city_of_residence_id ?? "")
     setCityOther(me.city_other ?? "")
     setHasTransport(!!me.has_own_transportation)
     setDeliverCityIds(me.deliver_city_ids ?? [])
   }, [me])
+
+  useEffect(() => {
+    if (!instructorProfile) return
+    setNationality(instructorProfile.nationality ?? "")
+    setWorkStatus(instructorProfile.work_status ?? "")
+    setFluentLanguages((instructorProfile.fluent_languages ?? []).join(", "))
+    setGraduatedUniversity(instructorProfile.graduated_university ?? "")
+  }, [instructorProfile])
 
   const { data: idCard } = useQuery({
     queryKey: ["instructor-id-card", activeRole],
@@ -73,11 +94,13 @@ export default function Profile() {
   })
 
   const saveInfo = useMutation({
-    mutationFn: () =>
-      updateMeApi({
+    mutationFn: async () => {
+      const updated = await updateMeApi({
         full_name: fullName,
         phone: phone || undefined,
         country: country || undefined,
+        birthdate: birthdate || undefined,
+        date_of_birth: birthdate || undefined,
         ...(hasApplicantDetails
           ? {
               city_of_residence_id: cityOfResidenceId || undefined,
@@ -86,7 +109,21 @@ export default function Profile() {
               has_own_transportation: hasTransport,
             }
           : {}),
-      }),
+      })
+      if (isInstructor) {
+        const langArr = fluentLanguages
+          .split(",")
+          .map((s) => s.trim())
+          .filter(Boolean)
+        await updateProfileApi({
+          nationality: nationality || undefined,
+          work_status: workStatus || undefined,
+          fluent_languages: langArr,
+          graduated_university: graduatedUniversity || undefined,
+        })
+      }
+      return updated
+    },
     onSuccess: (updated) => {
       setCurrentUser(updated)
       qc.invalidateQueries({ queryKey: ["me"] })
@@ -207,12 +244,25 @@ export default function Profile() {
             </div>
           </div>
 
-          <div>
-            <label className={labelCls}>
-              Email <span className="normal-case font-normal text-muted-foreground/60">(cannot be changed)</span>
-            </label>
-            <div className="w-full rounded-xl bg-muted/30 border border-border/60 px-4 py-2.5 text-sm text-muted-foreground select-all">
-              {user.email}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
+            <div>
+              <label className={labelCls}>
+                Email <span className="normal-case font-normal text-muted-foreground/60">(cannot be changed)</span>
+              </label>
+              <div className="w-full rounded-xl bg-muted/30 border border-border/60 px-4 py-2.5 text-sm text-muted-foreground select-all">
+                {user.email}
+              </div>
+            </div>
+            <div>
+              <label className={labelCls}>
+                Date of Birth <span className="normal-case font-normal text-muted-foreground/60">(annual NASA greeting)</span>
+              </label>
+              <input
+                type="date"
+                value={birthdate}
+                onChange={(e) => setBirthdate(e.target.value)}
+                className={inputCls}
+              />
             </div>
           </div>
 
@@ -296,6 +346,62 @@ export default function Profile() {
               </div>
             )}
             </>
+          )}
+
+          {isInstructor && (
+            <div className="pt-4 border-t border-border flex flex-col gap-5">
+              <div>
+                <p className="text-sm font-semibold text-foreground">Instructor Profile Details</p>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  Metadata displayed on your SpacePoint instructor profile and credentials.
+                </p>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
+                <div>
+                  <label className={labelCls}>Nationality</label>
+                  <CountrySelect
+                    value={nationality}
+                    onChange={setNationality}
+                    valueType="name"
+                    placeholder="Select nationality..."
+                    className={inputCls}
+                  />
+                </div>
+                <div>
+                  <label className={labelCls}>Work Status</label>
+                  <input
+                    value={workStatus}
+                    onChange={(e) => setWorkStatus(e.target.value)}
+                    placeholder="e.g. Space Systems Engineer, University Student"
+                    className={inputCls}
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
+                <div>
+                  <label className={labelCls}>Graduated University</label>
+                  <input
+                    value={graduatedUniversity}
+                    onChange={(e) => setGraduatedUniversity(e.target.value)}
+                    placeholder="e.g. Khalifa University, UAEU, MIT"
+                    className={inputCls}
+                  />
+                </div>
+                <div>
+                  <label className={labelCls}>
+                    Fluent Languages <span className="normal-case font-normal text-muted-foreground/60">(comma separated)</span>
+                  </label>
+                  <input
+                    value={fluentLanguages}
+                    onChange={(e) => setFluentLanguages(e.target.value)}
+                    placeholder="e.g. English, Arabic, French"
+                    className={inputCls}
+                  />
+                </div>
+              </div>
+            </div>
           )}
 
           {saved && (

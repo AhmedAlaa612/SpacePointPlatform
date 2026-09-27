@@ -93,9 +93,9 @@ class UserOut(BaseModel):
     # accounts get one from the one-time reset script).
     card_number: int | None = None
     card_id: str | None = None
-    # Resolved from the user's linked Contact (2026-08-08) — None for staff
-    # users without a contact_id, or students who never provided them.
+    # Demographic fields (date_of_birth/birthdate, grade)
     date_of_birth: date | None = None
+    birthdate: date | None = None
     grade: str | None = None
     # The user's own city (2026-08-08) — independent of the applicant-profile
     # fields below, available to every role including students.
@@ -115,6 +115,10 @@ class UserOut(BaseModel):
     city_of_residence_name: str | None = None
     deliver_city_names: list[str] | None = None
     has_own_transportation: bool | None = None
+    nationality: str | None = None
+    work_status: str | None = None
+    fluent_languages: list[str] | None = None
+    graduated_university: str | None = None
 
 
 class UpdateMeRequest(BaseModel):
@@ -122,6 +126,8 @@ class UpdateMeRequest(BaseModel):
     phone: str | None = None
     country: str | None = None
     linkedin_url: str | None = None
+    birthdate: date | None = None
+    date_of_birth: date | None = None
     city_id: UUID | None = None
     city_other: str | None = None
     city_of_residence_id: UUID | None = None
