@@ -841,6 +841,27 @@ export const getStudentQuizBreakdownApi = (userId: string) =>
 export const getStudentQuizBreakdownInstructorApi = (userId: string) =>
   api.get<CohortQuizTopicBreakdown>(`/lms/instructor/students/${userId}/quiz-breakdown`).then((r) => r.data);
 
+export interface CohortQuizAnalysisQuiz {
+  quiz_id: string;
+  quiz_title: string;
+  total_attempts: number;
+  total_score: number;
+  total_possible: number;
+  average_score_pct: number;
+  topic_breakdown: Record<string, { correct: number; total: number }>;
+}
+
+export interface CohortQuizAnalysisOut {
+  cohort_id: string;
+  total_attempts: number;
+  overall_average_score_pct: number;
+  overall_topic_breakdown: Record<string, { correct: number; total: number }>;
+  quizzes: CohortQuizAnalysisQuiz[];
+}
+
+export const getCohortQuizAnalysisApi = (cohortId: string) =>
+  api.get<CohortQuizAnalysisOut>(`/lms/admin/cohorts/${cohortId}/quiz-analysis`).then((r) => r.data);
+
 export const listLearningPathsApi = () =>
   api.get<AdminLearningPath[]>("/lms/admin/learning-paths").then((r) => r.data);
 export const getLearningPathApi = (id: string) =>

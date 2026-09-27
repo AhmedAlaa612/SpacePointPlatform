@@ -584,3 +584,69 @@ async def get_student_topic_breakdown(db: AsyncSession, user_id: uuid.UUID) -> d
             bucket["correct"] += counts.get("correct", 0)
             bucket["total"] += counts.get("total", 0)
     return breakdown
+
+
+async def get_cohort_quiz_analysis(db: AsyncSession, cohort_id: uuid.UUID) -> dict:
+    """Live topic and score breakdown for an entire cohort, both overall and grouped per quiz item."""
+    stmt = (
+        select(CohortQuizAttempt, LmsProgramItem.title)
+        .outerjoin(LmsProgramItem, CohortQuizAttempt.program_item_id == LmsProgramItem.id)
+        .where(
+            CohortQuizAttempt.cohort_id == cohort_id,
+            CohortQuizAttempt.status == "submitted",
+        )
+    )
+    results = (await db.execute(stmt)).all()
+
+    overall_breakdown: dict[str, dict[str, int]] = {}
+    quizzes_map: dict[str, dict] = {}
+    total_score = 0
+    total_possible = 0
+
+    for attempt, quiz_title in results:
+        quiz_id_str = str(attempt.program_item_id)
+        title = quiz_title or "Cohort Knowledge Quiz"
+
+        if quiz_id_str not in quizzes_map:
+            quizzes_map[quiz_id_str] = {
+                "quiz_id": quiz_id_str,
+                "quiz_title": title,
+                "total_attempts": 0,
+                "total_score": 0,
+                "total_possible": 0,
+                "topic_breakdown": {},
+            }
+
+        q_entry = quizzes_map[quiz_id_str]
+        q_entry["total_attempts"] += 1
+        if attempt.score is not None:
+            q_entry["total_score"] += attempt.score
+            total_score += attempt.score
+        q_entry["total_possible"] += (attempt.total or 0)
+        total_possible += (attempt.total or 0)
+
+        # Aggregate topics
+        for topic, counts in (attempt.topic_breakdown or {}).items():
+            # Overall
+            o_bucket = overall_breakdown.setdefault(topic, {"correct": 0, "total": 0})
+            o_bucket["correct"] += counts.get("correct", 0)
+            o_bucket["total"] += counts.get("total", 0)
+
+            # Per-quiz
+            q_bucket = q_entry["topic_breakdown"].setdefault(topic, {"correct": 0, "total": 0})
+            q_bucket["correct"] += counts.get("correct", 0)
+            q_bucket["total"] += counts.get("total", 0)
+
+    quizzes_list = list(quizzes_map.values())
+    overall_avg_pct = round((total_score / total_possible) * 100) if total_possible > 0 else 0
+    for q in quizzes_list:
+        q["average_score_pct"] = round((q["total_score"] / q["total_possible"]) * 100) if q["total_possible"] > 0 else 0
+
+    return {
+        "cohort_id": str(cohort_id),
+        "total_attempts": len(results),
+        "overall_average_score_pct": overall_avg_pct,
+        "overall_topic_breakdown": overall_breakdown,
+        "quizzes": quizzes_list,
+    }
+
