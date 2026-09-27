@@ -211,7 +211,7 @@ export default function Birthdays() {
           </CardContent>
         </Card>
 
-        <Card className={`border backdrop-blur-sm ${
+        <Card className={`border backdrop-blur-sm col-span-2 lg:col-span-1 ${
           (stats?.failed_count ?? 0) > 0
             ? "border-rose-500/30 bg-rose-500/5 text-rose-300"
             : "border-border/60 bg-card/60 text-muted-foreground"
@@ -233,7 +233,7 @@ export default function Birthdays() {
       </div>
 
       {/* ── Navigation Tabs ───────────────────────────────── */}
-      <div className="flex border-b border-border gap-2">
+      <div className="flex border-b border-border gap-2 overflow-x-auto whitespace-nowrap scrollbar-none">
         <button
           onClick={() => setActiveTab("upcoming")}
           className={`pb-3 px-3 text-sm font-semibold transition-colors border-b-2 flex items-center gap-2 ${
@@ -286,7 +286,7 @@ export default function Birthdays() {
         <div className="flex flex-col gap-4">
           {/* Controls Bar */}
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-card/40 p-3 rounded-2xl border border-border/60">
-            <div className="flex items-center gap-1.5">
+            <div className="flex items-center gap-1.5 flex-wrap">
               <span className="text-xs text-muted-foreground font-semibold px-2 uppercase tracking-wider">
                 Lookahead:
               </span>
@@ -741,7 +741,7 @@ export default function Birthdays() {
                 </p>
               </div>
 
-              <div className="p-3 rounded-xl bg-muted/30 border border-border text-xs flex items-center justify-between">
+              <div className="p-3 rounded-xl bg-muted/30 border border-border text-xs flex flex-col sm:flex-row gap-1 sm:items-center justify-between">
                 <span className="text-muted-foreground">
                   Recipient: <strong className="text-foreground">{selectedLog.user_full_name}</strong> ({selectedLog.user_email})
                 </span>

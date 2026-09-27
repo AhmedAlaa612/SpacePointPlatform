@@ -181,7 +181,7 @@ export default function ApplyFlow({ role, prefillCode }: Props) {
                 <input className="input" placeholder="Your full name" value={fullName}
                   onChange={(e) => setFullName(e.target.value)} />
               </Field>
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <Field label="Email" required>
                   <input className="input" type="email" placeholder="you@email.com" value={email}
                     onChange={(e) => setEmail(e.target.value)} />
@@ -191,7 +191,7 @@ export default function ApplyFlow({ role, prefillCode }: Props) {
                     onChange={(e) => setBirthdate(e.target.value)} />
                 </Field>
               </div>
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <Field label="WhatsApp">
                   <input className="input" placeholder="+20 10 0000 0000" value={phone}
                     onChange={(e) => setPhone(e.target.value)} />

@@ -328,7 +328,7 @@ export function UserProfileModal({ userId, onClose }: Props) {
                   <Card>
                     <CardContent className="p-5 flex flex-col gap-3">
                       <p className="text-xs text-muted-foreground font-semibold uppercase tracking-wider">Instructor Details</p>
-                      <div className="grid grid-cols-2 gap-3 text-sm">
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
                         <div>
                           <p className="text-xs text-muted-foreground uppercase tracking-wider font-medium mb-0.5">Nationality</p>
                           <p className="text-foreground">{user.nationality || <span className="text-muted-foreground italic">Not set</span>}</p>
