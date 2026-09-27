@@ -53,7 +53,14 @@ async def get_or_create_student_account(db: AsyncSession, contact_id: uuid.UUID)
     )).scalars().first()
     if existing is not None:
         if "student" not in existing.role_values:
+            # Transitioning from staff pool to student pool:
+            # Clear old staff card_number so it reallocates from card_seq_student
+            # without colliding with idx_users_card_number_student.
+            if existing.card_number is not None:
+                existing.card_number = None
             existing.roles = [*existing.roles, "student"]
+            await db.flush()
+            await ensure_card_number(db, existing)
             await assign_nickname(db, existing)
         return existing, False
 
@@ -70,11 +77,21 @@ async def get_or_create_student_account(db: AsyncSession, contact_id: uuid.UUID)
             "get_or_create_student_account: reusing existing account %s for email %s", dup.id, contact.email
         )
         if "student" not in dup.role_values:
+            # Transitioning from staff pool to student pool:
+            # Clear old staff card_number so it reallocates from card_seq_student
+            # without colliding with idx_users_card_number_student.
+            if dup.card_number is not None:
+                dup.card_number = None
             dup.roles = [*dup.roles, "student"]
-        if dup.contact_id is None:
-            dup.contact_id = contact_id
-        await assign_nickname(db, dup)
-        await ensure_card_number(db, dup)
+            if dup.contact_id is None:
+                dup.contact_id = contact_id
+            await db.flush()
+            await ensure_card_number(db, dup)
+            await assign_nickname(db, dup)
+        else:
+            if dup.contact_id is None:
+                dup.contact_id = contact_id
+                await db.flush()
         return dup, False
 
     user = User(
@@ -296,17 +313,18 @@ async def sync_registration_lms(
     if not create_account:
         return None
     try:
-        user, _created = await get_or_create_student_account(db, registration.contact_id)
-        if user is None:
-            return None
-        await assign_lms_program(
-            db, user_id=user.id, cohort_id=cohort.id, registration_id=registration.id,
-        )
-        if send_welcome_email:
+        async with db.begin_nested():
+            user, _created = await get_or_create_student_account(db, registration.contact_id)
+            if user is None:
+                return None
+            await assign_lms_program(
+                db, user_id=user.id, cohort_id=cohort.id, registration_id=registration.id,
+            )
+        if send_welcome_email and user:
             await send_registration_onboarding_email(db, user=user, registration=registration, cohort=cohort)
         return user
-    except Exception:
-        logger.exception("sync_registration_lms failed for registration %s", registration.id)
+    except Exception as exc:
+        logger.exception("sync_registration_lms failed for registration %s: %s", registration.id, exc)
         return None
 
 
