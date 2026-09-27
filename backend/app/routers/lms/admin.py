@@ -2077,6 +2077,19 @@ async def reset_cohort_components(
     return await component_config_service.build_component_config_out(db, owner_type="cohort", owner_id=cohort_id)
 
 
+@router.get("/cohorts/{cohort_id}/quiz-analysis")
+async def cohort_quiz_analysis(
+    cohort_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(require_lms_content),
+):
+    """Live topic strength and weakness analysis across all submitted quizzes for a cohort."""
+    cohort = await db.get(Cohort, cohort_id)
+    if cohort is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Cohort not found")
+    return await cohort_quiz_service.get_cohort_quiz_analysis(db, cohort_id=cohort_id)
+
+
 # ── learning paths (self-paced ordered course sequences, 2026-08-08) ───────
 
 async def _learning_path_admin_out(db: AsyncSession, path: LearningPath) -> LearningPathAdminOut:
