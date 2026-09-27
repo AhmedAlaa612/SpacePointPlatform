@@ -642,11 +642,71 @@ async def get_cohort_quiz_analysis(db: AsyncSession, cohort_id: uuid.UUID) -> di
     for q in quizzes_list:
         q["average_score_pct"] = round((q["total_score"] / q["total_possible"]) * 100) if q["total_possible"] > 0 else 0
 
+    # Questions breakdown across submitted attempts
+    answers_stmt = (
+        select(
+            CohortQuizAnswer.question_id,
+            CohortQuizAnswer.topic,
+            CohortQuizAnswer.is_correct,
+            CohortQuizQuestion.prompt,
+            CohortQuizQuestion.difficulty,
+            CohortQuizAttempt.program_item_id,
+            LmsProgramItem.title.label("quiz_title"),
+        )
+        .join(CohortQuizAttempt, CohortQuizAnswer.attempt_id == CohortQuizAttempt.id)
+        .outerjoin(CohortQuizQuestion, CohortQuizAnswer.question_id == CohortQuizQuestion.id)
+        .outerjoin(LmsProgramItem, CohortQuizAttempt.program_item_id == LmsProgramItem.id)
+        .where(
+            CohortQuizAttempt.cohort_id == cohort_id,
+            CohortQuizAttempt.status == "submitted",
+        )
+    )
+    ans_rows = (await db.execute(answers_stmt)).all()
+
+    questions_map: dict[tuple[str, str], dict] = {}
+    for qid, topic, is_correct, prompt, difficulty, p_item_id, q_title in ans_rows:
+        qid_str = str(qid) if qid else "unknown"
+        p_item_id_str = str(p_item_id) if p_item_id else "unknown"
+        key = (qid_str, p_item_id_str)
+
+        if key not in questions_map:
+            questions_map[key] = {
+                "question_id": qid_str,
+                "quiz_id": p_item_id_str,
+                "quiz_title": q_title or "Cohort Knowledge Quiz",
+                "topic": topic or "General",
+                "prompt": prompt or f"Question ({qid_str[:8]})",
+                "difficulty": difficulty,
+                "correct_count": 0,
+                "incorrect_count": 0,
+                "total_answers": 0,
+                "accuracy_pct": 0,
+            }
+
+        q_stat = questions_map[key]
+        q_stat["total_answers"] += 1
+        if is_correct:
+            q_stat["correct_count"] += 1
+        else:
+            q_stat["incorrect_count"] += 1
+
+    for q_stat in questions_map.values():
+        if q_stat["total_answers"] > 0:
+            q_stat["accuracy_pct"] = round((q_stat["correct_count"] / q_stat["total_answers"]) * 100)
+
+    # Sort questions by most wrong by default
+    questions_list = sorted(
+        questions_map.values(),
+        key=lambda x: (x["incorrect_count"], -x["accuracy_pct"]),
+        reverse=True,
+    )
+
     return {
         "cohort_id": str(cohort_id),
         "total_attempts": len(results),
         "overall_average_score_pct": overall_avg_pct,
         "overall_topic_breakdown": overall_breakdown,
         "quizzes": quizzes_list,
+        "questions": questions_list,
     }
 
