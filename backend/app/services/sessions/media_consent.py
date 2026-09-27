@@ -145,8 +145,7 @@ async def ingest_media_consent_webhook(
     if not cohort:
         raise ValueError("Cohort not found")
 
-    form_email = _normalize_email(payload.email_address)
-    form_phone_digits = _normalize_phone_digits(payload.mobile_number)
+    form_student_email = _normalize_email(payload.student_email)
 
     # Fetch all registrations for this cohort with student Contact
     rows = (
@@ -161,45 +160,18 @@ async def ingest_media_consent_webhook(
     matched_student: Contact | None = None
     match_method: str | None = None
 
-    # Step 1: Match against student email first
-    if form_email:
+    # Matching Rule (2026-09-27):
+    # ONLY match against student_email.
+    # Parent email and parent phone are NEVER used for matching anything.
+    # If student_email is missing or empty, ignore matching (save as unmatched).
+    if form_student_email:
         for reg, student in rows:
             student_email = _normalize_email(student.email)
-            if student_email and student_email == form_email:
+            if student_email and student_email == form_student_email:
                 matched_reg = reg
                 matched_student = student
-                match_method = "email"
+                match_method = "student_email"
                 break
-
-    # Step 2: Match against student phone second (only if email not matched)
-    if not matched_reg and form_phone_digits and len(form_phone_digits) >= 7:
-        for reg, student in rows:
-            student_digits = _normalize_phone_digits(student.primary_phone_e164)
-            if student_digits and (
-                student_digits == form_phone_digits
-                or student_digits.endswith(form_phone_digits)
-                or form_phone_digits.endswith(student_digits)
-            ):
-                matched_reg = reg
-                matched_student = student
-                match_method = "phone"
-                break
-
-            # Also check secondary phones if available
-            if student.secondary_phones:
-                for sec in student.secondary_phones:
-                    sec_digits = _normalize_phone_digits(sec)
-                    if sec_digits and (
-                        sec_digits == form_phone_digits
-                        or sec_digits.endswith(form_phone_digits)
-                        or form_phone_digits.endswith(sec_digits)
-                    ):
-                        matched_reg = reg
-                        matched_student = student
-                        match_method = "phone"
-                        break
-                if matched_reg:
-                    break
 
     consent_choice = _parse_consent_choice(payload.consent_choice)
     signing_date = _parse_signing_date(payload.date_of_signing)
@@ -217,6 +189,7 @@ async def ingest_media_consent_webhook(
         registration_id=matched_reg.id if matched_reg else None,
         matched_contact_id=matched_student.id if matched_student else None,
         student_name_raw=payload.student_name,
+        student_email_raw=payload.student_email,
         school_name_raw=payload.school_name,
         parent_name=payload.parent_name or "Parent / Guardian",
         relationship=payload.relationship,

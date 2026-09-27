@@ -13,6 +13,7 @@ class MediaConsentWebhookRequest(BaseModel):
     """Payload received from Google Form via Google Apps Script or external webhook."""
 
     student_name: str | None = None
+    student_email: str | None = None
     school_name: str | None = None
     parent_name: str = "Parent / Guardian"
     relationship: str | None = None
@@ -52,6 +53,7 @@ class CohortMediaConsentOut(BaseModel):
     matched_contact_id: UUID | None = None
     matched_student_name: str | None = None
     student_name_raw: str | None = None
+    student_email_raw: str | None = None
     school_name_raw: str | None = None
     parent_name: str
     relationship: str | None = None

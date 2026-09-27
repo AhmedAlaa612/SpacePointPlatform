@@ -91,6 +91,7 @@ async def lifespan(app: FastAPI):
             await db.execute(text("ALTER TABLE learner_teams ADD COLUMN IF NOT EXISTS first_locked_at TIMESTAMP WITH TIME ZONE;"))
             await db.execute(text("ALTER TABLE learner_teams ADD COLUMN IF NOT EXISTS timing_adjustment_override DOUBLE PRECISION;"))
             await db.execute(text("ALTER TABLE learner_teams ADD COLUMN IF NOT EXISTS timing_adjustment_notes VARCHAR(255);"))
+            await db.execute(text("ALTER TABLE cohort_media_consents ADD COLUMN IF NOT EXISTS student_email_raw VARCHAR(255);"))
             await db.execute(text("UPDATE cohorts SET checklist_title_override = 'testcohortname', name = 'Cohort Test' WHERE name = 'testcohortname';"))
             await db.commit()
     except Exception:

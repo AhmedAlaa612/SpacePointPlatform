@@ -44,6 +44,7 @@ class CohortMediaConsent(Base):
 
     # Raw form inputs (for display and legal audit)
     student_name_raw = Column(String(255), nullable=True)
+    student_email_raw = Column(String(255), nullable=True)
     school_name_raw = Column(String(255), nullable=True)
 
     # Parent/Guardian details

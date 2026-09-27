@@ -28,6 +28,10 @@ export function CohortConsentsPanel({ cohortId, registrations }: CohortConsentsP
   const [selectedRegId, setSelectedRegId] = useState<string>("")
   const [detailConsent, setDetailConsent] = useState<CohortMediaConsent | null>(null)
 
+  // Quick inline match selector state per card
+  const [inlineMatches, setInlineMatches] = useState<Record<string, string>>({})
+  const [inlineLoading, setInlineLoading] = useState<string | null>(null)
+
   const { data: summary, isLoading } = useQuery({
     queryKey: ["cohort-media-consents", cohortId],
     queryFn: () => getCohortMediaConsentsApi(cohortId),
@@ -50,6 +54,22 @@ export function CohortConsentsPanel({ cohortId, registrations }: CohortConsentsP
     },
   })
 
+  const handleInlineMatch = async (consentId: string) => {
+    const regId = inlineMatches[consentId]
+    if (!regId) return
+    setInlineLoading(consentId)
+    try {
+      const data = await manualMatchMediaConsentApi(cohortId, consentId, regId)
+      queryClient.invalidateQueries({ queryKey: ["cohort-media-consents", cohortId] })
+      queryClient.invalidateQueries({ queryKey: ["sessions-cohort-registrations", cohortId] })
+      toast?.success(`Matched consent to ${data.matched_student_name ?? "student"}`)
+    } catch (err) {
+      toast?.error(getErrorMessage(err))
+    } finally {
+      setInlineLoading(null)
+    }
+  }
+
   const items = summary?.items ?? []
 
   const filteredItems = useMemo(() => {
@@ -62,6 +82,7 @@ export function CohortConsentsPanel({ cohortId, registrations }: CohortConsentsP
         const q = search.toLowerCase()
         const matchName = (item.matched_student_name ?? "").toLowerCase()
         const rawName = (item.student_name_raw ?? "").toLowerCase()
+        const studentEmail = (item.student_email_raw ?? "").toLowerCase()
         const parent = (item.parent_name ?? "").toLowerCase()
         const school = (item.school_name_raw ?? "").toLowerCase()
         const phone = (item.parent_phone ?? "").toLowerCase()
@@ -70,6 +91,7 @@ export function CohortConsentsPanel({ cohortId, registrations }: CohortConsentsP
         return (
           matchName.includes(q) ||
           rawName.includes(q) ||
+          studentEmail.includes(q) ||
           parent.includes(q) ||
           school.includes(q) ||
           phone.includes(q) ||
@@ -89,6 +111,7 @@ export function CohortConsentsPanel({ cohortId, registrations }: CohortConsentsP
       "Match Method": c.match_method ?? "",
       "Matched Student": c.matched_student_name ?? "",
       "Student Name (Form)": c.student_name_raw ?? "",
+      "Student Email (Form)": c.student_email_raw ?? "",
       "School Name": c.school_name_raw ?? "",
       "Parent / Guardian Name": c.parent_name,
       "Relationship": c.relationship ?? "",
@@ -98,81 +121,59 @@ export function CohortConsentsPanel({ cohortId, registrations }: CohortConsentsP
       "Signed Date": c.date_of_signing ?? "",
       "Permission Grants": (c.permission_grants || []).join(", "),
       "Declaration Agreed": c.declaration_agreed ? "YES" : "NO",
-      "Source": c.source,
-      "Notes": c.notes ?? "",
+      Notes: c.notes ?? "",
     }))
 
     const ws = XLSX.utils.json_to_sheet(rows)
     const wb = XLSX.utils.book_new()
     XLSX.utils.book_append_sheet(wb, ws, "Media Consents")
-    XLSX.writeFile(wb, `cohort_${cohortId}_media_consents_${new Date().toISOString().slice(0, 10)}.xlsx`)
+    XLSX.writeFile(wb, `cohort-media-consents-${new Date().toISOString().split("T")[0]}.xlsx`)
   }
 
   return (
     <div className="space-y-5">
-      {/* Metric Cards */}
+      {/* Metrics Row */}
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
         <div className="p-3 bg-card border border-border rounded-xl">
-          <p className="text-xs text-muted-foreground font-medium">Submissions</p>
-          <p className="text-xl font-bold text-foreground mt-0.5">{summary?.total_submissions ?? 0}</p>
+          <span className="text-[11px] text-muted-foreground block">Total Submissions</span>
+          <span className="text-xl font-bold text-foreground">{summary?.total_submissions ?? 0}</span>
         </div>
-
-        <div className="p-3 bg-card border border-emerald-500/20 bg-emerald-500/5 rounded-xl">
-          <p className="text-xs text-emerald-700 dark:text-emerald-400 font-medium">Matched</p>
-          <p className="text-xl font-bold text-emerald-700 dark:text-emerald-400 mt-0.5">
-            {summary?.matched_count ?? 0}
-          </p>
-        </div>
-
-        <div
-          className={`p-3 border rounded-xl ${
-            (summary?.unmatched_count ?? 0) > 0
-              ? "bg-amber-500/10 border-amber-500/40 text-amber-700 dark:text-amber-400"
-              : "bg-card border-border text-muted-foreground"
-          }`}
-        >
-          <p className="text-xs font-medium flex items-center gap-1">
-            {(summary?.unmatched_count ?? 0) > 0 && <AlertTriangle size={12} />}
-            Unmatched
-          </p>
-          <p className="text-xl font-bold mt-0.5">{summary?.unmatched_count ?? 0}</p>
-        </div>
-
-        <div className="p-3 bg-card border border-emerald-500/20 bg-emerald-500/5 rounded-xl">
-          <p className="text-xs text-emerald-700 dark:text-emerald-400 font-medium">Granted (YES)</p>
-          <p className="text-xl font-bold text-emerald-700 dark:text-emerald-400 mt-0.5">
-            {summary?.consented_count ?? 0}
-          </p>
-        </div>
-
-        <div className="p-3 bg-card border border-red-500/20 bg-red-500/5 rounded-xl">
-          <p className="text-xs text-red-700 dark:text-red-400 font-medium">Declined (NO)</p>
-          <p className="text-xl font-bold text-red-700 dark:text-red-400 mt-0.5">
-            {summary?.declined_count ?? 0}
-          </p>
-        </div>
-
         <div className="p-3 bg-card border border-border rounded-xl">
-          <p className="text-xs text-muted-foreground font-medium">Pending Forms</p>
-          <p className="text-xl font-bold text-foreground mt-0.5">
-            {summary?.pending_registrations_count ?? 0}
-          </p>
+          <span className="text-[11px] text-emerald-600 dark:text-emerald-400 block font-medium">Granted (YES)</span>
+          <span className="text-xl font-bold text-emerald-600 dark:text-emerald-400">{summary?.consented_count ?? 0}</span>
+        </div>
+        <div className="p-3 bg-card border border-border rounded-xl">
+          <span className="text-[11px] text-red-600 dark:text-red-400 block font-medium">Declined (NO)</span>
+          <span className="text-xl font-bold text-red-600 dark:text-red-400">{summary?.declined_count ?? 0}</span>
+        </div>
+        <div className="p-3 bg-card border border-border rounded-xl">
+          <span className="text-[11px] text-blue-600 dark:text-blue-400 block font-medium">Matched Students</span>
+          <span className="text-xl font-bold text-blue-600 dark:text-blue-400">{summary?.matched_count ?? 0}</span>
+        </div>
+        <div className="p-3 bg-card border border-border rounded-xl">
+          <span className="text-[11px] text-amber-600 dark:text-amber-400 block font-medium">Unmatched Submissions</span>
+          <span className="text-xl font-bold text-amber-600 dark:text-amber-400">{summary?.unmatched_count ?? 0}</span>
+        </div>
+        <div className="p-3 bg-card border border-border rounded-xl">
+          <span className="text-[11px] text-muted-foreground block">Pending Registrations</span>
+          <span className="text-xl font-bold text-foreground">{summary?.pending_registrations_count ?? 0}</span>
         </div>
       </div>
 
       {/* Filter and Action Bar */}
-      <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2.5">
-        <div className="relative flex-1">
-          <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none" />
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+        <div className="relative flex-1 sm:max-w-xs">
+          <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
           <input
+            type="text"
+            placeholder="Search by student, email, parent..."
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search student, parent, email, phone, school…"
-            className="w-full h-9 pl-9 pr-3 bg-background border border-border rounded-xl text-xs focus:outline-none focus:border-primary transition-colors"
+            className="w-full h-9 pl-9 pr-3 bg-background border border-border rounded-xl text-xs placeholder:text-muted-foreground focus:outline-none focus:border-primary"
           />
         </div>
 
-        <div className="flex items-center gap-2 flex-wrap sm:flex-nowrap">
+        <div className="flex items-center gap-2 flex-wrap">
           <select
             value={matchFilter}
             onChange={(e) => setMatchFilter(e.target.value as any)}
@@ -203,7 +204,7 @@ export function CohortConsentsPanel({ cohortId, registrations }: CohortConsentsP
         </div>
       </div>
 
-      {/* Submissions List / Table */}
+      {/* Submissions Cards */}
       {isLoading ? (
         <Spinner />
       ) : items.length === 0 ? (
@@ -211,81 +212,119 @@ export function CohortConsentsPanel({ cohortId, registrations }: CohortConsentsP
       ) : filteredItems.length === 0 ? (
         <EmptyState title={search ? `No consents match "${search}"` : "No consents match this filter"} />
       ) : (
-        <div className="flex flex-col gap-2">
+        <div className="flex flex-col gap-3">
           {filteredItems.map((c) => {
             const isMatched = c.match_status !== "unmatched"
             const isConsented = c.consent_choice === "consented"
+            const displayName = c.student_name_raw || c.matched_student_name || "Unnamed Student"
 
             return (
               <div
                 key={c.id}
-                className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 p-3 bg-background border border-border rounded-xl hover:border-border/80 transition-colors"
+                className="bg-card border border-border/80 rounded-2xl p-4 sm:p-5 shadow-sm hover:border-border transition-all space-y-3.5"
               >
-                <div className="min-w-0 flex-1 space-y-1">
-                  <div className="flex items-center gap-2 flex-wrap">
-                    {/* Consent Choice Badge */}
+                {/* Top Row: Student Name as BIGGEST THING, Badges, View Details */}
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-border/40">
+                  <div className="flex items-center gap-3 flex-wrap">
+                    {/* Big Student Name */}
+                    <h3 className="text-lg sm:text-xl font-bold text-foreground tracking-tight">
+                      {displayName}
+                    </h3>
+
+                    {/* State Badge */}
                     <span
-                      className={`inline-flex items-center gap-1 text-xs font-semibold px-2 py-0.5 rounded-full ${
+                      className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold ${
                         isConsented
-                          ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-400"
-                          : "bg-red-100 text-red-700 dark:bg-red-500/15 dark:text-red-400"
+                          ? "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border border-emerald-500/25"
+                          : "bg-red-500/15 text-red-600 dark:text-red-400 border border-red-500/25"
                       }`}
                     >
-                      {isConsented ? <CheckCircle2 size={12} /> : <XCircle size={12} />}
+                      {isConsented ? <CheckCircle2 size={13} /> : <XCircle size={13} />}
                       {isConsented ? "Granted" : "Declined"}
                     </span>
 
-                    {/* Matched Status Badge */}
+                    {/* Match Badge */}
                     {isMatched ? (
-                      <span className="inline-flex items-center gap-1 text-xs font-medium px-2 py-0.5 rounded-full bg-blue-100 text-blue-700 dark:bg-blue-500/15 dark:text-blue-400">
-                        <Check size={11} />
+                      <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-blue-500/15 text-blue-600 dark:text-blue-400 border border-blue-500/25">
+                        <Check size={12} />
                         Matched: {c.matched_student_name}
-                        {c.match_method && (
-                          <span className="text-[10px] opacity-75">({c.match_method})</span>
-                        )}
                       </span>
                     ) : (
-                      <span className="inline-flex items-center gap-1 text-xs font-semibold px-2 py-0.5 rounded-full bg-amber-100 text-amber-700 dark:bg-amber-500/15 dark:text-amber-400">
-                        <AlertTriangle size={11} /> Unmatched
+                      <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold bg-amber-500/15 text-amber-600 dark:text-amber-400 border border-amber-500/25">
+                        <AlertTriangle size={12} />
+                        Unmatched
                       </span>
-                    )}
-
-                    <span className="text-xs text-muted-foreground">
-                      {c.student_name_raw ? `Student: ${c.student_name_raw}` : "Unnamed"}
-                    </span>
-                    {c.school_name_raw && (
-                      <span className="text-xs text-muted-foreground">· {c.school_name_raw}</span>
                     )}
                   </div>
 
-                  <p className="text-xs text-muted-foreground truncate">
-                    Parent: <span className="font-medium text-foreground">{c.parent_name}</span>
-                    {c.relationship ? ` (${c.relationship})` : ""}
-                    {c.parent_phone ? ` · ${c.parent_phone}` : ""}
-                    {c.parent_email ? ` · ${c.parent_email}` : ""}
-                    {c.date_of_signing ? ` · Signed: ${c.date_of_signing}` : ""}
-                    {c.created_at ? ` · Submitted: ${new Date(c.created_at).toLocaleDateString()}` : ""}
-                  </p>
-                </div>
-
-                <div className="flex items-center gap-2 shrink-0 justify-end pt-2 sm:pt-0 border-t border-border/50 sm:border-0">
-                  {!isMatched && (
-                    <button
-                      onClick={() => {
-                        setMatchingConsent(c)
-                        setSelectedRegId("")
-                      }}
-                      className="flex items-center gap-1 h-7 px-2.5 bg-primary text-primary-foreground text-xs font-medium rounded-lg hover:opacity-90 transition-opacity"
-                    >
-                      <Link2 size={13} /> Match to student
-                    </button>
-                  )}
+                  {/* View Details Button */}
                   <button
                     onClick={() => setDetailConsent(c)}
-                    className="flex items-center gap-1 h-7 px-2.5 border border-border text-foreground text-xs font-medium rounded-lg hover:bg-muted transition-colors"
+                    className="flex items-center gap-1.5 h-8 px-3.5 border border-border text-foreground text-xs font-semibold rounded-xl hover:bg-muted transition-colors shrink-0 self-start sm:self-auto"
                   >
-                    <FileText size={13} /> Details
+                    <FileText size={14} /> View Details
                   </button>
+                </div>
+
+                {/* Info Grid: Student Email, School, Signed Date */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2.5 text-xs">
+                  <div className="p-2.5 bg-muted/40 rounded-xl border border-border/40">
+                    <span className="text-muted-foreground block text-[11px] mb-0.5 font-medium">Student Email</span>
+                    <span className="font-semibold text-foreground break-all">
+                      {c.student_email_raw || "—"}
+                    </span>
+                  </div>
+
+                  <div className="p-2.5 bg-muted/40 rounded-xl border border-border/40">
+                    <span className="text-muted-foreground block text-[11px] mb-0.5 font-medium">School</span>
+                    <span className="font-semibold text-foreground">
+                      {c.school_name_raw || "—"}
+                    </span>
+                  </div>
+
+                  <div className="p-2.5 bg-muted/40 rounded-xl border border-border/40">
+                    <span className="text-muted-foreground block text-[11px] mb-0.5 font-medium">Signed & Submitted</span>
+                    <span className="font-semibold text-foreground">
+                      {c.date_of_signing || "—"} · {c.created_at ? new Date(c.created_at).toLocaleDateString() : ""}
+                    </span>
+                  </div>
+                </div>
+
+                {/* Guardian & Quick Student Match Selector Row */}
+                <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3 p-3 bg-muted/30 rounded-xl border border-border/50 text-xs">
+                  {/* Guardian Info */}
+                  <div className="flex items-center gap-2 flex-wrap text-foreground">
+                    <span className="font-semibold text-muted-foreground">Guardian:</span>
+                    <span className="font-bold text-foreground">{c.parent_name}</span>
+                    {c.relationship && <span className="text-muted-foreground">({c.relationship})</span>}
+                    {c.parent_phone && <span className="text-muted-foreground">· 📞 {c.parent_phone}</span>}
+                    {c.parent_email && <span className="text-muted-foreground">· ✉️ {c.parent_email}</span>}
+                  </div>
+
+                  {/* Inline Student Selector and Match Button */}
+                  <div className="flex items-center gap-2 w-full lg:w-auto shrink-0">
+                    <select
+                      value={inlineMatches[c.id] || (isMatched && c.registration_id ? c.registration_id : "")}
+                      onChange={(e) => setInlineMatches((prev) => ({ ...prev, [c.id]: e.target.value }))}
+                      className="h-8 px-2.5 bg-background border border-border rounded-xl text-xs flex-1 lg:w-64 focus:outline-none focus:border-primary cursor-pointer truncate"
+                    >
+                      <option value="">{isMatched ? "Change matched student..." : "Select student to match..."}</option>
+                      {registrations.map((r) => (
+                        <option key={r.id} value={r.id}>
+                          {r.student_name} ({r.student_email || r.student_phone || "No contact"})
+                        </option>
+                      ))}
+                    </select>
+
+                    <button
+                      onClick={() => handleInlineMatch(c.id)}
+                      disabled={!inlineMatches[c.id] || inlineLoading === c.id}
+                      className="flex items-center gap-1 h-8 px-3.5 bg-primary text-primary-foreground text-xs font-semibold rounded-xl hover:opacity-90 transition-opacity disabled:opacity-40 shrink-0"
+                    >
+                      <Link2 size={13} />
+                      {inlineLoading === c.id ? "Matching..." : "Match"}
+                    </button>
+                  </div>
                 </div>
               </div>
             )
@@ -293,7 +332,7 @@ export function CohortConsentsPanel({ cohortId, registrations }: CohortConsentsP
         </div>
       )}
 
-      {/* Manual Link Modal (for unmatched form submissions) */}
+      {/* Manual Link Modal (Fallback) */}
       {matchingConsent && (
         <Modal
           title={`Match Consent Form to Student`}
@@ -303,6 +342,7 @@ export function CohortConsentsPanel({ cohortId, registrations }: CohortConsentsP
             <div className="p-3 bg-card border border-border rounded-xl space-y-1 text-xs text-muted-foreground">
               <p className="font-semibold text-foreground">Form Submission Details:</p>
               <p>Student Name on Form: <span className="text-foreground font-medium">{matchingConsent.student_name_raw ?? "—"}</span></p>
+              <p>Student Email: <span className="text-foreground font-medium">{matchingConsent.student_email_raw ?? "—"}</span></p>
               <p>Parent Name: <span className="text-foreground font-medium">{matchingConsent.parent_name}</span></p>
               <p>Parent Mobile: <span className="text-foreground font-medium">{matchingConsent.parent_phone ?? "—"}</span></p>
               <p>Parent Email: <span className="text-foreground font-medium">{matchingConsent.parent_email ?? "—"}</span></p>
@@ -361,6 +401,10 @@ export function CohortConsentsPanel({ cohortId, registrations }: CohortConsentsP
               <div>
                 <p className="text-muted-foreground">Student Name (Typed):</p>
                 <p className="font-medium text-foreground">{detailConsent.student_name_raw ?? "—"}</p>
+              </div>
+              <div>
+                <p className="text-muted-foreground">Student Email (Typed):</p>
+                <p className="font-medium text-foreground">{detailConsent.student_email_raw ?? "—"}</p>
               </div>
               <div>
                 <p className="text-muted-foreground">School (Typed):</p>

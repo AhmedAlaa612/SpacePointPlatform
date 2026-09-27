@@ -500,6 +500,7 @@ export interface CohortMediaConsent {
   matched_contact_id?: string | null;
   matched_student_name?: string | null;
   student_name_raw?: string | null;
+  student_email_raw?: string | null;
   school_name_raw?: string | null;
   parent_name: string;
   relationship?: string | null;
