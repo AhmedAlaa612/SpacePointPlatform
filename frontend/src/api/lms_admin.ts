@@ -851,12 +851,26 @@ export interface CohortQuizAnalysisQuiz {
   topic_breakdown: Record<string, { correct: number; total: number }>;
 }
 
+export interface CohortQuizQuestionAnalysis {
+  question_id: string;
+  quiz_id: string;
+  quiz_title: string;
+  topic: string;
+  prompt: string;
+  difficulty?: string | null;
+  correct_count: number;
+  incorrect_count: number;
+  total_answers: number;
+  accuracy_pct: number;
+}
+
 export interface CohortQuizAnalysisOut {
   cohort_id: string;
   total_attempts: number;
   overall_average_score_pct: number;
   overall_topic_breakdown: Record<string, { correct: number; total: number }>;
   quizzes: CohortQuizAnalysisQuiz[];
+  questions?: CohortQuizQuestionAnalysis[];
 }
 
 export const getCohortQuizAnalysisApi = (cohortId: string) =>
