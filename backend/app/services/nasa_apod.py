@@ -84,11 +84,14 @@ async def get_nasa_birthday_picture(birth_date: date, api_key: str | None = None
                         if img_url:
                             title = data.get("title", f"Cosmic Wonder ({year})")
                             explanation = data.get("explanation", "Astronomy Picture of the Day captured on your special day.")
+                            apod_code = f"{year % 100:02d}{month:02d}{target_day:02d}"
                             return {
                                 "title": title,
                                 "explanation": explanation,
                                 "image_url": img_url,
                                 "year": year,
+                                "date": date_str,
+                                "apod_url": f"https://apod.nasa.gov/apod/ap{apod_code}.html",
                             }
                     logger.warning("NASA APOD date %s returned non-image media_type=%s, retrying another year...", date_str, media_type)
                 else:
@@ -101,4 +104,5 @@ async def get_nasa_birthday_picture(birth_date: date, api_key: str | None = None
     fallback = dict(CURATED_FALLBACK_APOD)
     # Give the fallback a realistic year
     fallback["year"] = random.randint(min_year, max_year)
+    fallback["apod_url"] = "https://apod.nasa.gov/apod/archivepix.html"
     return fallback
