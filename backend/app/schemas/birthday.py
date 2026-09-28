@@ -27,6 +27,7 @@ class BirthdayLogOut(BaseModel):
     user_full_name: str
     user_email: str
     user_roles: list[str] = []
+    user_birthdate: Optional[date] = None
     sent_at: datetime
     sent_at_year: int
     birth_year_referenced: Optional[int] = None

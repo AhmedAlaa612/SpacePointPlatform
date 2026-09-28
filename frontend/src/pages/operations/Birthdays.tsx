@@ -30,8 +30,9 @@ import { ROLE_BADGE } from "@/components/ProfileStatsCards"
 
 export default function Birthdays() {
   const qc = useQueryClient()
-  const [activeTab, setActiveTab] = useState<"upcoming" | "logs" | "failed">("upcoming")
+  const [activeTab, setActiveTab] = useState<"upcoming" | "logs">("upcoming")
   const [daysFilter, setDaysFilter] = useState<number>(30)
+  const [logStatusFilter, setLogStatusFilter] = useState<string>("all")
   const [searchQuery, setSearchQuery] = useState("")
   const [logPage, setLogPage] = useState(1)
   const [selectedLog, setSelectedLog] = useState<BirthdayEmailLog | null>(null)
@@ -52,16 +53,14 @@ export default function Birthdays() {
 
   // 3. Dispatch logs query
   const { data: logsData, isLoading: logsLoading } = useQuery({
-    queryKey: ["admin-birthday-logs", logPage],
-    queryFn: () => getBirthdayLogsApi({ page: logPage, page_size: 15 }),
+    queryKey: ["admin-birthday-logs", logPage, logStatusFilter],
+    queryFn: () =>
+      getBirthdayLogsApi({
+        page: logPage,
+        page_size: 15,
+        status: logStatusFilter === "all" ? undefined : logStatusFilter,
+      }),
     enabled: activeTab === "logs",
-  })
-
-  // 4. Failed logs query
-  const { data: failedLogsData, isLoading: failedLogsLoading } = useQuery({
-    queryKey: ["admin-birthday-failed-logs"],
-    queryFn: () => getBirthdayLogsApi({ page: 1, page_size: 50, status: "failed" }),
-    enabled: activeTab === "failed",
   })
 
   // 5. Retry / Dispatch mutation
@@ -261,21 +260,12 @@ export default function Birthdays() {
         >
           <Sparkles size={15} />
           Dispatch Audit & Delivery Logs
-        </button>
-
-        <button
-          onClick={() => setActiveTab("failed")}
-          className={`pb-3 px-3 text-sm font-semibold transition-colors border-b-2 flex items-center gap-2 ${
-            activeTab === "failed"
-              ? "border-rose-500 text-rose-400"
-              : "border-transparent text-muted-foreground hover:text-foreground"
-          }`}
-        >
-          <AlertTriangle size={15} />
-          Failed / Unsent Monitor
           {(stats?.failed_count ?? 0) > 0 && (
-            <span className="text-[10px] px-2 py-0.5 rounded-full bg-rose-500/15 text-rose-400 font-mono font-bold">
-              {stats?.failed_count}
+            <span
+              className="text-[10px] px-2 py-0.5 rounded-full bg-rose-500/15 text-rose-400 font-mono font-bold"
+              title={`${stats?.failed_count} delivery error(s)`}
+            >
+              {stats?.failed_count} failed
             </span>
           )}
         </button>
@@ -452,6 +442,37 @@ export default function Birthdays() {
       {/* ── TAB 2: Dispatch Audit & Delivery Logs ─────────── */}
       {activeTab === "logs" && (
         <div className="flex flex-col gap-4">
+          {/* Controls & Filter Bar */}
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-card/40 p-3 rounded-2xl border border-border/60">
+            <div className="flex items-center gap-1.5 flex-wrap">
+              <span className="text-xs text-muted-foreground font-semibold px-2 uppercase tracking-wider">
+                Status Filter:
+              </span>
+              {(["all", "sent", "failed"] as const).map((st) => (
+                <button
+                  key={st}
+                  onClick={() => {
+                    setLogStatusFilter(st)
+                    setLogPage(1)
+                  }}
+                  className={`px-3 py-1 text-xs font-semibold rounded-xl capitalize transition-colors ${
+                    logStatusFilter === st
+                      ? st === "failed"
+                        ? "bg-rose-500 text-white shadow-sm"
+                        : "bg-primary text-primary-foreground shadow-sm"
+                      : "bg-muted/60 text-muted-foreground hover:bg-muted hover:text-foreground"
+                  }`}
+                >
+                  {st}
+                </button>
+              ))}
+            </div>
+
+            <span className="text-xs text-muted-foreground px-2">
+              Showing {logsData?.total ?? 0} record(s)
+            </span>
+          </div>
+
           {logsLoading ? (
             <div className="py-20 flex justify-center items-center">
               <div className="w-8 h-8 border-2 border-primary border-t-transparent rounded-full animate-spin" />
@@ -471,6 +492,7 @@ export default function Birthdays() {
                   <thead>
                     <tr className="border-b border-border bg-muted/20 text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">
                       <th className="py-3 px-4">Recipient</th>
+                      <th className="py-3 px-4">Birthdate</th>
                       <th className="py-3 px-4">Dispatched At</th>
                       <th className="py-3 px-4">NASA Photo Archive</th>
                       <th className="py-3 px-4">Status</th>
@@ -481,7 +503,7 @@ export default function Birthdays() {
                     {logsData.items.map((log) => (
                       <tr key={log.id} className="hover:bg-muted/30 transition-colors">
                         {/* Recipient */}
-                        <td className="py-3 px-4">
+                        <td className="py-4 px-4">
                           <div className="min-w-0">
                             <p className="font-semibold text-foreground truncate">{log.user_full_name}</p>
                             <p className="text-xs text-muted-foreground truncate">{log.user_email}</p>
@@ -500,45 +522,71 @@ export default function Birthdays() {
                           </div>
                         </td>
 
+                        {/* Birthdate */}
+                        <td className="py-4 px-4 whitespace-nowrap">
+                          {log.user_birthdate ? (
+                            <div className="flex items-center gap-2">
+                              <span className="text-sm">🎂</span>
+                              <div>
+                                <span className="font-semibold text-xs text-foreground block">
+                                  {new Date(log.user_birthdate).toLocaleDateString(undefined, {
+                                    month: "short",
+                                    day: "numeric",
+                                  })}
+                                </span>
+                                <span className="text-[10px] text-muted-foreground font-mono">
+                                  {new Date(log.user_birthdate).getFullYear()}
+                                </span>
+                              </div>
+                            </div>
+                          ) : (
+                            <span className="text-xs text-muted-foreground italic">Not set</span>
+                          )}
+                        </td>
+
                         {/* Sent Timestamp */}
-                        <td className="py-3 px-4 text-xs font-mono text-muted-foreground">
+                        <td className="py-4 px-4 text-xs font-mono text-muted-foreground whitespace-nowrap">
                           {new Date(log.sent_at).toLocaleString(undefined, {
                             dateStyle: "medium",
                             timeStyle: "short",
                           })}
                         </td>
 
-                        {/* NASA Image Preview */}
-                        <td className="py-3 px-4">
-                          <div className="flex items-center gap-3">
+                        {/* NASA Image Preview (Generous & Prominent) */}
+                        <td className="py-4 px-4">
+                          <div className="flex items-center gap-3.5">
                             {log.nasa_image_url ? (
                               <button
                                 type="button"
                                 onClick={() => setSelectedLog(log)}
-                                className="relative w-12 h-12 rounded-xl overflow-hidden border border-border group shrink-0 shadow-sm"
-                                title="Click to view NASA APOD card"
+                                className="relative w-28 h-20 sm:w-36 sm:h-24 rounded-2xl overflow-hidden border border-border group shrink-0 shadow-md bg-black/60 focus:outline-none focus:ring-2 focus:ring-primary/40"
+                                title="Click to view full NASA APOD card"
                               >
                                 <img
                                   src={log.nasa_image_url}
                                   alt={log.nasa_title || "NASA"}
-                                  className="w-full h-full object-cover group-hover:scale-110 transition-transform"
+                                  className="w-full h-full object-cover group-hover:scale-105 transition-all duration-300"
                                 />
-                                <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center text-white">
-                                  <ImageIcon size={14} />
+                                <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-transparent opacity-0 group-hover:opacity-100 transition-opacity flex items-end justify-center pb-2 text-[11px] font-medium text-white gap-1">
+                                  <ImageIcon size={13} />
+                                  <span>View Card</span>
                                 </div>
                               </button>
                             ) : (
-                              <div className="w-12 h-12 rounded-xl bg-muted border border-border flex items-center justify-center text-muted-foreground text-xs shrink-0">
+                              <div className="w-28 h-20 sm:w-36 sm:h-24 rounded-2xl bg-muted border border-border flex items-center justify-center text-muted-foreground text-xs shrink-0">
                                 N/A
                               </div>
                             )}
-                            <div className="min-w-0">
-                              <p className="text-xs font-semibold text-foreground truncate max-w-xs">
+                            <div className="min-w-0 flex flex-col justify-center gap-1.5">
+                              <p
+                                className="text-sm font-bold text-foreground line-clamp-2 max-w-sm hover:text-primary transition-colors cursor-pointer"
+                                onClick={() => setSelectedLog(log)}
+                              >
                                 {log.nasa_title || "Space Observation"}
                               </p>
                               {log.birth_year_referenced && (
-                                <span className="inline-block text-[10px] font-mono text-sky-400 mt-0.5">
-                                  NASA APOD Archive Year {log.birth_year_referenced}
+                                <span className="inline-flex items-center gap-1 text-[11px] font-mono text-sky-400 bg-sky-500/10 border border-sky-500/20 px-2 py-0.5 rounded-md w-fit">
+                                  NASA APOD Archive • {log.birth_year_referenced}
                                 </span>
                               )}
                             </div>
@@ -546,35 +594,38 @@ export default function Birthdays() {
                         </td>
 
                         {/* Status */}
-                        <td className="py-3 px-4">
+                        <td className="py-4 px-4 whitespace-nowrap">
                           {log.status === "sent" ? (
-                            <span className="inline-flex items-center gap-1 text-xs font-semibold px-2.5 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/25">
+                            <span className="inline-flex items-center gap-1 text-xs font-semibold px-2.5 py-1 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/25">
                               <CheckCircle2 size={12} />
                               Sent
                             </span>
                           ) : log.status === "failed" ? (
-                            <span className="inline-flex items-center gap-1 text-xs font-semibold px-2.5 py-0.5 rounded-full bg-rose-500/10 text-rose-400 border border-rose-500/25" title={log.error_message || "Failed"}>
+                            <span
+                              className="inline-flex items-center gap-1 text-xs font-semibold px-2.5 py-1 rounded-full bg-rose-500/10 text-rose-400 border border-rose-500/25"
+                              title={log.error_message || "Failed"}
+                            >
                               <AlertTriangle size={12} />
                               Failed
                             </span>
                           ) : (
-                            <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-muted text-muted-foreground">
+                            <span className="text-xs font-medium px-2.5 py-1 rounded-full bg-muted text-muted-foreground">
                               {log.status}
                             </span>
                           )}
                         </td>
 
                         {/* Actions */}
-                        <td className="py-3 px-4 text-right">
+                        <td className="py-4 px-4 text-right whitespace-nowrap">
                           <Button
                             size="sm"
-                            variant="ghost"
+                            variant="outline"
                             disabled={retryMutation.isPending}
                             onClick={() => retryMutation.mutate(log.id)}
-                            className="h-8 text-xs gap-1 rounded-xl text-primary hover:bg-primary/10"
+                            className="h-8 text-xs gap-1.5 rounded-xl border-border/80 hover:border-primary text-foreground hover:text-primary hover:bg-primary/5"
                             title="Resend birthday email"
                           >
-                            <RefreshCw size={12} />
+                            <RefreshCw size={12} className={retryMutation.isPending ? "animate-spin" : ""} />
                             Retry
                           </Button>
                         </td>
@@ -618,80 +669,6 @@ export default function Birthdays() {
         </div>
       )}
 
-      {/* ── TAB 3: Failed / Unsent Monitor ────────────────── */}
-      {activeTab === "failed" && (
-        <div className="flex flex-col gap-4">
-          {failedLogsLoading ? (
-            <div className="py-20 flex justify-center items-center">
-              <div className="w-8 h-8 border-2 border-primary border-t-transparent rounded-full animate-spin" />
-            </div>
-          ) : !failedLogsData || failedLogsData.items.length === 0 ? (
-            <div className="py-16 text-center rounded-2xl border border-dashed border-emerald-500/30 p-6 bg-emerald-500/5">
-              <CheckCircle2 size={36} className="mx-auto text-emerald-400 mb-3" />
-              <p className="text-sm font-semibold text-emerald-300">All birthday dispatches are healthy!</p>
-              <p className="text-xs text-muted-foreground mt-1">
-                There are no failed or unsent birthday emails recorded.
-              </p>
-            </div>
-          ) : (
-            <div className="flex flex-col gap-3">
-              <div className="p-4 rounded-2xl bg-rose-500/10 border border-rose-500/20 text-rose-300 text-xs flex items-center justify-between">
-                <span>
-                  The following <strong>{failedLogsData.items.length}</strong> birthday dispatch(es) encountered delivery errors. Review details and use the Retry buttons to resend.
-                </span>
-              </div>
-
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                {failedLogsData.items.map((log) => (
-                  <Card key={log.id} className="border border-rose-500/30 bg-card/60 backdrop-blur-sm">
-                    <CardContent className="p-5 flex flex-col justify-between gap-4">
-                      <div>
-                        <div className="flex items-start justify-between gap-2">
-                          <div>
-                            <h3 className="font-bold text-foreground text-sm">{log.user_full_name}</h3>
-                            <p className="text-xs text-muted-foreground">{log.user_email}</p>
-                          </div>
-                          <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-rose-500/15 text-rose-400 font-bold border border-rose-500/30">
-                            FAILED
-                          </span>
-                        </div>
-
-                        <div className="mt-3 p-3 rounded-xl bg-muted/40 border border-border/80 text-xs">
-                          <p className="text-[11px] font-semibold text-rose-400 uppercase tracking-wider mb-1 flex items-center gap-1">
-                            <AlertTriangle size={12} />
-                            Delivery Error
-                          </p>
-                          <p className="text-muted-foreground font-mono text-[11px] break-words">
-                            {log.error_message || "Unknown error during SMTP send"}
-                          </p>
-                        </div>
-
-                        <div className="mt-2 text-[11px] text-muted-foreground flex items-center gap-2">
-                          <Clock size={12} />
-                          Attempted at: {new Date(log.sent_at).toLocaleString()}
-                        </div>
-                      </div>
-
-                      <div className="flex items-center justify-end gap-2 pt-2 border-t border-border">
-                        <Button
-                          size="sm"
-                          disabled={retryMutation.isPending}
-                          onClick={() => retryMutation.mutate(log.id)}
-                          className="h-8 text-xs gap-1.5 rounded-xl bg-rose-600 hover:bg-rose-500 text-white shadow-sm"
-                        >
-                          <RefreshCw size={13} className={retryMutation.isPending ? "animate-spin" : ""} />
-                          Retry Send Now
-                        </Button>
-                      </div>
-                    </CardContent>
-                  </Card>
-                ))}
-              </div>
-            </div>
-          )}
-        </div>
-      )}
-
       {/* ── NASA APOD Lightbox Modal ──────────────────────── */}
       {selectedLog && (
         <div
@@ -699,35 +676,35 @@ export default function Birthdays() {
           onClick={() => setSelectedLog(null)}
         >
           <div
-            className="bg-card border border-border rounded-2xl max-w-2xl w-full overflow-hidden shadow-2xl flex flex-col max-h-[90vh]"
+            className="bg-card border border-border rounded-2xl max-w-3xl w-full overflow-hidden shadow-2xl flex flex-col max-h-[92vh]"
             onClick={(e) => e.stopPropagation()}
           >
             {/* Header */}
-            <div className="flex items-center justify-between p-4 border-b border-border bg-muted/20">
+            <div className="flex items-center justify-between p-4 sm:p-5 border-b border-border bg-muted/20">
               <div className="min-w-0">
-                <span className="text-[10px] font-bold uppercase tracking-wider text-sky-400 font-mono">
+                <span className="text-[11px] font-bold uppercase tracking-wider text-sky-400 font-mono">
                   NASA Astronomy Picture of the Day • Year {selectedLog.birth_year_referenced}
                 </span>
-                <h2 className="text-base font-bold text-foreground truncate mt-0.5">
+                <h2 className="text-base sm:text-lg font-bold text-foreground truncate mt-0.5">
                   {selectedLog.nasa_title || "Cosmic View"}
                 </h2>
               </div>
               <button
                 onClick={() => setSelectedLog(null)}
-                className="p-1.5 rounded-lg text-muted-foreground hover:bg-muted transition-colors"
+                className="p-1.5 rounded-lg text-muted-foreground hover:bg-muted transition-colors shrink-0"
               >
                 <X size={18} />
               </button>
             </div>
 
             {/* Content */}
-            <div className="overflow-y-auto p-5 flex flex-col gap-4">
+            <div className="overflow-y-auto p-5 sm:p-6 flex flex-col gap-4">
               {selectedLog.nasa_image_url && (
-                <div className="rounded-xl overflow-hidden border border-border bg-black/50">
+                <div className="rounded-2xl overflow-hidden border border-border bg-black/80 flex items-center justify-center">
                   <img
                     src={selectedLog.nasa_image_url}
                     alt={selectedLog.nasa_title || "NASA"}
-                    className="w-full max-h-96 object-contain"
+                    className="w-full max-h-[480px] object-contain"
                   />
                 </div>
               )}
@@ -741,13 +718,30 @@ export default function Birthdays() {
                 </p>
               </div>
 
-              <div className="p-3 rounded-xl bg-muted/30 border border-border text-xs flex flex-col sm:flex-row gap-1 sm:items-center justify-between">
-                <span className="text-muted-foreground">
-                  Recipient: <strong className="text-foreground">{selectedLog.user_full_name}</strong> ({selectedLog.user_email})
-                </span>
-                <span className="text-muted-foreground">
-                  Delivered on: {new Date(selectedLog.sent_at).toLocaleDateString()}
-                </span>
+              <div className="p-3.5 rounded-xl bg-muted/30 border border-border text-xs flex flex-col sm:flex-row gap-2 sm:items-center justify-between">
+                <div className="flex flex-col gap-0.5">
+                  <span className="text-muted-foreground">
+                    Recipient: <strong className="text-foreground">{selectedLog.user_full_name}</strong> ({selectedLog.user_email})
+                  </span>
+                  {selectedLog.user_birthdate && (
+                    <span className="text-purple-400 font-semibold flex items-center gap-1.5">
+                      <span>🎂</span>
+                      Birth Date: {new Date(selectedLog.user_birthdate).toLocaleDateString(undefined, {
+                        year: "numeric",
+                        month: "long",
+                        day: "numeric",
+                      })}
+                    </span>
+                  )}
+                </div>
+                <div className="flex flex-col sm:items-end gap-0.5 text-muted-foreground">
+                  <span>
+                    Dispatched on: {new Date(selectedLog.sent_at).toLocaleDateString()}
+                  </span>
+                  <span className="font-mono text-[10px]">
+                    Status: <strong className={selectedLog.status === "sent" ? "text-emerald-400" : "text-rose-400"}>{selectedLog.status.toUpperCase()}</strong>
+                  </span>
+                </div>
               </div>
             </div>
           </div>

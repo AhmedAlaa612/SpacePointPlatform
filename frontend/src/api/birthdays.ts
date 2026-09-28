@@ -19,6 +19,7 @@ export interface BirthdayEmailLog {
   user_full_name: string
   user_email: string
   user_roles: string[]
+  user_birthdate?: string | null
   sent_at: string
   sent_at_year: number
   birth_year_referenced?: number | null
