@@ -456,7 +456,7 @@ async def send_birthday_greeting_email(
           <tr>
             <td style="padding: 28px 32px 16px;">
               <p style="margin: 0 0 16px; font-size: 15px; line-height: 1.6; color: #cbd5e1;">
-                On your special day, we journeyed into NASA's astronomical archives to see what the cosmos was doing on your birth date back in <strong style="color: #38bdf8;">{year}</strong>:
+                Here is a photo that was captured in space on your birthday back in <strong style="color: #38bdf8;">{year}</strong>:
               </p>
             </td>
           </tr>
@@ -484,13 +484,6 @@ async def send_birthday_greeting_email(
           <!-- Motivational Closing (No portal link) -->
           <tr>
             <td style="padding: 0 32px 32px;">
-              <div style="border-left: 3px solid #a855f7; padding-left: 16px; margin-bottom: 24px;">
-                <p style="margin: 0; font-size: 14px; line-height: 1.6; color: #e2e8f0; font-style: italic;">
-                  "The cosmos is within us. We are made of star-stuff. We are a way for the cosmos to know itself."
-                </p>
-                <p style="margin: 6px 0 0; font-size: 12px; color: #64748b;">— Carl Sagan</p>
-              </div>
-
               <p style="margin: 0; font-size: 14.5px; line-height: 1.6; color: #cbd5e1;">
                 Thank you for being an inspiring part of our SpacePoint community. May your upcoming year bring new heights, boundary-pushing discoveries, and stellar achievements!
               </p>
@@ -516,7 +509,7 @@ async def send_birthday_greeting_email(
     plain_body = (
         f"Happy Birthday, {first_name}! 🚀🎂\n\n"
         f"Wishing you a wonderful orbit around the Sun!\n\n"
-        f"Here is what NASA captured on your birthday back in {year}:\n\n"
+        f"Here is a photo that was captured in space on your birthday back in {year}:\n\n"
         f"Title: {title}\n"
         f"Image: {image_url}\n\n"
         f"{concise_explanation}\n\n"

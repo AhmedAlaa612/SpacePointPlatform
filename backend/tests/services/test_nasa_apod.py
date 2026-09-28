@@ -117,3 +117,6 @@ async def test_send_birthday_greeting_email_format():
         assert "2014" in kwargs["body"]
         assert "https://example.com/pillars.jpg" in kwargs["body"]
         assert "Open SpacePoint Portal" not in kwargs["body"]
+        assert "Carl Sagan" not in kwargs["body"]
+        assert "Here is a photo that was captured in space on your birthday back in" in kwargs["body"]
+
