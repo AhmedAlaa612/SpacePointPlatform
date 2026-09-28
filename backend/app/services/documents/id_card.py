@@ -310,7 +310,7 @@ async def ensure_card_number(db: AsyncSession, user: User) -> int:
         return user.card_number
 
     from sqlalchemy import text
-    sequence = "card_seq_student" if "student" in user.roles else "card_seq_person"
+    sequence = "card_seq_student" if "student" in user.role_values else "card_seq_person"
     # A real Postgres sequence never repeats a value on its own — a
     # collision here (2026-09-14 incident, `idx_users_card_number_student`)
     # means the sequence has drifted behind an existing card_number set

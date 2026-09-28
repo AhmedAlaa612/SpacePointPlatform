@@ -12,14 +12,14 @@ import {
 import { myInstructorCohortsApi, type InstructorCohort } from "@/api/missionsInstructor"
 import type { Program } from "@/types/sessions"
 import { CreateChecklistPrompt, ProgramTemplateEditor, CohortOverrideEditor } from "./components/LmsChecklistAuthoring"
-import { ProgramMissionsPanel, CohortMissionsPanel, ProgressPanel, ReviewScopePanel } from "./components/LmsProgressAndMissions"
-
+import { ProgramMissionsPanel, CohortMissionsPanel, ProgressPanel } from "./components/LmsProgressAndMissions"
+import { CohortQuizAnalysisPanel } from "./components/CohortQuizAnalysisPanel"
 import { LmsComponentConfigPanel } from "./components/LmsComponentConfigPanel"
 
 type Scope = "program" | { cohortId: string; cohortName: string }
-type SubTab = "checklist" | "missions" | "components" | "progress" | "review"
+type SubTab = "checklist" | "missions" | "components" | "progress" | "analysis"
 const SUBTAB_LABEL: Record<SubTab, string> = {
-  checklist: "Checklist", missions: "Missions", components: "Components", progress: "Progress", review: "Review",
+  checklist: "Checklist", missions: "Missions", components: "Components", progress: "Progress", analysis: "Analysis",
 }
 
 /** The one LMS Programs page (2026-08-22 merge) — absorbs what used to be
@@ -131,7 +131,7 @@ function ProgramWorkspace({
     tab?: SubTab
   }
 
-  const VALID_SUBTABS: SubTab[] = ["checklist", "missions", "components", "progress", "review"]
+  const VALID_SUBTABS: SubTab[] = ["checklist", "missions", "components", "progress", "analysis"]
   const rawTab = search.tab as SubTab | undefined
   const subtab: SubTab = (rawTab && VALID_SUBTABS.includes(rawTab)) ? rawTab : "checklist"
 
@@ -262,7 +262,7 @@ function ProgramWorkspace({
       </div>
 
       <div className="flex gap-1 border-b border-border overflow-x-auto scrollbar-none no-scrollbar">
-        {(["checklist", "missions", "components", "progress", "review"] as const).map((t) => (
+        {(["checklist", "missions", "components", "progress", "analysis"] as const).map((t) => (
           <button
             key={t}
             onClick={() => setSubtab(t)}
@@ -294,10 +294,10 @@ function ProgramWorkspace({
           ? <ProgressPanel lmsProgramId={effective.id} scopeLabel="every cohort using this program" />
           : <ProgressPanel cohortId={scope.cohortId} scopeLabel={scope.cohortName} />
       )}
-      {subtab === "review" && (
+      {subtab === "analysis" && (
         scope === "program"
-          ? <EmptyState title="Pick a cohort to review submissions" hint="A mission run's review queue is always cohort-scoped." />
-          : <ReviewScopePanel cohortId={scope.cohortId} />
+          ? <EmptyState title="Pick a cohort to view quiz analysis" hint="Quiz attempts and topic mastery are cohort-scoped. Select a cohort tab above." />
+          : <CohortQuizAnalysisPanel cohortId={scope.cohortId} />
       )}
     </div>
   )

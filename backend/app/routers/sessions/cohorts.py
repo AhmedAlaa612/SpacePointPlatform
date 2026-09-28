@@ -99,6 +99,20 @@ from app.services.lms.ops_integration import (
 )
 from app.services.sessions.registration import format_cohort_dates, register
 from app.services.spine.identity import resolve_or_create_contact
+from app.schemas.sessions.media_consent import (
+    CohortMediaConsentOut,
+    CohortMediaConsentSummaryOut,
+    MediaConsentManualMatchRequest,
+    MediaConsentManualOverrideRequest,
+    MediaConsentWebhookRequest,
+)
+from app.services.sessions.media_consent import (
+    get_cohort_consents_summary,
+    get_latest_consents_for_registrations,
+    ingest_media_consent_webhook,
+    manual_link_media_consent,
+    manual_override_media_consent,
+)
 from app.workers.settings import get_arq_redis, safe_enqueue
 
 router = APIRouter(prefix="/sessions", tags=["sessions-cohorts"])
@@ -948,6 +962,8 @@ async def list_registrations(
             if url:
                 certificate_urls[cert.registration_id] = url
 
+    latest_consents = await get_latest_consents_for_registrations(db, registration_ids)
+
     result_registrations = []
     for reg, student, guardian, student_org in rows:
         reg_att_dict = att_by_reg.get(reg.id, {})
@@ -970,6 +986,9 @@ async def list_registrations(
                 )
             )
 
+        consent = latest_consents.get(reg.id)
+        media_consent_status = consent.consent_choice if consent else "pending"
+
         result_registrations.append(
             RegistrationOut(
                 id=reg.id,
@@ -981,8 +1000,8 @@ async def list_registrations(
                 student_grade=student.grade,
                 student_organization_name=student_org.name_latin if student_org is not None else None,
                 payer_contact_id=reg.payer_contact_id,
-                guardian_name=guardian.full_name if guardian is not None else None,
-                guardian_phone=guardian.primary_phone_e164 if guardian is not None else None,
+                guardian_name=consent.parent_name if (consent and consent.parent_name) else (guardian.full_name if guardian is not None else None),
+                guardian_phone=consent.parent_phone if (consent and consent.parent_phone) else (guardian.primary_phone_e164 if guardian is not None else None),
                 payment_status=reg.payment_status,
                 price_charged=reg.price_charged,
                 status=reg.status,
@@ -998,6 +1017,15 @@ async def list_registrations(
                 attendance_records=att_list,
                 created_at=reg.created_at,
                 last_login_at=last_login_by_contact.get(reg.contact_id),
+                media_consent_status=media_consent_status,
+                media_consent_id=consent.id if consent else None,
+                media_consent_parent_name=consent.parent_name if consent else (guardian.full_name if guardian else None),
+                media_consent_parent_phone=consent.parent_phone if consent else (guardian.primary_phone_e164 if guardian else None),
+                media_consent_parent_email=consent.parent_email if consent else (guardian.email if guardian else None),
+                media_consent_relationship=consent.relationship if consent else None,
+                media_consent_signed_date=consent.date_of_signing if consent else None,
+                media_consent_grants=consent.permission_grants if (consent and consent.permission_grants) else [],
+                media_consent_notes=consent.notes if consent else None,
             )
         )
     return result_registrations
@@ -1061,7 +1089,22 @@ async def desk_register(
         send_welcome_email=body.send_welcome_email,
     )
 
-    await db.commit()
+    try:
+        await db.commit()
+    except Exception as exc:
+        await db.rollback()
+        logger.exception("desk_register failed to commit for cohort %s: %s", cohort_id, exc)
+        msg = str(exc)
+        if "unique constraint" in msg.lower() or "uniqueviolation" in msg.lower():
+            if "card_number" in msg.lower():
+                detail = "An ID card number conflict occurred during registration. Please retry."
+            elif "email" in msg.lower():
+                detail = "An account with this email already exists and could not be linked."
+            else:
+                detail = f"Database uniqueness conflict during registration: {msg}"
+        else:
+            detail = f"Could not complete registration: {msg}"
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=detail)
 
     # Ticket email runs on the ARQ queue, not synchronously — same pattern as
     # the public registration endpoint (routers/sessions/public.py). Desk
@@ -1541,3 +1584,91 @@ async def session_history(
             "addons": addons,
         },
     }
+
+
+# ── Cohort Media Consent (2026-09-27) ─────────────────────────────────────────
+
+@router.post("/cohorts/{cohort_id}/media-consent/webhook")
+async def media_consent_webhook(
+    cohort_id: uuid.UUID,
+    payload: MediaConsentWebhookRequest,
+    db: AsyncSession = Depends(get_db),
+):
+    """Public webhook for Google Forms / Google Apps Script ingestion.
+    Matches student by email first, phone second (name does NOT match).
+    Updates guardian info on student if matched.
+    """
+    try:
+        consent = await ingest_media_consent_webhook(db, cohort_id=cohort_id, payload=payload)
+    except ValueError as e:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail=str(e))
+
+    return {
+        "status": "success",
+        "id": str(consent.id),
+        "cohort_id": str(consent.cohort_id),
+        "registration_id": str(consent.registration_id) if consent.registration_id else None,
+        "matched": consent.match_status == "matched",
+        "match_status": consent.match_status,
+        "match_method": consent.match_method,
+        "consent_choice": consent.consent_choice,
+    }
+
+
+@router.get("/cohorts/{cohort_id}/media-consent", response_model=CohortMediaConsentSummaryOut)
+async def list_cohort_media_consents(
+    cohort_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_operations),
+):
+    """Returns summary stats and all media consent records for the cohort."""
+    cohort = await db.get(Cohort, cohort_id)
+    if cohort is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Cohort not found")
+    return await get_cohort_consents_summary(db, cohort_id)
+
+
+@router.post("/cohorts/{cohort_id}/media-consent/manual-override", response_model=CohortMediaConsentOut)
+async def manual_override_consent(
+    cohort_id: uuid.UUID,
+    body: MediaConsentManualOverrideRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_operations),
+):
+    """Manually update or set a student's media consent state (e.g. paper form, verbal, WhatsApp)."""
+    try:
+        consent = await manual_override_media_consent(db, cohort_id=cohort_id, req=body)
+    except ValueError as e:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail=str(e))
+    out = CohortMediaConsentOut.model_validate(consent)
+    if consent.registration_id:
+        reg = await db.get(Registration, consent.registration_id)
+        if reg:
+            student = await db.get(Contact, reg.contact_id)
+            if student:
+                out.matched_student_name = student.full_name
+    return out
+
+
+@router.post("/cohorts/{cohort_id}/media-consent/{consent_id}/match", response_model=CohortMediaConsentOut)
+async def manual_match_consent(
+    cohort_id: uuid.UUID,
+    consent_id: uuid.UUID,
+    body: MediaConsentManualMatchRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_operations),
+):
+    """Manually link an unmatched consent form submission to a student registration."""
+    try:
+        consent = await manual_link_media_consent(
+            db, cohort_id=cohort_id, consent_id=consent_id, registration_id=body.registration_id
+        )
+    except ValueError as e:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail=str(e))
+    out = CohortMediaConsentOut.model_validate(consent)
+    reg = await db.get(Registration, body.registration_id)
+    if reg:
+        student = await db.get(Contact, reg.contact_id)
+        if student:
+            out.matched_student_name = student.full_name
+    return out

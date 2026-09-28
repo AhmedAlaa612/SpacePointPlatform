@@ -108,6 +108,16 @@ class RegistrationOut(BaseModel):
     # one but nobody has ever actually logged into it — registering (or
     # being desk-registered) is not the same as opening the account.
     last_login_at: datetime | None = None
+    # 2026-09-27 — Cohort Media Consent tracking
+    media_consent_status: Literal["consented", "declined", "pending"] = "pending"
+    media_consent_id: UUID | None = None
+    media_consent_parent_name: str | None = None
+    media_consent_parent_phone: str | None = None
+    media_consent_parent_email: str | None = None
+    media_consent_relationship: str | None = None
+    media_consent_signed_date: date | None = None
+    media_consent_grants: list[str] = []
+    media_consent_notes: str | None = None
 
 
 class ConfirmPaymentRequest(BaseModel):
