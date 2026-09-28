@@ -442,37 +442,44 @@ async def send_birthday_greeting_email(
   <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background-color: #0b0f19; padding: 40px 10px;">
     <tr>
       <td align="center">
-        <table role="presentation" width="100%" style="max-width: 620px; background-color: #0d1322; border: 1px solid #1e293b; border-radius: 20px; overflow: hidden; box-shadow: 0 20px 40px rgba(0, 0, 0, 0.6);" cellspacing="0" cellpadding="0">
-          <!-- Starry Brand Header -->
+        <table role="presentation" width="100%" style="max-width: 600px; background-color: #0c071e; border: 1px solid rgba(168, 85, 247, 0.25); border-radius: 20px; overflow: hidden; box-shadow: 0 20px 40px rgba(0, 0, 0, 0.75);" cellspacing="0" cellpadding="0">
+          <!-- Mission Orbit Purple Header -->
           <tr>
-            <td style="padding: 35px 30px 20px; text-align: center; background-color: #0d1322; border-bottom: 1px solid #1e293b;">
-              <span style="font-size: 13px; font-weight: 700; letter-spacing: 3px; color: #38bdf8; text-transform: uppercase;">SPACEPOINT CELEBRATION</span>
-              <h1 style="margin: 12px 0 6px; font-size: 26px; font-weight: 800; color: #ffffff; letter-spacing: -0.5px;">Your Birthday Cosmic View</h1>
-              <p style="margin: 0; font-size: 15px; color: #94a3b8;">Wishing you another incredible orbit around the Sun!</p>
+            <td style="padding: 34px 30px 24px; text-align: left; background: radial-gradient(circle at 85% 15%, rgba(139, 92, 246, 0.3) 0%, rgba(12, 7, 30, 1) 75%); border-bottom: 1px solid rgba(168, 85, 247, 0.25);">
+              <div style="margin-bottom: 12px;">
+                <span style="font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size: 11px; font-weight: 700; letter-spacing: 2px; color: #a78bfa; text-transform: uppercase;">
+                  [ TRANSMISSION // SP-ORBIT-LOG ]
+                </span>
+              </div>
+              <h1 style="margin: 0 0 8px; font-size: 21px; font-weight: 800; color: #ffffff; letter-spacing: -0.3px; line-height: 1.3;">
+                Happy Orbit Completion, {first_name}! <span style="white-space: nowrap;">🎂🚀</span>
+              </h1>
+              <p style="margin: 0; font-size: 13.5px; color: #c4b5fd; line-height: 1.5;">
+                SpacePoint Mission Control has logged another successful solar revolution around the Sun.
+              </p>
             </td>
           </tr>
 
           <!-- Intro -->
           <tr>
-            <td style="padding: 28px 32px 16px;">
-              <p style="margin: 0 0 16px; font-size: 15px; line-height: 1.6; color: #cbd5e1;">
-                <strong style="color: #ffffff;">Hello {first_name}</strong> — Here is a photo that was captured in space on your birthday back in <strong style="color: #38bdf8;">{year}</strong>:
+            <td style="padding: 26px 30px 16px;">
+              <p style="margin: 0; font-size: 14.5px; line-height: 1.6; color: #e2e8f0;">
+                A view captured from space on your <span style="white-space: nowrap;">birthday in <strong style="color: #c084fc;">{year}</strong>:</span>
               </p>
             </td>
           </tr>
 
           <!-- NASA APOD Card -->
           <tr>
-            <td style="padding: 0 32px 24px;">
-              <div style="background-color: #090d16; border: 1px solid #334155; border-radius: 14px; overflow: hidden;">
-                <img src="{image_url}" alt="{title}" style="width: 100%; max-height: 380px; object-fit: cover; display: block; border-bottom: 1px solid #1e293b;" />
-                <div style="padding: 20px;">
-                  <span style="display: inline-block; font-size: 11px; font-weight: 700; color: #38bdf8; background-color: rgba(56, 189, 248, 0.1); border: 1px solid rgba(56, 189, 248, 0.3); padding: 3px 8px; border-radius: 6px; margin-bottom: 8px;">NASA APOD ARCHIVE • {year}</span>
-                  <h3 style="margin: 0 0 10px; font-size: 18px; color: #f8fafc; font-weight: 700;">{title}</h3>
-                  <p style="margin: 0 0 12px; font-size: 13.5px; line-height: 1.6; color: #94a3b8;">{concise_explanation}</p>
-                  <div style="font-size: 12px; color: #64748b; border-top: 1px solid rgba(255, 255, 255, 0.08); padding-top: 10px;">
-                    <span>Reference: </span>
-                    <a href="{apod_url}" target="_blank" style="color: #38bdf8; text-decoration: none; font-weight: 500;">
+            <td style="padding: 0 30px 24px;">
+              <div style="background-color: #070312; border: 1px solid rgba(168, 85, 247, 0.25); border-radius: 14px; overflow: hidden;">
+                <img src="{image_url}" alt="{title}" style="width: 100%; max-height: 340px; object-fit: cover; display: block; border-bottom: 1px solid rgba(168, 85, 247, 0.15);" />
+                <div style="padding: 18px 20px;">
+                  <h3 style="margin: 0 0 8px; font-size: 17px; color: #ffffff; font-weight: 700;">{title}</h3>
+                  <p style="margin: 0 0 14px; font-size: 13.5px; line-height: 1.6; color: #94a3b8;">{concise_explanation}</p>
+                  <div style="font-size: 12px; border-top: 1px solid rgba(255, 255, 255, 0.08); padding-top: 10px;">
+                    <span style="color: #64748b;">Reference: </span>
+                    <a href="{apod_url}" target="_blank" style="color: #c084fc; text-decoration: none; font-weight: 600;">
                       NASA Astronomy Picture of the Day Archive ↗
                     </a>
                   </div>
@@ -481,12 +488,16 @@ async def send_birthday_greeting_email(
             </td>
           </tr>
 
-          <!-- Motivational Closing (No portal link) -->
+          <!-- Closing & Sign-off -->
           <tr>
-            <td style="padding: 0 32px 32px;">
-              <p style="margin: 0; font-size: 14.5px; line-height: 1.6; color: #cbd5e1;">
+            <td style="padding: 0 30px 32px;">
+              <p style="margin: 0 0 20px; font-size: 14px; line-height: 1.6; color: #cbd5e1;">
                 Thank you for being an inspiring part of our SpacePoint community. May your upcoming year bring new heights, boundary-pushing discoveries, and stellar achievements!
               </p>
+              <div style="font-size: 14px; line-height: 1.6; color: #cbd5e1;">
+                Best regards,<br>
+                <strong style="color: #ffffff;">— SpacePoint Team</strong>
+              </div>
             </td>
           </tr>
         </table>
@@ -499,15 +510,17 @@ async def send_birthday_greeting_email(
 
     plain_body = (
         "SpacePoint - Your Birthday Cosmic View\n\n"
-        f"Hello {first_name},\n\n"
-        f"Wishing you a wonderful orbit around the Sun!\n\n"
-        f"Here is a photo that was captured in space on your birthday back in {year}:\n\n"
+        "[ TRANSMISSION // SP-ORBIT-LOG ]\n"
+        f"Happy Orbit Completion, {first_name}! 🎂🚀\n\n"
+        "SpacePoint Mission Control has logged another successful solar revolution around the Sun.\n\n"
+        f"A view captured from space on your birthday in {year}:\n\n"
         f"Title: {title}\n"
         f"Image: {image_url}\n\n"
         f"{concise_explanation}\n\n"
         f"Reference: {apod_url}\n\n"
-        f"Best wishes for another year of exploration and success,\n"
-        f"— SpacePoint Team\n"
+        "Thank you for being an inspiring part of our SpacePoint community. May your upcoming year bring new heights, boundary-pushing discoveries, and stellar achievements!\n\n"
+        "Best regards,\n"
+        "— SpacePoint Team\n"
     )
 
     return await try_send_email(
