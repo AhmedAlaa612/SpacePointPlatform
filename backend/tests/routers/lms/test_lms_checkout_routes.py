@@ -81,6 +81,7 @@ async def test_checkout_creates_session_for_paid_priced_course(db, client, monke
 
     create_mock.assert_awaited_once()
     assert create_mock.call_args.kwargs["allow_promotion_codes"] is True
+    assert create_mock.call_args.kwargs["automatic_tax"] == {"enabled": True}
 
     from sqlalchemy import select
     purchase = (await db.execute(

@@ -122,6 +122,7 @@ async def start_course_checkout(
         # creates/manages codes directly in the Stripe Dashboard — nothing
         # stored on our side.
         allow_promotion_codes=True,
+        automatic_tax={"enabled": True},
         line_items=[{
             "price_data": {
                 "currency": course.currency,
@@ -203,6 +204,7 @@ async def start_path_checkout(
         # creates/manages codes directly in the Stripe Dashboard — nothing
         # stored on our side.
         allow_promotion_codes=True,
+        automatic_tax={"enabled": True},
         line_items=[{
             "price_data": {
                 "currency": path.currency,
