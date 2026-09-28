@@ -12,7 +12,16 @@ from app.core.dependencies import get_current_active_user, require_admin
 from app.db.session import get_db
 from app.models.birthday_log import BirthdayEmailLog
 from app.models.user import User
-from app.schemas.birthday import BirthdayLogOut, BirthdayLogsResponse, BirthdayStatsOut, UpcomingBirthdayUser
+from app.schemas.birthday import (
+    BirthdayLogOut,
+    BirthdayLogsResponse,
+    BirthdayStatsOut,
+    BirthdayTestSendIn,
+    BirthdayTestSendOut,
+    UpcomingBirthdayUser,
+)
+from app.services.email import send_birthday_greeting_email
+from app.services.nasa_apod import get_nasa_birthday_picture
 from app.workers.tasks.birthdays import send_single_user_birthday_email
 
 router = APIRouter(tags=["admin-birthdays"])
@@ -223,6 +232,43 @@ async def retry_birthday_email(
         nasa_explanation=updated_log.nasa_explanation,
         status=updated_log.status,
         error_message=updated_log.error_message,
+    )
+
+
+@router.post("/test-send", response_model=BirthdayTestSendOut)
+async def test_send_birthday_email(
+    payload: BirthdayTestSendIn,
+    current_user: User = Depends(require_admin),
+):
+    """Dispatches a live test NASA APOD birthday greeting to the given email address.
+
+    Does NOT persist any record to birthday_email_logs, keeping website audit logs
+    and production counters completely untouched.
+    """
+    apod_data = await get_nasa_birthday_picture(payload.birthdate)
+    success = await send_birthday_greeting_email(
+        to_email=str(payload.email),
+        full_name=payload.full_name,
+        apod_data=apod_data,
+    )
+
+    if not success:
+        return BirthdayTestSendOut(
+            success=False,
+            message="SMTP delivery returned failure. Please check server SMTP configuration.",
+            recipient_email=str(payload.email),
+            nasa_title=apod_data.get("title"),
+            nasa_image_url=apod_data.get("image_url"),
+            birth_year_referenced=apod_data.get("year"),
+        )
+
+    return BirthdayTestSendOut(
+        success=True,
+        message=f"Live test birthday email successfully dispatched to {payload.email}!",
+        recipient_email=str(payload.email),
+        nasa_title=apod_data.get("title"),
+        nasa_image_url=apod_data.get("image_url"),
+        birth_year_referenced=apod_data.get("year"),
     )
 
 

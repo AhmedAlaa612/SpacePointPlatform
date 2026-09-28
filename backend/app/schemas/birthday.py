@@ -2,7 +2,22 @@ from datetime import date, datetime
 from typing import Optional
 from uuid import UUID
 
-from pydantic import BaseModel
+from pydantic import BaseModel, EmailStr
+
+
+class BirthdayTestSendIn(BaseModel):
+    email: EmailStr
+    full_name: str = "SpacePoint Explorer"
+    birthdate: date
+
+
+class BirthdayTestSendOut(BaseModel):
+    success: bool
+    message: str
+    recipient_email: str
+    nasa_title: Optional[str] = None
+    nasa_image_url: Optional[str] = None
+    birth_year_referenced: Optional[int] = None
 
 
 class UpcomingBirthdayUser(BaseModel):

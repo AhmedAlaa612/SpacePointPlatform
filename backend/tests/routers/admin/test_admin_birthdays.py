@@ -3,6 +3,7 @@ from datetime import date, datetime, timedelta, timezone
 from unittest.mock import AsyncMock, patch
 
 import pytest
+from sqlalchemy import func, select
 
 from app.core.security import create_access_token, get_password_hash
 from app.models.birthday_log import BirthdayEmailLog
@@ -121,3 +122,55 @@ async def test_admin_birthdays_logs_and_retry(db, client):
         updated = retry_resp.json()
         assert updated["status"] == "sent"
         assert updated["user_id"] == str(instructor.id)
+
+
+@pytest.mark.asyncio
+async def test_admin_birthday_test_send_does_not_log_to_db(db, client):
+    admin = User(
+        id=uuid.uuid4(),
+        full_name="Admin TestSender",
+        email=f"admin-{uuid.uuid4().hex[:6]}@example.com",
+        password_hash=get_password_hash("pass"),
+        roles=["admin"],
+        status="active",
+    )
+    db.add(admin)
+    await db.flush()
+
+    headers = {"Authorization": f"Bearer {create_access_token(admin.id, ['admin'])}"}
+
+    # Count logs before
+    initial_log_count = await db.scalar(select(func.count(BirthdayEmailLog.id))) or 0
+
+    with patch("app.routers.admin.birthdays.send_birthday_greeting_email", new_callable=AsyncMock) as mock_send, \
+         patch("app.routers.admin.birthdays.get_nasa_birthday_picture", new_callable=AsyncMock) as mock_apod:
+        mock_send.return_value = True
+        mock_apod.return_value = {
+            "title": "Cosmic Wonder",
+            "year": 2012,
+            "image_url": "https://example.com/wonder.jpg",
+            "explanation": "Stunning stars",
+        }
+
+        payload = {
+            "email": "mytest@example.com",
+            "full_name": "My Personal Test",
+            "birthdate": "2000-09-30",
+        }
+
+        resp = await client.post("/admin/birthdays/test-send", json=payload, headers=headers)
+        assert resp.status_code == 200, resp.text
+        data = resp.json()
+        assert data["success"] is True
+        assert data["recipient_email"] == "mytest@example.com"
+        assert data["nasa_title"] == "Cosmic Wonder"
+
+        mock_send.assert_called_once()
+        _, kwargs = mock_send.call_args
+        assert kwargs["to_email"] == "mytest@example.com"
+        assert kwargs["full_name"] == "My Personal Test"
+
+    # Count logs after: MUST REMAIN UNCHANGED
+    after_log_count = await db.scalar(select(func.count(BirthdayEmailLog.id))) or 0
+    assert after_log_count == initial_log_count
+

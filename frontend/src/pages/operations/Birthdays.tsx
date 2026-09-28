@@ -14,6 +14,7 @@ import {
   Image as ImageIcon,
   X,
   Clock,
+  Loader2,
 } from "lucide-react"
 
 import {
@@ -21,7 +22,9 @@ import {
   getBirthdayLogsApi,
   retryBirthdayEmailApi,
   getBirthdayStatsApi,
+  testSendBirthdayEmailApi,
   type BirthdayEmailLog,
+  type BirthdayTestSendOut,
 } from "@/api/birthdays"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
@@ -38,6 +41,13 @@ export default function Birthdays() {
   const [selectedLog, setSelectedLog] = useState<BirthdayEmailLog | null>(null)
   const [actionSuccess, setActionSuccess] = useState<string | null>(null)
   const [actionError, setActionError] = useState<string | null>(null)
+
+  // Test email send state
+  const [testModalOpen, setTestModalOpen] = useState(false)
+  const [testEmail, setTestEmail] = useState("")
+  const [testName, setTestName] = useState("")
+  const [testBirthdate, setTestBirthdate] = useState(new Date().toISOString().split("T")[0])
+  const [testResult, setTestResult] = useState<BirthdayTestSendOut | null>(null)
 
   // 1. Stats query
   const { data: stats, isLoading: statsLoading } = useQuery({
@@ -89,6 +99,28 @@ export default function Birthdays() {
     },
   })
 
+  // 6. Test Send mutation (Direct NASA APOD email dispatch without DB logging)
+  const testSendMutation = useMutation({
+    mutationFn: () =>
+      testSendBirthdayEmailApi({
+        email: testEmail.trim(),
+        full_name: testName.trim() || "SpacePoint Explorer",
+        birthdate: testBirthdate,
+      }),
+    onSuccess: (data) => {
+      setTestResult(data)
+    },
+    onError: (err: any) => {
+      setTestResult({
+        success: false,
+        message:
+          err?.response?.data?.detail ||
+          "Failed to dispatch test birthday email. Please verify SMTP credentials.",
+        recipient_email: testEmail,
+      })
+    },
+  })
+
   // Filtered upcoming users based on search
   const filteredUpcoming = upcomingUsers.filter((u) => {
     const q = searchQuery.toLowerCase().trim()
@@ -121,6 +153,19 @@ export default function Birthdays() {
         </div>
 
         <div className="flex items-center gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => {
+              setTestResult(null)
+              setTestModalOpen(true)
+            }}
+            className="h-9 gap-1.5 text-xs rounded-xl border-purple-500/30 text-purple-300 hover:bg-purple-500/10 hover:text-purple-200"
+          >
+            <Send size={13} />
+            Send Test Email
+          </Button>
+
           <Button
             variant="outline"
             size="sm"
@@ -747,6 +792,170 @@ export default function Birthdays() {
           </div>
         </div>
       )}
+      {/* ── Test Send Email Modal ────────────────────────────── */}
+      {testModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-background/80 backdrop-blur-md animate-in fade-in">
+          <div
+            className="relative w-full max-w-lg bg-card border border-border/80 rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh]"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Header */}
+            <div className="flex items-center justify-between p-5 border-b border-border/60 bg-muted/20">
+              <div className="flex items-center gap-2.5">
+                <span className="p-2 rounded-xl bg-purple-500/15 text-purple-400 border border-purple-500/25">
+                  <Sparkles size={18} />
+                </span>
+                <div>
+                  <h2 className="text-base font-semibold text-foreground">
+                    Send Live Test Birthday Email
+                  </h2>
+                  <p className="text-xs text-muted-foreground">
+                    Test the complete NASA APOD greeting pipeline in real time
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => setTestModalOpen(false)}
+                className="p-1.5 rounded-lg text-muted-foreground hover:bg-muted transition-colors shrink-0"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            {/* Content */}
+            <div className="overflow-y-auto p-5 sm:p-6 flex flex-col gap-4">
+              <div className="p-3.5 rounded-xl bg-purple-500/10 border border-purple-500/20 text-xs text-purple-300 leading-relaxed">
+                <div className="font-semibold flex items-center gap-1.5 mb-1">
+                  <span>🛡️</span> Zero Production Log Impact
+                </div>
+                This test directly calls NASA&apos;s APOD archive and sends a real email to your inbox, but <strong>never saves to the database logs table</strong>. Your production audit trail and dispatch counters remain completely untouched.
+              </div>
+
+              {testResult && (
+                <div
+                  className={`p-4 rounded-xl border text-xs flex flex-col gap-2 ${
+                    testResult.success
+                      ? "bg-emerald-500/10 border-emerald-500/25 text-emerald-300"
+                      : "bg-rose-500/10 border-rose-500/25 text-rose-300"
+                  }`}
+                >
+                  <div className="flex items-center gap-2 font-semibold text-sm">
+                    {testResult.success ? (
+                      <>
+                        <CheckCircle2 size={16} className="text-emerald-400" />
+                        <span>Email Sent Successfully!</span>
+                      </>
+                    ) : (
+                      <>
+                        <AlertTriangle size={16} className="text-rose-400" />
+                        <span>Dispatch Failed</span>
+                      </>
+                    )}
+                  </div>
+                  <p className="leading-relaxed">{testResult.message}</p>
+
+                  {testResult.nasa_title && (
+                    <div className="mt-2 p-2.5 rounded-lg bg-black/40 border border-white/10 flex items-center gap-3">
+                      {testResult.nasa_image_url && (
+                        <img
+                          src={testResult.nasa_image_url}
+                          alt={testResult.nasa_title}
+                          className="w-12 h-12 rounded-md object-cover border border-white/10 shrink-0"
+                        />
+                      )}
+                      <div className="min-w-0">
+                        <span className="text-[10px] uppercase font-semibold text-purple-400 block">
+                          NASA APOD Archive ({testResult.birth_year_referenced || "Historical Year"})
+                        </span>
+                        <span className="font-medium text-foreground truncate block">
+                          {testResult.nasa_title}
+                        </span>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              <div className="flex flex-col gap-3 text-xs">
+                <div className="flex flex-col gap-1.5">
+                  <label className="font-medium text-foreground">
+                    Recipient Email Address <span className="text-rose-400">*</span>
+                  </label>
+                  <input
+                    type="email"
+                    required
+                    placeholder="e.g. ahmed@spacepoint.org"
+                    value={testEmail}
+                    onChange={(e) => setTestEmail(e.target.value)}
+                    className="w-full px-3 py-2 rounded-xl bg-background border border-border/80 text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-purple-500/30 text-xs"
+                  />
+                </div>
+
+                <div className="flex flex-col gap-1.5">
+                  <label className="font-medium text-foreground">Recipient First / Full Name</label>
+                  <input
+                    type="text"
+                    placeholder="e.g. Ahmed"
+                    value={testName}
+                    onChange={(e) => setTestName(e.target.value)}
+                    className="w-full px-3 py-2 rounded-xl bg-background border border-border/80 text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-purple-500/30 text-xs"
+                  />
+                  <span className="text-[11px] text-muted-foreground">
+                    Greeting will use the first name (e.g. &quot;Happy Birthday, Ahmed!&quot;)
+                  </span>
+                </div>
+
+                <div className="flex flex-col gap-1.5">
+                  <label className="font-medium text-foreground">
+                    Test Birth Date <span className="text-rose-400">*</span>
+                  </label>
+                  <input
+                    type="date"
+                    required
+                    value={testBirthdate}
+                    onChange={(e) => setTestBirthdate(e.target.value)}
+                    className="w-full px-3 py-2 rounded-xl bg-background border border-border/80 text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-purple-500/30 text-xs"
+                  />
+                  <span className="text-[11px] text-muted-foreground">
+                    Determines which historical date is pulled from NASA APOD archives (1995–today).
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            {/* Footer */}
+            <div className="p-4 border-t border-border/60 bg-muted/10 flex items-center justify-end gap-2.5">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setTestModalOpen(false)}
+                className="h-8 text-xs rounded-lg"
+              >
+                Close
+              </Button>
+              <Button
+                size="sm"
+                disabled={!testEmail.trim() || !testBirthdate || testSendMutation.isPending}
+                onClick={() => testSendMutation.mutate()}
+                className="h-8 text-xs rounded-lg bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white gap-1.5 shadow-sm"
+              >
+                {testSendMutation.isPending ? (
+                  <>
+                    <Loader2 size={13} className="animate-spin" />
+                    Sending Test Email...
+                  </>
+                ) : (
+                  <>
+                    <Send size={13} />
+                    Send Test Email
+                  </>
+                )}
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
+

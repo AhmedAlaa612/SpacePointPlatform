@@ -57,3 +57,22 @@ export const retryBirthdayEmailApi = (logIdOrUserId: string) =>
 
 export const getBirthdayStatsApi = () =>
   api.get<BirthdayStats>("/admin/birthdays/stats").then((r) => r.data)
+
+export interface BirthdayTestSendIn {
+  email: string
+  full_name?: string
+  birthdate: string
+}
+
+export interface BirthdayTestSendOut {
+  success: boolean
+  message: string
+  recipient_email: string
+  nasa_title?: string | null
+  nasa_image_url?: string | null
+  birth_year_referenced?: number | null
+}
+
+export const testSendBirthdayEmailApi = (payload: BirthdayTestSendIn) =>
+  api.post<BirthdayTestSendOut>("/admin/birthdays/test-send", payload).then((r) => r.data)
+
