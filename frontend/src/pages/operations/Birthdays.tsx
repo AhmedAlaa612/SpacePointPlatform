@@ -1,7 +1,6 @@
 import { useState } from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import {
-  Calendar,
   Send,
   AlertTriangle,
   CheckCircle2,
@@ -9,10 +8,8 @@ import {
   Search,
   ChevronLeft,
   ChevronRight,
-  Cake,
   Image as ImageIcon,
   X,
-  Clock,
   Loader2,
 } from "lucide-react"
 
@@ -136,19 +133,12 @@ export default function Birthdays() {
       {/* ── Header ────────────────────────────────────────── */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <div className="flex items-center gap-2.5">
-            <span className="p-2.5 rounded-2xl bg-muted/60 text-foreground border border-border/60">
-              <Cake size={24} />
-            </span>
-            <div>
-              <h1 className="text-2xl font-bold font-display tracking-tight text-foreground flex items-center gap-2">
-                Birthday Celebrations
-              </h1>
-              <p className="text-xs text-muted-foreground mt-0.5">
-                Automated cosmic birthday greetings with personalized historical NASA Astronomy Pictures of the Day
-              </p>
-            </div>
-          </div>
+          <h1 className="text-2xl font-bold font-display tracking-tight text-foreground">
+            Birthday Celebrations
+          </h1>
+          <p className="text-xs text-muted-foreground mt-0.5">
+            Automated cosmic birthday greetings with personalized historical NASA Astronomy Pictures of the Day
+          </p>
         </div>
 
         <div className="flex items-center gap-2">
@@ -285,7 +275,6 @@ export default function Birthdays() {
               : "border-transparent text-muted-foreground hover:text-foreground"
           }`}
         >
-          <Calendar size={15} />
           Upcoming Celebrations
           {upcomingUsers.length > 0 && (
             <span className="text-[10px] px-2 py-0.5 rounded-full bg-primary/10 text-primary font-mono">
@@ -302,7 +291,6 @@ export default function Birthdays() {
               : "border-transparent text-muted-foreground hover:text-foreground"
           }`}
         >
-          <Clock size={15} />
           Dispatch Audit & Delivery Logs
           {(stats?.failed_count ?? 0) > 0 && (
             <span
@@ -358,7 +346,6 @@ export default function Birthdays() {
             </div>
           ) : filteredUpcoming.length === 0 ? (
             <div className="py-16 text-center rounded-2xl border border-dashed border-border p-6 bg-card/20">
-              <Cake size={36} className="mx-auto text-muted-foreground/40 mb-3" />
               <p className="text-sm font-medium text-foreground">No upcoming birthdays in this time window</p>
               <p className="text-xs text-muted-foreground mt-1 max-w-sm mx-auto">
                 Try widening your lookahead filter to 30 or 90 days, or check that students and instructors have filled in their birthdates in their profiles.
@@ -430,7 +417,7 @@ export default function Birthdays() {
                           <td className="py-3 px-4 whitespace-nowrap">
                             {isToday ? (
                               <span className="inline-flex items-center gap-1.5 text-xs font-bold px-2.5 py-1 rounded-md bg-primary/10 text-primary border border-primary/25">
-                                🎉 Today!
+                                Today!
                               </span>
                             ) : isTomorrow ? (
                               <span className="inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1 rounded-md bg-muted text-foreground border border-border">
@@ -438,7 +425,6 @@ export default function Birthdays() {
                               </span>
                             ) : (
                               <span className="inline-flex items-center gap-1.5 text-xs font-medium px-2.5 py-1 rounded-md bg-muted/60 text-muted-foreground border border-border/50">
-                                <Clock size={12} />
                                 In {u.days_until} days
                               </span>
                             )}
@@ -523,7 +509,6 @@ export default function Birthdays() {
             </div>
           ) : !logsData || logsData.items.length === 0 ? (
             <div className="py-16 text-center rounded-2xl border border-dashed border-border p-6 bg-card/20">
-              <Clock size={36} className="mx-auto text-muted-foreground/40 mb-3" />
               <p className="text-sm font-medium text-foreground">No birthday email logs found</p>
               <p className="text-xs text-muted-foreground mt-1">
                 Automated logs will accumulate here as daily background jobs or manual dispatches execute.
@@ -769,7 +754,6 @@ export default function Birthdays() {
                   </span>
                   {selectedLog.user_birthdate && (
                     <span className="text-foreground font-semibold flex items-center gap-1.5">
-                      <span>🎂</span>
                       Birth Date: {new Date(selectedLog.user_birthdate).toLocaleDateString(undefined, {
                         year: "numeric",
                         month: "long",

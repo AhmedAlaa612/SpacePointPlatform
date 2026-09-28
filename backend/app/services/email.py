@@ -429,7 +429,7 @@ async def send_birthday_greeting_email(
     year = apod_data.get("year", 2022)
     apod_url = apod_data.get("apod_url") or "https://apod.nasa.gov/apod/archivepix.html"
 
-    subject = "SpacePoint - Your SpacePoint Birthday Cosmic View"
+    subject = "SpacePoint - Your Birthday Cosmic View"
 
     html_content = f"""<!DOCTYPE html>
 <html>
@@ -447,7 +447,7 @@ async def send_birthday_greeting_email(
           <tr>
             <td style="padding: 35px 30px 20px; text-align: center; background-color: #0d1322; border-bottom: 1px solid #1e293b;">
               <span style="font-size: 13px; font-weight: 700; letter-spacing: 3px; color: #38bdf8; text-transform: uppercase;">SPACEPOINT CELEBRATION</span>
-              <h1 style="margin: 12px 0 6px; font-size: 26px; font-weight: 800; color: #ffffff; letter-spacing: -0.5px;">Your SpacePoint Birthday Cosmic View</h1>
+              <h1 style="margin: 12px 0 6px; font-size: 26px; font-weight: 800; color: #ffffff; letter-spacing: -0.5px;">Your Birthday Cosmic View</h1>
               <p style="margin: 0; font-size: 15px; color: #94a3b8;">Wishing you another incredible orbit around the Sun!</p>
             </td>
           </tr>
@@ -498,7 +498,7 @@ async def send_birthday_greeting_email(
 """
 
     plain_body = (
-        "SpacePoint - Your SpacePoint Birthday Cosmic View\n\n"
+        "SpacePoint - Your Birthday Cosmic View\n\n"
         f"Hello {first_name},\n\n"
         f"Wishing you a wonderful orbit around the Sun!\n\n"
         f"Here is a photo that was captured in space on your birthday back in {year}:\n\n"
