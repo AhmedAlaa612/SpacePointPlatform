@@ -120,3 +120,39 @@ async def test_send_birthday_greeting_email_format():
         assert "Carl Sagan" not in kwargs["body"]
         assert "Here is a photo that was captured in space on your birthday back in" in kwargs["body"]
 
+
+@pytest.mark.asyncio
+async def test_nasa_apod_uses_real_key_first_and_falls_back_to_demo_key():
+    rate_limited_response = httpx.Response(
+        429,
+        json={"error": {"code": "OVER_RATE_LIMIT", "message": "Limit exceeded"}},
+        request=httpx.Request("GET", "https://api.nasa.gov/planetary/apod"),
+    )
+    success_demo_response = httpx.Response(
+        200,
+        json={
+            "media_type": "image",
+            "url": "https://apod.nasa.gov/demo_success.jpg",
+            "title": "Fallback Demo Nebula",
+            "explanation": "Loaded via DEMO_KEY fallback",
+        },
+        request=httpx.Request("GET", "https://api.nasa.gov/planetary/apod"),
+    )
+
+    with patch("httpx.AsyncClient.get", new_callable=AsyncMock) as mock_get:
+        mock_get.side_effect = [rate_limited_response, success_demo_response]
+
+        data = await get_nasa_birthday_picture(date(1999, 3, 10), api_key="MY_REAL_SECRET_KEY")
+
+        assert data["title"] == "Fallback Demo Nebula"
+        assert data["image_url"] == "https://apod.nasa.gov/demo_success.jpg"
+
+        # Verify first call used real key
+        first_call_params = mock_get.call_args_list[0].kwargs["params"]
+        assert first_call_params["api_key"] == "MY_REAL_SECRET_KEY"
+
+        # Verify second call used DEMO_KEY
+        second_call_params = mock_get.call_args_list[1].kwargs["params"]
+        assert second_call_params["api_key"] == "DEMO_KEY"
+
+
