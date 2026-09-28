@@ -280,7 +280,7 @@ export default function Birthdays() {
               <span className="text-xs text-muted-foreground font-semibold px-2 uppercase tracking-wider">
                 Lookahead:
               </span>
-              {[7, 14, 30, 60, 90].map((days) => (
+              {[7, 30].map((days) => (
                 <button
                   key={days}
                   onClick={() => setDaysFilter(days)}
