@@ -9,6 +9,7 @@ import { CountrySelect } from "@/components/ui/CountrySelect"
 import { CitySelect, useCitiesForCountry } from "@/components/ui/CitySelect"
 import { SiteFooter } from "@/components/layout/SiteFooter"
 import { PasswordInput } from "@/components/ui/PasswordInput"
+import { LanguageMultiSelect } from "@/components/ui/LanguageMultiSelect"
 import { BODY_BACKGROUND } from "@/lib/theme"
 
 /**
@@ -328,11 +329,10 @@ export default function InstructorApplyPage() {
               </div>
               <div>
                 <label className="block text-sm font-medium text-foreground mb-1">Fluent Languages</label>
-                <input
-                  className="input"
-                  placeholder="e.g. English, Arabic, French"
-                  value={form.fluent_languages}
-                  onChange={set("fluent_languages")}
+                <LanguageMultiSelect
+                  value={form.fluent_languages ? form.fluent_languages.split(",").map((s) => s.trim()).filter(Boolean) : []}
+                  onChange={(langs) => setForm((prev) => ({ ...prev, fluent_languages: langs.join(", ") }))}
+                  placeholder="Select fluent languages..."
                 />
               </div>
             </div>

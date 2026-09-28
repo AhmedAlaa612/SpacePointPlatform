@@ -19,6 +19,7 @@ import {
 } from "@/components/ui/dialog"
 import { AmbassadorCard, TeacherCard, InstructorCard, StudentCard } from "@/components/ProfileStatsCards"
 import { ImageCropModal } from "@/components/ui/ImageCropModal"
+import { LanguageMultiSelect } from "@/components/ui/LanguageMultiSelect"
 
 export default function Profile() {
   const { user, roles, activeRole, setCurrentUser } = useAuth()
@@ -44,7 +45,7 @@ export default function Profile() {
   const [deliverCityIds, setDeliverCityIds] = useState<string[]>([])
   const [nationality, setNationality] = useState("")
   const [workStatus, setWorkStatus] = useState("")
-  const [fluentLanguages, setFluentLanguages] = useState("")
+  const [fluentLanguages, setFluentLanguages] = useState<string[]>([])
   const [graduatedUniversity, setGraduatedUniversity] = useState("")
   const [saved, setSaved] = useState(false)
   const [pwOpen, setPwOpen] = useState(false)
@@ -73,7 +74,7 @@ export default function Profile() {
     if (!instructorProfile) return
     setNationality(instructorProfile.nationality ?? "")
     setWorkStatus(instructorProfile.work_status ?? "")
-    setFluentLanguages((instructorProfile.fluent_languages ?? []).join(", "))
+    setFluentLanguages(instructorProfile.fluent_languages ?? [])
     setGraduatedUniversity(instructorProfile.graduated_university ?? "")
   }, [instructorProfile])
 
@@ -111,14 +112,10 @@ export default function Profile() {
           : {}),
       })
       if (isInstructor) {
-        const langArr = fluentLanguages
-          .split(",")
-          .map((s) => s.trim())
-          .filter(Boolean)
         await updateProfileApi({
           nationality: nationality || undefined,
           work_status: workStatus || undefined,
-          fluent_languages: langArr,
+          fluent_languages: fluentLanguages,
           graduated_university: graduatedUniversity || undefined,
         })
       }
@@ -171,7 +168,7 @@ export default function Profile() {
   return (
     <div className="max-w-3xl mx-auto flex flex-col gap-8">
       {/* ── Profile card ─────────────────────────────────────── */}
-      <div className="rounded-3xl border border-white/5 bg-card/60 backdrop-blur-xl p-8 shadow-2xl">
+      <div className="relative z-20 rounded-3xl border border-white/5 bg-card/60 backdrop-blur-xl p-8 shadow-2xl">
         {/* Header */}
         <div className="flex items-center gap-6 pb-8 border-b border-white/10 mb-8">
           <div
@@ -254,9 +251,7 @@ export default function Profile() {
               </div>
             </div>
             <div>
-              <label className={labelCls}>
-                Date of Birth <span className="normal-case font-normal text-muted-foreground/60">(annual NASA greeting)</span>
-              </label>
+              <label className={labelCls}>Date of Birth</label>
               <input
                 type="date"
                 value={birthdate}
@@ -390,14 +385,11 @@ export default function Profile() {
                   />
                 </div>
                 <div>
-                  <label className={labelCls}>
-                    Fluent Languages <span className="normal-case font-normal text-muted-foreground/60">(comma separated)</span>
-                  </label>
-                  <input
+                  <label className={labelCls}>Fluent Languages</label>
+                  <LanguageMultiSelect
                     value={fluentLanguages}
-                    onChange={(e) => setFluentLanguages(e.target.value)}
-                    placeholder="e.g. English, Arabic, French"
-                    className={inputCls}
+                    onChange={setFluentLanguages}
+                    placeholder="Select fluent languages..."
                   />
                 </div>
               </div>
