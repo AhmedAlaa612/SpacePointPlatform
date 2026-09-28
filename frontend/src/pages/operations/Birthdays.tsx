@@ -111,7 +111,7 @@ export default function Birthdays() {
             </span>
             <div>
               <h1 className="text-2xl font-bold font-display tracking-tight text-foreground flex items-center gap-2">
-                Birthday Celebrations & NASA APOD Hub
+                Birthday Celebrations
               </h1>
               <p className="text-xs text-muted-foreground mt-0.5">
                 Automated cosmic birthday greetings with personalized historical NASA Astronomy Pictures of the Day
