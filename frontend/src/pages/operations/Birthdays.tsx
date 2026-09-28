@@ -364,7 +364,7 @@ export default function Birthdays() {
                               {u.roles.map((r) => (
                                 <span
                                   key={r}
-                                  className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${
+                                  className={`text-[10px] font-semibold px-2 py-0.5 rounded-md ${
                                     ROLE_BADGE[r] ?? "bg-muted text-foreground"
                                   }`}
                                 >
@@ -375,7 +375,7 @@ export default function Birthdays() {
                           </td>
 
                           {/* Birthdate */}
-                          <td className="py-3 px-4 font-mono text-xs text-foreground">
+                          <td className="py-3 px-4 font-mono text-xs text-foreground whitespace-nowrap">
                             {new Date(u.birthdate).toLocaleDateString(undefined, {
                               month: "short",
                               day: "numeric",
@@ -383,18 +383,18 @@ export default function Birthdays() {
                           </td>
 
                           {/* Countdown Tag */}
-                          <td className="py-3 px-4">
+                          <td className="py-3 px-4 whitespace-nowrap">
                             {isToday ? (
-                              <span className="inline-flex items-center gap-1 text-xs font-bold px-2.5 py-0.5 rounded-full bg-purple-500/20 text-purple-300 border border-purple-500/40 animate-pulse">
+                              <span className="inline-flex items-center gap-1.5 text-xs font-bold px-2.5 py-1 rounded-md bg-purple-500/20 text-purple-300 border border-purple-500/40 animate-pulse">
                                 🎉 Today!
                               </span>
                             ) : isTomorrow ? (
-                              <span className="inline-flex items-center gap-1 text-xs font-semibold px-2.5 py-0.5 rounded-full bg-indigo-500/15 text-indigo-300 border border-indigo-500/30">
+                              <span className="inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1 rounded-md bg-indigo-500/15 text-indigo-300 border border-indigo-500/30">
                                 Tomorrow
                               </span>
                             ) : (
-                              <span className="inline-flex items-center gap-1 text-xs font-medium px-2 py-0.5 rounded-full bg-muted text-muted-foreground">
-                                <Clock size={11} />
+                              <span className="inline-flex items-center gap-1.5 text-xs font-medium px-2.5 py-1 rounded-md bg-muted/60 text-muted-foreground border border-border/50">
+                                <Clock size={12} />
                                 In {u.days_until} days
                               </span>
                             )}
@@ -511,7 +511,7 @@ export default function Birthdays() {
                               {log.user_roles.map((r) => (
                                 <span
                                   key={r}
-                                  className={`text-[9px] font-semibold px-1.5 py-0.5 rounded-full ${
+                                  className={`text-[9px] font-semibold px-1.5 py-0.5 rounded-md ${
                                     ROLE_BADGE[r] ?? "bg-muted text-foreground"
                                   }`}
                                 >
@@ -596,20 +596,20 @@ export default function Birthdays() {
                         {/* Status */}
                         <td className="py-4 px-4 whitespace-nowrap">
                           {log.status === "sent" ? (
-                            <span className="inline-flex items-center gap-1 text-xs font-semibold px-2.5 py-1 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/25">
+                            <span className="inline-flex items-center gap-1 text-xs font-semibold px-2.5 py-1 rounded-md bg-emerald-500/10 text-emerald-400 border border-emerald-500/25">
                               <CheckCircle2 size={12} />
                               Sent
                             </span>
                           ) : log.status === "failed" ? (
                             <span
-                              className="inline-flex items-center gap-1 text-xs font-semibold px-2.5 py-1 rounded-full bg-rose-500/10 text-rose-400 border border-rose-500/25"
+                              className="inline-flex items-center gap-1 text-xs font-semibold px-2.5 py-1 rounded-md bg-rose-500/10 text-rose-400 border border-rose-500/25"
                               title={log.error_message || "Failed"}
                             >
                               <AlertTriangle size={12} />
                               Failed
                             </span>
                           ) : (
-                            <span className="text-xs font-medium px-2.5 py-1 rounded-full bg-muted text-muted-foreground">
+                            <span className="text-xs font-medium px-2.5 py-1 rounded-md bg-muted text-muted-foreground">
                               {log.status}
                             </span>
                           )}
