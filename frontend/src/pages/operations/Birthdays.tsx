@@ -2,7 +2,6 @@ import { useState } from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import {
   Calendar,
-  Sparkles,
   Send,
   AlertTriangle,
   CheckCircle2,
@@ -138,7 +137,7 @@ export default function Birthdays() {
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <div className="flex items-center gap-2.5">
-            <span className="p-2.5 rounded-2xl bg-gradient-to-tr from-purple-500/20 to-indigo-500/20 text-purple-400 border border-purple-500/30">
+            <span className="p-2.5 rounded-2xl bg-muted/60 text-foreground border border-border/60">
               <Cake size={24} />
             </span>
             <div>
@@ -160,7 +159,7 @@ export default function Birthdays() {
               setTestResult(null)
               setTestModalOpen(true)
             }}
-            className="h-9 gap-1.5 text-xs rounded-xl border-purple-500/30 text-purple-300 hover:bg-purple-500/10 hover:text-purple-200"
+            className="h-9 gap-1.5 text-xs rounded-xl"
           >
             <Send size={13} />
             Send Test Email
@@ -233,10 +232,10 @@ export default function Birthdays() {
               Next 7 Days
             </span>
             <div className="mt-2 flex items-baseline gap-1.5">
-              <span className="text-2xl font-bold font-display text-purple-400">
+              <span className="text-2xl font-bold font-display text-foreground">
                 {statsLoading ? "—" : stats?.upcoming_7_days ?? 0}
               </span>
-              <span className="text-xs text-purple-400/70">celebrations</span>
+              <span className="text-xs text-muted-foreground">celebrations</span>
             </div>
           </CardContent>
         </Card>
@@ -247,10 +246,10 @@ export default function Birthdays() {
               Next 30 Days
             </span>
             <div className="mt-2 flex items-baseline gap-1.5">
-              <span className="text-2xl font-bold font-display text-indigo-400">
+              <span className="text-2xl font-bold font-display text-foreground">
                 {statsLoading ? "—" : stats?.upcoming_30_days ?? 0}
               </span>
-              <span className="text-xs text-indigo-400/70">celebrations</span>
+              <span className="text-xs text-muted-foreground">celebrations</span>
             </div>
           </CardContent>
         </Card>
@@ -303,7 +302,7 @@ export default function Birthdays() {
               : "border-transparent text-muted-foreground hover:text-foreground"
           }`}
         >
-          <Sparkles size={15} />
+          <Clock size={15} />
           Dispatch Audit & Delivery Logs
           {(stats?.failed_count ?? 0) > 0 && (
             <span
@@ -385,7 +384,7 @@ export default function Birthdays() {
                       const isTomorrow = u.days_until === 1
 
                       return (
-                        <tr key={u.id} className={`hover:bg-muted/30 transition-colors ${isToday ? "bg-purple-500/5" : ""}`}>
+                        <tr key={u.id} className={`hover:bg-muted/30 transition-colors ${isToday ? "bg-primary/5" : ""}`}>
                           {/* User */}
                           <td className="py-3 px-4">
                             <div className="flex items-center gap-3">
@@ -430,11 +429,11 @@ export default function Birthdays() {
                           {/* Countdown Tag */}
                           <td className="py-3 px-4 whitespace-nowrap">
                             {isToday ? (
-                              <span className="inline-flex items-center gap-1.5 text-xs font-bold px-2.5 py-1 rounded-md bg-purple-500/20 text-purple-300 border border-purple-500/40 animate-pulse">
+                              <span className="inline-flex items-center gap-1.5 text-xs font-bold px-2.5 py-1 rounded-md bg-primary/10 text-primary border border-primary/25">
                                 🎉 Today!
                               </span>
                             ) : isTomorrow ? (
-                              <span className="inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1 rounded-md bg-indigo-500/15 text-indigo-300 border border-indigo-500/30">
+                              <span className="inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1 rounded-md bg-muted text-foreground border border-border">
                                 Tomorrow
                               </span>
                             ) : (
@@ -466,7 +465,7 @@ export default function Birthdays() {
                               variant="outline"
                               disabled={retryMutation.isPending}
                               onClick={() => retryMutation.mutate(u.id)}
-                              className="h-8 text-xs gap-1.5 rounded-xl border-purple-500/30 text-purple-300 hover:bg-purple-500/10"
+                              className="h-8 text-xs gap-1.5 rounded-xl"
                               title="Send or preview APOD birthday greeting now"
                             >
                               <Send size={12} />
@@ -524,7 +523,7 @@ export default function Birthdays() {
             </div>
           ) : !logsData || logsData.items.length === 0 ? (
             <div className="py-16 text-center rounded-2xl border border-dashed border-border p-6 bg-card/20">
-              <Sparkles size={36} className="mx-auto text-muted-foreground/40 mb-3" />
+              <Clock size={36} className="mx-auto text-muted-foreground/40 mb-3" />
               <p className="text-sm font-medium text-foreground">No birthday email logs found</p>
               <p className="text-xs text-muted-foreground mt-1">
                 Automated logs will accumulate here as daily background jobs or manual dispatches execute.
@@ -769,7 +768,7 @@ export default function Birthdays() {
                     Recipient: <strong className="text-foreground">{selectedLog.user_full_name}</strong> ({selectedLog.user_email})
                   </span>
                   {selectedLog.user_birthdate && (
-                    <span className="text-purple-400 font-semibold flex items-center gap-1.5">
+                    <span className="text-foreground font-semibold flex items-center gap-1.5">
                       <span>🎂</span>
                       Birth Date: {new Date(selectedLog.user_birthdate).toLocaleDateString(undefined, {
                         year: "numeric",
@@ -801,18 +800,13 @@ export default function Birthdays() {
           >
             {/* Header */}
             <div className="flex items-center justify-between p-5 border-b border-border/60 bg-muted/20">
-              <div className="flex items-center gap-2.5">
-                <span className="p-2 rounded-xl bg-purple-500/15 text-purple-400 border border-purple-500/25">
-                  <Sparkles size={18} />
-                </span>
-                <div>
-                  <h2 className="text-base font-semibold text-foreground">
-                    Send Live Test Birthday Email
-                  </h2>
-                  <p className="text-xs text-muted-foreground">
-                    Test the complete NASA APOD greeting pipeline in real time
-                  </p>
-                </div>
+              <div>
+                <h2 className="text-base font-semibold text-foreground">
+                  Send Live Test Birthday Email
+                </h2>
+                <p className="text-xs text-muted-foreground">
+                  Test the complete NASA APOD greeting pipeline in real time
+                </p>
               </div>
               <button
                 onClick={() => setTestModalOpen(false)}
@@ -824,13 +818,6 @@ export default function Birthdays() {
 
             {/* Content */}
             <div className="overflow-y-auto p-5 sm:p-6 flex flex-col gap-4">
-              <div className="p-3.5 rounded-xl bg-purple-500/10 border border-purple-500/20 text-xs text-purple-300 leading-relaxed">
-                <div className="font-semibold flex items-center gap-1.5 mb-1">
-                  <span>🛡️</span> Zero Production Log Impact
-                </div>
-                This test directly calls NASA&apos;s APOD archive and sends a real email to your inbox, but <strong>never saves to the database logs table</strong>. Your production audit trail and dispatch counters remain completely untouched.
-              </div>
-
               {testResult && (
                 <div
                   className={`p-4 rounded-xl border text-xs flex flex-col gap-2 ${
@@ -864,7 +851,7 @@ export default function Birthdays() {
                         />
                       )}
                       <div className="min-w-0">
-                        <span className="text-[10px] uppercase font-semibold text-purple-400 block">
+                        <span className="text-[10px] uppercase font-semibold text-muted-foreground block">
                           NASA APOD Archive ({testResult.birth_year_referenced || "Historical Year"})
                         </span>
                         <span className="font-medium text-foreground truncate block">
@@ -887,7 +874,7 @@ export default function Birthdays() {
                     placeholder="e.g. ahmed@spacepoint.org"
                     value={testEmail}
                     onChange={(e) => setTestEmail(e.target.value)}
-                    className="w-full px-3 py-2 rounded-xl bg-background border border-border/80 text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-purple-500/30 text-xs"
+                    className="w-full px-3 py-2 rounded-xl bg-background border border-border/80 text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring/30 text-xs"
                   />
                 </div>
 
@@ -898,7 +885,7 @@ export default function Birthdays() {
                     placeholder="e.g. Ahmed"
                     value={testName}
                     onChange={(e) => setTestName(e.target.value)}
-                    className="w-full px-3 py-2 rounded-xl bg-background border border-border/80 text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-purple-500/30 text-xs"
+                    className="w-full px-3 py-2 rounded-xl bg-background border border-border/80 text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring/30 text-xs"
                   />
                   <span className="text-[11px] text-muted-foreground">
                     Greeting will use the first name (e.g. &quot;Happy Birthday, Ahmed!&quot;)
@@ -914,7 +901,7 @@ export default function Birthdays() {
                     required
                     value={testBirthdate}
                     onChange={(e) => setTestBirthdate(e.target.value)}
-                    className="w-full px-3 py-2 rounded-xl bg-background border border-border/80 text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-purple-500/30 text-xs"
+                    className="w-full px-3 py-2 rounded-xl bg-background border border-border/80 text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring/30 text-xs"
                   />
                   <span className="text-[11px] text-muted-foreground">
                     Determines which historical date is pulled from NASA APOD archives (1995–today).
@@ -937,7 +924,7 @@ export default function Birthdays() {
                 size="sm"
                 disabled={!testEmail.trim() || !testBirthdate || testSendMutation.isPending}
                 onClick={() => testSendMutation.mutate()}
-                className="h-8 text-xs rounded-lg bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white gap-1.5 shadow-sm"
+                className="h-8 text-xs rounded-lg gap-1.5"
               >
                 {testSendMutation.isPending ? (
                   <>

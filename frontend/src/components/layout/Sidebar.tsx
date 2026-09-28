@@ -225,7 +225,6 @@ function getNavItems(pathname: string, activeRole: Role | null): NavItem[] {
       mk("Learn", "/learn"),
       mk("Sessions Calendar", "/operations/calendar"),
       mk("Ground Station Devices", "/operations/ground-station-devices"),
-      mk("Birthdays", "/operations/birthdays"),
     ];
   }
   if (pathname.startsWith("/admin")) {
@@ -235,6 +234,7 @@ function getNavItems(pathname: string, activeRole: Role | null): NavItem[] {
       mk("Documents", "/admin/documents"),
       mk("Applications", "/admin/applications"),
       mk("Role Requests", "/admin/role-requests"),
+      mk("Birthdays", "/admin/birthdays"),
       mk("Learn", "/learn"),
       mk("Settings", "/admin/settings"),
       // I0-1: admin previously had NO navigational path into the registration/
@@ -426,6 +426,7 @@ function getNavItems(pathname: string, activeRole: Role | null): NavItem[] {
       mk("Documents", "/admin/documents"),
       mk("Applications", "/admin/applications"),
       mk("Role Requests", "/admin/role-requests"),
+      mk("Birthdays", "/admin/birthdays"),
       LMS_GROUP,
       mk("Learn", "/learn"),
       mk("Settings", "/admin/settings"),
@@ -441,7 +442,6 @@ function getNavItems(pathname: string, activeRole: Role | null): NavItem[] {
       mk("Learn", "/learn"),
       mk("Sessions Calendar", "/operations/calendar"),
       mk("Ground Station Devices", "/operations/ground-station-devices"),
-      mk("Birthdays", "/operations/birthdays"),
     ];
   }
   if (activeRole === "storekeeper") {

@@ -645,6 +645,13 @@ const adminRoleRequestsRoute = createRoute({
   component: AdminRoleRequests,
 });
 
+const adminBirthdaysRoute = createRoute({
+  getParentRoute: () => authLayoutRoute,
+  path: "/admin/birthdays",
+  beforeLoad: requireAdminRole,
+  component: Birthdays,
+});
+
 /**
  * Legacy `/admin/*` aliases for pages that live in the operations domain.
  * S6-2 created `/operations/*` but left these behind pointing at the same
@@ -748,7 +755,13 @@ const operationsRoutes = [
   createRoute({ getParentRoute: po, path: "/inventory/fulfilment", component: InventoryFulfilment }),
   createRoute({ getParentRoute: po, path: "/delivery-settings", component: DeliverySettings }),
   createRoute({ getParentRoute: po, path: "/ground-station-devices", component: GroundStationDevices }),
-  createRoute({ getParentRoute: po, path: "/birthdays", component: Birthdays }),
+  createRoute({
+    getParentRoute: po,
+    path: "/birthdays",
+    beforeLoad: () => {
+      throw redirect({ to: "/admin/birthdays" });
+    },
+  }),
 ];
 
 // Judge surface (Competition domain, 2026-08-24) — a temporary, cohort-scoped
@@ -1217,6 +1230,7 @@ const routeTree = rootRoute.addChildren([
     adminDocumentsRoute,
     adminApplicationsRoute,
     adminRoleRequestsRoute,
+    adminBirthdaysRoute,
     adminSettingsRoute,
     adminProgramsRoute,
     adminCohortsRoute,

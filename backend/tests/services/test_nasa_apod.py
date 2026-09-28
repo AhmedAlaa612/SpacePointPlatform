@@ -111,7 +111,8 @@ async def test_send_birthday_greeting_email_format():
         mock_send.assert_called_once()
         args, kwargs = mock_send.call_args
         assert kwargs["to"] == "student@spacepoint.ae"
-        assert "Fatima" in kwargs["subject"]
+        assert kwargs["subject"] == "SpacePoint - Your SpacePoint Birthday Cosmic View"
+        assert "Fatima" in kwargs["body"]
         assert kwargs["html"] is True
         assert "Pillars of Creation" in kwargs["body"]
         assert "2014" in kwargs["body"]

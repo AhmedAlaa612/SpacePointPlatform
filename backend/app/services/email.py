@@ -429,7 +429,7 @@ async def send_birthday_greeting_email(
     year = apod_data.get("year", 2022)
     apod_url = apod_data.get("apod_url") or "https://apod.nasa.gov/apod/archivepix.html"
 
-    subject = f"Happy Birthday, {first_name}! 🚀🎂 Your SpacePoint Birthday Cosmic View"
+    subject = "SpacePoint - Your SpacePoint Birthday Cosmic View"
 
     html_content = f"""<!DOCTYPE html>
 <html>
@@ -442,12 +442,12 @@ async def send_birthday_greeting_email(
   <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background-color: #0b0f19; padding: 40px 10px;">
     <tr>
       <td align="center">
-        <table role="presentation" width="100%" style="max-width: 620px; background: linear-gradient(180deg, #131b2e 0%, #0d1322 100%); border: 1px solid #1e293b; border-radius: 20px; overflow: hidden; box-shadow: 0 20px 40px rgba(0, 0, 0, 0.6);" cellspacing="0" cellpadding="0">
+        <table role="presentation" width="100%" style="max-width: 620px; background-color: #0d1322; border: 1px solid #1e293b; border-radius: 20px; overflow: hidden; box-shadow: 0 20px 40px rgba(0, 0, 0, 0.6);" cellspacing="0" cellpadding="0">
           <!-- Starry Brand Header -->
           <tr>
-            <td style="padding: 35px 30px 20px; text-align: center; background: linear-gradient(135deg, rgba(99, 102, 241, 0.25) 0%, rgba(168, 85, 247, 0.25) 100%); border-bottom: 1px solid #1e293b;">
-              <span style="font-size: 13px; font-weight: 700; letter-spacing: 3px; color: #a855f7; text-transform: uppercase;">SPACEPOINT CELEBRATION</span>
-              <h1 style="margin: 12px 0 6px; font-size: 28px; font-weight: 800; color: #ffffff; letter-spacing: -0.5px;">Happy Birthday, {first_name}! 🚀🎂</h1>
+            <td style="padding: 35px 30px 20px; text-align: center; background-color: #0d1322; border-bottom: 1px solid #1e293b;">
+              <span style="font-size: 13px; font-weight: 700; letter-spacing: 3px; color: #38bdf8; text-transform: uppercase;">SPACEPOINT CELEBRATION</span>
+              <h1 style="margin: 12px 0 6px; font-size: 26px; font-weight: 800; color: #ffffff; letter-spacing: -0.5px;">Your SpacePoint Birthday Cosmic View</h1>
               <p style="margin: 0; font-size: 15px; color: #94a3b8;">Wishing you another incredible orbit around the Sun!</p>
             </td>
           </tr>
@@ -456,7 +456,7 @@ async def send_birthday_greeting_email(
           <tr>
             <td style="padding: 28px 32px 16px;">
               <p style="margin: 0 0 16px; font-size: 15px; line-height: 1.6; color: #cbd5e1;">
-                Here is a photo that was captured in space on your birthday back in <strong style="color: #38bdf8;">{year}</strong>:
+                <strong style="color: #ffffff;">Hello {first_name}</strong> — Here is a photo that was captured in space on your birthday back in <strong style="color: #38bdf8;">{year}</strong>:
               </p>
             </td>
           </tr>
@@ -489,15 +489,6 @@ async def send_birthday_greeting_email(
               </p>
             </td>
           </tr>
-
-          <!-- Footer -->
-          <tr>
-            <td style="padding: 20px 30px; text-align: center; border-top: 1px solid #1e293b; background-color: #090d16;">
-              <p style="margin: 0; font-size: 12px; color: #475569;">
-                SpacePoint Platform • Advancing Space Education & Human Exploration
-              </p>
-            </td>
-          </tr>
         </table>
       </td>
     </tr>
@@ -507,7 +498,8 @@ async def send_birthday_greeting_email(
 """
 
     plain_body = (
-        f"Happy Birthday, {first_name}! 🚀🎂\n\n"
+        "SpacePoint - Your SpacePoint Birthday Cosmic View\n\n"
+        f"Hello {first_name},\n\n"
         f"Wishing you a wonderful orbit around the Sun!\n\n"
         f"Here is a photo that was captured in space on your birthday back in {year}:\n\n"
         f"Title: {title}\n"
