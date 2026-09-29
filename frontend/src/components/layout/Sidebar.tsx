@@ -777,6 +777,11 @@ export function AppShell({ children }: { children: ReactNode }) {
   const [drawerOpen, setDrawerOpen] = useState(false);
 
   const navItems = getNavItems(pathname, activeRole);
+  // Judges get no sidebar — their whole role is one Teams list plus team
+  // detail pages (which carry their own back-links), so a 256px rail with a
+  // single link is pure waste. Sign-out moves into the desktop header for
+  // them; the mobile drawer stays as-is (it holds their sign-out on phones).
+  const isJudge = activeRole === "judge";
 
   const { data: paySummary } = useQuery({
     queryKey: ["instructor-payment-summary"],
@@ -835,7 +840,8 @@ export function AppShell({ children }: { children: ReactNode }) {
 
   return (
     <div className="min-h-screen">
-      {/* ── Desktop sidebar ─────────────────────────────────────── */}
+      {/* ── Desktop sidebar (every role except judge) ─────────────── */}
+      {!isJudge && (
       <aside className="fixed inset-y-0 left-0 z-30 hidden w-64 flex-col border-r border-white/10 bg-card/60 backdrop-blur-xl md:flex">
         <div className="flex h-20 items-center justify-center border-b border-white/10 px-4">
           <Link to="/" aria-label="SpacePoint home">
@@ -856,6 +862,7 @@ export function AppShell({ children }: { children: ReactNode }) {
           </button>
         </div>
       </aside>
+      )}
 
       {/* ── Mobile drawer + overlay ─────────────────────────────── */}
       <div
@@ -914,7 +921,7 @@ export function AppShell({ children }: { children: ReactNode }) {
       </div>
 
       {/* ── Content column ──────────────────────────────────────── */}
-      <div className="flex min-h-screen flex-col md:ml-64">
+      <div className={`flex min-h-screen flex-col ${isJudge ? "" : "md:ml-64"}`}>
         {/* Mobile top bar */}
         <header className="sticky top-0 z-20 flex h-16 shrink-0 items-center justify-between border-b border-white/10 bg-card/60 px-4 backdrop-blur-xl md:hidden">
           <button
@@ -937,11 +944,29 @@ export function AppShell({ children }: { children: ReactNode }) {
 
         {/* Desktop top header */}
         <header className="sticky top-0 z-20 hidden h-20 shrink-0 items-center justify-between border-b border-white/5 bg-background/60 px-8 backdrop-blur-xl md:flex">
-          <h2 className="font-display text-lg font-semibold capitalize text-foreground/90">{pageTitle}</h2>
+          <div className="flex items-center gap-3">
+            {isJudge && (
+              <Link to="/" aria-label="SpacePoint home" className="flex items-center">
+                <DomainIcon className="h-10 w-auto" />
+              </Link>
+            )}
+            <h2 className="font-display text-lg font-semibold capitalize text-foreground/90">{pageTitle}</h2>
+          </div>
           <div className="flex items-center gap-1.5">
             <NotificationsBell />
             <RoleSwitcher />
             <ThemeToggle />
+            {isJudge && (
+              <button
+                type="button"
+                onClick={handleLogout}
+                title="Sign out"
+                aria-label="Sign out"
+                className="rounded-xl p-2.5 text-muted-foreground transition-colors hover:bg-foreground/5 hover:text-destructive"
+              >
+                <LogOut size={20} />
+              </button>
+            )}
             <div className="mx-1 text-right">
               <p className="text-sm font-semibold text-foreground">{user.full_name}</p>
               {roleLabel && (

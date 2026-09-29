@@ -3,11 +3,22 @@
 import { api } from "@/api/client"
 import type { DesignState } from "@/api/missionsDesign"
 
+export interface CompetitionRubricSubCriterion {
+  key: string
+  label: string
+  max_points: number
+  position: number
+}
+
 export interface CompetitionRubricCriterion {
   key: string
   label: string
   max_points: number
   position: number
+  /** Who grades it — "judge" or "operations". Sub-criteria always inherit this. */
+  scored_by?: string
+  /** Empty/missing = flat criterion scored directly; otherwise scored via these leaves. */
+  sub_criteria?: CompetitionRubricSubCriterion[]
 }
 
 export interface CompetitionRubric {
@@ -22,6 +33,7 @@ export interface CompetitionScore {
   team_id: string
   judge_user_id: string
   criterion_scores: Record<string, number>
+  criterion_comments?: Record<string, string>
   bonus_points: number
   total_points: number
   submitted_at: string | null
@@ -57,6 +69,11 @@ export interface CompetitionLeaderboardRow {
   final_locked_at?: string | null
   first_locked_at?: string | null
   raw_judge_score?: number | null
+  /** Operations-graded total for this team (null until operations scores it). */
+  ops_score?: number | null
+  ops_max_points?: number | null
+  ops_criterion_scores?: Record<string, number>
+  ops_criterion_notes?: string | null
 }
 
 export interface CompetitionStudentResult {
@@ -95,6 +112,14 @@ export interface CriterionScoreItem {
   max_points: number
   awarded_points?: number | null
   comment?: string | null
+  subs?: CriterionSubScoreItem[]
+}
+
+export interface CriterionSubScoreItem {
+  key: string
+  label: string
+  max_points: number
+  awarded_points?: number | null
 }
 
 export interface JudgeEvaluationDetail {
@@ -125,6 +150,11 @@ export interface TeamScoreBreakdown {
   final_locked_at?: string | null
   first_locked_at?: string | null
   judges: JudgeEvaluationDetail[]
+  ops_score?: number | null
+  ops_max_points?: number | null
+  ops_criterion_scores?: Record<string, number>
+  ops_criterion_notes?: string | null
+  ops_breakdown?: CriterionScoreItem[]
 }
 
 export interface CompetitionJudge {
@@ -306,6 +336,9 @@ export interface CompetitionTeamDetail {
   own_score: CompetitionScore | null
   locked?: boolean
   locked_at?: string | null
+  /** Operations-graded scores (leaves + parent totals) — read-only for judges. */
+  ops_criterion_scores?: Record<string, number>
+  ops_max_points?: number | null
 }
 
 // ── Ops admin ────────────────────────────────────────────────────────────
@@ -315,7 +348,14 @@ export const getProgramRubricApi = (programId: string) =>
 
 export const putProgramRubricApi = (
   programId: string,
-  data: { name: string; criteria: { key: string; label: string; max_points: number }[] },
+  data: {
+    name: string
+    criteria: {
+      key: string; label: string; max_points: number
+      scored_by?: "judge" | "operations"
+      sub_criteria?: { key: string; label: string; max_points: number }[]
+    }[]
+  },
 ) => api.put<CompetitionRubric>(`/competitions/admin/programs/${programId}/rubric`, data).then((r) => r.data)
 
 export const getCohortJudgesApi = (cohortId: string) =>
@@ -487,7 +527,13 @@ export const getMyJudgeTeamMissionRunDetailApi = (teamId: string, attemptId: str
   api.get<DesignState>(`/competitions/judge/teams/${teamId}/mission-runs/${attemptId}/design-detail`).then((r) => r.data)
 
 export const submitMyJudgeScoreApi = (
-  teamId: string, data: { criterion_scores: Record<string, number>; bonus_points?: number; submitted?: boolean },
+  teamId: string,
+  data: {
+    criterion_scores: Record<string, number>
+    criterion_comments?: Record<string, string>
+    bonus_points?: number
+    submitted?: boolean
+  },
 ) => api.put<CompetitionScore>(`/competitions/judge/teams/${teamId}/score`, data).then((r) => r.data)
 
 // ── Team analytics (2026-09-16) ─────────────────────────────────────────
@@ -756,6 +802,23 @@ export const updateTeamTimingAdjustmentApi = (cohortId: string, teamId: string, 
 
 export const getTeamScoreBreakdownApi = (cohortId: string, teamId: string) =>
   api.get<TeamScoreBreakdown>(`/competitions/admin/cohorts/${cohortId}/teams/${teamId}/score-breakdown`).then((r) => r.data)
+
+export interface OperationsScoreUpdate {
+  criterion_scores: Record<string, number>
+  notes?: string | null
+}
+
+export interface OperationsScoreResult {
+  team_id: string
+  ops_criterion_scores: Record<string, number>
+  ops_criterion_notes: string | null
+  ops_scored_at: string | null
+  ops_scored_by_name: string | null
+}
+
+/** Operations grades its own criteria for a team — judge averages are untouched. */
+export const putTeamOperationsScoreApi = (cohortId: string, teamId: string, body: OperationsScoreUpdate) =>
+  api.put<OperationsScoreResult>(`/competitions/admin/cohorts/${cohortId}/teams/${teamId}/ops-score`, body).then((r) => r.data)
 
 export interface CohortTimingWindowResponse {
   windows: SubmissionWindowItem[]

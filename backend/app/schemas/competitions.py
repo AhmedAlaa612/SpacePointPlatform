@@ -54,10 +54,25 @@ class CompetitionTeamMemberIn(BaseModel):
     send_welcome_email: bool = True
 
 
+class CompetitionRubricSubCriterionIn(BaseModel):
+    key: str
+    label: str
+    max_points: int
+
+
 class CompetitionRubricCriterionIn(BaseModel):
     key: str
     label: str
     max_points: int
+    scored_by: Literal["judge", "operations"] = "judge"
+    sub_criteria: list[CompetitionRubricSubCriterionIn] = []
+
+
+class CompetitionRubricSubCriterionOut(BaseModel):
+    key: str
+    label: str
+    max_points: int
+    position: int
 
 
 class CompetitionRubricCriterionOut(BaseModel):
@@ -65,6 +80,8 @@ class CompetitionRubricCriterionOut(BaseModel):
     label: str
     max_points: int
     position: int
+    scored_by: str = "judge"
+    sub_criteria: list[CompetitionRubricSubCriterionOut] = []
 
 
 class CompetitionRubricIn(BaseModel):
@@ -133,6 +150,10 @@ class CompetitionLeaderboardRowOut(BaseModel):
     final_locked_at: datetime | None = None
     first_locked_at: datetime | None = None
     raw_judge_score: float | None = None
+    ops_score: float | None = None
+    ops_max_points: float | None = None
+    ops_criterion_scores: dict[str, float] = {}
+    ops_criterion_notes: str | None = None
 
 
 class CompetitionStudentResultOut(BaseModel):
@@ -169,12 +190,20 @@ class TeamTimingAdjustmentUpdate(BaseModel):
     notes: str | None = None
 
 
+class CriterionSubScoreItem(BaseModel):
+    key: str
+    label: str
+    max_points: int
+    awarded_points: float | None = None
+
+
 class CriterionScoreItem(BaseModel):
     key: str
     label: str
     max_points: int
     awarded_points: float | None = None
     comment: str | None = None
+    subs: list[CriterionSubScoreItem] = []
 
 
 class JudgeEvaluationDetailOut(BaseModel):
@@ -205,6 +234,24 @@ class TeamScoreBreakdownOut(BaseModel):
     final_locked_at: datetime | None = None
     first_locked_at: datetime | None = None
     judges: list[JudgeEvaluationDetailOut] = []
+    ops_score: float | None = None
+    ops_max_points: float | None = None
+    ops_criterion_scores: dict[str, float] = {}
+    ops_criterion_notes: str | None = None
+    ops_breakdown: list[CriterionScoreItem] = []
+
+
+class OpsScoreIn(BaseModel):
+    criterion_scores: dict[str, float]
+    notes: str | None = None
+
+
+class OpsScoreOut(BaseModel):
+    team_id: UUID
+    ops_criterion_scores: dict[str, float]
+    ops_criterion_notes: str | None = None
+    ops_scored_at: datetime | None = None
+    ops_scored_by_name: str | None = None
 
 
 class CompetitionJudgeOut(BaseModel):
@@ -300,6 +347,12 @@ class CompetitionTeamDetailOut(BaseModel):
     own_score: CompetitionScoreOut | None = None
     locked: bool = False
     locked_at: datetime | None = None
+    # Operations-graded scores for context — read-only on the judge surface
+    # (leaf `parent.sub` keys plus recomputed parent keys, same shape as the
+    # operations endpoint stores). Judges never see who scored what, only
+    # the numbers, and they can't edit them.
+    ops_criterion_scores: dict[str, float] = {}
+    ops_max_points: float | None = None
 
 
 class CompetitionImportRowOut(BaseModel):

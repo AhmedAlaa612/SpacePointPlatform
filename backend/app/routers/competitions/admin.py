@@ -36,6 +36,7 @@ from app.schemas.competitions import (
     CompetitionLeaderboardRowOut, CompetitionPublicationOut, CompetitionRubricIn, CompetitionRubricOut,
     CompetitionTeamCreateIn, CompetitionTeamMemberIn, CompetitionTeamOut, CompetitionTeamRenameIn,
     CohortSubmissionWindowsUpdate, TeamTimingAdjustmentUpdate, TeamScoreBreakdownOut,
+    OpsScoreIn, OpsScoreOut,
 )
 from app.services.competitions import analytics as analytics_service
 from app.services.competitions import certificates as certificates_service
@@ -58,7 +59,17 @@ def _rubric_out(rubric, criteria) -> CompetitionRubricOut:
     return CompetitionRubricOut(
         id=rubric.id, program_id=rubric.program_id, name=rubric.name,
         criteria=[
-            {"key": c.key, "label": c.label, "max_points": c.max_points, "position": c.position}
+            {
+                "key": c.key, "label": c.label, "max_points": c.max_points, "position": c.position,
+                "scored_by": getattr(c, "scored_by", "judge") or "judge",
+                "sub_criteria": [
+                    {
+                        "key": s["key"], "label": s["label"],
+                        "max_points": int(s["max_points"]), "position": s.get("position", i),
+                    }
+                    for i, s in enumerate(getattr(c, "sub_criteria", None) or [])
+                ],
+            }
             for c in criteria
         ],
     )
@@ -644,9 +655,105 @@ async def get_team_score_breakdown(
     team_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
 ):
-    """Returns the full evaluation breakdown per judge for Ops inspection,
+    """Returns the full evaluation breakdown per judge for inspection,
     including individual criteria scores, criterion comments, and judge notes."""
     breakdown = await judging_service.get_team_score_breakdown(db, cohort_id=cohort_id, team_id=team_id)
     return TeamScoreBreakdownOut(**breakdown)
 
 
+# ── Operations Scoring ─────────────────────────────────────────────────
+
+@router.put(
+    "/cohorts/{cohort_id}/teams/{team_id}/ops-score",
+    response_model=OpsScoreOut,
+)
+async def put_team_ops_score(
+    cohort_id: uuid.UUID,
+    team_id: uuid.UUID,
+    body: OpsScoreIn,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+):
+    """Operations team — submit or update the operations-graded criterion
+    scores for a team. These are stored directly on the team row and
+    combined with the judge average on the leaderboard."""
+    if await judging_service.is_published(db, cohort_id=cohort_id):
+        raise HTTPException(status.HTTP_409_CONFLICT, detail="Results are published — scoring is closed for this stage")
+
+    team = await db.get(Team, team_id)
+    if team is None or team.cohort_id != cohort_id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Team not found in this cohort")
+
+    cohort = await db.get(Cohort, cohort_id)
+    if cohort is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Cohort not found")
+
+    rubric_tuple = await judging_service.get_rubric(db, program_id=cohort.program_id)
+    if rubric_tuple is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="No rubric configured for this competition yet")
+    _, criteria = rubric_tuple
+
+    ops_criteria = {c.key: c for c in criteria if getattr(c, "scored_by", "judge") == "operations"}
+    if not ops_criteria:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="This rubric has no operations-graded criteria")
+
+    # Validate leaf keys: flat criteria take their own key; parents with
+    # sub-criteria take `parent.sub` leaves (inheriting the parent's
+    # operations grader). A submitted parent contributes only once all of
+    # its leaves are present, so a stored parent total is never partial.
+    leaf_spec: dict[str, tuple[str, str, int]] = {}  # leaf key -> (parent key, label, max)
+    for c in ops_criteria.values():
+        subs = getattr(c, "sub_criteria", None) or []
+        if subs:
+            for s in subs:
+                leaf_spec[f"{c.key}.{s['key']}"] = (c.key, s["label"], int(s["max_points"]))
+        else:
+            leaf_spec[c.key] = (c.key, c.label, c.max_points)
+    for key in body.criterion_scores:
+        if key not in leaf_spec:
+            raise HTTPException(
+                status.HTTP_400_BAD_REQUEST,
+                detail=f"'{key}' is not an operations score — submit sub-criteria leaves (e.g. 'mission.clarity')",
+            )
+    touched_parents = {leaf_spec[k][0] for k in body.criterion_scores}
+    for parent_key in touched_parents:
+        c = ops_criteria[parent_key]
+        subs = getattr(c, "sub_criteria", None) or []
+        if subs:
+            missing = [s["key"] for s in subs if f"{parent_key}.{s['key']}" not in body.criterion_scores]
+            if missing:
+                raise HTTPException(
+                    status.HTTP_400_BAD_REQUEST,
+                    detail=f"'{c.label}' needs all sub-scores ({', '.join(missing)} missing)",
+                )
+    for key, pts in body.criterion_scores.items():
+        _parent, label, max_pts = leaf_spec[key]
+        if not (0 <= pts <= max_pts):
+            raise HTTPException(
+                status.HTTP_400_BAD_REQUEST,
+                detail=f"'{label}' must be between 0 and {max_pts}",
+            )
+
+    # Store leaves plus recomputed parent totals, mirroring submit_score.
+    stored: dict[str, float] = dict(body.criterion_scores)
+    for parent_key in touched_parents:
+        c = ops_criteria[parent_key]
+        subs = getattr(c, "sub_criteria", None) or []
+        if subs:
+            stored[parent_key] = float(sum(body.criterion_scores[f"{parent_key}.{s['key']}"] for s in subs))
+
+    from datetime import datetime, timezone
+    team.ops_criterion_scores = stored
+    team.ops_criterion_notes = body.notes
+    team.ops_scored_by = current_user.id
+    team.ops_scored_at = datetime.now(timezone.utc)
+    await db.commit()
+    await db.refresh(team)
+
+    return OpsScoreOut(
+        team_id=team.id,
+        ops_criterion_scores=team.ops_criterion_scores or {},
+        ops_criterion_notes=team.ops_criterion_notes,
+        ops_scored_at=team.ops_scored_at,
+        ops_scored_by_name=current_user.full_name or current_user.email,
+    )

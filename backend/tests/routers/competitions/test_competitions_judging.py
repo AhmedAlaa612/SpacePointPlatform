@@ -1561,3 +1561,185 @@ async def test_student_result_view_only_shows_own_team_once_published(db, client
         headers=_headers(other_student),
     )
     assert other_resp.status_code == 404
+
+
+# ── Sub-criteria + operations-graded criteria (2026-09-30) ────────────────
+
+SUB_RUBRIC = [
+    {
+        "key": "mission", "label": "Mission", "max_points": 15,
+        "sub_criteria": [
+            {"key": "clarity", "label": "Clarity", "max_points": 5},
+            {"key": "implementation", "label": "Implementation", "max_points": 5},
+            {"key": "creativity", "label": "Creativity", "max_points": 5},
+        ],
+    },
+    {"key": "teamwork", "label": "Teamwork", "max_points": 10},
+    {"key": "attendance", "label": "Attendance", "max_points": 40, "scored_by": "operations"},
+]
+
+
+@pytest.mark.asyncio
+async def test_rubric_rejects_sub_criteria_whose_sum_mismatches_parent(db, client):
+    ops = await _ops(db)
+    program, _cohort = await _program_and_cohort(db)
+    await db.commit()
+
+    bad = await client.put(
+        f"/competitions/admin/programs/{program.id}/rubric", headers=_headers(ops),
+        json={"name": "Bad", "criteria": [
+            {"key": "mission", "label": "Mission", "max_points": 15,
+             "sub_criteria": [
+                 {"key": "clarity", "label": "Clarity", "max_points": 5},
+                 {"key": "implementation", "label": "Implementation", "max_points": 5},
+             ]},
+        ]},
+    )
+    assert bad.status_code == http_status.HTTP_400_BAD_REQUEST
+
+    good = await client.put(
+        f"/competitions/admin/programs/{program.id}/rubric", headers=_headers(ops),
+        json={"name": "Good", "criteria": SUB_RUBRIC},
+    )
+    assert good.status_code == 200, good.text
+    mission = next(c for c in good.json()["criteria"] if c["key"] == "mission")
+    assert [s["key"] for s in mission["sub_criteria"]] == ["clarity", "implementation", "creativity"]
+    assert next(c for c in good.json()["criteria"] if c["key"] == "attendance")["scored_by"] == "operations"
+
+
+@pytest.mark.asyncio
+async def test_judge_scores_sub_criteria_and_parent_auto_totals(db, client):
+    ops, program, cohort, team, judge, _poster = await _judge_setup(db)
+    seed = await client.put(
+        f"/competitions/admin/programs/{program.id}/rubric", headers=_headers(ops),
+        json={"name": "Subs", "criteria": SUB_RUBRIC},
+    )
+    assert seed.status_code == 200, seed.text
+
+    # A bare parent key is not an accepted leaf — judges score the subs.
+    parent_key = await client.put(
+        f"/competitions/judge/teams/{team.id}/score", headers=_headers(judge),
+        json={"criterion_scores": {"mission": 12, "teamwork": 8}},
+    )
+    assert parent_key.status_code == http_status.HTTP_400_BAD_REQUEST
+
+    # Operations-graded keys are rejected on the judge surface too.
+    with_ops = await client.put(
+        f"/competitions/judge/teams/{team.id}/score", headers=_headers(judge),
+        json={"criterion_scores": {
+            "mission.clarity": 4, "mission.implementation": 5, "mission.creativity": 3,
+            "teamwork": 8, "attendance": 40,
+        }, "submitted": True},
+    )
+    assert with_ops.status_code == http_status.HTTP_400_BAD_REQUEST
+
+    ok = await client.put(
+        f"/competitions/judge/teams/{team.id}/score", headers=_headers(judge),
+        json={"criterion_scores": {
+            "mission.clarity": 4, "mission.implementation": 5, "mission.creativity": 3,
+            "teamwork": 8,
+        }, "submitted": True},
+    )
+    assert ok.status_code == 200, ok.text
+    body = ok.json()
+    assert body["total_points"] == 20  # mission auto-totals 12 + teamwork 8
+    assert body["criterion_scores"]["mission"] == 12  # stored parent total
+    assert body["criterion_scores"]["mission.clarity"] == 4
+
+    detail = await client.get(f"/competitions/judge/teams/{team.id}", headers=_headers(judge))
+    mission = next(c for c in detail.json()["rubric"]["criteria"] if c["key"] == "mission")
+    assert mission["scored_by"] == "judge"
+    assert [s["key"] for s in mission["sub_criteria"]] == ["clarity", "implementation", "creativity"]
+
+    breakdown = await client.get(
+        f"/competitions/admin/cohorts/{cohort.id}/teams/{team.id}/score-breakdown", headers=_headers(ops),
+    )
+    assert breakdown.status_code == 200
+    row = next(j for j in breakdown.json()["judges"])
+    mission_row = next(c for c in row["criteria"] if c["key"] == "mission")
+    assert mission_row["awarded_points"] == 12
+    assert [(s["key"], s["awarded_points"]) for s in mission_row["subs"]] == [
+        ("clarity", 4), ("implementation", 5), ("creativity", 3),
+    ]
+
+
+@pytest.mark.asyncio
+async def test_operations_scores_a_team_and_leaderboard_combines(db, client):
+    ops, program, cohort, team, judge, _poster = await _judge_setup(db)
+    seed = await client.put(
+        f"/competitions/admin/programs/{program.id}/rubric", headers=_headers(ops),
+        json={"name": "Subs", "criteria": SUB_RUBRIC},
+    )
+    assert seed.status_code == 200, seed.text
+
+    await client.put(
+        f"/competitions/judge/teams/{team.id}/score", headers=_headers(judge),
+        json={"criterion_scores": {
+            "mission.clarity": 4, "mission.implementation": 5, "mission.creativity": 3,
+            "teamwork": 8,
+        }, "submitted": True},
+    )
+
+    # Flat operations criterion, partial submit allowed.
+    scored = await client.put(
+        f"/competitions/admin/cohorts/{cohort.id}/teams/{team.id}/ops-score", headers=_headers(ops),
+        json={"criterion_scores": {"attendance": 38}, "notes": "Great turnout"},
+    )
+    assert scored.status_code == 200, scored.text
+    assert scored.json()["ops_criterion_scores"]["attendance"] == 38
+
+    board = await client.get(f"/competitions/admin/cohorts/{cohort.id}/leaderboard", headers=_headers(ops))
+    row = next(r for r in board.json() if r["team_id"] == str(team.id))
+    assert row["ops_score"] == 38
+    assert row["ops_max_points"] == 40
+    assert row["score"] == 58.0  # judge avg 20 + operations 38
+
+    breakdown = await client.get(
+        f"/competitions/admin/cohorts/{cohort.id}/teams/{team.id}/score-breakdown", headers=_headers(ops),
+    )
+    assert breakdown.json()["ops_score"] == 38
+    assert breakdown.json()["ops_criterion_notes"] == "Great turnout"
+
+    # Judge keys are refused on the operations endpoint.
+    bad = await client.put(
+        f"/competitions/admin/cohorts/{cohort.id}/teams/{team.id}/ops-score", headers=_headers(ops),
+        json={"criterion_scores": {"teamwork": 5}},
+    )
+    assert bad.status_code == http_status.HTTP_400_BAD_REQUEST
+
+
+@pytest.mark.asyncio
+async def test_operations_sub_criteria_require_all_leaves(db, client):
+    ops, program, cohort, team, _judge, _poster = await _judge_setup(db)
+    seed = await client.put(
+        f"/competitions/admin/programs/{program.id}/rubric", headers=_headers(ops),
+        json={"name": "Ops subs", "criteria": [
+            {"key": "mission", "label": "Mission", "max_points": 15, "scored_by": "operations",
+             "sub_criteria": [
+                 {"key": "clarity", "label": "Clarity", "max_points": 5},
+                 {"key": "implementation", "label": "Implementation", "max_points": 5},
+                 {"key": "creativity", "label": "Creativity", "max_points": 5},
+             ]},
+        ]},
+    )
+    assert seed.status_code == 200, seed.text
+
+    partial = await client.put(
+        f"/competitions/admin/cohorts/{cohort.id}/teams/{team.id}/ops-score", headers=_headers(ops),
+        json={"criterion_scores": {"mission.clarity": 5}},
+    )
+    assert partial.status_code == http_status.HTTP_400_BAD_REQUEST
+
+    full = await client.put(
+        f"/competitions/admin/cohorts/{cohort.id}/teams/{team.id}/ops-score", headers=_headers(ops),
+        json={"criterion_scores": {
+            "mission.clarity": 5, "mission.implementation": 4, "mission.creativity": 3,
+        }},
+    )
+    assert full.status_code == 200, full.text
+    assert full.json()["ops_criterion_scores"]["mission"] == 12
+
+    board = await client.get(f"/competitions/admin/cohorts/{cohort.id}/leaderboard", headers=_headers(ops))
+    row = next(r for r in board.json() if r["team_id"] == str(team.id))
+    assert row["score"] == 12.0  # no judge scores yet — operations alone still ranks
+    assert row["status"] == "scored"

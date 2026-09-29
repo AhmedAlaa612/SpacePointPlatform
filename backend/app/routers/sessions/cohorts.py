@@ -142,7 +142,17 @@ async def _cohort_out(
     location: Location | None = None, counts: tuple[int, int, int, date | None] | None = None,
     program_is_competition: bool = False,
 ) -> CohortOut:
-    out = CohortOut.model_validate(cohort)
+    # 2026-09-30: one bad row (e.g. a hand-inserted status outside the
+    # CohortStatus literal) used to 500 the entire cohorts list, since a
+    # single model_validate failure aborts the whole response. Display it
+    # as planned instead — restored right after so nothing persists.
+    raw_status = cohort.status
+    if raw_status not in ("planned", "registration_open", "running", "completed", "cancelled"):
+        cohort.status = "planned"
+    try:
+        out = CohortOut.model_validate(cohort)
+    finally:
+        cohort.status = raw_status
     out.program_name = program_name
     out.program_code = program_code
     out.program_is_competition = program_is_competition

@@ -45,8 +45,8 @@ own grading semantics); only the team identity/roster itself is shared here.
 import uuid
 from datetime import datetime, timezone
 
-from sqlalchemy import Column, DateTime, Float, ForeignKey, PrimaryKeyConstraint, String, UniqueConstraint
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy import Column, DateTime, Float, ForeignKey, PrimaryKeyConstraint, String, Text, UniqueConstraint
+from sqlalchemy.dialects.postgresql import JSONB, UUID
 
 from app.db.base import Base
 
@@ -86,6 +86,10 @@ class Team(Base):
     timing_adjustment_override = Column(Float, nullable=True)
     timing_adjustment_notes = Column(String(255), nullable=True)
     qualification = Column(String(50), nullable=True)
+    ops_criterion_scores = Column(JSONB, nullable=False, default=dict, server_default="{}")
+    ops_criterion_notes = Column(Text, nullable=True)
+    ops_scored_by = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    ops_scored_at = Column(DateTime(timezone=True), nullable=True)
 
 
 class TeamMember(Base):

@@ -31,6 +31,69 @@ logger = logging.getLogger(__name__)
 
 # ── Rubric ───────────────────────────────────────────────────────────────
 
+def _leaf_key(parent_key: str, sub_key: str) -> str:
+    """Storage key for one sub-criterion score, e.g. `mission.clarity`.
+    Dotted so a leaf can never collide with a parent criterion key."""
+    return f"{parent_key}.{sub_key}"
+
+
+def _ops_parent_total(ops_criteria: list, ops_scores: dict) -> float:
+    """Parent-level operations total. The stored dict carries both leaf
+    (`mission.clarity`) and recomputed parent (`mission`) keys, so a naive
+    sum would double-count — only parent keys contribute. Falls back to
+    summing leaves when a parent key is absent (rows predating the
+    parent-sum change)."""
+    total = 0.0
+    for c in ops_criteria:
+        own = ops_scores.get(c.key)
+        if isinstance(own, (int, float)):
+            total += float(own)
+            continue
+        leaves = [ops_scores.get(_leaf_key(c.key, s["key"])) for s in _criterion_subs(c)]
+        if leaves and all(isinstance(v, (int, float)) for v in leaves):
+            total += float(sum(leaves))
+    return total
+
+
+def _criterion_subs(criterion) -> list[dict]:
+    subs = getattr(criterion, "sub_criteria", None) or []
+    return list(subs)
+
+
+def _validate_sub_criteria(label: str, max_points: int, subs: list[dict]) -> list[dict]:
+    """Normalizes + validates one criterion's sub-criteria: non-empty keys /
+    labels, non-negative maxima, unique sub-keys, and the load-bearing rule —
+    the sub maxima must sum exactly to the parent's own max_points, otherwise
+    the parent total could never reach (or could exceed) its headline."""
+    if not subs:
+        return []
+    seen: set[str] = set()
+    total = 0
+    for position, sub in enumerate(subs):
+        s_key = (sub.get("key") or "").strip()
+        s_label = (sub.get("label") or "").strip()
+        try:
+            s_max = int(sub.get("max_points", 0))
+        except (TypeError, ValueError):
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, detail=f"'{label}' has a sub-criterion with an invalid max_points")
+        if not s_key or not s_label:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, detail=f"'{label}' has a sub-criterion missing its key or label")
+        if s_key in seen:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, detail=f"'{label}' repeats the sub-criterion key '{s_key}'")
+        if s_max < 0:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, detail=f"'{s_label}' can't have negative max_points")
+        seen.add(s_key)
+        total += s_max
+    if total != max_points:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            detail=f"'{label}' is worth {max_points} pts but its sub-criteria sum to {total} pts — they must match",
+        )
+    return [
+        {"key": s["key"].strip(), "label": s["label"].strip(), "max_points": int(s["max_points"]), "position": i}
+        for i, s in enumerate(subs)
+    ]
+
 async def get_rubric(db: AsyncSession, *, program_id: uuid.UUID) -> tuple[CompetitionRubric, list[CompetitionRubricCriterion]] | None:
     rubric = await db.scalar(select(CompetitionRubric).where(CompetitionRubric.program_id == program_id))
     if rubric is None:
@@ -73,16 +136,23 @@ async def upsert_rubric(
     for position, item in enumerate(criteria):
         key = item["key"]
         kept_keys.add(key)
+        subs = _validate_sub_criteria(
+            item["label"], item["max_points"], item.get("sub_criteria") or [],
+        )
         row = existing.get(key)
         if row is None:
             db.add(CompetitionRubricCriterion(
                 id=uuid.uuid4(), rubric_id=rubric.id, key=key,
                 label=item["label"], max_points=item["max_points"], position=position,
+                scored_by=item.get("scored_by", "judge"),
+                sub_criteria=subs,
             ))
         else:
             row.label = item["label"]
             row.max_points = item["max_points"]
             row.position = position
+            row.scored_by = item.get("scored_by", "judge")
+            row.sub_criteria = subs
     for key, row in existing.items():
         if key not in kept_keys:
             await db.delete(row)
@@ -139,23 +209,55 @@ async def submit_score(
     if bonus_points < 0:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="Bonus can't be negative")
 
-    by_key = {c.key: c for c in criteria}
+    # Only judge-graded criteria are within scope for this function.
+    # Operations criteria are stored separately on the team row.
+    judge_criteria = [c for c in criteria if getattr(c, "scored_by", "judge") == "judge"]
+    # Expected leaf keys: a flat criterion is its own leaf; a parent with
+    # sub-criteria is scored through its leaves (`mission.clarity`, …) and
+    # the parent total is recomputed server-side — never accepted from the
+    # client. Comments stay per parent (criterion_comments keys are parent
+    # keys), bonus_points is untouched.
+    leaf_max: dict[str, int] = {}
+    leaf_label: dict[str, str] = {}
+    parent_of_leaf: dict[str, str] = {}
+    for c in judge_criteria:
+        subs = _criterion_subs(c)
+        if subs:
+            for s in subs:
+                lk = _leaf_key(c.key, s["key"])
+                leaf_max[lk] = int(s["max_points"])
+                leaf_label[lk] = s["label"]
+                parent_of_leaf[lk] = c.key
+        else:
+            leaf_max[c.key] = c.max_points
+            leaf_label[c.key] = c.label
+            parent_of_leaf[c.key] = c.key
+    by_key = {c.key: c for c in judge_criteria}
     if total_points is None:
-        if set(criterion_scores) != set(by_key):
-            raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="Score every rubric criterion, and only rubric criteria")
+        if set(criterion_scores) != set(leaf_max):
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="Score every judge criterion, and only judge criteria")
         for key, points in criterion_scores.items():
-            if not (0 <= points <= by_key[key].max_points):
+            if not (0 <= points <= leaf_max[key]):
                 raise HTTPException(
                     status.HTTP_400_BAD_REQUEST,
-                    detail=f"'{by_key[key].label}' must be between 0 and {by_key[key].max_points}",
+                    detail=f"'{leaf_label[key]}' must be between 0 and {leaf_max[key]}",
                 )
-        total = float(sum(criterion_scores.values()) + bonus_points + timing_adjustment)
+        # Recompute every parent total from its leaves and store both: the
+        # leaves (for the breakdown's sub rows) and the parent key (so all
+        # downstream math keeps reading parent-level numbers, unchanged).
+        stored_scores: dict[str, float] = dict(criterion_scores)
+        parent_totals: dict[str, float] = {}
+        for key, points in criterion_scores.items():
+            parent_totals[parent_of_leaf[key]] = parent_totals.get(parent_of_leaf[key], 0.0) + float(points)
+        stored_scores.update(parent_totals)
+        criterion_scores = stored_scores
+        total = float(sum(parent_totals.values()) + bonus_points + timing_adjustment)
     else:
         for key, points in criterion_scores.items():
-            if key in by_key and not (0 <= points <= by_key[key].max_points):
+            if key in leaf_max and not (0 <= points <= leaf_max[key]):
                 raise HTTPException(
                     status.HTTP_400_BAD_REQUEST,
-                    detail=f"'{by_key[key].label}' must be between 0 and {by_key[key].max_points}",
+                    detail=f"'{leaf_label[key]}' must be between 0 and {leaf_max[key]}",
                 )
         total = float(total_points)
 
@@ -286,6 +388,12 @@ async def leaderboard(db: AsyncSession, *, cohort_id: uuid.UUID) -> list[dict]:
         team_normalized_percentages.setdefault(team_id, []).append(pct)
 
     out = []
+
+    # Compute ops_max_points from the rubric's operations criteria once
+    rubric_tuple = await get_rubric(db, program_id=cohort.program_id) if cohort else None
+    ops_criteria = [c for c in (rubric_tuple[1] if rubric_tuple else []) if getattr(c, "scored_by", "judge") == "operations"]
+    ops_max_total = float(sum(c.max_points for c in ops_criteria))
+
     for team in teams:
         pts_list = team_raw_points.get(team.id, [])
         pct_list = team_normalized_percentages.get(team.id, [])
@@ -298,7 +406,19 @@ async def leaderboard(db: AsyncSession, *, cohort_id: uuid.UUID) -> list[dict]:
             timing_pts = float(timing_info.get("points") or 0.0)
         except (ValueError, TypeError):
             timing_pts = 0.0
-        final_score = round(raw_judge_score + timing_pts, 1) if raw_judge_score is not None else None
+
+        # Ops score: parent-level sum of the operations criterion scores
+        # stored on the team (see _ops_parent_total — never a naive sum,
+        # which would double-count leaves alongside their parent total).
+        ops_scores: dict = getattr(team, "ops_criterion_scores", None) or {}
+        ops_pts = _ops_parent_total(ops_criteria, ops_scores)
+        ops_scored = bool(ops_scores)
+
+        judge_base = raw_judge_score if raw_judge_score is not None else 0.0
+        if raw_judge_score is not None or ops_scored:
+            final_score = round(judge_base + ops_pts + timing_pts, 1)
+        else:
+            final_score = None
 
         out.append({
             "team_id": team.id,
@@ -308,7 +428,7 @@ async def leaderboard(db: AsyncSession, *, cohort_id: uuid.UUID) -> list[dict]:
             "score_percent": avg_pct,
             "qualification": getattr(team, "qualification", None),
             "judges_scored": count,
-            "status": "unscored" if count == 0 else "scored",
+            "status": "unscored" if (count == 0 and not ops_scored) else "scored",
             "judge_scores": judge_scores_by_team.get(team.id, []),
             "advanced_to": ", ".join(advanced_to_by_name.get(team.name, [])) or None,
             "timing_adjustment": timing_pts,
@@ -318,6 +438,10 @@ async def leaderboard(db: AsyncSession, *, cohort_id: uuid.UUID) -> list[dict]:
             "timing_override_notes": timing_info.get("override_notes"),
             "final_locked_at": getattr(team, "final_locked_at", None),
             "first_locked_at": getattr(team, "first_locked_at", None),
+            "ops_score": ops_pts if ops_scored else None,
+            "ops_max_points": ops_max_total if ops_criteria else None,
+            "ops_criterion_scores": ops_scores,
+            "ops_criterion_notes": getattr(team, "ops_criterion_notes", None),
         })
 
     # Sort: scored teams first. Official TOP 10 qualifiers occupy the top 10 ranks.
@@ -369,12 +493,29 @@ async def get_team_score_breakdown(
 
         if rubric_criteria:
             for c in rubric_criteria:
+                subs = _criterion_subs(c)
+                awarded = crit_scores.get(c.key)
+                if awarded is None and subs:
+                    # Rows stored before the parent-sum change (or hand-built)
+                    # may carry only leaves — derive the parent for display.
+                    leaf_vals = [crit_scores.get(_leaf_key(c.key, s["key"])) for s in subs]
+                    if all(isinstance(v, (int, float)) for v in leaf_vals):
+                        awarded = float(sum(leaf_vals))
                 crit_items.append({
                     "key": c.key,
                     "label": c.label,
                     "max_points": c.max_points,
-                    "awarded_points": crit_scores.get(c.key),
+                    "awarded_points": awarded,
                     "comment": crit_comments.get(c.key),
+                    "subs": [
+                        {
+                            "key": s["key"],
+                            "label": s["label"],
+                            "max_points": int(s["max_points"]),
+                            "awarded_points": crit_scores.get(_leaf_key(c.key, s["key"])),
+                        }
+                        for s in subs
+                    ],
                 })
         else:
             for k, pts in crit_scores.items():
@@ -400,13 +541,50 @@ async def get_team_score_breakdown(
 
     timing_info = resolve_team_timing(cohort, team)
     raw_judge_score = round(sum(judge_totals) / len(judge_totals), 1) if judge_totals else None
-    final_score = round(raw_judge_score + timing_info["points"], 1) if raw_judge_score is not None else None
+
+    ops_scores: dict = getattr(team, "ops_criterion_scores", None) or {}
+    ops_criteria = [c for c in rubric_criteria if getattr(c, "scored_by", "judge") == "operations"]
+    ops_pts = _ops_parent_total(ops_criteria, ops_scores)
+    ops_max_total = float(sum(c.max_points for c in ops_criteria))
+
+    judge_base = raw_judge_score if raw_judge_score is not None else 0.0
+    if raw_judge_score is not None or bool(ops_scores):
+        final_score = round(judge_base + ops_pts + timing_info["points"], 1)
+    else:
+        final_score = None
+
+    # Labeled operations rows for the inspector — same shape as one judge's
+    # criteria rows, so the UI renders both identically.
+    ops_breakdown = []
+    for c in ops_criteria:
+        subs = _criterion_subs(c)
+        awarded = ops_scores.get(c.key)
+        if awarded is None and subs:
+            leaf_vals = [ops_scores.get(_leaf_key(c.key, s["key"])) for s in subs]
+            if all(isinstance(v, (int, float)) for v in leaf_vals):
+                awarded = float(sum(leaf_vals))
+        ops_breakdown.append({
+            "key": c.key,
+            "label": c.label,
+            "max_points": c.max_points,
+            "awarded_points": awarded,
+            "comment": None,
+            "subs": [
+                {
+                    "key": s["key"],
+                    "label": s["label"],
+                    "max_points": int(s["max_points"]),
+                    "awarded_points": ops_scores.get(_leaf_key(c.key, s["key"])),
+                }
+                for s in subs
+            ],
+        })
 
     return {
         "team_id": team.id,
         "team_name": team.name,
         "cohort_id": cohort_id,
-        "status": "scored" if judge_totals else "unscored",
+        "status": "scored" if (judge_totals or ops_scores) else "unscored",
         "qualification": team.qualification,
         "raw_judge_score": raw_judge_score,
         "final_score": final_score,
@@ -418,6 +596,11 @@ async def get_team_score_breakdown(
         "final_locked_at": team.final_locked_at,
         "first_locked_at": team.first_locked_at,
         "judges": judge_evaluations,
+        "ops_score": ops_pts if ops_scores else None,
+        "ops_max_points": ops_max_total if ops_criteria else None,
+        "ops_criterion_scores": ops_scores,
+        "ops_criterion_notes": getattr(team, "ops_criterion_notes", None),
+        "ops_breakdown": ops_breakdown,
     }
 
 

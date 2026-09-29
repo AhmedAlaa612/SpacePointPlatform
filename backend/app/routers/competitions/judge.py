@@ -148,7 +148,17 @@ async def get_my_team(
         rubric_out = {
             "id": rubric.id, "program_id": rubric.program_id, "name": rubric.name,
             "criteria": [
-                {"key": c.key, "label": c.label, "max_points": c.max_points, "position": c.position}
+                {
+                    "key": c.key, "label": c.label, "max_points": c.max_points, "position": c.position,
+                    "scored_by": getattr(c, "scored_by", "judge") or "judge",
+                    "sub_criteria": [
+                        {
+                            "key": s["key"], "label": s["label"],
+                            "max_points": int(s["max_points"]), "position": s.get("position", i),
+                        }
+                        for i, s in enumerate(getattr(c, "sub_criteria", None) or [])
+                    ],
+                }
                 for c in criteria
             ],
         }
@@ -158,6 +168,10 @@ async def get_my_team(
         if own_score is not None:
             own_score_out = CompetitionScoreOut.model_validate(own_score, from_attributes=True)
 
+    ops_criteria = (
+        [c for c in rubric_result[1] if getattr(c, "scored_by", "judge") == "operations"]
+        if rubric_result else []
+    )
     return CompetitionTeamDetailOut(
         team=await _team_out(db, team),
         submissions=[CompetitionSubmissionItemOut(**s) for s in submissions],
@@ -166,6 +180,8 @@ async def get_my_team(
         own_score=own_score_out,
         locked=team.final_locked_at is not None,
         locked_at=team.final_locked_at,
+        ops_criterion_scores=getattr(team, "ops_criterion_scores", None) or {},
+        ops_max_points=float(sum(c.max_points for c in ops_criteria)) if ops_criteria else None,
     )
 
 

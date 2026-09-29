@@ -1,4 +1,4 @@
-import { useState } from "react"
+import { Fragment, useState } from "react"
 import { useQuery } from "@tanstack/react-query"
 import { Clock, MessageSquare, User } from "lucide-react"
 import { getTeamScoreBreakdownApi, type TeamScoreBreakdown } from "@/api/competitions"
@@ -32,9 +32,6 @@ export function TeamScoreBreakdownModal({ cohortId, teamId, open, onClose }: Tea
           <div className="flex items-start justify-between gap-4">
             <div>
               <div className="flex items-center gap-2 flex-wrap mb-1">
-                <span className="text-[10px] font-bold uppercase tracking-wider text-primary bg-primary/10 border border-primary/20 px-2 py-0.5 rounded-full">
-                  Ops Judging Inspector
-                </span>
                 {breakdown?.qualification && (
                   <span className="text-[10px] font-bold uppercase tracking-wider text-amber-500 bg-amber-500/10 border border-amber-500/30 px-2 py-0.5 rounded-full">
                     {breakdown.qualification}
@@ -44,9 +41,6 @@ export function TeamScoreBreakdownModal({ cohortId, teamId, open, onClose }: Tea
               <DialogTitle className="text-xl font-bold font-display text-foreground">
                 {breakdown?.team_name ?? "Team Evaluation Breakdown"}
               </DialogTitle>
-              <p className="text-xs text-muted-foreground mt-0.5">
-                Complete rubric criteria scores, judge comments, and submission timing audit.
-              </p>
             </div>
 
             {/* Score summary cards */}
@@ -58,6 +52,14 @@ export function TeamScoreBreakdownModal({ cohortId, teamId, open, onClose }: Tea
                     {breakdown.raw_judge_score ?? "—"}
                   </div>
                 </div>
+                {breakdown.ops_max_points !== null && breakdown.ops_max_points !== undefined && (
+                  <div className="p-2.5 rounded-xl bg-foreground/[0.06] border border-foreground/20 text-center min-w-[70px]">
+                    <div className="text-[10px] uppercase font-bold text-foreground">Operations</div>
+                    <div className="text-base font-bold text-foreground tabular-nums">
+                      {breakdown.ops_score ?? "—"}
+                    </div>
+                  </div>
+                )}
                 <div className="p-2.5 rounded-xl bg-muted/40 border border-border text-center min-w-[70px]">
                   <div className="text-[10px] uppercase font-bold text-muted-foreground">Timing</div>
                   <div className={`text-base font-bold tabular-nums ${
@@ -129,6 +131,54 @@ export function TeamScoreBreakdownModal({ cohortId, teamId, open, onClose }: Tea
               )}
             </div>
 
+            {/* Operations Criteria — graded by the SpacePoint team, not the judges */}
+            {(breakdown.ops_breakdown ?? []).length > 0 && (
+              <div className="p-4 rounded-xl bg-foreground/[0.03] border border-foreground/20 space-y-2">
+                <div className="flex items-center justify-between text-xs">
+                  <span className="font-semibold text-foreground">
+                    Operations Criteria
+                  </span>
+                  <span className="font-bold tabular-nums text-foreground">
+                    {breakdown.ops_score ?? "—"}
+                    {breakdown.ops_max_points !== null && breakdown.ops_max_points !== undefined && (
+                      <span className="font-normal text-muted-foreground"> / {breakdown.ops_max_points}</span>
+                    )}
+                  </span>
+                </div>
+                <div className="border border-border/60 rounded-xl overflow-hidden bg-card">
+                  <table className="w-full text-xs">
+                    <tbody className="divide-y divide-border/60">
+                      {(breakdown.ops_breakdown ?? []).map((c) => (
+                        <Fragment key={c.key}>
+                          <tr className="hover:bg-muted/20">
+                            <td className="py-2 px-3 font-medium text-foreground">{c.label}</td>
+                            <td className="py-2 px-3 text-right text-muted-foreground font-mono w-20">{c.max_points}</td>
+                            <td className="py-2 px-3 text-right font-bold text-foreground tabular-nums w-24">
+                              {c.awarded_points !== null && c.awarded_points !== undefined ? c.awarded_points : "—"}
+                            </td>
+                          </tr>
+                          {(c.subs ?? []).map((s) => (
+                            <tr key={`${c.key}.${s.key}`} className="hover:bg-muted/20 bg-muted/20">
+                              <td className="py-1.5 pl-7 pr-3 text-muted-foreground">↳ {s.label}</td>
+                              <td className="py-1.5 px-3 text-right text-muted-foreground font-mono">{s.max_points}</td>
+                              <td className="py-1.5 px-3 text-right tabular-nums text-foreground">
+                                {s.awarded_points !== null && s.awarded_points !== undefined ? s.awarded_points : "—"}
+                              </td>
+                            </tr>
+                          ))}
+                        </Fragment>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+                {breakdown.ops_criterion_notes && (
+                  <div className="text-[11px] text-muted-foreground italic">
+                    Operations note: {breakdown.ops_criterion_notes}
+                  </div>
+                )}
+              </div>
+            )}
+
             {/* Judges Selector Tabs */}
             {breakdown.judges.length > 0 ? (
               <div>
@@ -177,24 +227,36 @@ export function TeamScoreBreakdownModal({ cohortId, teamId, open, onClose }: Tea
                         </thead>
                         <tbody className="divide-y divide-border/60">
                           {activeJudge.criteria.map((c) => (
-                            <tr key={c.key} className="hover:bg-muted/20">
-                              <td className="py-2.5 px-3 font-medium text-foreground">
-                                {c.label}
-                              </td>
-                              <td className="py-2.5 px-3 text-right text-muted-foreground font-mono">
-                                {c.max_points}
-                              </td>
-                              <td className="py-2.5 px-3 text-right font-bold text-foreground tabular-nums">
-                                {c.awarded_points !== null && c.awarded_points !== undefined ? c.awarded_points : "—"}
-                              </td>
-                              <td className="py-2.5 px-3 text-muted-foreground">
-                                {c.comment ? (
-                                  <span className="text-foreground italic font-normal">"{c.comment}"</span>
-                                ) : (
-                                  <span className="text-muted-foreground/60">—</span>
-                                )}
-                              </td>
-                            </tr>
+                            <Fragment key={c.key}>
+                              <tr className="hover:bg-muted/20">
+                                <td className="py-2.5 px-3 font-medium text-foreground">
+                                  {c.label}
+                                </td>
+                                <td className="py-2.5 px-3 text-right text-muted-foreground font-mono">
+                                  {c.max_points}
+                                </td>
+                                <td className="py-2.5 px-3 text-right font-bold text-foreground tabular-nums">
+                                  {c.awarded_points !== null && c.awarded_points !== undefined ? c.awarded_points : "—"}
+                                </td>
+                                <td className="py-2.5 px-3 text-muted-foreground">
+                                  {c.comment ? (
+                                    <span className="text-foreground italic font-normal">"{c.comment}"</span>
+                                  ) : (
+                                    <span className="text-muted-foreground/60">—</span>
+                                  )}
+                                </td>
+                              </tr>
+                              {(c.subs ?? []).map((s) => (
+                                <tr key={`${c.key}.${s.key}`} className="hover:bg-muted/20 bg-muted/20">
+                                  <td className="py-1.5 pl-7 pr-3 text-muted-foreground">↳ {s.label}</td>
+                                  <td className="py-1.5 px-3 text-right text-muted-foreground font-mono">{s.max_points}</td>
+                                  <td className="py-1.5 px-3 text-right tabular-nums text-foreground">
+                                    {s.awarded_points !== null && s.awarded_points !== undefined ? s.awarded_points : "—"}
+                                  </td>
+                                  <td />
+                                </tr>
+                              ))}
+                            </Fragment>
                           ))}
                         </tbody>
                       </table>

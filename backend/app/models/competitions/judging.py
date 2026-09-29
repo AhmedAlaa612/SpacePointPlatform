@@ -5,7 +5,6 @@ from datetime import datetime, timezone
 
 from sqlalchemy import Boolean, Column, DateTime, Float, ForeignKey, Integer, String, Text, UniqueConstraint
 from sqlalchemy.dialects.postgresql import JSONB, UUID
-
 from app.db.base import Base
 
 
@@ -35,6 +34,13 @@ class CompetitionRubricCriterion(Base):
     label = Column(String(255), nullable=False)
     max_points = Column(Integer, nullable=False)
     position = Column(Integer, nullable=False)
+    scored_by = Column(String(32), nullable=False, default="judge", server_default="judge")
+    # Sub-criteria (2026-09-30) — optional one-level breakdown of a parent
+    # criterion, e.g. Mission /15 → [{clarity /5}, {implementation /5},
+    # {creativity /5}]. Each entry is {key, label, max_points, position}.
+    # Empty list = flat criterion, scored directly as before. Sub-criteria
+    # always inherit the parent's `scored_by` grader — never graded apart.
+    sub_criteria = Column(JSONB, nullable=False, default=list, server_default="[]")
 
 
 class CompetitionScore(Base):

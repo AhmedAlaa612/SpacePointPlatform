@@ -93,6 +93,12 @@ async def lifespan(app: FastAPI):
             await db.execute(text("ALTER TABLE learner_teams ADD COLUMN IF NOT EXISTS timing_adjustment_override DOUBLE PRECISION;"))
             await db.execute(text("ALTER TABLE learner_teams ADD COLUMN IF NOT EXISTS timing_adjustment_notes VARCHAR(255);"))
             await db.execute(text("ALTER TABLE cohort_media_consents ADD COLUMN IF NOT EXISTS student_email_raw VARCHAR(255);"))
+            await db.execute(text("ALTER TABLE competition_rubric_criteria ADD COLUMN IF NOT EXISTS scored_by VARCHAR(32) DEFAULT 'judge';"))
+            await db.execute(text("ALTER TABLE competition_rubric_criteria ADD COLUMN IF NOT EXISTS sub_criteria JSONB DEFAULT '[]'::jsonb;"))
+            await db.execute(text("ALTER TABLE learner_teams ADD COLUMN IF NOT EXISTS ops_criterion_scores JSONB DEFAULT '{}'::jsonb;"))
+            await db.execute(text("ALTER TABLE learner_teams ADD COLUMN IF NOT EXISTS ops_criterion_notes TEXT;"))
+            await db.execute(text("ALTER TABLE learner_teams ADD COLUMN IF NOT EXISTS ops_scored_by UUID REFERENCES users(id) ON DELETE SET NULL;"))
+            await db.execute(text("ALTER TABLE learner_teams ADD COLUMN IF NOT EXISTS ops_scored_at TIMESTAMP WITH TIME ZONE;"))
             await db.execute(text("UPDATE cohorts SET checklist_title_override = 'testcohortname', name = 'Cohort Test' WHERE name = 'testcohortname';"))
             await db.commit()
     except Exception:

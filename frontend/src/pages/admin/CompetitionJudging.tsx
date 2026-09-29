@@ -8,6 +8,7 @@ import { searchStaffApi, listInviteCodesApi, type StaffOption } from "@/api/lms_
 import { UserProfileModal } from "@/components/UserProfileModal"
 import { CompetitionCertificatesModal } from "@/pages/admin/components/CompetitionCertificatesModal"
 import { TeamScoreBreakdownModal } from "@/components/competitions/TeamScoreBreakdownModal"
+import { TeamOperationsScoreModal } from "@/components/competitions/TeamOperationsScoreModal"
 import { TimingOverrideModal } from "@/components/competitions/TimingOverrideModal"
 import { SubmissionWindowsModal } from "@/components/competitions/SubmissionWindowsModal"
 import { listProgramCertificateTemplatesApi } from "@/api/sessions/programCertificateTemplates"
@@ -946,19 +947,47 @@ function RubricTab({ programId }: { programId: string }) {
     }),
   })
 
+  interface RubricSubForm { key: string; label: string; max_points: number }
+  interface RubricCriterionForm {
+    key: string; label: string; max_points: number
+    scored_by: "judge" | "operations"; sub_criteria: RubricSubForm[]
+  }
+
   const [name, setName] = useState("")
-  const [criteria, setCriteria] = useState<{ key: string; label: string; max_points: number }[]>([])
+  const [criteria, setCriteria] = useState<RubricCriterionForm[]>([])
+  // Which criteria are expanded to show their sub-criteria editor.
+  const [expanded, setExpanded] = useState<Set<number>>(new Set())
 
   useEffect(() => {
     setName(rubric?.name ?? "Competition Rubric")
     setCriteria(
-      rubric?.criteria.map((c) => ({ key: c.key, label: c.label, max_points: c.max_points })) ?? [],
+      rubric?.criteria.map((c) => ({
+        key: c.key,
+        label: c.label,
+        max_points: c.max_points,
+        scored_by: c.scored_by === "operations" ? "operations" : "judge",
+        sub_criteria: (c.sub_criteria ?? []).map((s) => ({
+          key: s.key, label: s.label, max_points: s.max_points,
+        })),
+      })) ?? [],
     )
+    setExpanded(new Set())
   }, [rubric])
 
   const queryClient = useQueryClient()
   const saveMutation = useMutation({
-    mutationFn: () => putProgramRubricApi(programId, { name, criteria }),
+    mutationFn: () => putProgramRubricApi(programId, {
+      name,
+      criteria: criteria.map((c) => ({
+        key: c.key.trim(),
+        label: c.label.trim(),
+        max_points: Number(c.max_points) || 0,
+        scored_by: c.scored_by,
+        sub_criteria: c.sub_criteria.map((s) => ({
+          key: s.key.trim(), label: s.label.trim(), max_points: Number(s.max_points) || 0,
+        })),
+      })),
+    }),
     onSuccess: () => {
       toast.success("Rubric saved")
       queryClient.invalidateQueries({ queryKey: ["competitions-rubric", programId] })
@@ -969,6 +998,37 @@ function RubricTab({ programId }: { programId: string }) {
   if (isLoading) return <Spinner />
 
   const total = criteria.reduce((sum, c) => sum + (Number(c.max_points) || 0), 0)
+  const judgeTotal = criteria
+    .filter((c) => c.scored_by === "judge")
+    .reduce((sum, c) => sum + (Number(c.max_points) || 0), 0)
+  const operationsTotal = total - judgeTotal
+  const subSum = (c: RubricCriterionForm) =>
+    c.sub_criteria.reduce((sum, s) => sum + (Number(s.max_points) || 0), 0)
+  const subKeys = (c: RubricCriterionForm, skip?: number) => {
+    const keys = c.sub_criteria.map((s) => s.key.trim()).filter(Boolean)
+    if (skip !== undefined) keys.splice(skip, 1)
+    return keys
+  }
+  const criterionInvalid = (c: RubricCriterionForm) => {
+    if (!c.key.trim() || !c.label.trim()) return true
+    if (c.sub_criteria.length > 0) {
+      if (subSum(c) !== (Number(c.max_points) || 0)) return true
+      if (c.sub_criteria.some((s) => !s.key.trim() || !s.label.trim())) return true
+      const keys = c.sub_criteria.map((s) => s.key.trim()).filter(Boolean)
+      if (new Set(keys).size !== keys.length) return true
+    }
+    return false
+  }
+  const anyInvalid = criteria.some(criterionInvalid)
+
+  const toggleExpanded = (i: number) => {
+    setExpanded((prev) => {
+      const next = new Set(prev)
+      if (next.has(i)) next.delete(i)
+      else next.add(i)
+      return next
+    })
+  }
 
   return (
     <div className="flex flex-col gap-4 max-w-2xl">
@@ -980,42 +1040,130 @@ function RubricTab({ programId }: { programId: string }) {
       </Field>
 
       <div className="flex flex-col gap-2">
-        <div className="flex items-center justify-between">
+        <div className="flex items-center justify-between flex-wrap gap-2">
           <label className="text-xs text-muted-foreground font-medium uppercase tracking-wider">
-            Criteria · {total} pts total
+            Criteria · Judge {judgeTotal} pts · Operations {operationsTotal} pts · Total {total} pts
           </label>
           <button
-            onClick={() => setCriteria((c) => [...c, { key: `criterion_${c.length + 1}`, label: "", max_points: 10 }])}
+            onClick={() => setCriteria((c) => [...c, { key: `criterion_${c.length + 1}`, label: "", max_points: 10, scored_by: "judge", sub_criteria: [] }])}
             className="flex items-center gap-1 text-xs font-medium text-primary hover:opacity-80"
           >
             <Plus size={12} /> Add criterion
           </button>
         </div>
-        {criteria.map((c, i) => (
-          <div key={i} className="flex items-center gap-2">
-            <input
-              value={c.key} placeholder="key"
-              onChange={(e) => setCriteria((cs) => cs.map((x, j) => j === i ? { ...x, key: e.target.value } : x))}
-              className="w-32 h-9 px-2 border border-border bg-card text-foreground rounded-lg text-xs font-mono focus:outline-none focus:border-primary"
-            />
-            <input
-              value={c.label} placeholder="Label"
-              onChange={(e) => setCriteria((cs) => cs.map((x, j) => j === i ? { ...x, label: e.target.value } : x))}
-              className="flex-1 h-9 px-2 border border-border bg-card text-foreground rounded-lg text-sm focus:outline-none focus:border-primary"
-            />
-            <input
-              value={c.max_points} type="number" min={0}
-              onChange={(e) => setCriteria((cs) => cs.map((x, j) => j === i ? { ...x, max_points: Number(e.target.value) } : x))}
-              className="w-20 h-9 px-2 border border-border bg-card text-foreground rounded-lg text-sm focus:outline-none focus:border-primary"
-            />
-            <button
-              onClick={() => setCriteria((cs) => cs.filter((_, j) => j !== i))}
-              className="p-1.5 rounded-lg text-muted-foreground hover:text-red-600 hover:bg-red-500/10 transition-colors"
-            >
-              <Trash2 size={14} />
-            </button>
-          </div>
-        ))}
+        {criteria.map((c, i) => {
+          const isOperations = c.scored_by === "operations"
+          const hasSubs = c.sub_criteria.length > 0
+          const sum = subSum(c)
+          const sumMismatch = hasSubs && sum !== (Number(c.max_points) || 0)
+          return (
+            <div key={i} className={`border rounded-xl overflow-hidden ${isOperations ? "border-foreground/25 bg-foreground/[0.04]" : "border-border bg-card"}`}>
+              <div className="flex items-center gap-2 p-2">
+                <input
+                  value={c.key} placeholder="key"
+                  onChange={(e) => setCriteria((cs) => cs.map((x, j) => j === i ? { ...x, key: e.target.value } : x))}
+                  className="w-28 h-9 px-2 border border-border bg-background text-foreground rounded-lg text-xs font-mono focus:outline-none focus:border-primary"
+                />
+                <input
+                  value={c.label} placeholder="Label"
+                  onChange={(e) => setCriteria((cs) => cs.map((x, j) => j === i ? { ...x, label: e.target.value } : x))}
+                  className="flex-1 h-9 px-2 border border-border bg-background text-foreground rounded-lg text-sm focus:outline-none focus:border-primary"
+                />
+                <input
+                  value={c.max_points} type="number" min={0}
+                  onChange={(e) => setCriteria((cs) => cs.map((x, j) => j === i ? { ...x, max_points: Number(e.target.value) } : x))}
+                  className="w-20 h-9 px-2 border border-border bg-background text-foreground rounded-lg text-sm focus:outline-none focus:border-primary"
+                />
+                {/* Grader toggle — who scores this criterion. Sub-criteria always inherit it. */}
+                <div className="flex rounded-lg border border-border overflow-hidden shrink-0" title="Who grades this criterion">
+                  {(["judge", "operations"] as const).map((g) => (
+                    <button
+                      key={g}
+                      type="button"
+                      onClick={() => setCriteria((cs) => cs.map((x, j) => j === i ? { ...x, scored_by: g } : x))}
+                      className={`h-9 px-2.5 text-xs font-medium transition-colors ${
+                        c.scored_by === g
+                          ? g === "operations"
+                            ? "bg-foreground text-background"
+                            : "bg-primary text-primary-foreground"
+                          : "text-muted-foreground hover:text-foreground"
+                      }`}
+                    >
+                      {g === "judge" ? "Judge" : "Operations"}
+                    </button>
+                  ))}
+                </div>
+                <button
+                  onClick={() => toggleExpanded(i)}
+                  title={hasSubs ? "Edit sub-criteria" : "Add sub-criteria"}
+                  className={`h-9 px-2 rounded-lg text-xs font-medium border transition-colors ${
+                    hasSubs ? "border-primary/40 text-primary" : "border-border text-muted-foreground hover:text-foreground"
+                  }`}
+                >
+                  {hasSubs ? `Subs (${c.sub_criteria.length})` : "+ Subs"}
+                </button>
+                <button
+                  onClick={() => setCriteria((cs) => cs.filter((_, j) => j !== i))}
+                  className="p-1.5 rounded-lg text-muted-foreground hover:text-red-600 hover:bg-red-500/10 transition-colors"
+                >
+                  <Trash2 size={14} />
+                </button>
+              </div>
+
+              {expanded.has(i) && (
+                <div className="px-3 pb-3 pt-1 flex flex-col gap-1.5 border-t border-border/50">
+                  {sumMismatch && (
+                    <p className="text-[11px] text-red-600 dark:text-red-400 font-medium pt-1.5">
+                      Sub-points must sum to {c.max_points}.
+                    </p>
+                  )}
+                  {c.sub_criteria.map((s, si) => {
+                    const dup = s.key.trim() && subKeys(c, si).includes(s.key.trim())
+                    return (
+                      <div key={si} className="flex items-center gap-2 pl-4">
+                        <span className="text-muted-foreground text-xs w-4">↳</span>
+                        <input
+                          value={s.key} placeholder="key"
+                          onChange={(e) => setCriteria((cs) => cs.map((x, j) =>
+                            j === i ? { ...x, sub_criteria: x.sub_criteria.map((y, k) => k === si ? { ...y, key: e.target.value } : y) } : x))}
+                          className={`w-28 h-8 px-2 border bg-background text-foreground rounded-lg text-xs font-mono focus:outline-none focus:border-primary ${
+                            dup ? "border-red-400 dark:border-red-700" : "border-border"
+                          }`}
+                        />
+                        <input
+                          value={s.label} placeholder="Label"
+                          onChange={(e) => setCriteria((cs) => cs.map((x, j) =>
+                            j === i ? { ...x, sub_criteria: x.sub_criteria.map((y, k) => k === si ? { ...y, label: e.target.value } : y) } : x))}
+                          className="flex-1 h-8 px-2 border border-border bg-background text-foreground rounded-lg text-xs focus:outline-none focus:border-primary"
+                        />
+                        <input
+                          value={s.max_points} type="number" min={0}
+                          onChange={(e) => setCriteria((cs) => cs.map((x, j) =>
+                            j === i ? { ...x, sub_criteria: x.sub_criteria.map((y, k) => k === si ? { ...y, max_points: Number(e.target.value) } : y) } : x))}
+                          className="w-20 h-8 px-2 border border-border bg-background text-foreground rounded-lg text-xs focus:outline-none focus:border-primary"
+                        />
+                        <button
+                          onClick={() => setCriteria((cs) => cs.map((x, j) =>
+                            j === i ? { ...x, sub_criteria: x.sub_criteria.filter((_, k) => k !== si) } : x))}
+                          className="p-1.5 rounded-lg text-muted-foreground hover:text-red-600 hover:bg-red-500/10 transition-colors"
+                        >
+                          <Trash2 size={13} />
+                        </button>
+                      </div>
+                    )
+                  })}
+                  <button
+                    onClick={() => setCriteria((cs) => cs.map((x, j) =>
+                      j === i ? { ...x, sub_criteria: [...x.sub_criteria, { key: `sub_${x.sub_criteria.length + 1}`, label: "", max_points: 5 }] } : x))}
+                    className="self-start flex items-center gap-1 text-xs font-medium text-primary hover:opacity-80 pl-8"
+                  >
+                    <Plus size={12} /> Add sub-criterion
+                  </button>
+                </div>
+              )}
+            </div>
+          )
+        })}
         {criteria.length === 0 && (
           <p className="text-xs text-muted-foreground">No criteria yet — add at least one before judges can score.</p>
         )}
@@ -1023,7 +1171,8 @@ function RubricTab({ programId }: { programId: string }) {
 
       <button
         onClick={() => saveMutation.mutate()}
-        disabled={saveMutation.isPending || criteria.some((c) => !c.key.trim() || !c.label.trim())}
+        disabled={saveMutation.isPending || anyInvalid}
+        title={anyInvalid ? "Fix highlighted criteria first (empty fields, duplicate sub-keys, or sub-points not summing to the parent max)" : undefined}
         className="self-start h-10 px-4 bg-primary text-primary-foreground rounded-xl text-sm font-medium hover:opacity-90 transition-colors disabled:opacity-50"
       >
         {saveMutation.isPending ? "Saving…" : "Save rubric"}
@@ -1086,8 +1235,8 @@ function JudgesTab({ cohortId }: { cohortId: string }) {
   if (isLoading) return <Spinner />
 
   return (
-    <div className="flex flex-col gap-6 max-w-2xl">
-      <div className="rounded-2xl border border-border bg-card p-4 sm:p-5 flex flex-col gap-4">
+    <div className="flex flex-col gap-6 max-w-2xl lg:max-w-none lg:grid lg:grid-cols-2 lg:items-start">
+      <div className="rounded-2xl border border-border bg-card p-4 sm:p-5 flex flex-col gap-4 min-w-0">
         <h3 className="text-sm font-bold text-foreground">Add a Judge</h3>
 
         <div className="flex flex-col gap-2">
@@ -1176,7 +1325,7 @@ function JudgesTab({ cohortId }: { cohortId: string }) {
         </div>
       </div>
 
-      <div className="flex flex-col gap-3">
+      <div className="flex flex-col gap-3 min-w-0">
         <div className="flex items-center justify-between">
           <h3 className="text-sm font-bold text-foreground">
             Assigned Judges {judges.length > 0 && `(${judges.length})`}
@@ -1361,6 +1510,18 @@ function ResultsTab({
   const [windowsModalOpen, setWindowsModalOpen] = useState(false)
   const [breakdownTeamId, setBreakdownTeamId] = useState<string | null>(null)
   const [overrideTeam, setOverrideTeam] = useState<CompetitionLeaderboardRow | null>(null)
+  const [gradingTeam, setGradingTeam] = useState<CompetitionLeaderboardRow | null>(null)
+
+  // Rubric for the operations grading modal (which criteria are
+  // operations-graded and whether they have sub-criteria).
+  const { data: rubric = null } = useQuery<CompetitionRubric | null>({
+    queryKey: ["competitions-rubric", programId],
+    queryFn: () => getProgramRubricApi(programId).catch((e) => {
+      if (e?.response?.status === 404) return null
+      throw e
+    }),
+    enabled: !!programId,
+  })
 
   if (isLoading) return <Spinner />
 
@@ -1559,6 +1720,8 @@ function ResultsTab({
         onToggle={toggleTeam}
         onInspectTeam={(teamId) => setBreakdownTeamId(teamId)}
         onEditTiming={(team) => setOverrideTeam(team)}
+        hasOperationsCriteria={(rubric?.criteria ?? []).some((c) => (c.scored_by ?? "judge") === "operations")}
+        onGradeOperations={(team) => setGradingTeam(team)}
       />
 
       <SubmissionWindowsModal
@@ -1580,6 +1743,14 @@ function ResultsTab({
         open={!!overrideTeam}
         onClose={() => setOverrideTeam(null)}
       />
+
+      <TeamOperationsScoreModal
+        cohortId={cohortId}
+        team={gradingTeam}
+        rubric={rubric}
+        open={!!gradingTeam}
+        onClose={() => setGradingTeam(null)}
+      />
     </div>
   )
 }
@@ -1590,12 +1761,16 @@ function LeaderboardTable({
   onToggle,
   onInspectTeam,
   onEditTiming,
+  hasOperationsCriteria,
+  onGradeOperations,
 }: {
   rows: CompetitionLeaderboardRow[]
   selected?: Set<string>
   onToggle?: (teamId: string) => void
   onInspectTeam?: (teamId: string) => void
   onEditTiming?: (team: CompetitionLeaderboardRow) => void
+  hasOperationsCriteria?: boolean
+  onGradeOperations?: (team: CompetitionLeaderboardRow) => void
 }) {
   if (rows.length === 0) return <EmptyState title="No teams yet" hint="Teams appear here once they're formed for this cohort." />
   return (
@@ -1608,6 +1783,7 @@ function LeaderboardTable({
             <th className="py-2 pr-3">Team</th>
             <th className="py-2 pr-3">Final Score</th>
             <th className="py-2 pr-3">Rubric Score</th>
+            {hasOperationsCriteria && <th className="py-2 pr-3">Operations</th>}
             <th className="py-2 pr-3">Timing Adj.</th>
             <th className="py-2 pr-3">Per Judge</th>
             <th className="py-2 pr-3 text-right">Inspection</th>
@@ -1664,6 +1840,24 @@ function LeaderboardTable({
               <td className="py-2 pr-3 tabular-nums align-top text-muted-foreground">
                 <span>{r.raw_judge_score !== null && r.raw_judge_score !== undefined ? r.raw_judge_score : (r.score ?? "—")}</span>
               </td>
+              {/* Operations Score (clickable to grade) */}
+              {hasOperationsCriteria && (
+                <td className="py-2 pr-3 align-top">
+                  <button
+                    type="button"
+                    onClick={() => onGradeOperations?.(r)}
+                    title="Grade this team's operations criteria"
+                    className="inline-flex items-center gap-1 text-xs font-semibold px-2 py-0.5 rounded-full border border-foreground/25 bg-foreground/[0.06] text-foreground transition-transform hover:scale-105 cursor-pointer tabular-nums"
+                  >
+                    <span>
+                      {r.ops_score !== null && r.ops_score !== undefined
+                        ? `${r.ops_score}${r.ops_max_points ? ` / ${r.ops_max_points}` : ""}`
+                        : "Grade"}
+                    </span>
+                    <Pencil size={10} className="opacity-70" />
+                  </button>
+                </td>
+              )}
               {/* Timing Adjustment (clickable to override) */}
               <td className="py-2 pr-3 align-top">
                 <button
