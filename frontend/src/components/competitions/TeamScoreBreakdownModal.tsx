@@ -184,7 +184,7 @@ export function TeamScoreBreakdownModal({ cohortId, teamId, open, onClose }: Tea
             {/* Judges Selector Tabs */}
             {breakdown.judges.length > 0 ? (
               <div>
-                <div className="flex items-center gap-2 border-b border-border pb-2">
+                <div className="flex flex-wrap items-center gap-2 border-b border-border pb-2">
                   {breakdown.judges.map((j, idx) => (
                     <button
                       key={j.judge_user_id}

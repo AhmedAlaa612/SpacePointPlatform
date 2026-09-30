@@ -1058,21 +1058,21 @@ function RubricTab({ programId }: { programId: string }) {
           const sumMismatch = hasSubs && sum !== (Number(c.max_points) || 0)
           return (
             <div key={i} className={`border rounded-xl overflow-hidden ${isOperations ? "border-foreground/25 bg-foreground/[0.04]" : "border-border bg-card"}`}>
-              <div className="flex items-center gap-2 p-2">
+              <div className="flex flex-wrap items-center gap-2 p-2">
                 <input
                   value={c.key} placeholder="key"
                   onChange={(e) => setCriteria((cs) => cs.map((x, j) => j === i ? { ...x, key: e.target.value } : x))}
-                  className="w-28 h-9 px-2 border border-border bg-background text-foreground rounded-lg text-xs font-mono focus:outline-none focus:border-primary"
+                  className="w-28 shrink-0 h-9 px-2 border border-border bg-background text-foreground rounded-lg text-xs font-mono focus:outline-none focus:border-primary"
                 />
                 <input
                   value={c.label} placeholder="Label"
                   onChange={(e) => setCriteria((cs) => cs.map((x, j) => j === i ? { ...x, label: e.target.value } : x))}
-                  className="flex-1 h-9 px-2 border border-border bg-background text-foreground rounded-lg text-sm focus:outline-none focus:border-primary"
+                  className="flex-1 min-w-[140px] h-9 px-2 border border-border bg-background text-foreground rounded-lg text-sm focus:outline-none focus:border-primary"
                 />
                 <input
                   value={c.max_points} type="number" min={0}
                   onChange={(e) => setCriteria((cs) => cs.map((x, j) => j === i ? { ...x, max_points: Number(e.target.value) } : x))}
-                  className="w-20 h-9 px-2 border border-border bg-background text-foreground rounded-lg text-sm focus:outline-none focus:border-primary"
+                  className="w-20 shrink-0 h-9 px-2 border border-border bg-background text-foreground rounded-lg text-sm focus:outline-none focus:border-primary"
                 />
                 {/* Grader toggle — who scores this criterion. Sub-criteria always inherit it. */}
                 <div className="flex rounded-lg border border-border overflow-hidden shrink-0" title="Who grades this criterion">
@@ -1120,13 +1120,13 @@ function RubricTab({ programId }: { programId: string }) {
                   {c.sub_criteria.map((s, si) => {
                     const dup = s.key.trim() && subKeys(c, si).includes(s.key.trim())
                     return (
-                      <div key={si} className="flex items-center gap-2 pl-4">
-                        <span className="text-muted-foreground text-xs w-4">↳</span>
+                      <div key={si} className="flex flex-wrap items-center gap-2 pl-4">
+                        <span className="text-muted-foreground text-xs w-4 shrink-0">↳</span>
                         <input
                           value={s.key} placeholder="key"
                           onChange={(e) => setCriteria((cs) => cs.map((x, j) =>
                             j === i ? { ...x, sub_criteria: x.sub_criteria.map((y, k) => k === si ? { ...y, key: e.target.value } : y) } : x))}
-                          className={`w-28 h-8 px-2 border bg-background text-foreground rounded-lg text-xs font-mono focus:outline-none focus:border-primary ${
+                          className={`w-28 shrink-0 h-8 px-2 border bg-background text-foreground rounded-lg text-xs font-mono focus:outline-none focus:border-primary ${
                             dup ? "border-red-400 dark:border-red-700" : "border-border"
                           }`}
                         />
@@ -1134,13 +1134,13 @@ function RubricTab({ programId }: { programId: string }) {
                           value={s.label} placeholder="Label"
                           onChange={(e) => setCriteria((cs) => cs.map((x, j) =>
                             j === i ? { ...x, sub_criteria: x.sub_criteria.map((y, k) => k === si ? { ...y, label: e.target.value } : y) } : x))}
-                          className="flex-1 h-8 px-2 border border-border bg-background text-foreground rounded-lg text-xs focus:outline-none focus:border-primary"
+                          className="flex-1 min-w-[140px] h-8 px-2 border border-border bg-background text-foreground rounded-lg text-xs focus:outline-none focus:border-primary"
                         />
                         <input
                           value={s.max_points} type="number" min={0}
                           onChange={(e) => setCriteria((cs) => cs.map((x, j) =>
                             j === i ? { ...x, sub_criteria: x.sub_criteria.map((y, k) => k === si ? { ...y, max_points: Number(e.target.value) } : y) } : x))}
-                          className="w-20 h-8 px-2 border border-border bg-background text-foreground rounded-lg text-xs focus:outline-none focus:border-primary"
+                          className="w-20 shrink-0 h-8 px-2 border border-border bg-background text-foreground rounded-lg text-xs focus:outline-none focus:border-primary"
                         />
                         <button
                           onClick={() => setCriteria((cs) => cs.map((x, j) =>
