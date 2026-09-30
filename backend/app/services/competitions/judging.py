@@ -438,18 +438,17 @@ async def leaderboard(db: AsyncSession, *, cohort_id: uuid.UUID) -> list[dict]:
             "timing_override_notes": timing_info.get("override_notes"),
             "final_locked_at": getattr(team, "final_locked_at", None),
             "first_locked_at": getattr(team, "first_locked_at", None),
-            "ops_score": ops_pts if ops_scored else None,
+            "ops_score": round(ops_pts, 1) if ops_scored else None,
             "ops_max_points": ops_max_total if ops_criteria else None,
             "ops_criterion_scores": ops_scores,
             "ops_criterion_notes": getattr(team, "ops_criterion_notes", None),
         })
 
-    # Sort: scored teams first. Official TOP 10 qualifiers occupy the top 10 ranks.
-    # Within each tier, ranked by combined normalized percentage.
+    # Sort: ranked by final total, highest first. Unscored teams sort
+    # last. (Previously this sorted by normalized percentage, which could
+    # rank a lower total above a higher one.)
     out.sort(key=lambda r: (
         r["score"] is None,
-        0 if r.get("qualification") == "TOP 10" else 1,
-        -(r["score_percent"] or 0),
         -(r["score"] or 0),
     ))
     for i, row in enumerate(out, start=1):
@@ -596,7 +595,7 @@ async def get_team_score_breakdown(
         "final_locked_at": team.final_locked_at,
         "first_locked_at": team.first_locked_at,
         "judges": judge_evaluations,
-        "ops_score": ops_pts if ops_scores else None,
+        "ops_score": round(ops_pts, 1) if ops_scores else None,
         "ops_max_points": ops_max_total if ops_criteria else None,
         "ops_criterion_scores": ops_scores,
         "ops_criterion_notes": getattr(team, "ops_criterion_notes", None),
