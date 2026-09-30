@@ -118,6 +118,11 @@ async def invite_judge(
     assignment — same "the action always happens, only the notification is
     optional" posture every other send_welcome_email/send_ticket_email
     toggle in this codebase already has."""
+    # Login compares `User.email == input.strip().lower()` exactly — storing
+    # anything else (capitals, trailing space) mints an account that can
+    # never log in (prod incident 2026-09-30). Normalize on the way in, for
+    # both the lookup and the insert, so duplicates can't slip past either.
+    email = email.strip().lower()
     user = (await db.execute(select(User).where(User.email == email))).scalar_one_or_none()
     is_new = user is None
     if user is None:
