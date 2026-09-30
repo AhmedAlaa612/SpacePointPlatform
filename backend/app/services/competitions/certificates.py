@@ -526,10 +526,17 @@ async def send_cohort_certificates(
     custom_email_subject: str | None = None,
     custom_email_body: str | None = None,
     save_email_to_template: bool = False,
+    force_certificate_type: str | None = None,
 ) -> dict:
     """Issues and emails completion or participation certificates to the qualifying
     or selected students in the cohort. Updates registration status to 'completed'.
+
+    `force_certificate_type` overrides the per-recipient earned type for every
+    targeted student — ops' call when the system's own eligibility doesn't
+    match reality (e.g. send the whole cohort completion certificates).
     """
+    if force_certificate_type not in (None, "completion", "participation"):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="force_certificate_type must be 'completion' or 'participation'")
     cohort = await db.get(Cohort, cohort_id)
     if cohort is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Cohort not found")
@@ -626,7 +633,7 @@ async def send_cohort_certificates(
             continue
 
         rec_info = all_recipients.get(reg_id, {})
-        cert_type = rec_info.get("certificate_type_earned") or (
+        cert_type = force_certificate_type or rec_info.get("certificate_type_earned") or (
             "completion" if rec_info.get("team_locked") else "participation"
         )
         type_title = "Participation" if cert_type == "participation" else "Completion"
@@ -742,8 +749,11 @@ async def render_cohort_certificates_pdf(
     theme: str = "dark",
     template_id: str | None = None,
     registration_ids: list[uuid.UUID] | None = None,
+    force_certificate_type: str | None = None,
 ) -> tuple[bytes, str]:
     """Renders a single combined PDF with one landscape A4 certificate per eligible recipient."""
+    if force_certificate_type not in (None, "completion", "participation"):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="force_certificate_type must be 'completion' or 'participation'")
     cohort = await db.get(Cohort, cohort_id)
     if cohort is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Cohort not found")
@@ -804,7 +814,7 @@ async def render_cohort_certificates_pdf(
     pages = []
     for r in recipients:
         rec_info = r
-        cert_type = rec_info.get("certificate_type_earned") or (
+        cert_type = force_certificate_type or rec_info.get("certificate_type_earned") or (
             "completion" if rec_info.get("team_locked") else "participation"
         )
         type_title = "Participation" if cert_type == "participation" else "Completion"

@@ -28,6 +28,7 @@ async def send_cohort_certificates_job(
     custom_email_subject: str | None = None,
     custom_email_body: str | None = None,
     save_email_to_template: bool = False,
+    force_certificate_type: str | None = None,
 ) -> dict[str, Any]:
     """ARQ background job to issue and send certificates for a cohort."""
     logger.info(
@@ -60,6 +61,7 @@ async def send_cohort_certificates_job(
                 custom_email_subject=custom_email_subject,
                 custom_email_body=custom_email_body,
                 save_email_to_template=save_email_to_template,
+                force_certificate_type=force_certificate_type,
             )
             logger.info(
                 "Completed certificate dispatch for cohort %s: %d sent, %d skipped, %d errors",

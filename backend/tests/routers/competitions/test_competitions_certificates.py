@@ -331,6 +331,24 @@ async def test_download_cohort_certificates_pdf(db, client):
     reader_get = PdfReader(io.BytesIO(resp_get_selected.content))
     assert len(reader_get.pages) == 1
 
+    # 6. Forced type overrides earned types on download (all registered as completion)
+    resp_forced = await client.post(
+        f"/competitions/admin/cohorts/{cohort.id}/certificates/download",
+        headers=_headers(ops),
+        json={"filter": "all", "theme": "dark", "force_certificate_type": "completion"},
+    )
+    assert resp_forced.status_code == 200, resp_forced.text
+    assert resp_forced.headers["content-type"] == "application/pdf"
+    assert resp_forced.content.startswith(b"%PDF-")
+
+    # 7. Invalid forced type is rejected, not silently applied
+    resp_bad = await client.post(
+        f"/competitions/admin/cohorts/{cohort.id}/certificates/download",
+        headers=_headers(ops),
+        json={"filter": "all", "theme": "dark", "force_certificate_type": "gold"},
+    )
+    assert resp_bad.status_code == 422
+
 
 @pytest.mark.asyncio
 async def test_locked_only_and_participation_filters_and_custom_emails(db, client):

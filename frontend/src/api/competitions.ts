@@ -722,6 +722,8 @@ export interface CompetitionCertificateSendIn {
   custom_email_subject?: string | null
   custom_email_body?: string | null
   save_email_to_template?: boolean
+  /** Bulk override: issue every targeted recipient as this type. Omit for earned types. */
+  force_certificate_type?: "completion" | "participation" | null
 }
 
 export interface CompetitionCertificateSendResult {
@@ -762,17 +764,21 @@ export const downloadCompetitionCertificatesApi = async (
   theme: "dark" | "light" | string = "dark",
   registrationIds?: string[] | null,
   templateId?: string | null,
+  forceCertificateType?: "completion" | "participation" | null,
 ) => {
   let res
   if (registrationIds && registrationIds.length > 0) {
     res = await api.post(
       `/competitions/admin/cohorts/${cohortId}/certificates/download`,
-      { filter, theme, template_id: templateId, registration_ids: registrationIds },
+      {
+        filter, theme, template_id: templateId, registration_ids: registrationIds,
+        force_certificate_type: forceCertificateType ?? undefined,
+      },
       { responseType: "blob" },
     )
   } else {
     res = await api.get(`/competitions/admin/cohorts/${cohortId}/certificates/download`, {
-      params: { filter, theme, template_id: templateId },
+      params: { filter, theme, template_id: templateId, force_certificate_type: forceCertificateType ?? undefined },
       responseType: "blob",
     })
   }

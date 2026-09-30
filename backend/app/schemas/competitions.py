@@ -678,6 +678,10 @@ class CompetitionCertificateSendIn(BaseModel):
     custom_email_subject: str | None = None
     custom_email_body: str | None = None
     save_email_to_template: bool = False
+    # Bulk override (2026-09-30) — issue every targeted recipient as this
+    # type regardless of what the system computed for them. None = per
+    # recipient earned type, as before.
+    force_certificate_type: Literal["completion", "participation"] | None = None
 
 
 class CompetitionCertificateDownloadIn(BaseModel):
@@ -685,6 +689,7 @@ class CompetitionCertificateDownloadIn(BaseModel):
     theme: str = "dark"
     template_id: str | None = None
     registration_ids: list[UUID] | None = None
+    force_certificate_type: Literal["completion", "participation"] | None = None
 
 
 

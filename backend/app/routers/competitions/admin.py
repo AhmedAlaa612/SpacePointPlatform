@@ -541,6 +541,7 @@ async def post_cohort_certificates_send(
         custom_email_subject=body.custom_email_subject,
         custom_email_body=body.custom_email_body,
         save_email_to_template=False,
+        force_certificate_type=body.force_certificate_type,
     )
 
     return CompetitionCertificateSendResultOut(
@@ -560,6 +561,7 @@ async def download_cohort_certificates(
     theme: str = Query("dark"),
     template_id: str | None = Query(None),
     registration_ids: list[uuid.UUID] | None = Query(None),
+    force_certificate_type: Literal["completion", "participation"] | None = Query(None),
     db: AsyncSession = Depends(get_db),
 ):
     """Download merged certificate PDF for students matching the filter or selected registration IDs."""
@@ -571,6 +573,7 @@ async def download_cohort_certificates(
         theme=theme,
         template_id=template_id,
         registration_ids=registration_ids,
+        force_certificate_type=force_certificate_type,
     )
     return Response(
         content=content,
@@ -594,6 +597,7 @@ async def download_cohort_certificates_post(
         theme=body.theme,
         template_id=body.template_id,
         registration_ids=body.registration_ids,
+        force_certificate_type=body.force_certificate_type,
     )
     return Response(
         content=content,

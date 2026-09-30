@@ -33,6 +33,18 @@ export function CompetitionCertificatesModal({
   const queryClient = useQueryClient()
 
   const [filter, setFilter] = useState<CertificateFilterMode>("locked_only")
+  // Bulk type override (2026-09-30) — on "All registered", ops can force
+  // every selected recipient to one type regardless of earned status.
+  const [forceType, setForceType] = useState<"earned" | "completion" | "participation">("earned")
+  const pickFilter = (f: CertificateFilterMode) => {
+    setFilter(f)
+    setForceType("earned")
+  }
+  // Effective outgoing type: the override only ever applies on "all".
+  const effectiveForce: "earned" | "completion" | "participation" =
+    filter === "all" ? forceType : "earned"
+  const emailIsParticipation =
+    effectiveForce === "participation" || (effectiveForce === "earned" && filter === "participation")
   const [selectedTemplateId, setSelectedTemplateId] = useState<string>("dark")
   const [hasUserSelectedTemplate, setHasUserSelectedTemplate] = useState(false)
   const [skipAlreadyIssued, setSkipAlreadyIssued] = useState(true)
@@ -93,7 +105,7 @@ export function CompetitionCertificatesModal({
     if (selectedTemplate?.email_subject) {
       setEmailSubject(selectedTemplate.email_subject)
     } else {
-      if (filter === "participation") {
+      if (emailIsParticipation) {
         setEmailSubject(`Your Certificate of Participation — ${effectiveProgramTitle}`)
       } else {
         setEmailSubject(`Your SpacePoint certificate — ${effectiveProgramTitle}`)
@@ -103,7 +115,7 @@ export function CompetitionCertificatesModal({
     if (selectedTemplate?.email_body) {
       setEmailBody(selectedTemplate.email_body)
     } else {
-      if (filter === "participation") {
+      if (emailIsParticipation) {
         setEmailBody(
           `<p>Hi {student_name},</p>\n<p>Thank you for participating in <strong>{program_name}</strong> with team <strong>{team_name}</strong> ({dates})!</p>\n<p>Your certificate of participation is attached to this email as a PDF.</p>\n<p>— SpacePoint</p>`,
         )
@@ -113,7 +125,7 @@ export function CompetitionCertificatesModal({
         )
       }
     }
-  }, [selectedTemplate, filter, effectiveProgramTitle, hasManuallyEditedEmail])
+  }, [selectedTemplate, filter, effectiveForce, emailIsParticipation, effectiveProgramTitle, hasManuallyEditedEmail])
 
   const handleResetEmail = () => {
     setHasManuallyEditedEmail(false)
@@ -121,7 +133,7 @@ export function CompetitionCertificatesModal({
       setEmailSubject(selectedTemplate.email_subject)
     } else {
       setEmailSubject(
-        filter === "participation"
+        emailIsParticipation
           ? `Your Certificate of Participation — ${effectiveProgramTitle}`
           : `Your SpacePoint certificate — ${effectiveProgramTitle}`,
       )
@@ -131,7 +143,7 @@ export function CompetitionCertificatesModal({
       setEmailBody(selectedTemplate.email_body)
     } else {
       setEmailBody(
-        filter === "participation"
+        emailIsParticipation
           ? `<p>Hi {student_name},</p>\n<p>Thank you for participating in <strong>{program_name}</strong> with team <strong>{team_name}</strong> ({dates})!</p>\n<p>Your certificate of participation is attached to this email as a PDF.</p>\n<p>— SpacePoint</p>`
           : `<p>Hi {student_name},</p>\n<p>Congratulations on completing <strong>{program_name}</strong> ({dates})!</p>\n<p>Your certificate of completion is attached to this email as a PDF.</p>\n<p>— SpacePoint</p>`,
       )
@@ -151,6 +163,7 @@ export function CompetitionCertificatesModal({
         isStock ? (selectedTemplateId as "dark" | "light") : "custom",
         Array.from(selectedIds),
         isStock ? undefined : selectedTemplateId,
+        effectiveForce === "earned" ? undefined : effectiveForce,
       )
       toast.success(
         `Downloaded ${selectedTemplate?.name || "certificate"} PDF (${selectedIds.size} student${selectedIds.size === 1 ? "" : "s"})`,
@@ -237,6 +250,7 @@ export function CompetitionCertificatesModal({
         custom_email_subject: emailSubject.trim() || undefined,
         custom_email_body: emailBody.trim() || undefined,
         save_email_to_template: saveEmailToTemplate,
+        force_certificate_type: effectiveForce === "earned" ? undefined : effectiveForce,
       })
     },
     onSuccess: (res) => {
@@ -263,7 +277,9 @@ export function CompetitionCertificatesModal({
   const renderedPreviewBody = useMemo(() => {
     const sName = sampleRecipient.student_name
     const tName = sampleRecipient.team_name || "Team"
-    const cType = (sampleRecipient.certificate_type_earned === "participation" || filter === "participation") ? "Participation" : "Completion"
+    const cType = effectiveForce !== "earned"
+      ? (effectiveForce === "participation" ? "Participation" : "Completion")
+      : (sampleRecipient.certificate_type_earned === "participation" || filter === "participation") ? "Participation" : "Completion"
     const cName = data?.cohort_name || cohortName
     let body = emailBody
       .replace(/\{student_name\}/g, sName)
@@ -283,7 +299,9 @@ export function CompetitionCertificatesModal({
   const renderedPreviewSubject = useMemo(() => {
     const sName = sampleRecipient.student_name
     const tName = sampleRecipient.team_name || "Team"
-    const cType = (sampleRecipient.certificate_type_earned === "participation" || filter === "participation") ? "Participation" : "Completion"
+    const cType = effectiveForce !== "earned"
+      ? (effectiveForce === "participation" ? "Participation" : "Completion")
+      : (sampleRecipient.certificate_type_earned === "participation" || filter === "participation") ? "Participation" : "Completion"
     const cName = data?.cohort_name || cohortName
     return emailSubject
       .replace(/\{student_name\}/g, sName)
@@ -331,7 +349,7 @@ export function CompetitionCertificatesModal({
         {/* Filter Tabs - Height & touch-friendly on mobile */}
         <div className="flex items-center gap-1.5 sm:gap-2 p-1.5 bg-muted/60 rounded-xl overflow-x-auto min-h-[46px] scrollbar-thin">
           <button
-            onClick={() => setFilter("locked_only")}
+            onClick={() => pickFilter("locked_only")}
             className={`flex items-center gap-2 px-3 sm:px-3.5 py-2 rounded-lg text-xs font-semibold whitespace-nowrap transition-colors shrink-0 ${
               filter === "locked_only"
                 ? "bg-card text-foreground shadow-sm border border-border"
@@ -348,7 +366,7 @@ export function CompetitionCertificatesModal({
           </button>
 
           <button
-            onClick={() => setFilter("participation")}
+            onClick={() => pickFilter("participation")}
             className={`flex items-center gap-2 px-3 sm:px-3.5 py-2 rounded-lg text-xs font-semibold whitespace-nowrap transition-colors shrink-0 ${
               filter === "participation"
                 ? "bg-card text-foreground shadow-sm border border-border"
@@ -364,7 +382,7 @@ export function CompetitionCertificatesModal({
           </button>
 
           <button
-            onClick={() => setFilter("all_completed")}
+            onClick={() => pickFilter("all_completed")}
             className={`flex items-center gap-2 px-3 sm:px-3.5 py-2 rounded-lg text-xs font-semibold whitespace-nowrap transition-colors shrink-0 ${
               filter === "all_completed"
                 ? "bg-card text-foreground shadow-sm border border-border"
@@ -380,7 +398,7 @@ export function CompetitionCertificatesModal({
           </button>
 
           <button
-            onClick={() => setFilter("all")}
+            onClick={() => pickFilter("all")}
             className={`flex items-center gap-2 px-3 sm:px-3.5 py-2 rounded-lg text-xs font-semibold whitespace-nowrap transition-colors shrink-0 ${
               filter === "all"
                 ? "bg-card text-foreground shadow-sm border border-border"
@@ -395,6 +413,41 @@ export function CompetitionCertificatesModal({
             )}
           </button>
         </div>
+
+        {/* Bulk type override — only on All registered: force one type for everyone */}
+        {filter === "all" && (
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="text-xs text-muted-foreground font-medium">Send all as:</span>
+            <div className="flex rounded-lg border border-border overflow-hidden">
+              {(
+                [
+                  ["earned", "As earned"],
+                  ["completion", "Completion"],
+                  ["participation", "Participation"],
+                ] as const
+              ).map(([value, label]) => (
+                <button
+                  key={value}
+                  type="button"
+                  onClick={() => setForceType(value)}
+                  className={`h-8 px-3 text-xs font-medium transition-colors ${
+                    forceType === value
+                      ? "bg-primary text-primary-foreground"
+                      : "text-muted-foreground hover:text-foreground"
+                  }`}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+            {forceType !== "earned" && (
+              <span className="text-[11px] text-amber-600 dark:text-amber-400 font-medium">
+                Everyone selected gets a {forceType === "completion" ? "Completion" : "Participation"} certificate,
+                regardless of earned status.
+              </span>
+            )}
+          </div>
+        )}
 
         {/* Controls: Search, Theme, Skip options, and Email Editor toggle */}
         <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2.5">
@@ -610,7 +663,9 @@ export function CompetitionCertificatesModal({
                   const isSelected = selectedIds.has(r.registration_id)
                   const isSkippedDueToIssued = skipAlreadyIssued && r.certificate_issued
                   const isLocked = r.team_locked
-                  const certType = r.certificate_type_earned || (isLocked ? "completion" : "participation")
+                  const certType = effectiveForce !== "earned"
+                    ? effectiveForce
+                    : r.certificate_type_earned || (isLocked ? "completion" : "participation")
 
                   return (
                     <tr
