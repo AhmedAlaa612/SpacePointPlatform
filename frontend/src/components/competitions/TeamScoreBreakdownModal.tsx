@@ -93,19 +93,19 @@ export function TeamScoreBreakdownModal({ cohortId, teamId, open, onClose }: Tea
             No score data found for this team.
           </div>
         ) : (
-          <div className="mt-4 space-y-6">
+          <div className="mt-4 space-y-6 min-w-0">
             {/* Timing & Submission Lock Audit Card */}
-            <div className="p-4 rounded-xl bg-muted/20 border border-border/70 space-y-2">
-              <div className="flex items-center justify-between text-xs font-semibold text-foreground">
-                <span className="flex items-center gap-1.5 text-muted-foreground">
+            <div className="p-4 rounded-xl bg-muted/20 border border-border/70 space-y-2 min-w-0">
+              <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 text-xs font-semibold text-foreground">
+                <span className="flex items-center gap-1.5 text-muted-foreground shrink-0">
                   <Clock size={14} className="text-primary" />
                   Submission Lock Timestamp
                 </span>
-                <span className="font-mono">
+                <span className="font-mono break-all text-right">
                   {breakdown.final_locked_at ? new Date(breakdown.final_locked_at).toLocaleString() : "Not finalized"}
                 </span>
               </div>
-              <div className="flex items-center justify-between text-xs">
+              <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 text-xs">
                 <span className="text-muted-foreground">Resolved Timing Adjustment:</span>
                 <div className="flex items-center gap-2">
                   <span className={`font-semibold px-2 py-0.5 rounded-full text-[11px] border ${
@@ -133,8 +133,8 @@ export function TeamScoreBreakdownModal({ cohortId, teamId, open, onClose }: Tea
 
             {/* Operations Criteria — graded by the SpacePoint team, not the judges */}
             {(breakdown.ops_breakdown ?? []).length > 0 && (
-              <div className="p-4 rounded-xl bg-foreground/[0.03] border border-foreground/20 space-y-2">
-                <div className="flex items-center justify-between text-xs">
+              <div className="p-4 rounded-xl bg-foreground/[0.03] border border-foreground/20 space-y-2 min-w-0">
+                <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 text-xs">
                   <span className="font-semibold text-foreground">
                     Operations Criteria
                   </span>
@@ -207,8 +207,8 @@ export function TeamScoreBreakdownModal({ cohortId, teamId, open, onClose }: Tea
                 {activeJudge && (
                   <div className="mt-4 space-y-5">
                     {/* Judge Info Subtitle */}
-                    <div className="flex items-center justify-between text-xs text-muted-foreground">
-                      <div>
+                    <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 text-xs text-muted-foreground">
+                      <div className="min-w-0 break-words">
                         Evaluated by <strong className="text-foreground">{activeJudge.judge_name}</strong> ({activeJudge.judge_email})
                       </div>
                       {activeJudge.submitted_at && (
