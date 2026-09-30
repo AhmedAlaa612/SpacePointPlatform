@@ -74,7 +74,6 @@ export default function JudgeTeamDetail() {
 
   const [scores, setScores] = useState<Record<string, number>>({})
   const [comments, setComments] = useState<Record<string, string>>({})
-  const [bonus, setBonus] = useState(0)
   const [lastSavedAt, setLastSavedAt] = useState<string | null>(null)
   const [submitted, setSubmitted] = useState(false)
   const [dirty, setDirty] = useState(false)
@@ -107,13 +106,11 @@ export default function JudgeTeamDetail() {
       }
       setScores(next)
       setComments(nextComments)
-      setBonus(detail.own_score?.bonus_points ?? 0)
       setLastSavedAt(detail.own_score?.submitted_at ?? null)
       setSubmitted(detail.own_score?.submitted ?? false)
     } else if (detail.own_score) {
       setScores(detail.own_score.criterion_scores)
       setComments(detail.own_score.criterion_comments ?? {})
-      setBonus(detail.own_score.bonus_points)
       setLastSavedAt(detail.own_score.submitted_at)
       setSubmitted(detail.own_score.submitted)
     }
@@ -129,7 +126,8 @@ export default function JudgeTeamDetail() {
         criterion_comments: Object.fromEntries(
           Object.entries(comments).filter(([, v]) => v.trim()),
         ),
-        bonus_points: bonus,
+        // Judges can no longer award bonus (2026-09-30) — always zero.
+        bonus_points: 0,
         submitted: finalize,
       }),
     onSuccess: (score, finalize) => {
@@ -150,7 +148,7 @@ export default function JudgeTeamDetail() {
     autosaveTimer.current = setTimeout(() => saveMutation.mutate(false), AUTOSAVE_DELAY_MS)
     return () => { if (autosaveTimer.current) clearTimeout(autosaveTimer.current) }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [scores, bonus, comments])
+  }, [scores, comments])
 
   if (isLoading) return <Spinner />
   if (!detail) return <EmptyState title="Team not found" />
@@ -163,12 +161,13 @@ export default function JudgeTeamDetail() {
   const parentTotal = (criterionKey: string, subs: { key: string }[]) =>
     subs.reduce((s, sub) => s + (Number(scores[leafKey(criterionKey, sub.key)]) || 0), 0)
 
-  // The judge's own total: flat criteria + sub leaves, plus bonus.
+  // The judge's own total: flat criteria + sub leaves. No bonus — judges
+  // can't award extras anymore, criteria only.
   const total =
     judgeCriteria.reduce((s, c) => {
       const subs = c.sub_criteria ?? []
       return s + (subs.length > 0 ? parentTotal(c.key, subs) : Number(scores[c.key]) || 0)
-    }, 0) + (Number(bonus) || 0)
+    }, 0)
 
   // Submit stays locked until every judge-scored leaf has points — a 0 is
   // treated as "not scored yet", so drafts can sit at zero but the deliberate
@@ -445,17 +444,6 @@ export default function JudgeTeamDetail() {
                 </div>
               )
             })}
-            <div className="flex items-center gap-3">
-              <label className="flex-1 text-base font-semibold text-foreground">Bonus points</label>
-              <input
-                type="number" min={0}
-                value={bonus}
-                onChange={(e) => setBonus(Number(e.target.value))}
-                className="w-20 h-9 px-2 border border-border bg-card text-foreground rounded-lg text-sm focus:outline-none focus:border-primary"
-              />
-              <span className="w-16 text-xs text-muted-foreground" />
-            </div>
-
             <div className="flex items-center justify-between pt-2 border-t border-border">
               <span className="text-lg font-bold text-foreground">
                 Total: {total}

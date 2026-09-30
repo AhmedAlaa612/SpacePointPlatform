@@ -27,9 +27,9 @@ export function TeamScoreBreakdownModal({ cohortId, teamId, open, onClose }: Tea
 
   return (
     <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
-      <DialogContent className="max-w-3xl max-h-[85vh] overflow-y-auto p-6 bg-card border-border">
+      <DialogContent className="w-[calc(100vw-2rem)] max-w-3xl max-h-[85vh] overflow-y-auto p-4 sm:p-6 bg-card border-border">
         <DialogHeader>
-          <div className="flex items-start justify-between gap-4">
+          <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-4">
             <div>
               <div className="flex items-center gap-2 flex-wrap mb-1">
                 {breakdown?.qualification && (
@@ -45,7 +45,7 @@ export function TeamScoreBreakdownModal({ cohortId, teamId, open, onClose }: Tea
 
             {/* Score summary cards */}
             {breakdown && (
-              <div className="flex items-center gap-3 shrink-0 text-right">
+              <div className="flex items-center gap-2 sm:gap-3 shrink-0 text-right flex-wrap">
                 <div className="p-2.5 rounded-xl bg-muted/40 border border-border text-center min-w-[70px]">
                   <div className="text-[10px] uppercase font-bold text-muted-foreground">Rubric</div>
                   <div className="text-base font-bold text-foreground tabular-nums">
@@ -146,7 +146,8 @@ export function TeamScoreBreakdownModal({ cohortId, teamId, open, onClose }: Tea
                   </span>
                 </div>
                 <div className="border border-border/60 rounded-xl overflow-hidden bg-card">
-                  <table className="w-full text-xs">
+                  <div className="overflow-x-auto">
+                  <table className="w-full text-xs min-w-[520px]">
                     <tbody className="divide-y divide-border/60">
                       {(breakdown.ops_breakdown ?? []).map((c) => (
                         <Fragment key={c.key}>
@@ -170,6 +171,7 @@ export function TeamScoreBreakdownModal({ cohortId, teamId, open, onClose }: Tea
                       ))}
                     </tbody>
                   </table>
+                  </div>
                 </div>
                 {breakdown.ops_criterion_notes && (
                   <div className="text-[11px] text-muted-foreground italic">
@@ -216,7 +218,8 @@ export function TeamScoreBreakdownModal({ cohortId, teamId, open, onClose }: Tea
 
                     {/* Criteria Breakdown Table */}
                     <div className="border border-border rounded-xl overflow-hidden">
-                      <table className="w-full text-xs">
+                      <div className="overflow-x-auto">
+                      <table className="w-full text-xs min-w-[560px]">
                         <thead>
                           <tr className="bg-muted/40 text-muted-foreground border-b border-border text-left uppercase tracking-wider font-semibold">
                             <th className="py-2.5 px-3">Rubric Criterion</th>
@@ -258,8 +261,17 @@ export function TeamScoreBreakdownModal({ cohortId, teamId, open, onClose }: Tea
                               ))}
                             </Fragment>
                           ))}
+                          <tr className="bg-muted/20">
+                            <td className="py-2 px-3 font-medium text-foreground">Bonus points</td>
+                            <td className="py-2 px-3 text-right text-muted-foreground font-mono">—</td>
+                            <td className="py-2 px-3 text-right font-bold text-foreground tabular-nums">
+                              {activeJudge.bonus_points ?? 0}
+                            </td>
+                            <td />
+                          </tr>
                         </tbody>
                       </table>
+                      </div>
                     </div>
 
                     {/* Overall Judge Feedback / Notes Card */}
