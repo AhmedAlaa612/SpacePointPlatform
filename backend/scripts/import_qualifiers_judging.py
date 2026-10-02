@@ -69,9 +69,15 @@ async def ensure_judge_user(db, email: str, full_name: str) -> User:
             id=uuid.uuid4(),
             email=norm_email,
             full_name=full_name,
+            # Unparseable sentinel, never a real credential — login treats
+            # it as a wrong password (401, never 500). The judge gains
+            # access via forgot-password / ops set-password link, which is
+            # why must_change_password=True routes onboarding to the
+            # set-password email instead of the "you have a password" notice.
             password_hash="!imported_judge_no_password",
             roles=[UserRole.judge],
             status="active",
+            must_change_password=True,
         )
         db.add(user)
         await db.flush()
@@ -90,11 +96,14 @@ async def ensure_cohort_judge(db, cohort_id: uuid.UUID, user_id: uuid.UUID) -> C
         )
     )
     if cj is None:
+        # onboarding_sent_at stays NULL — no email is sent by this import,
+        # and stamping "now" would lie to the ops resend triage (which uses
+        # the NULL to spot judges who never got onboarded). Use the judge
+        # invite / resend-onboarding endpoints to actually onboard them.
         cj = CompetitionJudge(
             id=uuid.uuid4(),
             cohort_id=cohort_id,
             user_id=user_id,
-            onboarding_sent_at=datetime.now(timezone.utc),
         )
         db.add(cj)
         await db.flush()

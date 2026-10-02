@@ -38,7 +38,7 @@ from app.schemas.spine.contacts import (
     OrganizationOut,
     OrganizationUpdate,
 )
-from app.services.lms.ops_integration import get_or_create_student_account, send_set_password_email
+from app.services.lms.ops_integration import get_or_create_student_account, resolve_user_for_contact, send_set_password_email
 from app.services.spine.identity import ensure_alias, normalize_email, normalize_phone, resolve_or_create_organization
 from app.services.spine.learning_panel import build_learning_panel
 from app.services.spine.role_history import record_role_diff
@@ -204,14 +204,18 @@ async def update_contact(
     roles_before = list(contact.contact_roles or []) if "contact_roles" in updates else None
 
     if "primary_phone_e164" in updates and updates["primary_phone_e164"]:
-        norm_phone = normalize_phone(updates["primary_phone_e164"]) or updates["primary_phone_e164"]
+        norm_phone = normalize_phone(updates["primary_phone_e164"])
+        # Whitespace-only input normalizes to None — store the model's NULL,
+        # never an alias row for garbage.
         updates["primary_phone_e164"] = norm_phone
-        await ensure_alias(db, contact.id, "phone", norm_phone)
+        if norm_phone:
+            await ensure_alias(db, contact.id, "phone", norm_phone)
 
     if "email" in updates and updates["email"]:
-        norm_email = normalize_email(updates["email"]) or updates["email"]
+        norm_email = normalize_email(updates["email"])
         updates["email"] = norm_email
-        await ensure_alias(db, contact.id, "email", norm_email)
+        if norm_email:
+            await ensure_alias(db, contact.id, "email", norm_email)
 
     # Not a real column — resolve-or-create by name, gap-fill only (a blank
     # value never clears an existing organization_id).
@@ -315,9 +319,7 @@ async def reset_lms_password(
     if contact is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Contact not found")
 
-    user = (await db.execute(
-        select(User).where(User.contact_id == contact_id).order_by(User.created_at)
-    )).scalars().first()
+    user = await resolve_user_for_contact(db, contact)
     if user is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="This contact has no linked account")
 

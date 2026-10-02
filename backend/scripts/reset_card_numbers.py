@@ -71,11 +71,14 @@ async def run(args) -> None:
     from app.db.session import AsyncSessionLocal
 
     async with AsyncSessionLocal() as db:
+        # ilike is case-insensitive but whitespace-sensitive — strip CLI
+        # input like every other email lookup, or a pasted trailing space
+        # fails with a confusing "No user found".
         boss = (await db.execute(
-            select(User).where(User.email.ilike(args.boss_email))
+            select(User).where(User.email.ilike(args.boss_email.strip()))
         )).scalars().first()
         coo = (await db.execute(
-            select(User).where(User.email.ilike(args.coo_email))
+            select(User).where(User.email.ilike(args.coo_email.strip()))
         )).scalars().first()
         if boss is None:
             raise SystemExit(f"No user found with email {args.boss_email!r}")

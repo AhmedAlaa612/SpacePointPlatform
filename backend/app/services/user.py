@@ -80,6 +80,15 @@ async def update_user(db: AsyncSession, user_id: UUID, user_in: UserUpdate | Use
 
     if update_data.get("email"):
         update_data["email"] = normalize_user_email(update_data["email"])
+        # Same 409-instead-of-500 discipline as the nickname check below:
+        # an admin retyping an address another account holds must get a
+        # correctable error, not a UniqueViolation. Case-insensitive so a
+        # legacy mixed-case row can't be collided into either.
+        clash = (await db.execute(
+            select(User).where(user_email_matches(update_data["email"]), User.id != user_id)
+        )).scalars().first()
+        if clash is not None:
+            raise HTTPException(status.HTTP_409_CONFLICT, detail="Email already registered")
 
     if "password" in update_data:
         update_data["password_hash"] = get_password_hash(update_data.pop("password"))

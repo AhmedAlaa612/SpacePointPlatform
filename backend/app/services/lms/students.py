@@ -150,7 +150,9 @@ async def _registered_cohort_users(
 
     if q:
         like = q.strip().lower()
-        users = [u for u in users if like in u.full_name.lower() or like in u.email.lower()]
+        # None-safe: legacy/bulk-import rows can carry NULL names or
+        # non-email values; a bare .lower() would 500 the whole search.
+        users = [u for u in users if like in (u.full_name or "").lower() or like in (u.email or "").lower()]
     if invite_code:
         if invite_code.strip().lower() == "none":
             users = [u for u in users if u.invitation_code_used is None]

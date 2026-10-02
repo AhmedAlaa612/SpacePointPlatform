@@ -182,7 +182,14 @@ async def login(data: LoginRequest, db: AsyncSession = Depends(get_db)):
             detail="Too many failed attempts — try again later",
         )
 
-    if not user or not verify_password(data.password, user.password_hash):
+    # verify_password raises (not False) on a hash it can't parse — e.g.
+    # bulk-imported sentinel values like "!imported_judge_no_password".
+    # That must be a 401 like any other bad credential, never a 500.
+    try:
+        password_ok = bool(user) and verify_password(data.password, user.password_hash)
+    except Exception:
+        password_ok = False
+    if not password_ok:
         if user:
             user.failed_login_count += 1
             if user.failed_login_count >= _MAX_FAILED_LOGIN_ATTEMPTS:
@@ -752,9 +759,14 @@ async def change_password(
 ):
     # First-login forced change skips the current-password check.
     if not current_user.must_change_password:
-        if not data.current_password or not verify_password(
-            data.current_password, current_user.password_hash
-        ):
+        try:
+            current_ok = bool(data.current_password) and verify_password(
+                data.current_password, current_user.password_hash
+            )
+        except Exception:
+            # Unparseable stored hash (e.g. import sentinel) — never a 500.
+            current_ok = False
+        if not current_ok:
             raise HTTPException(status_code=400, detail="Current password is incorrect")
 
     current_user.password_hash = get_password_hash(data.new_password)

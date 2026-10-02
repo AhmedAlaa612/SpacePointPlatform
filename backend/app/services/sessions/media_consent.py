@@ -28,7 +28,7 @@ from app.schemas.sessions.media_consent import (
     MediaConsentManualOverrideRequest,
     MediaConsentWebhookRequest,
 )
-from app.services.spine.identity import resolve_or_create_contact
+from app.services.spine.identity import ensure_alias, normalize_phone, resolve_or_create_contact
 
 
 def _normalize_phone_digits(phone: str | None) -> str | None:
@@ -91,10 +91,17 @@ async def _ensure_guardian_link(
         guardian = await db.get(Contact, registration.payer_contact_id)
         if guardian:
             guardian.full_name = parent_name
-            if parent_phone:
-                guardian.primary_phone_e164 = parent_phone
-            if parent_email:
-                guardian.email = parent_email
+            # Normalized + aliased like every other contact write — raw
+            # values here would never match a future alias-hash lookup and
+            # silently fork a duplicate Contact.
+            norm_phone = normalize_phone(parent_phone) if parent_phone else None
+            if norm_phone:
+                guardian.primary_phone_e164 = norm_phone
+                await ensure_alias(db, guardian.id, "phone", norm_phone)
+            norm_email = _normalize_email(parent_email) if parent_email else None
+            if norm_email:
+                guardian.email = norm_email
+                await ensure_alias(db, guardian.id, "email", norm_email)
             return
 
     # Create / resolve new guardian contact and link

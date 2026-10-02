@@ -337,8 +337,11 @@ def parse_excel_bulk_import(file_bytes: bytes) -> dict:
         return result
 
     for row_idx, row in enumerate(rows[1:], start=2):
-        email = str(row[cols["email"]]).strip() if row[cols["email"]] else ""
-        if not email or email.lower() == "none":
+        # Canonical key (strip + lowercase) — "A@x.com" and "a@x.com" rows
+        # belong to the same instructor; raw keys would mint two
+        # PaymentLetters for one person on confirm.
+        email = str(row[cols["email"]]).strip().lower() if row[cols["email"]] else ""
+        if not email or email == "none":
             continue
         try:
             duration = float(row[cols["duration"]]) if row[cols["duration"]] is not None else 0
@@ -377,8 +380,8 @@ def parse_excel_bulk_import(file_bytes: bytes) -> dict:
                 result["errors"].append(f"Add-ons sheet missing column: {e}")
             else:
                 for row_idx, row in enumerate(ao_rows[1:], start=2):
-                    email = str(row[ao_email]).strip() if row[ao_email] else ""
-                    if not email or email.lower() == "none":
+                    email = str(row[ao_email]).strip().lower() if row[ao_email] else ""
+                    if not email or email == "none":
                         continue
                     try:
                         amount = float(row[ao_amount]) if row[ao_amount] is not None else 0

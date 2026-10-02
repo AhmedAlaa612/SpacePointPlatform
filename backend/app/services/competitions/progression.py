@@ -19,7 +19,7 @@ import uuid
 from dataclasses import asdict, dataclass
 
 from fastapi import HTTPException, status
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.sessions.cohort import Cohort
@@ -85,8 +85,11 @@ async def advance_teams(
                 detail=f"Team '{team.name}' isn't in the source cohort — refusing to advance it",
             )
 
+        # Case-insensitive like the lower(name) uniqueness index — an exact
+        # match misses "Team Alpha" vs "team alpha" and the create_team below
+        # then 409s, aborting the whole advance loop.
         to_team = (await db.execute(
-            select(Team).where(Team.cohort_id == to_cohort_id, Team.name == team.name)
+            select(Team).where(Team.cohort_id == to_cohort_id, func.lower(Team.name) == team.name.lower())
         )).scalars().first()
 
         member_ids = await team_member_ids(db, team_id=team.id)

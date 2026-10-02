@@ -566,8 +566,17 @@ async def list_invitations(db: AsyncSession = Depends(get_db), current_user: Use
 async def create_invitation(
     body: InvitationCodeCreate, db: AsyncSession = Depends(get_db), current_user: User = Depends(require_admin)
 ):
+    new_code = body.code.strip().upper()
+    if not new_code:
+        raise HTTPException(status_code=400, detail="Code can't be blank")
+    # Global pre-check (both pools share one UNIQUE) — same as the
+    # student-pool create, so a duplicate 409s instead of 500ing.
+    if (await db.execute(
+        select(InvitationCode).where(InvitationCode.code == new_code)
+    )).scalars().first() is not None:
+        raise HTTPException(status_code=409, detail="That code already exists")
     code = InvitationCode(
-        code=body.code.strip().upper(), max_uses=body.max_uses, is_active=body.is_active, kind="instructor",
+        code=new_code, max_uses=body.max_uses, is_active=body.is_active, kind="instructor",
     )
     db.add(code)
     await db.commit()
@@ -583,7 +592,30 @@ async def update_invitation(
     code = (await db.execute(select(InvitationCode).where(InvitationCode.id == invitation_id))).scalars().first()
     if not code:
         raise HTTPException(status_code=404, detail="Invitation code not found")
-    for field, value in body.model_dump(exclude_unset=True).items():
+    updates = body.model_dump(exclude_unset=True)
+    # Same normalize + clash + in-use discipline as the student-pool PATCH
+    # (routers/lms/admin.py::update_invite_code): codes are matched as
+    # UPPER (services/invitations.py), so storing anything else bricks the
+    # batch, and renaming a used code orphans already-stamped signups.
+    if "code" in updates and updates["code"]:
+        new_code = updates["code"].strip().upper()
+        if not new_code:
+            raise HTTPException(status_code=400, detail="Code can't be blank")
+        if new_code != code.code:
+            clash = (await db.execute(
+                select(InvitationCode).where(InvitationCode.code == new_code)
+            )).scalars().first()
+            if clash is not None:
+                raise HTTPException(status_code=409, detail="That code already exists")
+            if await db.scalar(
+                select(func.count()).select_from(User).where(User.invitation_code_used == code.code)
+            ):
+                raise HTTPException(
+                    status_code=409,
+                    detail="This code has already been used to sign up — change its label instead of its code.",
+                )
+        updates["code"] = new_code
+    for field, value in updates.items():
         setattr(code, field, value)
     await db.commit()
     await db.refresh(code)

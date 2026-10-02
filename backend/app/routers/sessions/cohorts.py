@@ -94,8 +94,8 @@ from app.services.sessions import materials as materials_service
 from app.services.sessions import staffing as staffing_service
 from app.services.sessions import reports as reports_service
 from app.services.lms.ops_integration import (
-    build_set_password_link, deactivate_registration_enrollments, send_registration_onboarding_email,
-    sync_registration_lms,
+    build_set_password_link, deactivate_registration_enrollments, resolve_user_for_contact,
+    send_registration_onboarding_email, sync_registration_lms,
 )
 from app.services.sessions.registration import format_cohort_dates, register
 from app.services.spine.identity import normalize_user_email, resolve_or_create_contact
@@ -1185,7 +1185,10 @@ async def resend_onboarding_email(
     cohort = await db.get(Cohort, registration.cohort_id)
     if cohort is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Cohort not found")
-    user = (await db.execute(select(User).where(User.contact_id == registration.contact_id))).scalars().first()
+    contact = await db.get(Contact, registration.contact_id)
+    if contact is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="No LMS account linked to this registration")
+    user = await resolve_user_for_contact(db, contact)
     if user is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="No LMS account linked to this registration")
 
@@ -1209,7 +1212,10 @@ async def get_set_password_link(
     registration = await db.get(Registration, registration_id)
     if registration is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Registration not found")
-    user = (await db.execute(select(User).where(User.contact_id == registration.contact_id))).scalars().first()
+    contact = await db.get(Contact, registration.contact_id)
+    if contact is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="No LMS account linked to this registration")
+    user = await resolve_user_for_contact(db, contact)
     if user is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="No LMS account linked to this registration")
 

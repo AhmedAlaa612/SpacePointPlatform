@@ -19,7 +19,7 @@ import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Literal
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.security import create_password_set_token, get_password_hash
@@ -36,6 +36,25 @@ from app.services.nicknames import assign_nickname
 from app.services.spine.identity import normalize_user_email, user_email_matches
 
 logger = logging.getLogger("services.lms.ops_integration")
+
+
+async def resolve_user_for_contact(db: AsyncSession, contact: Contact) -> User | None:
+    """Read-only account resolution for ops actions (resend onboarding,
+    set-password link, password reset): the contact_id-linked account first,
+    then the case-insensitive email fallback — the same resolution
+    get_or_create_student_account and the backfill use. A stranded
+    registration (contact unlinked but email owned by another account)
+    resolves instead of 404ing."""
+    linked = (await db.execute(
+        select(User).where(User.contact_id == contact.id).order_by(User.created_at)
+    )).scalars().first()
+    if linked is not None:
+        return linked
+    if not contact.email:
+        return None
+    return (await db.execute(
+        select(User).where(user_email_matches(contact.email)).order_by(User.created_at)
+    )).scalars().first()
 
 
 async def get_or_create_student_account(db: AsyncSession, contact_id: uuid.UUID) -> tuple[User | None, bool]:
