@@ -284,6 +284,18 @@ const indexRoute = createRoute({
   },
 });
 
+const documentsRoute = createRoute({
+  getParentRoute: () => authLayoutRoute,
+  path: "/documents",
+  beforeLoad: () => {
+    const role = localStorage.getItem("active_role") as Role | null;
+    if (role === "admin") throw redirect({ to: "/admin/documents" });
+    if (role === "instructor" || role === "facilitator") throw redirect({ to: "/instructors/personal-documents" });
+    if (role === "ambassador" || role === "teacher") throw redirect({ to: "/ambassadors/documents" });
+    throw redirect({ to: "/interns/documents" });
+  },
+});
+
 const internsLayoutRoute = createRoute({
   getParentRoute: () => authLayoutRoute,
   path: "/interns",
@@ -1225,6 +1237,7 @@ const routeTree = rootRoute.addChildren([
   applyInstructorWithCodeRoute,
   authLayoutRoute.addChildren([
     indexRoute,
+    documentsRoute,
     adminHubRoute,
     adminUsersRoute,
     adminDocumentsRoute,
