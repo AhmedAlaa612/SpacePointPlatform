@@ -845,3 +845,118 @@ async def render_cohort_certificates_pdf(
     filename = f"certificates_{filter_type}_{safe_name or cohort_id}_{theme_suffix}.pdf"
     return merged, filename
 
+
+async def send_test_certificate_email(
+    db: AsyncSession,
+    *,
+    cohort_id: uuid.UUID,
+    to_email: str,
+    recipient_name: str | None = None,
+    theme: str = "dark",
+    template_id: str | None = None,
+    certificate_type: str = "completion",
+    custom_email_subject: str | None = None,
+    custom_email_body: str | None = None,
+) -> dict:
+    """Renders a sample certificate with the given config and sends a test email
+    to `to_email`. Does NOT record any Certificate row or modify any registration.
+    """
+    if certificate_type not in ("completion", "participation"):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="certificate_type must be 'completion' or 'participation'")
+
+    cohort = await db.get(Cohort, cohort_id)
+    if cohort is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Cohort not found")
+    program = await db.get(Program, cohort.program_id)
+    if program is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Program not found")
+
+    dates = format_cohort_dates(cohort)
+    location = await resolve_session_location_display(db, None, cohort)
+    layout = await _resolve_certificate_template(db, program=program, template_id=template_id, theme=theme)
+
+    template = (await db.execute(
+        select(DocumentTemplate).where(DocumentTemplate.key == "student_completion")
+    )).scalars().first()
+
+    type_title = "Participation" if certificate_type == "participation" else "Completion"
+    cohort_title = cohort.name or ""
+
+    if layout.get("body_text_template"):
+        raw_body_template = layout["body_text_template"]
+    else:
+        if certificate_type == "participation":
+            raw_body_template = "For active participation in<br/>{program_name}<br/>{dates}"
+        else:
+            raw_body_template = template.body_text if template else "For successfully completing<br/>{program_name}<br/>{dates}"
+
+    student_body_text = (
+        raw_body_template
+        .replace("{program_name}", escape(program.name))
+        .replace("{cohort_name}", escape(cohort_title))
+        .replace("{cohort}", escape(cohort_title))
+        .replace("{dates}", escape(dates))
+        .replace("{location}", escape(location.get("name") or ""))
+        .replace("{certificate_type}", type_title)
+        .replace("{type}", type_title)
+    )
+
+    effective_name = recipient_name.strip() if recipient_name and recipient_name.strip() else "Test Recipient"
+
+    cert_bytes = await asyncio.to_thread(
+        generate_completion_certificate_pdf,
+        recipient_name=effective_name,
+        body_text_template=student_body_text,
+        background_bytes=layout["background_bytes"],
+        theme=layout["theme"],
+        name_font_size=layout["name_font_size"],
+        name_y=layout["name_y"],
+        name_color=layout["name_color"],
+        body_font_size=layout["body_font_size"],
+        body_y=layout["body_y"],
+        body_color=layout["body_color"],
+        body_max_width=layout["body_max_width"],
+        body_alignment=layout["body_alignment"],
+        show_signature=layout["show_signature"],
+        signature_bytes=layout["signature_bytes"],
+        signature_x=layout["signature_x"],
+        signature_y=layout["signature_y"],
+        signature_width=layout["signature_width"],
+        signature_height=layout["signature_height"],
+        signatory_name=layout.get("signatory_name"),
+        signatory_title=layout.get("signatory_title"),
+    )
+
+    email_subj, email_body_html = render_certificate_email(
+        student_name=effective_name,
+        program_name=program.name,
+        cohort_name=cohort_title,
+        dates=dates,
+        team_name=None,
+        certificate_type=certificate_type,
+        custom_subject=custom_email_subject or layout.get("email_subject"),
+        custom_body=custom_email_body or layout.get("email_body"),
+    )
+
+    # Prepend a test banner to clearly mark this as a preview email
+    test_banner = (
+        "<div style=\"background:#f59e0b;color:#1c1917;padding:8px 14px;"
+        "border-radius:6px;font-size:12px;font-weight:600;margin-bottom:14px;\">"
+        "⚠️ TEST EMAIL — This is a preview of the certificate email. No records were created.</div>"
+    )
+    email_body_html = test_banner + email_body_html
+
+    safe_pname = "".join(c for c in program.name if c.isalnum() or c in " -_").strip().replace(" ", "_")
+    filename = f"SpacePoint_{type_title}_Certificate_{safe_pname or 'Program'}.pdf"
+
+    await try_send_email(
+        to_email,
+        f"[TEST] {email_subj}",
+        email_body_html,
+        html=True,
+        attachments=[(filename, cert_bytes, "pdf")],
+    )
+
+    return {"sent": True, "to": to_email, "subject": f"[TEST] {email_subj}"}
+
+

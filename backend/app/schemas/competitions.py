@@ -735,6 +735,16 @@ class CompetitionCertificateDownloadIn(BaseModel):
     force_certificate_type: Literal["completion", "participation"] | None = None
 
 
+class CompetitionCertificateTestEmailIn(BaseModel):
+    """Send a test certificate email to a specific address with the current config."""
+    to_email: str
+    recipient_name: str | None = None  # Name shown on the certificate PDF; defaults to "Test Recipient"
+    theme: str = "dark"
+    template_id: str | None = None
+    certificate_type: Literal["completion", "participation"] = "completion"
+    custom_email_subject: str | None = None
+    custom_email_body: str | None = None
+
 
 class CompetitionCertificateSendResultOut(BaseModel):
     status: str = "queued"

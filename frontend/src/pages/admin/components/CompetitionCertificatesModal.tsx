@@ -3,13 +3,14 @@ import { createPortal } from "react-dom"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import {
   Award, Check, ChevronDown, ChevronUp, Download, Eye, Loader2, Mail,
-  RefreshCw, Search, ShieldCheck, X,
+  RefreshCw, Search, SendHorizonal, ShieldCheck, X,
 } from "lucide-react"
 import {
   type CertificateFilterMode,
   downloadCompetitionCertificatesApi,
   getCohortCertificateRecipientsApi,
   sendCohortCertificatesApi,
+  sendTestCertificateEmailApi,
 } from "@/api/competitions"
 import { useToast } from "@/components/ui/toast"
 import { getErrorMessage } from "@/lib/utils"
@@ -59,6 +60,12 @@ export function CompetitionCertificatesModal({
   const [saveEmailToTemplate, setSaveEmailToTemplate] = useState(false)
   const [previewMode, setPreviewMode] = useState(false)
   const [hasManuallyEditedEmail, setHasManuallyEditedEmail] = useState(false)
+
+  // Test email (2026-10)
+  const [showTestEmailModal, setShowTestEmailModal] = useState(false)
+  const [testEmailAddress, setTestEmailAddress] = useState("")
+  const [testRecipientName, setTestRecipientName] = useState("")
+  const [sendingTestEmail, setSendingTestEmail] = useState(false)
 
   const { data, isLoading, refetch } = useQuery({
     queryKey: ["cohort-certificates-recipients", cohortId, filter],
@@ -149,6 +156,36 @@ export function CompetitionCertificatesModal({
       )
     }
     toast.success("Email copy reset to defaults")
+  }
+
+  const handleSendTestEmail = async () => {
+    const email = testEmailAddress.trim()
+    if (!email) {
+      toast.error("Please enter a test email address")
+      return
+    }
+    setSendingTestEmail(true)
+    try {
+      const isStock = selectedTemplateId === "dark" || selectedTemplateId === "light"
+      const certType = emailIsParticipation ? "participation" : "completion"
+      await sendTestCertificateEmailApi(cohortId, {
+        to_email: email,
+        recipient_name: testRecipientName.trim() || undefined,
+        theme: isStock ? (selectedTemplateId as "dark" | "light") : "dark",
+        template_id: isStock ? undefined : selectedTemplateId,
+        certificate_type: certType,
+        custom_email_subject: emailSubject.trim() || undefined,
+        custom_email_body: emailBody.trim() || undefined,
+      })
+      toast.success(`Test email sent to ${email}`)
+      setShowTestEmailModal(false)
+      setTestEmailAddress("")
+      setTestRecipientName("")
+    } catch (e: unknown) {
+      toast.error(getErrorMessage(e, "Failed to send test email"))
+    } finally {
+      setSendingTestEmail(false)
+    }
   }
 
   const handleDownload = async () => {
@@ -508,6 +545,74 @@ export function CompetitionCertificatesModal({
               )}
               {showEmailEditor ? <ChevronUp size={13} /> : <ChevronDown size={13} />}
             </button>
+
+            {/* Send Test Email Button + Mini Modal */}
+            <div className="relative">
+              <button
+                type="button"
+                onClick={() => setShowTestEmailModal((prev) => !prev)}
+                className="flex items-center gap-1.5 h-8 px-2.5 rounded-lg border border-border bg-background text-xs font-medium text-foreground hover:bg-muted transition-colors"
+                title="Send a test certificate email"
+              >
+                <SendHorizonal size={13} />
+                <span>Send Test</span>
+              </button>
+
+              {showTestEmailModal && (
+                <div
+                  className="absolute right-0 top-full mt-1.5 z-50 w-72 bg-card border border-border rounded-xl shadow-xl p-4 flex flex-col gap-3 animate-in fade-in-50 slide-in-from-top-1 duration-150"
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-semibold text-foreground">Send Test Email</span>
+                    <button
+                      type="button"
+                      onClick={() => setShowTestEmailModal(false)}
+                      className="text-muted-foreground hover:text-foreground transition-colors"
+                    >
+                      <X size={14} />
+                    </button>
+                  </div>
+                  <p className="text-[11px] text-muted-foreground leading-relaxed -mt-1">
+                    Sends a real certificate PDF to this address using the current template &amp; email config. No records are saved.
+                  </p>
+                  <div className="flex flex-col gap-2">
+                    <div>
+                      <label className="text-[11px] text-muted-foreground font-medium mb-1 block">Recipient name (on certificate)</label>
+                      <input
+                        type="text"
+                        value={testRecipientName}
+                        onChange={(e) => setTestRecipientName(e.target.value)}
+                        placeholder="e.g. Ahmed Mubarak"
+                        className="w-full h-8 px-2.5 rounded-lg border border-border bg-background text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-[11px] text-muted-foreground font-medium mb-1 block">Send to email *</label>
+                      <input
+                        type="email"
+                        value={testEmailAddress}
+                        onChange={(e) => setTestEmailAddress(e.target.value)}
+                        onKeyDown={(e) => { if (e.key === "Enter") handleSendTestEmail() }}
+                        placeholder="your@email.com"
+                        className="w-full h-8 px-2.5 rounded-lg border border-border bg-background text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
+                      />
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={handleSendTestEmail}
+                    disabled={sendingTestEmail || !testEmailAddress.trim()}
+                    className="flex items-center justify-center gap-1.5 h-8 w-full rounded-lg bg-primary text-primary-foreground text-xs font-medium hover:opacity-90 transition-colors disabled:opacity-50"
+                  >
+                    {sendingTestEmail
+                      ? <><Loader2 size={13} className="animate-spin" /> Sending…</>
+                      : <><SendHorizonal size={13} /> Send Test Email</>
+                    }
+                  </button>
+                </div>
+              )}
+            </div>
           </div>
         </div>
 

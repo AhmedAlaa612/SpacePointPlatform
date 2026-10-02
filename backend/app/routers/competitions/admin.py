@@ -29,7 +29,7 @@ from app.schemas.competitions import (
     CompetitionAssignStudentRowOut, CompetitionAssignStudentsIn, CompetitionAssignStudentsOut,
     CompetitionCertificateRecipientOut, CompetitionCertificateRecipientsSummaryOut,
     CompetitionCertificateSendIn, CompetitionCertificateSendResultOut,
-    CompetitionCertificateDownloadIn,
+    CompetitionCertificateDownloadIn, CompetitionCertificateTestEmailIn,
     CompetitionImportConfirmIn,
     CompetitionImportPreviewOut, CompetitionImportPreviewRowOut, CompetitionImportResultOut,
     CompetitionImportRowOut, CompetitionJudgeInviteIn, CompetitionJudgeOut, CompetitionJudgeProgressOut,
@@ -638,6 +638,32 @@ async def download_cohort_certificates_post(
         media_type="application/pdf",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
+
+
+@router.post("/cohorts/{cohort_id}/certificates/test-email")
+async def post_cohort_certificates_test_email(
+    cohort_id: uuid.UUID,
+    body: CompetitionCertificateTestEmailIn,
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(require_lms_content),
+):
+    """Send a test certificate email (with a sample PDF) to the given address.
+    Uses the exact template/theme/subject/body config currently selected in the
+    modal. Does NOT write any Certificate record or modify registrations.
+    """
+    await _get_cohort_or_404(db, cohort_id)
+    result = await certificates_service.send_test_certificate_email(
+        db,
+        cohort_id=cohort_id,
+        to_email=body.to_email,
+        recipient_name=body.recipient_name,
+        theme=body.theme,
+        template_id=body.template_id,
+        certificate_type=body.certificate_type,
+        custom_email_subject=body.custom_email_subject,
+        custom_email_body=body.custom_email_body,
+    )
+    return result
 
 
 # ── Submission Windows & Timing Adjustments ─────────────────────────────

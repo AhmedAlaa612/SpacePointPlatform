@@ -798,6 +798,28 @@ export const sendCohortCertificatesApi = (
     )
     .then((r) => r.data)
 
+export interface CompetitionCertificateTestEmailIn {
+  to_email: string
+  recipient_name?: string
+  theme?: string
+  template_id?: string | null
+  certificate_type?: "completion" | "participation"
+  custom_email_subject?: string | null
+  custom_email_body?: string | null
+}
+
+export const sendTestCertificateEmailApi = (
+  cohortId: string,
+  payload: CompetitionCertificateTestEmailIn,
+) =>
+  api
+    .post<{ sent: boolean; to: string; subject: string }>(
+      `/competitions/admin/cohorts/${cohortId}/certificates/test-email`,
+      payload,
+    )
+    .then((r) => r.data)
+
+
 export const downloadCompetitionCertificatesApi = async (
   cohortId: string,
   cohortName: string,
