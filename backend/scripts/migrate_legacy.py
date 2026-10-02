@@ -522,7 +522,8 @@ async def run(args: argparse.Namespace) -> Report:
             "FACILITATOR": UserRole.facilitator,
         }
         for lu in legacy_users:
-            new_id = map_users.get_or_create(lu["id"], email=lu["email"])
+            norm_email = (lu["email"] or "").strip().lower()
+            new_id = map_users.get_or_create(lu["id"], email=norm_email)
             role = role_map.get(lu["role"])
             if role is None:
                 t.skipped.append(f"user id={lu['id']} email={lu['email']}: unknown role {lu['role']!r}")
@@ -532,7 +533,7 @@ async def run(args: argparse.Namespace) -> Report:
                 existing = User(id=new_id)
                 db.add(existing)
             existing.full_name = lu["name"]
-            existing.email = lu["email"]
+            existing.email = (lu["email"] or "").strip().lower()
             existing.password_hash = lu["password_hash"]  # VERBATIM — bcrypt compatible, never re-hash
             existing.roles = [role]
             existing.status = "active"

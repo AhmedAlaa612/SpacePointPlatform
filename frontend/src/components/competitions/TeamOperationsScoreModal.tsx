@@ -19,10 +19,9 @@ interface TeamOperationsScoreModalProps {
 
 const leafKey = (parent: string, sub: string) => `${parent}.${sub}`
 
-/** Operations grades its own rubric criteria for one team — flat criteria
- * take a single score, parents-with-subs take one score per leaf and the
- * parent total computes itself (recomputed server-side too, never trusted
- * from here). Judge averages are untouched by this modal. */
+/** Operations grades its own rubric criteria and leaves feedback/comments for one team.
+ * Even if the rubric has no operations-specific criteria, operations can leave
+ * team-specific feedback here prior to publishing. Judge averages are untouched. */
 export function TeamOperationsScoreModal({ cohortId, team, rubric, open, onClose }: TeamOperationsScoreModalProps) {
   const toast = useToast()
   const queryClient = useQueryClient()
@@ -56,15 +55,14 @@ export function TeamOperationsScoreModal({ cohortId, team, rubric, open, onClose
         notes: notes.trim() || null,
       }),
     onSuccess: () => {
-      toast.success(`Operations score saved for ${team?.team_name}`)
+      toast.success(`Operations evaluation saved for ${team?.team_name}`)
       queryClient.invalidateQueries({ queryKey: ["competitions-leaderboard", cohortId] })
       queryClient.invalidateQueries({ queryKey: ["competitions-top20", cohortId] })
-      queryClient.invalidateQueries({
-        queryKey: ["competitions-team-breakdown", cohortId, team?.team_id],
-      })
+      queryClient.invalidateQueries({ queryKey: ["competitions-team-breakdown", cohortId, team?.team_id] })
+      queryClient.invalidateQueries({ queryKey: ["competitions-student-result", cohortId] })
       onClose()
     },
-    onError: (e: unknown) => toast.error(getErrorMessage(e, "Failed to save operations score")),
+    onError: (e: unknown) => toast.error(getErrorMessage(e, "Failed to save operations evaluation")),
   })
 
   if (!open || !team) return null
@@ -77,89 +75,106 @@ export function TeamOperationsScoreModal({ cohortId, team, rubric, open, onClose
       <DialogContent className="max-w-lg p-6 bg-card border-border">
         <DialogHeader>
           <DialogTitle className="text-lg font-bold text-foreground">
-            Grade operations — {team.team_name}
+            Operations & Feedback — {team.team_name}
           </DialogTitle>
           <p className="text-xs text-muted-foreground mt-0.5">
-            Only the operations-graded criteria. Judges' scores are unaffected.
+            Operations rubric scores and qualitative comments for this team. Judges' scores are unaffected.
           </p>
         </DialogHeader>
 
-        {operationsCriteria.length === 0 ? (
-          <p className="text-sm text-muted-foreground py-4">
-            This rubric has no operations-graded criteria — mark one as Operations in the Rubric tab first.
-          </p>
-        ) : (
-          <div className="mt-4 flex flex-col gap-3">
-            {operationsCriteria.map((c) => {
-              const subs = c.sub_criteria ?? []
-              if (subs.length === 0) {
-                return (
-                  <div key={c.key} className="flex items-center gap-3">
-                    <label className="flex-1 text-sm text-foreground">{c.label}</label>
-                    <input
-                      type="number" min={0} max={c.max_points}
-                      value={scores[c.key] ?? 0}
-                      onChange={(e) => setScores((s) => ({ ...s, [c.key]: Number(e.target.value) }))}
-                      className="w-20 h-9 px-2 border border-border bg-background text-foreground rounded-lg text-sm focus:outline-none focus:border-primary"
-                    />
-                    <span className="w-16 text-xs text-muted-foreground">/ {c.max_points}</span>
-                  </div>
-                )
-              }
-              const computed = parentTotal(c.key, subs)
-              return (
-                <div key={c.key} className="flex flex-col gap-1.5 border border-border rounded-xl p-3">
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="text-sm font-medium text-foreground">{c.label}</span>
-                    <span className="text-xs text-muted-foreground tabular-nums">
-                      <span className="font-semibold text-foreground">{computed}</span> / {c.max_points} · auto
-                    </span>
-                  </div>
-                  {subs.map((sub) => (
-                    <div key={sub.key} className="flex items-center gap-3 pl-4">
-                      <label className="flex-1 text-sm text-muted-foreground">{sub.label}</label>
+        <div className="mt-4 flex flex-col gap-4">
+          {operationsCriteria.length === 0 ? (
+            <div className="p-3 bg-muted/40 border border-border/70 rounded-xl text-xs text-muted-foreground">
+              This rubric does not include operations criteria. You can still add comments and feedback for this team below.
+            </div>
+          ) : (
+            <div className="flex flex-col gap-3">
+              <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                Operations Criteria
+              </span>
+              {operationsCriteria.map((c) => {
+                const subs = c.sub_criteria ?? []
+                if (subs.length === 0) {
+                  return (
+                    <div key={c.key} className="flex items-center gap-3">
+                      <label className="flex-1 text-sm text-foreground">{c.label}</label>
                       <input
-                        type="number" min={0} max={sub.max_points}
-                        value={scores[leafKey(c.key, sub.key)] ?? 0}
-                        onChange={(e) =>
-                          setScores((s) => ({ ...s, [leafKey(c.key, sub.key)]: Number(e.target.value) }))
-                        }
+                        type="number" min={0} max={c.max_points}
+                        value={scores[c.key] ?? 0}
+                        onChange={(e) => setScores((s) => ({ ...s, [c.key]: Number(e.target.value) }))}
                         className="w-20 h-9 px-2 border border-border bg-background text-foreground rounded-lg text-sm focus:outline-none focus:border-primary"
                       />
-                      <span className="w-16 text-xs text-muted-foreground">/ {sub.max_points}</span>
+                      <span className="w-16 text-xs text-muted-foreground">/ {c.max_points}</span>
                     </div>
-                  ))}
-                </div>
-              )
-            })}
-
-            <label className="flex flex-col gap-1.5">
-              <span className="text-xs font-medium text-muted-foreground">Notes (optional)</span>
-              <textarea
-                value={notes}
-                onChange={(e) => setNotes(e.target.value)}
-                rows={2}
-                className="w-full px-3 py-2 border border-border bg-background text-foreground rounded-xl text-sm focus:outline-none focus:border-primary resize-y"
-              />
-            </label>
-
-            <div className="flex justify-end gap-2 pt-1">
-              <button
-                onClick={onClose}
-                className="h-10 px-4 border border-border rounded-xl text-sm font-medium text-foreground hover:bg-muted transition-colors"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={() => saveMutation.mutate()}
-                disabled={saveMutation.isPending}
-                className="h-10 px-5 bg-primary text-primary-foreground rounded-xl text-sm font-medium hover:opacity-90 transition-colors disabled:opacity-50"
-              >
-                {saveMutation.isPending ? "Saving…" : "Save operations score"}
-              </button>
+                  )
+                }
+                const computed = parentTotal(c.key, subs)
+                return (
+                  <div key={c.key} className="flex flex-col gap-1.5 border border-border rounded-xl p-3">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-sm font-medium text-foreground">{c.label}</span>
+                      <span className="text-xs text-muted-foreground tabular-nums">
+                        <span className="font-semibold text-foreground">{computed}</span> / {c.max_points} · auto
+                      </span>
+                    </div>
+                    {subs.map((sub) => (
+                      <div key={sub.key} className="flex items-center gap-3 pl-4">
+                        <label className="flex-1 text-sm text-muted-foreground">{sub.label}</label>
+                        <input
+                          type="number" min={0} max={sub.max_points}
+                          value={scores[leafKey(c.key, sub.key)] ?? 0}
+                          onChange={(e) =>
+                            setScores((s) => ({ ...s, [leafKey(c.key, sub.key)]: Number(e.target.value) }))
+                          }
+                          className="w-20 h-9 px-2 border border-border bg-background text-foreground rounded-lg text-sm focus:outline-none focus:border-primary"
+                        />
+                        <span className="w-16 text-xs text-muted-foreground">/ {sub.max_points}</span>
+                      </div>
+                    ))}
+                  </div>
+                )
+              })}
             </div>
+          )}
+
+          <div className="flex flex-col gap-1.5">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                Operations Feedback & Comments
+              </span>
+              <span className="text-[11px] text-muted-foreground">Visible to team if enabled</span>
+            </div>
+            <textarea
+              value={notes}
+              onChange={(e) => setNotes(e.target.value)}
+              placeholder="Add feedback, notes, or instructions for this team..."
+              rows={4}
+              className="w-full px-3 py-2 border border-border bg-background text-foreground rounded-xl text-sm focus:outline-none focus:border-primary resize-y"
+            />
           </div>
-        )}
+
+          <div className="flex justify-end gap-2 pt-2 border-t border-border/60">
+            <button
+              type="button"
+              onClick={onClose}
+              className="h-10 px-4 border border-border rounded-xl text-sm font-medium text-foreground hover:bg-muted transition-colors"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={() => saveMutation.mutate()}
+              disabled={saveMutation.isPending}
+              className="h-10 px-5 bg-primary text-primary-foreground rounded-xl text-sm font-medium hover:opacity-90 transition-colors disabled:opacity-50"
+            >
+              {saveMutation.isPending
+                ? "Saving…"
+                : operationsCriteria.length > 0
+                ? "Save score & comments"
+                : "Save comments"}
+            </button>
+          </div>
+        </div>
       </DialogContent>
     </Dialog>
   )

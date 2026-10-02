@@ -40,6 +40,7 @@ from app.schemas.instructors.payment import (
 from app.schemas.sessions.journey import BillSessionsIn, PendingPaymentInstructorOut, UnbilledSessionOut
 from app.services.sessions.journey import find_or_create_draft_letter, pending_payment_instructors, unbilled_sessions
 from app.services import storage
+from app.services.spine.identity import normalize_user_email, user_email_matches
 from app.services.documents.certificate import generate_completion_certificate_pdf
 from app.services.documents.payment_letter import (
     generate_excel_template,
@@ -507,9 +508,10 @@ async def bulk_import_preview(
 ):
     data = await file.read()
     parsed = parse_excel_bulk_import(data)
-    emails = list(parsed["instructors"].keys())
-    matched = (await db.execute(select(User.email).where(User.email.in_(emails), User.roles.any("instructor")))).scalars().all()
-    unmatched = [e for e in emails if e not in matched]
+    emails = [normalize_user_email(e) for e in parsed["instructors"].keys()]
+    matched = (await db.execute(select(User.email).where(func.lower(User.email).in_(emails), User.roles.any("instructor")))).scalars().all()
+    matched_norm = {normalize_user_email(e) for e in matched}
+    unmatched = [e for e in parsed["instructors"].keys() if normalize_user_email(e) not in matched_norm]
     return BulkImportPreviewOut(
         instructor_count=len(parsed["instructors"]),
         session_count=sum(len(i["sessions"]) for i in parsed["instructors"].values()),
@@ -527,7 +529,7 @@ async def bulk_import_confirm(
     parsed = parse_excel_bulk_import(data)
     created_letters = 0
     for email, content in parsed["instructors"].items():
-        instructor = (await db.execute(select(User).where(User.email == email, User.roles.any("instructor")))).scalars().first()
+        instructor = (await db.execute(select(User).where(user_email_matches(email), User.roles.any("instructor")))).scalars().first()
         if not instructor:
             continue
         letter = PaymentLetter(

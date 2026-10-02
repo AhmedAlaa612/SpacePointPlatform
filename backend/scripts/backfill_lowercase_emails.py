@@ -1,12 +1,13 @@
-"""Backfill users.email to lowercase.
+"""Backfill users.email (plus contacts.email / applications.email) to strip().lower().
 
 `users.email` has a case-sensitive UNIQUE index, and normalization was only
 ever applied on some write paths (student signup) — not admin-created
-accounts, instructor applications, or /auth/login's lookup. Result: an
-account stored as "John@X.com" could never log in, since login now compares
-against the lowercased input. That mismatch is fixed in app/routers/auth.py
-and app/services/user.py; this script fixes the data already sitting in the
-table.
+accounts, instructor applications, judging imports, or bulk scripts.
+Result: an account stored as "John@X.com" or " judge@x.com " could never
+log in, since login compares against the normalized input. That mismatch
+is fixed in app/routers/auth.py and app/services/user.py (plus a
+User.email model validator as safety net); this script fixes the data
+already sitting in the tables.
 
 CONFLICTS
     If two rows already differ only by case (e.g. "a@x.com" and "A@x.com"),
@@ -28,21 +29,23 @@ from collections import defaultdict
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.models.application import Application
+from app.models.spine.contact import Contact
 from app.models.user import User
 
 
 async def backfill_lowercase_emails(db: AsyncSession) -> tuple[int, list[str]]:
-    """Lowercase every users.email that isn't already lowercase.
+    """Normalize users.email + contacts.email + applications.email.
 
-    Returns (rows_updated, collision_groups) where collision_groups is a list
-    of human-readable strings describing any lowercase key shared by more
-    than one existing row (skipped, not written).
+    Returns (rows_updated, collision_groups) where collision_groups covers
+    users.email collisions only (the UNIQUE-constrained table) — contacts
+    and applications have no such constraint so they normalize unconditionally.
     """
     users = (await db.execute(select(User).where(User.email.is_not(None)))).scalars().all()
 
     by_lower: dict[str, list[User]] = defaultdict(list)
     for user in users:
-        by_lower[user.email.lower()].append(user)
+        by_lower[(user.email or "").strip().lower()].append(user)
 
     updated = 0
     collisions: list[str] = []
@@ -54,6 +57,23 @@ async def backfill_lowercase_emails(db: AsyncSession) -> tuple[int, list[str]]:
         user = rows[0]
         if user.email != lower:
             user.email = lower
+            updated += 1
+
+    # Contacts feed users.email via get_or_create_student_account — a dirty
+    # contact re-dirties the next account. Applications feed users.email via
+    # approve/onboard. Normalize both unconditionally (no UNIQUE to collide).
+    contacts = (await db.execute(select(Contact).where(Contact.email.is_not(None)))).scalars().all()
+    for c in contacts:
+        norm = (c.email or "").strip().lower() or None
+        if c.email != norm:
+            c.email = norm
+            updated += 1
+
+    apps = (await db.execute(select(Application).where(Application.email.is_not(None)))).scalars().all()
+    for app in apps:
+        norm = (app.email or "").strip().lower()
+        if app.email != norm:
+            app.email = norm
             updated += 1
 
     await db.flush()

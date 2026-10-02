@@ -6,6 +6,7 @@ from sqlalchemy.dialects.postgresql import ARRAY, UUID
 from sqlalchemy import Index
 
 from app.db.base import Base
+from sqlalchemy.orm import validates
 
 
 class Contact(Base):
@@ -79,6 +80,16 @@ class Contact(Base):
     __table_args__ = (
         Index("ix_contacts_contact_roles", "contact_roles", postgresql_using="gin"),
     )
+
+    @validates("email")
+    def _normalize_email(self, key: str, value: str | None) -> str | None:
+        # Canonical strip().lower() form — LMS account creation copies
+        # contact.email straight into users.email, so this is part of the
+        # same invariant.
+        if value is None:
+            return value
+        stripped = str(value).strip()
+        return stripped.lower() if stripped else None
 
 
 class ContactRelationship(Base):

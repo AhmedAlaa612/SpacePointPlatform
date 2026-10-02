@@ -101,6 +101,7 @@ class CompetitionResultPublication(Base):
     cohort_id = Column(UUID(as_uuid=True), ForeignKey("cohorts.id", ondelete="CASCADE"), nullable=False, unique=True)
     published_by = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     published_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+    visibility_settings = Column(JSONB, nullable=False, default=dict, server_default="{}")
 
 
 class CompetitionJudge(Base):

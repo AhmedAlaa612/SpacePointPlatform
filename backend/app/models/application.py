@@ -5,6 +5,7 @@ from sqlalchemy import Column, DateTime, ForeignKey, String, Text
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 
 from app.db.base import Base
+from sqlalchemy.orm import validates
 
 
 class Application(Base):
@@ -35,3 +36,12 @@ class Application(Base):
     reviewed_at = Column(DateTime(timezone=True), nullable=True)
 
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+
+    @validates("email")
+    def _normalize_email(self, key: str, value: str | None) -> str | None:
+        # Same canonical form as User.email — approval copies app.email
+        # straight into a new User, so a mixed-case application would
+        # otherwise mint an un-loggable account.
+        if value is None:
+            return value
+        return str(value).strip().lower()

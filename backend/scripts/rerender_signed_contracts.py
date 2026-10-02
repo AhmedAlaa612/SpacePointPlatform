@@ -60,7 +60,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.instructors.instructor_profile import InstructorProfile
@@ -87,7 +87,7 @@ async def rerender_signed_contracts(
         .where(InstructorProfile.contract_signed_at.is_not(None))
     )
     if email is not None:
-        query = query.where(User.email == email)
+        query = query.where(func.lower(User.email) == email.strip().lower())
     rows = (await db.execute(query)).all()
 
     rerendered = skipped = 0

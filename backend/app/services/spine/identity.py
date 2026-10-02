@@ -100,6 +100,28 @@ def normalize_email(email: str | None) -> str | None:
     return email.strip().lower()
 
 
+def normalize_user_email(email: str | None) -> str:
+    """Canonical form for `users.email` (non-nullable): strip + lowercase.
+
+    Single choke point every User write path and every User lookup should
+    use — mirrors `normalize_email` but never returns None so it can be
+    compared/stored directly. The `User.email` model validator enforces
+    the same form as a safety net; callers should still normalize
+    explicitly so intent stays visible at the boundary.
+    """
+    return (email or "").strip().lower()
+
+
+def user_email_matches(email: str | None):
+    """Case-insensitive `users.email` predicate resilient to legacy rows.
+
+    Compares `LOWER(users.email)` against the normalized input, so an old
+    mixed-case / padded row still matches after the write-side fix lands.
+    Use for every User-by-email lookup instead of `User.email == ...`.
+    """
+    return func.lower(User.email) == normalize_user_email(email)
+
+
 def _alias_hash(value: str) -> str:
     return hashlib.sha256(value.encode("utf-8")).hexdigest()
 

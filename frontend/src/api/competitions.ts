@@ -76,18 +76,55 @@ export interface CompetitionLeaderboardRow {
   ops_criterion_notes?: string | null
 }
 
+export interface CompetitionVisibilitySettings {
+  show_score: boolean
+  show_rank: boolean
+  show_breakdown: boolean
+  show_ops_criteria: boolean
+  show_ops_comments: boolean
+  show_judge_comments: boolean
+}
+
+export interface StudentCriterionScoreBreakdown {
+  key: string
+  label: string
+  max_points: number
+  average_points?: number | null
+  subs?: CriterionSubScoreItem[]
+}
+
+export interface StudentJudgeCriteriaComment {
+  criterion: string
+  comment: string
+}
+
 export interface CompetitionStudentResult {
   team_id: string
   team_name: string
   status: string
-  final_score: number | null
-  score_percent: number | null
-  qualification: string | null
   locked: boolean
   locked_at: string | null
   published: boolean
+  qualification: string | null
   timing_adjustment?: number | null
   timing_badge?: string | null
+
+  final_score?: number | null
+  score_percent?: number | null
+  raw_judge_score?: number | null
+  rank?: number | null
+  total_teams?: number | null
+
+  criteria_breakdown?: StudentCriterionScoreBreakdown[] | null
+  ops_score?: number | null
+  ops_max_points?: number | null
+  ops_breakdown?: CriterionScoreItem[] | null
+
+  ops_comments?: string | null
+  judge_comments?: string[] | null
+  judge_criteria_comments?: StudentJudgeCriteriaComment[] | null
+
+  visibility_settings?: CompetitionVisibilitySettings | null
 }
 
 export interface SubmissionWindowItem {
@@ -172,6 +209,7 @@ export interface CompetitionJudgeProgress extends CompetitionJudge {
 export interface CompetitionPublication {
   published: boolean
   published_at: string | null
+  visibility_settings?: CompetitionVisibilitySettings
 }
 
 export interface CompetitionSubmissionItem {
@@ -408,8 +446,11 @@ export const downloadCohortQuizAnswersWorkbookApi = async (cohortId: string, coh
 export const getCohortPublicationApi = (cohortId: string) =>
   api.get<CompetitionPublication>(`/competitions/admin/cohorts/${cohortId}/publication`).then((r) => r.data)
 
-export const publishCohortResultsApi = (cohortId: string) =>
-  api.post<CompetitionPublication>(`/competitions/admin/cohorts/${cohortId}/publish`).then((r) => r.data)
+export const publishCohortResultsApi = (cohortId: string, settings?: CompetitionVisibilitySettings) =>
+  api.post<CompetitionPublication>(`/competitions/admin/cohorts/${cohortId}/publish`, settings ? { visibility_settings: settings } : {}).then((r) => r.data)
+
+export const updateCohortPublicationSettingsApi = (cohortId: string, settings: CompetitionVisibilitySettings) =>
+  api.put<CompetitionPublication>(`/competitions/admin/cohorts/${cohortId}/publication/settings`, { visibility_settings: settings }).then((r) => r.data)
 
 export const unpublishCohortResultsApi = (cohortId: string) =>
   api.post<void>(`/competitions/admin/cohorts/${cohortId}/unpublish`).then((r) => r.data)

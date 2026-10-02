@@ -19,9 +19,12 @@ from app.models.user import User
 
 
 async def seed_admin() -> None:
+    from sqlalchemy import func
+
     async with AsyncSessionLocal() as db:
+        admin_email = settings.ADMIN_EMAIL.strip().lower()
         existing = (
-            await db.execute(select(User).where(User.email == settings.ADMIN_EMAIL))
+            await db.execute(select(User).where(func.lower(User.email) == admin_email))
         ).scalars().first()
         if existing:
             print(f"✓ Admin already exists: {settings.ADMIN_EMAIL}")
@@ -29,7 +32,7 @@ async def seed_admin() -> None:
 
         admin = User(
             full_name="SpacePoint Admin",
-            email=settings.ADMIN_EMAIL,
+            email=admin_email,
             password_hash=get_password_hash(settings.ADMIN_PASSWORD),
             roles=[UserRole.admin],
             status="active",

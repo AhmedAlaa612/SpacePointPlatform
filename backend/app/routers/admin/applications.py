@@ -24,6 +24,7 @@ from app.services.email import send_application_approved_email, send_moved_to_on
 from app.services.internship.approval import approve_internship, resolve_internship_request_fields
 from app.services.notification import create_notification as notify
 from app.services.points import award_points, get_setting_int
+from app.services.spine.identity import normalize_user_email, user_email_matches
 
 router = APIRouter()
 
@@ -134,7 +135,7 @@ async def approve_application(
 
     new_user = User(
         full_name=app.full_name,
-        email=app.email,
+        email=normalize_user_email(app.email),
         password_hash=app.password_hash,
         phone=app.phone,
         country=app.country,
@@ -233,7 +234,7 @@ async def onboard_application(
     # how they end up holding both roles. Blindly inserting a second User hit
     # the unique index on users.email and returned a bare 500.
     new_user = (await db.execute(
-        select(User).where(func.lower(User.email) == app.email.lower())
+        select(User).where(user_email_matches(app.email))
     )).scalars().first()
 
     if new_user is None:
@@ -247,7 +248,7 @@ async def onboard_application(
 
         new_user = User(
             full_name=app.full_name,
-            email=app.email,
+            email=normalize_user_email(app.email),
             password_hash=app.password_hash,
             phone=app.phone,
             country=app.country,

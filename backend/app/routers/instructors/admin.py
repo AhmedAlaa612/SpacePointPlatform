@@ -56,6 +56,7 @@ from app.services.email import send_approval_credentials_email, send_phase1_appr
 from app.services.internship.approval import approve_internship
 from app.services.notification import create_notification as notify
 from app.services.points import award_points
+from app.services.spine.identity import normalize_user_email, user_email_matches
 
 router = APIRouter(prefix="/admin", tags=["instructors-admin"])
 
@@ -615,11 +616,11 @@ async def list_facilitators(db: AsyncSession = Depends(get_db), current_user: Us
 async def create_facilitator(
     body: FacilitatorCreate, db: AsyncSession = Depends(get_db), current_user: User = Depends(require_admin)
 ):
-    existing = (await db.execute(select(User.id).where(User.email == body.email))).first()
+    existing = (await db.execute(select(User.id).where(user_email_matches(body.email)))).first()
     if existing:
         raise HTTPException(status_code=400, detail="Email already registered")
     user = User(
-        full_name=body.full_name, email=body.email, password_hash=get_password_hash(body.password),
+        full_name=body.full_name, email=normalize_user_email(body.email), password_hash=get_password_hash(body.password),
         roles=[UserRole.facilitator], status="active", must_change_password=False,
     )
     db.add(user)

@@ -67,7 +67,7 @@ import uuid
 from collections import defaultdict
 from dataclasses import dataclass, field
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.lms.program import LmsProgramAssignment
@@ -102,8 +102,9 @@ async def _resolve_user(db: AsyncSession, contact: Contact) -> User | None:
         return linked
     if not contact.email:
         return None
+    norm = (contact.email or "").strip().lower()
     return (await db.execute(
-        select(User).where(User.email == contact.email).order_by(User.created_at)
+        select(User).where(func.lower(User.email) == norm).order_by(User.created_at)
     )).scalars().first()
 
 

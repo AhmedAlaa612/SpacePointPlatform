@@ -156,18 +156,60 @@ class CompetitionLeaderboardRowOut(BaseModel):
     ops_criterion_notes: str | None = None
 
 
+class CompetitionVisibilitySettings(BaseModel):
+    show_score: bool = True
+    show_rank: bool = True
+    show_breakdown: bool = True
+    show_ops_criteria: bool = True
+    show_ops_comments: bool = True
+    show_judge_comments: bool = True
+
+
+class CompetitionPublishIn(BaseModel):
+    visibility_settings: CompetitionVisibilitySettings = CompetitionVisibilitySettings()
+
+
+class StudentCriterionScoreBreakdown(BaseModel):
+    key: str
+    label: str
+    max_points: int
+    average_points: float | None = None
+    subs: list[CriterionSubScoreItem] = []
+
+
+class StudentJudgeCriteriaComment(BaseModel):
+    criterion: str
+    comment: str
+
+
 class CompetitionStudentResultOut(BaseModel):
     team_id: UUID
     team_name: str
-    status: str  # scored | unscored
-    final_score: float | None = None
-    score_percent: float | None = None
-    qualification: str | None = None
+    status: str  # scored | unscored | pending_publication
     locked: bool = False
     locked_at: datetime | None = None
     published: bool = False
+    qualification: str | None = None
     timing_adjustment: float | None = None
     timing_badge: str | None = None
+
+    # Visibility-gated fields (null if disabled or unpublished)
+    final_score: float | None = None
+    score_percent: float | None = None
+    raw_judge_score: float | None = None
+    rank: int | None = None
+    total_teams: int | None = None
+
+    criteria_breakdown: list[StudentCriterionScoreBreakdown] | None = None
+    ops_score: float | None = None
+    ops_max_points: float | None = None
+    ops_breakdown: list[CriterionScoreItem] | None = None
+
+    ops_comments: str | None = None
+    judge_comments: list[str] | None = None
+    judge_criteria_comments: list[StudentJudgeCriteriaComment] | None = None
+
+    visibility_settings: CompetitionVisibilitySettings | None = None
 
 
 class SubmissionWindowItem(BaseModel):
@@ -242,7 +284,7 @@ class TeamScoreBreakdownOut(BaseModel):
 
 
 class OpsScoreIn(BaseModel):
-    criterion_scores: dict[str, float]
+    criterion_scores: dict[str, float] = {}
     notes: str | None = None
 
 
@@ -279,6 +321,7 @@ class CompetitionJudgeInviteIn(BaseModel):
 class CompetitionPublicationOut(BaseModel):
     published: bool
     published_at: datetime | None = None
+    visibility_settings: CompetitionVisibilitySettings = CompetitionVisibilitySettings()
 
 
 class CompetitionSubmissionItemOut(BaseModel):

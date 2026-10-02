@@ -607,7 +607,9 @@ async def get_student_team_result(
     db: AsyncSession, *, cohort_id: uuid.UUID, user_id: uuid.UUID,
 ) -> dict:
     """Student result view -- strictly their own team's result once published.
-    Never exposes individual judge scores, judge identities, or other teams.
+    Never exposes individual judge identities or other teams.
+    Includes score, rank, criteria breakdown, operations criteria/comments, and judge comments
+    according to publication visibility settings.
     """
     from app.models.team import TeamMember
     team = await db.scalar(
@@ -618,62 +620,256 @@ async def get_student_team_result(
     if team is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="You are not in a team for this cohort")
 
-    cohort = await db.get(Cohort, cohort_id)
-    timing_info = resolve_team_timing(cohort, team)
-    try:
-        timing_pts = float(timing_info.get("points") or 0.0)
-    except (ValueError, TypeError):
-        timing_pts = 0.0
-
-    published = await is_published(db, cohort_id=cohort_id)
-    if not published:
+    pub = await get_publication(db, cohort_id=cohort_id)
+    if pub is None:
+        cohort = await db.get(Cohort, cohort_id)
+        timing_info = resolve_team_timing(cohort, team)
+        try:
+            timing_pts = float(timing_info.get("points") or 0.0)
+        except (ValueError, TypeError):
+            timing_pts = 0.0
         return {
             "team_id": team.id,
             "team_name": team.name,
             "status": "pending_publication",
             "final_score": None,
             "score_percent": None,
-            "qualification": None,
+            "raw_judge_score": None,
+            "rank": None,
+            "total_teams": None,
+            "qualification": getattr(team, "qualification", None),
             "locked": getattr(team, "final_locked_at", None) is not None,
             "locked_at": getattr(team, "final_locked_at", None),
             "published": False,
             "timing_adjustment": timing_pts,
             "timing_badge": timing_info.get("badge"),
+            "criteria_breakdown": None,
+            "ops_score": None,
+            "ops_max_points": None,
+            "ops_breakdown": None,
+            "ops_comments": None,
+            "judge_comments": None,
+            "judge_criteria_comments": None,
+            "visibility_settings": None,
         }
 
-    agg = (await db.execute(
-        select(func.avg(CompetitionScore.total_points), func.count(CompetitionScore.id))
-        .where(CompetitionScore.team_id == team.id, CompetitionScore.submitted.is_(True))
-    )).first()
+    raw_settings = pub.visibility_settings or {}
+    show_score = raw_settings.get("show_score", True)
+    show_rank = raw_settings.get("show_rank", True)
+    show_breakdown = raw_settings.get("show_breakdown", True)
+    show_ops_criteria = raw_settings.get("show_ops_criteria", True)
+    show_ops_comments = raw_settings.get("show_ops_comments", True)
+    show_judge_comments = raw_settings.get("show_judge_comments", True)
+    visibility_settings_out = {
+        "show_score": show_score,
+        "show_rank": show_rank,
+        "show_breakdown": show_breakdown,
+        "show_ops_criteria": show_ops_criteria,
+        "show_ops_comments": show_ops_comments,
+        "show_judge_comments": show_judge_comments,
+    }
 
-    avg_score = float(agg[0]) if agg and agg[0] is not None else None
-    scored_count = agg[1] if agg else 0
-    final_score = round(avg_score + timing_pts, 1) if avg_score is not None else None
-    score_percent = round(100 * (final_score / 110), 1) if final_score is not None else None
+    board = await leaderboard(db, cohort_id=cohort_id)
+    my_row = next((r for r in board if r["team_id"] == team.id), None)
+    total_teams = len(board)
+
+    rank = (my_row["rank"] if my_row else None) if show_rank else None
+    final_score = (my_row["score"] if my_row else None) if show_score else None
+    score_percent = (my_row["score_percent"] if my_row else None) if show_score else None
+    raw_judge_score = (my_row["raw_judge_score"] if my_row else None) if show_score else None
+    status_str = my_row["status"] if my_row else "unscored"
+    timing_pts = my_row["timing_adjustment"] if my_row else 0.0
+    timing_badge = my_row["timing_badge"] if my_row else None
+
+    cohort = await db.get(Cohort, cohort_id)
+    rubric_tuple = await get_rubric(db, program_id=cohort.program_id) if cohort else None
+    rubric_criteria = rubric_tuple[1] if rubric_tuple else []
+
+    score_rows = (await db.execute(
+        select(CompetitionScore)
+        .where(
+            CompetitionScore.cohort_id == cohort_id,
+            CompetitionScore.team_id == team.id,
+            CompetitionScore.submitted.is_(True),
+        )
+    )).scalars().all()
+
+    # 1. Criteria score breakdown with average score on every criterion across judges
+    criteria_breakdown = None
+    if show_breakdown:
+        criteria_breakdown = []
+        judge_criteria = [c for c in rubric_criteria if getattr(c, "scored_by", "judge") != "operations"]
+        for c in judge_criteria:
+            subs = _criterion_subs(c)
+            awarded_list = []
+            sub_awarded_dict: dict[str, list[float]] = {s["key"]: [] for s in subs}
+            for s_row in score_rows:
+                crit_scores = s_row.criterion_scores or {}
+                val = crit_scores.get(c.key)
+                if val is None and subs:
+                    leaf_vals = [crit_scores.get(_leaf_key(c.key, sub["key"])) for sub in subs]
+                    if all(isinstance(v, (int, float)) for v in leaf_vals):
+                        val = float(sum(leaf_vals))
+                if isinstance(val, (int, float)):
+                    awarded_list.append(float(val))
+                for sub in subs:
+                    sval = crit_scores.get(_leaf_key(c.key, sub["key"]))
+                    if isinstance(sval, (int, float)):
+                        sub_awarded_dict[sub["key"]].append(float(sval))
+
+            avg_pts = round(sum(awarded_list) / len(awarded_list), 1) if awarded_list else None
+            subs_out = []
+            for sub in subs:
+                sub_list = sub_awarded_dict[sub["key"]]
+                sub_avg = round(sum(sub_list) / len(sub_list), 1) if sub_list else None
+                subs_out.append({
+                    "key": sub["key"],
+                    "label": sub["label"],
+                    "max_points": int(sub["max_points"]),
+                    "awarded_points": sub_avg,
+                })
+            criteria_breakdown.append({
+                "key": c.key,
+                "label": c.label,
+                "max_points": c.max_points,
+                "average_points": avg_pts,
+                "subs": subs_out,
+            })
+
+    # 2. Operations criteria
+    ops_score = None
+    ops_max_points = None
+    ops_breakdown = None
+    if show_ops_criteria:
+        ops_scores: dict = getattr(team, "ops_criterion_scores", None) or {}
+        ops_criteria = [c for c in rubric_criteria if getattr(c, "scored_by", "judge") == "operations"]
+        ops_pts = _ops_parent_total(ops_criteria, ops_scores)
+        ops_max_total = float(sum(c.max_points for c in ops_criteria))
+        ops_breakdown = []
+        for c in ops_criteria:
+            subs = _criterion_subs(c)
+            awarded = ops_scores.get(c.key)
+            if awarded is None and subs:
+                leaf_vals = [ops_scores.get(_leaf_key(c.key, s["key"])) for s in subs]
+                if all(isinstance(v, (int, float)) for v in leaf_vals):
+                    awarded = float(sum(leaf_vals))
+            ops_breakdown.append({
+                "key": c.key,
+                "label": c.label,
+                "max_points": c.max_points,
+                "awarded_points": awarded,
+                "comment": None,
+                "subs": [
+                    {
+                        "key": s["key"],
+                        "label": s["label"],
+                        "max_points": int(s["max_points"]),
+                        "awarded_points": ops_scores.get(_leaf_key(c.key, s["key"])),
+                    }
+                    for s in subs
+                ],
+            })
+        ops_score = round(ops_pts, 1) if ops_scores else None
+        ops_max_points = ops_max_total if ops_criteria else None
+
+    # 3. Operations comments
+    ops_comments = None
+    if show_ops_comments:
+        notes = getattr(team, "ops_criterion_notes", None)
+        ops_comments = notes.strip() if notes and notes.strip() else None
+
+    # 4. Judges comments
+    judge_comments = None
+    judge_criteria_comments = None
+    if show_judge_comments:
+        judge_comments = []
+        judge_criteria_comments = []
+        for s_row in score_rows:
+            if s_row.notes and s_row.notes.strip():
+                judge_comments.append(s_row.notes.strip())
+            crit_comments = s_row.criterion_comments or {}
+            for crit_key, comment_text in crit_comments.items():
+                if comment_text and comment_text.strip():
+                    matching_c = next((c for c in rubric_criteria if c.key == crit_key), None)
+                    lbl = matching_c.label if matching_c else crit_key
+                    judge_criteria_comments.append({
+                        "criterion": lbl,
+                        "comment": comment_text.strip(),
+                    })
 
     return {
         "team_id": team.id,
         "team_name": team.name,
-        "status": "scored" if scored_count > 0 else "unscored",
+        "status": status_str,
         "final_score": final_score,
         "score_percent": score_percent,
+        "raw_judge_score": raw_judge_score,
+        "rank": rank,
+        "total_teams": total_teams if show_rank else None,
         "qualification": getattr(team, "qualification", None),
         "locked": getattr(team, "final_locked_at", None) is not None,
         "locked_at": getattr(team, "final_locked_at", None),
         "published": True,
         "timing_adjustment": timing_pts,
-        "timing_badge": timing_info.get("badge"),
+        "timing_badge": timing_badge,
+        "criteria_breakdown": criteria_breakdown,
+        "ops_score": ops_score,
+        "ops_max_points": ops_max_points,
+        "ops_breakdown": ops_breakdown,
+        "ops_comments": ops_comments,
+        "judge_comments": judge_comments,
+        "judge_criteria_comments": judge_criteria_comments,
+        "visibility_settings": visibility_settings_out,
     }
 
 
-async def publish(db: AsyncSession, *, cohort_id: uuid.UUID, actor_user_id: uuid.UUID) -> CompetitionResultPublication:
+async def publish(
+    db: AsyncSession,
+    *,
+    cohort_id: uuid.UUID,
+    actor_user_id: uuid.UUID,
+    visibility_settings: dict | None = None,
+) -> CompetitionResultPublication:
     existing = await db.scalar(
         select(CompetitionResultPublication).where(CompetitionResultPublication.cohort_id == cohort_id)
     )
     if existing is not None:
+        if visibility_settings is not None:
+            existing.visibility_settings = visibility_settings
+            existing.published_by = actor_user_id
+            await db.flush()
         return existing
-    row = CompetitionResultPublication(id=uuid.uuid4(), cohort_id=cohort_id, published_by=actor_user_id)
+    settings = visibility_settings if visibility_settings is not None else {
+        "show_score": True,
+        "show_rank": True,
+        "show_breakdown": True,
+        "show_ops_criteria": True,
+        "show_ops_comments": True,
+        "show_judge_comments": True,
+    }
+    row = CompetitionResultPublication(
+        id=uuid.uuid4(),
+        cohort_id=cohort_id,
+        published_by=actor_user_id,
+        visibility_settings=settings,
+    )
     db.add(row)
+    await db.flush()
+    return row
+
+
+async def update_publication_settings(
+    db: AsyncSession,
+    *,
+    cohort_id: uuid.UUID,
+    visibility_settings: dict,
+) -> CompetitionResultPublication:
+    row = await db.scalar(
+        select(CompetitionResultPublication).where(CompetitionResultPublication.cohort_id == cohort_id)
+    )
+    if row is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Results are not published for this cohort")
+    row.visibility_settings = visibility_settings
     await db.flush()
     return row
 

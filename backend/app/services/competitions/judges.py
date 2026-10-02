@@ -28,6 +28,7 @@ from app.models.sessions.cohort import Cohort
 from app.models.sessions.program import Program
 from app.models.user import User
 from app.services.lms.ops_integration import send_registered_notice_email, send_set_password_email
+from app.services.spine.identity import normalize_user_email, user_email_matches
 
 
 async def judge_cohort_ids(db: AsyncSession, *, user: User) -> set[uuid.UUID]:
@@ -118,12 +119,11 @@ async def invite_judge(
     assignment — same "the action always happens, only the notification is
     optional" posture every other send_welcome_email/send_ticket_email
     toggle in this codebase already has."""
-    # Login compares `User.email == input.strip().lower()` exactly — storing
-    # anything else (capitals, trailing space) mints an account that can
-    # never log in (prod incident 2026-09-30). Normalize on the way in, for
-    # both the lookup and the insert, so duplicates can't slip past either.
-    email = email.strip().lower()
-    user = (await db.execute(select(User).where(User.email == email))).scalar_one_or_none()
+    # Canonical normalization on the way in + case-insensitive lookup, so a
+    # legacy mixed-case row is reused rather than colliding (prod incident
+    # 2026-09-30). The User model validator enforces the same form on insert.
+    email = normalize_user_email(email)
+    user = (await db.execute(select(User).where(user_email_matches(email)))).scalar_one_or_none()
     is_new = user is None
     if user is None:
         user = User(

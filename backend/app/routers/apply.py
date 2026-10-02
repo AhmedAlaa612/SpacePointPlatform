@@ -14,6 +14,7 @@ from app.models.inventory.city import City
 from app.core.apply_config import ROLES_REQUIRING_CODE, ROLES_WITH_CV, VALID_ROLES
 from app.models.application_question import ApplicationQuestion
 from app.models.user import User
+from app.services.spine.identity import normalize_user_email, user_email_matches
 
 router = APIRouter(prefix="/apply", tags=["apply"])
 
@@ -73,13 +74,13 @@ async def submit_application(
     if role in ROLES_REQUIRING_CODE and not invite_code:
         raise HTTPException(status_code=400, detail="Invite code required for this role")
 
-    # Lowercase at the write boundary, same as /auth/login and /auth/signup
-    # (services/spine/identity.py::normalize_email is the canonical form) —
-    # otherwise a mixed-case email stored here can never log in later.
-    email = email.strip().lower()
+    # Canonical normalization at the write boundary (strip + lowercase) —
+    # Application/User model validators enforce the same form; lookups are
+    # case-insensitive so legacy rows can't slip past the duplicate check.
+    email = normalize_user_email(email)
 
     # Unique email check across both users and pending applications
-    existing_user = (await db.execute(select(User.id).where(User.email == email))).first()
+    existing_user = (await db.execute(select(User.id).where(user_email_matches(email)))).first()
     if existing_user:
         raise HTTPException(status_code=400, detail="Email already registered")
     existing_app = (await db.execute(

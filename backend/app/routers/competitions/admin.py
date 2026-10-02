@@ -33,7 +33,8 @@ from app.schemas.competitions import (
     CompetitionImportConfirmIn,
     CompetitionImportPreviewOut, CompetitionImportPreviewRowOut, CompetitionImportResultOut,
     CompetitionImportRowOut, CompetitionJudgeInviteIn, CompetitionJudgeOut, CompetitionJudgeProgressOut,
-    CompetitionLeaderboardRowOut, CompetitionPublicationOut, CompetitionRubricIn, CompetitionRubricOut,
+    CompetitionLeaderboardRowOut, CompetitionPublicationOut, CompetitionPublishIn, CompetitionVisibilitySettings,
+    CompetitionRubricIn, CompetitionRubricOut,
     CompetitionTeamCreateIn, CompetitionTeamMemberIn, CompetitionTeamOut, CompetitionTeamRenameIn,
     CohortSubmissionWindowsUpdate, TeamTimingAdjustmentUpdate, TeamScoreBreakdownOut,
     OpsScoreIn, OpsScoreOut,
@@ -444,17 +445,50 @@ async def export_cohort_quiz_answers_workbook(cohort_id: uuid.UUID, db: AsyncSes
 async def get_cohort_publication(cohort_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
     await _get_cohort_or_404(db, cohort_id)
     row = await judging_service.get_publication(db, cohort_id=cohort_id)
-    return CompetitionPublicationOut(published=row is not None, published_at=row.published_at if row else None)
+    settings = row.visibility_settings if row and row.visibility_settings else {}
+    return CompetitionPublicationOut(
+        published=row is not None,
+        published_at=row.published_at if row else None,
+        visibility_settings=CompetitionVisibilitySettings(**settings),
+    )
 
 
 @router.post("/cohorts/{cohort_id}/publish", response_model=CompetitionPublicationOut)
 async def post_cohort_publish(
-    cohort_id: uuid.UUID, db: AsyncSession = Depends(get_db), current: User = Depends(get_current_active_user),
+    cohort_id: uuid.UUID,
+    body: CompetitionPublishIn | None = None,
+    db: AsyncSession = Depends(get_db),
+    current: User = Depends(get_current_active_user),
 ):
     await _get_cohort_or_404(db, cohort_id)
-    row = await judging_service.publish(db, cohort_id=cohort_id, actor_user_id=current.id)
+    settings = body.visibility_settings.model_dump() if body else None
+    row = await judging_service.publish(db, cohort_id=cohort_id, actor_user_id=current.id, visibility_settings=settings)
     await db.commit()
-    return CompetitionPublicationOut(published=True, published_at=row.published_at)
+    row_settings = row.visibility_settings if row and row.visibility_settings else {}
+    return CompetitionPublicationOut(
+        published=True,
+        published_at=row.published_at,
+        visibility_settings=CompetitionVisibilitySettings(**row_settings),
+    )
+
+
+@router.put("/cohorts/{cohort_id}/publication/settings", response_model=CompetitionPublicationOut)
+async def put_cohort_publication_settings(
+    cohort_id: uuid.UUID,
+    body: CompetitionPublishIn,
+    db: AsyncSession = Depends(get_db),
+):
+    await _get_cohort_or_404(db, cohort_id)
+    row = await judging_service.update_publication_settings(
+        db, cohort_id=cohort_id, visibility_settings=body.visibility_settings.model_dump()
+    )
+    await db.commit()
+    row_settings = row.visibility_settings if row and row.visibility_settings else {}
+    return CompetitionPublicationOut(
+        published=True,
+        published_at=row.published_at,
+        visibility_settings=CompetitionVisibilitySettings(**row_settings),
+    )
 
 
 @router.post("/cohorts/{cohort_id}/unpublish", status_code=status.HTTP_204_NO_CONTENT)
@@ -693,60 +727,55 @@ async def put_team_ops_score(
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Cohort not found")
 
     rubric_tuple = await judging_service.get_rubric(db, program_id=cohort.program_id)
-    if rubric_tuple is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="No rubric configured for this competition yet")
-    _, criteria = rubric_tuple
-
+    criteria = rubric_tuple[1] if rubric_tuple else []
     ops_criteria = {c.key: c for c in criteria if getattr(c, "scored_by", "judge") == "operations"}
-    if not ops_criteria:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="This rubric has no operations-graded criteria")
-
-    # Validate leaf keys: flat criteria take their own key; parents with
-    # sub-criteria take `parent.sub` leaves (inheriting the parent's
-    # operations grader). A submitted parent contributes only once all of
-    # its leaves are present, so a stored parent total is never partial.
-    leaf_spec: dict[str, tuple[str, str, int]] = {}  # leaf key -> (parent key, label, max)
-    for c in ops_criteria.values():
-        subs = getattr(c, "sub_criteria", None) or []
-        if subs:
-            for s in subs:
-                leaf_spec[f"{c.key}.{s['key']}"] = (c.key, s["label"], int(s["max_points"]))
-        else:
-            leaf_spec[c.key] = (c.key, c.label, c.max_points)
-    for key in body.criterion_scores:
-        if key not in leaf_spec:
-            raise HTTPException(
-                status.HTTP_400_BAD_REQUEST,
-                detail=f"'{key}' is not an operations score — submit sub-criteria leaves (e.g. 'mission.clarity')",
-            )
-    touched_parents = {leaf_spec[k][0] for k in body.criterion_scores}
-    for parent_key in touched_parents:
-        c = ops_criteria[parent_key]
-        subs = getattr(c, "sub_criteria", None) or []
-        if subs:
-            missing = [s["key"] for s in subs if f"{parent_key}.{s['key']}" not in body.criterion_scores]
-            if missing:
-                raise HTTPException(
-                    status.HTTP_400_BAD_REQUEST,
-                    detail=f"'{c.label}' needs all sub-scores ({', '.join(missing)} missing)",
-                )
-    for key, pts in body.criterion_scores.items():
-        _parent, label, max_pts = leaf_spec[key]
-        if not (0 <= pts <= max_pts):
-            raise HTTPException(
-                status.HTTP_400_BAD_REQUEST,
-                detail=f"'{label}' must be between 0 and {max_pts}",
-            )
-
-    # Store leaves plus recomputed parent totals, mirroring submit_score.
-    stored: dict[str, float] = dict(body.criterion_scores)
-    for parent_key in touched_parents:
-        c = ops_criteria[parent_key]
-        subs = getattr(c, "sub_criteria", None) or []
-        if subs:
-            stored[parent_key] = float(sum(body.criterion_scores[f"{parent_key}.{s['key']}"] for s in subs))
 
     from datetime import datetime, timezone
+    stored: dict[str, float] = dict(team.ops_criterion_scores or {})
+    if body.criterion_scores:
+        if not ops_criteria:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="This rubric has no operations-graded criteria")
+
+        leaf_spec: dict[str, tuple[str, str, int]] = {}  # leaf key -> (parent key, label, max)
+        for c in ops_criteria.values():
+            subs = getattr(c, "sub_criteria", None) or []
+            if subs:
+                for s in subs:
+                    leaf_spec[f"{c.key}.{s['key']}"] = (c.key, s["label"], int(s["max_points"]))
+            else:
+                leaf_spec[c.key] = (c.key, c.label, c.max_points)
+        for key in body.criterion_scores:
+            if key not in leaf_spec:
+                raise HTTPException(
+                    status.HTTP_400_BAD_REQUEST,
+                    detail=f"'{key}' is not an operations score — submit sub-criteria leaves (e.g. 'mission.clarity')",
+                )
+        touched_parents = {leaf_spec[k][0] for k in body.criterion_scores}
+        for parent_key in touched_parents:
+            c = ops_criteria[parent_key]
+            subs = getattr(c, "sub_criteria", None) or []
+            if subs:
+                missing = [s["key"] for s in subs if f"{parent_key}.{s['key']}" not in body.criterion_scores]
+                if missing:
+                    raise HTTPException(
+                        status.HTTP_400_BAD_REQUEST,
+                        detail=f"'{c.label}' needs all sub-scores ({', '.join(missing)} missing)",
+                    )
+        for key, pts in body.criterion_scores.items():
+            _parent, label, max_pts = leaf_spec[key]
+            if not (0 <= pts <= max_pts):
+                raise HTTPException(
+                    status.HTTP_400_BAD_REQUEST,
+                    detail=f"'{label}' must be between 0 and {max_pts}",
+                )
+
+        stored = dict(body.criterion_scores)
+        for parent_key in touched_parents:
+            c = ops_criteria[parent_key]
+            subs = getattr(c, "sub_criteria", None) or []
+            if subs:
+                stored[parent_key] = float(sum(body.criterion_scores[f"{parent_key}.{s['key']}"] for s in subs))
+
     team.ops_criterion_scores = stored
     team.ops_criterion_notes = body.notes
     team.ops_scored_by = current_user.id

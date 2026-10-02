@@ -167,7 +167,9 @@ def _blank(v: object) -> bool:
 def _clean_email(raw: object) -> str | None:
     if _blank(raw):
         return None
-    return str(raw).strip()
+    # Canonical users.email form (strip + lowercase) — storing anything
+    # else mints an account login's exact compare can never find.
+    return str(raw).strip().lower() or None
 
 
 def _clean_student_id(raw: object) -> str | None:

@@ -9,17 +9,22 @@ from app.models.user import User
 from app.schemas.user import UserCreate, UserSelfUpdate, UserUpdate
 from app.core.security import get_password_hash
 from app.services.documents.id_card import ensure_card_number
-from app.services.spine.identity import contact_roles_for_user, ensure_user_contact
+from app.services.spine.identity import (
+    contact_roles_for_user,
+    ensure_user_contact,
+    normalize_user_email,
+    user_email_matches,
+)
 from app.services.spine.role_history import record_role_diff
 
 
 async def create_user(db: AsyncSession, user_in: UserCreate) -> User:
-    # Lowercase at the write boundary — same normalization /auth/login and
-    # /auth/signup use, so an admin-created account with a capitalized email
-    # doesn't lock its owner out (see normalize_email in
-    # services/spine/identity.py for the canonical form).
-    email = user_in.email.strip().lower()
-    result = await db.execute(select(User).where(User.email == email))
+    # Canonical normalization at the write boundary (strip + lowercase) —
+    # the User model validator enforces the same form as a safety net, and
+    # the lookup below is case-insensitive so legacy mixed-case rows can't
+    # slip past the duplicate check.
+    email = normalize_user_email(user_in.email)
+    result = await db.execute(select(User).where(user_email_matches(email)))
     if result.scalars().first():
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Email already registered")
 
@@ -74,7 +79,7 @@ async def update_user(db: AsyncSession, user_id: UUID, user_in: UserUpdate | Use
     update_data = user_in.dict(exclude_unset=True)
 
     if update_data.get("email"):
-        update_data["email"] = update_data["email"].strip().lower()
+        update_data["email"] = normalize_user_email(update_data["email"])
 
     if "password" in update_data:
         update_data["password_hash"] = get_password_hash(update_data.pop("password"))

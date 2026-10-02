@@ -47,7 +47,12 @@ from app.services.lms.invite_grants import apply_invite_code_grants_to_new_user
 from app.services.lms.ops_integration import send_set_password_email
 from app.services.nicknames import assign_nickname, reroll_nickname
 from app.services.notification import create_notification as notify
-from app.services.spine.identity import ensure_guardian_relationship, resolve_or_create_contact
+from app.services.spine.identity import (
+    ensure_guardian_relationship,
+    normalize_user_email,
+    resolve_or_create_contact,
+    user_email_matches,
+)
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -161,12 +166,11 @@ async def _load_applicant_profile(db: AsyncSession, user_id) -> ApplicantProfile
 
 @router.post("/login", response_model=LoginResponse)
 async def login(data: LoginRequest, db: AsyncSession = Depends(get_db)):
-    # Emails are stored lowercased (_lower_email), but rows written before
-    # that normalization existed — or through a path that missed it — can
-    # still hold mixed case. Lowercase the login input too, or a user whose
-    # stored email has a capital letter can never log in with any casing.
+    # Case-insensitive on BOTH sides: input is normalized and the column
+    # is compared via LOWER(), so legacy mixed-case / padded rows still
+    # match. New rows are always stored normalized (User model validator).
     user = (
-        await db.execute(select(User).where(User.email == _lower_email(data.email)))
+        await db.execute(select(User).where(user_email_matches(data.email)))
     ).scalars().first()
 
     # Checked before the password compare, on purpose — a locked account
@@ -340,11 +344,9 @@ async def student_signup(data: StudentSignupRequest, request: Request, db: Async
 
 
 def _lower_email(email: str) -> str:
-    """The same lowercase+strip key /auth/login compares on — see
-    normalize_email in services/spine/identity.py for the canonical matched
-    form (which also normalizes phone). Storing anything else here would let a
-    duplicate slip past login's exact compare."""
-    return email.strip().lower()
+    """Canonical users.email form — delegates to the shared normalizer so
+    every path uses one definition (see services/spine/identity.py)."""
+    return normalize_user_email(email)
 
 
 @router.post("/refresh", response_model=Token)
@@ -807,7 +809,7 @@ async def forgot_password(
     enforce_rate_limit(request)
 
     email = _lower_email(data.email)
-    user = (await db.execute(select(User).where(User.email == email))).scalars().first()
+    user = (await db.execute(select(User).where(user_email_matches(email)))).scalars().first()
     if user is not None:
         await send_set_password_email(user, purpose="reset", expires_delta=timedelta(hours=24))
 
@@ -815,7 +817,7 @@ async def forgot_password(
 
 
 async def _email_taken(db: AsyncSession, email: str) -> bool:
-    return (await db.execute(select(User.id).where(User.email == email))).first() is not None
+    return (await db.execute(select(User.id).where(user_email_matches(email)))).first() is not None
 
 
 @router.post("/instructor-apply", status_code=status.HTTP_201_CREATED, response_model=LoginResponse)

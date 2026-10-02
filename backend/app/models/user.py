@@ -4,6 +4,8 @@ from datetime import datetime, timezone
 from sqlalchemy import Boolean, Column, Date, DateTime, ForeignKey, Integer, String, text
 from sqlalchemy.dialects.postgresql import ARRAY, ENUM, UUID
 
+from sqlalchemy.orm import validates
+
 from app.db.base import Base
 from app.models.enums import UserRole
 
@@ -100,6 +102,16 @@ class User(Base):
     # or the student themselves outside a lobby — to actually set. A run still
     # carries its own snapshot; this is what it defaults from.
     avatar = Column(String(64), nullable=True)
+
+    @validates("email")
+    def _normalize_email(self, key: str, value: str | None) -> str | None:
+        # Defense-in-depth: every User.email write normalizes to the
+        # canonical strip().lower() form, no matter which router/service/
+        # script forgot to do it. Auth lookups compare against the same
+        # normalized form, so without this a mixed-case row can never log in.
+        if value is None:
+            return value
+        return str(value).strip().lower()
 
     @property
     def role_values(self) -> list[str]:

@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { Link, useParams } from "@tanstack/react-router"
-import { ArrowLeft, ArrowUpRight, Award, Clock, Download, Eye, Mail, Plus, Printer, Search, Trash2, Trophy, Upload, UserPlus, UserMinus, Pencil, X, Check } from "lucide-react"
+import { ArrowLeft, ArrowUpRight, Award, Clock, Download, Eye, Mail, MessageSquare, Plus, Printer, Search, Trash2, Trophy, Upload, UserPlus, UserMinus, Pencil, X, Check } from "lucide-react"
 import { getCohortApi, getCohortsApi } from "@/api/sessions/cohorts"
 import type { Cohort, ProgramCertificateTemplate } from "@/types/sessions"
 import { searchStaffApi, listInviteCodesApi, type StaffOption } from "@/api/lms_admin"
@@ -9,6 +9,7 @@ import { UserProfileModal } from "@/components/UserProfileModal"
 import { CompetitionCertificatesModal } from "@/pages/admin/components/CompetitionCertificatesModal"
 import { TeamScoreBreakdownModal } from "@/components/competitions/TeamScoreBreakdownModal"
 import { TeamOperationsScoreModal } from "@/components/competitions/TeamOperationsScoreModal"
+import { PublishResultsModal } from "@/components/competitions/PublishResultsModal"
 import { TimingOverrideModal } from "@/components/competitions/TimingOverrideModal"
 import { SubmissionWindowsModal } from "@/components/competitions/SubmissionWindowsModal"
 import { listProgramCertificateTemplatesApi } from "@/api/sessions/programCertificateTemplates"
@@ -19,7 +20,7 @@ import {
   confirmCohortRegistrationImportApi,
   getCohortJudgesApi, getCohortLeaderboardApi, getCohortPublicationApi, getCohortTeamsApi, getProgramRubricApi,
   previewCohortRegistrationImportApi, searchAssignableStudentsApi,
-  inviteCohortJudgeApi, publishCohortResultsApi, putProgramRubricApi, registerAndAddTeamMemberApi,
+  inviteCohortJudgeApi, putProgramRubricApi, registerAndAddTeamMemberApi,
   removeTeamMemberApi, renameTeamApi, resendJudgeOnboardingEmailApi, revokeCohortJudgeApi, unpublishCohortResultsApi,
   type CompetitionAssignStudentsResult, type CompetitionImportPreviewRow, type CompetitionImportResult,
   type CompetitionJudgeProgress,
@@ -1482,11 +1483,6 @@ function ResultsTab({
     queryClient.invalidateQueries({ queryKey: ["competitions-publication", cohortId] })
     queryClient.invalidateQueries({ queryKey: ["competitions-leaderboard", cohortId] })
   }
-  const publishMutation = useMutation({
-    mutationFn: () => publishCohortResultsApi(cohortId),
-    onSuccess: () => { toast.success("Results published"); invalidatePublication() },
-    onError: (e: any) => toast.error(getErrorMessage(e, "Failed to publish results")),
-  })
   const unpublishMutation = useMutation({
     mutationFn: () => unpublishCohortResultsApi(cohortId),
     onSuccess: () => { toast.success("Results unpublished — judges can score again"); invalidatePublication() },
@@ -1511,6 +1507,8 @@ function ResultsTab({
   const [breakdownTeamId, setBreakdownTeamId] = useState<string | null>(null)
   const [overrideTeam, setOverrideTeam] = useState<CompetitionLeaderboardRow | null>(null)
   const [gradingTeam, setGradingTeam] = useState<CompetitionLeaderboardRow | null>(null)
+  const [publishModalOpen, setPublishModalOpen] = useState(false)
+  const [publishModalMode, setPublishModalMode] = useState<"publish" | "edit">("publish")
 
   // Rubric for the operations grading modal (which criteria are
   // operations-graded and whether they have sub-criteria).
@@ -1546,19 +1544,41 @@ function ResultsTab({
             ? `Published${publication?.published_at ? ` · ${new Date(publication.published_at).toLocaleDateString()}` : ""}`
             : "Not published"}
         </span>
-        <button
-          onClick={() => (isPublished ? unpublishMutation.mutate() : publishMutation.mutate())}
-          disabled={publishMutation.isPending || unpublishMutation.isPending}
-          className={`h-9 px-4 rounded-xl text-sm font-medium transition-colors disabled:opacity-50 ${
-            isPublished
-              ? "border border-border text-foreground hover:bg-muted"
-              : "bg-primary text-primary-foreground hover:opacity-90"
-          }`}
-        >
-          {publishMutation.isPending || unpublishMutation.isPending
-            ? "Working…"
-            : isPublished ? "Unpublish" : "Publish results"}
-        </button>
+        {isPublished ? (
+          <>
+            <button
+              onClick={() => {
+                setPublishModalMode("edit")
+                setPublishModalOpen(true)
+              }}
+              className="flex items-center gap-1.5 h-9 px-3.5 border border-border rounded-xl text-sm font-medium text-foreground hover:bg-muted transition-colors cursor-pointer"
+              title="Edit which results, scores, and comments are visible to students"
+            >
+              <Eye size={14} className="text-primary" /> Edit visibility
+            </button>
+            <button
+              onClick={() => {
+                if (confirm("Are you sure you want to unpublish these results? Scoring will be reopened.")) {
+                  unpublishMutation.mutate()
+                }
+              }}
+              disabled={unpublishMutation.isPending}
+              className="h-9 px-3.5 border border-border rounded-xl text-sm font-medium text-muted-foreground hover:text-red-600 hover:border-red-300 dark:hover:border-red-800 transition-colors disabled:opacity-50 cursor-pointer"
+            >
+              {unpublishMutation.isPending ? "Unpublishing…" : "Unpublish"}
+            </button>
+          </>
+        ) : (
+          <button
+            onClick={() => {
+              setPublishModalMode("publish")
+              setPublishModalOpen(true)
+            }}
+            className="h-9 px-4 rounded-xl text-sm font-medium transition-colors bg-primary text-primary-foreground hover:opacity-90 cursor-pointer"
+          >
+            Publish results
+          </button>
+        )}
         <button
           onClick={() => setShowTop20((s) => !s)}
           title="Filters the table below to only the 20 highest-ranked teams — doesn't download anything"
@@ -1751,6 +1771,14 @@ function ResultsTab({
         open={!!gradingTeam}
         onClose={() => setGradingTeam(null)}
       />
+
+      <PublishResultsModal
+        cohortId={cohortId}
+        open={publishModalOpen}
+        onClose={() => setPublishModalOpen(false)}
+        isPublished={publishModalMode === "edit"}
+        currentSettings={publication?.visibility_settings}
+      />
     </div>
   )
 }
@@ -1783,7 +1811,7 @@ function LeaderboardTable({
             <th className="py-2 pr-3">Team</th>
             <th className="py-2 pr-3">Final Score</th>
             <th className="py-2 pr-3">Rubric Score</th>
-            {hasOperationsCriteria && <th className="py-2 pr-3">Operations</th>}
+            <th className="py-2 pr-3">Operations</th>
             <th className="py-2 pr-3">Timing Adj.</th>
             <th className="py-2 pr-3">Per Judge</th>
             <th className="py-2 pr-3 text-right">Inspection</th>
@@ -1840,24 +1868,54 @@ function LeaderboardTable({
               <td className="py-2 pr-3 tabular-nums align-top text-muted-foreground">
                 <span>{r.raw_judge_score !== null && r.raw_judge_score !== undefined ? r.raw_judge_score : (r.score ?? "—")}</span>
               </td>
-              {/* Operations Score (clickable to grade) */}
-              {hasOperationsCriteria && (
-                <td className="py-2 pr-3 align-top">
+              {/* Operations Score & Feedback (clickable to grade or leave feedback) */}
+              <td className="py-2 pr-3 align-top">
+                {hasOperationsCriteria ? (
                   <button
                     type="button"
                     onClick={() => onGradeOperations?.(r)}
-                    title="Grade this team's operations criteria"
-                    className="inline-flex items-center gap-1 text-xs font-semibold px-2 py-0.5 rounded-full border border-foreground/25 bg-foreground/[0.06] text-foreground transition-transform hover:scale-105 cursor-pointer tabular-nums"
+                    title="Grade operations criteria and leave feedback"
+                    className="inline-flex items-center gap-1.5 text-xs font-semibold px-2 py-0.5 rounded-full border border-foreground/25 bg-foreground/[0.06] text-foreground transition-transform hover:scale-105 cursor-pointer tabular-nums"
                   >
                     <span>
                       {r.ops_score !== null && r.ops_score !== undefined
                         ? `${r.ops_score}${r.ops_max_points ? ` / ${r.ops_max_points}` : ""}`
                         : "Grade"}
                     </span>
-                    <Pencil size={10} className="opacity-70" />
+                    {r.ops_criterion_notes ? (
+                      <span title={r.ops_criterion_notes} className="inline-flex items-center text-primary">
+                        <MessageSquare size={10} />
+                      </span>
+                    ) : (
+                      <Pencil size={10} className="opacity-70" />
+                    )}
                   </button>
-                </td>
-              )}
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => onGradeOperations?.(r)}
+                    title={r.ops_criterion_notes ? `Feedback: ${r.ops_criterion_notes}` : "Add operations comments for this team"}
+                    className={`inline-flex items-center gap-1 text-xs font-medium px-2 py-0.5 rounded-full border transition-transform hover:scale-105 cursor-pointer ${
+                      r.ops_criterion_notes
+                        ? "bg-primary/10 text-primary border-primary/30 font-semibold"
+                        : "text-muted-foreground hover:text-foreground border-dashed border-border hover:border-primary/40"
+                    }`}
+                  >
+                    {r.ops_criterion_notes ? (
+                      <>
+                        <MessageSquare size={10} />
+                        <span>Commented</span>
+                        <Pencil size={9} className="opacity-70 ml-0.5" />
+                      </>
+                    ) : (
+                      <>
+                        <Plus size={10} />
+                        <span>Add note</span>
+                      </>
+                    )}
+                  </button>
+                )}
+              </td>
               {/* Timing Adjustment (clickable to override) */}
               <td className="py-2 pr-3 align-top">
                 <button

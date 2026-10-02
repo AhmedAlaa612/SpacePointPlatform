@@ -77,7 +77,7 @@ from app.models.user import User
 from app.services.competitions.team_management import rename_team
 from app.services.lms.ops_integration import sync_registration_lms
 from app.services.sessions.registration import register
-from app.services.spine.identity import normalize_email, resolve_or_create_contact
+from app.services.spine.identity import normalize_email, resolve_or_create_contact, user_email_matches
 from app.services.teams import create_team, join_team, team_member_ids
 
 REQUIRED_COLUMNS = ["team_id", "member_name", "email"]
@@ -351,7 +351,7 @@ async def _register_and_assign_team(
     )
     if user is None:
         user = (
-            (await db.execute(select(User).where(User.email == fallback_email))).scalars().first()
+            (await db.execute(select(User).where(user_email_matches(fallback_email)))).scalars().first()
             if fallback_email else None
         )
         if user is None:

@@ -33,6 +33,7 @@ from app.services.documents.id_card import ensure_card_number
 from app.services.email import try_send_email
 from app.services.lms.program import assign_lms_program
 from app.services.nicknames import assign_nickname
+from app.services.spine.identity import normalize_user_email, user_email_matches
 
 logger = logging.getLogger("services.lms.ops_integration")
 
@@ -70,7 +71,7 @@ async def get_or_create_student_account(db: AsyncSession, contact_id: uuid.UUID)
         return None, False
 
     dup = (await db.execute(
-        select(User).where(User.email == contact.email).order_by(User.created_at)
+        select(User).where(user_email_matches(contact.email)).order_by(User.created_at)
     )).scalars().first()
     if dup is not None:
         logger.info(
@@ -97,7 +98,7 @@ async def get_or_create_student_account(db: AsyncSession, contact_id: uuid.UUID)
     user = User(
         id=uuid.uuid4(),
         full_name=contact.full_name,
-        email=contact.email,
+        email=normalize_user_email(contact.email),
         phone=contact.primary_phone_e164,
         password_hash=get_password_hash(secrets.token_urlsafe(24)),
         roles=["student"],

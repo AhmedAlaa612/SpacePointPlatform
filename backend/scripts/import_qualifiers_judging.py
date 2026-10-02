@@ -18,7 +18,7 @@ backend_dir = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(backend_dir))
 
 import openpyxl
-from sqlalchemy import select, update
+from sqlalchemy import func, select, update
 from app.db.session import AsyncSessionLocal
 from app.models.competitions.judging import (
     CompetitionJudge, CompetitionRubric, CompetitionRubricCriterion, CompetitionScore
@@ -57,11 +57,17 @@ def extract_team_id(raw: str) -> str | None:
 
 
 async def ensure_judge_user(db, email: str, full_name: str) -> User:
-    user = await db.scalar(select(User).where(User.email == email.lower()))
+    # Canonical normalization (strip + lowercase) on both lookup and
+    # insert, with a case-insensitive column compare so a legacy
+    # mixed-case row is reused instead of colliding (auth compares the
+    # same normalized form — storing anything else mints an account that
+    # can never log in).
+    norm_email = (email or "").strip().lower()
+    user = await db.scalar(select(User).where(func.lower(User.email) == norm_email))
     if user is None:
         user = User(
             id=uuid.uuid4(),
-            email=email.lower(),
+            email=norm_email,
             full_name=full_name,
             password_hash="!imported_judge_no_password",
             roles=[UserRole.judge],

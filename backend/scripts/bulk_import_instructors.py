@@ -165,7 +165,9 @@ def _clean_email(raw: object) -> str | None:
     s = str(raw).strip()
     if s.lower().startswith("mailto:"):
         s = s[len("mailto:"):].strip()
-    return s or None
+    # Canonical users.email form (strip + lowercase) — storing anything
+    # else mints an account login's exact compare can never find.
+    return s.lower() or None
 
 
 def _clean_phone(raw: object) -> str | None:

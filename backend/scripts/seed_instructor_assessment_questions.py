@@ -27,7 +27,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from sqlalchemy import select  # noqa: E402
+from sqlalchemy import func, select  # noqa: E402
 from sqlalchemy.ext.asyncio import AsyncSession  # noqa: E402
 
 from app.models.instructor_assessment.config import AssessmentConfig, AssessmentQuestion  # noqa: E402
@@ -82,7 +82,7 @@ async def run(file_path: str, config_name: str, created_by_email: str | None, dr
     async with AsyncSessionLocal() as db:
         created_by_user_id = None
         if created_by_email:
-            user = (await db.execute(select(User).where(User.email == created_by_email.lower()))).scalars().first()
+            user = (await db.execute(select(User).where(func.lower(User.email) == created_by_email.strip().lower()))).scalars().first()
             if user is None:
                 print(f"[seed_instructor_assessment_questions] WARNING: no user found for "
                       f"--created-by {created_by_email!r} — config will be created with no author.")
