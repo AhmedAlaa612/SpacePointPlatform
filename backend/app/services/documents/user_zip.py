@@ -19,7 +19,7 @@ from uuid import UUID
 
 import httpx
 from fastapi import HTTPException
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.application import Application
@@ -162,7 +162,7 @@ async def get_user_document_items(
         applications = (
             await db.execute(
                 select(Application)
-                .where(Application.email == user.email)
+                .where(func.lower(Application.email) == (user.email or "").strip().lower())
                 .order_by(Application.created_at.desc())
             )
         ).scalars().all()

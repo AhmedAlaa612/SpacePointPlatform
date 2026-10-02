@@ -11,7 +11,7 @@ from __future__ import annotations
 import uuid
 from typing import Literal
 
-from sqlalchemy import or_, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.instructors.invitation_code import InvitationCode
@@ -21,6 +21,7 @@ from app.models.spine.contact import Contact
 from app.models.spine.organization import Organization
 from app.models.team import Team, TeamMember
 from app.models.user import User
+from app.services.spine.identity import normalize_user_email
 from app.schemas.competitions import CompetitionAssignableStudentOut
 from app.schemas.lms_admin import StudentSummaryOut
 
@@ -127,18 +128,23 @@ async def _registered_cohort_users(
     resolved: dict[uuid.UUID, User] = {u.contact_id: u for u in linked}
 
     missing_ids = [cid for cid in contact_ids if cid not in resolved]
+    # Normalized on both sides + LOWER() on the column, so a legacy
+    # mixed-case contact or user row still resolves to the same account
+    # instead of reporting "no access".
     missing_emails = {
-        contacts[cid].email for cid in missing_ids if contacts.get(cid) and contacts[cid].email
+        normalize_user_email(contacts[cid].email)
+        for cid in missing_ids if contacts.get(cid) and contacts[cid].email
     }
+    missing_emails.discard("")
     if missing_emails:
         by_email = {
-            u.email: u for u in
-            (await db.execute(select(User).where(User.email.in_(missing_emails)))).scalars().all()
+            normalize_user_email(u.email): u for u in
+            (await db.execute(select(User).where(func.lower(User.email).in_(missing_emails)))).scalars().all()
         }
         for cid in missing_ids:
             contact = contacts.get(cid)
-            if contact and contact.email and contact.email in by_email:
-                resolved[cid] = by_email[contact.email]
+            if contact and contact.email and normalize_user_email(contact.email) in by_email:
+                resolved[cid] = by_email[normalize_user_email(contact.email)]
 
     users = list({u.id: u for u in resolved.values()}.values())
 

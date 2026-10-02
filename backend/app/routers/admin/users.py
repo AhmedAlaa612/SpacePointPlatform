@@ -8,7 +8,7 @@ from typing import List
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.dependencies import require_admin
@@ -183,7 +183,7 @@ async def get_user_dossier(id: UUID, db: AsyncSession = Depends(get_db), current
         ))
 
     app_row = (await db.execute(
-        select(Application).where(Application.email == target.email).order_by(Application.created_at.desc())
+        select(Application).where(func.lower(Application.email) == (target.email or "").strip().lower()).order_by(Application.created_at.desc())
     )).scalars().first()
     if app_row and (app_row.cv_url or app_row.cv_path):
         items.append(DossierItem(

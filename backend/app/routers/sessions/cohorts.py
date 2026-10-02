@@ -98,7 +98,7 @@ from app.services.lms.ops_integration import (
     sync_registration_lms,
 )
 from app.services.sessions.registration import format_cohort_dates, register
-from app.services.spine.identity import resolve_or_create_contact
+from app.services.spine.identity import normalize_user_email, resolve_or_create_contact
 from app.schemas.sessions.media_consent import (
     CohortMediaConsentOut,
     CohortMediaConsentSummaryOut,
@@ -934,16 +934,20 @@ async def list_registrations(
         resolved_contact_ids = set(last_login_by_contact.keys())
 
         missing_emails = {
-            student.email for _, student, _, _ in rows
+            normalize_user_email(student.email) for _, student, _, _ in rows
             if student.id not in resolved_contact_ids and student.email
+            and normalize_user_email(student.email)
         }
         if missing_emails:
-            by_email = dict((await db.execute(
-                select(User.email, User.last_login_at).where(User.email.in_(missing_emails))
-            )).all())
+            by_email = {
+                normalize_user_email(email): last_login for email, last_login in (await db.execute(
+                    select(User.email, User.last_login_at).where(func.lower(User.email).in_(missing_emails))
+                )).all() if email
+            }
             for _, student, _, _ in rows:
-                if student.id not in resolved_contact_ids and student.email in by_email:
-                    last_login_by_contact[student.id] = by_email[student.email]
+                key = normalize_user_email(student.email) if student.email else ""
+                if student.id not in resolved_contact_ids and key in by_email:
+                    last_login_by_contact[student.id] = by_email[key]
 
     if registration_ids:
         att_records = (await db.execute(

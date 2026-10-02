@@ -4,7 +4,7 @@ from datetime import date
 from typing import Optional
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.security import get_password_hash
@@ -84,7 +84,7 @@ async def submit_application(
     if existing_user:
         raise HTTPException(status_code=400, detail="Email already registered")
     existing_app = (await db.execute(
-        select(Application.id).where(Application.email == email, Application.status == "pending")
+        select(Application.id).where(func.lower(Application.email) == email, Application.status == "pending")
     )).first()
     if existing_app:
         raise HTTPException(status_code=400, detail="A pending application already exists for this email")
