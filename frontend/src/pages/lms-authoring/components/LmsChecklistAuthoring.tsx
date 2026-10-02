@@ -11,6 +11,7 @@ import { getSessionsApi, getCohortApi, updateCohortApi } from "@/api/sessions/co
 import { listCoursesApi } from "@/api/lms_admin"
 import { listMissionsAdminFullApi } from "@/api/missions_admin"
 import { listCohortQuizTemplatesApi } from "@/api/cohort_quiz"
+import { MediaPreviewModal } from "@/components/media/MediaPreviewModal"
 import {
   updateLmsProgramApi, uploadLmsProgramImageApi, updateCohortPosterTemplateApi,
   addLmsProgramItemApi, updateLmsProgramItemApi, deleteLmsProgramItemApi, reorderLmsProgramItemsApi,
@@ -18,7 +19,7 @@ import {
   reorderCohortOverrideItemsApi, getCohortProgramOverrideInstructorApi, resyncCohortProgramAssignmentsApi,
   uploadLmsProgramItemPdfApi, deleteLmsProgramItemPdfApi,
   uploadLmsProgramItemGuidelineVideoApi, deleteLmsProgramItemGuidelineVideoApi,
-  getLmsProgramItemGuidelineVideoUrlApi,
+  getLmsProgramItemGuidelineVideoUrlApi, getLmsProgramItemPdfUrlApi,
   MISSION_STEP_KEYS,
   type LmsProgram, type LmsProgramItem, type LmsProgramItemInput, type LmsProgramItemType,
   type LmsProgramItemLinkLabel,
@@ -629,6 +630,22 @@ export function ChecklistItemsEditor({
   // same checkpoint doesn't drift on a typo. Order-preserving, deduped.
   const checkpointLabels = Array.from(new Set(items.map((i) => i.checkpoint_label).filter((l): l is string => !!l)))
 
+  const toast = useToast()
+  const [previewPdf, setPreviewPdf] = useState<{ title: string; url: string } | null>(null)
+  const [loadingPdfId, setLoadingPdfId] = useState<string | null>(null)
+
+  const handlePreviewPdf = async (item: LmsProgramItem) => {
+    setLoadingPdfId(item.id)
+    try {
+      const url = await getLmsProgramItemPdfUrlApi(item.id)
+      setPreviewPdf({ title: item.title, url })
+    } catch (err: any) {
+      toast.error(err?.response?.data?.detail ?? "Failed to load PDF preview")
+    } finally {
+      setLoadingPdfId(null)
+    }
+  }
+
   const [previewItem, setPreviewItem] = useState<LmsProgramItem | null>(null)
 
   const [gatingAll, setGatingAll] = useState(false)
@@ -666,6 +683,8 @@ export function ChecklistItemsEditor({
           onUploadPdf={onUploadPdf} onRemovePdf={onRemovePdf}
           onUploadGuidelineVideo={onUploadGuidelineVideo} onRemoveGuidelineVideo={onRemoveGuidelineVideo}
           onPreviewGuidelineVideo={() => setPreviewItem(item)}
+          onPreviewPdf={() => void handlePreviewPdf(item)}
+          pdfLoading={loadingPdfId === item.id}
           readOnly={readOnly}
           cohortId={cohortId} checkpointLabels={checkpointLabels}
           draggable={!readOnly}
@@ -684,6 +703,14 @@ export function ChecklistItemsEditor({
           {previewItem && <GuidelineVideoPreview itemId={previewItem.id} title={previewItem.title} />}
         </DialogContent>
       </Dialog>
+
+      <MediaPreviewModal
+        open={!!previewPdf}
+        onClose={() => setPreviewPdf(null)}
+        title={previewPdf?.title ?? "Document preview"}
+        type="pdf"
+        url={previewPdf?.url}
+      />
 
       {readOnly ? null : addingType ? (
         <ItemForm
@@ -800,7 +827,7 @@ function OrderNumberInput({
 
 export function ItemRow({
   item, index, totalCount, onUpdate, onDelete, onUploadPdf, onRemovePdf, onUploadGuidelineVideo, onRemoveGuidelineVideo,
-  onPreviewGuidelineVideo,
+  onPreviewGuidelineVideo, onPreviewPdf, pdfLoading,
   readOnly, cohortId, checkpointLabels,
   draggable, isDragging, onDragStartRow, onDropRow, onDragEndRow,
   onMoveToPosition, reorderBusy,
@@ -817,6 +844,8 @@ export function ItemRow({
   onUploadGuidelineVideo?: (itemId: string, file: File) => Promise<unknown>
   onRemoveGuidelineVideo?: (itemId: string) => Promise<unknown>
   onPreviewGuidelineVideo?: () => void
+  onPreviewPdf?: () => void
+  pdfLoading?: boolean
   readOnly: boolean
   cohortId?: string
   checkpointLabels?: string[]
@@ -925,9 +954,19 @@ export function ItemRow({
                   try { await onUploadPdf?.(item.id, file) } finally { setPdfBusy(false) }
                 }}
               />
+              {item.has_pdf && (
+                <button
+                  type="button"
+                  onClick={() => onPreviewPdf?.()}
+                  disabled={pdfBusy || pdfLoading}
+                  className="text-xs font-medium text-primary hover:underline transition-colors cursor-pointer shrink-0 whitespace-nowrap disabled:opacity-50"
+                >
+                  {pdfLoading ? "Loading PDF…" : "View PDF"}
+                </button>
+              )}
               <button
                 onClick={() => pdfInputRef.current?.click()}
-                disabled={pdfBusy}
+                disabled={pdfBusy || pdfLoading}
                 className="text-xs font-medium text-muted-foreground hover:text-foreground transition-colors cursor-pointer shrink-0 whitespace-nowrap disabled:opacity-50"
               >
                 {pdfBusy ? "Uploading…" : item.has_pdf ? "Replace PDF" : "Upload PDF"}
@@ -935,7 +974,7 @@ export function ItemRow({
               {item.has_pdf && (
                 <button
                   onClick={async () => { setPdfBusy(true); try { await onRemovePdf?.(item.id) } finally { setPdfBusy(false) } }}
-                  disabled={pdfBusy}
+                  disabled={pdfBusy || pdfLoading}
                   className="text-xs font-medium text-muted-foreground hover:text-red-600 transition-colors cursor-pointer shrink-0 whitespace-nowrap disabled:opacity-50"
                 >
                   Remove PDF
@@ -965,10 +1004,11 @@ export function ItemRow({
               {item.guideline_video_uploaded && (
                 <>
                   <button
+                    type="button"
                     onClick={() => onPreviewGuidelineVideo?.()}
-                    className="text-xs font-medium text-muted-foreground hover:text-foreground transition-colors cursor-pointer shrink-0 whitespace-nowrap"
+                    className="text-xs font-medium text-primary hover:underline transition-colors cursor-pointer shrink-0 whitespace-nowrap"
                   >
-                    Preview
+                    Watch video
                   </button>
                   <button
                     onClick={async () => { setVideoBusy(true); try { await onRemoveGuidelineVideo?.(item.id) } finally { setVideoBusy(false) } }}
@@ -990,6 +1030,29 @@ export function ItemRow({
           >
             <X size={14} />
           </button>
+        </div>
+      )}
+      {readOnly && (showsPdfUpload || showsVideoUpload) && (
+        <div className="flex items-center gap-2 flex-wrap pl-8 sm:pl-0 sm:shrink-0">
+          {showsPdfUpload && item.has_pdf && (
+            <button
+              type="button"
+              onClick={() => onPreviewPdf?.()}
+              disabled={pdfLoading}
+              className="text-xs font-medium text-primary hover:underline transition-colors cursor-pointer shrink-0 whitespace-nowrap disabled:opacity-50"
+            >
+              {pdfLoading ? "Loading PDF…" : "View PDF"}
+            </button>
+          )}
+          {showsVideoUpload && item.guideline_video_uploaded && (
+            <button
+              type="button"
+              onClick={() => onPreviewGuidelineVideo?.()}
+              className="text-xs font-medium text-primary hover:underline transition-colors cursor-pointer shrink-0 whitespace-nowrap"
+            >
+              Watch video
+            </button>
+          )}
         </div>
       )}
     </div>

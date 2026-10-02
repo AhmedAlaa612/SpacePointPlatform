@@ -169,7 +169,7 @@ export default function LmsStudents() {
                         })
                       }}
                       className="text-xs font-medium text-muted-foreground hover:text-primary transition-colors cursor-pointer"
-                      title="Manage enrolments"
+                      title="Manage enrollments"
                     >
                       Manage
                     </button>

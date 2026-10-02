@@ -13,7 +13,7 @@ import {
 import { AssignPanel } from "@/pages/lms-authoring/components/AssignPanel"
 import { MissionAuthorsSection } from "@/pages/lms-authoring/components/MissionAuthorsSection"
 import { MissionContentSection } from "@/pages/lms-authoring/components/MissionContentSection"
-import { PrerequisitesSection } from "@/pages/lms-authoring/components/PrerequisitesSection"
+import { useAuth } from "@/context/AuthContext"
 
 function errorDetail(err: unknown, fallback: string): string {
   if (isAxiosError(err) && typeof err.response?.data?.detail === "string") return err.response.data.detail
@@ -28,6 +28,8 @@ export default function LmsMissionDetail() {
   const { missionId } = useParams({ strict: false }) as { missionId: string }
   const navigate = useNavigate()
   const queryClient = useQueryClient()
+  const { user, activeRole } = useAuth()
+  const canManageAssignedAccess = activeRole !== "lms_author" || !!user?.author_scope_all
   const [editOpen, setEditOpen] = useState(false)
   const [deleteOpen, setDeleteOpen] = useState(false)
   const [deleteError, setDeleteError] = useState("")
@@ -41,6 +43,7 @@ export default function LmsMissionDetail() {
   const { data: roster = [], isLoading: rosterLoading } = useQuery({
     queryKey: ["missions-admin-roster", missionId],
     queryFn: () => listMissionRosterApi(missionId),
+    enabled: canManageAssignedAccess,
   })
   const [bulkResult, setBulkResult] = useState<{ granted: number; already_assigned: number } | null>(null)
   const invalidateRoster = () => queryClient.invalidateQueries({ queryKey: ["missions-admin-roster", missionId] })
@@ -104,27 +107,28 @@ export default function LmsMissionDetail() {
 
       <MissionAuthorsSection missionId={missionId} />
 
-      <PrerequisitesSection itemType="mission" itemId={missionId} />
 
       {/* Design v2 (7D-8) — renders nothing for kinds with no authored
           content model, so this is safe on every mission. */}
       <MissionContentSection missionId={missionId} />
 
-      <AssignPanel
-        roster={roster
-          .filter((a) => a.status === "active")
-          .map((a) => ({
-            id: a.id, userId: a.user_id, name: a.user_name, email: a.user_email, status: a.status,
-          }))}
-        isLoading={rosterLoading}
-        onGrant={(userId) => grantMutation.mutate(userId)}
-        onBulkGrant={(role) => bulkGrantMutation.mutate(role)}
-        onRevoke={(assignmentId) => revokeMutation.mutate(assignmentId)}
-        grantPending={grantMutation.isPending}
-        bulkPending={bulkGrantMutation.isPending}
-        revokePending={revokeMutation.isPending}
-        bulkResult={bulkResult}
-      />
+      {canManageAssignedAccess && (
+        <AssignPanel
+          roster={roster
+            .filter((a) => a.status === "active")
+            .map((a) => ({
+              id: a.id, userId: a.user_id, name: a.user_name, email: a.user_email, status: a.status,
+            }))}
+          isLoading={rosterLoading}
+          onGrant={(userId) => grantMutation.mutate(userId)}
+          onBulkGrant={(role) => bulkGrantMutation.mutate(role)}
+          onRevoke={(assignmentId) => revokeMutation.mutate(assignmentId)}
+          grantPending={grantMutation.isPending}
+          bulkPending={bulkGrantMutation.isPending}
+          revokePending={revokeMutation.isPending}
+          bulkResult={bulkResult}
+        />
+      )}
 
       {editOpen && (
         <EditMissionModal

@@ -35,7 +35,8 @@ export function PlayerLayout({
   // Only used to carry the "opened from a checklist" chain through to the
   // course landing page — same param TaskDrawer/LearnCourse already thread
   // for the completion-celebration "back to your program" nudge.
-  const { program } = useSearch({ strict: false }) as { program?: string };
+  const { program, preview } = useSearch({ strict: false }) as { program?: string; preview?: string | boolean };
+  const isPreview = Boolean(course.is_preview || preview === "true" || preview === true);
 
   // A locked module's items were never fetched by LearnPlayer's own
   // loadUnlockedModules (unlocked-only, by design — see its own docblock) —
@@ -65,25 +66,55 @@ export function PlayerLayout({
   // viewport where this row's internal overflow-y-auto panes fell 72px
   // short of the real screen height.
   return (
-    <div className="flex flex-col lg:flex-row lg:h-screen">
-      {/* Below `lg` the module list doesn't fit stacked above the content
-          the way it does as a fixed-width side column — it just pushed the
-          actual lesson off the bottom of the screen. Mobile instead gets a
-          "Back to course" link (below) to the landing page's own expandable
-          module list (LearnCourse.tsx's ModuleRow) to browse/pick from. */}
-      {sidebarOpen && (
-        <aside className="hidden lg:block lg:w-[380px] lg:shrink-0 lg:overflow-y-auto border-b lg:border-b-0 lg:border-r border-border bg-card/30">
-          <div className="p-5 sm:p-6 flex items-center justify-between gap-2">
-            <h2 className="font-display text-lg font-bold truncate">{course.title}</h2>
-            <button
-              type="button"
-              onClick={() => setSidebarOpen(false)}
-              className="shrink-0 rounded-lg p-1.5 text-muted-foreground hover:bg-foreground/5 hover:text-foreground transition-colors cursor-pointer"
-              title="Collapse module list"
-            >
-              <PanelLeftClose className="size-[18px]" />
-            </button>
+    <div className="flex flex-col lg:h-screen">
+      {isPreview && (
+        <div className="bg-amber-500/10 border-b border-amber-500/20 text-amber-900 dark:text-amber-200 px-4 py-2.5 text-xs font-medium flex items-center justify-between gap-3 shrink-0 z-30">
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider bg-amber-500/20 text-amber-900 dark:text-amber-200 border border-amber-500/30">
+              Preview Mode
+            </span>
+            <span>Progress is not recorded in preview mode.</span>
+            {course.is_published === false && (
+              <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold bg-muted text-muted-foreground border border-border">
+                Draft
+              </span>
+            )}
           </div>
+          <Link
+            to="/lms-authoring/courses/$courseId"
+            params={{ courseId: course.id }}
+            className="text-primary hover:underline shrink-0 font-semibold"
+          >
+            Back to Course Editor →
+          </Link>
+        </div>
+      )}
+      <div className="flex-1 flex flex-col lg:flex-row min-h-0 overflow-hidden">
+        {/* Below `lg` the module list doesn't fit stacked above the content
+            the way it does as a fixed-width side column — it just pushed the
+            actual lesson off the bottom of the screen. Mobile instead gets a
+            "Back to course" link (below) to the landing page's own expandable
+            module list (LearnCourse.tsx's ModuleRow) to browse/pick from. */}
+        {sidebarOpen && (
+          <aside className="hidden lg:block lg:w-[380px] lg:shrink-0 lg:overflow-y-auto border-b lg:border-b-0 lg:border-r border-border bg-card/30">
+            <div className="p-5 sm:p-6 flex items-center justify-between gap-2">
+              <div className="min-w-0 flex items-center gap-2">
+                <h2 className="font-display text-lg font-bold truncate">{course.title}</h2>
+                {course.is_published === false && (
+                  <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-muted text-muted-foreground border border-border shrink-0">
+                    Draft
+                  </span>
+                )}
+              </div>
+              <button
+                type="button"
+                onClick={() => setSidebarOpen(false)}
+                className="shrink-0 rounded-lg p-1.5 text-muted-foreground hover:bg-foreground/5 hover:text-foreground transition-colors cursor-pointer"
+                title="Collapse module list"
+              >
+                <PanelLeftClose className="size-[18px]" />
+              </button>
+            </div>
           <div className="flex flex-col">
             {course.modules.map((module) => {
               const items = (modulesData[module.module_id] ?? previewData[module.module_id])?.items ?? [];
@@ -187,5 +218,6 @@ export function PlayerLayout({
         </div>
       </div>
     </div>
+  </div>
   );
 }

@@ -94,6 +94,21 @@ async def _user_out(db: AsyncSession, user: User, profile: ApplicantProfile | No
             select(InstructorProfile).where(InstructorProfile.user_id == user.id)
         )).scalars().first()
 
+    author_can_publish = None
+    author_scope_all = None
+    if any(r in user.role_values for r in ("admin", "operations", "facilitator")):
+        author_can_publish = True
+        author_scope_all = True
+    elif "lms_author" in user.role_values:
+        from app.models.lms.author_profile import LmsAuthorProfile
+        ap = await db.get(LmsAuthorProfile, user.id)
+        if ap:
+            author_can_publish = ap.can_publish
+            author_scope_all = ap.scope_all
+        else:
+            author_can_publish = False
+            author_scope_all = False
+
     return {
         "id": str(user.id),
         "full_name": user.full_name,
@@ -122,6 +137,8 @@ async def _user_out(db: AsyncSession, user: User, profile: ApplicantProfile | No
         "city_id": user.city_id,
         "city_name": city.name if city else None,
         "city_other": user.city_other,
+        "author_can_publish": author_can_publish,
+        "author_scope_all": author_scope_all,
         # Applicant-profile fields — surfaced on Profile & Settings for
         # instructors/facilitators/applicants. None when no profile exists.
         "city_of_residence_id": profile.city_of_residence_id if profile else None,

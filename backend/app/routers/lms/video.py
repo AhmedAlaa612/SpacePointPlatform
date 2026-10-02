@@ -23,6 +23,7 @@ from app.core.dependencies import require_lms_content
 from app.db.session import get_db
 from app.models.lms import ModuleItem
 from app.models.user import User
+from app.services.lms.author_access import check_item_access
 from app.services.video_service import attach_upload, enqueue_transcode
 from app.workers.settings import get_arq_redis
 
@@ -44,6 +45,7 @@ async def upload_video(
     item = await db.get(ModuleItem, item_id)
     if item is None or item.kind != "video":
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Video item not found")
+    await check_item_access(db, current, item)
 
     data = await file.read()
     if len(data) > MAX_UPLOAD_BYTES:

@@ -31,11 +31,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.dependencies import get_current_active_user, require_instructor, require_lms_content
 from app.core.security import create_video_token, decode_video_token
 from app.db.session import get_db
-from app.models.lms import CourseModule, Enrollment, ModuleItem
+from app.models.lms import Course, CourseModule, Enrollment, ModuleItem
 from app.models.lms.program import LmsProgramAssignment, LmsProgramItemProgress
 from app.models.user import User
 from app.models.videos import Video
 from app.services import storage
+from app.services.lms.author_access import is_course_author_or_staff
 from app.services.lms.enrollment import enrollment_is_active
 from app.services.video_service import HLS_BUCKET, _hls_backend
 
@@ -55,7 +56,7 @@ _KEY_URI_RE = re.compile(r'URI="[^"]*"')
 
 
 async def _check_module_item(db: AsyncSession, video: Video, user: User) -> None:
-    """`owner_type="module_item"` — enrolled in the owning course. Same
+    """`owner_type="module_item"` — enrolled in the owning course, or course author/staff previewing. Same
     flat-404-for-both rule `_assert_enrolled` always used: "not enrolled"
     and "unknown course" must read identically, so neither leaks whether a
     course exists at all.
@@ -80,8 +81,19 @@ async def _check_module_item(db: AsyncSession, video: Video, user: User) -> None
         )
         .limit(1)
     )
-    if exists is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Video not found")
+    if exists is not None:
+        return
+
+    # Fall back to author/staff preview access
+    item = await db.get(ModuleItem, video.owner_id)
+    if item is not None:
+        module = await db.get(CourseModule, item.module_id)
+        if module is not None:
+            course = await db.get(Course, module.course_id)
+            if course is not None and await is_course_author_or_staff(db, user, course):
+                return
+
+    raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Video not found")
 
 
 async def _check_program_item_guideline(db: AsyncSession, video: Video, user: User) -> None:

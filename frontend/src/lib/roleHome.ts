@@ -21,6 +21,7 @@ export function roleHomePath(role: Role | null): string {
     // Competition domain (2026-08-24) — judges have no portal home either,
     // same reasoning as students: /judge is a separate surface.
     case "judge": return "/judge";
+    case "lms_author": return "/lms-authoring/courses";
     default: return "/interns";
   }
 }

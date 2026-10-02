@@ -32,17 +32,21 @@ start_time_var: ContextVar[float | None] = ContextVar("start_time", default=None
 
 
 def client_ip(request: Request) -> str:
-    """The address nginx actually saw.
+    """The real client IP, respecting Cloudflare and reverse-proxy headers.
 
-    Relocated from rate_limit.py::_client_ip — X-Forwarded-For is a
-    client-supplied header that our proxy *appends* to
+    If behind Cloudflare (CF-Connecting-IP present), Cloudflare strips any
+    caller-supplied header and stamps the verified client IP.
+
+    Otherwise, fall back to X-Forwarded-For: nginx appends the peer it observed
     (`$proxy_add_x_forwarded_for`), so the rightmost entry is the peer nginx
-    observed and anything to its left is whatever the caller claimed. Reading
-    the leftmost value — the usual convention when you trust a chain of
-    proxies — would let anyone spoof it, since there is exactly one proxy
-    here and it is ours. Single source of truth now that both the rate
-    limiter and request logging need it.
+    observed and anything to its left is whatever the caller claimed.
+
+    Falls back to socket peer (`request.client.host`) for direct connections (e.g. dev/health).
     """
+    cf_ip = request.headers.get("cf-connecting-ip")
+    if cf_ip and cf_ip.strip():
+        return cf_ip.strip()
+
     forwarded = request.headers.get("x-forwarded-for")
     if forwarded:
         parts = [p.strip() for p in forwarded.split(",") if p.strip()]

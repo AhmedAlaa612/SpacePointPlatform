@@ -30,6 +30,7 @@ Nothing here references `contacts`; everything keys on `users`, so
 `student` role (LM0-2), linked to the spine via `users.contact_id`.
 """
 
+from app.models.lms.author_profile import LmsAuthorProfile
 from app.models.lms.cohort_quiz import (
     CohortQuizAnswer, CohortQuizAttempt, CohortQuizQuestion, CohortQuizTemplate, CohortQuizTemplateQuestion,
 )
@@ -45,6 +46,7 @@ from app.models.lms.program import (
 from app.models.lms.purchase import Purchase
 
 __all__ = [
+    "LmsAuthorProfile",
     "CohortQuizQuestion",
     "CohortQuizTemplate",
     "CohortQuizTemplateQuestion",

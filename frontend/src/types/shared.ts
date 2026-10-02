@@ -22,7 +22,9 @@ export type Role =
   | "student"
   // Competition domain (2026-08-24). A temporary, cohort-scoped judging
   // account — zero ops access, lives at /judge/*.
-  | "judge";
+  | "judge"
+  // LMS Author (2026-10). Partner course and learning path authoring.
+  | "lms_author";
 
 /**
  * There is deliberately no `ROLE_DOMAIN` map. One existed until I0-1
@@ -50,6 +52,7 @@ export const ROLE_LABEL: Record<Role, string> = {
   storekeeper: "Storekeeper",
   student: "Student",
   judge: "Judge",
+  lms_author: "LMS Author",
 };
 
 export interface User {
@@ -58,6 +61,8 @@ export interface User {
   email: string;
   roles: Role[];
   status: string;
+  author_can_publish?: boolean;
+  author_scope_all?: boolean;
   // Auto-generated student callsign (Live Games Phase 2C, 8-1) — present
   // on student accounts, absent/null for other roles.
   nickname?: string | null;

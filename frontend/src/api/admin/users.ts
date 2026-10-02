@@ -10,6 +10,8 @@ export const createUserApi = (data: {
   password: string
   roles: string[]
   phone?: string
+  author_can_publish?: boolean
+  author_scope_all?: boolean
 }) => api.post<User>("/admin/users", data).then((r) => r.data)
 
 export const updateUserApi = (
@@ -17,6 +19,7 @@ export const updateUserApi = (
   data: Partial<{
     full_name: string; email: string; password: string; phone: string; roles: string[];
     nickname: string; avatar: string; status: string;
+    author_can_publish: boolean; author_scope_all: boolean;
   }>
 ) => api.patch<User>(`/admin/users/${id}`, data).then((r) => r.data)
 

@@ -18,6 +18,7 @@ from app.models.certificate import Certificate
 from app.models.document import Document
 from app.models.enums import CertificateType, UserRole
 from app.models.id_card import IdCard
+from app.models.lms.author_profile import LmsAuthorProfile
 from app.models.inventory.city import City
 from app.models.instructors.applicant_profile import ApplicantProfile
 from app.models.instructors.checklist import ChecklistModule
@@ -78,21 +79,37 @@ async def read_users(db: AsyncSession = Depends(get_db), current_user: User = De
         )
     }
 
+    author_profiles = {
+        p.user_id: p for p in (
+            (await db.execute(select(LmsAuthorProfile))).scalars().all()
+        )
+    }
+
     out: list[UserOut] = []
     for user in users:
         contact = contacts.get(user.contact_id) if user.contact_id else None
         org = orgs.get(contact.organization_id) if contact and contact.organization_id else None
+        ap = author_profiles.get(user.id)
         row = UserOut.model_validate(user)
         row.grade = contact.grade if contact else None
         row.school_name = org.name_latin if org else None
         row.card_id = format_card_id(user.card_number, user.roles) if user.card_number is not None else None
+        row.author_can_publish = ap.can_publish if ap else None
+        row.author_scope_all = ap.scope_all if ap else None
         out.append(row)
     return out
 
 
 @router.patch("/{id}", response_model=UserOut)
 async def update_user(id: UUID, user_in: UserUpdate, db: AsyncSession = Depends(get_db), current_user: User = Depends(require_admin)):
-    return await user_service.update_user(db, id, user_in, actor_user_id=current_user.id)
+    user = await user_service.update_user(db, id, user_in, actor_user_id=current_user.id)
+    row = UserOut.model_validate(user)
+    if "lms_author" in user.role_values:
+        ap = await db.get(LmsAuthorProfile, user.id)
+        if ap:
+            row.author_can_publish = ap.can_publish
+            row.author_scope_all = ap.scope_all
+    return row
 
 
 @router.delete("/{id}")

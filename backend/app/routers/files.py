@@ -15,7 +15,7 @@ URLs never point here.
 import mimetypes
 from urllib.parse import quote
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import Response
 
 from app.services import storage_local
@@ -23,8 +23,27 @@ from app.services import storage_local
 router = APIRouter(prefix="/files", tags=["files"])
 
 
+@router.options("/{bucket}/{path:path}")
+async def serve_file_options(bucket: str, path: str):
+    return Response(
+        status_code=204,
+        headers={
+            "Access-Control-Allow-Origin": "*",
+            "Access-Control-Allow-Methods": "GET, HEAD, OPTIONS",
+            "Access-Control-Allow-Headers": "*",
+            "Access-Control-Max-Age": "86400",
+        },
+    )
+
+
 @router.get("/{bucket}/{path:path}")
-async def serve_file(bucket: str, path: str, exp: int = Query(...), sig: str = Query(...)):
+async def serve_file(
+    bucket: str,
+    path: str,
+    request: Request,
+    exp: int = Query(...),
+    sig: str = Query(...),
+):
     if not storage_local.verify_signature(bucket, path, exp, sig):
         raise HTTPException(status_code=403, detail="Invalid or expired signature")
 
@@ -32,9 +51,9 @@ async def serve_file(bucket: str, path: str, exp: int = Query(...), sig: str = Q
         data = await storage_local.download_file(bucket, path)
     except FileNotFoundError:
         raise HTTPException(status_code=404, detail="File not found")
-    except ValueError:
-        # _safe_path rejected the bucket/path (traversal attempt)
-        raise HTTPException(status_code=403, detail="Invalid path")
+    except (ValueError, OSError):
+        # _safe_path rejected the bucket/path or tried reading a directory
+        raise HTTPException(status_code=404, detail="File not found")
 
     media_type = mimetypes.guess_type(path)[0] or "application/octet-stream"
     filename = path.rsplit("/", 1)[-1]
@@ -45,8 +64,36 @@ async def serve_file(bucket: str, path: str, exp: int = Query(...), sig: str = Q
     # real name percent-encoded in `filename*` for everything modern.
     ascii_fallback = filename.encode("ascii", "ignore").decode("ascii").replace('"', "").replace("\\", "") or "file"
     content_disposition = f"inline; filename=\"{ascii_fallback}\"; filename*=UTF-8''{quote(filename)}"
+
+    total_len = len(data)
+    headers = {
+        "Content-Disposition": content_disposition,
+        "Accept-Ranges": "bytes",
+        "Access-Control-Allow-Origin": "*",
+        "Access-Control-Allow-Methods": "GET, HEAD, OPTIONS",
+        "Access-Control-Allow-Headers": "*",
+        "Access-Control-Expose-Headers": "Accept-Ranges, Content-Encoding, Content-Length, Content-Range, Content-Disposition",
+    }
+
+    range_header = request.headers.get("range")
+    if range_header and range_header.startswith("bytes="):
+        try:
+            byte_range = range_header.replace("bytes=", "").split("-")
+            start = int(byte_range[0]) if byte_range[0] else 0
+            end = int(byte_range[1]) if len(byte_range) > 1 and byte_range[1] else total_len - 1
+            start = max(0, min(start, total_len - 1))
+            end = max(start, min(end, total_len - 1))
+            chunk = data[start : end + 1]
+            headers["Content-Range"] = f"bytes {start}-{end}/{total_len}"
+            headers["Content-Length"] = str(len(chunk))
+            return Response(content=chunk, status_code=206, media_type=media_type, headers=headers)
+        except Exception:
+            pass
+
+    headers["Content-Length"] = str(total_len)
     return Response(
         content=data,
         media_type=media_type,
-        headers={"Content-Disposition": content_disposition},
+        headers=headers,
     )
+

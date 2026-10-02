@@ -1,6 +1,6 @@
 import { useRef, useState } from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { FileText, Link2, Plus, Trash2, Upload } from "lucide-react"
+import { FileText, Link2, Plus, Trash2, Upload, Video as VideoIcon } from "lucide-react"
 import {
   addMaterialFileApi,
   addMaterialLinkApi,
@@ -11,6 +11,7 @@ import {
 import { useToast } from "@/components/ui/toast"
 import { InheritedBadge } from "@/pages/admin/components/InheritedFrom"
 import { ensureAbsoluteUrl } from "@/lib/utils"
+import { MediaPreviewModal } from "@/components/media/MediaPreviewModal"
 
 /**
  * Teaching materials at one level of program → cohort → session (I5-6).
@@ -39,6 +40,11 @@ export function MaterialsPanel({ owner, inheritedNote, level }: {
   const [title, setTitle] = useState("")
   const [url, setUrl] = useState("")
   const [error, setError] = useState("")
+  const [previewMedia, setPreviewMedia] = useState<{
+    title: string
+    type: "pdf" | "video"
+    url: string
+  } | null>(null)
 
   const key = ["materials", JSON.stringify(owner)]
   const { data: materials = [] } = useQuery({ queryKey: key, queryFn: () => getMaterialsApi(owner) })
@@ -79,28 +85,60 @@ export function MaterialsPanel({ owner, inheritedNote, level }: {
       </div>
 
       <div className="flex flex-col gap-1.5">
-        {materials.map((m) => (
-          <div
-            key={m.id}
-            className="flex items-center justify-between gap-3 rounded-xl border border-border bg-background/50 px-3 py-2"
-          >
-            <span className="flex items-center gap-2 min-w-0">
-              {m.filename ? <FileText size={14} className="shrink-0 text-muted-foreground" />
-                          : <Link2 size={14} className="shrink-0 text-muted-foreground" />}
-              {m.url ? (
-                <a href={ensureAbsoluteUrl(m.url)} target="_blank" rel="noreferrer"
-                   className="text-sm text-foreground truncate hover:underline">{m.title}</a>
-              ) : (
-                <span className="text-sm text-foreground truncate">{m.title}</span>
-              )}
-            </span>
-            <button
-              onClick={() => remove.mutate(m.id)}
-              className="p-1 text-muted-foreground hover:text-red-600 shrink-0"
-              aria-label={`Remove ${m.title}`}
-            ><Trash2 size={14} /></button>
-          </div>
-        ))}
+        {materials.map((m) => {
+          const isPdf = Boolean(m.filename?.toLowerCase().endsWith(".pdf") || m.url?.toLowerCase().includes(".pdf"))
+          const isVideo = Boolean(m.filename?.toLowerCase().match(/\.(mp4|webm|mov)$/) || m.url?.toLowerCase().match(/\.(mp4|webm|mov)$/))
+          const isMedia = isPdf || isVideo
+
+          return (
+            <div
+              key={m.id}
+              className="flex items-center justify-between gap-3 rounded-xl border border-border bg-background/50 px-3 py-2"
+            >
+              <span className="flex items-center gap-2 min-w-0">
+                {isVideo ? (
+                  <VideoIcon size={14} className="shrink-0 text-muted-foreground" />
+                ) : m.filename || isPdf ? (
+                  <FileText size={14} className="shrink-0 text-muted-foreground" />
+                ) : (
+                  <Link2 size={14} className="shrink-0 text-muted-foreground" />
+                )}
+                {m.url ? (
+                  isMedia ? (
+                    <button
+                      type="button"
+                      onClick={() => setPreviewMedia({ title: m.title, type: isPdf ? "pdf" : "video", url: ensureAbsoluteUrl(m.url!) })}
+                      className="text-sm text-foreground truncate hover:underline hover:text-primary transition-colors text-left"
+                    >
+                      {m.title}
+                    </button>
+                  ) : (
+                    <a href={ensureAbsoluteUrl(m.url)} target="_blank" rel="noreferrer"
+                       className="text-sm text-foreground truncate hover:underline">{m.title}</a>
+                  )
+                ) : (
+                  <span className="text-sm text-foreground truncate">{m.title}</span>
+                )}
+              </span>
+              <div className="flex items-center gap-1 shrink-0">
+                {m.url && isMedia && (
+                  <button
+                    type="button"
+                    onClick={() => setPreviewMedia({ title: m.title, type: isPdf ? "pdf" : "video", url: ensureAbsoluteUrl(m.url!) })}
+                    className="text-xs text-primary font-medium hover:underline px-1.5 py-1"
+                  >
+                    View
+                  </button>
+                )}
+                <button
+                  onClick={() => remove.mutate(m.id)}
+                  className="p-1 text-muted-foreground hover:text-red-600 shrink-0"
+                  aria-label={`Remove ${m.title}`}
+                ><Trash2 size={14} /></button>
+              </div>
+            </div>
+          )
+        })}
         {materials.length === 0 && (
           <p className="text-sm text-muted-foreground">Nothing here yet.</p>
         )}
@@ -138,6 +176,14 @@ export function MaterialsPanel({ owner, inheritedNote, level }: {
       </div>
 
       {error && <p className="text-xs text-red-600 dark:text-red-400">{error}</p>}
+
+      <MediaPreviewModal
+        open={!!previewMedia}
+        onClose={() => setPreviewMedia(null)}
+        title={previewMedia?.title ?? "Material preview"}
+        type={previewMedia?.type ?? "pdf"}
+        url={previewMedia?.url}
+      />
     </div>
   )
 }

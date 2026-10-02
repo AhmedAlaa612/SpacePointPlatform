@@ -55,6 +55,7 @@ from app.services.missions.assignment import assign as assign_mission
 from app.routers.missions.design import design_state_out
 from app.services.missions.attempts import override_attempt_outcome
 from app.services.missions.verifiers.submission import review_submission_attempt
+from app.services.lms.author_access import get_author_permissions
 
 router = APIRouter(prefix="/missions/admin", tags=["missions-admin"], dependencies=[Depends(require_lms_content)])
 
@@ -273,8 +274,15 @@ async def _assignment_out(db: AsyncSession, assignment: MissionAssignment) -> Mi
 
 
 @router.get("/{mission_id}/roster", response_model=list[MissionAssignmentOut])
-async def mission_roster(mission_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
+async def mission_roster(
+    mission_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_lms_content),
+):
     await _get_mission_or_404(db, mission_id)
+    _, scope_all = await get_author_permissions(db, current_user)
+    if not scope_all:
+        return []
     rows = (await db.execute(
         select(MissionAssignment).where(MissionAssignment.mission_id == mission_id)
         .order_by(MissionAssignment.created_at.desc())
@@ -289,6 +297,9 @@ async def grant_mission_assignment(
     mission_id: uuid.UUID, body: MissionAssignmentGrantIn,
     db: AsyncSession = Depends(get_db), current_user: User = Depends(require_lms_content),
 ):
+    _, scope_all = await get_author_permissions(db, current_user)
+    if not scope_all:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, detail="Assigned access is restricted to full access authors")
     if await db.get(User, body.user_id) is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="User not found")
     assignment = await assign_mission(db, user_id=body.user_id, mission_id=mission_id, granted_by=current_user.id)
@@ -304,6 +315,9 @@ async def bulk_grant_mission_assignment(
     """Every user holding `body.role` — role-only, missions have no cohort
     curriculum table the way courses do."""
     await _get_mission_or_404(db, mission_id)
+    _, scope_all = await get_author_permissions(db, current_user)
+    if not scope_all:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, detail="Assigned access is restricted to full access authors")
     user_ids = list((await db.execute(select(User.id).where(User.roles.any(body.role)))).scalars().all())
 
     granted = already_assigned = 0
@@ -325,10 +339,17 @@ async def bulk_grant_mission_assignment(
 
 
 @router.post("/assignments/{assignment_id}/revoke", response_model=MissionAssignmentOut)
-async def revoke_mission_assignment(assignment_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
+async def revoke_mission_assignment(
+    assignment_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_lms_content),
+):
     assignment = await db.get(MissionAssignment, assignment_id)
     if assignment is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Assignment not found")
+    _, scope_all = await get_author_permissions(db, current_user)
+    if not scope_all:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, detail="Assigned access is restricted to full access authors")
     assignment.status = "inactive"
     await db.commit()
     return await _assignment_out(db, assignment)

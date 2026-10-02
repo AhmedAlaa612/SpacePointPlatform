@@ -19,8 +19,10 @@ from app.core import rate_limit
 from app.core.rate_limit import _MAX_REQUESTS, enforce_rate_limit
 
 
-def _request(*, forwarded: str | None = None, client_host: str = "10.0.0.1") -> Request:
+def _request(*, cf_ip: str | None = None, forwarded: str | None = None, client_host: str = "10.0.0.1") -> Request:
     headers = []
+    if cf_ip is not None:
+        headers.append((b"cf-connecting-ip", cf_ip.encode()))
     if forwarded is not None:
         headers.append((b"x-forwarded-for", forwarded.encode()))
     return Request({"type": "http", "headers": headers, "client": (client_host, 12345)})
@@ -62,6 +64,14 @@ def test_one_ip_hitting_the_wall_does_not_affect_another():
         enforce_rate_limit(hot)
 
     enforce_rate_limit(_request(forwarded="203.0.113.10"))  # unaffected
+
+
+def test_the_bucket_key_prefers_cf_connecting_ip_over_proxy_ip():
+    """Behind Cloudflare, CF-Connecting-IP carries the real visitor address,
+    preventing Cloudflare edge IPs in X-Forwarded-For from sharing a rate-limit bucket."""
+    enforce_rate_limit(_request(cf_ip="198.51.100.42", forwarded="198.51.100.42, 172.71.241.149"))
+    assert "198.51.100.42" in rate_limit._hits
+    assert "172.71.241.149" not in rate_limit._hits
 
 
 def test_the_bucket_key_is_the_address_nginx_saw_not_the_one_claimed():

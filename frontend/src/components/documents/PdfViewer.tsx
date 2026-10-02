@@ -109,20 +109,55 @@ export function PdfViewer({ url, className }: { url: string; className?: string 
     if (!url) return
     let cancelled = false
     let loadedDoc: PDFDocumentProxy | null = null
+    let loadingTask: ReturnType<typeof pdfjsLib.getDocument> | null = null
     setPdfError(false)
     setDoc(null)
     setZoom(1)
     wrapperRefs.current = []
     canvasRefs.current = []
     textLayerRefs.current = []
-    const loadingTask = pdfjsLib.getDocument(url)
-    loadingTask.promise.then((loaded) => {
-      if (cancelled) { loaded.destroy(); return }
-      loadedDoc = loaded
-      setDoc(loaded)
-    }).catch(() => { if (!cancelled) setPdfError(true) })
+
+    async function loadPdf() {
+      try {
+        // Fetching in the main thread bypasses web-worker CORS restrictions and
+        // passes raw bytes directly into the worker as transferable data.
+        const res = await fetch(url)
+        if (!res.ok) throw new Error(`HTTP ${res.status}`)
+        const buffer = await res.arrayBuffer()
+        if (cancelled) return
+        loadingTask = pdfjsLib.getDocument({ data: new Uint8Array(buffer) })
+        const loaded = await loadingTask.promise
+        if (cancelled) {
+          loaded.destroy()
+          return
+        }
+        loadedDoc = loaded
+        setDoc(loaded)
+      } catch {
+        if (cancelled) return
+        // Fallback: try direct URL loading with pdfjs
+        try {
+          loadingTask = pdfjsLib.getDocument({
+            url,
+            withCredentials: false,
+          })
+          const loaded = await loadingTask.promise
+          if (cancelled) {
+            loaded.destroy()
+            return
+          }
+          loadedDoc = loaded
+          setDoc(loaded)
+        } catch {
+          if (!cancelled) setPdfError(true)
+        }
+      }
+    }
+
+    void loadPdf()
     return () => {
       cancelled = true
+      loadingTask?.destroy()
       loadedDoc?.destroy()
     }
   }, [url])

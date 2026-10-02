@@ -60,6 +60,8 @@ export interface CourseDetail {
   // unit_amount. Null unless access_mode === "paid".
   price_cents: number | null;
   currency: string;
+  is_published?: boolean;
+  is_preview?: boolean;
 }
 
 export interface QuizOption {

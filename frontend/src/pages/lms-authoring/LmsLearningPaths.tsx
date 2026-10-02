@@ -6,6 +6,7 @@ import { Plus, ChevronRight } from "lucide-react"
 import { PageHeader, EmptyState, Spinner } from "@/components/ui/primitives"
 import { Modal, Field, ModalActions } from "@/pages/admin/components/common"
 import { listLearningPathsApi, createLearningPathApi, type AdminLearningPath } from "@/api/lms_admin"
+import { useAuth } from "@/context/AuthContext"
 
 function errorDetail(err: unknown, fallback: string): string {
   if (isAxiosError(err) && typeof err.response?.data?.detail === "string") return err.response.data.detail
@@ -18,7 +19,10 @@ function errorDetail(err: unknown, fallback: string): string {
 export default function LmsLearningPaths() {
   const navigate = useNavigate()
   const queryClient = useQueryClient()
+  const { activeRole } = useAuth()
+  const canViewAudit = activeRole === "admin" || activeRole === "operations"
   const [createOpen, setCreateOpen] = useState(false)
+
 
   const { data: paths = [], isLoading } = useQuery<AdminLearningPath[]>({
     queryKey: ["lms-admin-learning-paths"],
@@ -72,7 +76,20 @@ export default function LmsLearningPaths() {
                   )}
                 </div>
                 {path.description && <p className="text-xs text-muted-foreground truncate">{path.description}</p>}
+                {canViewAudit && (path.created_by_name || path.created_at) && (
+                  <div className="flex items-center gap-2 text-[11px] text-muted-foreground mt-1 flex-wrap">
+
+                    {path.created_by_name && (
+                      <span>Created by <span className="text-foreground/80 font-medium">{path.created_by_name}</span></span>
+                    )}
+                    {path.created_by_name && path.created_at && <span>•</span>}
+                    {path.created_at && (
+                      <span>{new Date(path.created_at).toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" })}</span>
+                    )}
+                  </div>
+                )}
               </div>
+
               <ChevronRight size={16} className="text-muted-foreground ml-1 shrink-0" />
             </div>
           ))}

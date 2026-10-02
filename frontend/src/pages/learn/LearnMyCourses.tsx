@@ -36,7 +36,7 @@ export default function LearnMyCourses() {
           </div>
 
           {data.courses.length === 0 ? (
-            <EmptyState title="No courses yet" hint="Browse the catalog and enrol in something." />
+            <EmptyState title="No courses yet" hint="Browse the catalog and enroll in something." />
           ) : (
             <div className="flex flex-col gap-3">
               {data.courses.map((c) => <EnrolledCourseRow key={c.course_id} course={c} />)}

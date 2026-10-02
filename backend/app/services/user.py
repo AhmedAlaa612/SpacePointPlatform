@@ -33,6 +33,15 @@ async def create_user(db: AsyncSession, user_in: UserCreate) -> User:
     db.add(db_user)
     await db.flush()
 
+    if "lms_author" in db_user.role_values:
+        from app.models.lms.author_profile import LmsAuthorProfile
+        profile = LmsAuthorProfile(
+            user_id=db_user.id,
+            can_publish=bool(user_in.author_can_publish),
+            scope_all=bool(user_in.author_scope_all),
+        )
+        db.add(profile)
+
     # Create the linked contact now (rather than waiting for the periodic
     # backfill script) so a role assigned at account-creation time — e.g.
     # "applicant" — has a role-history entry from day one, not a gap until
@@ -135,6 +144,23 @@ async def update_user(db: AsyncSession, user_id: UUID, user_in: UserUpdate | Use
             mapped_needed = set(contact_roles_for_user(user)) - set(contact.contact_roles or [])
             if mapped_needed:
                 contact.contact_roles = sorted(set(contact.contact_roles or []) | mapped_needed)
+
+    # Sync LMS Author profile
+    if "lms_author" in user.role_values:
+        from app.models.lms.author_profile import LmsAuthorProfile
+        profile = await db.get(LmsAuthorProfile, user.id)
+        if profile is None:
+            profile = LmsAuthorProfile(
+                user_id=user.id,
+                can_publish=bool(update_data.get("author_can_publish")),
+                scope_all=bool(update_data.get("author_scope_all")),
+            )
+            db.add(profile)
+        else:
+            if "author_can_publish" in update_data and update_data["author_can_publish"] is not None:
+                profile.can_publish = bool(update_data["author_can_publish"])
+            if "author_scope_all" in update_data and update_data["author_scope_all"] is not None:
+                profile.scope_all = bool(update_data["author_scope_all"])
 
     await db.commit()
     await db.refresh(user)

@@ -114,10 +114,13 @@ from app.services import storage
 from app.services.video_service import get_playback_info, get_video_for_owner
 from app.models.certificate import Certificate
 from app.models.enums import CertificateType
+from app.services.lms.author_access import get_author_permissions, is_course_author_or_staff
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/lms", tags=["lms"])
+
+_is_course_author_or_staff = is_course_author_or_staff
 
 
 async def _assert_enrolled(
@@ -127,7 +130,9 @@ async def _assert_enrolled(
     indistinguishable on purpose (don't leak existence, LM1-3 spec). An
     expired enrollment (P1-3) reads the same as never having enrolled — no
     separate "your access expired" message, same don't-leak-existence
-    reasoning extended to *why* access is gone."""
+    reasoning extended to *why* access is gone.
+    
+    Authors/staff previewing a course bypass the enrollment requirement."""
     enrollment = (await db.execute(
         select(Enrollment).where(
             Enrollment.user_id == user_id,
@@ -135,8 +140,15 @@ async def _assert_enrolled(
             *enrollment_is_active(),
         )
     )).scalars().first()
-    if enrollment is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Course not found")
+    if enrollment is not None:
+        return
+
+    user = await db.get(User, user_id)
+    course = await db.get(Course, course_id)
+    if user and course and await _is_course_author_or_staff(db, user, course):
+        return
+
+    raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Course not found")
 
 
 async def _enrolled_item(
@@ -165,6 +177,18 @@ async def _award_certificates_for_item(db: AsyncSession, user_id: uuid.UUID, ite
     module = await db.get(CourseModule, item.module_id)
     if module is None:
         return
+
+    # Skip awarding certificates for preview sessions without active enrollment
+    enrolled = (await db.execute(
+        select(Enrollment.id).where(
+            Enrollment.user_id == user_id,
+            Enrollment.course_id == module.course_id,
+            *enrollment_is_active(),
+        )
+    )).first() is not None
+    if not enrolled:
+        return
+
     try:
         await award_for_course_completion(db, user_id=user_id, course_id=module.course_id)
     except Exception:
@@ -174,12 +198,8 @@ async def _award_certificates_for_item(db: AsyncSession, user_id: uuid.UUID, ite
 async def _published_course(
     db: AsyncSession, course_id: uuid.UUID, user_id: uuid.UUID | None = None
 ) -> Course:
-    """Published, OR the caller already holds an active enrollment (B5) — ops
-    can deliberately enrol a student into a course still pending a publish
-    review (e.g. via a program's curriculum), and that access must not
-    dead-end at a 404. Enrollment implies visibility, not the other way
-    round: self-enrol (below) omits user_id, since nobody can hold an
-    enrollment in a course they haven't self-enrolled into yet."""
+    """Published, OR the caller already holds an active enrollment (B5), OR
+    the caller is an author or staff previewing the course."""
     course = await db.get(Course, course_id)
     if course is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Course not found")
@@ -194,6 +214,9 @@ async def _published_course(
             )
         )).first()
         if enrolled is not None:
+            return course
+        user = await db.get(User, user_id)
+        if user and await _is_course_author_or_staff(db, user, course):
             return course
     raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Course not found")
 
@@ -275,6 +298,14 @@ async def course_detail(
     completion = await course_completion(db, user_id=current.id, course_id=course.id)
     prereqs = await prerequisite_status(db, item_type="course", item_id=course.id, user_id=current.id)
 
+    is_author_or_staff = await _is_course_author_or_staff(db, current, course)
+    is_preview = (enrolled_row is None and is_author_or_staff)
+    is_enrolled = (enrolled_row is not None) or is_preview
+
+    if is_preview:
+        for row in locks:
+            row["locked"] = False
+
     instructor_name = instructor_photo_url = None
     if course.instructor_id:
         instructor = await db.get(User, course.instructor_id)
@@ -287,7 +318,9 @@ async def course_detail(
         title=course.title,
         description=course.description,
         kind=course.kind,
-        enrolled=enrolled_row is not None,
+        enrolled=is_enrolled,
+        is_published=course.is_published,
+        is_preview=is_preview,
         completed=completion["completed"],
         image_url=await storage.resolve_url(course.image_bucket, course.image_path),
         outcomes=course.outcomes or [],
@@ -1230,7 +1263,7 @@ async def module_read(
     module = await db.get(CourseModule, module_id)
     if module is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Course not found")
-    await _published_course(db, module.course_id, current.id)
+    course = await _published_course(db, module.course_id, current.id)
 
     enrolled = (await db.execute(
         select(Enrollment.id).where(
@@ -1239,6 +1272,8 @@ async def module_read(
             *enrollment_is_active(),
         )
     )).first() is not None
+    if not enrolled and await _is_course_author_or_staff(db, current, course):
+        enrolled = True
 
     items = (await db.execute(
         select(ModuleItem).where(ModuleItem.module_id == module_id).order_by(ModuleItem.position)

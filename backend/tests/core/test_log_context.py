@@ -28,8 +28,10 @@ from app.core.log_context import (
 )
 
 
-def _request(*, forwarded: str | None = None, client_host: str = "10.0.0.1") -> Request:
+def _request(*, cf_ip: str | None = None, forwarded: str | None = None, client_host: str = "10.0.0.1") -> Request:
     headers = []
+    if cf_ip is not None:
+        headers.append((b"cf-connecting-ip", cf_ip.encode()))
     if forwarded is not None:
         headers.append((b"x-forwarded-for", forwarded.encode()))
     return Request({"type": "http", "headers": headers, "client": (client_host, 12345)})
@@ -51,6 +53,11 @@ def _clean_context():
     log_context.request_id_var.set(log_context._DEFAULT)
     log_context.client_ip_var.set(log_context._DEFAULT)
     log_context.user_label_var.set(log_context._DEFAULT)
+
+
+def test_client_ip_prefers_cf_connecting_ip():
+    """Behind Cloudflare, CF-Connecting-IP takes precedence over X-Forwarded-For."""
+    assert client_ip(_request(cf_ip="198.51.100.42", forwarded="198.51.100.42, 172.71.241.149")) == "198.51.100.42"
 
 
 def test_client_ip_rightmost_forwarded_entry():

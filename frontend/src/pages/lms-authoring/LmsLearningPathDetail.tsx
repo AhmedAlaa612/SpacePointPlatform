@@ -7,13 +7,15 @@ import { PageHeader, EmptyState, Spinner } from "@/components/ui/primitives"
 import { Modal, Field, ModalActions, ConfirmDialog } from "@/pages/admin/components/common"
 import { ImageCropModal } from "@/components/ui/ImageCropModal"
 import {
-  getLearningPathApi, updateLearningPathApi, uploadLearningPathImageApi, deleteLearningPathApi,
+  getLearningPathApi, updateLearningPathApi, submitLearningPathForReviewApi, uploadLearningPathImageApi, deleteLearningPathApi,
   listCoursesApi, listLearningPathStepsApi, addLearningPathStepApi, removeLearningPathStepApi,
   bulkGrantLearningPathEnrollmentApi,
   listLearningPathRosterApi, grantLearningPathEnrollmentApi, revokeLearningPathEnrollmentApi,
   type AdminLearningPath, type LearningPathStepEntry, type BulkGrantResult,
 } from "@/api/lms_admin"
 import { AssignPanel } from "@/pages/lms-authoring/components/AssignPanel"
+import { useAuth } from "@/context/AuthContext"
+import { useToast } from "@/components/ui/toast"
 
 function errorDetail(err: unknown, fallback: string): string {
   if (isAxiosError(err) && typeof err.response?.data?.detail === "string") return err.response.data.detail
@@ -28,6 +30,12 @@ export default function LmsLearningPathDetail() {
   const { pathId } = useParams({ strict: false }) as { pathId: string }
   const navigate = useNavigate()
   const queryClient = useQueryClient()
+  const toast = useToast()
+  const { user, activeRole } = useAuth()
+  const cannotPublish = activeRole === "lms_author" && !user?.author_can_publish
+  const canViewAudit = activeRole === "admin" || activeRole === "operations"
+  const canManageAssignedAccess = activeRole !== "lms_author" || !!user?.author_scope_all
+
   const [editOpen, setEditOpen] = useState(false)
   const [deleteOpen, setDeleteOpen] = useState(false)
   const [deleteError, setDeleteError] = useState<string | null>(null)
@@ -36,6 +44,8 @@ export default function LmsLearningPathDetail() {
   const [cropOpen, setCropOpen] = useState(false)
   const [addingCourseId, setAddingCourseId] = useState("")
   const [addError, setAddError] = useState("")
+  const [submittedForReview, setSubmittedForReview] = useState(false)
+
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   const { data: path, isLoading: pathLoading } = useQuery({
@@ -50,6 +60,7 @@ export default function LmsLearningPathDetail() {
   const { data: roster = [], isLoading: rosterLoading } = useQuery({
     queryKey: ["lms-admin-learning-path-roster", pathId],
     queryFn: () => listLearningPathRosterApi(pathId),
+    enabled: canManageAssignedAccess,
   })
 
   const invalidatePath = () => queryClient.invalidateQueries({ queryKey: ["lms-admin-learning-path", pathId] })
@@ -77,7 +88,18 @@ export default function LmsLearningPathDetail() {
   const publishMutation = useMutation({
     mutationFn: () => updateLearningPathApi(pathId, { is_published: !path?.is_published }),
     onSuccess: invalidatePath,
+    onError: (e: unknown) => toast.error(errorDetail(e, "Failed to update publish status")),
   })
+
+  const submitReviewMutation = useMutation({
+    mutationFn: () => submitLearningPathForReviewApi(pathId),
+    onSuccess: (res) => {
+      setSubmittedForReview(true)
+      toast.success(res.message || "Learning path submitted for review! An administrator will review your learning path.")
+    },
+    onError: (e: unknown) => toast.error(errorDetail(e, "Failed to submit for review")),
+  })
+
 
   const imageMutation = useMutation({
     mutationFn: (file: File) => uploadLearningPathImageApi(pathId, file),
@@ -183,13 +205,34 @@ export default function LmsLearningPathDetail() {
                 >
                   Edit
                 </button>
-                <button
-                  onClick={() => publishMutation.mutate()}
-                  disabled={publishMutation.isPending}
-                  className="h-9 px-4 border border-border rounded-xl text-sm font-medium text-foreground hover:bg-muted transition-colors disabled:opacity-50"
-                >
-                  {path.is_published ? "Unpublish" : "Publish"}
-                </button>
+                {cannotPublish ? (
+                  path.is_published ? (
+                    <span
+                      title="Published and visible in catalog"
+                      className="h-9 px-3 border border-border rounded-xl text-xs font-medium text-green-600 dark:text-green-400 flex items-center select-none"
+                    >
+                      Published
+                    </span>
+                  ) : (
+                    <button
+                      onClick={() => submitReviewMutation.mutate()}
+                      disabled={submitReviewMutation.isPending || submittedForReview}
+                      className="h-9 px-4 border border-amber-500/40 rounded-xl text-sm font-medium text-amber-600 dark:text-amber-400 hover:bg-amber-500/10 transition-colors cursor-pointer disabled:opacity-60 flex items-center gap-1.5"
+                      title="Submit this learning path to administrators for review and publishing"
+                    >
+                      {submittedForReview ? "Submitted for review" : "Submit for review"}
+                    </button>
+                  )
+                ) : (
+                  <button
+                    onClick={() => publishMutation.mutate()}
+                    disabled={publishMutation.isPending}
+                    className="h-9 px-4 border border-border rounded-xl text-sm font-medium text-foreground hover:bg-muted transition-colors disabled:opacity-50"
+                  >
+                    {path.is_published ? "Unpublish" : "Publish"}
+                  </button>
+                )}
+
                 <button
                   onClick={() => setDeleteOpen(true)}
                   className="h-9 px-4 rounded-xl text-sm font-medium text-red-600 hover:bg-red-500/10 transition-colors"
@@ -212,7 +255,20 @@ export default function LmsLearningPathDetail() {
                 Bundle · {(path.price_cents / 100).toLocaleString(undefined, { style: "currency", currency: path.currency.toUpperCase() })}
               </span>
             )}
+            {canViewAudit && (path.created_by_name || path.created_at) && (
+              <span className="text-xs text-muted-foreground">
+
+                {path.created_by_name && (
+                  <>Created by <span className="text-foreground/90 font-medium">{path.created_by_name}</span></>
+                )}
+                {path.created_by_name && path.created_at && " · "}
+                {path.created_at && (
+                  <span>{new Date(path.created_at).toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" })}</span>
+                )}
+              </span>
+            )}
           </div>
+
           {imageError && <p className="text-xs text-red-500 mt-2">{imageError}</p>}
         </div>
       </div>
@@ -263,25 +319,29 @@ export default function LmsLearningPathDetail() {
         {addError && <p className="text-xs text-red-500">{addError}</p>}
       </div>
 
-      <AssignPanel
-        // A path grant is N course Enrollment rows, not one row of its own
-        // (see LearningPathRosterRow's own docstring) — `id` is the user_id
-        // itself, not a synthetic per-grant id like the course/mission
-        // version has. onRevoke below gets that same user_id back and
-        // passes it straight to revokeLearningPathEnrollmentApi.
-        roster={roster.map((r) => ({
-          id: r.user_id, userId: r.user_id, name: r.student_name, email: r.student_email, status: r.status,
-        }))}
-        isLoading={rosterLoading}
-        onGrant={(userId) => grantMutation.mutate(userId)}
-        onBulkGrant={(role) => bulkGrantMutation.mutate(role)}
-        onRevoke={(userId) => revokeMutation.mutate(userId)}
-        grantPending={grantMutation.isPending}
-        bulkPending={bulkGrantMutation.isPending}
-        revokePending={revokeMutation.isPending}
-        bulkResult={bulkResult}
-      />
-      {assignError && <p className="text-xs text-red-500 max-w-2xl">{assignError}</p>}
+      {canManageAssignedAccess && (
+        <>
+          <AssignPanel
+            // A path grant is N course Enrollment rows, not one row of its own
+            // (see LearningPathRosterRow's own docstring) — `id` is the user_id
+            // itself, not a synthetic per-grant id like the course/mission
+            // version has. onRevoke below gets that same user_id back and
+            // passes it straight to revokeLearningPathEnrollmentApi.
+            roster={roster.map((r) => ({
+              id: r.user_id, userId: r.user_id, name: r.student_name, email: r.student_email, status: r.status,
+            }))}
+            isLoading={rosterLoading}
+            onGrant={(userId) => grantMutation.mutate(userId)}
+            onBulkGrant={(role) => bulkGrantMutation.mutate(role)}
+            onRevoke={(userId) => revokeMutation.mutate(userId)}
+            grantPending={grantMutation.isPending}
+            bulkPending={bulkGrantMutation.isPending}
+            revokePending={revokeMutation.isPending}
+            bulkResult={bulkResult}
+          />
+          {assignError && <p className="text-xs text-red-500 max-w-2xl">{assignError}</p>}
+        </>
+      )}
 
       {editOpen && (
         <EditPathModal
@@ -384,7 +444,7 @@ function EditPathModal({
           />
           <p className="text-[11px] text-muted-foreground mt-1">
             When set, students can buy every course in this path at once via Stripe Checkout — regardless of
-            each course's own access mode. Leave blank to keep the free self-enrol "Start" behavior only.
+            each course's own access mode. Leave blank to keep the free self-enroll "Start" behavior only.
           </p>
         </Field>
         {error && <p className="text-xs text-red-500">{error}</p>}

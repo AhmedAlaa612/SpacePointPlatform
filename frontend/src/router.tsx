@@ -815,7 +815,7 @@ const lmsAuthoringLayoutRoute = createRoute({
   path: "/lms-authoring",
   beforeLoad: () => {
     const role = localStorage.getItem("active_role");
-    if (!role || !["operations", "facilitator", "instructor", "admin"].includes(role)) {
+    if (!role || !["operations", "facilitator", "instructor", "admin", "lms_author"].includes(role)) {
       throw redirect({ to: "/" });
     }
   },

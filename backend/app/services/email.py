@@ -299,6 +299,31 @@ async def send_signed_contract_email(to_email: str, name: str, signed_pdf: bytes
     return await try_send_email(to_email, "Your Signed SpacePoint Instructor Agreement", body, attachments=attachments)
 
 
+async def send_course_review_submission_email(
+    admin_email: str, author_name: str, course_title: str, course_id: str
+) -> bool:
+    body = (
+        f"Hi,\n\n"
+        f"{author_name} has submitted the course \"{course_title}\" for review and publishing.\n\n"
+        f"Review it here: {settings.FRONTEND_URL}/lms-authoring/courses/{course_id}\n\n"
+        f"— SpacePoint"
+    )
+    return await try_send_email(admin_email, f"LMS Course Review: {course_title}", body)
+
+
+async def send_learning_path_review_submission_email(
+    admin_email: str, author_name: str, path_title: str, path_id: str
+) -> bool:
+    body = (
+        f"Hi,\n\n"
+        f"{author_name} has submitted the learning path \"{path_title}\" for review and publishing.\n\n"
+        f"Review it here: {settings.FRONTEND_URL}/lms-authoring/learning-paths/{path_id}\n\n"
+        f"— SpacePoint"
+    )
+    return await try_send_email(admin_email, f"LMS Learning Path Review: {path_title}", body)
+
+
+
 async def send_session_assignment_email(
     to_email: str, name: str, program_name: str, meeting_date: str,
     location: str | None, location_address: str | None = None, location_maps_url: str | None = None,

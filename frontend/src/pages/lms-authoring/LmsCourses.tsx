@@ -1,12 +1,13 @@
 import { useState } from "react"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
 import { useNavigate } from "@tanstack/react-router"
-import { Plus, ChevronRight, CloudUpload } from "lucide-react"
+import { Plus, ChevronRight, CloudUpload, Eye } from "lucide-react"
 import { PageHeader, EmptyState, Spinner } from "@/components/ui/primitives"
 import { Modal, Field, ModalActions, ConfirmDialog } from "@/pages/admin/components/common"
 import { useToast } from "@/components/ui/toast"
+import { useAuth } from "@/context/AuthContext"
 import {
-  listCoursesApi, createCourseApi, publishCourseApi, unpublishCourseApi, deleteCourseApi,
+  listCoursesApi, createCourseApi, publishCourseApi, unpublishCourseApi, submitCourseForReviewApi, deleteCourseApi,
   listInstructorOptionsApi, getCoursesVideoBackendStatusApi, migrateCourseVideosToR2Api,
   type AdminCourse, type CourseKind, type CourseLevel, type CourseVideoBackend,
 } from "@/api/lms_admin"
@@ -17,9 +18,14 @@ export default function LmsCourses() {
   const navigate = useNavigate()
   const queryClient = useQueryClient()
   const toast = useToast()
+  const { user, activeRole } = useAuth()
+  const cannotPublish = activeRole === "lms_author" && !user?.author_can_publish
+  const canViewAudit = activeRole === "admin" || activeRole === "operations"
   const [createOpen, setCreateOpen] = useState(false)
+
   const [deleteTarget, setDeleteTarget] = useState<AdminCourse | null>(null)
   const [deleteError, setDeleteError] = useState<string | null>(null)
+  const [submittedCourseIds, setSubmittedCourseIds] = useState<Set<string>>(new Set())
 
   const { data: courses = [], isLoading } = useQuery<AdminCourse[]>({
     queryKey: ["lms-admin-courses"],
@@ -41,6 +47,16 @@ export default function LmsCourses() {
     mutationFn: (course: AdminCourse) =>
       course.is_published ? unpublishCourseApi(course.id) : publishCourseApi(course.id),
     onSuccess: invalidate,
+    onError: (e: any) => toast.error(e?.response?.data?.detail ?? "Failed to update publish status"),
+  })
+
+  const submitReviewMutation = useMutation({
+    mutationFn: (courseId: string) => submitCourseForReviewApi(courseId),
+    onSuccess: (res, courseId) => {
+      setSubmittedCourseIds((prev) => new Set(prev).add(courseId))
+      toast.success(res.message || "Submitted for review! An administrator will review your course.")
+    },
+    onError: (e: any) => toast.error(e?.response?.data?.detail ?? "Failed to submit for review"),
   })
 
   const migrateMutation = useMutation({
@@ -127,8 +143,28 @@ export default function LmsCourses() {
                     </p>
                   )
                 })()}
+                {canViewAudit && (course.created_by_name || course.created_at) && (
+                  <div className="flex items-center gap-2 text-[11px] text-muted-foreground mt-1 flex-wrap">
+
+                    {course.created_by_name && (
+                      <span>Created by <span className="text-foreground/80 font-medium">{course.created_by_name}</span></span>
+                    )}
+                    {course.created_by_name && course.created_at && <span>•</span>}
+                    {course.created_at && (
+                      <span>{new Date(course.created_at).toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" })}</span>
+                    )}
+                  </div>
+                )}
               </div>
+
               <div className="flex items-center gap-1 flex-shrink-0 ml-3" onClick={(e) => e.stopPropagation()}>
+                <button
+                  onClick={() => void navigate({ to: `/learn/courses/${course.id}/learn`, search: { preview: true } as never })}
+                  title="Preview course in student player"
+                  className="flex items-center gap-1 h-8 px-3 rounded-lg text-xs font-medium border border-border text-foreground hover:bg-muted transition-colors"
+                >
+                  <Eye size={13} /> Preview
+                </button>
                 {(videoBackendByCourse.get(course.id)?.vps ?? 0) > 0 && (
                   <button
                     onClick={() => migrateMutation.mutate(course.id)}
@@ -139,13 +175,34 @@ export default function LmsCourses() {
                     <CloudUpload size={13} /> Migrate to R2
                   </button>
                 )}
-                <button
-                  onClick={() => publishMutation.mutate(course)}
-                  disabled={publishMutation.isPending}
-                  className="h-8 px-3 rounded-lg text-xs font-medium border border-border text-foreground hover:bg-muted transition-colors disabled:opacity-50"
-                >
-                  {course.is_published ? "Unpublish" : "Publish"}
-                </button>
+                {cannotPublish ? (
+                  course.is_published ? (
+                    <span
+                      title="Published and visible in catalog"
+                      className="h-8 px-2.5 rounded-lg text-xs font-medium border border-border text-green-600 dark:text-green-400 flex items-center select-none cursor-default"
+                    >
+                      Published
+                    </span>
+                  ) : (
+                    <button
+                      onClick={() => submitReviewMutation.mutate(course.id)}
+                      disabled={submitReviewMutation.isPending || submittedCourseIds.has(course.id)}
+                      title="Submit this course to administrators for review and publishing"
+                      className="h-8 px-3 rounded-lg text-xs font-medium border border-amber-500/40 text-amber-600 dark:text-amber-400 hover:bg-amber-500/10 transition-colors disabled:opacity-60 flex items-center gap-1.5"
+                    >
+                      {submittedCourseIds.has(course.id) ? "Submitted for review" : "Submit for review"}
+                    </button>
+                  )
+                ) : (
+                  <button
+                    onClick={() => publishMutation.mutate(course)}
+                    disabled={publishMutation.isPending}
+                    className="h-8 px-3 rounded-lg text-xs font-medium border border-border text-foreground hover:bg-muted transition-colors disabled:opacity-50"
+                  >
+                    {course.is_published ? "Unpublish" : "Publish"}
+                  </button>
+                )}
+
                 <button
                   onClick={() => setDeleteTarget(course)}
                   className="h-8 px-3 rounded-lg text-xs font-medium text-red-600 hover:bg-red-500/10 transition-colors"
@@ -185,7 +242,7 @@ export default function LmsCourses() {
 function CreateCourseModal({ onClose, onSuccess }: { onClose: () => void; onSuccess: (course: AdminCourse) => void }) {
   const [title, setTitle] = useState("")
   const [description, setDescription] = useState("")
-  const [kind, setKind] = useState<CourseKind>("course")
+  const kind: CourseKind = "course"
   const [level, setLevel] = useState<CourseLevel | "">("")
   const [track, setTrack] = useState("")
   const [outcomes, setOutcomes] = useState<string[]>([""])
@@ -225,16 +282,28 @@ function CreateCourseModal({ onClose, onSuccess }: { onClose: () => void; onSucc
             className="w-full px-3 py-2 border border-border bg-card text-foreground rounded-xl text-sm focus:outline-none focus:border-primary transition-colors resize-none"
           />
         </Field>
-        <div className="grid grid-cols-2 gap-3">
-          <Field label="Kind">
+        <div className={accessMode === "paid" ? "grid grid-cols-2 gap-3" : ""}>
+          <Field label="Access">
             <select
-              value={kind} onChange={(e) => setKind(e.target.value as CourseKind)}
+              value={accessMode} onChange={(e) => setAccessMode(e.target.value as "open" | "invite" | "paid")}
               className="w-full h-10 px-3 border border-border bg-card text-foreground rounded-xl text-sm focus:outline-none focus:border-primary transition-colors cursor-pointer"
             >
-              <option value="course">Course</option>
-              <option value="mission">Mission (Phase 2)</option>
+              <option value="open">Open — anyone self-enrolls</option>
+              <option value="invite">Invite-only — admin grant only</option>
+              <option value="paid">Paid — Stripe Checkout</option>
             </select>
           </Field>
+          {accessMode === "paid" && (
+            <Field label="Price (USD)">
+              <input
+                value={priceDollars} onChange={(e) => setPriceDollars(e.target.value)}
+                type="number" min="0" step="0.01" placeholder="49.00"
+                className="w-full h-10 px-3 border border-border bg-card text-foreground rounded-xl text-sm focus:outline-none focus:border-primary transition-colors"
+              />
+            </Field>
+          )}
+        </div>
+        <div className="grid grid-cols-2 gap-3">
           <Field label="Level (optional)">
             <select
               value={level} onChange={(e) => setLevel(e.target.value as CourseLevel | "")}
@@ -246,13 +315,13 @@ function CreateCourseModal({ onClose, onSuccess }: { onClose: () => void; onSucc
               <option value="advanced">Advanced</option>
             </select>
           </Field>
+          <Field label="Track (optional)">
+            <input
+              value={track} onChange={(e) => setTrack(e.target.value)} placeholder="Spacecraft systems"
+              className="w-full h-10 px-3 border border-border bg-card text-foreground rounded-xl text-sm focus:outline-none focus:border-primary transition-colors"
+            />
+          </Field>
         </div>
-        <Field label="Track (optional)">
-          <input
-            value={track} onChange={(e) => setTrack(e.target.value)} placeholder="Spacecraft systems"
-            className="w-full h-10 px-3 border border-border bg-card text-foreground rounded-xl text-sm focus:outline-none focus:border-primary transition-colors"
-          />
-        </Field>
         <Field label="What you'll be able to do (optional)">
           <div className="flex flex-col gap-2">
             {outcomes.map((o, i) => (
@@ -295,27 +364,6 @@ function CreateCourseModal({ onClose, onSuccess }: { onClose: () => void; onSucc
               className="w-full h-10 px-3 border border-border bg-card text-foreground rounded-xl text-sm focus:outline-none focus:border-primary transition-colors"
             />
           </Field>
-        </div>
-        <div className="grid grid-cols-2 gap-3">
-          <Field label="Access">
-            <select
-              value={accessMode} onChange={(e) => setAccessMode(e.target.value as "open" | "invite" | "paid")}
-              className="w-full h-10 px-3 border border-border bg-card text-foreground rounded-xl text-sm focus:outline-none focus:border-primary transition-colors cursor-pointer"
-            >
-              <option value="open">Open — anyone self-enrols</option>
-              <option value="invite">Invite-only — admin grant only</option>
-              <option value="paid">Paid — Stripe Checkout</option>
-            </select>
-          </Field>
-          {accessMode === "paid" && (
-            <Field label="Price (USD)">
-              <input
-                value={priceDollars} onChange={(e) => setPriceDollars(e.target.value)}
-                type="number" min="0" step="0.01" placeholder="49.00"
-                className="w-full h-10 px-3 border border-border bg-card text-foreground rounded-xl text-sm focus:outline-none focus:border-primary transition-colors"
-              />
-            </Field>
-          )}
         </div>
         {error && <p className="text-xs text-red-500">{error}</p>}
         <ModalActions

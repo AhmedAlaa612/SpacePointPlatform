@@ -15,7 +15,12 @@ import { ItemPicker } from "@/pages/lms-authoring/components/ItemPicker"
  * hunting for a separate item-picker page. `itemType`/`itemId` are fixed by
  * the host page; only the *requires* side is picked here.
  */
-export function PrerequisitesSection({ itemType, itemId }: { itemType: PrerequisiteItemType; itemId: string }) {
+export function PrerequisitesSection({ itemType: _itemType, itemId: _itemId }: { itemType: PrerequisiteItemType; itemId: string }) {
+  // Hidden for all users
+  return null
+}
+
+export function _UnusedPrerequisitesSection({ itemType, itemId }: { itemType: PrerequisiteItemType; itemId: string }) {
   const queryClient = useQueryClient()
   const [requiresType, setRequiresType] = useState<PrerequisiteItemType>(itemType === "course" ? "mission" : "course")
   const [requiresId, setRequiresId] = useState("")

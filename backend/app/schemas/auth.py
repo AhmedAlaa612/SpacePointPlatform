@@ -119,6 +119,9 @@ class UserOut(BaseModel):
     work_status: str | None = None
     fluent_languages: list[str] | None = None
     graduated_university: str | None = None
+    author_can_publish: bool | None = None
+    author_scope_all: bool | None = None
+
 
 
 class UpdateMeRequest(BaseModel):

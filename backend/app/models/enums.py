@@ -24,6 +24,8 @@ class UserRole(str, enum.Enum):
     # account — see core/dependencies.py::require_judge and
     # services/competitions/judges.py.
     judge = "judge"
+    # LMS author role for external partners and contributors
+    lms_author = "lms_author"
 
 
 # ── Interns domain ───────────────────────────────────────────────────────────

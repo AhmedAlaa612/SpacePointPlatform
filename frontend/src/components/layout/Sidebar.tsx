@@ -176,6 +176,7 @@ const DOMAIN_TITLE: Record<string, string> = {
   instructors: "Instructors",
   admin: "Admin",
   operations: "Operations",
+  "lms-authoring": "Authoring",
 };
 
 /**
@@ -184,6 +185,15 @@ const DOMAIN_TITLE: Record<string, string> = {
  * each item now carries a lucide icon via `mk`.
  */
 function getNavItems(pathname: string, activeRole: Role | null): NavItem[] {
+  if (activeRole === "lms_author") {
+    return [
+      mk("Courses", "/lms-authoring/courses"),
+      mk("Learning Paths", "/lms-authoring/learning-paths"),
+      mk("Invite Codes", "/lms-authoring/invite-codes"),
+      mk("Learn", "/learn"),
+    ];
+  }
+
   // LM1-13: shared by operations + facilitator (backend's require_lms_content),
   // its own top-level path so one URL space works for both roles rather than
   // duplicating pages under /operations and /instructors.
@@ -805,6 +815,8 @@ export function AppShell({ children }: { children: ReactNode }) {
       ? "/instructors/profile"
       : activeRole === "judge"
       ? "/judge"
+      : activeRole === "lms_author"
+      ? "/lms-authoring/courses"
       : "/interns/profile";
 
   // Body scroll lock + Escape-to-close for the mobile drawer.

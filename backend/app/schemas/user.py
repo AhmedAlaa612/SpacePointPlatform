@@ -30,6 +30,8 @@ class UserReadBase(BaseModel):
 class UserCreate(UserBase):
     password: str
     roles: list[UserRole] = []
+    author_can_publish: bool | None = None
+    author_scope_all: bool | None = None
 
 
 class UserUpdate(BaseModel):
@@ -37,6 +39,8 @@ class UserUpdate(BaseModel):
     email: EmailStr | None = None
     password: str | None = None
     roles: list[UserRole] | None = None
+    author_can_publish: bool | None = None
+    author_scope_all: bool | None = None
     phone: str | None = None
     birthdate: date | None = None
     # Student identity in live games. Editable by an admin because a
@@ -93,6 +97,8 @@ class UserOut(UserReadBase):
     # same pattern as grade/school_name above.
     card_number: int | None = None
     card_id: str | None = None
+    author_can_publish: bool | None = None
+    author_scope_all: bool | None = None
 
     class Config:
         from_attributes = True

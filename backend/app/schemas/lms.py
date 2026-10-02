@@ -216,6 +216,8 @@ class CourseDetailOut(BaseModel):
     # unless access_mode == "paid".
     price_cents: int | None = None
     currency: str = "usd"
+    is_published: bool = True
+    is_preview: bool = False
 
 
 # ── enrollment ──────────────────────────────────────────────────────────────

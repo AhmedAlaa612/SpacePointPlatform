@@ -10,11 +10,12 @@ import { Modal, Field, ModalActions, ConfirmDialog } from "@/pages/admin/compone
 import {
   listItemsApi, createItemApi, updateItemApi, deleteItemApi, uploadVideoApi, reorderItemsApi,
   listCheckpointsApi, createCheckpointApi, updateCheckpointApi, deleteCheckpointApi,
-  getModuleApi, updateModuleApi, uploadAttachmentApi,
+  getModuleApi, updateModuleApi, uploadAttachmentApi, getAdminAttachmentUrlApi,
   type AdminItem, type ModuleItemKind, type AdminQuizQuestion, type VideoTranscodeStatus,
   type AdminCheckpoint, type CheckpointKind, type CheckpointQuestionType, type AdminQuizOption,
   type AdminModule,
 } from "@/api/lms_admin"
+import { MediaPreviewModal } from "@/components/media/MediaPreviewModal"
 
 const KIND_ICON: Record<ModuleItemKind, React.ComponentType<{ size?: number; className?: string }>> = {
   text: FileText, quiz: HelpCircle, flashcards: Layers, video: VideoIcon, attachment: Paperclip,
@@ -64,6 +65,16 @@ export default function LmsModuleDetail() {
   const [uploadTarget, setUploadTarget] = useState<AdminItem | null>(null)
   const [checkpointTarget, setCheckpointTarget] = useState<AdminItem | null>(null)
   const [editModuleOpen, setEditModuleOpen] = useState(false)
+  const [previewModal, setPreviewModal] = useState<{
+    open: boolean
+    title: string
+    type: "pdf" | "video"
+    url?: string | null
+    itemId?: string
+    videoId?: string | null
+    transcodeStatus?: string | null
+  }>({ open: false, title: "", type: "pdf" })
+  const [previewLoadingId, setPreviewLoadingId] = useState<string | null>(null)
 
   const { data: module } = useQuery<AdminModule>({
     queryKey: ["lms-admin-module", moduleId],
@@ -133,7 +144,7 @@ export default function LmsModuleDetail() {
         {/* Scrolls horizontally on narrow screens instead of overflowing the
             page or wrapping into a cramped stack — five "Add X" buttons don't
             fit a phone's width at their natural size. */}
-        <div className="flex gap-2 overflow-x-auto -mx-1 px-1 pb-1">
+        <div className="flex gap-2 flex-wrap">
           {(["text", "flashcards", "quiz", "video", "attachment"] as ModuleItemKind[]).map((kind) => (
             <button
               key={kind}
@@ -157,7 +168,7 @@ export default function LmsModuleDetail() {
                 key={item.id}
                 className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 p-4 bg-card border border-border rounded-2xl hover:border-muted-foreground/30 transition-colors"
               >
-                <div className="flex items-center gap-3 min-w-0">
+                <div className="flex items-center gap-3 min-w-0 flex-1">
                   <div className="flex flex-col shrink-0">
                     <button
                       onClick={() => move(index, -1)}
@@ -179,7 +190,7 @@ export default function LmsModuleDetail() {
                   <div className="w-9 h-9 rounded-lg bg-primary/10 flex items-center justify-center shrink-0">
                     <Icon size={16} className="text-primary" />
                   </div>
-                  <div className="min-w-0">
+                  <div className="min-w-0 flex-1">
                     <p className="text-sm font-medium text-foreground truncate">
                       {item.position}. {item.title ?? KIND_LABEL[item.kind]}
                     </p>
@@ -198,14 +209,26 @@ export default function LmsModuleDetail() {
                     )}
                   </div>
                 </div>
-                {/* Own row on mobile (not squeezed beside the title anymore —
-                    that's what was overlapping), with a horizontal-scroll
-                    fallback for video's 4-button case. Unchanged on sm+. */}
-                <div className="flex items-center gap-1 overflow-x-auto -mx-1 px-1 sm:ml-3 sm:shrink-0">
+                <div className="flex items-center gap-1.5 flex-wrap sm:justify-end">
+                  {item.kind === "video" && videoStatus(item) === "ready" && (
+                    <button
+                      onClick={() => setPreviewModal({
+                        open: true,
+                        title: item.title ?? "Video lesson",
+                        type: "video",
+                        itemId: item.id,
+                        videoId: "video_id" in item.content ? (item.content.video_id as string) : null,
+                        transcodeStatus: videoStatus(item),
+                      })}
+                      className="h-8 px-2.5 rounded-lg text-xs font-medium bg-primary/10 text-primary border border-primary/20 hover:bg-primary/20 transition-colors shrink-0 whitespace-nowrap"
+                    >
+                      Watch video
+                    </button>
+                  )}
                   {item.kind === "video" && (
                     <button
                       onClick={() => setCheckpointTarget(item)}
-                      className="h-8 px-3 rounded-lg text-xs font-medium border border-border text-foreground hover:bg-muted transition-colors shrink-0 whitespace-nowrap"
+                      className="h-8 px-2.5 rounded-lg text-xs font-medium border border-border text-foreground hover:bg-muted transition-colors shrink-0 whitespace-nowrap"
                     >
                       Checkpoints
                     </button>
@@ -213,28 +236,52 @@ export default function LmsModuleDetail() {
                   {item.kind === "video" && (
                     <button
                       onClick={() => setUploadTarget(item)}
-                      className="h-8 px-3 rounded-lg text-xs font-medium border border-border text-foreground hover:bg-muted transition-colors shrink-0 whitespace-nowrap"
+                      className="h-8 px-2.5 rounded-lg text-xs font-medium border border-border text-foreground hover:bg-muted transition-colors shrink-0 whitespace-nowrap"
                     >
                       {videoStatus(item) === "ready" ? "Replace video" : "Upload video"}
+                    </button>
+                  )}
+                  {item.kind === "attachment" && attachmentFilename(item) && (
+                    <button
+                      disabled={previewLoadingId === item.id}
+                      onClick={async () => {
+                        setPreviewLoadingId(item.id)
+                        try {
+                          const res = await getAdminAttachmentUrlApi(item.id)
+                          setPreviewModal({
+                            open: true,
+                            title: item.title ?? attachmentFilename(item) ?? "PDF Document",
+                            type: "pdf",
+                            url: res.url,
+                          })
+                        } catch {
+                          alert("Failed to load PDF preview")
+                        } finally {
+                          setPreviewLoadingId(null)
+                        }
+                      }}
+                      className="h-8 px-2.5 rounded-lg text-xs font-medium bg-primary/10 text-primary border border-primary/20 hover:bg-primary/20 transition-colors shrink-0 whitespace-nowrap disabled:opacity-50"
+                    >
+                      {previewLoadingId === item.id ? "Loading..." : "View PDF"}
                     </button>
                   )}
                   {item.kind === "attachment" && (
                     <button
                       onClick={() => setUploadTarget(item)}
-                      className="h-8 px-3 rounded-lg text-xs font-medium border border-border text-foreground hover:bg-muted transition-colors shrink-0 whitespace-nowrap"
+                      className="h-8 px-2.5 rounded-lg text-xs font-medium border border-border text-foreground hover:bg-muted transition-colors shrink-0 whitespace-nowrap"
                     >
                       {attachmentFilename(item) ? "Replace PDF" : "Upload PDF"}
                     </button>
                   )}
                   <button
                     onClick={() => setEditItem(item)}
-                    className="h-8 px-3 rounded-lg text-xs font-medium border border-border text-foreground hover:bg-muted transition-colors shrink-0 whitespace-nowrap"
+                    className="h-8 px-2.5 rounded-lg text-xs font-medium border border-border text-foreground hover:bg-muted transition-colors shrink-0 whitespace-nowrap"
                   >
                     Edit
                   </button>
                   <button
                     onClick={() => setDeleteTarget(item)}
-                    className="h-8 px-3 rounded-lg text-xs font-medium text-red-600 hover:bg-red-500/10 transition-colors shrink-0 whitespace-nowrap"
+                    className="h-8 px-2.5 rounded-lg text-xs font-medium text-red-600 hover:bg-red-500/10 transition-colors shrink-0 whitespace-nowrap"
                   >
                     Delete
                   </button>
@@ -290,6 +337,19 @@ export default function LmsModuleDetail() {
           pending={deleteMutation.isPending}
           onCancel={() => setDeleteTarget(null)}
           onConfirm={() => deleteMutation.mutate(deleteTarget.id)}
+        />
+      )}
+
+      {previewModal.open && (
+        <MediaPreviewModal
+          open={previewModal.open}
+          onClose={() => setPreviewModal((prev) => ({ ...prev, open: false }))}
+          title={previewModal.title}
+          type={previewModal.type}
+          url={previewModal.url}
+          itemId={previewModal.itemId}
+          videoId={previewModal.videoId}
+          transcodeStatus={previewModal.transcodeStatus}
         />
       )}
     </div>

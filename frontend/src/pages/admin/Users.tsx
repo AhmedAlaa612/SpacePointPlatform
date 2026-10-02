@@ -14,7 +14,7 @@ import { cn } from "@/lib/utils"
 import { Modal, Field, ModalActions, Spinner } from "@/pages/admin/components/common"
 import { PasswordInput } from "@/components/ui/PasswordInput"
 
-const ALL_ROLES: Role[] = ["admin", "intern", "leader", "applicant", "instructor", "facilitator", "ambassador", "teacher", "operations", "coo", "storekeeper", "judge"]
+const ALL_ROLES: Role[] = ["admin", "intern", "leader", "applicant", "instructor", "facilitator", "ambassador", "teacher", "operations", "coo", "storekeeper", "judge", "lms_author"]
 
 const roleBadgeColor: Record<Role, string> = {
   admin: "bg-foreground text-background",
@@ -30,6 +30,7 @@ const roleBadgeColor: Record<Role, string> = {
   storekeeper: "bg-slate-200 text-slate-700 dark:bg-slate-500/20 dark:text-slate-300",
   student: "bg-cyan-100 text-cyan-700 dark:bg-cyan-500/15 dark:text-cyan-400",
   judge: "bg-fuchsia-100 text-fuchsia-700 dark:bg-fuchsia-500/15 dark:text-fuchsia-400",
+  lms_author: "bg-violet-100 text-violet-700 dark:bg-violet-500/15 dark:text-violet-400",
 }
 
 /* ================================================================== */
@@ -291,6 +292,80 @@ export default function Users() {
   )
 }
 
+function LmsAuthorPermissionsField({
+  canPublish,
+  setCanPublish,
+  scopeAll,
+  setScopeAll,
+}: {
+  canPublish: boolean
+  setCanPublish: (val: boolean) => void
+  scopeAll: boolean
+  setScopeAll: (val: boolean) => void
+}) {
+  return (
+    <div className="rounded-xl border border-violet-500/20 bg-violet-500/5 p-3 flex flex-col gap-3">
+      <span className="text-xs font-semibold text-violet-700 dark:text-violet-400">LMS Author Permissions</span>
+
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+        <span className="text-xs text-muted-foreground">Publishing access</span>
+        <div className="flex rounded-lg border border-border overflow-hidden shrink-0">
+          <button
+            type="button"
+            onClick={() => setCanPublish(false)}
+            className={`h-8 px-3 text-xs font-medium transition-colors ${
+              !canPublish
+                ? "bg-primary text-primary-foreground"
+                : "text-muted-foreground hover:text-foreground"
+            }`}
+          >
+            Draft only
+          </button>
+          <button
+            type="button"
+            onClick={() => setCanPublish(true)}
+            className={`h-8 px-3 text-xs font-medium transition-colors ${
+              canPublish
+                ? "bg-primary text-primary-foreground"
+                : "text-muted-foreground hover:text-foreground"
+            }`}
+          >
+            Publish access
+          </button>
+        </div>
+      </div>
+
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+        <span className="text-xs text-muted-foreground">Content access</span>
+        <div className="flex rounded-lg border border-border overflow-hidden shrink-0">
+          <button
+            type="button"
+            onClick={() => setScopeAll(false)}
+            className={`h-8 px-3 text-xs font-medium transition-colors ${
+              !scopeAll
+                ? "bg-primary text-primary-foreground"
+                : "text-muted-foreground hover:text-foreground"
+            }`}
+          >
+            Authored content only
+          </button>
+          <button
+            type="button"
+            onClick={() => setScopeAll(true)}
+            className={`h-8 px-3 text-xs font-medium transition-colors ${
+              scopeAll
+                ? "bg-primary text-primary-foreground"
+                : "text-muted-foreground hover:text-foreground"
+            }`}
+          >
+            Full access
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 /* ================================================================== */
 /* Create user modal                                                   */
 /* ================================================================== */
@@ -299,6 +374,8 @@ function CreateUserModal({ onClose, onSuccess }: { onClose: () => void; onSucces
   const [email,    setEmail]    = useState("")
   const [password, setPassword] = useState("")
   const [roles,    setRoles]    = useState<Role[]>(["intern"])
+  const [authorCanPublish, setAuthorCanPublish] = useState(false)
+  const [authorScopeAll,   setAuthorScopeAll]   = useState(false)
   const [teamId,   setTeamId]   = useState("")
   const [phone,    setPhone]    = useState("")
   const [error,    setError]    = useState("")
@@ -310,7 +387,15 @@ function CreateUserModal({ onClose, onSuccess }: { onClose: () => void; onSucces
 
   const mutation = useMutation({
     mutationFn: async () => {
-      const user = await createUserApi({ full_name: fullName, email, password, roles, phone: phone || undefined })
+      const user = await createUserApi({
+        full_name: fullName,
+        email,
+        password,
+        roles,
+        phone: phone || undefined,
+        author_can_publish: roles.includes("lms_author") ? authorCanPublish : undefined,
+        author_scope_all: roles.includes("lms_author") ? authorScopeAll : undefined,
+      })
       if (teamId && roles.includes("intern")) {
         await addTeamMemberApi(teamId, user.id)
       }
@@ -351,6 +436,14 @@ function CreateUserModal({ onClose, onSuccess }: { onClose: () => void; onSucces
             ))}
           </div>
         </Field>
+        {roles.includes("lms_author") && (
+          <LmsAuthorPermissionsField
+            canPublish={authorCanPublish}
+            setCanPublish={setAuthorCanPublish}
+            scopeAll={authorScopeAll}
+            setScopeAll={setAuthorScopeAll}
+          />
+        )}
         {roles.includes("intern") && (
           <Field label="Team (optional)">
             <select value={teamId} onChange={(e) => setTeamId(e.target.value)}
@@ -673,6 +766,8 @@ function EditUserModal({ user, onClose, onSuccess }: { user: User; onClose: () =
   const [fullName, setFullName] = useState(user.full_name)
   const [email,    setEmail]    = useState(user.email)
   const [roles,    setRoles]    = useState<Role[]>(user.roles)
+  const [authorCanPublish, setAuthorCanPublish] = useState(user.author_can_publish ?? false)
+  const [authorScopeAll,   setAuthorScopeAll]   = useState(user.author_scope_all ?? false)
   const [phone,    setPhone]    = useState(user.phone || "")
   const [nickname, setNickname] = useState(user.nickname || "")
   const [avatar,   setAvatar]   = useState(user.avatar || "")
@@ -688,6 +783,7 @@ function EditUserModal({ user, onClose, onSuccess }: { user: User; onClose: () =
       // Only sent for students — nickname and avatar are the live-games
       // identity, and there is nothing for a staff account to set them on.
       ...(isStudent ? { nickname: nickname || undefined, avatar: avatar || undefined } : {}),
+      ...(roles.includes("lms_author") ? { author_can_publish: authorCanPublish, author_scope_all: authorScopeAll } : {}),
     }),
     onSuccess,
     onError: (e: any) => setError(e?.response?.data?.detail ?? "Failed to update user"),
@@ -720,6 +816,14 @@ function EditUserModal({ user, onClose, onSuccess }: { user: User; onClose: () =
             ))}
           </div>
         </Field>
+        {roles.includes("lms_author") && (
+          <LmsAuthorPermissionsField
+            canPublish={authorCanPublish}
+            setCanPublish={setAuthorCanPublish}
+            scopeAll={authorScopeAll}
+            setScopeAll={setAuthorScopeAll}
+          />
+        )}
         <Field label="WhatsApp number (optional)">
           <input value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="+20 10 0000 0000"
             className="w-full h-10 px-3 border border-border bg-card text-foreground rounded-xl text-sm focus:outline-none focus:border-primary transition-colors" />

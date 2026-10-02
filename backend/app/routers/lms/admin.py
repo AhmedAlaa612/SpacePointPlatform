@@ -35,6 +35,7 @@ from app.models.sessions.registration import Registration
 from app.models.spine.contact import Contact
 from app.models.spine.organization import Organization
 from app.models.user import User
+from app.schemas.lms import AttachmentUrlOut
 from app.schemas.lms_admin import (
     AdminCheckpointNoteContent,
     AdminCheckpointQuizContent,
@@ -104,6 +105,17 @@ from app.services.lms.admin_progress import (
     student_design_runs,
 )
 from app.services.lms import cohort_quiz as cohort_quiz_service
+from app.services.lms.author_access import (
+    check_checkpoint_access,
+    check_course_access,
+    check_course_publish_access,
+    check_invite_code_access,
+    check_item_access,
+    check_learning_path_access,
+    check_learning_path_publish_access,
+    check_module_access,
+    get_author_permissions,
+)
 from app.services.lms.invite_grants import grant_invite_code_access
 from app.services.lms.my_programs import my_programs
 from app.services.lms import students as student_search_service
@@ -130,9 +142,9 @@ ATTACHMENT_BUCKET = "lms-attachments"
 MAX_ATTACHMENT_BYTES = 4 * 1024 * 1024 * 1024  # 4GB — platform-wide upload cap
 
 
-async def _course_admin_out(db: AsyncSession, course: Course) -> CourseAdminOut:
+async def _course_admin_out(db: AsyncSession, course: Course, current: User | None = None) -> CourseAdminOut:
     """`CourseAdminOut` carries two derived fields (`image_url`,
-    `instructor_name`) that aren't real columns on `Course` — Pydantic's
+    `instructor_name`, `created_by_name`) that aren't real columns on `Course` — Pydantic's
     `from_attributes` can't resolve those from the bare ORM object, so every
     course-returning endpoint goes through this instead of `return course`."""
     image_url = await storage.resolve_url(course.image_bucket, course.image_path)
@@ -140,9 +152,20 @@ async def _course_admin_out(db: AsyncSession, course: Course) -> CourseAdminOut:
     if course.instructor_id:
         instructor = await db.get(User, course.instructor_id)
         instructor_name = instructor.full_name if instructor else None
+
+    # Only admin and operations are allowed to view audit metadata (created_by, created_at)
+    can_view_audit = bool(current and any(r in ("admin", "operations") for r in current.role_values))
+    created_by = course.created_by if can_view_audit else None
+    created_at = course.created_at if can_view_audit else None
+    created_by_name = None
+    if can_view_audit and course.created_by:
+        creator = await db.get(User, course.created_by)
+        created_by_name = creator.full_name if creator else None
+
     return CourseAdminOut(
         id=course.id, title=course.title, description=course.description, kind=course.kind,
-        is_published=course.is_published, created_by=course.created_by, created_at=course.created_at,
+        is_published=course.is_published, created_by=created_by,
+        created_by_name=created_by_name, created_at=created_at,
         image_url=image_url, outcomes=course.outcomes or [], level=course.level, track=course.track,
         instructor_id=course.instructor_id, instructor_name=instructor_name,
         instructor_title=course.instructor_title,
@@ -150,6 +173,8 @@ async def _course_admin_out(db: AsyncSession, course: Course) -> CourseAdminOut:
         price_cents=course.price_cents, currency=course.currency,
         certificate_enabled=course.certificate_enabled,
     )
+
+
 
 _CONTENT_MODEL = {
     "text": AdminContentText,
@@ -227,13 +252,16 @@ async def search_staff(
     role: str | None = None,
     q: str | None = None,
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(require_lms_content),
+    current: User = Depends(require_lms_content),
 ):
     """Named-individual search for the course/mission assignment picker —
     any staff account (`student` excluded; that role self-enrols or is
     bulk-granted by cohort, never picked by name here). `role` narrows to one
     held role, `q` is a case-insensitive substring match on name or email.
     Capped at 25 rows — a picker, not a roster export."""
+    _, scope_all = await get_author_permissions(db, current)
+    if not scope_all:
+        return []
     stmt = select(User).where(~User.roles.contains(["student"]))
     if role is not None:
         stmt = stmt.where(User.roles.any(role))
@@ -287,19 +315,21 @@ async def _invite_code_out(db: AsyncSession, row: InvitationCode) -> InviteCodeO
     return InviteCodeOut(
         id=row.id, code=row.code, label=row.label, is_active=row.is_active,
         max_uses=row.max_uses, used_count=row.used_count, expires_at=row.expires_at,
-        created_at=row.created_at, signups=signups or 0,
+        created_at=row.created_at, created_by=row.created_by, signups=signups or 0,
     )
 
 
 @router.get("/invite-codes", response_model=list[InviteCodeOut])
 async def list_invite_codes(
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(require_lms_content),
+    current_user: User = Depends(require_lms_content),
 ):
-    rows = (await db.execute(
-        select(InvitationCode).where(InvitationCode.kind == "student")
-        .order_by(InvitationCode.created_at.desc())
-    )).scalars().all()
+    _, scope_all = await get_author_permissions(db, current_user)
+    stmt = select(InvitationCode).where(InvitationCode.kind == "student")
+    if not scope_all:
+        stmt = stmt.where(InvitationCode.created_by == current_user.id)
+    stmt = stmt.order_by(InvitationCode.created_at.desc())
+    rows = (await db.execute(stmt)).scalars().all()
     return [await _invite_code_out(db, r) for r in rows]
 
 
@@ -307,7 +337,7 @@ async def list_invite_codes(
 async def create_invite_code(
     body: InviteCodeCreate,
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(require_lms_content),
+    current_user: User = Depends(require_lms_content),
 ):
     code = body.code.strip().upper()
     if not code:
@@ -324,6 +354,7 @@ async def create_invite_code(
     row = InvitationCode(
         id=uuid.uuid4(), code=code, kind="student", label=body.label,
         max_uses=body.max_uses, is_active=body.is_active, expires_at=body.expires_at,
+        created_by=current_user.id,
     )
     db.add(row)
     await db.commit()
@@ -336,11 +367,12 @@ async def update_invite_code(
     code_id: uuid.UUID,
     body: InviteCodeUpdate,
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(require_lms_content),
+    current_user: User = Depends(require_lms_content),
 ):
     row = await db.get(InvitationCode, code_id)
     if row is None or row.kind != "student":
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Invite code not found")
+    await check_invite_code_access(db, current_user, row)
 
     updates = body.model_dump(exclude_unset=True)
     if "code" in updates and updates["code"]:
@@ -375,7 +407,7 @@ async def update_invite_code(
 async def delete_invite_code(
     code_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(require_lms_content),
+    current_user: User = Depends(require_lms_content),
 ):
     """Refuses once anyone has signed up on it — the code is the only record
     of which batch those students belong to (users.invitation_code_used is a
@@ -384,6 +416,7 @@ async def delete_invite_code(
     row = await db.get(InvitationCode, code_id)
     if row is None or row.kind != "student":
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Invite code not found")
+    await check_invite_code_access(db, current_user, row)
     signups = await db.scalar(
         select(func.count()).select_from(User).where(User.invitation_code_used == row.code)
     )
@@ -431,11 +464,12 @@ async def _invite_code_grant_out(db: AsyncSession, grant: InvitationCodeGrant) -
 async def list_invite_code_grants(
     code_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(require_lms_content),
+    current_user: User = Depends(require_lms_content),
 ):
     code = await db.get(InvitationCode, code_id)
     if code is None or code.kind != "student":
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Invite code not found")
+    await check_invite_code_access(db, current_user, code)
     rows = (await db.execute(
         select(InvitationCodeGrant).where(InvitationCodeGrant.invitation_code_id == code_id)
         .order_by(InvitationCodeGrant.created_at)
@@ -450,7 +484,7 @@ async def create_invite_code_grant(
     code_id: uuid.UUID,
     body: InviteCodeGrantCreate,
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(require_lms_content),
+    current: User = Depends(require_lms_content),
 ):
     """Applies immediately (§ model docstring) — every account that's ever
     used this code gets enrolled the moment this returns, not just future
@@ -458,6 +492,20 @@ async def create_invite_code_grant(
     code = await db.get(InvitationCode, code_id)
     if code is None or code.kind != "student":
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Invite code not found")
+    await check_invite_code_access(db, current, code)
+
+    _, scope_all = await get_author_permissions(db, current)
+    if not scope_all:
+        if body.course_id is not None:
+            c = await db.get(Course, body.course_id)
+            if not c or c.created_by != current.id:
+                raise HTTPException(status.HTTP_403_FORBIDDEN, detail="You can only grant access to courses you authored")
+        elif body.learning_path_id is not None:
+            lp = await db.get(LearningPath, body.learning_path_id)
+            if not lp or lp.created_by != current.id:
+                raise HTTPException(status.HTTP_403_FORBIDDEN, detail="You can only grant access to learning paths you authored")
+        elif body.cohort_id is not None:
+            raise HTTPException(status.HTTP_403_FORBIDDEN, detail="Authors cannot grant access to cohorts")
 
     if body.course_id is not None:
         if await db.get(Course, body.course_id) is None:
@@ -502,7 +550,7 @@ async def delete_invite_code_grant(
     code_id: uuid.UUID,
     grant_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(require_lms_content),
+    current: User = Depends(require_lms_content),
 ):
     """Stops the rule applying going forward only — never revokes access
     already granted, same posture as deleting a `LearningPath` leaving its
@@ -510,6 +558,25 @@ async def delete_invite_code_grant(
     grant = await db.get(InvitationCodeGrant, grant_id)
     if grant is None or grant.invitation_code_id != code_id:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Grant not found")
+
+    code = await db.get(InvitationCode, code_id)
+    if code is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Invite code not found")
+    await check_invite_code_access(db, current, code)
+
+    _, scope_all = await get_author_permissions(db, current)
+    if not scope_all:
+        if grant.course_id is not None:
+            c = await db.get(Course, grant.course_id)
+            if not c or c.created_by != current.id:
+                raise HTTPException(status.HTTP_403_FORBIDDEN, detail="You can only manage grants for courses you authored")
+        elif grant.learning_path_id is not None:
+            lp = await db.get(LearningPath, grant.learning_path_id)
+            if not lp or lp.created_by != current.id:
+                raise HTTPException(status.HTTP_403_FORBIDDEN, detail="You can only manage grants for learning paths you authored")
+        elif grant.cohort_id is not None:
+            raise HTTPException(status.HTTP_403_FORBIDDEN, detail="Authors cannot manage cohort grants")
+
     await db.delete(grant)
     await db.commit()
 
@@ -672,8 +739,12 @@ async def list_prerequisites(
 async def add_prerequisite(
     body: PrerequisiteEdgeIn,
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(require_lms_content),
+    current: User = Depends(require_lms_content),
 ):
+    if body.item_type == "course":
+        course = await db.get(Course, body.item_id)
+        if course:
+            await check_course_access(db, current, course)
     edge = await curriculum_service.add_prerequisite(
         db, item_type=body.item_type, item_id=body.item_id,
         requires_type=body.requires_type, requires_id=body.requires_id,
@@ -687,8 +758,12 @@ async def remove_prerequisite(
     item_type: Literal["course", "mission"], item_id: uuid.UUID,
     requires_type: Literal["course", "mission"], requires_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(require_lms_content),
+    current: User = Depends(require_lms_content),
 ):
+    if item_type == "course":
+        course = await db.get(Course, item_id)
+        if course:
+            await check_course_access(db, current, course)
     await curriculum_service.remove_prerequisite(
         db, item_type=item_type, item_id=item_id, requires_type=requires_type, requires_id=requires_id,
     )
@@ -746,10 +821,14 @@ async def get_courses_video_backend_status(
 @router.get("/courses", response_model=list[CourseAdminOut])
 async def list_courses(
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(require_lms_content),
+    current: User = Depends(require_lms_content),
 ):
-    rows = (await db.execute(select(Course).order_by(Course.created_at.desc()))).scalars().all()
-    return [await _course_admin_out(db, c) for c in rows]
+    _, scope_all = await get_author_permissions(db, current)
+    stmt = select(Course)
+    if not scope_all:
+        stmt = stmt.where(Course.created_by == current.id)
+    rows = (await db.execute(stmt.order_by(Course.created_at.desc()))).scalars().all()
+    return [await _course_admin_out(db, c, current) for c in rows]
 
 
 @router.post("/courses", response_model=CourseAdminOut, status_code=status.HTTP_201_CREATED)
@@ -763,19 +842,20 @@ async def create_course(
     db.add(course)
     await db.commit()
     await db.refresh(course)
-    return await _course_admin_out(db, course)
+    return await _course_admin_out(db, course, current)
 
 
 @router.get("/courses/{course_id}", response_model=CourseAdminOut)
 async def get_course(
     course_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(require_lms_content),
+    current: User = Depends(require_lms_content),
 ):
     course = await db.get(Course, course_id)
     if course is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Course not found")
-    return await _course_admin_out(db, course)
+    await check_course_access(db, current, course)
+    return await _course_admin_out(db, course, current)
 
 
 @router.patch("/courses/{course_id}", response_model=CourseAdminOut)
@@ -783,11 +863,12 @@ async def update_course(
     course_id: uuid.UUID,
     body: CourseUpdate,
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(require_lms_content),
+    current: User = Depends(require_lms_content),
 ):
     course = await db.get(Course, course_id)
     if course is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Course not found")
+    await check_course_access(db, current, course)
     changes = body.model_dump(exclude_unset=True)
     if "instructor_id" in changes:
         await _check_instructor(db, changes["instructor_id"])
@@ -795,37 +876,78 @@ async def update_course(
         setattr(course, field, value)
     await db.commit()
     await db.refresh(course)
-    return await _course_admin_out(db, course)
+    return await _course_admin_out(db, course, current)
 
 
 @router.post("/courses/{course_id}/publish", response_model=CourseAdminOut)
 async def publish_course(
     course_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(require_lms_content),
+    current: User = Depends(require_lms_content),
 ):
     course = await db.get(Course, course_id)
     if course is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Course not found")
+    await check_course_publish_access(db, current, course)
     course.is_published = True
     await db.commit()
     await db.refresh(course)
-    return await _course_admin_out(db, course)
+    return await _course_admin_out(db, course, current)
 
 
 @router.post("/courses/{course_id}/unpublish", response_model=CourseAdminOut)
 async def unpublish_course(
     course_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(require_lms_content),
+    current: User = Depends(require_lms_content),
 ):
     course = await db.get(Course, course_id)
     if course is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Course not found")
+    await check_course_publish_access(db, current, course)
     course.is_published = False
     await db.commit()
     await db.refresh(course)
-    return await _course_admin_out(db, course)
+    return await _course_admin_out(db, course, current)
+
+
+
+@router.post("/courses/{course_id}/submit-review")
+async def submit_course_review(
+    course_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    current: User = Depends(require_lms_content),
+):
+    course = await db.get(Course, course_id)
+    if course is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Course not found")
+    await check_course_access(db, current, course)
+    if course.is_published:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="Course is already published")
+
+    from app.services.notification import create_notification
+    from app.services.email import send_course_review_submission_email
+    admins = (await db.execute(select(User).where(User.roles.any("admin")))).scalars().all()
+    who = current.full_name or current.email
+    for admin in admins:
+        await create_notification(
+            db,
+            user_id=admin.id,
+            title="Course submitted for review",
+            body=f"{who} submitted '{course.title}' for review and publishing.",
+            type="course_review",
+        )
+        if admin.email:
+            await send_course_review_submission_email(
+                admin_email=admin.email,
+                author_name=who,
+                course_title=course.title,
+                course_id=str(course.id),
+            )
+    await db.commit()
+    return {"message": "Course submitted for review. Administrators have been notified."}
+
+
 
 
 @router.post("/courses/{course_id}/image", response_model=CourseAdminOut)
@@ -833,11 +955,12 @@ async def upload_course_image(
     course_id: uuid.UUID,
     file: UploadFile,
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(require_lms_content),
+    current: User = Depends(require_lms_content),
 ):
     course = await db.get(Course, course_id)
     if course is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Course not found")
+    await check_course_access(db, current, course)
 
     data = await file.read()
     if not data:
@@ -853,7 +976,8 @@ async def upload_course_image(
     course.image_path = path
     await db.commit()
     await db.refresh(course)
-    return await _course_admin_out(db, course)
+    return await _course_admin_out(db, course, current)
+
 
 
 # ── R2 migration visibility (2026-09) ───────────────────────────────────
@@ -874,7 +998,7 @@ async def migrate_course_videos_to_r2(
     course_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
     arq_redis: ArqRedis | None = Depends(get_arq_redis),
-    _: User = Depends(require_lms_content),
+    current: User = Depends(require_lms_content),
 ):
     """Re-encodes every not-yet-r2 video in this course onto R2, one course
     at a time — "migrate 3 courses today, the rest later" as a button
@@ -886,6 +1010,7 @@ async def migrate_course_videos_to_r2(
     course = await db.get(Course, course_id)
     if course is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Course not found")
+    await check_course_access(db, current, course)
 
     rows = (await db.execute(
         select(Video)
@@ -922,13 +1047,14 @@ async def migrate_course_videos_to_r2(
 async def delete_course(
     course_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(require_lms_content),
+    current: User = Depends(require_lms_content),
 ):
     """Refuses if any student has ever enrolled (LM1-5 spec). An unpublished,
     never-enrolled course cascades — nothing else references it."""
     course = await db.get(Course, course_id)
     if course is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Course not found")
+    await check_course_access(db, current, course)
 
     enrollment_count = await db.scalar(
         select(func.count()).select_from(Enrollment).where(Enrollment.course_id == course_id)
@@ -963,11 +1089,12 @@ async def delete_course(
 async def list_modules(
     course_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(require_lms_content),
+    current: User = Depends(require_lms_content),
 ):
     course = await db.get(Course, course_id)
     if course is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Course not found")
+    await check_course_access(db, current, course)
     rows = (await db.execute(
         select(CourseModule).where(CourseModule.course_id == course_id).order_by(CourseModule.position)
     )).scalars().all()
@@ -979,11 +1106,12 @@ async def create_module(
     course_id: uuid.UUID,
     body: ModuleCreate,
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(require_lms_content),
+    current: User = Depends(require_lms_content),
 ):
     course = await db.get(Course, course_id)
     if course is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Course not found")
+    await check_course_access(db, current, course)
 
     position = body.position
     if position is None:
@@ -1010,11 +1138,12 @@ async def reorder_modules(
     course_id: uuid.UUID,
     body: ModuleReorderIn,
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(require_lms_content),
+    current: User = Depends(require_lms_content),
 ):
     course = await db.get(Course, course_id)
     if course is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Course not found")
+    await check_course_access(db, current, course)
 
     modules = (await db.execute(
         select(CourseModule).where(CourseModule.course_id == course_id)
@@ -1046,7 +1175,7 @@ async def reorder_modules(
 async def get_module(
     module_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(require_lms_content),
+    current: User = Depends(require_lms_content),
 ):
     """The module-detail authoring page only has `module_id` in its URL (no
     `course_id` alongside it) — it needs this to show/rename the module
@@ -1054,6 +1183,7 @@ async def get_module(
     module = await db.get(CourseModule, module_id)
     if module is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Module not found")
+    await check_module_access(db, current, module)
     return module
 
 
@@ -1062,11 +1192,12 @@ async def update_module(
     module_id: uuid.UUID,
     body: ModuleUpdate,
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(require_lms_content),
+    current: User = Depends(require_lms_content),
 ):
     module = await db.get(CourseModule, module_id)
     if module is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Module not found")
+    await check_module_access(db, current, module)
 
     changes = body.model_dump(exclude_unset=True)
     if "position" in changes and changes["position"] != module.position:
@@ -1089,11 +1220,12 @@ async def update_module(
 async def delete_module(
     module_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(require_lms_content),
+    current: User = Depends(require_lms_content),
 ):
     module = await db.get(CourseModule, module_id)
     if module is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Module not found")
+    await check_module_access(db, current, module)
     await db.delete(module)
     await db.commit()
 
@@ -1114,6 +1246,7 @@ async def _item_admin_out(db: AsyncSession, item: ModuleItem) -> ItemAdminOut:
             "transcode_status": video.status if video else None,
             "transcode_error": video.status_error if video else None,
             "duration_seconds": video.duration_seconds if video else None,
+            "video_id": str(video.id) if video else None,
         }
     return ItemAdminOut(
         id=item.id, module_id=item.module_id, kind=item.kind, title=item.title,
@@ -1125,11 +1258,12 @@ async def _item_admin_out(db: AsyncSession, item: ModuleItem) -> ItemAdminOut:
 async def list_items(
     module_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(require_lms_content),
+    current: User = Depends(require_lms_content),
 ):
     module = await db.get(CourseModule, module_id)
     if module is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Module not found")
+    await check_module_access(db, current, module)
     rows = (await db.execute(
         select(ModuleItem).where(ModuleItem.module_id == module_id).order_by(ModuleItem.position)
     )).scalars().all()
@@ -1141,11 +1275,12 @@ async def create_item(
     module_id: uuid.UUID,
     body: ItemCreate,
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(require_lms_content),
+    current: User = Depends(require_lms_content),
 ):
     module = await db.get(CourseModule, module_id)
     if module is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Module not found")
+    await check_module_access(db, current, module)
 
     content = _validated_content(kind=body.kind, content=body.content)
 
@@ -1177,11 +1312,12 @@ async def reorder_items(
     module_id: uuid.UUID,
     body: ItemReorderIn,
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(require_lms_content),
+    current: User = Depends(require_lms_content),
 ):
     module = await db.get(CourseModule, module_id)
     if module is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Module not found")
+    await check_module_access(db, current, module)
 
     items = (await db.execute(
         select(ModuleItem).where(ModuleItem.module_id == module_id)
@@ -1211,11 +1347,12 @@ async def update_item(
     item_id: uuid.UUID,
     body: ItemUpdate,
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(require_lms_content),
+    current: User = Depends(require_lms_content),
 ):
     item = await db.get(ModuleItem, item_id)
     if item is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Item not found")
+    await check_item_access(db, current, item)
 
     changes = body.model_dump(exclude_unset=True)
     if "content" in changes:
@@ -1240,11 +1377,12 @@ async def update_item(
 async def delete_item(
     item_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(require_lms_content),
+    current: User = Depends(require_lms_content),
 ):
     item = await db.get(ModuleItem, item_id)
     if item is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Item not found")
+    await check_item_access(db, current, item)
     # `Video.owner_id` carries no DB-level FK (service-layer-enforced, like
     # every other owner_type/owner_id pair) — unlike the old ModuleVideo's
     # item_id FK (ON DELETE CASCADE), deleting the item alone would leave an
@@ -1268,11 +1406,12 @@ async def upload_attachment(
     item_id: uuid.UUID,
     file: UploadFile,
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(require_lms_content),
+    current: User = Depends(require_lms_content),
 ):
     item = await db.get(ModuleItem, item_id)
     if item is None or item.kind != "attachment":
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Attachment item not found")
+    await check_item_access(db, current, item)
 
     if file.content_type != "application/pdf":
         raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="Only PDF files are supported")
@@ -1293,6 +1432,43 @@ async def upload_attachment(
     await db.commit()
     await db.refresh(item)
     return await _item_admin_out(db, item)
+
+
+@router.get("/items/{item_id}/attachment/url", response_model=AttachmentUrlOut)
+async def get_admin_attachment_url(
+    item_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    current: User = Depends(require_lms_content),
+):
+    """Generates a signed URL for author-side preview of course module attachment PDFs."""
+    item = await db.get(ModuleItem, item_id)
+    if item is None or item.kind != "attachment":
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Attachment item not found")
+    await check_item_access(db, current, item)
+    bucket = item.content.get("bucket") if item.content else None
+    path = item.content.get("path") if item.content else None
+    if not bucket or not path:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="No file uploaded for this attachment yet")
+    url = await storage.get_signed_url(bucket, path)
+    return AttachmentUrlOut(url=url, filename=item.content.get("filename"))
+
+
+@router.get("/items/{item_id}/video/playback")
+async def get_admin_video_playback(
+    item_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    current: User = Depends(require_lms_content),
+) -> dict:
+    """Author-side preview for course module videos."""
+    item = await db.get(ModuleItem, item_id)
+    if item is None or item.kind != "video":
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Video item not found")
+    await check_item_access(db, current, item)
+    video = await get_video_for_owner(db, owner_type="module_item", owner_id=item_id)
+    if video is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="No video uploaded for this item yet")
+    info = await get_playback_info(db, video)
+    return {"url": info.get("url") or "", "video_info": info}
 
 
 # ── video checkpoints (timeline notes + mid-video quizzes, 2026-08-07) ───────
@@ -1326,9 +1502,10 @@ def _apply_checkpoint_content_rules(
 async def list_checkpoints(
     video_item_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(require_lms_content),
+    current: User = Depends(require_lms_content),
 ):
-    await _video_item(db, video_item_id)
+    item = await _video_item(db, video_item_id)
+    await check_item_access(db, current, item)
     rows = (await db.execute(
         select(VideoCheckpoint)
         .where(VideoCheckpoint.item_id == video_item_id)
@@ -1345,9 +1522,10 @@ async def create_checkpoint(
     video_item_id: uuid.UUID,
     body: VideoCheckpointCreate,
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(require_lms_content),
+    current: User = Depends(require_lms_content),
 ):
-    await _video_item(db, video_item_id)
+    item = await _video_item(db, video_item_id)
+    await check_item_access(db, current, item)
     end_seconds, content = _apply_checkpoint_content_rules(
         body.kind, body.start_seconds, body.end_seconds, body.content,
     )
@@ -1366,11 +1544,12 @@ async def update_checkpoint(
     checkpoint_id: uuid.UUID,
     body: VideoCheckpointUpdate,
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(require_lms_content),
+    current: User = Depends(require_lms_content),
 ):
     checkpoint = await db.get(VideoCheckpoint, checkpoint_id)
     if checkpoint is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Checkpoint not found")
+    await check_checkpoint_access(db, current, checkpoint)
 
     changes = body.model_dump(exclude_unset=True)
     start_seconds = changes.get("start_seconds", checkpoint.start_seconds)
@@ -1390,11 +1569,12 @@ async def update_checkpoint(
 async def delete_checkpoint(
     checkpoint_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(require_lms_content),
+    current: User = Depends(require_lms_content),
 ):
     checkpoint = await db.get(VideoCheckpoint, checkpoint_id)
     if checkpoint is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Checkpoint not found")
+    await check_checkpoint_access(db, current, checkpoint)
     await db.delete(checkpoint)
     await db.commit()
 
@@ -2092,22 +2272,35 @@ async def cohort_quiz_analysis(
 
 # ── learning paths (self-paced ordered course sequences, 2026-08-08) ───────
 
-async def _learning_path_admin_out(db: AsyncSession, path: LearningPath) -> LearningPathAdminOut:
+async def _learning_path_admin_out(db: AsyncSession, path: LearningPath, current: User | None = None) -> LearningPathAdminOut:
+    can_view_audit = bool(current and any(r in ("admin", "operations") for r in current.role_values))
+    created_by = path.created_by if can_view_audit else None
+    created_at = path.created_at if can_view_audit else None
+    created_by_name = None
+    if can_view_audit and path.created_by:
+        creator = await db.get(User, path.created_by)
+        created_by_name = creator.full_name if creator else None
     return LearningPathAdminOut(
         id=path.id, title=path.title, description=path.description,
-        is_published=path.is_published, created_by=path.created_by, created_at=path.created_at,
+        is_published=path.is_published, created_by=created_by,
+        created_by_name=created_by_name, created_at=created_at,
         image_url=await storage.resolve_url(path.image_bucket, path.image_path),
         access_mode=path.access_mode, price_cents=path.price_cents, currency=path.currency,
     )
 
 
+
 @router.get("/learning-paths", response_model=list[LearningPathAdminOut])
 async def list_learning_paths(
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(require_lms_content),
+    current: User = Depends(require_lms_content),
 ):
-    rows = (await db.execute(select(LearningPath).order_by(LearningPath.created_at.desc()))).scalars().all()
-    return [await _learning_path_admin_out(db, p) for p in rows]
+    _, scope_all = await get_author_permissions(db, current)
+    stmt = select(LearningPath)
+    if not scope_all:
+        stmt = stmt.where(LearningPath.created_by == current.id)
+    rows = (await db.execute(stmt.order_by(LearningPath.created_at.desc()))).scalars().all()
+    return [await _learning_path_admin_out(db, p, current) for p in rows]
 
 
 @router.post("/learning-paths", response_model=LearningPathAdminOut, status_code=status.HTTP_201_CREATED)
@@ -2116,23 +2309,31 @@ async def create_learning_path(
     db: AsyncSession = Depends(get_db),
     current: User = Depends(require_lms_content),
 ):
-    path = LearningPath(id=uuid.uuid4(), created_by=current.id, **body.model_dump())
+    can_publish, _ = await get_author_permissions(db, current)
+    data = body.model_dump()
+    if not can_publish and data.get("is_published"):
+        raise HTTPException(
+            status.HTTP_403_FORBIDDEN,
+            detail="You do not have direct publishing permissions. Please create the learning path as draft.",
+        )
+    path = LearningPath(id=uuid.uuid4(), created_by=current.id, **data)
     db.add(path)
     await db.commit()
     await db.refresh(path)
-    return await _learning_path_admin_out(db, path)
+    return await _learning_path_admin_out(db, path, current)
 
 
 @router.get("/learning-paths/{path_id}", response_model=LearningPathAdminOut)
 async def get_learning_path(
     path_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(require_lms_content),
+    current: User = Depends(require_lms_content),
 ):
     path = await db.get(LearningPath, path_id)
     if path is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Learning path not found")
-    return await _learning_path_admin_out(db, path)
+    await check_learning_path_access(db, current, path)
+    return await _learning_path_admin_out(db, path, current)
 
 
 @router.patch("/learning-paths/{path_id}", response_model=LearningPathAdminOut)
@@ -2140,16 +2341,27 @@ async def update_learning_path(
     path_id: uuid.UUID,
     body: LearningPathUpdate,
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(require_lms_content),
+    current: User = Depends(require_lms_content),
 ):
     path = await db.get(LearningPath, path_id)
     if path is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Learning path not found")
-    for field, value in body.model_dump(exclude_unset=True).items():
+    await check_learning_path_access(db, current, path)
+
+    changes = body.model_dump(exclude_unset=True)
+    if "is_published" in changes and changes["is_published"] != path.is_published:
+        can_publish, _ = await get_author_permissions(db, current)
+        if not can_publish:
+            raise HTTPException(
+                status.HTTP_403_FORBIDDEN,
+                detail="You do not have direct publishing permissions. Please contact an administrator to review and publish this learning path.",
+            )
+
+    for field, value in changes.items():
         setattr(path, field, value)
     await db.commit()
     await db.refresh(path)
-    return await _learning_path_admin_out(db, path)
+    return await _learning_path_admin_out(db, path, current)
 
 
 @router.post("/learning-paths/{path_id}/image", response_model=LearningPathAdminOut)
@@ -2157,11 +2369,12 @@ async def upload_learning_path_image(
     path_id: uuid.UUID,
     file: UploadFile,
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(require_lms_content),
+    current: User = Depends(require_lms_content),
 ):
     path = await db.get(LearningPath, path_id)
     if path is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Learning path not found")
+    await check_learning_path_access(db, current, path)
 
     data = await file.read()
     if not data:
@@ -2177,14 +2390,53 @@ async def upload_learning_path_image(
     path.image_path = image_path
     await db.commit()
     await db.refresh(path)
-    return await _learning_path_admin_out(db, path)
+    return await _learning_path_admin_out(db, path, current)
+
+
+
+@router.post("/learning-paths/{path_id}/submit-review")
+async def submit_learning_path_review(
+    path_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    current: User = Depends(require_lms_content),
+):
+    path = await db.get(LearningPath, path_id)
+    if path is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Learning path not found")
+    await check_learning_path_access(db, current, path)
+    if path.is_published:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="Learning path is already published")
+
+    from app.services.notification import create_notification
+    from app.services.email import send_learning_path_review_submission_email
+    admins = (await db.execute(select(User).where(User.roles.any("admin")))).scalars().all()
+    who = current.full_name or current.email
+    for admin in admins:
+        await create_notification(
+            db,
+            user_id=admin.id,
+            title="Learning path submitted for review",
+            body=f"{who} submitted '{path.title}' for review and publishing.",
+            type="learning_path_review",
+        )
+        if admin.email:
+            await send_learning_path_review_submission_email(
+                admin_email=admin.email,
+                author_name=who,
+                path_title=path.title,
+                path_id=str(path.id),
+            )
+    await db.commit()
+    return {"message": "Learning path submitted for review. Administrators have been notified."}
+
+
 
 
 @router.delete("/learning-paths/{path_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_learning_path(
     path_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(require_lms_content),
+    current: User = Depends(require_lms_content),
 ):
     """No enrollment check like `delete_course` — a path itself grants no
     access (its steps' courses do, independently), so deleting one never
@@ -2192,6 +2444,7 @@ async def delete_learning_path(
     path = await db.get(LearningPath, path_id)
     if path is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Learning path not found")
+    await check_learning_path_access(db, current, path)
     await db.delete(path)
     await db.commit()
 
@@ -2200,11 +2453,12 @@ async def delete_learning_path(
 async def list_learning_path_steps(
     path_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(require_lms_content),
+    current: User = Depends(require_lms_content),
 ):
     path = await db.get(LearningPath, path_id)
     if path is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Learning path not found")
+    await check_learning_path_access(db, current, path)
     rows = (await db.execute(
         select(LearningPathStep)
         .where(LearningPathStep.learning_path_id == path_id)
@@ -2222,13 +2476,17 @@ async def add_learning_path_step(
     path_id: uuid.UUID,
     body: LearningPathStepIn,
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(require_lms_content),
+    current: User = Depends(require_lms_content),
 ):
     path = await db.get(LearningPath, path_id)
     if path is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Learning path not found")
+    await check_learning_path_access(db, current, path)
     course = await db.get(Course, body.course_id)
     if course is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Course not found")
+    _, scope_all = await get_author_permissions(db, current)
+    if not scope_all and course.created_by != current.id:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Course not found")
 
     dup = (await db.execute(
@@ -2266,8 +2524,13 @@ async def remove_learning_path_step(
     path_id: uuid.UUID,
     course_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(require_lms_content),
+    current: User = Depends(require_lms_content),
 ):
+    path = await db.get(LearningPath, path_id)
+    if path is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Learning path not found")
+    await check_learning_path_access(db, current, path)
+
     step = (await db.execute(
         select(LearningPathStep).where(
             LearningPathStep.learning_path_id == path_id, LearningPathStep.course_id == course_id
@@ -2296,11 +2559,15 @@ async def enrollment_admin_out(db: AsyncSession, enrollment: Enrollment) -> Enro
 async def course_roster(
     course_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(require_lms_content),
+    current: User = Depends(require_lms_content),
 ):
     course = await db.get(Course, course_id)
     if course is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Course not found")
+    await check_course_access(db, current, course)
+    _, scope_all = await get_author_permissions(db, current)
+    if not scope_all:
+        return []
     rows = (await db.execute(
         select(Enrollment).where(Enrollment.course_id == course_id).order_by(Enrollment.created_at.desc())
     )).scalars().all()
@@ -2319,6 +2586,13 @@ async def grant_enrollment(
     """Put a named person into a named course from the UI (P1-5) — works
     regardless of the course's access_mode; that field only gates
     *self*-enrol (P1-4). An ops grant is always allowed."""
+    course = await db.get(Course, course_id)
+    if course is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Course not found")
+    await check_course_access(db, current, course)
+    _, scope_all = await get_author_permissions(db, current)
+    if not scope_all:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, detail="Assigned access is restricted to full access authors")
     student = await db.get(User, body.user_id)
     if student is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="User not found")
@@ -2333,7 +2607,7 @@ async def grant_enrollment(
 async def revoke_enrollment(
     enrollment_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(require_lms_content),
+    current: User = Depends(require_lms_content),
 ):
     """Sets status='inactive', never deletes (P1-5) — the row, and whatever
     progress/points hang off it later, survive; enroll() reactivates it in
@@ -2341,6 +2615,12 @@ async def revoke_enrollment(
     enrollment = await db.get(Enrollment, enrollment_id)
     if enrollment is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Enrollment not found")
+    course = await db.get(Course, enrollment.course_id)
+    if course is not None:
+        await check_course_access(db, current, course)
+    _, scope_all = await get_author_permissions(db, current)
+    if not scope_all:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, detail="Assigned access is restricted to full access authors")
     enrollment.status = "inactive"
     await db.commit()
     return await enrollment_admin_out(db, enrollment)
@@ -2407,6 +2687,10 @@ async def bulk_grant_enrollment(
     course = await db.get(Course, course_id)
     if course is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Course not found")
+    await check_course_access(db, current, course)
+    _, scope_all = await get_author_permissions(db, current)
+    if not scope_all:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, detail="Assigned access is restricted to full access authors")
 
     user_ids, skipped_no_account = await _resolve_bulk_grant_user_ids(db, body)
 
@@ -2437,7 +2721,7 @@ async def _learning_path_step_course_ids(db: AsyncSession, path_id: uuid.UUID) -
 async def learning_path_roster(
     path_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(require_lms_content),
+    current: User = Depends(require_lms_content),
 ):
     """The named-individual assignment roster (2026-09-15) — courses have
     had this (`course_roster`/`grant_enrollment`) since P1-5; paths only
@@ -2448,6 +2732,10 @@ async def learning_path_roster(
     path = await db.get(LearningPath, path_id)
     if path is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Learning path not found")
+    await check_learning_path_access(db, current, path)
+    _, scope_all = await get_author_permissions(db, current)
+    if not scope_all:
+        return []
     step_course_ids = await _learning_path_step_course_ids(db, path_id)
     if not step_course_ids:
         return []
@@ -2496,6 +2784,10 @@ async def grant_path_enrollment(
     path = await db.get(LearningPath, path_id)
     if path is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Learning path not found")
+    await check_learning_path_access(db, current, path)
+    _, scope_all = await get_author_permissions(db, current)
+    if not scope_all:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, detail="Assigned access is restricted to full access authors")
     student = await db.get(User, body.user_id)
     if student is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="User not found")
@@ -2518,7 +2810,7 @@ async def revoke_path_enrollment(
     path_id: uuid.UUID,
     user_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(require_lms_content),
+    current: User = Depends(require_lms_content),
 ):
     """Deactivates every ops-sourced enrollment this user holds among the
     path's current steps — the path has no row of its own to flip, so
@@ -2529,6 +2821,10 @@ async def revoke_path_enrollment(
     path = await db.get(LearningPath, path_id)
     if path is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Learning path not found")
+    await check_learning_path_access(db, current, path)
+    _, scope_all = await get_author_permissions(db, current)
+    if not scope_all:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, detail="Assigned access is restricted to full access authors")
     step_course_ids = await _learning_path_step_course_ids(db, path_id)
     rows = (await db.execute(
         select(Enrollment).where(
@@ -2559,6 +2855,10 @@ async def bulk_grant_path_enrollment(
     path = await db.get(LearningPath, path_id)
     if path is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Learning path not found")
+    await check_learning_path_access(db, current, path)
+    _, scope_all = await get_author_permissions(db, current)
+    if not scope_all:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, detail="Assigned access is restricted to full access authors")
     step_course_ids = await _learning_path_step_course_ids(db, path_id)
     if not step_course_ids:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="This path has no courses yet")

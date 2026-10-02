@@ -13,8 +13,11 @@ export interface AdminCourse {
   description: string | null;
   kind: CourseKind;
   is_published: boolean;
-  created_by: string;
-  created_at: string | null;
+  created_by?: string | null;
+  created_by_name?: string | null;
+  created_at?: string | null;
+
+
   image_url: string | null;
   outcomes: string[];
   level: CourseLevel | null;
@@ -220,6 +223,8 @@ export const updateCourseApi = (
 ) => api.patch<AdminCourse>(`/lms/admin/courses/${id}`, data).then((r) => r.data);
 export const publishCourseApi = (id: string) => api.post<AdminCourse>(`/lms/admin/courses/${id}/publish`).then((r) => r.data);
 export const unpublishCourseApi = (id: string) => api.post<AdminCourse>(`/lms/admin/courses/${id}/unpublish`).then((r) => r.data);
+export const submitCourseForReviewApi = (id: string) =>
+  api.post<{ message: string }>(`/lms/admin/courses/${id}/submit-review`).then((r) => r.data);
 export const deleteCourseApi = (id: string) => api.delete<void>(`/lms/admin/courses/${id}`).then((r) => r.data);
 export const uploadCourseImageApi = (id: string, file: File) => {
   const form = new FormData();
@@ -318,6 +323,12 @@ export const uploadAttachmentApi = (
     })
     .then((r) => r.data);
 };
+
+export const getAdminAttachmentUrlApi = (itemId: string) =>
+  api.get<{ url: string; filename: string | null }>(`/lms/admin/items/${itemId}/attachment/url`).then((r) => r.data);
+
+export const getAdminVideoPlaybackApi = (itemId: string) =>
+  api.get<{ url: string; video_info: any }>(`/lms/admin/items/${itemId}/video/playback`).then((r) => r.data);
 
 export const listCheckpointsApi = (videoItemId: string) =>
   api.get<AdminCheckpoint[]>(`/lms/admin/items/${videoItemId}/checkpoints`).then((r) => r.data);
@@ -685,8 +696,11 @@ export interface AdminLearningPath {
   title: string;
   description: string | null;
   is_published: boolean;
-  created_by: string;
-  created_at: string | null;
+  created_by?: string | null;
+  created_by_name?: string | null;
+  created_at?: string | null;
+
+
   image_url: string | null;
   access_mode: "open" | "invite" | "paid";
   // Bundle pricing (2026-08-21) — null price_cents means not purchasable.
@@ -886,6 +900,8 @@ export const updateLearningPathApi = (
   id: string,
   data: Partial<LearningPathMetadataInput & { is_published: boolean }>,
 ) => api.patch<AdminLearningPath>(`/lms/admin/learning-paths/${id}`, data).then((r) => r.data);
+export const submitLearningPathForReviewApi = (id: string) =>
+  api.post<{ message: string }>(`/lms/admin/learning-paths/${id}/submit-review`).then((r) => r.data);
 export const deleteLearningPathApi = (id: string) =>
   api.delete<void>(`/lms/admin/learning-paths/${id}`).then((r) => r.data);
 export const uploadLearningPathImageApi = (id: string, file: File) => {

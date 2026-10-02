@@ -125,7 +125,14 @@ app.add_middleware(
     # explicitly exposed, even same-origin-looking XHR/fetch calls that go
     # through this middleware at all (any cross-origin call, which is most
     # of them: the frontend and API run on different ports even in dev).
-    expose_headers=["X-Request-ID"],
+    # Media & document viewers (pdf.js) also require Range and Length headers.
+    expose_headers=[
+        "X-Request-ID",
+        "Content-Disposition",
+        "Content-Length",
+        "Accept-Ranges",
+        "Content-Range",
+    ],
 )
 
 # Raw ASGI middleware, not @app.middleware("http") — see

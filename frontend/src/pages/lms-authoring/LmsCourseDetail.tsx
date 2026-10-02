@@ -1,25 +1,35 @@
 import { useRef, useState } from "react"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
 import { useNavigate, useParams } from "@tanstack/react-router"
-import { Plus, ChevronRight, ArrowLeft, ArrowUp, ArrowDown, ImagePlus, Crop } from "lucide-react"
+import { Plus, ChevronRight, ArrowLeft, ArrowUp, ArrowDown, ImagePlus, Crop, Eye } from "lucide-react"
 import { PageHeader, EmptyState, Spinner } from "@/components/ui/primitives"
 import { Modal, Field, ModalActions, ConfirmDialog } from "@/pages/admin/components/common"
 import { ImageCropModal } from "@/components/ui/ImageCropModal"
+import { useToast } from "@/components/ui/toast"
 import {
   getCourseApi, updateCourseApi, uploadCourseImageApi, listInstructorOptionsApi,
+  publishCourseApi, unpublishCourseApi, submitCourseForReviewApi,
   listModulesApi, createModuleApi, deleteModuleApi, reorderModulesApi,
   listCourseRosterApi, grantCourseEnrollmentApi, bulkGrantCourseEnrollmentApi, revokeCourseEnrollmentApi,
   type AdminCourse, type AdminModule, type CourseLevel, type BulkGrantResult,
 } from "@/api/lms_admin"
 import { AssignPanel } from "@/pages/lms-authoring/components/AssignPanel"
-import { PrerequisitesSection } from "@/pages/lms-authoring/components/PrerequisitesSection"
+import { useAuth } from "@/context/AuthContext"
 
 export default function LmsCourseDetail() {
   const { courseId } = useParams({ strict: false }) as { courseId: string }
   const navigate = useNavigate()
   const queryClient = useQueryClient()
+  const toast = useToast()
+  const { user, activeRole } = useAuth()
+  const cannotPublish = activeRole === "lms_author" && !user?.author_can_publish
+  const canViewAudit = activeRole === "admin" || activeRole === "operations"
+  const canManageAssignedAccess = activeRole !== "lms_author" || !!user?.author_scope_all
+
   const [addOpen, setAddOpen] = useState(false)
   const [editOpen, setEditOpen] = useState(false)
+  const [submittedForReview, setSubmittedForReview] = useState(false)
+
   const [deleteTarget, setDeleteTarget] = useState<AdminModule | null>(null)
   const [imageError, setImageError] = useState("")
   const [cropSrc, setCropSrc] = useState<string | null>(null)
@@ -36,7 +46,11 @@ export default function LmsCourseDetail() {
   })
 
   const invalidateModules = () => queryClient.invalidateQueries({ queryKey: ["lms-admin-modules", courseId] })
-  const invalidateCourse = () => queryClient.invalidateQueries({ queryKey: ["lms-admin-course", courseId] })
+  const invalidateCourse = () => {
+    queryClient.invalidateQueries({ queryKey: ["lms-admin-course", courseId] })
+    queryClient.invalidateQueries({ queryKey: ["lms-admin-courses"] })
+  }
+
 
   const deleteMutation = useMutation({
     mutationFn: (id: string) => deleteModuleApi(id),
@@ -70,6 +84,7 @@ export default function LmsCourseDetail() {
   const { data: roster = [], isLoading: rosterLoading } = useQuery({
     queryKey: ["lms-admin-roster", courseId],
     queryFn: () => listCourseRosterApi(courseId),
+    enabled: canManageAssignedAccess,
   })
   const [bulkResult, setBulkResult] = useState<BulkGrantResult | null>(null)
   const invalidateRoster = () => queryClient.invalidateQueries({ queryKey: ["lms-admin-roster", courseId] })
@@ -86,7 +101,26 @@ export default function LmsCourseDetail() {
     onSuccess: invalidateRoster,
   })
 
+  const publishMutation = useMutation({
+    mutationFn: () => (course?.is_published ? unpublishCourseApi(courseId) : publishCourseApi(courseId)),
+    onSuccess: () => {
+      invalidateCourse()
+      toast.success(course?.is_published ? "Course unpublished" : "Course published successfully")
+    },
+    onError: (e: any) => toast.error(e?.response?.data?.detail ?? "Failed to update publish status"),
+  })
+
+  const submitReviewMutation = useMutation({
+    mutationFn: () => submitCourseForReviewApi(courseId),
+    onSuccess: (res) => {
+      setSubmittedForReview(true)
+      toast.success(res.message || "Course submitted for review! An administrator will review your course.")
+    },
+    onError: (e: any) => toast.error(e?.response?.data?.detail ?? "Failed to submit for review"),
+  })
+
   if (courseLoading || modulesLoading || !course) return <Spinner />
+
 
   return (
     <div className="flex flex-col gap-6">
@@ -153,16 +187,50 @@ export default function LmsCourseDetail() {
             title={course.title}
             subtitle={course.description ?? undefined}
             action={
-              <div className="flex gap-2">
+              <div className="flex gap-2 items-center">
+                <button
+                  onClick={() => void navigate({ to: `/learn/courses/${courseId}/learn`, search: { preview: true } as never })}
+                  className="flex items-center gap-1.5 h-9 px-4 border border-border rounded-xl text-sm font-medium text-foreground hover:bg-muted transition-colors cursor-pointer"
+                  title="Test and play this course as students will experience it"
+                >
+                  <Eye size={14} /> Preview course
+                </button>
+                {cannotPublish ? (
+                  course.is_published ? (
+                    <span
+                      title="Published and visible in catalog"
+                      className="h-9 px-3 border border-border rounded-xl text-xs font-medium text-green-600 dark:text-green-400 flex items-center select-none"
+                    >
+                      Published
+                    </span>
+                  ) : (
+                    <button
+                      onClick={() => submitReviewMutation.mutate()}
+                      disabled={submitReviewMutation.isPending || submittedForReview}
+                      className="h-9 px-4 border border-amber-500/40 rounded-xl text-sm font-medium text-amber-600 dark:text-amber-400 hover:bg-amber-500/10 transition-colors cursor-pointer disabled:opacity-60 flex items-center gap-1.5"
+                      title="Submit this course to administrators for review and publishing"
+                    >
+                      {submittedForReview ? "Submitted for review" : "Submit for review"}
+                    </button>
+                  )
+                ) : (
+                  <button
+                    onClick={() => publishMutation.mutate()}
+                    disabled={publishMutation.isPending}
+                    className="h-9 px-4 border border-border rounded-xl text-sm font-medium text-foreground hover:bg-muted transition-colors cursor-pointer disabled:opacity-50"
+                  >
+                    {course.is_published ? "Unpublish" : "Publish"}
+                  </button>
+                )}
                 <button
                   onClick={() => setEditOpen(true)}
-                  className="h-9 px-4 border border-border rounded-xl text-sm font-medium text-foreground hover:bg-muted transition-colors"
+                  className="h-9 px-4 border border-border rounded-xl text-sm font-medium text-foreground hover:bg-muted transition-colors cursor-pointer"
                 >
                   Edit
                 </button>
                 <button
                   onClick={() => setAddOpen(true)}
-                  className="flex items-center gap-1.5 h-9 px-4 bg-primary text-primary-foreground text-sm font-medium rounded-xl hover:opacity-90 transition-colors"
+                  className="flex items-center gap-1.5 h-9 px-4 bg-primary text-primary-foreground text-sm font-medium rounded-xl hover:opacity-90 transition-colors cursor-pointer"
                 >
                   <Plus size={14} /> Add module
                 </button>
@@ -170,14 +238,38 @@ export default function LmsCourseDetail() {
             }
           />
           <div className="flex items-center gap-2 flex-wrap -mt-3">
+            <span
+              className={`text-xs font-semibold px-2 py-0.5 rounded-full ${
+                course.is_published
+                  ? "bg-green-500/15 text-green-600 dark:text-green-400"
+                  : "bg-muted text-muted-foreground"
+              }`}
+            >
+              {course.is_published ? "Published" : "Draft"}
+            </span>
             {course.level && (
               <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-muted text-muted-foreground capitalize">{course.level}</span>
             )}
+
             {course.track && <span className="text-xs text-muted-foreground">{course.track}</span>}
             {course.instructor_name && (
               <span className="text-xs text-muted-foreground">Instructor: {course.instructor_name}{course.instructor_title ? ` · ${course.instructor_title}` : ""}</span>
             )}
+
+            {canViewAudit && (course.created_by_name || course.created_at) && (
+              <span className="text-xs text-muted-foreground">
+
+                {course.created_by_name && (
+                  <>Created by <span className="text-foreground/90 font-medium">{course.created_by_name}</span></>
+                )}
+                {course.created_by_name && course.created_at && " · "}
+                {course.created_at && (
+                  <span>{new Date(course.created_at).toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" })}</span>
+                )}
+              </span>
+            )}
           </div>
+
           {course.outcomes.length > 0 && (
             <ul className="mt-3 grid sm:grid-cols-2 gap-x-6 gap-y-1 text-xs text-muted-foreground list-disc list-inside">
               {course.outcomes.map((o, i) => <li key={i}>{o}</li>)}
@@ -236,23 +328,24 @@ export default function LmsCourseDetail() {
         </div>
       )}
 
-      <PrerequisitesSection itemType="course" itemId={courseId} />
 
-      <AssignPanel
-        roster={roster
-          .filter((e) => e.source === "ops")
-          .map((e) => ({
-            id: e.id, userId: e.user_id, name: e.student_name, email: e.student_email, status: e.status,
-          }))}
-        isLoading={rosterLoading}
-        onGrant={(userId) => grantMutation.mutate(userId)}
-        onBulkGrant={(role) => bulkGrantMutation.mutate(role)}
-        onRevoke={(enrollmentId) => revokeMutation.mutate(enrollmentId)}
-        grantPending={grantMutation.isPending}
-        bulkPending={bulkGrantMutation.isPending}
-        revokePending={revokeMutation.isPending}
-        bulkResult={bulkResult}
-      />
+      {canManageAssignedAccess && (
+        <AssignPanel
+          roster={roster
+            .filter((e) => e.source === "ops")
+            .map((e) => ({
+              id: e.id, userId: e.user_id, name: e.student_name, email: e.student_email, status: e.status,
+            }))}
+          isLoading={rosterLoading}
+          onGrant={(userId) => grantMutation.mutate(userId)}
+          onBulkGrant={(role) => bulkGrantMutation.mutate(role)}
+          onRevoke={(enrollmentId) => revokeMutation.mutate(enrollmentId)}
+          grantPending={grantMutation.isPending}
+          bulkPending={bulkGrantMutation.isPending}
+          revokePending={revokeMutation.isPending}
+          bulkResult={bulkResult}
+        />
+      )}
 
       {addOpen && (
         <AddModuleModal
@@ -446,7 +539,7 @@ function EditCourseModal({ courseId, course, onClose, onSuccess }: {
               value={accessMode} onChange={(e) => setAccessMode(e.target.value as "open" | "invite" | "paid")}
               className="w-full h-10 px-3 border border-border bg-card text-foreground rounded-xl text-sm focus:outline-none focus:border-primary transition-colors cursor-pointer"
             >
-              <option value="open">Open — anyone self-enrols</option>
+              <option value="open">Open — anyone self-enrolls</option>
               <option value="invite">Invite-only — admin grant only</option>
               <option value="paid">Paid — Stripe Checkout</option>
             </select>

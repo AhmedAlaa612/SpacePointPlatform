@@ -62,6 +62,7 @@ class InviteCodeOut(BaseModel):
     used_count: int
     expires_at: datetime | None = None
     created_at: datetime | None = None
+    created_by: UUID | None = None
     # Convenience for the ops list — how many accounts actually signed up on
     # this code, counted from users.invitation_code_used rather than trusting
     # `used_count`, which only ever increments and can drift if an account is
@@ -385,8 +386,10 @@ class CourseAdminOut(BaseModel):
     description: str | None
     kind: str
     is_published: bool
-    created_by: UUID
-    created_at: datetime | None
+    created_by: UUID | None = None
+    created_by_name: str | None = None
+    created_at: datetime | None = None
+
     image_url: str | None = None
     outcomes: list[str] = Field(default_factory=list)
     level: str | None = None
@@ -656,8 +659,10 @@ class LearningPathAdminOut(BaseModel):
     title: str
     description: str | None
     is_published: bool
-    created_by: UUID
-    created_at: datetime | None
+    created_by: UUID | None = None
+    created_by_name: str | None = None
+    created_at: datetime | None = None
+
     image_url: str | None = None
     access_mode: str = "open"
     price_cents: int | None = None
