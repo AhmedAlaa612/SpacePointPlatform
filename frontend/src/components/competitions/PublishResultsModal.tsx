@@ -8,7 +8,7 @@ import {
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { useToast } from "@/components/ui/toast"
 import { getErrorMessage } from "@/lib/utils"
-import { Award, Eye, FileText, Layers, MessageSquare, ShieldCheck, Trophy } from "lucide-react"
+import { Award, FileText, Layers, MessageSquare, ShieldCheck, Trophy } from "lucide-react"
 
 interface PublishResultsModalProps {
   cohortId: string
@@ -154,20 +154,15 @@ export function PublishResultsModal({
     <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
       <DialogContent className="max-w-xl p-6 bg-card border-border">
         <DialogHeader>
-          <div className="flex items-center gap-2">
-            <div className="p-2 rounded-xl bg-primary/10 text-primary">
-              <Eye size={20} />
-            </div>
-            <div>
-              <DialogTitle className="text-lg font-bold text-foreground">
-                {isPublished ? "Result Visibility Settings" : "Publish Competition Results"}
-              </DialogTitle>
-              <p className="text-xs text-muted-foreground mt-0.5">
-                {isPublished
-                  ? "Configure which score components and feedback students can see on their result page."
-                  : "Choose what information is visible to students upon publishing. You can edit this anytime."}
-              </p>
-            </div>
+          <div>
+            <DialogTitle className="text-lg font-bold text-foreground">
+              {isPublished ? "Result Visibility Settings" : "Publish Competition Results"}
+            </DialogTitle>
+            <p className="text-xs text-muted-foreground mt-0.5">
+              {isPublished
+                ? "Configure which score components and feedback students can see on their result page."
+                : "Choose what information is visible to students upon publishing. You can edit this anytime."}
+            </p>
           </div>
         </DialogHeader>
 
