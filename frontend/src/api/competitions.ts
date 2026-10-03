@@ -381,6 +381,21 @@ export interface CompetitionTeamDetail {
 
 // ── Ops admin ────────────────────────────────────────────────────────────
 
+export const getCohortRubricApi = (cohortId: string) =>
+  api.get<CompetitionRubric>(`/competitions/admin/cohorts/${cohortId}/rubric`).then((r) => r.data)
+
+export const putCohortRubricApi = (
+  cohortId: string,
+  data: {
+    name: string
+    criteria: {
+      key: string; label: string; max_points: number
+      scored_by?: "judge" | "operations"
+      sub_criteria?: { key: string; label: string; max_points: number }[]
+    }[]
+  },
+) => api.put<CompetitionRubric>(`/competitions/admin/cohorts/${cohortId}/rubric`, data).then((r) => r.data)
+
 export const getProgramRubricApi = (programId: string) =>
   api.get<CompetitionRubric>(`/competitions/admin/programs/${programId}/rubric`).then((r) => r.data)
 

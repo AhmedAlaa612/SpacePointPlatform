@@ -9,15 +9,18 @@ from app.db.base import Base
 
 
 class CompetitionRubric(Base):
-    """A competition's scoring rubric — program-scoped, not cohort-scoped,
-    so the same criteria carry across a competition's stages unless a
-    future need splits them. Ru'ya's is the PDF's 8 criteria + a bonus,
-    105 pts total, authored by ops rather than hardcoded."""
+    """A competition's scoring rubric — cohort-scoped (with program fallback),
+    so different stages (e.g. Qualifiers vs Finals) can hold distinct criteria
+    and scoring breakdowns without collision. Authored by ops rather than hardcoded."""
 
     __tablename__ = "competition_rubrics"
+    __table_args__ = (
+        UniqueConstraint("cohort_id", name="uq_competition_rubrics_cohort_id"),
+    )
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     program_id = Column(UUID(as_uuid=True), ForeignKey("programs.id", ondelete="CASCADE"), nullable=False, index=True)
+    cohort_id = Column(UUID(as_uuid=True), ForeignKey("cohorts.id", ondelete="CASCADE"), nullable=True, index=True)
     name = Column(String(255), nullable=False)
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
 

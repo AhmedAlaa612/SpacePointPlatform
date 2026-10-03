@@ -94,8 +94,29 @@ def _validate_sub_criteria(label: str, max_points: int, subs: list[dict]) -> lis
         for i, s in enumerate(subs)
     ]
 
-async def get_rubric(db: AsyncSession, *, program_id: uuid.UUID) -> tuple[CompetitionRubric, list[CompetitionRubricCriterion]] | None:
-    rubric = await db.scalar(select(CompetitionRubric).where(CompetitionRubric.program_id == program_id))
+async def get_rubric(
+    db: AsyncSession, *, cohort_id: uuid.UUID | None = None, program_id: uuid.UUID | None = None
+) -> tuple[CompetitionRubric, list[CompetitionRubricCriterion]] | None:
+    rubric = None
+    if cohort_id is not None:
+        rubric = await db.scalar(select(CompetitionRubric).where(CompetitionRubric.cohort_id == cohort_id))
+        if rubric is None:
+            cohort = await db.get(Cohort, cohort_id)
+            if cohort is not None:
+                program_id = cohort.program_id
+
+    if rubric is None and program_id is not None:
+        rubric = await db.scalar(
+            select(CompetitionRubric)
+            .where(CompetitionRubric.program_id == program_id, CompetitionRubric.cohort_id.is_(None))
+        )
+        if rubric is None:
+            rubric = await db.scalar(
+                select(CompetitionRubric)
+                .where(CompetitionRubric.program_id == program_id)
+                .order_by(CompetitionRubric.created_at)
+            )
+
     if rubric is None:
         return None
     criteria = (await db.execute(
@@ -107,25 +128,40 @@ async def get_rubric(db: AsyncSession, *, program_id: uuid.UUID) -> tuple[Compet
 
 
 async def upsert_rubric(
-    db: AsyncSession, *, program_id: uuid.UUID, name: str,
-    criteria: list[dict],
+    db: AsyncSession, *, cohort_id: uuid.UUID | None = None, program_id: uuid.UUID | None = None,
+    name: str, criteria: list[dict],
 ) -> tuple[CompetitionRubric, list[CompetitionRubricCriterion]]:
-    """Declarative sync, not append-only: `criteria` is the full intended
-    list (same "one call rewrites everything" idiom
-    `LmsProgramItemReorderIn`/`reorder_program_items` already use for
-    checklist positions) — a criterion whose `key` isn't in the list gets
-    deleted, one whose `key` is already there gets updated in place, a new
-    `key` gets inserted. Existing `competition_scores` rows referencing a
-    deleted criterion's key simply stop being read for it; not retroactively
-    rewritten, same "a later edit doesn't rewrite history" instinct
-    `services/lms/program.py` uses for checklist items."""
-    rubric = await db.scalar(select(CompetitionRubric).where(CompetitionRubric.program_id == program_id))
-    if rubric is None:
-        rubric = CompetitionRubric(id=uuid.uuid4(), program_id=program_id, name=name)
-        db.add(rubric)
-        await db.flush()
+    """Declarative sync, scoped by cohort (or fallback program):
+    `criteria` is the full intended list. Existing `competition_scores`
+    rows referencing deleted criterion keys simply stop being read for them."""
+    rubric = None
+    if cohort_id is not None:
+        cohort = await db.get(Cohort, cohort_id)
+        if cohort is None:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Cohort not found")
+        program_id = cohort.program_id
+        rubric = await db.scalar(select(CompetitionRubric).where(CompetitionRubric.cohort_id == cohort_id))
+        if rubric is None:
+            rubric = CompetitionRubric(id=uuid.uuid4(), program_id=program_id, cohort_id=cohort_id, name=name)
+            db.add(rubric)
+            await db.flush()
+        else:
+            rubric.name = name
+    elif program_id is not None:
+        rubric = await db.scalar(
+            select(CompetitionRubric)
+            .where(CompetitionRubric.program_id == program_id, CompetitionRubric.cohort_id.is_(None))
+        )
+        if rubric is None:
+            rubric = await db.scalar(select(CompetitionRubric).where(CompetitionRubric.program_id == program_id))
+        if rubric is None:
+            rubric = CompetitionRubric(id=uuid.uuid4(), program_id=program_id, name=name)
+            db.add(rubric)
+            await db.flush()
+        else:
+            rubric.name = name
     else:
-        rubric.name = name
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="Either cohort_id or program_id must be provided")
 
     existing = {
         c.key: c for c in (await db.execute(
@@ -158,7 +194,7 @@ async def upsert_rubric(
             await db.delete(row)
 
     await db.flush()
-    result = await get_rubric(db, program_id=program_id)
+    result = await get_rubric(db, cohort_id=cohort_id, program_id=program_id)
     assert result is not None
     return result
 
@@ -390,7 +426,7 @@ async def leaderboard(db: AsyncSession, *, cohort_id: uuid.UUID) -> list[dict]:
     out = []
 
     # Compute ops_max_points from the rubric's operations criteria once
-    rubric_tuple = await get_rubric(db, program_id=cohort.program_id) if cohort else None
+    rubric_tuple = await get_rubric(db, cohort_id=cohort.id) if cohort else None
     ops_criteria = [c for c in (rubric_tuple[1] if rubric_tuple else []) if getattr(c, "scored_by", "judge") == "operations"]
     ops_max_total = float(sum(c.max_points for c in ops_criteria))
 
@@ -468,7 +504,7 @@ async def get_team_score_breakdown(
     if team is None or team.cohort_id != cohort_id:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Team not found in this cohort")
 
-    rubric_tuple = await get_rubric(db, program_id=cohort.program_id)
+    rubric_tuple = await get_rubric(db, cohort_id=cohort_id)
     rubric_criteria = rubric_tuple[1] if rubric_tuple else []
 
     score_rows = (await db.execute(
@@ -682,7 +718,7 @@ async def get_student_team_result(
     timing_badge = my_row["timing_badge"] if my_row else None
 
     cohort = await db.get(Cohort, cohort_id)
-    rubric_tuple = await get_rubric(db, program_id=cohort.program_id) if cohort else None
+    rubric_tuple = await get_rubric(db, cohort_id=cohort_id) if cohort else None
     rubric_criteria = rubric_tuple[1] if rubric_tuple else []
 
     score_rows = (await db.execute(

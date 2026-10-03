@@ -58,7 +58,7 @@ router = APIRouter(
 
 def _rubric_out(rubric, criteria) -> CompetitionRubricOut:
     return CompetitionRubricOut(
-        id=rubric.id, program_id=rubric.program_id, name=rubric.name,
+        id=rubric.id, program_id=rubric.program_id, cohort_id=rubric.cohort_id, name=rubric.name,
         criteria=[
             {
                 "key": c.key, "label": c.label, "max_points": c.max_points, "position": c.position,
@@ -84,6 +84,26 @@ async def _get_cohort_or_404(db: AsyncSession, cohort_id: uuid.UUID) -> Cohort:
 
 
 # ── Rubric ───────────────────────────────────────────────────────────────
+
+@router.get("/cohorts/{cohort_id}/rubric", response_model=CompetitionRubricOut)
+async def get_cohort_rubric(cohort_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
+    await _get_cohort_or_404(db, cohort_id)
+    result = await judging_service.get_rubric(db, cohort_id=cohort_id)
+    if result is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="No rubric configured for this cohort yet")
+    return _rubric_out(*result)
+
+
+@router.put("/cohorts/{cohort_id}/rubric", response_model=CompetitionRubricOut)
+async def put_cohort_rubric(cohort_id: uuid.UUID, body: CompetitionRubricIn, db: AsyncSession = Depends(get_db)):
+    await _get_cohort_or_404(db, cohort_id)
+    rubric, criteria = await judging_service.upsert_rubric(
+        db, cohort_id=cohort_id, name=body.name,
+        criteria=[c.model_dump() for c in body.criteria],
+    )
+    await db.commit()
+    return _rubric_out(rubric, criteria)
+
 
 @router.get("/programs/{program_id}/rubric", response_model=CompetitionRubricOut)
 async def get_program_rubric(program_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
@@ -752,7 +772,7 @@ async def put_team_ops_score(
     if cohort is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Cohort not found")
 
-    rubric_tuple = await judging_service.get_rubric(db, program_id=cohort.program_id)
+    rubric_tuple = await judging_service.get_rubric(db, cohort_id=cohort.id)
     criteria = rubric_tuple[1] if rubric_tuple else []
     ops_criteria = {c.key: c for c in criteria if getattr(c, "scored_by", "judge") == "operations"}
 

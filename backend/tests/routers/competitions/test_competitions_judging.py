@@ -131,6 +131,62 @@ async def test_a_student_cannot_author_a_rubric(db, client):
     assert resp.status_code == http_status.HTTP_403_FORBIDDEN
 
 
+@pytest.mark.asyncio
+async def test_cohort_scoped_rubrics_are_isolated_across_cohorts(db, client):
+    ops = await _ops(db)
+    program = Program(
+        id=uuid.uuid4(), code=f"RUYA-SEP-{uuid.uuid4().hex[:8]}", name="Ru'ya Space Race Isolation Test",
+        program_type="competition", pricing_model="free", active=True,
+    )
+    db.add(program)
+    await db.flush()
+
+    cohort_a = Cohort(id=uuid.uuid4(), program_id=program.id, name="Qualifiers Stage", status="running")
+    cohort_b = Cohort(id=uuid.uuid4(), program_id=program.id, name="Finals Stage", status="running")
+    db.add_all([cohort_a, cohort_b])
+    await db.commit()
+
+    # Author rubric for Cohort A
+    resp_a = await client.put(
+        f"/competitions/admin/cohorts/{cohort_a.id}/rubric", headers=_headers(ops),
+        json={
+            "name": "Qualifiers Rubric",
+            "criteria": [
+                {"key": "concept", "label": "Mission Concept", "max_points": 15},
+                {"key": "circuit", "label": "Circuit Design", "max_points": 15},
+            ],
+        },
+    )
+    assert resp_a.status_code == 200, resp_a.text
+    body_a = resp_a.json()
+    assert body_a["name"] == "Qualifiers Rubric"
+    assert [c["key"] for c in body_a["criteria"]] == ["concept", "circuit"]
+
+    # Author rubric for Cohort B with completely different criteria
+    resp_b = await client.put(
+        f"/competitions/admin/cohorts/{cohort_b.id}/rubric", headers=_headers(ops),
+        json={
+            "name": "Finals Rubric",
+            "criteria": [
+                {"key": "assembly", "label": "Hardware Assembly", "max_points": 20},
+                {"key": "qa", "label": "Live Q&A", "max_points": 10},
+            ],
+        },
+    )
+    assert resp_b.status_code == 200, resp_b.text
+    body_b = resp_b.json()
+    assert body_b["name"] == "Finals Rubric"
+    assert [c["key"] for c in body_b["criteria"]] == ["assembly", "qa"]
+
+    # Verify Cohort A's rubric was NOT altered by Cohort B
+    check_a = await client.get(f"/competitions/admin/cohorts/{cohort_a.id}/rubric", headers=_headers(ops))
+    assert check_a.status_code == 200
+    check_a_body = check_a.json()
+    assert check_a_body["name"] == "Qualifiers Rubric"
+    assert [c["key"] for c in check_a_body["criteria"]] == ["concept", "circuit"]
+    assert check_a_body["id"] != body_b["id"]
+
+
 # ── Judge roster ─────────────────────────────────────────────────────────
 
 @pytest.mark.asyncio

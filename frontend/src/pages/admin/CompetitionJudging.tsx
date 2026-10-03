@@ -18,9 +18,9 @@ import {
   downloadCompetitionCertificatesApi,
   getCohortExportTop20Api,
   confirmCohortRegistrationImportApi,
-  getCohortJudgesApi, getCohortLeaderboardApi, getCohortPublicationApi, getCohortTeamsApi, getProgramRubricApi,
+  getCohortJudgesApi, getCohortLeaderboardApi, getCohortPublicationApi, getCohortTeamsApi, getCohortRubricApi,
   previewCohortRegistrationImportApi, searchAssignableStudentsApi,
-  inviteCohortJudgeApi, putProgramRubricApi, registerAndAddTeamMemberApi,
+  inviteCohortJudgeApi, putCohortRubricApi, registerAndAddTeamMemberApi,
   removeTeamMemberApi, renameTeamApi, resendJudgeOnboardingEmailApi, revokeCohortJudgeApi, unpublishCohortResultsApi,
   type CompetitionAssignStudentsResult, type CompetitionImportPreviewRow, type CompetitionImportResult,
   type CompetitionJudgeProgress,
@@ -122,7 +122,7 @@ export default function CompetitionJudging() {
       {tab === "assign" && <AssignTab cohortId={cohort.id} />}
       {tab === "teams" && <TeamsTab cohortId={cohort.id} />}
       {tab === "analysis" && <CompetitionAnalysisTab cohortId={cohort.id} />}
-      {tab === "rubric" && <RubricTab programId={cohort.program_id} />}
+      {tab === "rubric" && <RubricTab cohortId={cohort.id} />}
       {tab === "judges" && <JudgesTab cohortId={cohort.id} />}
       {tab === "results" && (
         <ResultsTab
@@ -938,11 +938,11 @@ function TeamCard({ team, onChanged }: { team: CompetitionTeam; onChanged: () =>
 /* ================================================================== */
 /* Rubric                                                               */
 /* ================================================================== */
-function RubricTab({ programId }: { programId: string }) {
+function RubricTab({ cohortId }: { cohortId: string }) {
   const toast = useToast()
   const { data: rubric, isLoading } = useQuery<CompetitionRubric | null>({
-    queryKey: ["competitions-rubric", programId],
-    queryFn: () => getProgramRubricApi(programId).catch((e) => {
+    queryKey: ["competitions-rubric", cohortId],
+    queryFn: () => getCohortRubricApi(cohortId).catch((e) => {
       if (e?.response?.status === 404) return null
       throw e
     }),
@@ -977,7 +977,7 @@ function RubricTab({ programId }: { programId: string }) {
 
   const queryClient = useQueryClient()
   const saveMutation = useMutation({
-    mutationFn: () => putProgramRubricApi(programId, {
+    mutationFn: () => putCohortRubricApi(cohortId, {
       name,
       criteria: criteria.map((c) => ({
         key: c.key.trim(),
@@ -990,8 +990,8 @@ function RubricTab({ programId }: { programId: string }) {
       })),
     }),
     onSuccess: () => {
-      toast.success("Rubric saved")
-      queryClient.invalidateQueries({ queryKey: ["competitions-rubric", programId] })
+      toast.success("Rubric saved for this cohort")
+      queryClient.invalidateQueries({ queryKey: ["competitions-rubric", cohortId] })
     },
     onError: (e: any) => toast.error(getErrorMessage(e, "Failed to save rubric")),
   })
@@ -1513,12 +1513,12 @@ function ResultsTab({
   // Rubric for the operations grading modal (which criteria are
   // operations-graded and whether they have sub-criteria).
   const { data: rubric = null } = useQuery<CompetitionRubric | null>({
-    queryKey: ["competitions-rubric", programId],
-    queryFn: () => getProgramRubricApi(programId).catch((e) => {
+    queryKey: ["competitions-rubric", cohortId],
+    queryFn: () => getCohortRubricApi(cohortId).catch((e: any) => {
       if (e?.response?.status === 404) return null
       throw e
     }),
-    enabled: !!programId,
+    enabled: !!cohortId,
   })
 
   if (isLoading) return <Spinner />

@@ -136,8 +136,7 @@ async def get_my_team(
     team_id: uuid.UUID, db: AsyncSession = Depends(get_db), current: User = Depends(get_current_active_user),
 ):
     team = await _team_or_404(db, team_id, current=current)
-    cohort = await db.get(Cohort, team.cohort_id)
-    rubric_result = await get_rubric(db, program_id=cohort.program_id) if cohort else None
+    rubric_result = await get_rubric(db, cohort_id=team.cohort_id) if team.cohort_id else None
     submissions = await team_submission_items(db, team_id=team.id)
     mission_runs = await team_mission_run_items(db, team_id=team.id)
 
@@ -214,8 +213,7 @@ async def put_my_team_score(
     current: User = Depends(get_current_active_user),
 ):
     team = await _team_or_404(db, team_id, current=current)
-    cohort = await db.get(Cohort, team.cohort_id)
-    rubric_result = await get_rubric(db, program_id=cohort.program_id) if cohort else None
+    rubric_result = await get_rubric(db, cohort_id=team.cohort_id) if team.cohort_id else None
     if rubric_result is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="No rubric configured for this competition yet")
     rubric, criteria = rubric_result

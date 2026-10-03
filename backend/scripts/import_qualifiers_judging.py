@@ -110,12 +110,13 @@ async def ensure_cohort_judge(db, cohort_id: uuid.UUID, user_id: uuid.UUID) -> C
     return cj
 
 
-async def ensure_rubric(db, program_id: uuid.UUID) -> tuple[CompetitionRubric, list[CompetitionRubricCriterion]]:
-    rubric = await db.scalar(select(CompetitionRubric).where(CompetitionRubric.program_id == program_id))
+async def ensure_rubric(db, cohort_id: uuid.UUID, program_id: uuid.UUID) -> tuple[CompetitionRubric, list[CompetitionRubricCriterion]]:
+    rubric = await db.scalar(select(CompetitionRubric).where(CompetitionRubric.cohort_id == cohort_id))
     if rubric is None:
         rubric = CompetitionRubric(
             id=uuid.uuid4(),
             program_id=program_id,
+            cohort_id=cohort_id,
             name="Ru'ya Space Race Scoring Rubric",
         )
         db.add(rubric)
@@ -174,7 +175,7 @@ async def main():
         print(f"✓ Cohort found: '{cohort.name}' (Program ID: {cohort.program_id})")
 
         # 2. Rubric
-        rubric, criteria = await ensure_rubric(db, cohort.program_id)
+        rubric, criteria = await ensure_rubric(db, cohort.id, cohort.program_id)
         print(f"✓ Rubric ready: '{rubric.name}' ({len(criteria)} criteria)")
 
         # 3. Judges

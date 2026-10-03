@@ -92,6 +92,7 @@ class CompetitionRubricIn(BaseModel):
 class CompetitionRubricOut(BaseModel):
     id: UUID
     program_id: UUID
+    cohort_id: UUID | None = None
     name: str
     criteria: list[CompetitionRubricCriterionOut]
 
