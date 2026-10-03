@@ -11,16 +11,17 @@ constraints row, submission's unused config).
 """
 
 import uuid
+from datetime import datetime
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import ValidationError
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.dependencies import require_lms_content
 from app.db.session import get_db
 from app.models.missions.assignment import MissionAssignment
-from app.models.missions.design import Design
+from app.models.missions.design import Design, DesignCustomComponent
 from app.models.missions.manager import MissionManager
 from app.models.missions.mission import Mission, MissionAttempt, MissionVariant
 from app.models.sessions.cohort import Cohort
@@ -45,7 +46,7 @@ from app.schemas.missions_admin import (
     MissionVariantCreate,
     MissionVariantUpdate,
 )
-from app.schemas.missions_design import DesignStateOut
+from app.schemas.missions_design import DesignCustomComponentAdminOut, DesignStateOut
 from app.schemas.missions_manager import MissionManagerAssignIn, MissionManagerOut
 from app.services import storage
 from app.services.lms.program import sync_team_mission_runs
@@ -165,6 +166,101 @@ async def assign_team(
     await db.commit()
     await db.refresh(team)
     return await _team_admin_out(db, team)
+
+
+# ── design custom components explorer ──────────────────────────────────
+# Registered before /{mission_id} on purpose: 'custom-components' is a
+# static path that would otherwise be swallowed by the dynamic mission_id
+# segment (same lesson as /teams above).
+
+@router.get("/custom-components", response_model=list[DesignCustomComponentAdminOut])
+async def list_custom_components_admin(
+    cohort_id: uuid.UUID | None = None,
+    mission_id: uuid.UUID | None = None,
+    subsystem: str | None = None,
+    search: str | None = None,
+    team_id: uuid.UUID | None = None,
+    user_id: uuid.UUID | None = None,
+    has_datasheet: bool | None = None,
+    is_active: bool | None = None,
+    from_date: datetime | None = None,
+    to_date: datetime | None = None,
+    limit: int = Query(default=50, ge=1, le=200),
+    offset: int = Query(default=0, ge=0),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_lms_content),
+):
+    """Ops audit view over every student's custom design parts — filterable
+    by cohort/mission/subsystem/search/owner/datasheet/activity/date.
+
+    Staff (admin/operations/facilitator via `require_lms_content`) sees all;
+    a non-staff mission manager reaching here only sees attempts of missions
+    they manage (same per-resource split `authorization.py` uses everywhere).
+    Students never reach this route — their own parts come from the
+    attempt-scoped student endpoint only."""
+    from app.services.missions.authorization import is_staff
+    from app.services.missions.design.service import custom_power_mw
+
+    query = (
+        select(DesignCustomComponent, MissionAttempt)
+        .join(MissionAttempt, MissionAttempt.id == DesignCustomComponent.attempt_id)
+    )
+    if not is_staff(current_user):
+        managed_ids = list((await db.execute(
+            select(MissionManager.mission_id).where(MissionManager.user_id == current_user.id)
+        )).scalars().all())
+        if not managed_ids:
+            return []
+        query = query.where(MissionAttempt.mission_id.in_(managed_ids))
+    if cohort_id is not None:
+        query = query.where(MissionAttempt.cohort_id == cohort_id)
+    if mission_id is not None:
+        query = query.where(MissionAttempt.mission_id == mission_id)
+    if subsystem is not None:
+        query = query.where(DesignCustomComponent.subsystem == subsystem)
+    if search is not None and search.strip():
+        like = f"%{search.strip()}%"
+        query = query.where(or_(
+            DesignCustomComponent.component_name.ilike(like),
+            DesignCustomComponent.purpose_function.ilike(like),
+        ))
+    if team_id is not None:
+        query = query.where(DesignCustomComponent.team_id == team_id)
+    if user_id is not None:
+        query = query.where(DesignCustomComponent.user_id == user_id)
+    if has_datasheet is True:
+        query = query.where(DesignCustomComponent.datasheet_reference.is_not(None))
+    elif has_datasheet is False:
+        query = query.where(DesignCustomComponent.datasheet_reference.is_(None))
+    if is_active is not None:
+        query = query.where(DesignCustomComponent.is_active == is_active)
+    if from_date is not None:
+        query = query.where(DesignCustomComponent.created_at >= from_date)
+    if to_date is not None:
+        query = query.where(DesignCustomComponent.created_at <= to_date)
+
+    rows = (await db.execute(
+        query.order_by(DesignCustomComponent.created_at.desc()).limit(limit).offset(offset)
+    )).all()
+    out = []
+    for custom, attempt in rows:
+        student = await db.get(User, custom.user_id) if custom.user_id else None
+        team = await db.get(Team, custom.team_id) if custom.team_id else None
+        out.append(DesignCustomComponentAdminOut(
+            id=custom.id, attempt_id=custom.attempt_id, component_name=custom.component_name,
+            subsystem=custom.subsystem, purpose_function=custom.purpose_function,
+            voltage_v=custom.voltage_v, current_ma=custom.current_ma,
+            power_computed_mw=custom_power_mw(voltage_v=custom.voltage_v, current_ma=custom.current_ma),
+            pins_used=custom.pins_used, measurement_output=custom.measurement_output,
+            measurement_range=custom.measurement_range, datasheet_reference=custom.datasheet_reference,
+            mass_g=custom.mass_g, length_mm=custom.length_mm, width_mm=custom.width_mm,
+            height_mm=custom.height_mm, cost_aed=custom.cost_aed, is_active=custom.is_active,
+            created_at=custom.created_at, updated_at=custom.updated_at,
+            user_id=custom.user_id, student_name=student.full_name if student else None,
+            team_id=custom.team_id, team_name=team.name if team else None,
+            cohort_id=attempt.cohort_id, mission_id=attempt.mission_id,
+        ))
+    return out
 
 
 # ── design step gates: server-side, per cohort (P7-7) ────────────────────

@@ -81,7 +81,13 @@ class DesignCostEntryOut(BaseModel):
 
 class DesignComponentOut(BaseModel):
     id: UUID
-    library_component_id: UUID
+    # Nullable since custom components (is_custom=True) carry no library
+    # row — exactly one of the two IDs is ever set (DB XOR CHECK). Was
+    # non-optional before customs existed; leaving it so 500s every custom
+    # serialization with a Pydantic ValidationError.
+    library_component_id: UUID | None = None
+    custom_component_id: UUID | None = None
+    is_custom: bool = False
     component_name: str
     subsystem: str
     image_url: str | None = None
@@ -93,6 +99,16 @@ class DesignComponentOut(BaseModel):
     voltage_v: float | None = None
     current_ma: float | None = None
     cost_per_unit_aed: float | None = None
+    # Custom-spec snapshot — only populated when is_custom=True. Read-only
+    # teaching detail for the student wizard and the ops run-detail view.
+    purpose_function: str | None = None
+    pins_used: str | None = None
+    measurement_output: str | None = None
+    measurement_range: str | None = None
+    # Server-computed at snapshot time (voltage_v * current_ma, 1V x 1mA =
+    # 1mW) — never accepted from the client, so V/I/P cannot desynchronize.
+    power_computed_mw: float | None = None
+    datasheet_reference: str | None = None
     on_mode_ids: list[UUID] = []
     data_entry: DesignDataEntryOut | None = None
     power_entry: DesignPowerEntryOut | None = None
@@ -101,10 +117,137 @@ class DesignComponentOut(BaseModel):
 
 
 class DesignComponentAddIn(BaseModel):
-    library_component_id: UUID
+    # Exactly one of the two — library pick or own custom part. The XOR
+    # lets a removed custom be re-added from the "Mine" tab through the
+    # same POST .../components endpoint (not only via create-with-add).
+    library_component_id: UUID | None = None
+    custom_component_id: UUID | None = None
     # Same DB-protecting ceiling as the budget-entry quantity fields above —
     # DesignComponent.quantity is also a 32-bit Integer.
     quantity: int = Field(default=1, ge=0, le=1_000_000)
+
+    @model_validator(mode="after")
+    def _exactly_one_source(self):
+        if (self.library_component_id is None) == (self.custom_component_id is None):
+            raise ValueError("Provide exactly one of library_component_id or custom_component_id")
+        return self
+
+
+# ── custom components (student-defined parts) ──────────────────────────
+
+# Canonical casing matches the picker's STANDARD_SUBSYSTEM_ORDER
+# (DesignMissionPage.tsx) — four all-caps, three TitleCase. Anything else
+# breaks the subsystem filter pills, so input is normalized before the
+# whitelist check (see normalize_custom_subsystem).
+CUSTOM_SUBSYSTEMS = ("ADCS", "CDHS", "EPS", "COMMS", "Payload", "Structure", "Thermal")
+
+_SUBSYSTEM_ALIASES = {
+    "adcs": "ADCS", "cdhs": "CDHS", "eps": "EPS", "comms": "COMMS",
+    "payload": "Payload", "structure": "Structure", "thermal": "Thermal",
+}
+
+
+def normalize_custom_subsystem(value: str) -> str:
+    """Normalize user subsystem input to canonical casing (`adcs` -> `ADCS`,
+    `payload` -> `Payload`) or raise ValueError for unknown subsystems."""
+    canonical = _SUBSYSTEM_ALIASES.get(value.strip().lower())
+    if canonical is None:
+        raise ValueError(f"subsystem must be one of {', '.join(CUSTOM_SUBSYSTEMS)}")
+    return canonical
+
+
+class DesignCustomComponentCreateIn(BaseModel):
+    """The 10 MADAR custom specs + required physical/budget inputs.
+
+    No `power` field on purpose: power is derived server-side as
+    voltage_v * current_ma (1V x 1mA = 1mW) and frozen into the design
+    snapshot, so the three can never disagree. Mass/dimensions/cost are
+    required (no server defaults) — the student estimates them here and
+    refines them later via the normal mass/cost budget overrides. Cost is
+    AED directly, never USD, never converted.
+    """
+
+    component_name: str = Field(min_length=2, max_length=128)
+    subsystem: str
+    purpose_function: str = Field(min_length=10)
+    voltage_v: float = Field(gt=0, le=100)
+    current_ma: float = Field(gt=0, le=100_000)
+    pins_used: str = Field(min_length=3)
+    measurement_output: str = Field(min_length=3)
+    measurement_range: str | None = None
+    datasheet_reference: str | None = Field(default=None, max_length=512)
+    mass_g: float = Field(gt=0, le=50_000)
+    length_mm: float = Field(gt=0, le=2000)
+    width_mm: float = Field(gt=0, le=2000)
+    height_mm: float = Field(gt=0, le=2000)
+    cost_aed: float = Field(ge=0, le=1_000_000)
+    quantity: int = Field(default=1, ge=1, le=1_000_000)
+
+    @model_validator(mode="after")
+    def _normalize_subsystem(self):
+        self.subsystem = normalize_custom_subsystem(self.subsystem)
+        return self
+
+
+class DesignCustomComponentUpdateIn(BaseModel):
+    """Partial edit of the custom definition — never touches already-placed
+    DesignComponent snapshots (F2): those froze at add time."""
+
+    component_name: str | None = Field(default=None, min_length=2, max_length=128)
+    subsystem: str | None = None
+    purpose_function: str | None = Field(default=None, min_length=10)
+    voltage_v: float | None = Field(default=None, gt=0, le=100)
+    current_ma: float | None = Field(default=None, gt=0, le=100_000)
+    pins_used: str | None = Field(default=None, min_length=3)
+    measurement_output: str | None = Field(default=None, min_length=3)
+    measurement_range: str | None = None
+    datasheet_reference: str | None = Field(default=None, max_length=512)
+    mass_g: float | None = Field(default=None, gt=0, le=50_000)
+    length_mm: float | None = Field(default=None, gt=0, le=2000)
+    width_mm: float | None = Field(default=None, gt=0, le=2000)
+    height_mm: float | None = Field(default=None, gt=0, le=2000)
+    cost_aed: float | None = Field(default=None, ge=0, le=1_000_000)
+
+    @model_validator(mode="after")
+    def _normalize_subsystem(self):
+        if self.subsystem is not None:
+            self.subsystem = normalize_custom_subsystem(self.subsystem)
+        return self
+
+
+class DesignCustomComponentOut(BaseModel):
+    id: UUID
+    attempt_id: UUID
+    component_name: str
+    subsystem: str
+    purpose_function: str
+    voltage_v: float
+    current_ma: float
+    # Derived, read-only: voltage_v * current_ma.
+    power_computed_mw: float
+    pins_used: str
+    measurement_output: str
+    measurement_range: str | None = None
+    datasheet_reference: str | None = None
+    mass_g: float
+    length_mm: float
+    width_mm: float
+    height_mm: float
+    cost_aed: float
+    is_active: bool
+    created_at: datetime | None = None
+    updated_at: datetime | None = None
+
+
+class DesignCustomComponentAdminOut(DesignCustomComponentOut):
+    """Ops explorer row — the custom spec plus attribution to find the run."""
+
+    user_id: UUID | None = None
+    student_name: str | None = None
+    team_id: UUID | None = None
+    team_name: str | None = None
+    cohort_id: UUID | None = None
+    mission_id: UUID | None = None
 
 
 # ── CONOPS ────────────────────────────────────────────────────────────────

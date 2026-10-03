@@ -65,7 +65,10 @@ export interface DesignCostEntry {
 
 export interface DesignComponent {
   id: string;
-  library_component_id: string;
+  /** Null for student custom parts (is_custom) — exactly one of the two IDs is set. */
+  library_component_id: string | null;
+  custom_component_id: string | null;
+  is_custom: boolean;
   component_name: string;
   subsystem: string;
   image_url: string | null;
@@ -77,12 +80,65 @@ export interface DesignComponent {
   voltage_v: number | null;
   current_ma: number | null;
   cost_per_unit_aed: number | null;
+  /** Custom-spec snapshot — only set when is_custom is true. */
+  purpose_function: string | null;
+  pins_used: string | null;
+  measurement_output: string | null;
+  measurement_range: string | null;
+  /** Server-computed at snapshot time (voltage_v * current_ma). */
+  power_computed_mw: number | null;
+  datasheet_reference: string | null;
   on_mode_ids: string[];
   data_entry: DesignDataEntry | null;
   power_entry: DesignPowerEntry | null;
   mass_entry: DesignMassEntry | null;
   cost_entry: DesignCostEntry | null;
 }
+
+/** A student-defined custom part — visible only to its own attempt (+ ops).
+ * Power is derived read-only (voltage_v * current_ma); cost is AED direct. */
+export interface DesignCustomComponent {
+  id: string;
+  attempt_id: string;
+  component_name: string;
+  subsystem: string;
+  purpose_function: string;
+  voltage_v: number;
+  current_ma: number;
+  power_computed_mw: number;
+  pins_used: string;
+  measurement_output: string;
+  measurement_range: string | null;
+  datasheet_reference: string | null;
+  mass_g: number;
+  length_mm: number;
+  width_mm: number;
+  height_mm: number;
+  cost_aed: number;
+  is_active: boolean;
+  created_at: string | null;
+  updated_at: string | null;
+}
+
+export interface DesignCustomComponentCreate {
+  component_name: string;
+  subsystem: string;
+  purpose_function: string;
+  voltage_v: number;
+  current_ma: number;
+  pins_used: string;
+  measurement_output: string;
+  measurement_range?: string | null;
+  datasheet_reference?: string | null;
+  mass_g: number;
+  length_mm: number;
+  width_mm: number;
+  height_mm: number;
+  cost_aed: number;
+  quantity?: number;
+}
+
+export const CUSTOM_SUBSYSTEMS = ["ADCS", "CDHS", "EPS", "COMMS", "Payload", "Structure", "Thermal"];
 
 export interface DesignMode {
   id: string;
@@ -323,6 +379,39 @@ export async function addDesignComponent(attemptId: string, libraryComponentId: 
     library_component_id: libraryComponentId, quantity,
   });
   return data;
+}
+
+/** Re-add an already-defined custom part to the cart (e.g. after removing
+ * it) — same endpoint as library picks, with the custom id instead. */
+export async function addCustomComponentToDesign(attemptId: string, customComponentId: string, quantity = 1): Promise<DesignState> {
+  const { data } = await api.post<DesignState>(`/missions/design/attempts/${attemptId}/components`, {
+    custom_component_id: customComponentId, quantity,
+  });
+  return data;
+}
+
+export async function fetchCustomComponents(attemptId: string): Promise<DesignCustomComponent[]> {
+  const { data } = await api.get<DesignCustomComponent[]>(`/missions/design/attempts/${attemptId}/custom-components`);
+  return data;
+}
+
+/** Define a custom part and place it in the design in one step. */
+export async function createCustomComponent(attemptId: string, body: DesignCustomComponentCreate): Promise<DesignState> {
+  const { data } = await api.post<DesignState>(`/missions/design/attempts/${attemptId}/custom-components`, body);
+  return data;
+}
+
+export async function updateCustomComponent(
+  attemptId: string, customComponentId: string, body: Partial<DesignCustomComponentCreate>,
+): Promise<DesignCustomComponent> {
+  const { data } = await api.patch<DesignCustomComponent>(
+    `/missions/design/attempts/${attemptId}/custom-components/${customComponentId}`, body,
+  );
+  return data;
+}
+
+export async function deleteCustomComponent(attemptId: string, customComponentId: string): Promise<void> {
+  await api.delete(`/missions/design/attempts/${attemptId}/custom-components/${customComponentId}`);
 }
 
 export async function removeDesignComponent(attemptId: string, designComponentId: string): Promise<DesignState> {

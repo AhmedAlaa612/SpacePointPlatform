@@ -40,10 +40,12 @@ from datetime import datetime, timezone
 
 from sqlalchemy import (
     Boolean,
+    CheckConstraint,
     Column,
     DateTime,
     Float,
     ForeignKey,
+    Index,
     Integer,
     PrimaryKeyConstraint,
     String,
@@ -166,15 +168,35 @@ class DesignComponent(Base):
     (F2/F3 fix, see module docstring). `library_component_id` is RESTRICT
     (F1 fix): a component that has ever been added to a design cannot be
     hard-deleted from the library, only retired via `is_active`.
+
+    Either `library_component_id` (standard catalog pick) or
+    `custom_component_id` (student-defined custom component) is set, never
+    both and never neither — enforced by
+    `ck_design_components_library_xor_custom`, the same OR-pattern as
+    `mission_attempts.ck_mission_attempts_user_xor_team`. Custom snapshots
+    additionally freeze the student's 10 spec fields plus the server-computed
+    power (`power_computed_mw = voltage_v * current_ma`), so later edits to
+    the custom definition never rewrite an already-placed design.
     """
 
     __tablename__ = "design_components"
+    __table_args__ = (
+        CheckConstraint(
+            "(library_component_id IS NOT NULL AND custom_component_id IS NULL) OR "
+            "(library_component_id IS NULL AND custom_component_id IS NOT NULL)",
+            name="ck_design_components_library_xor_custom",
+        ),
+    )
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     design_id = Column(UUID(as_uuid=True), ForeignKey("designs.id", ondelete="CASCADE"), nullable=False)
     library_component_id = Column(
-        UUID(as_uuid=True), ForeignKey("design_component_library.id", ondelete="RESTRICT"), nullable=False,
+        UUID(as_uuid=True), ForeignKey("design_component_library.id", ondelete="RESTRICT"), nullable=True,
     )
+    custom_component_id = Column(
+        UUID(as_uuid=True), ForeignKey("design_custom_components.id", ondelete="RESTRICT"), nullable=True,
+    )
+    is_custom = Column(Boolean, nullable=False, default=False, server_default="false")
     quantity = Column(Integer, nullable=False, default=1)
     # ── frozen snapshot, taken from the library row at add time ──────────
     component_name = Column(String(128), nullable=False)
@@ -188,7 +210,66 @@ class DesignComponent(Base):
     voltage_v = Column(Float, nullable=True)
     current_ma = Column(Float, nullable=True)
     cost_per_unit_aed = Column(Float, nullable=True)
+    # ── custom-spec snapshot (only populated when is_custom=True) ─────────
+    purpose_function = Column(Text, nullable=True)
+    pins_used = Column(Text, nullable=True)
+    measurement_output = Column(Text, nullable=True)
+    measurement_range = Column(Text, nullable=True)
+    power_computed_mw = Column(Float, nullable=True)
+    datasheet_reference = Column(String(512), nullable=True)
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+
+
+class DesignCustomComponent(Base):
+    """A student-defined custom component — a proprietary payload, sensor,
+    or hardware module created inside the Design Mission wizard.
+
+    Scoped strictly to the owning attempt (`attempt_id` is the ONLY query
+    key — `user_id`/`team_id` are attribution for the ops explorer, never
+    query keys, so a retry or a second mission never leaks customs across
+    attempts). No other student's query can ever return this row; operations
+    sees it via the attempt's design-detail and the admin explorer.
+
+    Power is never stored from client input: the server computes
+    `voltage_v * current_ma` (1V x 1mA = 1mW) at snapshot time into the
+    `DesignComponent.power_computed_mw` freeze. Mass/dimensions/cost are
+    required student inputs (no server defaults) that seed the mass/cost
+    budget snapshots, refinable later via the normal budget overrides.
+    """
+
+    __tablename__ = "design_custom_components"
+    __table_args__ = (
+        Index("ix_design_custom_components_attempt_id", "attempt_id"),
+        Index("ix_design_custom_components_user_id", "user_id"),
+        Index("ix_design_custom_components_team_id", "team_id"),
+    )
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    attempt_id = Column(UUID(as_uuid=True), ForeignKey("mission_attempts.id", ondelete="CASCADE"), nullable=False)
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    team_id = Column(UUID(as_uuid=True), ForeignKey("learner_teams.id", ondelete="SET NULL"), nullable=True)
+
+    # ── the 10 MADAR custom specs ─────────────────────────────────────────
+    component_name = Column(String(128), nullable=False)
+    subsystem = Column(String(40), nullable=False)  # ADCS|CDHS|EPS|COMMS|Payload|Structure|Thermal
+    purpose_function = Column(Text, nullable=False)
+    voltage_v = Column(Float, nullable=False)
+    current_ma = Column(Float, nullable=False)
+    pins_used = Column(Text, nullable=False)
+    measurement_output = Column(Text, nullable=False)
+    measurement_range = Column(Text, nullable=True)
+    datasheet_reference = Column(String(512), nullable=True)
+
+    # ── required physical & budget inputs (student-filled, no defaults) ────
+    mass_g = Column(Float, nullable=False)
+    length_mm = Column(Float, nullable=False)
+    width_mm = Column(Float, nullable=False)
+    height_mm = Column(Float, nullable=False)
+    cost_aed = Column(Float, nullable=False)  # AED directly — never USD, never converted
+
+    is_active = Column(Boolean, nullable=False, default=True, server_default="true")
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+    updated_at = Column(DateTime(timezone=True), nullable=True)
 
 
 class DesignComponentModeState(Base):

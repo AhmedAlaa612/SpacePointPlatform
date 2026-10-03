@@ -53,6 +53,9 @@ from app.schemas.missions_design import (
     AlertOut,
     DataBudgetSummaryOut,
     DesignBriefingOut,
+    DesignCustomComponentCreateIn,
+    DesignCustomComponentOut,
+    DesignCustomComponentUpdateIn,
     DesignHandbookOut,
     DownlinkBudgetSummaryOut,
     DataEntrySaveIn,
@@ -181,10 +184,14 @@ async def design_state_out(db: AsyncSession, *, attempt: MissionAttempt, design:
         cost_e = cost_by_component.get(c.id)
         component_out.append(DesignComponentOut(
             id=c.id, library_component_id=c.library_component_id,
+            custom_component_id=c.custom_component_id, is_custom=c.is_custom,
             component_name=c.component_name, subsystem=c.subsystem, image_url=image_url,
             quantity=c.quantity, mass_per_unit_g=c.mass_per_unit_g,
             length_mm=c.length_mm, width_mm=c.width_mm, height_mm=c.height_mm,
             voltage_v=c.voltage_v, current_ma=c.current_ma, cost_per_unit_aed=c.cost_per_unit_aed,
+            purpose_function=c.purpose_function, pins_used=c.pins_used,
+            measurement_output=c.measurement_output, measurement_range=c.measurement_range,
+            power_computed_mw=c.power_computed_mw, datasheet_reference=c.datasheet_reference,
             on_mode_ids=list(mode_states.get(c.id, set())),
             data_entry=DesignDataEntryOut(
                 data_type=data_e.data_type, data_size_per_measurement_kb=data_e.data_size_per_measurement_kb,
@@ -464,22 +471,114 @@ async def add_design_component(
     attempt = await _own_design_attempt(db, attempt_id, current)
     await _require_team_not_final_locked(db, attempt=attempt)
     await require_step_unlocked(db, attempt=attempt, step_key="components")
-    if attempt.cohort_id is not None:
-        from app.services.missions.component_config import is_component_allowed_for_cohort
-
-        allowed = await is_component_allowed_for_cohort(
-            db, cohort_id=attempt.cohort_id, library_component_id=body.library_component_id
-        )
-        if not allowed:
-            raise HTTPException(
-                status.HTTP_400_BAD_REQUEST,
-                detail="This component is not available for your cohort's mission design.",
-            )
     design = await ensure_design(db, attempt=attempt)
-    await design_service.add_component(db, design_id=design.id, library_component_id=body.library_component_id, quantity=body.quantity)
+    if body.custom_component_id is not None:
+        # Custom parts skip the cohort disabled-component check by design:
+        # that allowlist governs the shared catalog, not student hardware.
+        # Ownership (same attempt, active) is enforced inside, 404 on foreign.
+        await design_service.add_custom_to_design(
+            db, design_id=design.id, attempt_id=attempt.id,
+            custom_component_id=body.custom_component_id, quantity=body.quantity,
+        )
+    else:
+        # XOR validator guarantees library_component_id is set on this branch.
+        assert body.library_component_id is not None
+        if attempt.cohort_id is not None:
+            from app.services.missions.component_config import is_component_allowed_for_cohort
+
+            allowed = await is_component_allowed_for_cohort(
+                db, cohort_id=attempt.cohort_id, library_component_id=body.library_component_id
+            )
+            if not allowed:
+                raise HTTPException(
+                    status.HTTP_400_BAD_REQUEST,
+                    detail="This component is not available for your cohort's mission design.",
+                )
+        await design_service.add_component(db, design_id=design.id, library_component_id=body.library_component_id, quantity=body.quantity)
     result = await design_state_out(db, attempt=attempt, design=design)
     await db.commit()
     return result
+
+
+def _custom_out(c) -> DesignCustomComponentOut:
+    from app.services.missions.design.service import custom_power_mw
+    return DesignCustomComponentOut(
+        id=c.id, attempt_id=c.attempt_id, component_name=c.component_name, subsystem=c.subsystem,
+        purpose_function=c.purpose_function, voltage_v=c.voltage_v, current_ma=c.current_ma,
+        power_computed_mw=custom_power_mw(voltage_v=c.voltage_v, current_ma=c.current_ma),
+        pins_used=c.pins_used, measurement_output=c.measurement_output,
+        measurement_range=c.measurement_range, datasheet_reference=c.datasheet_reference,
+        mass_g=c.mass_g, length_mm=c.length_mm, width_mm=c.width_mm, height_mm=c.height_mm,
+        cost_aed=c.cost_aed, is_active=c.is_active,
+        created_at=c.created_at, updated_at=c.updated_at,
+    )
+
+
+@router.post("/attempts/{attempt_id}/custom-components", response_model=DesignStateOut, status_code=status.HTTP_201_CREATED)
+async def create_custom_component(
+    attempt_id: uuid.UUID, body: DesignCustomComponentCreateIn,
+    db: AsyncSession = Depends(get_db), current: User = Depends(get_current_active_user),
+):
+    """Define a student-owned custom part and place it in the design in one
+    step (quantity comes from the same body). The part is visible only to
+    this attempt (+ ops via design-detail/explorer) — never to other
+    students, never to sibling attempts/retries."""
+    attempt = await _own_design_attempt(db, attempt_id, current)
+    await _require_team_not_final_locked(db, attempt=attempt)
+    await require_step_unlocked(db, attempt=attempt, step_key="components")
+    design = await ensure_design(db, attempt=attempt)
+    fields = body.model_dump(exclude={"quantity"})
+    custom = await design_service.create_custom_component(
+        db, attempt=attempt, user_id=current.id, fields=fields,
+    )
+    await design_service.add_custom_to_design(
+        db, design_id=design.id, attempt_id=attempt.id,
+        custom_component_id=custom.id, quantity=body.quantity,
+    )
+    result = await design_state_out(db, attempt=attempt, design=design)
+    await db.commit()
+    return result
+
+
+@router.get("/attempts/{attempt_id}/custom-components", response_model=list[DesignCustomComponentOut])
+async def list_custom_components(
+    attempt_id: uuid.UUID, db: AsyncSession = Depends(get_db),
+    current: User = Depends(get_current_active_user),
+):
+    attempt = await _own_design_attempt(db, attempt_id, current)
+    rows = await design_service.list_custom_components(db, attempt_id=attempt.id)
+    return [_custom_out(c) for c in rows]
+
+
+@router.patch("/attempts/{attempt_id}/custom-components/{custom_component_id}", response_model=DesignCustomComponentOut)
+async def update_custom_component(
+    attempt_id: uuid.UUID, custom_component_id: uuid.UUID, body: DesignCustomComponentUpdateIn,
+    db: AsyncSession = Depends(get_db), current: User = Depends(get_current_active_user),
+):
+    attempt = await _own_design_attempt(db, attempt_id, current)
+    await _require_team_not_final_locked(db, attempt=attempt)
+    await require_step_unlocked(db, attempt=attempt, step_key="components")
+    custom = await design_service.update_custom_component(
+        db, attempt_id=attempt.id, custom_component_id=custom_component_id,
+        fields=body.model_dump(exclude_unset=True),
+    )
+    await db.commit()
+    await db.refresh(custom)
+    return _custom_out(custom)
+
+
+@router.delete("/attempts/{attempt_id}/custom-components/{custom_component_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_custom_component(
+    attempt_id: uuid.UUID, custom_component_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db), current: User = Depends(get_current_active_user),
+):
+    attempt = await _own_design_attempt(db, attempt_id, current)
+    await _require_team_not_final_locked(db, attempt=attempt)
+    await require_step_unlocked(db, attempt=attempt, step_key="components")
+    await design_service.deactivate_custom_component(
+        db, attempt_id=attempt.id, custom_component_id=custom_component_id,
+    )
+    await db.commit()
 
 
 @router.delete("/attempts/{attempt_id}/components/{design_component_id}", response_model=DesignStateOut)

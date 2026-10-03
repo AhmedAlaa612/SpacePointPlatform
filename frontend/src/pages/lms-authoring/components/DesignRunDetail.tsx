@@ -37,6 +37,14 @@ export function DesignRunDetail({
     queryFn: () => fetchFn(attemptId),
   })
   const [tab, setTab] = useState("setup")
+  const [expandedCustoms, setExpandedCustoms] = useState<Set<string>>(new Set())
+  const toggleCustom = (id: string) =>
+    setExpandedCustoms((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
 
   if (isLoading) return <div className="px-3 pb-3"><Spinner /></div>
   if (error || !detail) {
@@ -98,17 +106,53 @@ export function DesignRunDetail({
                 </thead>
                 <tbody>
                   {detail.components.map((c) => (
-                    <tr key={c.id} className="border-b border-border/50 last:border-0">
-                      <td className="py-1.5 pr-3 text-foreground">{c.component_name}</td>
-                      <td className="py-1.5 pr-3 text-muted-foreground">{c.subsystem}</td>
-                      <td className="py-1.5 pr-3 text-right text-foreground">{c.quantity}</td>
-                      <td className="py-1.5 pr-3 text-right text-foreground">{c.mass_per_unit_g ?? "—"}</td>
-                      <td className="py-1.5 pr-3 text-right text-foreground">
-                        {c.voltage_v ?? "—"} / {c.current_ma ?? "—"}
-                      </td>
-                      <td className="py-1.5 pr-3 text-right text-foreground">{c.cost_per_unit_aed ?? "—"}</td>
-                      <td className="py-1.5 text-muted-foreground">{c.on_mode_ids.map(modeName).join(", ") || "—"}</td>
-                    </tr>
+                    <>
+                      <tr key={c.id} className="border-b border-border/50 last:border-0">
+                        <td className="py-1.5 pr-3 text-foreground">
+                          {c.is_custom && (
+                            <span className="mr-1.5 px-1.5 py-0.5 rounded text-[10px] font-bold bg-violet-500/15 text-violet-600 dark:text-violet-400">CUSTOM</span>
+                          )}
+                          {c.component_name}
+                          {c.is_custom && (
+                            <button
+                              type="button"
+                              onClick={() => toggleCustom(c.id)}
+                              className="ml-2 text-[11px] font-semibold text-primary hover:underline"
+                            >
+                              {expandedCustoms.has(c.id) ? "Hide specs" : "Full specs"}
+                            </button>
+                          )}
+                        </td>
+                        <td className="py-1.5 pr-3 text-muted-foreground">{c.subsystem}</td>
+                        <td className="py-1.5 pr-3 text-right text-foreground">{c.quantity}</td>
+                        <td className="py-1.5 pr-3 text-right text-foreground">{c.mass_per_unit_g ?? "—"}</td>
+                        <td className="py-1.5 pr-3 text-right text-foreground">
+                          {c.voltage_v ?? "—"} / {c.current_ma ?? "—"}
+                        </td>
+                        <td className="py-1.5 pr-3 text-right text-foreground">{c.cost_per_unit_aed ?? "—"}</td>
+                        <td className="py-1.5 text-muted-foreground">{c.on_mode_ids.map(modeName).join(", ") || "—"}</td>
+                      </tr>
+                      {c.is_custom && expandedCustoms.has(c.id) && (
+                        <tr key={`${c.id}-specs`} className="border-b border-border/50">
+                          <td colSpan={7} className="pb-2.5 text-muted-foreground">
+                            <div className="flex flex-col gap-1 rounded-lg bg-muted/60 px-3 py-2">
+                              {c.purpose_function && <p><span className="font-semibold text-foreground">Purpose:</span> {c.purpose_function}</p>}
+                              {c.power_computed_mw != null && <p><span className="font-semibold text-foreground">Power:</span> {c.power_computed_mw.toFixed(1)} mW (auto: V × mA)</p>}
+                              {c.pins_used && <p className="whitespace-pre-line"><span className="font-semibold text-foreground">Pins:</span> {c.pins_used}</p>}
+                              {c.measurement_output && <p><span className="font-semibold text-foreground">Output:</span> {c.measurement_output}</p>}
+                              {c.measurement_range && <p><span className="font-semibold text-foreground">Range:</span> {c.measurement_range}</p>}
+                              {c.datasheet_reference && (
+                                <p><span className="font-semibold text-foreground">Datasheet:</span>{" "}
+                                  {c.datasheet_reference.startsWith("http") ? (
+                                    <a href={ensureAbsoluteUrl(c.datasheet_reference)} target="_blank" rel="noreferrer" className="text-primary underline">Open link</a>
+                                  ) : c.datasheet_reference}
+                                </p>
+                              )}
+                            </div>
+                          </td>
+                        </tr>
+                      )}
+                    </>
                   ))}
                 </tbody>
               </table>

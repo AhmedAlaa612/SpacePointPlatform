@@ -33,6 +33,7 @@ from app.models.missions.design import (
     DesignComponentLibrary,
     DesignComponentModeState,
     DesignCostBudgetEntry,
+    DesignCustomComponent,
     DesignDataBudgetEntry,
     DesignLinkBudgetEntry,
     DesignMassBudgetEntry,
@@ -139,6 +140,102 @@ async def list_components(db: AsyncSession, *, design_id: uuid.UUID) -> list[Des
     return list((await db.execute(
         select(DesignComponent).where(DesignComponent.design_id == design_id).order_by(DesignComponent.created_at)
     )).scalars().all())
+
+
+# ── Custom components (student-defined parts, attempt-scoped) ────────────
+
+def custom_power_mw(*, voltage_v: float, current_ma: float) -> float:
+    """Single source of truth for custom power: 1V x 1mA = 1mW. Computed
+    server-side at snapshot time; the client value (if any) is ignored so
+    V/I/P can never desynchronize."""
+    return round(voltage_v * current_ma, 3)
+
+
+async def _get_owned_custom(
+    db: AsyncSession, *, attempt_id: uuid.UUID, custom_component_id: uuid.UUID,
+) -> DesignCustomComponent:
+    """Fetches an active custom component and confirms it belongs to
+    `attempt_id`, 404ing otherwise — a foreign attempt's id never leaks
+    existence (404, not 403). Attempt scope is the whole privacy boundary:
+    no user_id/team_id OR-clause, so retries and sibling missions stay
+    isolated."""
+    custom = await db.get(DesignCustomComponent, custom_component_id)
+    if custom is None or not custom.is_active or custom.attempt_id != attempt_id:
+        raise HTTPException(404, detail="Custom component not found")
+    return custom
+
+
+async def list_custom_components(db: AsyncSession, *, attempt_id: uuid.UUID) -> list[DesignCustomComponent]:
+    return list((await db.execute(
+        select(DesignCustomComponent)
+        .where(DesignCustomComponent.attempt_id == attempt_id,
+               DesignCustomComponent.is_active == True)  # noqa: E712
+        .order_by(DesignCustomComponent.created_at)
+    )).scalars().all())
+
+
+async def create_custom_component(
+    db: AsyncSession, *, attempt: MissionAttempt, user_id: uuid.UUID, fields: dict,
+) -> DesignCustomComponent:
+    custom = DesignCustomComponent(
+        id=uuid.uuid4(), attempt_id=attempt.id, user_id=user_id, team_id=attempt.team_id,
+        **fields,
+    )
+    db.add(custom)
+    await db.flush()
+    return custom
+
+
+async def update_custom_component(
+    db: AsyncSession, *, attempt_id: uuid.UUID, custom_component_id: uuid.UUID, fields: dict,
+) -> DesignCustomComponent:
+    """Edits the custom *definition* only — already-placed DesignComponent
+    snapshots froze at add time (F2) and are never rewritten here."""
+    custom = await _get_owned_custom(db, attempt_id=attempt_id, custom_component_id=custom_component_id)
+    for field, value in fields.items():
+        setattr(custom, field, value)
+    custom.updated_at = datetime.now(timezone.utc)
+    await db.flush()
+    return custom
+
+
+async def deactivate_custom_component(
+    db: AsyncSession, *, attempt_id: uuid.UUID, custom_component_id: uuid.UUID,
+) -> None:
+    """Soft-delete (is_active=False). Cart rows referencing it are untouched —
+    removal from the design is the explicit DELETE .../components/{id} call,
+    so history never loses rows to a definition edit."""
+    custom = await _get_owned_custom(db, attempt_id=attempt_id, custom_component_id=custom_component_id)
+    custom.is_active = False
+    custom.updated_at = datetime.now(timezone.utc)
+    await db.flush()
+
+
+async def add_custom_to_design(
+    db: AsyncSession, *, design_id: uuid.UUID, attempt_id: uuid.UUID,
+    custom_component_id: uuid.UUID, quantity: int = 1,
+) -> DesignComponent:
+    """Freezes a custom definition into a DesignComponent snapshot — the
+    same F1/F2 posture as library picks (RESTRICT FK, frozen specs). Cost
+    is AED verbatim (no USD conversion); power is server-computed."""
+    custom = await _get_owned_custom(db, attempt_id=attempt_id, custom_component_id=custom_component_id)
+    dc = DesignComponent(
+        id=uuid.uuid4(), design_id=design_id, library_component_id=None,
+        custom_component_id=custom.id, is_custom=True, quantity=quantity,
+        component_name=custom.component_name, subsystem=custom.subsystem,
+        image_bucket=None, image_path=None,
+        mass_per_unit_g=custom.mass_g,
+        length_mm=custom.length_mm, width_mm=custom.width_mm, height_mm=custom.height_mm,
+        voltage_v=custom.voltage_v, current_ma=custom.current_ma,
+        cost_per_unit_aed=custom.cost_aed,
+        purpose_function=custom.purpose_function, pins_used=custom.pins_used,
+        measurement_output=custom.measurement_output, measurement_range=custom.measurement_range,
+        power_computed_mw=custom_power_mw(voltage_v=custom.voltage_v, current_ma=custom.current_ma),
+        datasheet_reference=custom.datasheet_reference,
+    )
+    db.add(dc)
+    await db.flush()
+    return dc
 
 
 # ── CONOPS (modes + component x mode matrix) ────────────────────────────

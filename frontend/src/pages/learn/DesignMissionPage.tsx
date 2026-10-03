@@ -13,12 +13,14 @@ import { CompletionCelebration } from "./CompletionCelebration";
 import { MadarPhaseBoard } from "./missions/MadarPhaseBoard";
 import { MadarPhaseDrawer } from "./missions/MadarPhaseDrawer";
 import {
-  addDesignComponent, confirmDesignStep, fetchComponentDatasheetUrl, fetchDesignHandbook,
+  addCustomComponentToDesign, addDesignComponent, confirmDesignStep,
+  fetchComponentDatasheetUrl, fetchCustomComponents, fetchDesignHandbook,
   fetchDesignLibrary, fetchDesignState, joinObjectivePrompts, parseObjectivePrompts, removeDesignComponent,
   saveConops, saveCostBudget, saveDataBudget, saveLinkBudget, saveMassBudget, savePowerBudget, updateDesign,
   OBJECTIVE_PROMPTS,
-  type DesignHandbook, type DesignLibraryComponent, type DesignState,
+  type DesignCustomComponent, type DesignHandbook, type DesignLibraryComponent, type DesignState,
 } from "@/api/missionsDesign";
+import { CustomComponentModal } from "@/components/missions/CustomComponentModal";
 
 function errorDetail(err: unknown, fallback: string): string {
   if (isAxiosError(err)) {
@@ -517,13 +519,22 @@ const STANDARD_SUBSYSTEM_ORDER = ["ADCS", "CDHS", "EPS", "COMMS", "Payload", "St
 
 export function ComponentsTab({ state, attemptId, onChanged }: { state: DesignState; attemptId: string; onChanged: (s: DesignState) => void }) {
   const [library, setLibrary] = useState<DesignLibraryComponent[]>([]);
+  const [customs, setCustoms] = useState<DesignCustomComponent[]>([]);
+  const [customModalOpen, setCustomModalOpen] = useState(false);
   const [error, setError] = useState("");
   const [search, setSearch] = useState("");
   const [subsystemFilter, setSubsystemFilter] = useState("All");
   const [tagFilter, setTagFilter] = useState("All Tags");
+  // All | Standard | Mine — Mine lists only this attempt's own custom parts.
+  const [sourceFilter, setSourceFilter] = useState<"All" | "Standard" | "Mine">("All");
 
   useEffect(() => {
     fetchDesignLibrary({ attemptId }).then(setLibrary).catch(() => {});
+    fetchCustomComponents(attemptId).then(setCustoms).catch(() => {});
+  }, [attemptId]);
+
+  const refreshCustoms = useCallback(() => {
+    fetchCustomComponents(attemptId).then(setCustoms).catch(() => {});
   }, [attemptId]);
 
   // Dynamically derive available subsystems based on the allowed components returned for this attempt's cohort
@@ -547,9 +558,19 @@ export function ComponentsTab({ state, attemptId, onChanged }: { state: DesignSt
   const tags = ["All Tags", ...Array.from(new Set(library.map((c) => c.tag).filter((t): t is string => !!t)))];
 
   const filteredLibrary = library.filter((c) => {
+    if (sourceFilter === "Mine") return false;
     if (search.trim() && !c.component_name.toLowerCase().includes(search.trim().toLowerCase())) return false;
     if (subsystemFilter !== "All" && c.subsystem !== subsystemFilter) return false;
     if (tagFilter !== "All Tags" && c.tag !== tagFilter) return false;
+    return true;
+  });
+
+  // This attempt's own custom parts (never another student's) — same
+  // search/subsystem filters as the catalog, no tag dimension.
+  const filteredCustoms = customs.filter((c) => {
+    if (sourceFilter === "Standard") return false;
+    if (search.trim() && !c.component_name.toLowerCase().includes(search.trim().toLowerCase())) return false;
+    if (subsystemFilter !== "All" && c.subsystem !== subsystemFilter) return false;
     return true;
   });
 
@@ -557,6 +578,15 @@ export function ComponentsTab({ state, attemptId, onChanged }: { state: DesignSt
     setError("");
     try {
       onChanged(await addDesignComponent(attemptId, libraryComponentId, quantity));
+    } catch (err) {
+      setError(errorDetail(err, "Couldn't add this component."));
+    }
+  };
+
+  const addCustom = async (customComponentId: string, quantity: number) => {
+    setError("");
+    try {
+      onChanged(await addCustomComponentToDesign(attemptId, customComponentId, quantity));
     } catch (err) {
       setError(errorDetail(err, "Couldn't add this component."));
     }
@@ -586,10 +616,19 @@ export function ComponentsTab({ state, attemptId, onChanged }: { state: DesignSt
         {/* Component library */}
         <div className="flex-1 min-w-0 flex flex-col gap-4">
           <div>
-            <p className="text-base font-bold">Component library</p>
+            <div className="flex items-center justify-between gap-3 flex-wrap">
+              <p className="text-base font-bold">Component library</p>
+              <button
+                type="button"
+                onClick={() => setCustomModalOpen(true)}
+                className="px-3 py-1.5 rounded-xl text-xs font-bold ring-1 ring-primary/40 bg-primary/10 text-primary hover:bg-primary/15 transition-colors"
+              >
+                + Add Custom Component
+              </button>
+            </div>
             <p className="text-xs text-muted-foreground mt-0.5">
               Click a component to read its specs, then add it to your design. What you pick here decides
-              every budget that follows.
+              every budget that follows. Custom parts are visible only to you (and your team) and staff.
             </p>
           </div>
 
@@ -627,15 +666,38 @@ export function ComponentsTab({ state, attemptId, onChanged }: { state: DesignSt
             )}
           </div>
 
-          {filteredLibrary.length === 0 && (
+          {filteredLibrary.length === 0 && filteredCustoms.length === 0 && (
             <p className="text-xs text-muted-foreground">No components match this filter.</p>
           )}
+          <div className="flex flex-wrap gap-1.5">
+            {(["All", "Standard", "Mine"] as const).map((s) => (
+              <button
+                key={s}
+                onClick={() => setSourceFilter(s)}
+                className={`px-3 py-1.5 rounded-xl text-xs ring-1 transition-colors ${
+                  sourceFilter === s ? "ring-primary/40 bg-primary/10 text-primary font-medium" : "ring-border hover:bg-muted/50"
+                }`}
+              >
+                {s === "Mine" ? `Mine (${customs.length})` : s === "Standard" ? "Standard Catalog" : "All Components"}
+              </button>
+            ))}
+          </div>
           <div className="grid sm:grid-cols-2 gap-4">
+            {filteredCustoms.map((c) => (
+              <CustomLibraryCard key={c.id} component={c} onAdd={(quantity) => void addCustom(c.id, quantity)} />
+            ))}
             {filteredLibrary.map((c) => (
               <LibraryCard key={c.id} component={c} onAdd={(quantity) => void add(c.id, quantity)} />
             ))}
           </div>
         </div>
+
+        <CustomComponentModal
+          attemptId={attemptId}
+          open={customModalOpen}
+          onOpenChange={setCustomModalOpen}
+          onCreated={(next) => { onChanged(next); refreshCustoms(); }}
+        />
 
         {/* Mission cart + invoice */}
         <div className="w-full lg:w-[360px] shrink-0 flex flex-col gap-4 lg:sticky lg:top-4">
@@ -661,8 +723,13 @@ export function ComponentsTab({ state, attemptId, onChanged }: { state: DesignSt
                         </div>
                       )}
                     <div className="min-w-0 flex-1">
-                      <p className="text-sm font-medium truncate">{c.component_name}</p>
-                      <p className="text-xs text-muted-foreground">Qty {c.quantity} &middot; {(c.cost_per_unit_aed ?? 0).toFixed(0)} AED each</p>
+                      <p className="text-sm font-medium truncate">
+                        {c.is_custom && (
+                          <span className="mr-1.5 px-1.5 py-0.5 rounded text-[10px] font-bold bg-violet-500/15 text-violet-600 dark:text-violet-400 align-middle">CUSTOM</span>
+                        )}
+                        {c.component_name}
+                      </p>
+                      <p className="text-xs text-muted-foreground">Qty {c.quantity} &middot; {(c.cost_per_unit_aed ?? 0).toFixed(0)} AED each{c.is_custom && c.power_computed_mw != null ? ` · ${c.power_computed_mw.toFixed(1)}mW` : ""}</p>
                     </div>
                     <p className="text-sm font-bold text-amber-600 dark:text-amber-400 shrink-0">
                       {((c.cost_per_unit_aed ?? 0) * c.quantity).toFixed(0)} AED
@@ -712,6 +779,90 @@ export function ComponentsTab({ state, attemptId, onChanged }: { state: DesignSt
               </div>
             </div>
           </Card>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/** One of the student's own custom parts — cost is AED direct (never USD,
+ * never converted), power is the server-computed V x mA readout. */
+function CustomLibraryCard({ component: c, onAdd }: { component: DesignCustomComponent; onAdd: (quantity: number) => void }) {
+  const [qty, setQty] = useState(1);
+  const [specsOpen, setSpecsOpen] = useState(false);
+
+  return (
+    <div className="rounded-2xl ring-1 ring-primary/30 bg-card overflow-hidden flex flex-col">
+      <div className="p-4 flex flex-col gap-3">
+        <div className="flex flex-col gap-0.5">
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="px-2 py-1 rounded-lg text-[10px] font-bold tracking-wide bg-violet-500/90 text-white">CUSTOM</span>
+            <span className="px-2 py-1 rounded-lg text-[10px] font-bold tracking-wide bg-primary/90 text-primary-foreground">{c.subsystem}</span>
+          </div>
+          <p className="font-display text-[17px] font-bold leading-tight mt-1">{c.component_name}</p>
+          <p className="text-xs text-muted-foreground leading-relaxed mt-0.5 line-clamp-2">{c.purpose_function}</p>
+        </div>
+
+        <div className="grid grid-cols-3 gap-2">
+          {[
+            { label: "Voltage", value: `${c.voltage_v}V` },
+            { label: "Current", value: `${c.current_ma}mA` },
+            { label: "Power", value: `${c.power_computed_mw.toFixed(1)}mW` },
+            { label: "Mass", value: `${c.mass_g}g` },
+            { label: "Dimensions", value: `${c.length_mm} × ${c.width_mm} × ${c.height_mm}` },
+            { label: "Cost", value: `${c.cost_aed.toFixed(0)} AED`, accent: true },
+          ].map((s) => (
+            <div key={s.label} className="rounded-lg bg-muted px-1.5 py-2 text-center">
+              <p className={`text-sm font-bold ${"accent" in s && s.accent ? "text-amber-600 dark:text-amber-400" : ""}`}>{s.value}</p>
+              <p className="text-[10px] text-muted-foreground mt-0.5">{s.label}</p>
+            </div>
+          ))}
+        </div>
+
+        <button
+          type="button"
+          onClick={() => setSpecsOpen((v) => !v)}
+          className="text-xs font-bold text-primary hover:opacity-80 text-left"
+        >
+          {specsOpen ? "Hide full specs" : "View full specs"}
+        </button>
+        {specsOpen && (
+          <div className="flex flex-col gap-1.5 text-xs rounded-xl bg-muted/60 p-3">
+            <p><b>Output:</b> {c.measurement_output}</p>
+            {c.measurement_range && <p><b>Range:</b> {c.measurement_range}</p>}
+            <p className="whitespace-pre-line"><b>Pins:</b> {c.pins_used}</p>
+            {c.datasheet_reference && (
+              c.datasheet_reference.startsWith("http") ? (
+                <p><b>Datasheet:</b> <a href={c.datasheet_reference} target="_blank" rel="noreferrer" className="text-primary underline">Open link</a></p>
+              ) : (
+                <p><b>Datasheet:</b> {c.datasheet_reference}</p>
+              )
+            )}
+          </div>
+        )}
+
+        <div className="flex gap-2 mt-0.5">
+          <div className="flex items-center justify-between gap-1 w-[104px] h-11 rounded-lg bg-muted ring-1 ring-border px-1.5 shrink-0">
+            <button
+              type="button"
+              onClick={() => setQty((q) => Math.max(1, q - 1))}
+              disabled={qty <= 1}
+              className="size-7 flex items-center justify-center text-muted-foreground hover:text-foreground disabled:opacity-40"
+            >
+              <Minus className="size-3.5" />
+            </button>
+            <span className="text-sm font-semibold w-4 text-center">{qty}</span>
+            <button
+              type="button"
+              onClick={() => setQty((q) => q + 1)}
+              className="size-7 flex items-center justify-center text-primary hover:text-primary/80"
+            >
+              <Plus className="size-3.5" />
+            </button>
+          </div>
+          <Button className="flex-1 h-11 gap-1.5 font-bold" onClick={() => { onAdd(qty); setQty(1); }}>
+            <Plus className="size-3.5" /> Add to Mission
+          </Button>
         </div>
       </div>
     </div>
