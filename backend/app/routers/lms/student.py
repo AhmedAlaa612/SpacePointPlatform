@@ -21,9 +21,11 @@ choke point — and the Pydantic response models (`extra="forbid"`) enforce the
 leak guarantee a second time at the response boundary.
 """
 
+import asyncio
 import logging
 import uuid
 from datetime import datetime, timezone
+from html import escape
 from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, status
