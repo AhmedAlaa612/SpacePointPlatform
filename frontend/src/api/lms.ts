@@ -270,8 +270,8 @@ export interface LearningPathDetail {
 
 export interface MyCertificate {
   id: string;
-  type: "lms_course_completion" | "lms_path_completion";
-  /** The course or learning path it was earned for. */
+  type: "lms_course_completion" | "lms_path_completion" | "student_completion" | string;
+  /** The course or learning path or program it was earned for. */
   title: string;
   course_id: string | null;
   learning_path_id: string | null;

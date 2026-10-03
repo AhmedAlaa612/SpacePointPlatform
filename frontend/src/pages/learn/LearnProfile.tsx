@@ -185,7 +185,11 @@ export default function LearnProfile() {
                     <div className="min-w-0 flex-1">
                       <div className="text-sm font-medium text-foreground truncate">{c.title}</div>
                       <div className="text-xs text-muted-foreground">
-                        {c.type === "lms_path_completion" ? "Learning path" : "Course"}
+                        {c.type === "student_completion"
+                          ? "Program"
+                          : c.type === "lms_path_completion"
+                          ? "Learning path"
+                          : "Course"}
                         {c.issued_at && ` · ${new Date(c.issued_at).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}`}
                       </div>
                     </div>

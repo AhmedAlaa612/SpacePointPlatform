@@ -210,33 +210,39 @@ async def main():
             e_id = extract_team_id(raw_name)
             base_name = strip_all_parens(raw_name)
 
-            # 1. Exact Roster ID match
+            # 1. Exact full name match (highest precedence)
+            if c_name.lower() in team_by_exact_name:
+                t = team_by_exact_name[c_name.lower()]
+                if t.id not in matched_team_ids:
+                    matched_team_ids.add(t.id)
+                    if e_id and not t.roster_team_id:
+                        t.roster_team_id = e_id
+                    return t, "BY_EXACT_NAME"
+
+            # 2. Clean name match (excluding trailing id)
+            if c_name.lower() in team_by_clean_name:
+                t = team_by_clean_name[c_name.lower()]
+                if t.id not in matched_team_ids:
+                    matched_team_ids.add(t.id)
+                    if e_id and not t.roster_team_id:
+                        t.roster_team_id = e_id
+                    return t, "BY_CLEAN_NAME"
+
+            # 3. Base name match (excluding all parens)
+            if base_name.lower() in team_by_base_name:
+                t = team_by_base_name[base_name.lower()]
+                if t.id not in matched_team_ids:
+                    matched_team_ids.add(t.id)
+                    if e_id and not t.roster_team_id:
+                        t.roster_team_id = e_id
+                    return t, f"BY_BASE_NAME ({base_name})"
+
+            # 4. Exact Roster ID match
             if e_id and e_id.lower() in team_by_roster_id:
                 t = team_by_roster_id[e_id.lower()]
                 if t.id not in matched_team_ids:
                     matched_team_ids.add(t.id)
                     return t, f"BY_ROSTER_ID ({e_id})"
-
-            # 2. Exact full name match
-            if c_name.lower() in team_by_exact_name:
-                t = team_by_exact_name[c_name.lower()]
-                if t.id not in matched_team_ids:
-                    matched_team_ids.add(t.id)
-                    return t, "BY_EXACT_NAME"
-
-            # 3. Clean name match (excluding trailing id)
-            if c_name.lower() in team_by_clean_name:
-                t = team_by_clean_name[c_name.lower()]
-                if t.id not in matched_team_ids:
-                    matched_team_ids.add(t.id)
-                    return t, "BY_CLEAN_NAME"
-
-            # 4. Base name match (excluding all parens)
-            if base_name.lower() in team_by_base_name:
-                t = team_by_base_name[base_name.lower()]
-                if t.id not in matched_team_ids:
-                    matched_team_ids.add(t.id)
-                    return t, f"BY_BASE_NAME ({base_name})"
 
             if raw_name.strip().lower() in team_by_exact_name:
                 t = team_by_exact_name[raw_name.strip().lower()]

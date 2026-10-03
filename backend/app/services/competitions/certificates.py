@@ -17,11 +17,14 @@ from __future__ import annotations
 import asyncio
 from datetime import datetime, timezone
 from html import escape
+import logging
 import uuid
 
 from fastapi import HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+
+logger = logging.getLogger(__name__)
 
 from app.models.certificate import Certificate
 from app.models.document_template import DocumentTemplate
@@ -683,6 +686,15 @@ async def send_cohort_certificates(
                     signatory_title=layout.get("signatory_title"),
                 )
 
+                cert_storage_path = f"cohort_{cohort.id}/{contact.id}_{reg.id}.pdf"
+                try:
+                    await storage.upload_to_path("certificates", cert_storage_path, cert_bytes, "application/pdf")
+                    cert_bucket = "certificates"
+                except Exception as upload_err:
+                    logger.warning("Failed to upload cert PDF to storage: %s", upload_err)
+                    cert_bucket = None
+                    cert_storage_path = None
+
                 if existing is None:
                     certificate = Certificate(
                         id=uuid.uuid4(),
@@ -692,12 +704,17 @@ async def send_cohort_certificates(
                         workshop_name=program.name,
                         workshop_date=dates,
                         location=location.get("name"),
+                        bucket=cert_bucket,
+                        file_path=cert_storage_path,
                         generated_by=actor_user_id,
                     )
                     db.add(certificate)
                 else:
                     existing.generated_at = datetime.now(timezone.utc)
                     existing.generated_by = actor_user_id
+                    if cert_bucket and cert_storage_path:
+                        existing.bucket = cert_bucket
+                        existing.file_path = cert_storage_path
 
                 reg.status = "completed"
                 await db.flush()

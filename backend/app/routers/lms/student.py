@@ -1066,11 +1066,29 @@ async def my_certificates(
     """
     await _backfill_missing_certificates(db, current.id)
 
+    # Resolve contact_id for the current user if not directly set
+    contact_ids = set()
+    if current.contact_id:
+        contact_ids.add(current.contact_id)
+    if current.email:
+        from app.models.spine.contact import Contact
+        norm_email = current.email.strip().lower()
+        matching_cids = (await db.execute(
+            select(Contact.id).where(func.lower(Contact.email) == norm_email)
+        )).scalars().all()
+        contact_ids.update(matching_cids)
+
+    owner_conditions = [Certificate.user_id == current.id]
+    if contact_ids:
+        owner_conditions.append(Certificate.contact_id.in_(list(contact_ids)))
+
     rows = (await db.execute(
         select(Certificate).where(
-            Certificate.user_id == current.id,
+            or_(*owner_conditions),
             Certificate.type.in_([
-                CertificateType.lms_course_completion, CertificateType.lms_path_completion,
+                CertificateType.lms_course_completion,
+                CertificateType.lms_path_completion,
+                CertificateType.student_completion,
             ]),
         ).order_by(Certificate.generated_at.desc())
     )).scalars().all()
@@ -1080,14 +1098,91 @@ async def my_certificates(
         if row.course_id is not None:
             course = await db.get(Course, row.course_id)
             title = course.title if course else "Course"
-        else:
-            path = await db.get(LearningPath, row.learning_path_id) if row.learning_path_id else None
+        elif row.learning_path_id is not None:
+            path = await db.get(LearningPath, row.learning_path_id)
             title = path.title if path else "Learning path"
+        else:
+            title = row.workshop_name or "Program Certificate"
+
+        url = None
+        if row.bucket and row.file_path:
+            url = await storage.resolve_url(row.bucket, row.file_path)
+        elif row.type == CertificateType.student_completion:
+            # Self-heal previously issued certs that were emailed before storage uploading was added
+            try:
+                from app.models.sessions.registration import Registration
+                from app.models.sessions.cohort import Cohort
+                from app.models.sessions.program import Program
+                from app.models.spine.contact import Contact
+                from app.services.competitions.certificates import _resolve_certificate_template
+                from app.services.documents.certificate import generate_completion_certificate_pdf
+                from app.services.sessions.registration import format_cohort_dates
+                from app.models.document_template import DocumentTemplate
+
+                contact_obj = await db.get(Contact, row.contact_id) if row.contact_id else None
+                rec_name = contact_obj.full_name if contact_obj else current.full_name
+                reg_obj = await db.get(Registration, row.registration_id) if row.registration_id else None
+                cohort_obj = await db.get(Cohort, reg_obj.cohort_id) if reg_obj and reg_obj.cohort_id else None
+                prog_obj = await db.get(Program, cohort_obj.program_id) if cohort_obj and cohort_obj.program_id else None
+
+                prog_name = prog_obj.name if prog_obj else (row.workshop_name or "Program")
+                cohort_name = cohort_obj.name if cohort_obj and cohort_obj.name else ""
+                dates_str = format_cohort_dates(cohort_obj) if cohort_obj else (row.workshop_date or "")
+
+                layout = await _resolve_certificate_template(db, program=prog_obj, theme="dark") if prog_obj else {}
+                tmpl = (await db.execute(
+                    select(DocumentTemplate).where(DocumentTemplate.key == "student_completion")
+                )).scalars().first()
+                raw_body = layout.get("body_text_template") or (tmpl.body_text if tmpl else "For successfully completing<br/>{program_name}<br/>{dates}")
+                body_rendered = (
+                    raw_body
+                    .replace("{program_name}", escape(prog_name))
+                    .replace("{cohort_name}", escape(cohort_name))
+                    .replace("{cohort}", escape(cohort_name))
+                    .replace("{dates}", escape(dates_str))
+                    .replace("{location}", escape(row.location or ""))
+                    .replace("{certificate_type}", "Completion")
+                    .replace("{type}", "Completion")
+                )
+
+                cert_pdf = await asyncio.to_thread(
+                    generate_completion_certificate_pdf,
+                    recipient_name=rec_name,
+                    body_text_template=body_rendered,
+                    background_bytes=layout.get("background_bytes"),
+                    theme=layout.get("theme", "dark"),
+                    name_font_size=layout.get("name_font_size"),
+                    name_y=layout.get("name_y"),
+                    name_color=layout.get("name_color"),
+                    body_font_size=layout.get("body_font_size"),
+                    body_y=layout.get("body_y"),
+                    body_color=layout.get("body_color"),
+                    body_max_width=layout.get("body_max_width"),
+                    body_alignment=layout.get("body_alignment"),
+                    show_signature=layout.get("show_signature", True),
+                    signature_bytes=layout.get("signature_bytes"),
+                    signature_x=layout.get("signature_x"),
+                    signature_y=layout.get("signature_y"),
+                    signature_width=layout.get("signature_width"),
+                    signature_height=layout.get("signature_height"),
+                    signatory_name=layout.get("signatory_name"),
+                    signatory_title=layout.get("signatory_title"),
+                )
+
+                new_path = f"certificates_backfill/{row.id}.pdf"
+                await storage.upload_to_path("certificates", new_path, cert_pdf, "application/pdf")
+                row.bucket = "certificates"
+                row.file_path = new_path
+                await db.commit()
+                url = await storage.resolve_url(row.bucket, row.file_path)
+            except Exception as heal_err:
+                logger.warning("Failed on-the-fly cert render/upload for %s: %s", row.id, heal_err)
+
         out.append(MyCertificateOut(
             id=row.id, type=row.type.value if hasattr(row.type, "value") else str(row.type),
             title=title, course_id=row.course_id, learning_path_id=row.learning_path_id,
             issued_at=row.generated_at,
-            url=await storage.resolve_url(row.bucket, row.file_path),
+            url=url,
         ))
     return out
 
