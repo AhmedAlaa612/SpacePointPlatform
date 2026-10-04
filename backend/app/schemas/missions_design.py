@@ -169,7 +169,7 @@ class DesignCustomComponentCreateIn(BaseModel):
 
     component_name: str = Field(min_length=2, max_length=128)
     subsystem: str
-    purpose_function: str = Field(min_length=10)
+    purpose_function: str = Field(default="")
     voltage_v: float = Field(gt=0, le=100)
     current_ma: float = Field(gt=0, le=100_000)
     pins_used: str = Field(min_length=3)
@@ -195,7 +195,7 @@ class DesignCustomComponentUpdateIn(BaseModel):
 
     component_name: str | None = Field(default=None, min_length=2, max_length=128)
     subsystem: str | None = None
-    purpose_function: str | None = Field(default=None, min_length=10)
+    purpose_function: str | None = None
     voltage_v: float | None = Field(default=None, gt=0, le=100)
     current_ma: float | None = Field(default=None, gt=0, le=100_000)
     pins_used: str | None = Field(default=None, min_length=3)

@@ -198,3 +198,21 @@ async def test_custom_edit_does_not_rewrite_snapshot_and_ops_can_inspect(db, cli
         "/missions/admin/custom-components", headers=_headers(ops), params={"subsystem": "EPS"},
     )
     assert empty.json() == []
+
+
+@pytest.mark.asyncio
+async def test_custom_component_allows_short_purpose_function(db, client):
+    author = await _user(db, roles=["operations"])
+    mission, variant = await _design_mission(db, author=author)
+    student = await _user(db)
+    attempt_id = await _attempt(client, db, mission, variant, student)
+    h = _headers(student)
+
+    created = await client.post(
+        f"/missions/design/attempts/{attempt_id}/custom-components",
+        headers=h,
+        json=_custom_body(purpose_function="Camera"),
+    )
+    assert created.status_code == 201, created.text
+    assert created.json()["components"][0]["purpose_function"] == "Camera"
+
