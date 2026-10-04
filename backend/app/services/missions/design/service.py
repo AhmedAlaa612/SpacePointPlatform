@@ -195,6 +195,42 @@ async def update_custom_component(
     for field, value in fields.items():
         setattr(custom, field, value)
     custom.updated_at = datetime.now(timezone.utc)
+
+    # Propagate edits (including image) to placed snapshots in this attempt's design
+    placed_stmt = (
+        select(DesignComponent)
+        .join(Design, Design.id == DesignComponent.design_id)
+        .where(
+            Design.attempt_id == attempt_id,
+            DesignComponent.custom_component_id == custom.id,
+        )
+    )
+    placed_components = (await db.execute(placed_stmt)).scalars().all()
+    for dc in placed_components:
+        dc.component_name = custom.component_name
+        dc.subsystem = custom.subsystem
+        dc.image_bucket = custom.image_bucket
+        dc.image_path = custom.image_path
+        dc.purpose_function = custom.purpose_function
+        dc.pins_used = custom.pins_used
+        dc.measurement_output = custom.measurement_output
+        dc.measurement_range = custom.measurement_range
+        dc.datasheet_reference = custom.datasheet_reference
+        if "voltage_v" in fields or "current_ma" in fields:
+            dc.voltage_v = custom.voltage_v
+            dc.current_ma = custom.current_ma
+            dc.power_computed_mw = custom_power_mw(voltage_v=custom.voltage_v, current_ma=custom.current_ma)
+        if "mass_g" in fields:
+            dc.mass_per_unit_g = custom.mass_g
+        if "length_mm" in fields:
+            dc.length_mm = custom.length_mm
+        if "width_mm" in fields:
+            dc.width_mm = custom.width_mm
+        if "height_mm" in fields:
+            dc.height_mm = custom.height_mm
+        if "cost_aed" in fields:
+            dc.cost_per_unit_aed = custom.cost_aed
+
     await db.flush()
     return custom
 
@@ -223,7 +259,7 @@ async def add_custom_to_design(
         id=uuid.uuid4(), design_id=design_id, library_component_id=None,
         custom_component_id=custom.id, is_custom=True, quantity=quantity,
         component_name=custom.component_name, subsystem=custom.subsystem,
-        image_bucket=None, image_path=None,
+        image_bucket=custom.image_bucket, image_path=custom.image_path,
         mass_per_unit_g=custom.mass_g,
         length_mm=custom.length_mm, width_mm=custom.width_mm, height_mm=custom.height_mm,
         voltage_v=custom.voltage_v, current_ma=custom.current_ma,

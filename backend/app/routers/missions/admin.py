@@ -255,6 +255,7 @@ async def list_custom_components_admin(
             measurement_range=custom.measurement_range, datasheet_reference=custom.datasheet_reference,
             mass_g=custom.mass_g, length_mm=custom.length_mm, width_mm=custom.width_mm,
             height_mm=custom.height_mm, cost_aed=custom.cost_aed, is_active=custom.is_active,
+            image_url=await storage.resolve_url(custom.image_bucket, custom.image_path) if (custom.image_bucket and custom.image_path) else None,
             created_at=custom.created_at, updated_at=custom.updated_at,
             user_id=custom.user_id, student_name=student.full_name if student else None,
             team_id=custom.team_id, team_name=team.name if team else None,

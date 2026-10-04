@@ -22,7 +22,7 @@ import logging
 import uuid
 from datetime import date
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
 from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -500,8 +500,12 @@ async def add_design_component(
     return result
 
 
-def _custom_out(c) -> DesignCustomComponentOut:
+CUSTOM_IMAGE_BUCKET = "mission-assets"
+
+
+async def _custom_out(c) -> DesignCustomComponentOut:
     from app.services.missions.design.service import custom_power_mw
+    image_url = (await storage.resolve_url(c.image_bucket, c.image_path)) if (c.image_bucket and c.image_path) else None
     return DesignCustomComponentOut(
         id=c.id, attempt_id=c.attempt_id, component_name=c.component_name, subsystem=c.subsystem,
         purpose_function=c.purpose_function, voltage_v=c.voltage_v, current_ma=c.current_ma,
@@ -510,8 +514,57 @@ def _custom_out(c) -> DesignCustomComponentOut:
         measurement_range=c.measurement_range, datasheet_reference=c.datasheet_reference,
         mass_g=c.mass_g, length_mm=c.length_mm, width_mm=c.width_mm, height_mm=c.height_mm,
         cost_aed=c.cost_aed, is_active=c.is_active,
+        image_url=image_url,
         created_at=c.created_at, updated_at=c.updated_at,
     )
+
+
+@router.post("/attempts/{attempt_id}/custom-components/upload-image")
+async def upload_custom_component_temp_image(
+    attempt_id: uuid.UUID, file: UploadFile = File(...),
+    db: AsyncSession = Depends(get_db), current: User = Depends(get_current_active_user),
+):
+    await _own_design_attempt(db, attempt_id, current)
+    data = await file.read()
+    if len(data) > 4 * 1024 * 1024:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="Image must be under 4 MB")
+    suffix = (file.filename or "img.png").rsplit(".", 1)[-1].lower()
+    if suffix not in {"png", "jpg", "jpeg", "webp"}:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="Image must be PNG, JPG or WebP")
+
+    img_id = uuid.uuid4().hex
+    path = f"custom-components/{attempt_id}/{img_id}.{suffix}"
+    await storage.upload_to_path(CUSTOM_IMAGE_BUCKET, path, data, file.content_type or "image/png")
+    image_url = await storage.resolve_url(CUSTOM_IMAGE_BUCKET, path)
+    return {"image_bucket": CUSTOM_IMAGE_BUCKET, "image_path": path, "image_url": image_url}
+
+
+@router.post("/attempts/{attempt_id}/custom-components/{custom_component_id}/image", response_model=DesignCustomComponentOut)
+async def upload_custom_component_image(
+    attempt_id: uuid.UUID, custom_component_id: uuid.UUID, file: UploadFile = File(...),
+    db: AsyncSession = Depends(get_db), current: User = Depends(get_current_active_user),
+):
+    attempt = await _own_design_attempt(db, attempt_id, current)
+    await _require_team_not_final_locked(db, attempt=attempt)
+    await require_step_unlocked(db, attempt=attempt, step_key="components")
+
+    data = await file.read()
+    if len(data) > 4 * 1024 * 1024:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="Image must be under 4 MB")
+    suffix = (file.filename or "img.png").rsplit(".", 1)[-1].lower()
+    if suffix not in {"png", "jpg", "jpeg", "webp"}:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="Image must be PNG, JPG or WebP")
+
+    img_id = uuid.uuid4().hex
+    path = f"custom-components/{attempt_id}/{custom_component_id}_{img_id}.{suffix}"
+    await storage.upload_to_path(CUSTOM_IMAGE_BUCKET, path, data, file.content_type or "image/png")
+    custom = await design_service.update_custom_component(
+        db, attempt_id=attempt.id, custom_component_id=custom_component_id,
+        fields={"image_bucket": CUSTOM_IMAGE_BUCKET, "image_path": path},
+    )
+    await db.commit()
+    await db.refresh(custom)
+    return await _custom_out(custom)
 
 
 @router.post("/attempts/{attempt_id}/custom-components", response_model=DesignStateOut, status_code=status.HTTP_201_CREATED)
@@ -547,7 +600,7 @@ async def list_custom_components(
 ):
     attempt = await _own_design_attempt(db, attempt_id, current)
     rows = await design_service.list_custom_components(db, attempt_id=attempt.id)
-    return [_custom_out(c) for c in rows]
+    return [await _custom_out(c) for c in rows]
 
 
 @router.patch("/attempts/{attempt_id}/custom-components/{custom_component_id}", response_model=DesignCustomComponentOut)
@@ -564,7 +617,7 @@ async def update_custom_component(
     )
     await db.commit()
     await db.refresh(custom)
-    return _custom_out(custom)
+    return await _custom_out(custom)
 
 
 @router.delete("/attempts/{attempt_id}/custom-components/{custom_component_id}", status_code=status.HTTP_204_NO_CONTENT)

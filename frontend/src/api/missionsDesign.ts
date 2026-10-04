@@ -116,6 +116,9 @@ export interface DesignCustomComponent {
   height_mm: number;
   cost_aed: number;
   is_active: boolean;
+  image_url?: string | null;
+  image_bucket?: string | null;
+  image_path?: string | null;
   created_at: string | null;
   updated_at: string | null;
 }
@@ -136,6 +139,8 @@ export interface DesignCustomComponentCreate {
   height_mm: number;
   cost_aed: number;
   quantity?: number;
+  image_bucket?: string | null;
+  image_path?: string | null;
 }
 
 export const CUSTOM_SUBSYSTEMS = ["ADCS", "CDHS", "EPS", "COMMS", "Payload", "Structure", "Thermal"];
@@ -412,6 +417,33 @@ export async function updateCustomComponent(
 
 export async function deleteCustomComponent(attemptId: string, customComponentId: string): Promise<void> {
   await api.delete(`/missions/design/attempts/${attemptId}/custom-components/${customComponentId}`);
+}
+
+export async function uploadCustomComponentImage(
+  attemptId: string,
+  file: File,
+): Promise<{ image_bucket: string; image_path: string; image_url: string }> {
+  const form = new FormData();
+  form.append("file", file);
+  const { data } = await api.post<{ image_bucket: string; image_path: string; image_url: string }>(
+    `/missions/design/attempts/${attemptId}/custom-components/upload-image`,
+    form,
+  );
+  return data;
+}
+
+export async function uploadCustomComponentImageDirect(
+  attemptId: string,
+  customComponentId: string,
+  file: File,
+): Promise<DesignCustomComponent> {
+  const form = new FormData();
+  form.append("file", file);
+  const { data } = await api.post<DesignCustomComponent>(
+    `/missions/design/attempts/${attemptId}/custom-components/${customComponentId}/image`,
+    form,
+  );
+  return data;
 }
 
 export async function removeDesignComponent(attemptId: string, designComponentId: string): Promise<DesignState> {

@@ -182,6 +182,8 @@ class DesignCustomComponentCreateIn(BaseModel):
     height_mm: float = Field(gt=0, le=2000)
     cost_aed: float = Field(ge=0, le=1_000_000)
     quantity: int = Field(default=1, ge=1, le=1_000_000)
+    image_bucket: str | None = Field(default=None, max_length=64)
+    image_path: str | None = Field(default=None, max_length=512)
 
     @model_validator(mode="after")
     def _normalize_subsystem(self):
@@ -207,6 +209,8 @@ class DesignCustomComponentUpdateIn(BaseModel):
     width_mm: float | None = Field(default=None, gt=0, le=2000)
     height_mm: float | None = Field(default=None, gt=0, le=2000)
     cost_aed: float | None = Field(default=None, ge=0, le=1_000_000)
+    image_bucket: str | None = Field(default=None, max_length=64)
+    image_path: str | None = Field(default=None, max_length=512)
 
     @model_validator(mode="after")
     def _normalize_subsystem(self):
@@ -235,6 +239,7 @@ class DesignCustomComponentOut(BaseModel):
     height_mm: float
     cost_aed: float
     is_active: bool
+    image_url: str | None = None
     created_at: datetime | None = None
     updated_at: datetime | None = None
 

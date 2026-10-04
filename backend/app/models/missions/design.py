@@ -267,6 +267,10 @@ class DesignCustomComponent(Base):
     height_mm = Column(Float, nullable=False)
     cost_aed = Column(Float, nullable=False)  # AED directly — never USD, never converted
 
+    # ── optional component image ──────────────────────────────────────────
+    image_bucket = Column(String(64), nullable=True)
+    image_path = Column(String(512), nullable=True)
+
     is_active = Column(Boolean, nullable=False, default=True, server_default="true")
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
     updated_at = Column(DateTime(timezone=True), nullable=True)

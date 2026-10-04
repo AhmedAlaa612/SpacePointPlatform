@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useSearch, useNavigate, Link } from "@tanstack/react-router";
 import { isAxiosError } from "axios";
-import { AlertTriangle, Box, CheckCircle2, ChevronRight, Clock, FileText, Layers, Minus, Orbit, Plus, Rocket, Search, ShoppingCart, Trash2, XCircle, Zap } from "lucide-react";
+import { AlertTriangle, Box, CheckCircle2, ChevronRight, Clock, FileText, Layers, Minus, Orbit, Pencil, Plus, Rocket, Search, ShoppingCart, Trash2, XCircle, Zap } from "lucide-react";
 import { Bar, BarChart, CartesianGrid, Cell, Legend, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -521,6 +521,7 @@ export function ComponentsTab({ state, attemptId, onChanged }: { state: DesignSt
   const [library, setLibrary] = useState<DesignLibraryComponent[]>([]);
   const [customs, setCustoms] = useState<DesignCustomComponent[]>([]);
   const [customModalOpen, setCustomModalOpen] = useState(false);
+  const [editingCustom, setEditingCustom] = useState<DesignCustomComponent | null>(null);
   const [error, setError] = useState("");
   const [search, setSearch] = useState("");
   const [subsystemFilter, setSubsystemFilter] = useState("All");
@@ -620,7 +621,7 @@ export function ComponentsTab({ state, attemptId, onChanged }: { state: DesignSt
               <p className="text-base font-bold">Component library</p>
               <button
                 type="button"
-                onClick={() => setCustomModalOpen(true)}
+                onClick={() => { setEditingCustom(null); setCustomModalOpen(true); }}
                 className="px-3 py-1.5 rounded-xl text-xs font-bold ring-1 ring-primary/40 bg-primary/10 text-primary hover:bg-primary/15 transition-colors"
               >
                 + Add Custom Component
@@ -684,7 +685,12 @@ export function ComponentsTab({ state, attemptId, onChanged }: { state: DesignSt
           </div>
           <div className="grid sm:grid-cols-2 gap-4">
             {filteredCustoms.map((c) => (
-              <CustomLibraryCard key={c.id} component={c} onAdd={(quantity) => void addCustom(c.id, quantity)} />
+              <CustomLibraryCard
+                key={c.id}
+                component={c}
+                onAdd={(quantity) => void addCustom(c.id, quantity)}
+                onEdit={() => { setEditingCustom(c); setCustomModalOpen(true); }}
+              />
             ))}
             {filteredLibrary.map((c) => (
               <LibraryCard key={c.id} component={c} onAdd={(quantity) => void add(c.id, quantity)} />
@@ -695,8 +701,21 @@ export function ComponentsTab({ state, attemptId, onChanged }: { state: DesignSt
         <CustomComponentModal
           attemptId={attemptId}
           open={customModalOpen}
-          onOpenChange={setCustomModalOpen}
+          onOpenChange={(op) => {
+            setCustomModalOpen(op);
+            if (!op) setEditingCustom(null);
+          }}
+          initialComponent={editingCustom}
           onCreated={(next) => { onChanged(next); refreshCustoms(); }}
+          onUpdated={async () => {
+            refreshCustoms();
+            try {
+              const nextState = await fetchDesignState(attemptId);
+              onChanged(nextState);
+            } catch {
+              // ignore
+            }
+          }}
         />
 
         {/* Mission cart + invoice */}
@@ -787,20 +806,40 @@ export function ComponentsTab({ state, attemptId, onChanged }: { state: DesignSt
 
 /** One of the student's own custom parts — cost is AED direct (never USD,
  * never converted), power is the server-computed V x mA readout. */
-function CustomLibraryCard({ component: c, onAdd }: { component: DesignCustomComponent; onAdd: (quantity: number) => void }) {
+/** One of the student's own custom parts — cost is AED direct (never USD,
+ * never converted), power is the server-computed V x mA readout. */
+function CustomLibraryCard({
+  component: c,
+  onAdd,
+  onEdit,
+}: {
+  component: DesignCustomComponent;
+  onAdd: (quantity: number) => void;
+  onEdit?: () => void;
+}) {
   const [qty, setQty] = useState(1);
   const [specsOpen, setSpecsOpen] = useState(false);
 
   return (
     <div className="rounded-2xl ring-1 ring-primary/30 bg-card overflow-hidden flex flex-col">
+      <div className="relative h-[140px] shrink-0 flex items-center justify-center bg-gradient-to-br from-muted to-muted/40">
+        {c.image_url ? (
+          <img src={c.image_url} alt="" className="h-full w-full object-cover" />
+        ) : (
+          <Box className="size-11 text-muted-foreground/50" strokeWidth={1.5} />
+        )}
+        <div className="absolute top-2.5 left-2.5 flex gap-1.5 flex-wrap">
+          <span className="px-2 py-1 rounded-lg text-[10px] font-bold tracking-wide bg-violet-500/90 text-white">CUSTOM</span>
+          <span className="px-2 py-1 rounded-lg text-[10px] font-bold tracking-wide bg-primary/90 text-primary-foreground">{c.subsystem}</span>
+        </div>
+      </div>
+
       <div className="p-4 flex flex-col gap-3">
         <div className="flex flex-col gap-0.5">
-          <div className="flex items-center gap-2 flex-wrap">
-            <span className="px-2 py-1 rounded-lg text-[10px] font-bold tracking-wide bg-violet-500/90 text-white">CUSTOM</span>
-            <span className="px-2 py-1 rounded-lg text-[10px] font-bold tracking-wide bg-primary/90 text-primary-foreground">{c.subsystem}</span>
-          </div>
-          <p className="font-display text-[17px] font-bold leading-tight mt-1">{c.component_name}</p>
-          <p className="text-xs text-muted-foreground leading-relaxed mt-0.5 line-clamp-2">{c.purpose_function}</p>
+          <p className="font-display text-[17px] font-bold leading-tight">{c.component_name}</p>
+          {c.purpose_function ? (
+            <p className="text-xs text-muted-foreground leading-relaxed mt-0.5 line-clamp-2">{c.purpose_function}</p>
+          ) : null}
         </div>
 
         <div className="grid grid-cols-3 gap-2">
@@ -819,13 +858,27 @@ function CustomLibraryCard({ component: c, onAdd }: { component: DesignCustomCom
           ))}
         </div>
 
-        <button
-          type="button"
-          onClick={() => setSpecsOpen((v) => !v)}
-          className="text-xs font-bold text-primary hover:opacity-80 text-left"
-        >
-          {specsOpen ? "Hide full specs" : "View full specs"}
-        </button>
+        <div className="flex items-center justify-between gap-2">
+          <button
+            type="button"
+            onClick={() => setSpecsOpen((v) => !v)}
+            className="text-xs font-bold text-primary hover:opacity-80 text-left"
+          >
+            {specsOpen ? "Hide full specs" : "View full specs"}
+          </button>
+          {onEdit && (
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              className="h-7 text-xs gap-1 font-semibold"
+              onClick={onEdit}
+            >
+              <Pencil className="size-3" /> Edit
+            </Button>
+          )}
+        </div>
+
         {specsOpen && (
           <div className="flex flex-col gap-1.5 text-xs rounded-xl bg-muted/60 p-3">
             <p><b>Output:</b> {c.measurement_output}</p>
