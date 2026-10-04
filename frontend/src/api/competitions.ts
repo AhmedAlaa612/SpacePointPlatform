@@ -553,7 +553,7 @@ export const assignExistingStudentsApi = (
 export const registerUsersToCohortApi = (
   cohortId: string,
   userIds: string[],
-  options?: { send_welcome_email?: boolean },
+  options?: { send_welcome_email?: boolean; send_ticket_email?: boolean },
 ) =>
   api.post<CompetitionAssignStudentsResult>(
     `/competitions/admin/cohorts/${cohortId}/register-users`, { user_ids: userIds, ...options },
