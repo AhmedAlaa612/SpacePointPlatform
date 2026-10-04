@@ -376,11 +376,20 @@ function TemplateStep({ programs, cohort, onCloned, onFresh, onFormChange }: {
   const [carry, setCarry] = useState<string[]>(["basics", "windows", "roles", "materials", "assessment", "checklist", "rubric", "judges"])
   const [error, setError] = useState("")
 
+  const [copyFromOtherProgram, setCopyFromOtherProgram] = useState(false)
+  const [sourceProgramId, setSourceProgramId] = useState("")
+
   const { data: allCohorts = [] } = useQuery({ queryKey: ["sessions-cohorts-all"], queryFn: () => getCohortsApi() })
   const source = allCohorts.find((c) => c.id === sourceId)
   const targetProgram = programs.find((p) => p.id === targetProgramId)
   const sourceProgram = programs.find((p) => p.id === source?.program_id)
   const showCompetition = Boolean(targetProgram?.is_competition || sourceProgram?.is_competition || source?.program_is_competition)
+
+  const effectiveSourceProgramId = copyFromOtherProgram ? sourceProgramId : targetProgramId
+  const availableCohorts = useMemo(() => {
+    if (!effectiveSourceProgramId) return []
+    return allCohorts.filter((c) => c.program_id === effectiveSourceProgramId)
+  }, [allCohorts, effectiveSourceProgramId])
 
   useEffect(() => {
     if (source && !name) setName(`${source.name} (Copy)`)
@@ -445,7 +454,11 @@ function TemplateStep({ programs, cohort, onCloned, onFresh, onFormChange }: {
         <div className="flex flex-col" style={{ gap: 16 }}>
           <BigField label="Target program">
             <select
-              value={targetProgramId} onChange={(e) => setTargetProgramId(e.target.value)}
+              value={targetProgramId}
+              onChange={(e) => {
+                setTargetProgramId(e.target.value)
+                if (!copyFromOtherProgram) setSourceId("")
+              }}
               style={{ ...bigInput, cursor: "pointer" }}
               className="border border-border bg-background text-foreground focus:outline-none focus:border-primary transition-colors"
             >
@@ -453,18 +466,63 @@ function TemplateStep({ programs, cohort, onCloned, onFresh, onFormChange }: {
               {programs.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
             </select>
           </BigField>
+
+          <div className="flex items-center justify-between -mt-2">
+            <label className="flex items-center gap-2 text-xs text-muted-foreground hover:text-foreground cursor-pointer select-none transition-colors">
+              <input
+                type="checkbox"
+                checked={copyFromOtherProgram}
+                onChange={(e) => {
+                  setCopyFromOtherProgram(e.target.checked)
+                  setSourceId("")
+                }}
+                className="rounded border-border accent-primary w-3.5 h-3.5 cursor-pointer"
+              />
+              <span>Copy template from a different program</span>
+            </label>
+          </div>
+
+          {copyFromOtherProgram && (
+            <BigField label="Source program (template from)">
+              <select
+                value={sourceProgramId}
+                onChange={(e) => {
+                  setSourceProgramId(e.target.value)
+                  setSourceId("")
+                }}
+                style={{ ...bigInput, cursor: "pointer" }}
+                className="border border-border bg-background text-foreground focus:outline-none focus:border-primary transition-colors"
+              >
+                <option value="">— Select source program —</option>
+                {programs.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+              </select>
+            </BigField>
+          )}
+
           <BigField label="Template cohort">
             <select
-              value={sourceId} onChange={(e) => setSourceId(e.target.value)}
-              style={{ ...bigInput, cursor: "pointer" }}
-              className="border border-border bg-background text-foreground focus:outline-none focus:border-primary transition-colors"
+              value={sourceId}
+              onChange={(e) => setSourceId(e.target.value)}
+              disabled={!effectiveSourceProgramId}
+              style={{ ...bigInput, cursor: effectiveSourceProgramId ? "pointer" : "not-allowed" }}
+              className="border border-border bg-background text-foreground focus:outline-none focus:border-primary transition-colors disabled:opacity-50"
             >
-              <option value="">— Select a cohort —</option>
-              {allCohorts.map((c) => {
-                const pname = programs.find((p) => p.id === c.program_id)?.name ?? c.program_name ?? "Unknown program"
-                return <option key={c.id} value={c.id}>[{pname}] — {c.name}</option>
-              })}
+              <option value="">
+                {!effectiveSourceProgramId
+                  ? "— Select a program first —"
+                  : availableCohorts.length === 0
+                  ? "— No cohorts in this program —"
+                  : "— Select a cohort —"}
+              </option>
+              {availableCohorts.map((c) => (
+                <option key={c.id} value={c.id}>{c.name}</option>
+              ))}
             </select>
+            {targetProgramId && !copyFromOtherProgram && availableCohorts.length === 0 && (
+              <p style={{ fontSize: 13, margin: "4px 0 0" }} className="text-muted-foreground">
+                No existing cohorts in this program yet. Check <em>"Copy template from a different program"</em> above to clone from another program.
+              </p>
+            )}
           </BigField>
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 sm:gap-6">
             <BigField label="New cohort name">
