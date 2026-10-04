@@ -250,3 +250,11 @@ export const manualOverrideMediaConsentApi = (cohortId: string, data: MediaConse
 
 export const manualMatchMediaConsentApi = (cohortId: string, consentId: string, registrationId: string) =>
   api.post<CohortMediaConsent>(`/sessions/cohorts/${cohortId}/media-consent/${consentId}/match`, { registration_id: registrationId }).then((r) => r.data)
+
+export const cloneCohortApi = (sourceId: string, data: {
+  name: string
+  program_id: string
+  starts_on?: string | null
+  ends_on?: string | null
+  carry: string[]
+}) => api.post<Cohort>(`/sessions/cohorts/${sourceId}/clone`, data).then(r => r.data)

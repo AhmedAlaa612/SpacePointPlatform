@@ -33,6 +33,8 @@ from sqlalchemy.orm import aliased
 from app.core.dependencies import require_operations, require_session_delivery
 from app.db.session import get_db
 from app.models.certificate import Certificate
+from app.models.competitions.judging import CompetitionJudge, CompetitionRubric, CompetitionRubricCriterion
+from app.models.lms.program import LmsProgram, LmsProgramCohortOverride, LmsProgramItem
 from app.models.document_template import DocumentTemplate
 from app.models.instructor_assessment.assignment import AssessmentCohortAssignment
 from app.models.sessions.delivery_role import DeliveryRole
@@ -47,6 +49,8 @@ from app.models.inventory.location import Location
 from app.models.inventory.warehouse import Warehouse
 from app.models.sessions.attendance import AttendanceRecord
 from app.models.sessions.cohort import Cohort
+from app.models.sessions.cohort_opening import CohortOpening
+from app.models.sessions.material import Material
 from app.models.sessions.instructor_interest import InstructorInterest
 from app.models.sessions.program import Program
 from app.models.sessions.registration import Registration
@@ -68,6 +72,7 @@ from app.schemas.sessions.cohorts import (
     BulkActionResult,
     BulkAssignInstructorRequest,
     BulkOpenCallRequest,
+    CohortCloneRequest,
     CohortCreate,
     CohortOut,
     CohortUpdate,
@@ -86,6 +91,9 @@ from app.schemas.sessions.registration_desk import (
 )
 from app.schemas.sessions.reports import SessionReportOut
 from app.services import storage
+from app.services.competitions import judging as judging_svc
+from app.services.lms import program as lms_program_svc
+from app.services.lms.program import PROGRAM_ITEM_PDF_BUCKET
 from app.services.notification import create_notification
 from app.services.inventory.cohort_kits import resolve_session_kits
 from app.services.sessions import day as day_service
@@ -370,6 +378,225 @@ async def delete_cohort(
 
     await db.delete(cohort)
     await db.commit()
+
+
+@router.post("/cohorts/{cohort_id}/clone", response_model=CohortOut, status_code=status.HTTP_201_CREATED)
+async def clone_cohort(
+    cohort_id: uuid.UUID,
+    body: CohortCloneRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_operations),
+):
+    source = await db.get(Cohort, cohort_id)
+    if source is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Cohort not found")
+    target_program = await db.get(Program, body.program_id)
+    if target_program is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Program not found")
+
+    new_cohort = Cohort(
+        id=uuid.uuid4(),
+        program_id=target_program.id,
+        name=body.name.strip(),
+        starts_on=body.starts_on,
+        ends_on=body.ends_on,
+        status="planned",
+    )
+    if "basics" in body.carry:
+        new_cohort.location_id = source.location_id
+        new_cohort.warehouse_id = source.warehouse_id
+        new_cohort.capacity = source.capacity
+        new_cohort.duration_hours = source.duration_hours
+        new_cohort.visibility = source.visibility
+        new_cohort.organization_id = source.organization_id
+        new_cohort.poster_template_url = source.poster_template_url
+    if "windows" in body.carry:
+        new_cohort.submission_windows = list(source.submission_windows or [])
+    db.add(new_cohort)
+    await db.flush()
+
+    # ── Roles ──
+    if "roles" in body.carry:
+        source_openings = (await db.execute(
+            select(CohortOpening).where(CohortOpening.cohort_id == source.id)
+        )).scalars().all()
+        for opening in source_openings:
+            db.add(CohortOpening(
+                id=uuid.uuid4(),
+                cohort_id=new_cohort.id,
+                role_id=opening.role_id,
+                slots=opening.slots,
+                amount_aed=opening.amount_aed,
+                notes=opening.notes,
+                responsibilities_override=opening.responsibilities_override,
+                created_by=current_user.id,
+            ))
+        if source_openings:
+            await db.flush()
+    else:
+        await openings_svc.copy_program_openings_to_cohort(
+            db, program_id=target_program.id, cohort_id=new_cohort.id, actor_user_id=current_user.id,
+        )
+
+    # ── Assessment ──
+    if "assessment" in body.carry:
+        source_assignment = await db.scalar(
+            select(AssessmentCohortAssignment).where(AssessmentCohortAssignment.cohort_id == source.id)
+        )
+        if source_assignment is not None:
+            db.add(AssessmentCohortAssignment(
+                id=uuid.uuid4(),
+                cohort_id=new_cohort.id,
+                config_id=source_assignment.config_id,
+                assigned_by=current_user.id,
+            ))
+            await db.flush()
+    elif target_program.default_assessment_config_id is not None:
+        db.add(AssessmentCohortAssignment(
+            id=uuid.uuid4(),
+            cohort_id=new_cohort.id,
+            config_id=target_program.default_assessment_config_id,
+            assigned_by=current_user.id,
+        ))
+        await db.flush()
+
+    # ── Materials ──
+    if "materials" in body.carry:
+        materials = (await db.execute(
+            select(Material).where(Material.cohort_id == source.id)
+        )).scalars().all()
+        for mat in materials:
+            db.add(Material(
+                id=uuid.uuid4(),
+                program_id=None,
+                cohort_id=new_cohort.id,
+                session_id=None,
+                title=mat.title,
+                notes=mat.notes,
+                bucket=mat.bucket,
+                file_path=mat.file_path,
+                url=mat.url,
+                sort_order=mat.sort_order,
+                uploaded_by=current_user.id,
+            ))
+        if materials:
+            await db.flush()
+
+    # ── LMS checklist ──
+    if "checklist" in body.carry:
+        resolved = await lms_program_svc.resolve_cohort_program(db, source.id)
+        if resolved is not None:
+            source_lms_program, source_items = resolved
+            if source_items:
+                target_lms = await db.scalar(
+                    select(LmsProgram).where(LmsProgram.program_id == target_program.id)
+                )
+                target_lms_id = target_lms.id if target_lms is not None else source_lms_program.id
+                override = LmsProgramCohortOverride(
+                    id=uuid.uuid4(), cohort_id=new_cohort.id, lms_program_id=target_lms_id,
+                )
+                db.add(override)
+                await db.flush()
+                for item in source_items:
+                    copy_id = uuid.uuid4()
+                    copy_pdf_path = None
+                    if item.pdf_path:
+                        data = await storage.download_file(PROGRAM_ITEM_PDF_BUCKET, item.pdf_path)
+                        filename = item.pdf_path.rsplit("/", 1)[-1]
+                        copy_pdf_path = await storage.upload_to_path(
+                            PROGRAM_ITEM_PDF_BUCKET, f"program-items/{copy_id}/{filename}",
+                            data, "application/pdf",
+                        )
+                    db.add(LmsProgramItem(
+                        id=copy_id,
+                        owner_type="cohort_override",
+                        owner_id=override.id,
+                        position=item.position,
+                        item_type=item.item_type,
+                        title=item.title,
+                        description=item.description,
+                        optional=item.optional,
+                        requires_confirmation=item.requires_confirmation,
+                        scope=item.scope,
+                        course_id=item.course_id,
+                        mission_id=item.mission_id,
+                        variant_id=item.variant_id,
+                        external_url=item.external_url,
+                        submission_prompt=item.submission_prompt,
+                        submission_field_type=item.submission_field_type,
+                        submission_multi_link=item.submission_multi_link,
+                        submission_link_labels=item.submission_link_labels,
+                        pdf_path=copy_pdf_path,
+                        deadline_at=item.deadline_at,
+                        session_date=item.session_date,
+                        session_starts_at=item.session_starts_at,
+                        session_location=item.session_location,
+                        session_meeting_url=item.session_meeting_url,
+                        mission_step_key=item.mission_step_key,
+                        gated=item.gated,
+                        guideline_kind=item.guideline_kind,
+                        guideline_url=item.guideline_url,
+                        checkpoint_label=item.checkpoint_label,
+                        cohort_quiz_template_id=item.cohort_quiz_template_id,
+                    ))
+                await db.flush()
+    # Else: no override — the new cohort naturally inherits the target
+    # program's default checklist.
+
+    # ── Competition rubric ──
+    if "rubric" in body.carry:
+        source_program = await db.get(Program, source.program_id)
+        if (source_program is not None and source_program.is_competition) or target_program.is_competition:
+            found = await judging_svc.get_rubric(db, cohort_id=source.id)
+            if found is not None:
+                source_rubric, source_criteria = found
+                new_rubric = CompetitionRubric(
+                    id=uuid.uuid4(),
+                    program_id=target_program.id,
+                    cohort_id=new_cohort.id,
+                    name=source_rubric.name,
+                )
+                db.add(new_rubric)
+                await db.flush()
+                for crit in source_criteria:
+                    db.add(CompetitionRubricCriterion(
+                        id=uuid.uuid4(),
+                        rubric_id=new_rubric.id,
+                        key=crit.key,
+                        label=crit.label,
+                        max_points=crit.max_points,
+                        position=crit.position,
+                        scored_by=crit.scored_by,
+                        sub_criteria=crit.sub_criteria,
+                    ))
+                if source_criteria:
+                    await db.flush()
+
+    # ── Competition judges (SILENT — zero notifications) ──
+    if "judges" in body.carry and target_program.is_competition:
+        source_judges = (await db.execute(
+            select(CompetitionJudge).where(CompetitionJudge.cohort_id == source.id)
+        )).scalars().all()
+        for judge in source_judges:
+            db.add(CompetitionJudge(
+                id=uuid.uuid4(),
+                cohort_id=new_cohort.id,
+                user_id=judge.user_id,
+                onboarding_sent_at=None,
+            ))
+            # Deliberately NO send_judge_onboarding_email call and NO
+            # background email enqueue here — silent copy only.
+        if source_judges:
+            await db.flush()
+
+    await db.commit()
+    await db.refresh(new_cohort)
+    program = target_program
+    location = await db.get(Location, new_cohort.location_id) if new_cohort.location_id else None
+    return await _cohort_out(
+        db, new_cohort, program.name, program.code, location,
+        program_is_competition=program.is_competition,
+    )
 
 
 @router.post("/cohorts/{cohort_id}/complete", response_model=CompleteCohortResponse)

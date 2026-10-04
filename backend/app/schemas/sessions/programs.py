@@ -14,7 +14,7 @@ from decimal import Decimal
 from typing import Literal
 from uuid import UUID
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 ProgramType = Literal["workshop", "course", "info_session", "competition"]
 PricingModel = Literal["paid", "free"]
@@ -78,3 +78,21 @@ class ProgramOut(ProgramBase):
 
     class Config:
         from_attributes = True
+
+
+ProgramCloneCarryBucket = Literal[
+    "roles",  # ProgramOpening rows
+    "checklist",  # LmsProgram + LmsProgramItem rows
+    "materials",  # session_materials (program_id)
+    "assessment",  # default_assessment_config_id
+    "certificate",  # default_certificate_template_id
+    "rubric",  # CompetitionRubric + CompetitionRubricCriterion (if competition)
+]
+
+
+class ProgramCloneRequest(BaseModel):
+    name: str
+    code: str
+    carry: list[ProgramCloneCarryBucket] = Field(
+        default_factory=lambda: ["roles", "checklist", "materials", "assessment", "certificate", "rubric"]
+    )

@@ -20,7 +20,7 @@ import type { City, Location, Warehouse } from "@/types/inventory"
 import { getProgramsApi } from "@/api/sessions/programs"
 import { getLocationsApi, getWarehousesApi, createLocationApi, getCitiesApi } from "@/api/inventory"
 import {
-  createCohortApi, updateCohortApi, generateSessionsApi, getSessionsApi, addSessionApi, deleteSessionApi,
+  cloneCohortApi, createCohortApi, updateCohortApi, generateSessionsApi, getCohortsApi, getSessionsApi, addSessionApi, deleteSessionApi,
   getRegistrationsApi,
 } from "@/api/sessions/cohorts"
 import { getCohortOpeningsApi, getDeliveryRolesApi, getMaterialsApi, setCohortOpeningsApi } from "@/api/sessions/openings"
@@ -42,7 +42,7 @@ import { cn, getErrorMessage } from "@/lib/utils"
 import { listLmsProgramsApi, createLmsProgramApi, getCohortProgramOverrideApi, type LmsProgram } from "@/api/lms_admin"
 import { CohortOverrideEditor } from "@/pages/lms-authoring/components/LmsChecklistAuthoring"
 
-const STEP_LABELS = ["Cohort basics", "Sessions", "Roles & checklist", "LMS Checklist", "Materials", "Staffing", "Students", "Review & finish"]
+const STEP_LABELS = ["Template or scratch", "Cohort basics", "Sessions", "Roles & checklist", "LMS Checklist", "Materials", "Staffing", "Students", "Review & finish"]
 const LAST_STEP = STEP_LABELS.length - 1
 const WEEKDAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"] // index = backend's 0..6 (Monday first)
 const OUTFIT = "'Outfit', ui-sans-serif, system-ui, sans-serif"
@@ -97,6 +97,7 @@ export default function CohortWizard() {
   const [cohort, setCohort] = useState<Cohort | null>(null)
 
   const [basicsForm, setBasicsForm] = useState<{ save: () => void; isPending: boolean; canSubmit: boolean }>({ save: () => {}, isPending: false, canSubmit: false })
+  const [templateForm, setTemplateForm] = useState<{ save: () => void; isPending: boolean; canSubmit: boolean }>({ save: () => {}, isPending: false, canSubmit: true })
   // The Roles & checklist step (2026-09 fix): the panel shows every active
   // Delivery Settings role as a live preview before anything is saved — if
   // nobody clicks its own "Save roles" button, no CohortOpening row ever
@@ -120,16 +121,16 @@ export default function CohortWizard() {
 
   const goStep = (i: number) => setStep(Math.max(0, Math.min(LAST_STEP, i)))
   const advance = async () => {
-    if (step === 2) await rolesForm.ensure()
+    if (step === 3) await rolesForm.ensure()
     setSkipped((s) => { const n = { ...s }; delete n[step]; return n })
     goStep(step + 1)
   }
   const skipThis = async () => {
-    if (step === 2) await rolesForm.ensure()
+    if (step === 3) await rolesForm.ensure()
     setSkipped((s) => ({ ...s, [step]: true }))
     goStep(step + 1)
   }
-  const canSkip = step > 0 && step < LAST_STEP
+  const canSkip = step > 1 && step < LAST_STEP
   const canBack = step > 0
 
   return (
@@ -169,15 +170,24 @@ export default function CohortWizard() {
 
       <div className="flex-1 overflow-y-auto p-4 sm:px-10 sm:py-8">
         {step === 0 && (
+          <TemplateStep
+            programs={programs}
+            cohort={cohort}
+            onCloned={(c) => { setCohort(c); advance() }}
+            onFresh={advance}
+            onFormChange={setTemplateForm}
+          />
+        )}
+        {step === 1 && (
           <BasicsStep
             programs={programs} program={program} cohort={cohort}
             onSaved={(c) => { setCohort(c); advance() }}
             onFormChange={setBasicsForm}
           />
         )}
-        {step === 1 && cohort && <SessionsStep cohort={cohort} />}
-        {step === 2 && cohort && <RolesChecklistStep cohort={cohort} onFormChange={setRolesForm} />}
-        {step === 3 && cohort && program && (
+        {step === 2 && cohort && <SessionsStep cohort={cohort} />}
+        {step === 3 && cohort && <RolesChecklistStep cohort={cohort} onFormChange={setRolesForm} />}
+        {step === 4 && cohort && program && (
           <>
             <StepIntro
               eyebrow="LMS Checklist" title="What does students' checklist look like?" ledeWidth={70}
@@ -186,7 +196,7 @@ export default function CohortWizard() {
             <LmsChecklistStep cohort={cohort} program={program} />
           </>
         )}
-        {step === 4 && cohort && (
+        {step === 5 && cohort && (
           <>
             <StepIntro
               eyebrow="Materials" title="What instructors open on the day" ledeWidth={70}
@@ -198,7 +208,7 @@ export default function CohortWizard() {
             />
           </>
         )}
-        {step === 5 && cohort && (
+        {step === 6 && cohort && (
           <>
             <StepIntro
               eyebrow="Staffing" title="Who's running each session?" ledeWidth={70}
@@ -207,7 +217,7 @@ export default function CohortWizard() {
             <StaffingStep cohort={cohort} />
           </>
         )}
-        {step === 6 && cohort && (
+        {step === 7 && cohort && (
           <>
             <StepIntro
               eyebrow="Students" title="Who is registered?" ledeWidth={70}
@@ -216,7 +226,7 @@ export default function CohortWizard() {
             <StudentsStep cohort={cohort} />
           </>
         )}
-        {step === 7 && cohort && <ReviewStep cohort={cohort} program={program} />}
+        {step === 8 && cohort && <ReviewStep cohort={cohort} program={program} />}
       </div>
 
       <footer
@@ -241,7 +251,7 @@ export default function CohortWizard() {
               >Skip for now</button>
             )}
             {step < LAST_STEP ? (
-              <WizardContinueButton step={step} cohort={cohort} onContinue={advance} basicsForm={basicsForm} />
+              <WizardContinueButton step={step} cohort={cohort} onContinue={advance} basicsForm={basicsForm} templateForm={templateForm} />
             ) : (
               <button
                 onClick={() => navigate({ to: "/operations/cohorts/$cohortId", params: { cohortId: cohort!.id } })}
@@ -251,12 +261,12 @@ export default function CohortWizard() {
             )}
           </div>
           <div className="hidden sm:block">
-            {step === 1 && <SkipNote>You can add sessions later from the cohort page.</SkipNote>}
-            {step === 2 && <SkipNote>Every session uses the cohort&rsquo;s roles and checklist until you override one.</SkipNote>}
-            {step === 3 && <SkipNote>You can set this up later from the program or this cohort&rsquo;s own LMS tab.</SkipNote>}
-            {step === 4 && <SkipNote>Sessions will use the program&rsquo;s materials.</SkipNote>}
-            {step === 5 && <SkipNote>You can staff sessions any time from the cohort&rsquo;s Staffing tab.</SkipNote>}
-            {step === 6 && <SkipNote>You can add students any time from the cohort&rsquo;s Students tab.</SkipNote>}
+            {step === 2 && <SkipNote>You can add sessions later from the cohort page.</SkipNote>}
+            {step === 3 && <SkipNote>Every session uses the cohort&rsquo;s roles and checklist until you override one.</SkipNote>}
+            {step === 4 && <SkipNote>You can set this up later from the program or this cohort&rsquo;s own LMS tab.</SkipNote>}
+            {step === 5 && <SkipNote>Sessions will use the program&rsquo;s materials.</SkipNote>}
+            {step === 6 && <SkipNote>You can staff sessions any time from the cohort&rsquo;s Staffing tab.</SkipNote>}
+            {step === 7 && <SkipNote>You can add students any time from the cohort&rsquo;s Students tab.</SkipNote>}
           </div>
         </div>
       </footer>
@@ -268,11 +278,22 @@ function SkipNote({ children }: { children: ReactNode }) {
   return <p style={{ fontSize: 13, margin: 0 }} className="text-muted-foreground">{children}</p>
 }
 
-function WizardContinueButton({ step, cohort, onContinue, basicsForm }: {
+function WizardContinueButton({ step, cohort, onContinue, basicsForm, templateForm }: {
   step: number; cohort: Cohort | null; onContinue: () => void;
   basicsForm: { save: () => void; isPending: boolean; canSubmit: boolean }
+  templateForm: { save: () => void; isPending: boolean; canSubmit: boolean }
 }) {
   if (step === 0) {
+    return (
+      <button
+        onClick={templateForm.save}
+        disabled={!templateForm.canSubmit || templateForm.isPending}
+        style={{ height: 38, borderRadius: 8, fontFamily: OUTFIT, fontWeight: 600 }}
+        className="px-4 sm:px-7 text-sm sm:text-base bg-primary text-primary-foreground hover:opacity-90 transition-opacity disabled:opacity-50"
+      >{templateForm.isPending ? "…" : "Continue"}</button>
+    )
+  }
+  if (step === 1) {
     return (
       <button
         onClick={basicsForm.save}
@@ -323,6 +344,161 @@ function StepDots({ steps, current, skipped, onGo }: {
           </button>
         )
       })}
+    </div>
+  )
+}
+
+/* ════════════════════════ Step 0 — Template or scratch ═══════════════════════ */
+
+const COHORT_CARRY_OPTIONS: { key: string; label: string; competitionOnly?: boolean }[] = [
+  { key: "basics", label: "Basics (location, capacity, duration, visibility, poster URL)" },
+  { key: "windows", label: "Submission windows / timing brackets" },
+  { key: "roles", label: "Delivery roles defaults" },
+  { key: "materials", label: "Materials override" },
+  { key: "assessment", label: "Assessment assignment" },
+  { key: "checklist", label: "LMS Checklist override (copies custom tasks/missions)" },
+  { key: "rubric", label: "Competition Rubric (scoring criteria & breakdown)", competitionOnly: true },
+  { key: "judges", label: "Competition Judges (assign silently with zero email notifications)", competitionOnly: true },
+]
+
+function TemplateStep({ programs, cohort, onCloned, onFresh, onFormChange }: {
+  programs: Program[]; cohort: Cohort | null; onCloned: (c: Cohort) => void; onFresh: () => void;
+  onFormChange: (form: { save: () => void; isPending: boolean; canSubmit: boolean }) => void
+}) {
+  const toast = useToast()
+  const qc = useQueryClient()
+  const [mode, setMode] = useState<"fresh" | "clone">("fresh")
+  const [targetProgramId, setTargetProgramId] = useState(cohort?.program_id ?? "")
+  const [sourceId, setSourceId] = useState("")
+  const [name, setName] = useState("")
+  const [startsOn, setStartsOn] = useState("")
+  const [endsOn, setEndsOn] = useState("")
+  const [carry, setCarry] = useState<string[]>(["basics", "windows", "roles", "materials", "assessment", "checklist", "rubric", "judges"])
+  const [error, setError] = useState("")
+
+  const { data: allCohorts = [] } = useQuery({ queryKey: ["sessions-cohorts-all"], queryFn: () => getCohortsApi() })
+  const source = allCohorts.find((c) => c.id === sourceId)
+  const targetProgram = programs.find((p) => p.id === targetProgramId)
+  const sourceProgram = programs.find((p) => p.id === source?.program_id)
+  const showCompetition = Boolean(targetProgram?.is_competition || sourceProgram?.is_competition || source?.program_is_competition)
+
+  useEffect(() => {
+    if (source && !name) setName(`${source.name} (Copy)`)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sourceId])
+
+  const clone = useMutation({
+    mutationFn: () => cloneCohortApi(sourceId, {
+      name: name.trim(), program_id: targetProgramId,
+      starts_on: startsOn || null, ends_on: endsOn || null, carry,
+    }),
+    onSuccess: (c) => {
+      toast.success("Cohort cloned from template")
+      qc.invalidateQueries({ queryKey: ["sessions-cohorts"] })
+      onCloned(c)
+    },
+    onError: (e: any) => setError(getErrorMessage(e, "Failed to clone cohort")),
+  })
+
+  const toggleCarry = (key: string) =>
+    setCarry((c) => (c.includes(key) ? c.filter((k) => k !== key) : [...c, key]))
+
+  const canSubmit = mode === "fresh" || Boolean(sourceId && targetProgramId && name.trim())
+
+  useEffect(() => {
+    onFormChange({
+      save: () => {
+        if (mode === "fresh") {
+          onFresh()
+          return
+        }
+        setError("")
+        clone.mutate()
+      },
+      isPending: clone.isPending,
+      canSubmit,
+    })
+  }, [mode, sourceId, targetProgramId, name, startsOn, endsOn, carry, clone.isPending, canSubmit])
+
+  const visibleOptions = COHORT_CARRY_OPTIONS.filter((o) => !o.competitionOnly || showCompetition)
+
+  return (
+    <div className="flex flex-col" style={{ gap: 28 }}>
+      <StepIntro
+        eyebrow="Template or scratch" title="Start fresh or clone a template?"
+        lede="Clone an existing cohort — even from another program — to carry its settings into a new cohort. You can edit everything after cloning."
+      />
+      <div className="flex flex-col sm:flex-row gap-2 sm:gap-3">
+        <button
+          type="button" onClick={() => setMode("fresh")}
+          style={{ flex: 1, borderRadius: 10, padding: "12px 16px", fontSize: 14, fontWeight: 600, textAlign: "left" }}
+          className={cn("border transition-colors", mode === "fresh" ? "border-primary bg-primary/5 text-foreground" : "border-border text-muted-foreground")}
+        >○ Start fresh from scratch</button>
+        <button
+          type="button" onClick={() => setMode("clone")}
+          style={{ flex: 1, borderRadius: 10, padding: "12px 16px", fontSize: 14, fontWeight: 600, textAlign: "left" }}
+          className={cn("border transition-colors", mode === "clone" ? "border-primary bg-primary/5 text-foreground" : "border-border text-muted-foreground")}
+        >● Clone an existing cohort as template</button>
+      </div>
+
+      {mode === "clone" && (
+        <div className="flex flex-col" style={{ gap: 16 }}>
+          <BigField label="Target program">
+            <select
+              value={targetProgramId} onChange={(e) => setTargetProgramId(e.target.value)}
+              style={{ ...bigInput, cursor: "pointer" }}
+              className="border border-border bg-background text-foreground focus:outline-none focus:border-primary transition-colors"
+            >
+              <option value="">— Select a program —</option>
+              {programs.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+            </select>
+          </BigField>
+          <BigField label="Template cohort">
+            <select
+              value={sourceId} onChange={(e) => setSourceId(e.target.value)}
+              style={{ ...bigInput, cursor: "pointer" }}
+              className="border border-border bg-background text-foreground focus:outline-none focus:border-primary transition-colors"
+            >
+              <option value="">— Select a cohort —</option>
+              {allCohorts.map((c) => {
+                const pname = programs.find((p) => p.id === c.program_id)?.name ?? c.program_name ?? "Unknown program"
+                return <option key={c.id} value={c.id}>[{pname}] — {c.name}</option>
+              })}
+            </select>
+          </BigField>
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 sm:gap-6">
+            <BigField label="New cohort name">
+              <input
+                value={name} onChange={(e) => setName(e.target.value)} placeholder="New cohort name"
+                style={heroInput} className="border border-border bg-background text-foreground focus:outline-none focus:border-primary transition-colors"
+              />
+            </BigField>
+            <BigField label="Starts on">
+              <input value={startsOn} onChange={(e) => setStartsOn(e.target.value)} type="date"
+                style={bigInput} className="border border-border bg-background text-foreground focus:outline-none focus:border-primary transition-colors" />
+            </BigField>
+            <BigField label="Ends on">
+              <input value={endsOn} onChange={(e) => setEndsOn(e.target.value)} type="date"
+                style={bigInput} className="border border-border bg-background text-foreground focus:outline-none focus:border-primary transition-colors" />
+            </BigField>
+          </div>
+          <div className="flex flex-col" style={{ gap: 8 }}>
+            <span style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em" }} className="text-muted-foreground">Carry over</span>
+            {visibleOptions.map((o) => (
+              <label key={o.key} className="flex items-center gap-2 text-foreground cursor-pointer select-none" style={{ fontSize: 14 }}>
+                <input
+                  type="checkbox"
+                  checked={carry.includes(o.key)}
+                  onChange={() => toggleCarry(o.key)}
+                  className="rounded border-border accent-primary w-4 h-4 cursor-pointer"
+                />
+                <span>{o.label}</span>
+              </label>
+            ))}
+          </div>
+          {error && <p style={{ fontSize: 14 }} className="text-red-500">{error}</p>}
+        </div>
+      )}
     </div>
   )
 }

@@ -9,7 +9,7 @@ from decimal import Decimal
 from typing import Literal
 from uuid import UUID
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 # planned|registration_open|running|completed|cancelled — see the Cohort
 # model's own comment for the authoritative list.
@@ -244,3 +244,25 @@ class CompleteCohortResponse(BaseModel):
     rather than blocking the status flip."""
     cohort: CohortOut
     warnings: list[str] = []
+
+
+CohortCloneCarryBucket = Literal[
+    "basics",  # location_id, warehouse_id, capacity, duration_hours, visibility, org_id, poster
+    "windows",  # submission_windows (JSONB)
+    "roles",  # CohortOpening rows (overrides program seed)
+    "materials",  # session_materials (cohort_id)
+    "assessment",  # AssessmentCohortAssignment
+    "checklist",  # LmsProgramCohortOverride + items deep copy
+    "rubric",  # CompetitionRubric + criteria (cohort-scoped)
+    "judges",  # CompetitionJudge rows (silent copy)
+]
+
+
+class CohortCloneRequest(BaseModel):
+    name: str
+    program_id: UUID  # Target program (allows cross-program clone)
+    starts_on: date | None = None
+    ends_on: date | None = None
+    carry: list[CohortCloneCarryBucket] = Field(
+        default_factory=lambda: ["basics", "windows", "roles", "materials", "assessment", "checklist", "rubric", "judges"]
+    )

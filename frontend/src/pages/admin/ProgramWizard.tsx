@@ -13,7 +13,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useNavigate } from "@tanstack/react-router"
 import { Check, ChevronLeft, X } from "lucide-react"
 import type { CompletionRuleType, PricingModel, Program, ProgramType } from "@/types/sessions"
-import { createProgramApi, updateProgramApi } from "@/api/sessions/programs"
+import { cloneProgramApi, createProgramApi, getProgramsApi, updateProgramApi } from "@/api/sessions/programs"
 import { getMaterialsApi, getProgramOpeningsApi } from "@/api/sessions/openings"
 import { ProgramRolesPanel } from "@/pages/admin/components/ProgramRolesPanel"
 import { ProgramAssessmentDefaultPanel } from "@/pages/admin/components/ProgramAssessmentDefaultPanel"
@@ -24,7 +24,7 @@ import { listLmsProgramsApi, createLmsProgramApi, getLmsProgramApi, type LmsProg
 import { CreateChecklistPrompt, ProgramTemplateEditor } from "@/pages/lms-authoring/components/LmsChecklistAuthoring"
 import { Spinner } from "@/pages/admin/components/common"
 
-const STEP_LABELS = ["Program basics", "Roles & checklist", "LMS Checklist", "Materials", "Review & finish"]
+const STEP_LABELS = ["Template or scratch", "Program basics", "Roles & checklist", "LMS Checklist", "Materials", "Review & finish"]
 const LAST_STEP = STEP_LABELS.length - 1
 const OUTFIT = "'Outfit', ui-sans-serif, system-ui, sans-serif"
 const CARD_SHADOW = "0 3px 0 hsl(var(--border)), 0 10px 20px -5px rgba(0,0,0,.35), 0 2px 6px -1px rgba(0,0,0,.20)"
@@ -78,6 +78,7 @@ export default function ProgramWizard() {
   const [skipped, setSkipped] = useState<Record<number, boolean>>({})
   const [program, setProgram] = useState<Program | null>(null)
   const [basicsForm, setBasicsForm] = useState<{ save: () => void; isPending: boolean; canSubmit: boolean }>({ save: () => {}, isPending: false, canSubmit: false })
+  const [templateForm, setTemplateForm] = useState<{ save: () => void; isPending: boolean; canSubmit: boolean }>({ save: () => {}, isPending: false, canSubmit: true })
 
   useEffect(() => {
     const prev = document.body.style.overflow
@@ -94,7 +95,7 @@ export default function ProgramWizard() {
     setSkipped((s) => ({ ...s, [step]: true }))
     goStep(step + 1)
   }
-  const canSkip = step > 0 && step < LAST_STEP
+  const canSkip = step > 1 && step < LAST_STEP
   const canBack = step > 0
 
   return (
@@ -134,9 +135,17 @@ export default function ProgramWizard() {
 
       <div className="flex-1 overflow-y-auto p-4 sm:px-10 sm:py-8">
         {step === 0 && (
+          <TemplateStep
+            program={program}
+            onCloned={(p) => { setProgram(p); advance() }}
+            onFresh={advance}
+            onFormChange={setTemplateForm}
+          />
+        )}
+        {step === 1 && (
           <BasicsStep program={program} onSaved={(p) => { setProgram(p); advance() }} onFormChange={setBasicsForm} />
         )}
-        {step === 1 && program && (
+        {step === 2 && program && (
           <>
             <StepIntro
               eyebrow="Roles & checklist" title="Who runs a day, and what they do" ledeWidth={70}
@@ -148,7 +157,7 @@ export default function ProgramWizard() {
             </div>
           </>
         )}
-        {step === 2 && program && (
+        {step === 3 && program && (
           <>
             <StepIntro
               eyebrow="LMS Checklist" title="What does a student need to complete?" ledeWidth={70}
@@ -157,7 +166,7 @@ export default function ProgramWizard() {
             <LmsChecklistStep program={program} />
           </>
         )}
-        {step === 3 && program && (
+        {step === 4 && program && (
           <>
             <StepIntro
               eyebrow="Materials" title="What instructors open on the day" ledeWidth={70}
@@ -166,7 +175,7 @@ export default function ProgramWizard() {
             <MaterialsPanel owner={{ program_id: program.id }} />
           </>
         )}
-        {step === 4 && program && <ReviewStep program={program} />}
+        {step === 5 && program && <ReviewStep program={program} />}
       </div>
 
       <footer
@@ -191,7 +200,7 @@ export default function ProgramWizard() {
               >Skip for now</button>
             )}
             {step < LAST_STEP ? (
-              <WizardContinueButton step={step} program={program} onContinue={advance} basicsForm={basicsForm} />
+              <WizardContinueButton step={step} program={program} onContinue={advance} basicsForm={basicsForm} templateForm={templateForm} />
             ) : (
               <button
                 onClick={() => navigate({ to: "/operations/programs" })}
@@ -201,9 +210,9 @@ export default function ProgramWizard() {
             )}
           </div>
           <div className="hidden sm:block">
-            {step === 1 && <SkipNote>You can set roles later — cohorts will offer no roles until you do.</SkipNote>}
-            {step === 2 && <SkipNote>You can create this checklist later — students won't see one until it exists.</SkipNote>}
-            {step === 3 && <SkipNote>Cohorts and sessions will simply have no materials until you add some.</SkipNote>}
+            {step === 2 && <SkipNote>You can set roles later — cohorts will offer no roles until you do.</SkipNote>}
+            {step === 3 && <SkipNote>You can create this checklist later — students won't see one until it exists.</SkipNote>}
+            {step === 4 && <SkipNote>Cohorts and sessions will simply have no materials until you add some.</SkipNote>}
           </div>
         </div>
       </footer>
@@ -215,11 +224,22 @@ function SkipNote({ children }: { children: ReactNode }) {
   return <p style={{ fontSize: 13, margin: 0 }} className="text-muted-foreground">{children}</p>
 }
 
-function WizardContinueButton({ step, program, onContinue, basicsForm }: {
+function WizardContinueButton({ step, program, onContinue, basicsForm, templateForm }: {
   step: number; program: Program | null; onContinue: () => void;
   basicsForm: { save: () => void; isPending: boolean; canSubmit: boolean }
+  templateForm: { save: () => void; isPending: boolean; canSubmit: boolean }
 }) {
   if (step === 0) {
+    return (
+      <button
+        onClick={templateForm.save}
+        disabled={!templateForm.canSubmit || templateForm.isPending}
+        style={{ height: 38, borderRadius: 8, fontFamily: OUTFIT, fontWeight: 600 }}
+        className="px-4 sm:px-7 text-sm sm:text-base bg-primary text-primary-foreground hover:opacity-90 transition-opacity disabled:opacity-50"
+      >{templateForm.isPending ? "…" : "Continue"}</button>
+    )
+  }
+  if (step === 1) {
     return (
       <button
         onClick={basicsForm.save}
@@ -270,6 +290,139 @@ function StepDots({ steps, current, skipped, onGo }: {
           </button>
         )
       })}
+    </div>
+  )
+}
+
+/* ════════════════════════ Step 0 — Template or scratch ═══════════════════════ */
+
+const PROGRAM_CARRY_OPTIONS: { key: string; label: string; competitionOnly?: boolean }[] = [
+  { key: "roles", label: "Roles & checklist defaults" },
+  { key: "checklist", label: "LMS Checklist (deep copy)" },
+  { key: "materials", label: "Materials" },
+  { key: "assessment", label: "Assessment default" },
+  { key: "certificate", label: "Certificate template" },
+  { key: "rubric", label: "Judging rubric", competitionOnly: true },
+]
+
+function TemplateStep({ program, onCloned, onFresh, onFormChange }: {
+  program: Program | null; onCloned: (p: Program) => void; onFresh: () => void;
+  onFormChange: (form: { save: () => void; isPending: boolean; canSubmit: boolean }) => void
+}) {
+  const toast = useToast()
+  const qc = useQueryClient()
+  const [mode, setMode] = useState<"fresh" | "clone">("fresh")
+  const [sourceId, setSourceId] = useState("")
+  const [name, setName] = useState("")
+  const [code, setCode] = useState("")
+  const [carry, setCarry] = useState<string[]>(["roles", "checklist", "materials", "assessment", "certificate", "rubric"])
+  const [error, setError] = useState("")
+
+  const { data: programs = [] } = useQuery({ queryKey: ["sessions-programs"], queryFn: getProgramsApi })
+  const source = programs.find((p) => p.id === sourceId)
+
+  useEffect(() => {
+    if (source && !name && !code) {
+      setName(`${source.name} (Copy)`)
+      setCode(`${source.code}-COPY`)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sourceId])
+
+  const clone = useMutation({
+    mutationFn: () => cloneProgramApi(sourceId, { name: name.trim(), code: code.trim(), carry }),
+    onSuccess: (p) => {
+      toast.success("Program cloned from template")
+      qc.invalidateQueries({ queryKey: ["sessions-programs"] })
+      onCloned(p)
+    },
+    onError: (e: any) => setError(getErrorMessage(e, "Failed to clone program")),
+  })
+
+  const toggleCarry = (key: string) =>
+    setCarry((c) => (c.includes(key) ? c.filter((k) => k !== key) : [...c, key]))
+
+  const canSubmit = mode === "fresh" || Boolean(sourceId && name.trim() && code.trim())
+
+  useEffect(() => {
+    onFormChange({
+      save: () => {
+        if (mode === "fresh") {
+          onFresh()
+          return
+        }
+        setError("")
+        clone.mutate()
+      },
+      isPending: clone.isPending,
+      canSubmit,
+    })
+  }, [mode, sourceId, name, code, carry, clone.isPending, canSubmit])
+
+  const visibleOptions = PROGRAM_CARRY_OPTIONS.filter((o) => !o.competitionOnly || source?.is_competition)
+
+  return (
+    <div className="flex flex-col" style={{ gap: 28 }}>
+      <StepIntro
+        eyebrow="Template or scratch" title="Start fresh or clone a template?"
+        lede="Clone an existing program to carry its roles, checklist, materials and defaults into a new program. You can edit everything after cloning."
+      />
+      <div className="flex flex-col sm:flex-row gap-2 sm:gap-3">
+        <button
+          type="button" onClick={() => setMode("fresh")}
+          style={{ flex: 1, borderRadius: 10, padding: "12px 16px", fontSize: 14, fontWeight: 600, textAlign: "left" }}
+          className={cn("border transition-colors", mode === "fresh" ? "border-primary bg-primary/5 text-foreground" : "border-border text-muted-foreground")}
+        >○ Start fresh from scratch</button>
+        <button
+          type="button" onClick={() => setMode("clone")}
+          style={{ flex: 1, borderRadius: 10, padding: "12px 16px", fontSize: 14, fontWeight: 600, textAlign: "left" }}
+          className={cn("border transition-colors", mode === "clone" ? "border-primary bg-primary/5 text-foreground" : "border-border text-muted-foreground")}
+        >● Clone an existing program as template</button>
+      </div>
+
+      {mode === "clone" && (
+        <div className="flex flex-col" style={{ gap: 16 }}>
+          <BigField label="Template program">
+            <select
+              value={sourceId} onChange={(e) => setSourceId(e.target.value)}
+              style={{ ...bigInput, cursor: "pointer" }}
+              className="border border-border bg-background text-foreground focus:outline-none focus:border-primary transition-colors"
+            >
+              <option value="">— Select a program —</option>
+              {programs.map((p) => <option key={p.id} value={p.id}>{p.name} ({p.code})</option>)}
+            </select>
+          </BigField>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 sm:gap-6">
+            <BigField label="New program name">
+              <input
+                value={name} onChange={(e) => setName(e.target.value)} placeholder="New program name"
+                style={heroInput} className="border border-border bg-background text-foreground focus:outline-none focus:border-primary transition-colors"
+              />
+            </BigField>
+            <BigField label="New program code">
+              <input
+                value={code} onChange={(e) => setCode(e.target.value)} placeholder="NEW-CODE-2026"
+                style={bigInput} className="border border-border bg-background text-foreground focus:outline-none focus:border-primary transition-colors"
+              />
+            </BigField>
+          </div>
+          <div className="flex flex-col" style={{ gap: 8 }}>
+            <span style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em" }} className="text-muted-foreground">Carry over</span>
+            {visibleOptions.map((o) => (
+              <label key={o.key} className="flex items-center gap-2 text-foreground cursor-pointer select-none" style={{ fontSize: 14 }}>
+                <input
+                  type="checkbox"
+                  checked={carry.includes(o.key)}
+                  onChange={() => toggleCarry(o.key)}
+                  className="rounded border-border accent-primary w-4 h-4 cursor-pointer"
+                />
+                <span>{o.label}</span>
+              </label>
+            ))}
+          </div>
+          {error && <p style={{ fontSize: 14 }} className="text-red-500">{error}</p>}
+        </div>
+      )}
     </div>
   )
 }

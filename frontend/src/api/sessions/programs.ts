@@ -42,3 +42,9 @@ export const updateProgramApi = (
  *  cascading them (and their registrations) away silently. */
 export const deleteProgramApi = (id: string) =>
   api.delete<void>(`/sessions/programs/${id}`).then((r) => r.data)
+
+export const cloneProgramApi = (sourceId: string, data: {
+  name: string
+  code: string
+  carry: string[]
+}) => api.post<Program>(`/sessions/programs/${sourceId}/clone`, data).then(r => r.data)
