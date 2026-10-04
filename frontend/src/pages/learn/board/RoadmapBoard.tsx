@@ -146,7 +146,6 @@ export default function RoadmapBoard() {
             <span className="px-2 py-0.5 rounded font-bold uppercase tracking-wider bg-indigo-500/20 border border-indigo-500/30">
               Observer Mode
             </span>
-            <span className="hidden sm:inline">Full student access · Actions write to your observer sandbox</span>
           </div>
           <div className="flex items-center gap-2 flex-wrap">
             <button
