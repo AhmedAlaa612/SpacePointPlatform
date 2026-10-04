@@ -304,6 +304,7 @@ export interface CompetitionAssignableStudent {
   team_name: string | null
   registered: boolean
   lms_access: boolean
+  is_observer?: boolean
 }
 
 /** Assign tab (2026-09-14): a row of the bulk "assign already

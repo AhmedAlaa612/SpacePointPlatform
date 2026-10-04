@@ -11,7 +11,7 @@ from __future__ import annotations
 import uuid
 from typing import Literal
 
-from sqlalchemy import func, or_, select
+from sqlalchemy import and_, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.instructors.invitation_code import InvitationCode
@@ -187,12 +187,16 @@ async def search_cohort_assignable_students(
     created) has never actually been opened, not just that it exists."""
     if registered_only:
         users = await _registered_cohort_users(db, cohort_id=cohort_id, q=q, invite_code=invite_code)
+        if mode == "observer":
+            users = [u for u in users if "observer" in u.role_values]
+        elif mode == "student":
+            users = [u for u in users if "observer" not in u.role_values]
         registered_ids = {u.id for u in users}
     else:
         role_filter = (
             User.roles.any("observer") if mode == "observer"
             else or_(User.roles.any("student"), User.roles.any("observer")) if mode == "all"
-            else User.roles.any("student")
+            else and_(User.roles.any("student"), ~User.roles.any("observer"))
         )
         stmt = select(User).where(role_filter)
         if q:
@@ -267,5 +271,6 @@ async def search_cohort_assignable_students(
         out.append(CompetitionAssignableStudentOut(
             **summary.model_dump(), team_id=team_id, team_name=team_name,
             registered=u.id in registered_ids, lms_access=has_lms,
+            is_observer="observer" in u.role_values,
         ))
     return out

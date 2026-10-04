@@ -30,7 +30,7 @@ from app.models.sessions.cohort import Cohort
 from app.models.sessions.registration import Registration
 from app.models.spine.contact import Contact
 from app.models.team import Team, TeamMember
-from app.models.user import User
+from app.models.user import User, UserRole
 from app.services.lms.ops_integration import sync_registration_lms
 from app.services.sessions.registration import register
 from app.services.spine.identity import normalize_email, resolve_or_create_contact
@@ -116,10 +116,44 @@ async def delete_team(db: AsyncSession, *, team_id: uuid.UUID) -> None:
 
 
 async def add_existing_member(db: AsyncSession, *, team_id: uuid.UUID, user_id: uuid.UUID) -> None:
-    if await db.get(Team, team_id) is None:
+    team = await db.get(Team, team_id)
+    if team is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Team not found")
-    if await db.get(User, user_id) is None:
+    user = await db.get(User, user_id)
+    if user is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="User not found")
+    if getattr(team, "is_observer", False) or "observer" in user.role_values:
+        team.is_observer = True
+        if "observer" not in user.role_values:
+            user.roles = [*user.roles, UserRole.observer]
+    if team.cohort_id:
+        cohort = await db.get(Cohort, team.cohort_id)
+        if cohort:
+            contact_id = user.contact_id
+            if contact_id is None and user.email:
+                contact, _ = await resolve_or_create_contact(
+                    db, full_name=user.full_name, email=user.email, contact_roles=["student"],
+                    role_event_source="desk",
+                )
+                user.contact_id = contact.id
+                contact_id = contact.id
+            if contact_id:
+                existing_reg = (await db.execute(
+                    select(Registration).where(
+                        Registration.contact_id == contact_id,
+                        Registration.cohort_id == cohort.id,
+                        Registration.status != "cancelled",
+                    )
+                )).scalars().first()
+                if not existing_reg:
+                    existing_reg = await register(
+                        db, contact_id=contact_id, cohort_id=cohort.id, registered_via="desk", payment_status="waived",
+                    )
+                mode = "observer" if getattr(team, "is_observer", False) else "participant"
+                await sync_registration_lms(
+                    db, registration=existing_reg, cohort=cohort, create_account=True,
+                    send_welcome_email=False, mode=mode,
+                )
     await join_team(db, team_id=team_id, user_id=user_id)
 
 
@@ -171,15 +205,18 @@ async def register_and_add_member(
         db, contact_id=contact.id, cohort_id=cohort.id, registered_via="desk", payment_status="waived",
     )
 
+    mode = "observer" if getattr(team, "is_observer", False) else "participant"
     user = await sync_registration_lms(
         db, registration=registration, cohort=cohort, create_account=True,
-        send_welcome_email=send_welcome_email,
+        send_welcome_email=send_welcome_email, mode=mode,
     )
     if user is None:
         raise HTTPException(
             status.HTTP_409_CONFLICT,
             detail="Registered, but couldn't create a student account (email may already belong to a different account)",
         )
+    if mode == "observer" and "observer" not in user.role_values:
+        user.roles = [*user.roles, UserRole.observer]
     await join_team(db, team_id=team_id, user_id=user.id)
     return user, (registration.id if is_new_registration else None)
 

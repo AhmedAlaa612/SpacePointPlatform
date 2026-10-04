@@ -345,9 +345,18 @@ async def _register_and_assign_team(
     else:
         registration = existing_reg
 
+    user = (await db.execute(
+        select(User).where(User.contact_id == contact_id)
+    )).scalars().first()
+    if user is None and fallback_email:
+        user = (await db.execute(
+            select(User).where(user_email_matches(fallback_email))
+        )).scalars().first()
+    is_obs = "observer" in user.role_values if user else False
+
     user = await sync_registration_lms(
         db, registration=registration, cohort=cohort, create_account=True,
-        send_welcome_email=send_welcome_email,
+        send_welcome_email=send_welcome_email, mode="observer" if is_obs else "participant",
     )
     if user is None:
         user = (
@@ -360,6 +369,8 @@ async def _register_and_assign_team(
                 detail="Registered, but couldn't create a student account (email may already belong to a different account)",
             )
 
+    is_obs = "observer" in user.role_values
+
     # Grouped by team_id, never by name — see module docstring. A team not
     # found for this (cohort, team_id) yet is a brand new one; `name` falls
     # back to `team_id` itself when there's no name for it yet, which is
@@ -371,9 +382,11 @@ async def _register_and_assign_team(
     if team is None:
         team = await create_team(
             db, name=team_name or team_id, created_by=user.id, cohort_id=cohort.id, member_ids=[user.id],
-            roster_team_id=team_id,
+            roster_team_id=team_id, is_observer=is_obs,
         )
     else:
+        if is_obs and not getattr(team, "is_observer", False):
+            team.is_observer = True
         if user.id not in await team_member_ids(db, team_id=team.id):
             await join_team(db, team_id=team.id, user_id=user.id)
         # Only apply a given name while the team is still at its own

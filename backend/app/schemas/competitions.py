@@ -480,6 +480,7 @@ class CompetitionAssignableStudentOut(StudentSummaryOut):
     team_name: str | None = None
     registered: bool = False
     lms_access: bool = False
+    is_observer: bool = False
 
 
 class CompetitionAssignStudentRowIn(BaseModel):

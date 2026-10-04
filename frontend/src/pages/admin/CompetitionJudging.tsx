@@ -20,11 +20,12 @@ import {
   confirmCohortRegistrationImportApi,
   getCohortJudgesApi, getCohortLeaderboardApi, getCohortPublicationApi, getCohortTeamsApi, getCohortRubricApi,
   previewCohortRegistrationImportApi, searchAssignableStudentsApi,
-  inviteCohortJudgeApi, putCohortRubricApi, registerAndAddTeamMemberApi,
+  inviteCohortJudgeApi, putCohortRubricApi, registerAndAddTeamMemberApi, addExistingTeamMemberApi,
   removeTeamMemberApi, renameTeamApi, resendJudgeOnboardingEmailApi, revokeCohortJudgeApi, unpublishCohortResultsApi,
   type CompetitionAssignStudentsResult, type CompetitionImportPreviewRow, type CompetitionImportResult,
   type CompetitionJudgeProgress,
   type CompetitionLeaderboardRow, type CompetitionPublication, type CompetitionRubric, type CompetitionTeam,
+  type CompetitionAssignableStudent,
   type CertificateFilterMode,
 } from "@/api/competitions"
 import { CompetitionAnalysisTab } from "@/pages/admin/components/CompetitionAnalysis"
@@ -414,16 +415,17 @@ function AssignTab({ cohortId }: { cohortId: string }) {
   const [teamStatus, setTeamStatus] = useState<TeamStatusFilter>("no_team")
   const [lmsStatus, setLmsStatus] = useState<LmsStatusFilter>("all")
   const [loginStatus, setLoginStatus] = useState<LoginStatusFilter>("all")
+  const [mode, setMode] = useState<"student" | "observer" | "all">("student")
   const [teamIds, setTeamIds] = useState<Record<string, string>>({})
   const [sendWelcomeEmail, setSendWelcomeEmail] = useState(true)
   const [sendTicketEmail, setSendTicketEmail] = useState(true)
   const [result, setResult] = useState<CompetitionAssignStudentsResult | null>(null)
 
   const { data: students = [], isLoading } = useQuery({
-    queryKey: ["competitions-assignable-students", cohortId, query, inviteCode, registeredOnly, teamStatus, lmsStatus, loginStatus],
+    queryKey: ["competitions-assignable-students", cohortId, query, inviteCode, registeredOnly, teamStatus, lmsStatus, loginStatus, mode],
     queryFn: () => searchAssignableStudentsApi(cohortId, {
       q: query || undefined, invite_code: inviteCode || undefined, registered_only: registeredOnly,
-      team_status: teamStatus, lms_status: lmsStatus, login_status: loginStatus,
+      team_status: teamStatus, lms_status: lmsStatus, login_status: loginStatus, mode,
     }),
   })
   const { data: codes = [] } = useQuery({
@@ -512,6 +514,36 @@ function AssignTab({ cohortId }: { cohortId: string }) {
           <option value="never">Never logged in</option>
           <option value="has_logged_in">Has logged in</option>
         </select>
+
+        <div className="flex items-center p-1 bg-muted/60 border border-border/80 rounded-xl text-xs">
+          <button
+            type="button"
+            onClick={() => setMode("student")}
+            className={`px-3 py-1 rounded-lg font-medium transition-colors cursor-pointer ${
+              mode === "student" ? "bg-background text-foreground shadow-xs font-semibold" : "text-muted-foreground hover:text-foreground"
+            }`}
+          >
+            Students
+          </button>
+          <button
+            type="button"
+            onClick={() => setMode("observer")}
+            className={`px-3 py-1 rounded-lg font-medium transition-colors cursor-pointer ${
+              mode === "observer" ? "bg-background text-indigo-600 dark:text-indigo-400 shadow-xs font-semibold" : "text-muted-foreground hover:text-foreground"
+            }`}
+          >
+            Observers
+          </button>
+          <button
+            type="button"
+            onClick={() => setMode("all")}
+            className={`px-3 py-1 rounded-lg font-medium transition-colors cursor-pointer ${
+              mode === "all" ? "bg-background text-foreground shadow-xs font-semibold" : "text-muted-foreground hover:text-foreground"
+            }`}
+          >
+            All
+          </button>
+        </div>
       </div>
 
       {isLoading ? (
@@ -522,7 +554,7 @@ function AssignTab({ cohortId }: { cohortId: string }) {
           hint={
             registeredOnly
               ? "Nobody registered to this cohort matches these filters — untick \"Registered to this cohort\" to search everyone."
-              : query || inviteCode ? "Try a different search or batch." : "No student accounts exist yet."
+              : query || inviteCode ? "Try a different search or batch." : "No accounts match the selected filters."
           }
         />
       ) : (
@@ -542,7 +574,16 @@ function AssignTab({ cohortId }: { cohortId: string }) {
             <tbody>
               {students.map((s) => (
                 <tr key={s.id} className="border-b border-border/50">
-                  <td className="py-1.5 pl-3 pr-2 align-top pt-3 font-medium text-foreground whitespace-nowrap">{s.full_name}</td>
+                  <td className="py-1.5 pl-3 pr-2 align-top pt-3 font-medium text-foreground whitespace-nowrap">
+                    <div className="flex items-center gap-1.5">
+                      <span>{s.full_name}</span>
+                      {s.is_observer && (
+                        <span className="text-[10px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded bg-indigo-500/15 text-indigo-600 dark:text-indigo-400 border border-indigo-500/30">
+                          Observer
+                        </span>
+                      )}
+                    </div>
+                  </td>
                   <td className="py-1.5 pr-2 align-top pt-3 text-muted-foreground whitespace-nowrap">{s.email}</td>
                   <td className="py-1.5 pr-2 align-top pt-3 text-muted-foreground whitespace-nowrap">
                     {s.invite_code ? (s.invite_label ?? s.invite_code) : "—"}
@@ -683,7 +724,7 @@ function TeamsTab({ cohortId }: { cohortId: string }) {
 
   const [newTeamName, setNewTeamName] = useState("")
   const [isObserverTeam, setIsObserverTeam] = useState(false)
-  const [teamFilter, setTeamFilter] = useState<"all" | "student" | "observer">("all")
+  const [teamFilter, setTeamFilter] = useState<"all" | "student" | "observer">("student")
   const createMutation = useMutation({
     mutationFn: () => createCohortTeamApi(cohortId, newTeamName.trim(), isObserverTeam),
     onSuccess: () => { setNewTeamName(""); setIsObserverTeam(false); invalidate() },
@@ -801,7 +842,7 @@ function TeamsTab({ cohortId }: { cohortId: string }) {
 
       <div className="flex flex-col gap-3">
         {filteredTeams.map((team) => (
-          <TeamCard key={team.id} team={team} onChanged={invalidate} />
+          <TeamCard key={team.id} team={team} cohortId={cohortId} onChanged={invalidate} />
         ))}
         {teams.length === 0 ? (
           <EmptyState title="No teams yet" hint="Add one above, or import a roster from the Roster tab." />
@@ -813,16 +854,41 @@ function TeamsTab({ cohortId }: { cohortId: string }) {
   )
 }
 
-function TeamCard({ team, onChanged }: { team: CompetitionTeam; onChanged: () => void }) {
+function TeamCard({ team, cohortId, onChanged }: { team: CompetitionTeam; cohortId: string; onChanged: () => void }) {
   const toast = useToast()
   const [renaming, setRenaming] = useState(false)
   const [name, setName] = useState(team.name)
   const [adding, setAdding] = useState(false)
+  const [addMode, setAddMode] = useState<"pick" | "new">("pick")
+  const [studentSearch, setStudentSearch] = useState("")
   const [memberName, setMemberName] = useState("")
   const [memberEmail, setMemberEmail] = useState("")
   const [memberSendWelcomeEmail, setMemberSendWelcomeEmail] = useState(true)
   const [memberSendTicketEmail, setMemberSendTicketEmail] = useState(true)
   const [profileUserId, setProfileUserId] = useState<string | null>(null)
+
+  const { data: assignableStudents = [], isLoading: isSearchingStudents } = useQuery<CompetitionAssignableStudent[]>({
+    queryKey: ["competitions-assignable-students-team", cohortId, studentSearch],
+    queryFn: () => searchAssignableStudentsApi(cohortId, {
+      q: studentSearch.trim() || undefined,
+      mode: "all",
+    }),
+    enabled: adding && addMode === "pick",
+  })
+
+  const existingMemberIds = new Set(team.member_ids)
+  const candidateStudents = assignableStudents.filter((s) => !existingMemberIds.has(s.id))
+
+  const addExistingMemberMutation = useMutation({
+    mutationFn: (userId: string) => addExistingTeamMemberApi(team.id, userId),
+    onSuccess: () => {
+      setStudentSearch("")
+      setAdding(false)
+      onChanged()
+      toast.success("Team member added")
+    },
+    onError: (e: any) => toast.error(getErrorMessage(e, "Failed to add member")),
+  })
 
   const renameMutation = useMutation({
     mutationFn: () => renameTeamApi(team.id, name.trim()),
@@ -863,13 +929,13 @@ function TeamCard({ team, onChanged }: { team: CompetitionTeam; onChanged: () =>
             />
             <button
               onClick={() => renameMutation.mutate()} disabled={renameMutation.isPending || !name.trim()}
-              className="p-1.5 rounded-lg text-muted-foreground hover:text-primary hover:bg-primary/10 transition-colors"
+              className="p-1.5 rounded-lg text-muted-foreground hover:text-primary hover:bg-primary/10 transition-colors cursor-pointer"
             >
               <Check size={14} />
             </button>
             <button
               onClick={() => { setRenaming(false); setName(team.name) }}
-              className="p-1.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+              className="p-1.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted transition-colors cursor-pointer"
             >
               <X size={14} />
             </button>
@@ -887,14 +953,14 @@ function TeamCard({ team, onChanged }: { team: CompetitionTeam; onChanged: () =>
             <div className="flex items-center gap-1">
               <button
                 onClick={() => setRenaming(true)}
-                className="p-1.5 rounded-lg text-muted-foreground hover:text-primary hover:bg-primary/10 transition-colors"
+                className="p-1.5 rounded-lg text-muted-foreground hover:text-primary hover:bg-primary/10 transition-colors cursor-pointer"
                 title="Rename"
               >
                 <Pencil size={14} />
               </button>
               <button
                 onClick={() => { if (confirm(`Delete team "${team.name}"?`)) deleteMutation.mutate() }}
-                className="p-1.5 rounded-lg text-muted-foreground hover:text-red-600 hover:bg-red-500/10 transition-colors"
+                className="p-1.5 rounded-lg text-muted-foreground hover:text-red-600 hover:bg-red-500/10 transition-colors cursor-pointer"
                 title="Delete team"
               >
                 <Trash2 size={14} />
@@ -910,7 +976,7 @@ function TeamCard({ team, onChanged }: { team: CompetitionTeam; onChanged: () =>
             <div>
               <button
                 onClick={() => setProfileUserId(team.member_ids[i])}
-                className="text-foreground hover:text-primary hover:underline transition-colors"
+                className="text-foreground hover:text-primary hover:underline transition-colors cursor-pointer"
               >
                 {memberFullName}
               </button>
@@ -918,7 +984,7 @@ function TeamCard({ team, onChanged }: { team: CompetitionTeam; onChanged: () =>
             </div>
             <button
               onClick={() => { if (confirm(`Remove ${memberFullName} from ${team.name}?`)) removeMemberMutation.mutate(team.member_ids[i]) }}
-              className="p-1 rounded-lg text-muted-foreground hover:text-red-600 hover:bg-red-500/10 transition-colors"
+              className="p-1 rounded-lg text-muted-foreground hover:text-red-600 hover:bg-red-500/10 transition-colors cursor-pointer"
               title="Remove from team"
             >
               <UserMinus size={13} />
@@ -929,55 +995,146 @@ function TeamCard({ team, onChanged }: { team: CompetitionTeam; onChanged: () =>
       </div>
 
       {adding ? (
-        <div className="flex flex-col gap-2 pt-1 border-t border-border/50">
-          <div className="flex items-end gap-2 flex-wrap">
-            <Field label="Name">
-              <input
-                value={memberName} onChange={(e) => setMemberName(e.target.value)}
-                className="w-40 h-9 px-2 border border-border bg-card text-foreground rounded-lg text-sm focus:outline-none focus:border-primary"
-              />
-            </Field>
-            <Field label="Email">
-              <input
-                value={memberEmail} onChange={(e) => setMemberEmail(e.target.value)} type="email"
-                className="w-56 h-9 px-2 border border-border bg-card text-foreground rounded-lg text-sm focus:outline-none focus:border-primary"
-              />
-            </Field>
+        <div className="flex flex-col gap-3 pt-2 border-t border-border/50">
+          <div className="flex items-center justify-between gap-2">
+            <div className="flex items-center p-0.5 bg-muted/60 border border-border/80 rounded-lg text-xs">
+              <button
+                type="button"
+                onClick={() => setAddMode("pick")}
+                className={`px-2.5 py-1 rounded-md font-medium transition-colors cursor-pointer ${
+                  addMode === "pick" ? "bg-background text-foreground shadow-xs font-semibold" : "text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                Pick from students
+              </button>
+              <button
+                type="button"
+                onClick={() => setAddMode("new")}
+                className={`px-2.5 py-1 rounded-md font-medium transition-colors cursor-pointer ${
+                  addMode === "new" ? "bg-background text-foreground shadow-xs font-semibold" : "text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                New student
+              </button>
+            </div>
+
             <button
-              onClick={() => addMemberMutation.mutate()}
-              disabled={addMemberMutation.isPending || !memberName.trim() || !memberEmail.trim()}
-              className="h-9 px-3 bg-primary text-primary-foreground rounded-lg text-sm font-medium hover:opacity-90 transition-colors disabled:opacity-50"
+              type="button"
+              onClick={() => { setAdding(false); setStudentSearch("") }}
+              className="p-1 rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted transition-colors cursor-pointer"
+              title="Cancel"
             >
-              {addMemberMutation.isPending ? "Adding…" : "Add"}
-            </button>
-            <button
-              onClick={() => setAdding(false)}
-              className="h-9 px-3 border border-border rounded-lg text-sm font-medium text-foreground hover:bg-muted transition-colors"
-            >
-              Cancel
+              <X size={14} />
             </button>
           </div>
-          <div className="flex items-center gap-4">
-            <label className="flex items-center gap-2 text-xs text-foreground cursor-pointer select-none">
-              <input
-                type="checkbox" checked={memberSendWelcomeEmail}
-                onChange={(e) => setMemberSendWelcomeEmail(e.target.checked)}
-              />
-              Send LMS onboarding mail
-            </label>
-            <label className="flex items-center gap-2 text-xs text-foreground cursor-pointer select-none">
-              <input
-                type="checkbox" checked={memberSendTicketEmail}
-                onChange={(e) => setMemberSendTicketEmail(e.target.checked)}
-              />
-              Send Ticket
-            </label>
-          </div>
+
+          {addMode === "pick" ? (
+            <div className="flex flex-col gap-2">
+              <div className="relative">
+                <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
+                <input
+                  value={studentSearch}
+                  onChange={(e) => setStudentSearch(e.target.value)}
+                  placeholder="Search students by name or email…"
+                  className="w-full h-9 pl-8 pr-3 border border-border bg-background text-foreground rounded-lg text-sm focus:outline-none focus:border-primary transition-colors"
+                  autoFocus
+                />
+              </div>
+
+              {isSearchingStudents ? (
+                <div className="p-3 text-center text-xs text-muted-foreground">Searching students…</div>
+              ) : candidateStudents.length === 0 ? (
+                <div className="p-3 text-center text-xs text-muted-foreground bg-muted/30 rounded-lg border border-border/50">
+                  {studentSearch ? "No matching students found." : "No available students to add."}
+                </div>
+              ) : (
+                <div className="flex flex-col gap-1 max-h-48 overflow-y-auto border border-border rounded-xl p-1 bg-background/50">
+                  {candidateStudents.slice(0, 30).map((s) => (
+                    <div
+                      key={s.id}
+                      className="flex items-center justify-between p-2 rounded-lg hover:bg-muted/70 transition-colors gap-2 text-xs"
+                    >
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          <span className="font-medium text-foreground">{s.full_name}</span>
+                          {s.is_observer && (
+                            <span className="text-[9px] font-bold uppercase tracking-wider px-1 py-0.5 rounded bg-indigo-500/15 text-indigo-600 dark:text-indigo-400 border border-indigo-500/30">
+                              Observer
+                            </span>
+                          )}
+                          {s.team_name && (
+                            <span className="text-[10px] text-muted-foreground">
+                              (in {s.team_name})
+                            </span>
+                          )}
+                        </div>
+                        <p className="text-muted-foreground truncate text-[11px]">{s.email}</p>
+                      </div>
+
+                      <button
+                        type="button"
+                        onClick={() => addExistingMemberMutation.mutate(s.id)}
+                        disabled={addExistingMemberMutation.isPending}
+                        className="h-7 px-2.5 bg-primary text-primary-foreground rounded-md text-xs font-medium hover:opacity-90 transition-colors disabled:opacity-50 shrink-0 cursor-pointer"
+                      >
+                        {addExistingMemberMutation.isPending ? "Adding…" : "Add"}
+                      </button>
+                    </div>
+                  ))}
+                  {candidateStudents.length > 30 && (
+                    <p className="text-[11px] text-center text-muted-foreground py-1">
+                      Showing first 30 matches — type to narrow search
+                    </p>
+                  )}
+                </div>
+              )}
+            </div>
+          ) : (
+            <div className="flex flex-col gap-2">
+              <div className="flex items-end gap-2 flex-wrap">
+                <Field label="Name">
+                  <input
+                    value={memberName} onChange={(e) => setMemberName(e.target.value)}
+                    className="w-40 h-9 px-2 border border-border bg-card text-foreground rounded-lg text-sm focus:outline-none focus:border-primary"
+                  />
+                </Field>
+                <Field label="Email">
+                  <input
+                    value={memberEmail} onChange={(e) => setMemberEmail(e.target.value)} type="email"
+                    className="w-56 h-9 px-2 border border-border bg-card text-foreground rounded-lg text-sm focus:outline-none focus:border-primary"
+                  />
+                </Field>
+                <button
+                  onClick={() => addMemberMutation.mutate()}
+                  disabled={addMemberMutation.isPending || !memberName.trim() || !memberEmail.trim()}
+                  className="h-9 px-3 bg-primary text-primary-foreground rounded-lg text-sm font-medium hover:opacity-90 transition-colors disabled:opacity-50 cursor-pointer"
+                >
+                  {addMemberMutation.isPending ? "Adding…" : "Add"}
+                </button>
+              </div>
+              <div className="flex items-center gap-4">
+                <label className="flex items-center gap-2 text-xs text-foreground cursor-pointer select-none">
+                  <input
+                    type="checkbox" checked={memberSendWelcomeEmail}
+                    onChange={(e) => setMemberSendWelcomeEmail(e.target.checked)}
+                  />
+                  Send LMS onboarding mail
+                </label>
+                <label className="flex items-center gap-2 text-xs text-foreground cursor-pointer select-none">
+                  <input
+                    type="checkbox" checked={memberSendTicketEmail}
+                    onChange={(e) => setMemberSendTicketEmail(e.target.checked)}
+                  />
+                  Send Ticket
+                </label>
+              </div>
+            </div>
+          )}
         </div>
       ) : (
         <button
-          onClick={() => setAdding(true)}
-          className="self-start flex items-center gap-1.5 text-xs font-medium text-primary hover:opacity-80 pt-1 border-t border-border/50 w-full justify-start"
+          onClick={() => { setAdding(true); setAddMode("pick") }}
+          className="self-start flex items-center gap-1.5 text-xs font-medium text-primary hover:opacity-80 pt-1 border-t border-border/50 w-full justify-start cursor-pointer"
         >
           <UserPlus size={13} /> Add member
         </button>
