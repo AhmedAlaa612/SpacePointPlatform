@@ -122,17 +122,29 @@ async def add_existing_member(db: AsyncSession, *, team_id: uuid.UUID, user_id: 
     user = await db.get(User, user_id)
     if user is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="User not found")
-    if getattr(team, "is_observer", False) or "observer" in user.role_values:
-        team.is_observer = True
-        if "observer" not in user.role_values:
-            user.roles = [*user.roles, UserRole.observer]
+
+    is_team_observer = getattr(team, "is_observer", False)
+    is_user_observer = "observer" in user.role_values
+
+    if is_team_observer and not is_user_observer:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            detail="Cannot add a regular student to an observer team. Only observers can join observer teams.",
+        )
+    if not is_team_observer and is_user_observer:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            detail="Cannot add an observer to a student team.",
+        )
+
     if team.cohort_id:
         cohort = await db.get(Cohort, team.cohort_id)
         if cohort:
             contact_id = user.contact_id
             if contact_id is None and user.email:
                 contact, _ = await resolve_or_create_contact(
-                    db, full_name=user.full_name, email=user.email, contact_roles=["student"],
+                    db, full_name=user.full_name, email=user.email,
+                    contact_roles=["observer"] if is_team_observer else ["student"],
                     role_event_source="desk",
                 )
                 user.contact_id = contact.id
@@ -149,7 +161,7 @@ async def add_existing_member(db: AsyncSession, *, team_id: uuid.UUID, user_id: 
                     existing_reg = await register(
                         db, contact_id=contact_id, cohort_id=cohort.id, registered_via="desk", payment_status="waived",
                     )
-                mode = "observer" if getattr(team, "is_observer", False) else "participant"
+                mode = "observer" if is_team_observer else "participant"
                 await sync_registration_lms(
                     db, registration=existing_reg, cohort=cohort, create_account=True,
                     send_welcome_email=False, mode=mode,
@@ -180,8 +192,11 @@ async def register_and_add_member(
     if cohort is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="This team has no cohort")
 
+    is_team_observer = getattr(team, "is_observer", False)
+
     contact, _ = await resolve_or_create_contact(
-        db, full_name=full_name, phone=phone, email=email, contact_roles=["student"],
+        db, full_name=full_name, phone=phone, email=email,
+        contact_roles=["observer"] if is_team_observer else ["student"],
         role_event_source="desk", organization_name=school,
     )
     norm_email = normalize_email(email)
@@ -205,7 +220,7 @@ async def register_and_add_member(
         db, contact_id=contact.id, cohort_id=cohort.id, registered_via="desk", payment_status="waived",
     )
 
-    mode = "observer" if getattr(team, "is_observer", False) else "participant"
+    mode = "observer" if is_team_observer else "participant"
     user = await sync_registration_lms(
         db, registration=registration, cohort=cohort, create_account=True,
         send_welcome_email=send_welcome_email, mode=mode,
@@ -215,8 +230,11 @@ async def register_and_add_member(
             status.HTTP_409_CONFLICT,
             detail="Registered, but couldn't create a student account (email may already belong to a different account)",
         )
-    if mode == "observer" and "observer" not in user.role_values:
-        user.roles = [*user.roles, UserRole.observer]
+    if is_team_observer:
+        roles = [r for r in user.roles if r != UserRole.student]
+        if UserRole.observer not in roles:
+            roles.append(UserRole.observer)
+        user.roles = roles
     await join_team(db, team_id=team_id, user_id=user.id)
     return user, (registration.id if is_new_registration else None)
 

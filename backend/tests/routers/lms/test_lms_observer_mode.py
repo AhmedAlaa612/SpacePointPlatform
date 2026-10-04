@@ -756,3 +756,50 @@ async def test_competition_observer_toggles(db, client):
     assert not any(t["name"] == "Test Team" for t in j_part)
     assert any(t["name"] == "Test Team" for t in j_obs)
     assert not any(t["name"] == "Real Team" for t in j_obs)
+
+
+@pytest.mark.asyncio
+async def test_team_membership_strict_observer_partition(db, client):
+    ops = await _ops(db)
+    cohort, _, _ = await _cohort_with_checklist(db, author=ops)
+    student = await _student(db)
+    observer = await _ops(db, roles=("observer",))
+
+    student_team = await create_team(db, name="Official Team", cohort_id=cohort.id, created_by=ops.id, is_observer=False)
+    observer_team = await create_team(db, name="Sandbox Team", cohort_id=cohort.id, created_by=ops.id, is_observer=True)
+    await db.commit()
+
+    # Adding regular student to observer team is rejected (400)
+    res_bad1 = await client.post(
+        f"/competitions/admin/teams/{observer_team.id}/members",
+        headers=_headers(ops),
+        json={"user_id": str(student.id)},
+    )
+    assert res_bad1.status_code == 400
+    assert "Cannot add a regular student to an observer team" in res_bad1.json()["detail"]
+
+    # Adding observer to official student team is rejected (400)
+    res_bad2 = await client.post(
+        f"/competitions/admin/teams/{student_team.id}/members",
+        headers=_headers(ops),
+        json={"user_id": str(observer.id)},
+    )
+    assert res_bad2.status_code == 400
+    assert "Cannot add an observer to a student team" in res_bad2.json()["detail"]
+
+    # Adding observer to observer team succeeds
+    res_ok1 = await client.post(
+        f"/competitions/admin/teams/{observer_team.id}/members",
+        headers=_headers(ops),
+        json={"user_id": str(observer.id)},
+    )
+    assert res_ok1.status_code == 201
+
+    # Adding student to student team succeeds
+    res_ok2 = await client.post(
+        f"/competitions/admin/teams/{student_team.id}/members",
+        headers=_headers(ops),
+        json={"user_id": str(student.id)},
+    )
+    assert res_ok2.status_code == 201
+

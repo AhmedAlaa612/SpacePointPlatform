@@ -867,11 +867,14 @@ function TeamCard({ team, cohortId, onChanged }: { team: CompetitionTeam; cohort
   const [memberSendTicketEmail, setMemberSendTicketEmail] = useState(true)
   const [profileUserId, setProfileUserId] = useState<string | null>(null)
 
+  const isObserverTeam = !!team.is_observer
+  const memberMode = isObserverTeam ? "observer" : "student"
+
   const { data: assignableStudents = [], isLoading: isSearchingStudents } = useQuery<CompetitionAssignableStudent[]>({
-    queryKey: ["competitions-assignable-students-team", cohortId, studentSearch],
+    queryKey: ["competitions-assignable-students-team", cohortId, studentSearch, memberMode],
     queryFn: () => searchAssignableStudentsApi(cohortId, {
       q: studentSearch.trim() || undefined,
-      mode: "all",
+      mode: memberMode,
     }),
     enabled: adding && addMode === "pick",
   })
@@ -885,7 +888,7 @@ function TeamCard({ team, cohortId, onChanged }: { team: CompetitionTeam; cohort
       setStudentSearch("")
       setAdding(false)
       onChanged()
-      toast.success("Team member added")
+      toast.success(isObserverTeam ? "Observer added to team" : "Team member added")
     },
     onError: (e: any) => toast.error(getErrorMessage(e, "Failed to add member")),
   })
@@ -1005,7 +1008,7 @@ function TeamCard({ team, cohortId, onChanged }: { team: CompetitionTeam; cohort
                   addMode === "pick" ? "bg-background text-foreground shadow-xs font-semibold" : "text-muted-foreground hover:text-foreground"
                 }`}
               >
-                Pick from students
+                {isObserverTeam ? "Pick from observers" : "Pick from students"}
               </button>
               <button
                 type="button"
@@ -1014,7 +1017,7 @@ function TeamCard({ team, cohortId, onChanged }: { team: CompetitionTeam; cohort
                   addMode === "new" ? "bg-background text-foreground shadow-xs font-semibold" : "text-muted-foreground hover:text-foreground"
                 }`}
               >
-                New student
+                {isObserverTeam ? "New observer" : "New student"}
               </button>
             </div>
 
@@ -1035,17 +1038,21 @@ function TeamCard({ team, cohortId, onChanged }: { team: CompetitionTeam; cohort
                 <input
                   value={studentSearch}
                   onChange={(e) => setStudentSearch(e.target.value)}
-                  placeholder="Search students by name or email…"
+                  placeholder={isObserverTeam ? "Search observers by name or email…" : "Search students by name or email…"}
                   className="w-full h-9 pl-8 pr-3 border border-border bg-background text-foreground rounded-lg text-sm focus:outline-none focus:border-primary transition-colors"
                   autoFocus
                 />
               </div>
 
               {isSearchingStudents ? (
-                <div className="p-3 text-center text-xs text-muted-foreground">Searching students…</div>
+                <div className="p-3 text-center text-xs text-muted-foreground">
+                  {isObserverTeam ? "Searching observers…" : "Searching students…"}
+                </div>
               ) : candidateStudents.length === 0 ? (
                 <div className="p-3 text-center text-xs text-muted-foreground bg-muted/30 rounded-lg border border-border/50">
-                  {studentSearch ? "No matching students found." : "No available students to add."}
+                  {studentSearch
+                    ? (isObserverTeam ? "No matching observers found." : "No matching students found.")
+                    : (isObserverTeam ? "No available observers to add." : "No available students to add.")}
                 </div>
               ) : (
                 <div className="flex flex-col gap-1 max-h-48 overflow-y-auto border border-border rounded-xl p-1 bg-background/50">
@@ -1136,7 +1143,7 @@ function TeamCard({ team, cohortId, onChanged }: { team: CompetitionTeam; cohort
           onClick={() => { setAdding(true); setAddMode("pick") }}
           className="self-start flex items-center gap-1.5 text-xs font-medium text-primary hover:opacity-80 pt-1 border-t border-border/50 w-full justify-start cursor-pointer"
         >
-          <UserPlus size={13} /> Add member
+          <UserPlus size={13} /> {isObserverTeam ? "Add observer" : "Add member"}
         </button>
       )}
       {profileUserId && (
