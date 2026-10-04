@@ -18,6 +18,7 @@ import { EmptyState, Spinner } from "@/components/ui/primitives"
 
 export function CohortQuizAnalysisPanel({ cohortId }: { cohortId: string }) {
   const [selectedQuizId, setSelectedQuizId] = useState<string>("all")
+  const [rosterMode, setRosterMode] = useState<"student" | "observer" | "all">("student")
 
   // Questions breakdown filter and sort states
   const [questionQuizFilter, setQuestionQuizFilter] = useState<string>("all")
@@ -28,8 +29,8 @@ export function CohortQuizAnalysisPanel({ cohortId }: { cohortId: string }) {
   const [questionSearch, setQuestionSearch] = useState<string>("")
 
   const { data: analysis, isLoading, refetch, isRefetching } = useQuery<CohortQuizAnalysisOut>({
-    queryKey: ["cohort-quiz-analysis", cohortId],
-    queryFn: () => getCohortQuizAnalysisApi(cohortId),
+    queryKey: ["cohort-quiz-analysis", cohortId, rosterMode],
+    queryFn: () => getCohortQuizAnalysisApi(cohortId, rosterMode),
   })
 
   // Sync questions quiz filter when top scope selector changes
@@ -106,14 +107,69 @@ export function CohortQuizAnalysisPanel({ cohortId }: { cohortId: string }) {
     return list
   }, [analysis?.questions, questionQuizFilter, questionTopicFilter, questionSearch, questionSortBy])
 
+  const rosterToggle = (
+    <div className="flex items-center gap-1 p-1 rounded-xl border border-border bg-muted/40 w-fit">
+      <button
+        type="button"
+        onClick={() => setRosterMode("student")}
+        className={`px-3 py-1 text-xs font-semibold rounded-lg transition-colors cursor-pointer ${
+          rosterMode === "student" ? "bg-primary text-primary-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"
+        }`}
+      >
+        Students
+      </button>
+      <button
+        type="button"
+        onClick={() => setRosterMode("observer")}
+        className={`px-3 py-1 text-xs font-semibold rounded-lg transition-colors cursor-pointer ${
+          rosterMode === "observer" ? "bg-primary text-primary-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"
+        }`}
+      >
+        Observers
+      </button>
+      <button
+        type="button"
+        onClick={() => setRosterMode("all")}
+        className={`px-3 py-1 text-xs font-semibold rounded-lg transition-colors cursor-pointer ${
+          rosterMode === "all" ? "bg-primary text-primary-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"
+        }`}
+      >
+        All
+      </button>
+    </div>
+  )
+
   if (isLoading) return <Spinner />
 
   if (!analysis || analysis.total_attempts === 0) {
     return (
-      <EmptyState
-        title="No quiz submissions yet"
-        hint="Once students complete and submit their cohort knowledge-quizzes, real-time topic levels and mastery breakdowns will appear here."
-      />
+      <div className="flex flex-col gap-4">
+        <div className="flex items-center justify-between gap-3 flex-wrap">
+          {rosterToggle}
+          <button
+            onClick={() => refetch()}
+            disabled={isRefetching}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs text-muted-foreground hover:text-foreground bg-background border border-border rounded-lg transition disabled:opacity-50 cursor-pointer"
+          >
+            <RefreshCw size={13} className={isRefetching ? "animate-spin" : ""} />
+            Refresh Live Data
+          </button>
+        </div>
+        <EmptyState
+          title={
+            rosterMode === "observer"
+              ? "No observer quiz submissions yet"
+              : rosterMode === "all"
+              ? "No quiz submissions yet"
+              : "No student quiz submissions yet"
+          }
+          hint={
+            rosterMode === "observer"
+              ? "Once observers complete and submit their cohort knowledge-quizzes, observer analysis will appear here."
+              : "Once students complete and submit their cohort knowledge-quizzes, real-time topic levels and mastery breakdowns will appear here."
+          }
+        />
+      </div>
     )
   }
 
@@ -171,29 +227,33 @@ export function CohortQuizAnalysisPanel({ cohortId }: { cohortId: string }) {
         </div>
       </div>
 
-      {/* Selector: Overall vs Individual Quiz */}
+      {/* Selector: Overall vs Individual Quiz & Roster Mode */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-3 bg-card border border-border rounded-xl">
-        <div className="flex items-center gap-2">
-          <Layers size={16} className="text-muted-foreground" />
-          <span className="text-xs font-semibold uppercase text-muted-foreground">Evaluation Scope:</span>
-          <select
-            value={selectedQuizId}
-            onChange={(e) => setSelectedQuizId(e.target.value)}
-            className="bg-background border border-border text-foreground text-xs rounded-lg px-3 py-1.5 focus:outline-none focus:ring-1 focus:ring-primary font-medium"
-          >
-            <option value="all">Overall Cohort (All Quizzes Combined)</option>
-            {analysis.quizzes.map((q) => (
-              <option key={q.quiz_id} value={q.quiz_id}>
-                Quiz: {q.quiz_title} ({q.total_attempts} submissions)
-              </option>
-            ))}
-          </select>
+        <div className="flex items-center gap-3 flex-wrap">
+          {rosterToggle}
+          <div className="h-5 w-px bg-border hidden sm:block" />
+          <div className="flex items-center gap-2">
+            <Layers size={16} className="text-muted-foreground" />
+            <span className="text-xs font-semibold uppercase text-muted-foreground">Evaluation Scope:</span>
+            <select
+              value={selectedQuizId}
+              onChange={(e) => setSelectedQuizId(e.target.value)}
+              className="bg-background border border-border text-foreground text-xs rounded-lg px-3 py-1.5 focus:outline-none focus:ring-1 focus:ring-primary font-medium"
+            >
+              <option value="all">Overall Cohort (All Quizzes Combined)</option>
+              {analysis.quizzes.map((q) => (
+                <option key={q.quiz_id} value={q.quiz_id}>
+                  Quiz: {q.quiz_title} ({q.total_attempts} submissions)
+                </option>
+              ))}
+            </select>
+          </div>
         </div>
 
         <button
           onClick={() => refetch()}
           disabled={isRefetching}
-          className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs text-muted-foreground hover:text-foreground bg-background border border-border rounded-lg transition disabled:opacity-50"
+          className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs text-muted-foreground hover:text-foreground bg-background border border-border rounded-lg transition disabled:opacity-50 cursor-pointer"
         >
           <RefreshCw size={13} className={isRefetching ? "animate-spin" : ""} />
           Refresh Live Data

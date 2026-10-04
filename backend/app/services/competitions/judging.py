@@ -714,8 +714,12 @@ async def get_student_team_result(
         "show_judge_comments": show_judge_comments,
     }
 
-    board = await leaderboard(db, cohort_id=cohort_id)
+    team_mode = "observer" if getattr(team, "is_observer", False) else "participant"
+    board = await leaderboard(db, cohort_id=cohort_id, mode=team_mode)
     my_row = next((r for r in board if r["team_id"] == team.id), None)
+    if my_row is None:
+        board = await leaderboard(db, cohort_id=cohort_id, mode="all")
+        my_row = next((r for r in board if r["team_id"] == team.id), None)
     total_teams = len(board)
 
     rank = (my_row["rank"] if my_row else None) if show_rank else None

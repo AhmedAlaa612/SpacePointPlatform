@@ -15,7 +15,7 @@ from pathlib import Path
 from typing import Literal
 
 from arq.connections import ArqRedis
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, status
+from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, status
 from pydantic import BaseModel, ValidationError
 from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -2379,18 +2379,20 @@ async def reset_cohort_components(
 async def cohort_quiz_analysis(
     cohort_id: uuid.UUID,
     include_observers: bool = False,
+    mode: str = Query("student"),
     db: AsyncSession = Depends(get_db),
     _: User = Depends(require_lms_content),
 ):
     """Live topic strength and weakness analysis across all submitted quizzes for a cohort.
 
-    Observer mode (2026-10): observer test attempts are excluded from the
-    cohort average and topic mastery by default (`include_observers=false`)."""
+    Observer mode (2026-10): partitioned by mode ('student', 'observer', 'all').
+    Defaults to 'student' so observer test attempts are excluded from student metrics."""
     cohort = await db.get(Cohort, cohort_id)
     if cohort is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Cohort not found")
+    effective_mode = "all" if include_observers else mode
     return await cohort_quiz_service.get_cohort_quiz_analysis(
-        db, cohort_id=cohort_id, include_observers=include_observers,
+        db, cohort_id=cohort_id, mode=effective_mode,
     )
 
 

@@ -3,11 +3,12 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useNavigate } from "@tanstack/react-router"
 import {
   Plus, X, BookOpen, Rocket, ChevronDown, ChevronRight, RotateCcw, Clock, CheckCircle2, XCircle,
-  Award, Circle, ExternalLink, Eye, Play, Search, Users,
+  Award, Circle, ExternalLink, Eye, Play, Search, Users, Trash2,
 } from "lucide-react"
 import { EmptyState, Spinner } from "@/components/ui/primitives"
 import { Button } from "@/components/ui/button"
 import { ConfirmDialog } from "@/pages/admin/components/common"
+import { observerResetProgressApi, observerResetTeamApi, observerUnassignApi } from "@/api/lms"
 import { ensureAbsoluteUrl } from "@/lib/utils"
 import { DesignRunDetail } from "./DesignRunDetail"
 import { fetchMissionCatalog } from "@/api/missions"
@@ -589,7 +590,7 @@ export function ProgressPanel({
         <div className="flex flex-col gap-3">
           {filteredRows.map((row) => (
             <ProgressRow
-              key={row.assignment_id} row={row} cohortId={cohortId}
+              key={row.assignment_id} row={row} cohortId={cohortId} lmsProgramId={lmsProgramId}
               onConfirm={(itemId) => cohortId && confirmMutation.mutate({ assignmentCohortId: cohortId, assignmentId: row.assignment_id, itemId })}
               confirmPending={confirmMutation.isPending}
             />
@@ -601,10 +602,66 @@ export function ProgressPanel({
 }
 
 function ProgressRow({
-  row, cohortId, onConfirm, confirmPending,
-}: { row: LmsProgramRosterRow; cohortId?: string; onConfirm: (itemId: string) => void; confirmPending: boolean }) {
+  row, cohortId, lmsProgramId, onConfirm, confirmPending,
+}: {
+  row: LmsProgramRosterRow
+  cohortId?: string
+  lmsProgramId?: string
+  onConfirm: (itemId: string) => void
+  confirmPending: boolean
+}) {
   const navigate = useNavigate()
+  const queryClient = useQueryClient()
   const [open, setOpen] = useState(false)
+  const [confirmResetProgress, setConfirmResetProgress] = useState(false)
+  const [confirmResetTeam, setConfirmResetTeam] = useState(false)
+  const [confirmRevoke, setConfirmRevoke] = useState(false)
+
+  const isObserver = row.mode === "observer"
+
+  const resetProgressMutation = useMutation({
+    mutationFn: () => observerResetProgressApi(row.assignment_id),
+    onSuccess: () => {
+      setConfirmResetProgress(false)
+      void queryClient.invalidateQueries({ queryKey: ["assignment-items", cohortId, row.assignment_id] })
+      if (cohortId) {
+        void queryClient.invalidateQueries({ queryKey: ["instructor-program-progress", cohortId] })
+      }
+      if (lmsProgramId) {
+        void queryClient.invalidateQueries({ queryKey: ["instructor-program-wide-progress", lmsProgramId] })
+      }
+    },
+  })
+
+  const resetTeamMutation = useMutation({
+    mutationFn: () => observerResetTeamApi(row.assignment_id),
+    onSuccess: () => {
+      setConfirmResetTeam(false)
+      void queryClient.invalidateQueries({ queryKey: ["assignment-items", cohortId, row.assignment_id] })
+      if (cohortId) {
+        void queryClient.invalidateQueries({ queryKey: ["instructor-program-progress", cohortId] })
+        void queryClient.invalidateQueries({ queryKey: ["competitions-teams", cohortId] })
+      }
+      if (lmsProgramId) {
+        void queryClient.invalidateQueries({ queryKey: ["instructor-program-wide-progress", lmsProgramId] })
+      }
+    },
+  })
+
+  const revokeMutation = useMutation({
+    mutationFn: () => observerUnassignApi(row.assignment_id),
+    onSuccess: () => {
+      setConfirmRevoke(false)
+      if (cohortId) {
+        void queryClient.invalidateQueries({ queryKey: ["instructor-program-progress", cohortId] })
+        void queryClient.invalidateQueries({ queryKey: ["competitions-teams", cohortId] })
+      }
+      if (lmsProgramId) {
+        void queryClient.invalidateQueries({ queryKey: ["instructor-program-wide-progress", lmsProgramId] })
+      }
+    },
+  })
+
   const { data: items, isLoading: itemsLoading } = useQuery<LmsAssignmentItemDetail[]>({
     queryKey: ["assignment-items", cohortId, row.assignment_id],
     queryFn: () => getAssignmentItemsApi(cohortId as string, row.assignment_id),
@@ -699,6 +756,44 @@ function ProgressRow({
             ))}
           </div>
         )}
+
+        {isObserver && (
+          <div className="flex items-center gap-1.5 shrink-0 flex-wrap">
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => setConfirmResetProgress(true)}
+              disabled={resetProgressMutation.isPending}
+              title="Reset observer's individual checklist progress and quiz attempts"
+              className="h-8 px-2.5 text-xs font-semibold text-muted-foreground hover:text-foreground cursor-pointer"
+            >
+              <RotateCcw size={12} className={resetProgressMutation.isPending ? "animate-spin mr-1" : "mr-1"} />
+              Reset Progress
+            </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => setConfirmResetTeam(true)}
+              disabled={resetTeamMutation.isPending}
+              title="Reset observer team's deliverables and unlock team"
+              className="h-8 px-2.5 text-xs font-semibold text-muted-foreground hover:text-foreground cursor-pointer"
+            >
+              <Users size={12} className={resetTeamMutation.isPending ? "animate-spin mr-1" : "mr-1"} />
+              Reset Team
+            </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => setConfirmRevoke(true)}
+              disabled={revokeMutation.isPending}
+              title="Revoke observer access and remove from cohort"
+              className="h-8 px-2.5 text-xs font-semibold text-red-500 hover:text-red-600 hover:bg-red-500/10 border-red-500/30 cursor-pointer"
+            >
+              <Trash2 size={12} className={revokeMutation.isPending ? "animate-spin mr-1" : "mr-1"} />
+              Revoke Access
+            </Button>
+          </div>
+        )}
       </div>
 
       {open && (
@@ -713,6 +808,42 @@ function ProgressRow({
             ))
           )}
         </div>
+      )}
+
+      {confirmResetProgress && (
+        <ConfirmDialog
+          title="Reset Observer Progress?"
+          description={`Wipe ${row.student_name}'s individual checklist progress, course progress, and quiz attempts. Team deliverables remain untouched.`}
+          confirmLabel="Reset Progress"
+          destructive
+          pending={resetProgressMutation.isPending}
+          onCancel={() => setConfirmResetProgress(false)}
+          onConfirm={() => resetProgressMutation.mutate()}
+        />
+      )}
+
+      {confirmResetTeam && (
+        <ConfirmDialog
+          title="Reset Observer Team?"
+          description={`Wipe shared deliverables and unlock the observer team for ${row.student_name}. Individual progress remains untouched.`}
+          confirmLabel="Reset Team"
+          destructive
+          pending={resetTeamMutation.isPending}
+          onCancel={() => setConfirmResetTeam(false)}
+          onConfirm={() => resetTeamMutation.mutate()}
+        />
+      )}
+
+      {confirmRevoke && (
+        <ConfirmDialog
+          title="Revoke Observer Access?"
+          description={`Remove ${row.student_name} from this cohort, remove them from their observer team, and delete their quiz attempts and progress.`}
+          confirmLabel="Revoke Access"
+          destructive
+          pending={revokeMutation.isPending}
+          onCancel={() => setConfirmRevoke(false)}
+          onConfirm={() => revokeMutation.mutate()}
+        />
       )}
     </div>
   )

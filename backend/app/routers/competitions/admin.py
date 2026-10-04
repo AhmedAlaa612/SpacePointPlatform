@@ -212,6 +212,16 @@ async def unlock_team(team_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
     return next(CompetitionTeamOut(**r) for r in rows if r["id"] == team_id)
 
 
+@router.post("/teams/{team_id}/observer-reset", response_model=CompetitionTeamOut)
+async def observer_reset_team(team_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
+    """Reset an observer team's deliverables and judging scores, unlocking the team."""
+    await team_service.reset_observer_team(db, team_id=team_id)
+    await db.commit()
+    cohort_id = await _team_cohort_id(db, team_id)
+    rows = await team_service.list_teams_with_members(db, cohort_id=cohort_id)
+    return next(CompetitionTeamOut(**r) for r in rows if r["id"] == team_id)
+
+
 @router.post("/teams/{team_id}/members", response_model=CompetitionTeamOut, status_code=status.HTTP_201_CREATED)
 async def post_team_member(
     team_id: uuid.UUID, body: CompetitionTeamMemberIn, db: AsyncSession = Depends(get_db),

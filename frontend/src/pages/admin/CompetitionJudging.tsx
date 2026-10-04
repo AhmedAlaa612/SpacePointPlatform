@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { Link, useParams } from "@tanstack/react-router"
-import { ArrowLeft, ArrowUpRight, Award, Clock, Download, Eye, Mail, MessageSquare, Plus, Printer, Search, Trash2, Trophy, Upload, UserPlus, UserMinus, Pencil, X, Check } from "lucide-react"
+import { ArrowLeft, ArrowUpRight, Award, Clock, Download, Eye, Mail, MessageSquare, Plus, Printer, Search, Trash2, Trophy, Upload, UserPlus, UserMinus, Pencil, X, Check, RotateCcw } from "lucide-react"
 import { getCohortApi, getCohortsApi } from "@/api/sessions/cohorts"
 import type { Cohort, ProgramCertificateTemplate } from "@/types/sessions"
 import { searchStaffApi, listInviteCodesApi, type StaffOption } from "@/api/lms_admin"
@@ -22,6 +22,7 @@ import {
   previewCohortRegistrationImportApi, searchAssignableStudentsApi,
   inviteCohortJudgeApi, putCohortRubricApi, registerAndAddTeamMemberApi, addExistingTeamMemberApi,
   removeTeamMemberApi, renameTeamApi, resendJudgeOnboardingEmailApi, revokeCohortJudgeApi, unpublishCohortResultsApi,
+  resetObserverTeamApi,
   type CompetitionAssignStudentsResult, type CompetitionImportPreviewRow, type CompetitionImportResult,
   type CompetitionJudgeProgress,
   type CompetitionLeaderboardRow, type CompetitionPublication, type CompetitionRubric, type CompetitionTeam,
@@ -920,6 +921,14 @@ function TeamCard({ team, cohortId, onChanged }: { team: CompetitionTeam; cohort
     onSuccess: onChanged,
     onError: (e: any) => toast.error(getErrorMessage(e, "Failed to remove member")),
   })
+  const resetObserverTeamMutation = useMutation({
+    mutationFn: () => resetObserverTeamApi(team.id),
+    onSuccess: () => {
+      onChanged()
+      toast.success("Observer team deliverables, scores, and lock reset")
+    },
+    onError: (e: any) => toast.error(getErrorMessage(e, "Failed to reset observer team")),
+  })
 
   return (
     <div className="p-4 bg-card border border-border rounded-2xl flex flex-col gap-3">
@@ -954,6 +963,20 @@ function TeamCard({ team, cohortId, onChanged }: { team: CompetitionTeam; cohort
               )}
             </div>
             <div className="flex items-center gap-1">
+              {team.is_observer && (
+                <button
+                  onClick={() => {
+                    if (confirm(`Reset deliverables, scores, and unlock observer team "${team.name}"?`)) {
+                      resetObserverTeamMutation.mutate()
+                    }
+                  }}
+                  disabled={resetObserverTeamMutation.isPending}
+                  className="p-1.5 rounded-lg text-muted-foreground hover:text-amber-500 hover:bg-amber-500/10 transition-colors cursor-pointer"
+                  title="Reset observer deliverables & scores"
+                >
+                  <RotateCcw size={14} className={resetObserverTeamMutation.isPending ? "animate-spin" : ""} />
+                </button>
+              )}
               <button
                 onClick={() => setRenaming(true)}
                 className="p-1.5 rounded-lg text-muted-foreground hover:text-primary hover:bg-primary/10 transition-colors cursor-pointer"

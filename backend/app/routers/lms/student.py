@@ -44,6 +44,7 @@ from app.models.team import Team
 from app.models.lms.program import (
     LmsProgramAssignment, LmsProgramItem, LmsProgramItemProgress, LmsProgramTeamItemProgress,
 )
+from app.models.competitions.judging import CompetitionScore
 from app.models.missions.mission import Mission, MissionAttempt, MissionVariant
 from app.models.user import User
 from app.schemas.curriculum import PrerequisiteItemOut
@@ -1080,7 +1081,8 @@ async def observer_reset_progress(
     Mission/course auto-tracking is live-reconciled (not stored fact), so a
     `mission_run` tile re-derives from its still-existing attempt — the
     stored paste-backs and confirmations are what's actually wiped."""
-    assignment = await _observer_assignment(db, assignment_id=assignment_id, user=current)
+    assignment = await _observer_assignment(db, assignment_id=assignment_id, user=current, allow_ops=True)
+    target_user_id = assignment.user_id
 
     rows = (await db.execute(
         select(LmsProgramItemProgress).where(LmsProgramItemProgress.assignment_id == assignment.id)
@@ -1098,7 +1100,7 @@ async def observer_reset_progress(
     if item_ids:
         await db.execute(
             delete(CohortQuizAttempt).where(
-                CohortQuizAttempt.program_item_id.in_(item_ids), CohortQuizAttempt.user_id == current.id,
+                CohortQuizAttempt.program_item_id.in_(item_ids), CohortQuizAttempt.user_id == target_user_id,
             )
         )
 
@@ -1119,7 +1121,7 @@ async def observer_reset_progress(
             if module_item_ids:
                 await db.execute(
                     delete(ItemProgress).where(
-                        ItemProgress.user_id == current.id, ItemProgress.item_id.in_(module_item_ids),
+                        ItemProgress.user_id == target_user_id, ItemProgress.item_id.in_(module_item_ids),
                     )
                 )
 
@@ -1139,8 +1141,9 @@ async def observer_reset_team(
     / `final_locked_by` cleared) and wipes every shared team progress row
     back to `pending`. The observer's own individual slice is untouched.
     Returns the fresh checklist."""
-    assignment = await _observer_assignment(db, assignment_id=assignment_id, user=current)
-    team = await team_for_cohort_member(db, cohort_id=assignment.cohort_id, user_id=current.id)
+    assignment = await _observer_assignment(db, assignment_id=assignment_id, user=current, allow_ops=True)
+    target_user_id = assignment.user_id
+    team = await team_for_cohort_member(db, cohort_id=assignment.cohort_id, user_id=target_user_id)
     if team is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="No team found for this observer yet")
     if not getattr(team, "is_observer", False):
@@ -1162,6 +1165,10 @@ async def observer_reset_team(
         progress.updated_at = None
     team.final_locked_at = None
     team.final_locked_by = None
+
+    await db.execute(
+        delete(CompetitionScore).where(CompetitionScore.team_id == team.id)
+    )
 
     await db.commit()
     checklist = await get_student_checklist(db, assignment_id=assignment_id, user_id=assignment.user_id)

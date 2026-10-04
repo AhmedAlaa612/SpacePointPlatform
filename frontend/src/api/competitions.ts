@@ -555,6 +555,9 @@ export const deleteTeamApi = (teamId: string) =>
 export const unlockTeamApi = (teamId: string) =>
   api.post<CompetitionTeam>(`/competitions/admin/teams/${teamId}/unlock`).then((r) => r.data)
 
+export const resetObserverTeamApi = (teamId: string) =>
+  api.post<CompetitionTeam>(`/competitions/admin/teams/${teamId}/observer-reset`).then((r) => r.data)
+
 export const addExistingTeamMemberApi = (teamId: string, userId: string) =>
   api.post<CompetitionTeam>(`/competitions/admin/teams/${teamId}/members`, { user_id: userId }).then((r) => r.data)
 

@@ -588,21 +588,22 @@ async def get_student_topic_breakdown(db: AsyncSession, user_id: uuid.UUID) -> d
 
 async def get_cohort_quiz_analysis(
     db: AsyncSession, cohort_id: uuid.UUID, *, include_observers: bool = False,
+    mode: str = "student",
 ) -> dict:
     """Live topic and score breakdown for an entire cohort, both overall and grouped per quiz item.
 
-    Observer mode (2026-10): observer attempts are excluded from averages
-    and mastery by default — staff test runs must not move student metrics.
-    Pass `include_observers=True` to inspect the tester slice."""
-    observer_ids: list[uuid.UUID] = []
-    if not include_observers:
-        from app.models.lms.program import LmsProgramAssignment
-        observer_ids = list((await db.execute(
-            select(LmsProgramAssignment.user_id).where(
-                LmsProgramAssignment.cohort_id == cohort_id,
-                LmsProgramAssignment.mode == "observer",
-            )
-        )).scalars().all())
+    Observer mode (2026-10): partitioned by mode ('student', 'observer', 'all').
+    Defaults to 'student' so staff test runs do not alter student metrics."""
+    effective_mode = "all" if include_observers else (mode or "student")
+
+    from app.models.lms.program import LmsProgramAssignment
+    observer_ids = list((await db.execute(
+        select(LmsProgramAssignment.user_id).where(
+            LmsProgramAssignment.cohort_id == cohort_id,
+            LmsProgramAssignment.mode == "observer",
+        )
+    )).scalars().all())
+
     stmt = (
         select(CohortQuizAttempt, LmsProgramItem.title)
         .outerjoin(LmsProgramItem, CohortQuizAttempt.program_item_id == LmsProgramItem.id)
@@ -611,8 +612,20 @@ async def get_cohort_quiz_analysis(
             CohortQuizAttempt.status == "submitted",
         )
     )
-    if observer_ids:
-        stmt = stmt.where(CohortQuizAttempt.user_id.not_in(observer_ids))
+    if effective_mode == "observer":
+        if not observer_ids:
+            return {
+                "cohort_id": str(cohort_id),
+                "total_attempts": 0,
+                "overall_average_score_pct": 0.0,
+                "overall_topic_breakdown": {},
+                "quizzes": [],
+                "questions": [],
+            }
+        stmt = stmt.where(CohortQuizAttempt.user_id.in_(observer_ids))
+    elif effective_mode == "student":
+        if observer_ids:
+            stmt = stmt.where(CohortQuizAttempt.user_id.not_in(observer_ids))
     results = (await db.execute(stmt)).all()
 
     overall_breakdown: dict[str, dict[str, int]] = {}
@@ -678,8 +691,20 @@ async def get_cohort_quiz_analysis(
             CohortQuizAttempt.status == "submitted",
         )
     )
-    if observer_ids:
-        answers_stmt = answers_stmt.where(CohortQuizAttempt.user_id.not_in(observer_ids))
+    if effective_mode == "observer":
+        if not observer_ids:
+            return {
+                "cohort_id": str(cohort_id),
+                "total_attempts": 0,
+                "overall_average_score_pct": 0.0,
+                "overall_topic_breakdown": {},
+                "quizzes": [],
+                "questions": [],
+            }
+        answers_stmt = answers_stmt.where(CohortQuizAttempt.user_id.in_(observer_ids))
+    elif effective_mode == "student":
+        if observer_ids:
+            answers_stmt = answers_stmt.where(CohortQuizAttempt.user_id.not_in(observer_ids))
     ans_rows = (await db.execute(answers_stmt)).all()
 
     questions_map: dict[tuple[str, str], dict] = {}

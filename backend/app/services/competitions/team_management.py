@@ -277,3 +277,36 @@ async def unlock_team_submission(db: AsyncSession, *, team_id: uuid.UUID) -> Tea
     team.final_locked_by = None
     await db.flush()
     return team
+
+
+async def reset_observer_team(db: AsyncSession, *, team_id: uuid.UUID) -> Team:
+    """Wipes deliverables, clears locks, and deletes any competition scores
+    for an observer team. Raises 403 if team is not an observer team."""
+    team = await db.get(Team, team_id)
+    if team is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Team not found")
+    if not getattr(team, "is_observer", False):
+        raise HTTPException(status.HTTP_403_FORBIDDEN, detail="Only observer teams can be reset")
+
+    team.final_locked_at = None
+    team.final_locked_by = None
+
+    team_rows = (await db.execute(
+        select(LmsProgramTeamItemProgress).where(LmsProgramTeamItemProgress.team_id == team.id)
+    )).scalars().all()
+    for progress in team_rows:
+        progress.status = "pending"
+        progress.completed_at = None
+        progress.confirmed_by_user_id = None
+        progress.submitted_url = None
+        progress.submitted_text = None
+        progress.submitted_links = None
+        progress.updated_by_user_id = None
+        progress.updated_at = None
+
+    await db.execute(
+        delete(CompetitionScore).where(CompetitionScore.team_id == team.id)
+    )
+
+    await db.flush()
+    return team

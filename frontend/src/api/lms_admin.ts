@@ -926,8 +926,10 @@ export interface CohortQuizAnalysisOut {
   questions?: CohortQuizQuestionAnalysis[];
 }
 
-export const getCohortQuizAnalysisApi = (cohortId: string) =>
-  api.get<CohortQuizAnalysisOut>(`/lms/admin/cohorts/${cohortId}/quiz-analysis`).then((r) => r.data);
+export const getCohortQuizAnalysisApi = (cohortId: string, mode?: string) =>
+  api.get<CohortQuizAnalysisOut>(`/lms/admin/cohorts/${cohortId}/quiz-analysis`, {
+    params: mode ? { mode } : {},
+  }).then((r) => r.data);
 
 export const listLearningPathsApi = () =>
   api.get<AdminLearningPath[]>("/lms/admin/learning-paths").then((r) => r.data);
