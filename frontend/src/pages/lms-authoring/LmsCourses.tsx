@@ -105,59 +105,64 @@ export default function LmsCourses() {
             <div
               key={course.id}
               onClick={() => void navigate({ to: `/lms-authoring/courses/${course.id}` })}
-              className="flex items-center gap-4 p-4 bg-card border border-border rounded-2xl hover:border-muted-foreground/30 transition-colors cursor-pointer"
+              className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 sm:gap-4 p-4 bg-card border border-border rounded-2xl hover:border-muted-foreground/30 transition-colors cursor-pointer"
             >
-              <div className="w-16 h-16 rounded-xl bg-muted shrink-0 overflow-hidden flex items-center justify-center text-[10px] text-muted-foreground">
-                {course.image_url ? (
-                  <img src={course.image_url} alt="" className="w-full h-full object-cover" />
-                ) : "No image"}
-              </div>
-              <div className="min-w-0 flex-1">
-                <div className="flex items-center gap-2 flex-wrap">
-                  <p className="text-sm font-medium text-foreground truncate">{course.title}</p>
-                  <span
-                    className={`text-xs font-semibold px-2 py-0.5 rounded-full ${
-                      course.is_published ? "bg-green-500/15 text-green-600 dark:text-green-400" : "bg-muted text-muted-foreground"
-                    }`}
-                  >
-                    {course.is_published ? "Published" : "Draft"}
-                  </span>
-                  {course.kind === "mission" && (
-                    <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-primary/10 text-primary">Mission</span>
-                  )}
-                  {course.level && (
-                    <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-muted text-muted-foreground capitalize">{course.level}</span>
-                  )}
-                  {course.track && <span className="text-xs text-muted-foreground">{course.track}</span>}
+              <div className="flex items-start sm:items-center gap-3 sm:gap-4 min-w-0 flex-1">
+                <div className="w-14 h-14 sm:w-16 sm:h-16 rounded-xl bg-muted shrink-0 overflow-hidden flex items-center justify-center text-[10px] text-muted-foreground">
+                  {course.image_url ? (
+                    <img src={course.image_url} alt="" className="w-full h-full object-cover" />
+                  ) : "No image"}
                 </div>
-                {course.description && <p className="text-xs text-muted-foreground truncate">{course.description}</p>}
-                {course.instructor_name && <p className="text-xs text-muted-foreground mt-0.5">Instructor: {course.instructor_name}</p>}
-                {(() => {
-                  const backend = videoBackendByCourse.get(course.id)
-                  if (!backend) return null
-                  return (
-                    <p className="text-xs text-muted-foreground mt-0.5">
-                      Video: {backend.r2 > 0 && <span className="text-emerald-600 dark:text-emerald-400">{backend.r2} on R2</span>}
-                      {backend.r2 > 0 && backend.vps > 0 && " · "}
-                      {backend.vps > 0 && <span className="text-amber-600 dark:text-amber-400">{backend.vps} still on VPS</span>}
-                    </p>
-                  )
-                })()}
-                {canViewAudit && (course.created_by_name || course.created_at) && (
-                  <div className="flex items-center gap-2 text-[11px] text-muted-foreground mt-1 flex-wrap">
-
-                    {course.created_by_name && (
-                      <span>Created by <span className="text-foreground/80 font-medium">{course.created_by_name}</span></span>
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <p className="text-sm font-medium text-foreground truncate">{course.title}</p>
+                    <span
+                      className={`text-xs font-semibold px-2 py-0.5 rounded-full ${
+                        course.is_published ? "bg-green-500/15 text-green-600 dark:text-green-400" : "bg-muted text-muted-foreground"
+                      }`}
+                    >
+                      {course.is_published ? "Published" : "Draft"}
+                    </span>
+                    {course.kind === "mission" && (
+                      <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-primary/10 text-primary">Mission</span>
                     )}
-                    {course.created_by_name && course.created_at && <span>•</span>}
-                    {course.created_at && (
-                      <span>{new Date(course.created_at).toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" })}</span>
+                    {course.level && (
+                      <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-muted text-muted-foreground capitalize">{course.level}</span>
                     )}
+                    {course.track && <span className="text-xs text-muted-foreground">{course.track}</span>}
                   </div>
-                )}
+                  {course.description && <p className="text-xs text-muted-foreground truncate">{course.description}</p>}
+                  {course.instructor_name && <p className="text-xs text-muted-foreground mt-0.5">Instructor: {course.instructor_name}</p>}
+                  {(() => {
+                    const backend = videoBackendByCourse.get(course.id)
+                    if (!backend) return null
+                    return (
+                      <p className="text-xs text-muted-foreground mt-0.5">
+                        Video: {backend.r2 > 0 && <span className="text-emerald-600 dark:text-emerald-400">{backend.r2} on R2</span>}
+                        {backend.r2 > 0 && backend.vps > 0 && " · "}
+                        {backend.vps > 0 && <span className="text-amber-600 dark:text-amber-400">{backend.vps} still on VPS</span>}
+                      </p>
+                    )
+                  })()}
+                  {canViewAudit && (course.created_by_name || course.created_at) && (
+                    <div className="flex items-center gap-2 text-[11px] text-muted-foreground mt-1 flex-wrap">
+                      {course.created_by_name && (
+                        <span>Created by <span className="text-foreground/80 font-medium">{course.created_by_name}</span></span>
+                      )}
+                      {course.created_by_name && course.created_at && <span>•</span>}
+                      {course.created_at && (
+                        <span>{new Date(course.created_at).toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" })}</span>
+                      )}
+                    </div>
+                  )}
+                </div>
+                <ChevronRight size={18} className="text-muted-foreground shrink-0 sm:hidden mt-0.5" />
               </div>
 
-              <div className="flex items-center gap-1 flex-shrink-0 ml-3" onClick={(e) => e.stopPropagation()}>
+              <div
+                className="flex items-center gap-1.5 flex-wrap sm:flex-nowrap shrink-0 sm:ml-3 pt-2.5 sm:pt-0 border-t border-border/40 sm:border-t-0 justify-end"
+                onClick={(e) => e.stopPropagation()}
+              >
                 <button
                   onClick={() => void navigate({ to: `/learn/courses/${course.id}/learn`, search: { preview: true } as never })}
                   title="Preview course in student player"
@@ -209,7 +214,7 @@ export default function LmsCourses() {
                 >
                   Delete
                 </button>
-                <ChevronRight size={16} className="text-muted-foreground ml-1" />
+                <ChevronRight size={16} className="text-muted-foreground ml-1 hidden sm:block" />
               </div>
             </div>
           ))}

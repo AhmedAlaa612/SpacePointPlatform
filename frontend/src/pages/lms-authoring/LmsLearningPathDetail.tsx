@@ -142,12 +142,12 @@ export default function LmsLearningPathDetail() {
         <ArrowLeft size={14} /> Learning paths
       </button>
 
-      <div className="flex items-start gap-5">
-        <div className="flex flex-col gap-1.5 shrink-0">
+      <div className="flex flex-col sm:flex-row items-start gap-5">
+        <div className="flex flex-col gap-1.5 shrink-0 w-full sm:w-auto">
           <button
             type="button"
             onClick={() => fileInputRef.current?.click()}
-            className="group relative w-44 h-28 sm:w-52 sm:h-32 rounded-2xl bg-muted overflow-hidden cursor-pointer ring-1 ring-border aspect-video"
+            className="group relative w-full max-w-xs sm:w-52 sm:h-32 rounded-2xl bg-muted overflow-hidden cursor-pointer ring-1 ring-border aspect-video"
             title="Upload cover image"
           >
             {path.image_url ? (
@@ -193,12 +193,12 @@ export default function LmsLearningPathDetail() {
           }}
         />
 
-        <div className="flex-1 min-w-0">
+        <div className="flex-1 min-w-0 w-full">
           <PageHeader
             title={path.title}
             subtitle={path.description ?? undefined}
             action={
-              <div className="flex gap-2">
+              <div className="flex gap-2 items-center flex-wrap">
                 <button
                   onClick={() => setEditOpen(true)}
                   className="h-9 px-4 border border-border rounded-xl text-sm font-medium text-foreground hover:bg-muted transition-colors"

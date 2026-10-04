@@ -42,27 +42,30 @@ function MissionRow({ mission }: { mission: MissionAdmin }) {
   return (
     <div
       onClick={() => void navigate({ to: `/lms-authoring/missions/${mission.id}` })}
-      className="flex items-center gap-4 p-4 bg-card border border-border rounded-2xl hover:border-muted-foreground/30 transition-colors cursor-pointer"
+      className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 sm:gap-4 p-4 bg-card border border-border rounded-2xl hover:border-muted-foreground/30 transition-colors cursor-pointer"
     >
-      <div className="w-16 h-16 rounded-xl bg-muted shrink-0 overflow-hidden flex items-center justify-center text-[10px] text-muted-foreground">
-        {mission.image_url ? (
-          <img src={mission.image_url} alt="" className="w-full h-full object-cover" />
-        ) : "No image"}
-      </div>
-      <div className="min-w-0 flex-1">
-        <div className="flex items-center gap-2 flex-wrap">
-          <p className="text-sm font-medium text-foreground truncate">{mission.title}</p>
-          <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${STATUS_BADGE[mission.status]}`}>
-            {STATUS_LABEL[mission.status]}
-          </span>
-          <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-primary/10 text-primary capitalize">{mission.kind}</span>
-          {mission.track && <span className="text-xs text-muted-foreground">{mission.track}</span>}
+      <div className="flex items-start sm:items-center gap-3 sm:gap-4 min-w-0 flex-1">
+        <div className="w-14 h-14 sm:w-16 sm:h-16 rounded-xl bg-muted shrink-0 overflow-hidden flex items-center justify-center text-[10px] text-muted-foreground">
+          {mission.image_url ? (
+            <img src={mission.image_url} alt="" className="w-full h-full object-cover" />
+          ) : "No image"}
         </div>
-        {mission.summary && <p className="text-xs text-muted-foreground truncate">{mission.summary}</p>}
-        {mission.authored_by_name && <p className="text-xs text-muted-foreground mt-0.5">Author: {mission.authored_by_name}</p>}
-        {error && <p className="text-xs text-red-500 mt-1">{error}</p>}
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-2 flex-wrap">
+            <p className="text-sm font-medium text-foreground truncate">{mission.title}</p>
+            <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${STATUS_BADGE[mission.status]}`}>
+              {STATUS_LABEL[mission.status]}
+            </span>
+            <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-primary/10 text-primary capitalize">{mission.kind}</span>
+            {mission.track && <span className="text-xs text-muted-foreground">{mission.track}</span>}
+          </div>
+          {mission.summary && <p className="text-xs text-muted-foreground truncate">{mission.summary}</p>}
+          {mission.authored_by_name && <p className="text-xs text-muted-foreground mt-0.5">Author: {mission.authored_by_name}</p>}
+          {error && <p className="text-xs text-red-500 mt-1">{error}</p>}
+        </div>
+        <ChevronRight size={18} className="text-muted-foreground shrink-0 sm:hidden mt-0.5" />
       </div>
-      <div className="flex items-center gap-1 flex-shrink-0" onClick={(e) => e.stopPropagation()}>
+      <div className="flex items-center gap-1 shrink-0 justify-end w-full sm:w-auto pt-2.5 sm:pt-0 border-t border-border/40 sm:border-t-0" onClick={(e) => e.stopPropagation()}>
         <select
           value={mission.status}
           disabled={statusMutation.isPending}
@@ -74,8 +77,8 @@ function MissionRow({ mission }: { mission: MissionAdmin }) {
           <option value="published">Published</option>
           <option value="archived">Archived</option>
         </select>
+        <ChevronRight size={16} className="text-muted-foreground shrink-0 hidden sm:block ml-1" />
       </div>
-      <ChevronRight size={16} className="text-muted-foreground shrink-0" />
     </div>
   )
 }
