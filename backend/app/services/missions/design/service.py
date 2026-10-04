@@ -189,8 +189,8 @@ async def create_custom_component(
 async def update_custom_component(
     db: AsyncSession, *, attempt_id: uuid.UUID, custom_component_id: uuid.UUID, fields: dict,
 ) -> DesignCustomComponent:
-    """Edits the custom *definition* only — already-placed DesignComponent
-    snapshots froze at add time (F2) and are never rewritten here."""
+    """Edits the custom definition and propagates updates to placed DesignComponent
+    snapshots in this attempt's design."""
     custom = await _get_owned_custom(db, attempt_id=attempt_id, custom_component_id=custom_component_id)
     for field, value in fields.items():
         setattr(custom, field, value)

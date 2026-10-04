@@ -21,6 +21,7 @@ import {
   type DesignCustomComponent, type DesignHandbook, type DesignLibraryComponent, type DesignState,
 } from "@/api/missionsDesign";
 import { CustomComponentModal } from "@/components/missions/CustomComponentModal";
+import { ensureAbsoluteUrl } from "@/lib/utils";
 
 function errorDetail(err: unknown, fallback: string): string {
   if (isAxiosError(err)) {
@@ -556,20 +557,25 @@ export function ComponentsTab({ state, attemptId, onChanged }: { state: DesignSt
 
   // Dynamic, not legacy's hardcoded 2-option list — the real catalog carries
   // more tag values (SatKit, MPKit) than legacy's own picker ever knew about.
-  const tags = ["All Tags", ...Array.from(new Set(library.map((c) => c.tag).filter((t): t is string => !!t)))];
+  // "Custom" is always offered so students can filter to custom components under tags.
+  const catalogTags = Array.from(
+    new Set(library.map((c) => c.tag).filter((t): t is string => !!t && t.toLowerCase() !== "custom"))
+  );
+  const tags = ["All Tags", "Custom", ...catalogTags];
 
   const filteredLibrary = library.filter((c) => {
     if (sourceFilter === "Mine") return false;
     if (search.trim() && !c.component_name.toLowerCase().includes(search.trim().toLowerCase())) return false;
     if (subsystemFilter !== "All" && c.subsystem !== subsystemFilter) return false;
-    if (tagFilter !== "All Tags" && c.tag !== tagFilter) return false;
+    if (tagFilter !== "All Tags" && (c.tag?.toLowerCase() !== tagFilter.toLowerCase())) return false;
     return true;
   });
 
-  // This attempt's own custom parts (never another student's) — same
-  // search/subsystem filters as the catalog, no tag dimension.
+  // This attempt's own custom parts (never another student's) — filtered by
+  // search, subsystem, and tag filter (tagged "Custom").
   const filteredCustoms = customs.filter((c) => {
     if (sourceFilter === "Standard") return false;
+    if (tagFilter !== "All Tags" && tagFilter.toLowerCase() !== "custom") return false;
     if (search.trim() && !c.component_name.toLowerCase().includes(search.trim().toLowerCase())) return false;
     if (subsystemFilter !== "All" && c.subsystem !== subsystemFilter) return false;
     return true;
@@ -842,6 +848,17 @@ function CustomLibraryCard({
           ) : null}
         </div>
 
+        {c.datasheet_reference ? (
+          <a
+            href={ensureAbsoluteUrl(c.datasheet_reference)}
+            target="_blank"
+            rel="noreferrer"
+            className="h-9 rounded-lg bg-primary/10 ring-1 ring-primary/30 flex items-center justify-center gap-1.5 text-xs font-bold tracking-wide text-primary hover:bg-primary/15 transition-colors"
+          >
+            <FileText className="size-3.5" /> VIEW DATASHEET
+          </a>
+        ) : null}
+
         <div className="grid grid-cols-3 gap-2">
           {[
             { label: "Voltage", value: `${c.voltage_v}V` },
@@ -885,11 +902,17 @@ function CustomLibraryCard({
             {c.measurement_range && <p><b>Range:</b> {c.measurement_range}</p>}
             <p className="whitespace-pre-line"><b>Pins:</b> {c.pins_used}</p>
             {c.datasheet_reference && (
-              c.datasheet_reference.startsWith("http") ? (
-                <p><b>Datasheet:</b> <a href={c.datasheet_reference} target="_blank" rel="noreferrer" className="text-primary underline">Open link</a></p>
-              ) : (
-                <p><b>Datasheet:</b> {c.datasheet_reference}</p>
-              )
+              <div className="flex items-center justify-between gap-2 pt-1 border-t border-border/40">
+                <span><b>Datasheet:</b></span>
+                <a
+                  href={ensureAbsoluteUrl(c.datasheet_reference)}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="h-7 px-2.5 rounded-md bg-primary/10 ring-1 ring-primary/30 inline-flex items-center justify-center gap-1.5 text-xs font-bold tracking-wide text-primary hover:bg-primary/15 transition-colors"
+                >
+                  <FileText className="size-3" /> VIEW DATASHEET
+                </a>
+              </div>
             )}
           </div>
         )}

@@ -1,5 +1,6 @@
 import { useState } from "react"
 import { useQuery } from "@tanstack/react-query"
+import { FileText } from "lucide-react"
 import { Spinner } from "@/components/ui/primitives"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { attemptDesignDetailApi } from "@/api/missionsInstructor"
@@ -142,11 +143,17 @@ export function DesignRunDetail({
                               {c.measurement_output && <p><span className="font-semibold text-foreground">Output:</span> {c.measurement_output}</p>}
                               {c.measurement_range && <p><span className="font-semibold text-foreground">Range:</span> {c.measurement_range}</p>}
                               {c.datasheet_reference && (
-                                <p><span className="font-semibold text-foreground">Datasheet:</span>{" "}
-                                  {c.datasheet_reference.startsWith("http") ? (
-                                    <a href={ensureAbsoluteUrl(c.datasheet_reference)} target="_blank" rel="noreferrer" className="text-primary underline">Open link</a>
-                                  ) : c.datasheet_reference}
-                                </p>
+                                <div className="flex items-center gap-2 pt-1">
+                                  <span className="font-semibold text-foreground">Datasheet:</span>{" "}
+                                  <a
+                                    href={ensureAbsoluteUrl(c.datasheet_reference)}
+                                    target="_blank"
+                                    rel="noreferrer"
+                                    className="h-7 px-2.5 rounded-md bg-primary/10 ring-1 ring-primary/30 inline-flex items-center justify-center gap-1.5 text-xs font-bold tracking-wide text-primary hover:bg-primary/15 transition-colors"
+                                  >
+                                    <FileText className="size-3" /> VIEW DATASHEET
+                                  </a>
+                                </div>
                               )}
                             </div>
                           </td>

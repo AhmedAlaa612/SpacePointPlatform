@@ -16,7 +16,7 @@
  *    value. The "used in N designs" count is there so you can see the blast
  *    radius before changing a spec.
  */
-import { useRef, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { isAxiosError } from "axios";
 import { AlertTriangle, CheckCircle2, ExternalLink, Plus, Search, Upload } from "lucide-react";
@@ -61,7 +61,7 @@ const EDITABLE: {
   { key: "component_name", label: "Name", group: "identity", wide: true },
   { key: "subsystem", label: "Subsystem", group: "identity" },
   { key: "component_code", label: "Code", group: "identity", hint: "Internal part code, if you use one." },
-  { key: "tag", label: "Tag", group: "identity" },
+  { key: "tag", label: "Tag", group: "identity", hint: "e.g. Custom, SatKit, MPKit" },
   { key: "example_role", label: "Role", group: "identity", wide: true, hint: "One line: what job this does on a spacecraft." },
   { key: "scaled_description", label: "Description", group: "identity", wide: true },
   { key: "key_specs", label: "Key specs", group: "identity", wide: true },
@@ -176,6 +176,7 @@ export default function LmsDesignLibrary() {
   const queryClient = useQueryClient();
   const [search, setSearch] = useState("");
   const [subsystem, setSubsystem] = useState("");
+  const [tagFilter, setTagFilter] = useState("");
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -192,6 +193,20 @@ export default function LmsDesignLibrary() {
     queryFn: () => listLibrary({ subsystem: subsystem || undefined, search: search || undefined }),
   });
   const load = () => void queryClient.invalidateQueries({ queryKey: ["design-library"] });
+
+  const availableTags = useMemo(() => {
+    const set = new Set<string>();
+    set.add("Custom");
+    for (const r of rows) {
+      if (r.tag) set.add(r.tag);
+    }
+    return Array.from(set);
+  }, [rows]);
+
+  const displayedRows = useMemo(() => {
+    if (!tagFilter) return rows;
+    return rows.filter((r) => (r.tag || "").toLowerCase() === tagFilter.toLowerCase());
+  }, [rows, tagFilter]);
 
   const handleSave = async (id: string | null, body: LibraryComponentInput) => {
     setSaving(true);
@@ -322,6 +337,10 @@ export default function LmsDesignLibrary() {
           <option value="">All subsystems</option>
           {SUBSYSTEMS.map((s) => <option key={s} value={s}>{s}</option>)}
         </select>
+        <select className={`${inputCls} w-auto`} value={tagFilter} onChange={(e) => setTagFilter(e.target.value)}>
+          <option value="">All tags</option>
+          {availableTags.map((t) => <option key={t} value={t}>{t}</option>)}
+        </select>
       </div>
 
       {creating && (
@@ -333,8 +352,8 @@ export default function LmsDesignLibrary() {
         <p className="text-sm text-muted-foreground">Loading...</p>
       ) : (
         <div className="flex flex-col gap-2">
-          {rows.length === 0 && <p className="text-sm text-muted-foreground">No components match.</p>}
-          {rows.map((row) => (
+          {displayedRows.length === 0 && <p className="text-sm text-muted-foreground">No components match.</p>}
+          {displayedRows.map((row) => (
             <Card key={row.id} className={`p-4 flex flex-col gap-3 ${row.is_active ? "" : "opacity-60"}`}>
               <div className="flex flex-wrap items-start justify-between gap-3">
                 <div className="flex items-start gap-3 min-w-0">
@@ -345,6 +364,17 @@ export default function LmsDesignLibrary() {
                     <p className="text-sm font-semibold flex items-center gap-2">
                       {row.component_name}
                       {!row.is_active && <span className="text-[10px] uppercase tracking-wide text-muted-foreground">retired</span>}
+                      {row.tag && (
+                        <span
+                          className={`px-1.5 py-0.5 rounded text-[10px] font-bold uppercase tracking-wide ${
+                            row.tag.toLowerCase() === "custom"
+                              ? "bg-violet-500/15 text-violet-600 dark:text-violet-400"
+                              : "bg-muted text-muted-foreground"
+                          }`}
+                        >
+                          {row.tag}
+                        </span>
+                      )}
                       <DatasheetBadge hasFile={row.has_datasheet_file} hasLink={!!row.datasheet_url} />
                     </p>
                     <p className="text-[11px] text-muted-foreground">

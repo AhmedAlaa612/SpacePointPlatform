@@ -47,7 +47,7 @@ export type LibraryComponentInput = Partial<Omit<LibraryComponentAdmin,
 
 export const SUBSYSTEMS = ["ADCS", "CDHS", "EPS", "COMMS", "Payload", "Structure", "Thermal"] as const;
 
-export async function listLibrary(params?: { subsystem?: string; search?: string }): Promise<LibraryComponentAdmin[]> {
+export async function listLibrary(params?: { subsystem?: string; search?: string; tag?: string }): Promise<LibraryComponentAdmin[]> {
   const { data } = await api.get<LibraryComponentAdmin[]>("/missions/library", { params });
   return data;
 }

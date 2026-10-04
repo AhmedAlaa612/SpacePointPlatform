@@ -213,6 +213,7 @@ async def build_component_config_out(
 
     subsystems_set = {c.subsystem for c in rows if c.subsystem}
     tags_set = {c.tag for c in rows if c.tag}
+    tags_set.add("Custom")
 
     disabled_subs = set(config_dict.get("disabled_subsystems", []))
     disabled_tags = set(config_dict.get("disabled_tags", []))
@@ -285,3 +286,15 @@ async def is_component_allowed_for_cohort(
         return False
 
     return True
+
+
+async def is_custom_component_allowed_for_cohort(
+    db: AsyncSession, *, cohort_id: UUID | None
+) -> bool:
+    """Validate whether custom components are permitted in the cohort."""
+    if cohort_id is None:
+        return True
+    config_dict, _, _ = await resolve_effective_component_config(db, cohort_id=cohort_id)
+    disabled_tags = [t.lower() for t in config_dict.get("disabled_tags", [])]
+    return "custom" not in disabled_tags
+

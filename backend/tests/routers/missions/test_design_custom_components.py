@@ -169,14 +169,14 @@ async def test_custom_edit_does_not_rewrite_snapshot_and_ops_can_inspect(db, cli
     )
     custom_id = created.json()["components"][0]["custom_component_id"]
 
-    # Edit the definition (mass 65 -> 999): the placed snapshot must not move.
+    # Edit the definition (mass 65 -> 999): placed snapshot updates to match.
     patched = await client.patch(
         f"/missions/design/attempts/{attempt_id}/custom-components/{custom_id}",
         headers=h, json={"mass_g": 999.0},
     )
     assert patched.status_code == 200
     state = await client.get(f"/missions/design/attempts/{attempt_id}", headers=h)
-    assert state.json()["components"][0]["mass_per_unit_g"] == pytest.approx(65.0)
+    assert state.json()["components"][0]["mass_per_unit_g"] == pytest.approx(999.0)
 
     # Ops sees the custom row in design-detail with the full spec.
     detail = await client.get(f"/missions/admin/attempts/{attempt_id}/design-detail", headers=_headers(ops))

@@ -473,9 +473,14 @@ async def add_design_component(
     await require_step_unlocked(db, attempt=attempt, step_key="components")
     design = await ensure_design(db, attempt=attempt)
     if body.custom_component_id is not None:
-        # Custom parts skip the cohort disabled-component check by design:
-        # that allowlist governs the shared catalog, not student hardware.
-        # Ownership (same attempt, active) is enforced inside, 404 on foreign.
+        if attempt.cohort_id is not None:
+            from app.services.missions.component_config import is_custom_component_allowed_for_cohort
+
+            if not await is_custom_component_allowed_for_cohort(db, cohort_id=attempt.cohort_id):
+                raise HTTPException(
+                    status.HTTP_400_BAD_REQUEST,
+                    detail="Custom components are disabled for your cohort's mission design.",
+                )
         await design_service.add_custom_to_design(
             db, design_id=design.id, attempt_id=attempt.id,
             custom_component_id=body.custom_component_id, quantity=body.quantity,
@@ -579,6 +584,14 @@ async def create_custom_component(
     attempt = await _own_design_attempt(db, attempt_id, current)
     await _require_team_not_final_locked(db, attempt=attempt)
     await require_step_unlocked(db, attempt=attempt, step_key="components")
+    if attempt.cohort_id is not None:
+        from app.services.missions.component_config import is_custom_component_allowed_for_cohort
+
+        if not await is_custom_component_allowed_for_cohort(db, cohort_id=attempt.cohort_id):
+            raise HTTPException(
+                status.HTTP_400_BAD_REQUEST,
+                detail="Custom components are disabled for your cohort's mission design.",
+            )
     design = await ensure_design(db, attempt=attempt)
     fields = body.model_dump(exclude={"quantity"})
     custom = await design_service.create_custom_component(

@@ -85,7 +85,7 @@ def _touch(row: DesignComponentLibrary, user: User) -> None:
 
 @router.get("", response_model=list[LibraryComponentAdminOut])
 async def list_library(
-    subsystem: str | None = None, search: str | None = None, include_retired: bool = True,
+    subsystem: str | None = None, search: str | None = None, tag: str | None = None, include_retired: bool = True,
     db: AsyncSession = Depends(get_db), current: User = Depends(get_current_active_user),
 ):
     """Unlike the student-facing `/missions/design/library`, this returns
@@ -96,6 +96,8 @@ async def list_library(
         query = query.where(DesignComponentLibrary.is_active.is_(True))
     if subsystem:
         query = query.where(DesignComponentLibrary.subsystem == subsystem)
+    if tag:
+        query = query.where(func.lower(DesignComponentLibrary.tag) == tag.lower())
     if search:
         like = f"%{search}%"
         query = query.where(or_(
