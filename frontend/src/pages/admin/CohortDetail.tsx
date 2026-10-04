@@ -4,7 +4,7 @@ import { Link, useParams } from "@tanstack/react-router"
 import * as XLSX from "xlsx"
 import {
   ArrowLeft, CalendarPlus, UserPlus, Upload, Ticket, Mail, Wallet, Ban, FileText, Download, FileSpreadsheet, Copy,
-  CheckCircle2, Award, Trash2, Search, Pencil, MoreVertical, Camera,
+  CheckCircle2, Award, Trash2, Search, Pencil, MoreVertical, Camera, X,
 } from "lucide-react"
 import type {
   Cohort, CohortStatus, Program, Session,
@@ -602,43 +602,57 @@ function CohortDetailView({ cohort }: { cohort: Cohort }) {
           Registrations{registrations.length > 0 ? ` (${registrations.length}${cohort.capacity != null ? ` / ${cohort.capacity}` : ""})` : ""}
         </p>
         {registrations.length > 0 && (
-          <div className="flex items-center gap-2 mb-2">
-            <div className="relative flex-1">
+          <div className="flex flex-col sm:flex-row sm:items-center gap-2 mb-2">
+            <div className="relative w-full sm:flex-1 min-w-0">
               <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none" />
               <input
+                type="text"
+                dir="auto"
                 value={regSearch}
                 onChange={(e) => setRegSearch(e.target.value)}
                 placeholder="Search name, phone, email, school…"
-                className="w-full h-9 pl-9 pr-3 bg-background border border-border rounded-xl text-xs focus:outline-none focus:border-primary transition-colors"
+                className="w-full h-9 pl-9 pr-8 bg-background border border-border rounded-xl text-xs placeholder:text-muted-foreground focus:outline-none focus:border-primary transition-colors"
               />
+              {regSearch && (
+                <button
+                  type="button"
+                  onClick={() => setRegSearch("")}
+                  aria-label="Clear search"
+                  className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground p-0.5 rounded-full transition-colors"
+                >
+                  <X size={13} />
+                </button>
+              )}
             </div>
-            <select
-              value={regLoginFilter}
-              onChange={(e) => setRegLoginFilter(e.target.value as "all" | "never" | "has_logged_in")}
-              className="w-auto shrink-0 h-9 px-2.5 bg-background border border-border rounded-xl text-xs focus:outline-none focus:border-primary transition-colors cursor-pointer"
-            >
-              <option value="all">Any login status</option>
-              <option value="never">Never logged in</option>
-              <option value="has_logged_in">Has logged in</option>
-            </select>
-            <select
-              value={regConsentFilter}
-              onChange={(e) => setRegConsentFilter(e.target.value as "all" | "consented" | "declined" | "pending")}
-              className="w-auto shrink-0 h-9 px-2.5 bg-background border border-border rounded-xl text-xs focus:outline-none focus:border-primary transition-colors cursor-pointer"
-            >
-              <option value="all">Any media consent</option>
-              <option value="consented">Consent: Granted</option>
-              <option value="declined">Consent: Declined</option>
-              <option value="pending">Consent: Pending</option>
-            </select>
-            <button
-              onClick={handleExportRegistrations}
-              disabled={filteredRegistrations.length === 0}
-              title="Export the rows shown below to an .xlsx file"
-              className="flex items-center gap-1.5 h-9 px-3 shrink-0 border border-border rounded-xl text-xs font-medium text-foreground hover:bg-muted transition-colors disabled:opacity-50"
-            >
-              <FileSpreadsheet size={14} /> Export
-            </button>
+            <div className="flex items-center gap-2 flex-wrap sm:flex-nowrap w-full sm:w-auto">
+              <select
+                value={regLoginFilter}
+                onChange={(e) => setRegLoginFilter(e.target.value as "all" | "never" | "has_logged_in")}
+                className="flex-1 sm:flex-none sm:w-auto h-9 px-2.5 bg-background border border-border rounded-xl text-xs focus:outline-none focus:border-primary transition-colors cursor-pointer"
+              >
+                <option value="all">Any login status</option>
+                <option value="never">Never logged in</option>
+                <option value="has_logged_in">Has logged in</option>
+              </select>
+              <select
+                value={regConsentFilter}
+                onChange={(e) => setRegConsentFilter(e.target.value as "all" | "consented" | "declined" | "pending")}
+                className="flex-1 sm:flex-none sm:w-auto h-9 px-2.5 bg-background border border-border rounded-xl text-xs focus:outline-none focus:border-primary transition-colors cursor-pointer"
+              >
+                <option value="all">Any media consent</option>
+                <option value="consented">Consent: Granted</option>
+                <option value="declined">Consent: Declined</option>
+                <option value="pending">Consent: Pending</option>
+              </select>
+              <button
+                onClick={handleExportRegistrations}
+                disabled={filteredRegistrations.length === 0}
+                title="Export the rows shown below to an .xlsx file"
+                className="flex items-center justify-center gap-1.5 h-9 px-3 shrink-0 border border-border rounded-xl text-xs font-medium text-foreground hover:bg-muted transition-colors disabled:opacity-50"
+              >
+                <FileSpreadsheet size={14} /> Export
+              </button>
+            </div>
           </div>
         )}
         {drawerError && (
