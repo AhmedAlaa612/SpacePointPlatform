@@ -14,7 +14,7 @@ import { cn } from "@/lib/utils"
 import { Modal, Field, ModalActions, Spinner } from "@/pages/admin/components/common"
 import { PasswordInput } from "@/components/ui/PasswordInput"
 
-const ALL_ROLES: Role[] = ["admin", "intern", "leader", "applicant", "instructor", "facilitator", "ambassador", "teacher", "operations", "coo", "storekeeper", "judge", "lms_author"]
+const ALL_ROLES: Role[] = ["admin", "intern", "leader", "applicant", "instructor", "facilitator", "ambassador", "teacher", "operations", "coo", "storekeeper", "judge", "lms_author", "observer"]
 
 const roleBadgeColor: Record<Role, string> = {
   admin: "bg-foreground text-background",
@@ -31,6 +31,7 @@ const roleBadgeColor: Record<Role, string> = {
   student: "bg-cyan-100 text-cyan-700 dark:bg-cyan-500/15 dark:text-cyan-400",
   judge: "bg-fuchsia-100 text-fuchsia-700 dark:bg-fuchsia-500/15 dark:text-fuchsia-400",
   lms_author: "bg-violet-100 text-violet-700 dark:bg-violet-500/15 dark:text-violet-400",
+  observer: "bg-indigo-100 text-indigo-700 dark:bg-indigo-500/15 dark:text-indigo-400",
 }
 
 /* ================================================================== */

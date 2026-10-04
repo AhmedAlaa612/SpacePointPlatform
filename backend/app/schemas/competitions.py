@@ -475,12 +475,45 @@ class CompetitionAssignableStudentOut(StudentSummaryOut):
     (`lms_access`, via `LmsProgramAssignment`, regardless of how they got
     it — invite-code grant, desk registration, or the Assign flow itself).
     Drives the `registered_only`/`team_status`/`lms_status` filters
-    server-side, same idea as the original `unassigned_only` filter."""
+    server-side, same idea as the original `unassigned_only` filter.
+
+    Assign rebuild (2026-10): `card_number`/`card_id` for the Card ID
+    column + sortable ID, `roles` so the Staff toggle can show/filter the
+    account's actual roles. `lms_access` is kept for back-compat but the
+    tab's "In program" state reads `registered` — registration and LMS
+    assignment are created interchangeably by every assign path."""
     team_id: str | None = None
     team_name: str | None = None
+    team_uuid: UUID | None = None
     registered: bool = False
     lms_access: bool = False
     is_observer: bool = False
+    card_number: int | None = None
+    card_id: str | None = None
+    roles: list[str] = []
+
+
+class CompetitionAssignableStudentsPage(BaseModel):
+    """Paginated wrapper for the Assign tab search (2026-10 rebuild) —
+    the tab lists the whole platform's accounts, so an uncapped list is
+    no longer viable. `items` carries the page's rows, `total` the full
+    match count for the pagination controls."""
+    items: list[CompetitionAssignableStudentOut] = []
+    total: int = 0
+    page: int = 1
+    page_size: int = 25
+
+
+class CompetitionRegisterUsersIn(BaseModel):
+    """Add-to-program without a team (2026-10 rebuild) — registers each
+    account into the cohort (find-or-create Registration +
+    LmsProgramAssignment, auto-creating a Contact when the account has
+    none) and leaves them teamless (`no_team` backlog). Staff accounts
+    assigned this way get the `observer` role appended + a
+    `mode="observer"` assignment."""
+    user_ids: list[UUID] = []
+    send_welcome_email: bool = True
+    send_ticket_email: bool = True
 
 
 class CompetitionAssignStudentRowIn(BaseModel):

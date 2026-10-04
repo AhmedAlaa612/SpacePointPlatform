@@ -24,7 +24,12 @@ export type Role =
   // account — zero ops access, lives at /judge/*.
   | "judge"
   // LMS Author (2026-10). Partner course and learning path authoring.
-  | "lms_author";
+  | "lms_author"
+  // Observer (2026-10). A testing label, not a workspace — observers run
+  // the student engine via /learn boards. Never an activeRole (see
+  // AuthContext.resolveActiveRole + RoleSwitcher filtering); listed here
+  // so multi-role accounts carrying it type-check and label correctly.
+  | "observer";
 
 /**
  * There is deliberately no `ROLE_DOMAIN` map. One existed until I0-1
@@ -53,6 +58,7 @@ export const ROLE_LABEL: Record<Role, string> = {
   student: "Student",
   judge: "Judge",
   lms_author: "LMS Author",
+  observer: "Observer",
 };
 
 export interface User {

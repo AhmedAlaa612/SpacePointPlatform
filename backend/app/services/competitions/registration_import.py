@@ -72,13 +72,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.sessions.cohort import Cohort
 from app.models.sessions.registration import Registration
 from app.models.spine.contact import Contact
-from app.models.team import Team
-from app.models.user import User
+from app.models.team import Team, TeamMember
+from app.models.user import User, UserRole
 from app.services.competitions.team_management import rename_team
 from app.services.lms.ops_integration import sync_registration_lms
 from app.services.sessions.registration import register
 from app.services.spine.identity import normalize_email, resolve_or_create_contact, user_email_matches
-from app.services.teams import create_team, join_team, team_member_ids
+from app.services.teams import create_team, join_team, leave_team, team_member_ids
 
 REQUIRED_COLUMNS = ["team_id", "member_name", "email"]
 OPTIONAL_COLUMNS = ["phone", "nationality", "team_name", "school"]
@@ -389,6 +389,19 @@ async def _register_and_assign_team(
             team.is_observer = True
         if user.id not in await team_member_ids(db, team_id=team.id):
             await join_team(db, team_id=team.id, user_id=user.id)
+    # Single-team rule (2026-10 rebuild): a user is on at most one team per
+    # cohort — moving them leaves every other team in this cohort.
+    other_team_ids = (await db.execute(
+        select(TeamMember.team_id)
+        .join(Team, Team.id == TeamMember.team_id)
+        .where(
+            Team.cohort_id == cohort.id,
+            TeamMember.user_id == user.id,
+            TeamMember.team_id != team.id,
+        )
+    )).scalars().all()
+    for other_id in other_team_ids:
+        await leave_team(db, team_id=other_id, user_id=user.id)
         # Only apply a given name while the team is still at its own
         # placeholder — never clobber a name a team already set for real
         # (their own rename, or an ops fix), even on a re-import/re-assign.
@@ -510,10 +523,22 @@ async def _assign_row(
     if user is None:
         return AssignRowResult(row_number, user_id, clean_team_id, clean_team_name, "error", "Student not found")
     if user.contact_id is None:
-        return AssignRowResult(
-            row_number, user_id, clean_team_id, clean_team_name, "error",
-            "This student has no linked contact record — this shouldn't happen for a self-registered account",
-        )
+        # Staff accounts often have no linked Contact — auto-create one so
+        # register() has something to attach to (2026-10 rebuild), instead
+        # of erroring the row.
+        try:
+            contact, _ = await resolve_or_create_contact(
+                db, full_name=user.full_name or user.email, email=user.email,
+                contact_roles=["student"] if "student" in user.role_values else ["other"],
+                role_event_source="desk",
+            )
+            user.contact_id = contact.id
+            await db.flush()
+        except Exception as exc:
+            return AssignRowResult(
+                row_number, user_id, clean_team_id, clean_team_name, "error",
+                f"Couldn't create a contact for this account: {exc}",
+            )
 
     try:
         team, registration, is_new_registration = await _register_and_assign_team(
@@ -552,6 +577,79 @@ async def assign_existing_students(
             team_name=entry.get("team_name"), cohort=cohort, send_welcome_email=send_welcome_email,
         )
         results.append(result)
+    return results
+
+
+async def _register_user_row(
+    db: AsyncSession, *, row_number: int, user_id: uuid.UUID,
+    cohort: Cohort, send_welcome_email: bool,
+) -> AssignRowResult:
+    """One row of the add-to-program flow: find-or-create Registration +
+    LMS assignment, no team. Staff (non-student) accounts get the
+    `observer` role appended and a `mode="observer"` assignment; students
+    get `mode="participant"`. Idempotent per user (`matched` when the
+    Registration already existed)."""
+    user = await db.get(User, user_id)
+    if user is None:
+        return AssignRowResult(row_number, user_id, None, None, "error", "User not found")
+    if user.contact_id is None:
+        try:
+            contact, _ = await resolve_or_create_contact(
+                db, full_name=user.full_name or user.email, email=user.email,
+                contact_roles=["student"] if "student" in user.role_values else ["other"],
+                role_event_source="desk",
+            )
+            user.contact_id = contact.id
+            await db.flush()
+        except Exception as exc:
+            return AssignRowResult(
+                row_number, user_id, None, None, "error",
+                f"Couldn't create a contact for this account: {exc}",
+            )
+    is_staff = "student" not in user.role_values
+    if is_staff and "observer" not in user.role_values:
+        user.roles = [*user.roles, UserRole.observer]
+        await db.flush()
+    try:
+        existing_reg = (await db.execute(
+            select(Registration).where(
+                Registration.contact_id == user.contact_id, Registration.cohort_id == cohort.id)
+        )).scalars().first()
+        is_new_registration = existing_reg is None
+        registration = existing_reg or await register(
+            db, contact_id=user.contact_id, cohort_id=cohort.id,
+            registered_via="desk", payment_status="waived",
+        )
+        await sync_registration_lms(
+            db, registration=registration, cohort=cohort, create_account=True,
+            send_welcome_email=send_welcome_email,
+            mode="observer" if "observer" in user.role_values else "participant",
+        )
+    except HTTPException as exc:
+        return AssignRowResult(row_number, user_id, None, None, "error", exc.detail)
+    return AssignRowResult(
+        row_number, user_id, None, None,
+        "created" if is_new_registration else "matched",
+        registration_id=registration.id,
+    )
+
+
+async def register_existing_users(
+    db: AsyncSession, *, cohort_id: uuid.UUID, user_ids: list[uuid.UUID],
+    send_welcome_email: bool = True,
+) -> list[AssignRowResult]:
+    """Add-to-program without a team (2026-10 Assign rebuild) — each
+    `user_id` gets a Registration + LMS assignment in `cohort` and stays
+    teamless. See `_register_user_row` for the per-row semantics."""
+    cohort = await db.get(Cohort, cohort_id)
+    if cohort is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Cohort not found")
+    results = []
+    for i, user_id in enumerate(user_ids, start=1):
+        results.append(await _register_user_row(
+            db, row_number=i, user_id=user_id, cohort=cohort,
+            send_welcome_email=send_welcome_email,
+        ))
     return results
 
 

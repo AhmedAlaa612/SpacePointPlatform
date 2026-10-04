@@ -25,8 +25,9 @@ from app.models.user import User
 from app.models.team import Team
 from app.schemas.competitions import (
     CompetitionAdvanceResultOut, CompetitionAdvanceTeamsIn, CompetitionAnalyticsOut,
-    CompetitionAssignableStudentOut,
+    CompetitionAssignableStudentOut, CompetitionAssignableStudentsPage,
     CompetitionAssignStudentRowOut, CompetitionAssignStudentsIn, CompetitionAssignStudentsOut,
+    CompetitionRegisterUsersIn,
     CompetitionCertificateRecipientOut, CompetitionCertificateRecipientsSummaryOut,
     CompetitionCertificateSendIn, CompetitionCertificateSendResultOut,
     CompetitionCertificateDownloadIn, CompetitionCertificateTestEmailIn,
@@ -341,30 +342,40 @@ async def post_cohort_registration_import_confirm(
     )
 
 
-@router.get("/cohorts/{cohort_id}/assignable-students", response_model=list[CompetitionAssignableStudentOut])
+@router.get("/cohorts/{cohort_id}/assignable-students", response_model=CompetitionAssignableStudentsPage)
 async def get_cohort_assignable_students(
     cohort_id: uuid.UUID, q: str | None = None, invite_code: str | None = None,
     registered_only: bool = False,
     team_status: Literal["all", "has_team", "no_team"] = "all",
     lms_status: Literal["all", "has_access", "no_access"] = "all",
     login_status: Literal["all", "never", "has_logged_in"] = "all",
-    mode: Literal["all", "student", "observer"] = "student",
+    mode: Literal["all", "student", "observer", "staff"] = "student",
+    role: str | None = None,
+    page: int = Query(1, ge=1),
+    page_size: int = Query(25, ge=1, le=100),
+    sort: Literal["full_name", "card_number", "created_at", "email"] = "full_name",
+    direction: Literal["asc", "desc"] = "asc",
     db: AsyncSession = Depends(get_db),
 ):
     """Backs the Assign tab's search + filters (2026-09-15: `registered_only`,
     `team_status`, `lms_status` replaced the original boolean
-    `unassigned_only`; `login_status` added 2026-09-16). See
+    `unassigned_only`; `login_status` added 2026-09-16; paginated +
+    `staff` mode + `role` + sorting added 2026-10 rebuild). See
     `student_search_service.search_cohort_assignable_students` for what each
     does — `registered_only` switches the candidate set between "matches my
     search, anywhere on the platform" (the original behavior, for finding an
     unregistered invite-code signup to assign) and "actually registered in
-    this cohort" (for viewing the roster itself); `team_status`/`lms_status`/
-    `login_status` filter either set further."""
+    this cohort" (for viewing the roster itself); `team_status`/
+    `login_status` filter either set further. The tab's "In program" state
+    reads `registered`, not `lms_access` — registration and LMS assignment
+    are created interchangeably by every assign path."""
     await _get_cohort_or_404(db, cohort_id)
-    return await student_search_service.search_cohort_assignable_students(
+    result = await student_search_service.search_cohort_assignable_students(
         db, cohort_id=cohort_id, q=q, invite_code=invite_code, registered_only=registered_only,
         team_status=team_status, lms_status=lms_status, login_status=login_status, mode=mode,
+        role=role, page=page, page_size=page_size, sort=sort, direction=direction,
     )
+    return CompetitionAssignableStudentsPage(**result)
 
 
 @router.post("/cohorts/{cohort_id}/assign-students", response_model=CompetitionAssignStudentsOut)
@@ -402,6 +413,44 @@ async def post_cohort_assign_students(
         rows=[
             CompetitionAssignStudentRowOut(**{k: v for k, v in r.items() if k != "registration_id"})
             for r in import_service.assign_results_as_dicts(results)
+        ],
+    )
+
+
+@router.post("/cohorts/{cohort_id}/register-users", response_model=CompetitionAssignStudentsOut)
+async def post_cohort_register_users(
+    cohort_id: uuid.UUID, body: CompetitionRegisterUsersIn, db: AsyncSession = Depends(get_db),
+    arq_redis: ArqRedis | None = Depends(get_arq_redis),
+):
+    """Assign tab add-to-program (2026-10 rebuild): registers each account
+    into `cohort` WITHOUT putting them on a team (the `no_team` backlog).
+    Registration + LMS assignment are created interchangeably in one
+    transaction; accounts without a Contact get one auto-created; staff
+    (non-student) accounts get the `observer` role appended + a
+    `mode="observer"` assignment. Idempotent per user: re-adding an
+    already-registered account reports `matched`.
+
+    Same ticket-email rule as assign-students: only a genuinely new
+    Registration gets a job."""
+    await _get_cohort_or_404(db, cohort_id)
+    results = await import_service.register_existing_users(
+        db, cohort_id=cohort_id,
+        user_ids=[r for r in body.user_ids],
+        send_welcome_email=body.send_welcome_email,
+    )
+    await db.commit()
+    if body.send_ticket_email:
+        for r in results:
+            if r.disposition == "created" and r.registration_id is not None:
+                await safe_enqueue(arq_redis, "send_ticket_email", str(r.registration_id))
+    return CompetitionAssignStudentsOut(
+        summary=import_service.summarize_assign_results(results),
+        rows=[
+            CompetitionAssignStudentRowOut(
+                row_number=r.row_number, user_id=r.user_id, team_id=None,
+                team_name=None, disposition=r.disposition, reason=r.reason,
+            )
+            for r in results
         ],
     )
 

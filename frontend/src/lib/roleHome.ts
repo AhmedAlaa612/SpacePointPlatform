@@ -22,6 +22,10 @@ export function roleHomePath(role: Role | null): string {
     // same reasoning as students: /judge is a separate surface.
     case "judge": return "/judge";
     case "lms_author": return "/lms-authoring/courses";
+    // Safety net only — activeRole should never be observer (see
+    // resolveActiveRole + RoleSwitcher filtering). Observers run the
+    // student engine, so /learn is the sane landing if it ever happens.
+    case "observer": return "/learn";
     default: return "/interns";
   }
 }

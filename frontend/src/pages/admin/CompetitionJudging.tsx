@@ -14,7 +14,7 @@ import { TimingOverrideModal } from "@/components/competitions/TimingOverrideMod
 import { SubmissionWindowsModal } from "@/components/competitions/SubmissionWindowsModal"
 import { listProgramCertificateTemplatesApi } from "@/api/sessions/programCertificateTemplates"
 import {
-  advanceCohortTeamsApi, assignExistingStudentsApi, createCohortTeamApi, deleteTeamApi, downloadCohortResultsWorkbookApi,
+  advanceCohortTeamsApi, createCohortTeamApi, deleteTeamApi, downloadCohortResultsWorkbookApi, registerUsersToCohortApi,
   downloadCompetitionCertificatesApi,
   getCohortExportTop20Api,
   confirmCohortRegistrationImportApi,
@@ -26,7 +26,6 @@ import {
   type CompetitionAssignStudentsResult, type CompetitionImportPreviewRow, type CompetitionImportResult,
   type CompetitionJudgeProgress,
   type CompetitionLeaderboardRow, type CompetitionPublication, type CompetitionRubric, type CompetitionTeam,
-  type CompetitionAssignableStudent,
   type CertificateFilterMode,
 } from "@/api/competitions"
 import { CompetitionAnalysisTab } from "@/pages/admin/components/CompetitionAnalysis"
@@ -398,78 +397,145 @@ function RosterTab({ cohortId }: { cohortId: string }) {
 // step (the `team_setup` checklist item) — this tab only ever assigns a
 // Team ID, never a display name.
 type TeamStatusFilter = "all" | "has_team" | "no_team"
-type LmsStatusFilter = "all" | "has_access" | "no_access"
 type LoginStatusFilter = "all" | "never" | "has_logged_in"
+type AssignMode = "student" | "staff" | "observer"
+type AssignSort = "full_name" | "card_number" | "created_at" | "email"
+
+const STAFF_ROLE_OPTIONS = [
+  "instructor", "intern", "operations", "facilitator", "admin",
+  "lms_author", "judge", "ambassador", "teacher", "leader", "coo", "storekeeper",
+]
 
 function AssignTab({ cohortId }: { cohortId: string }) {
   const toast = useToast()
+  const queryClient = useQueryClient()
   const [query, setQuery] = useState("")
   const [inviteCode, setInviteCode] = useState("")
-  // Unchecked by default (2026-09-15, flipped from the original "on" —
-  // ops kept landing here first and having to untick it to find anyone not
-  // already registered, since the platform-wide search underneath it just
-  // became reliable now that a selected batch isn't silently capped, see
-  // students.py::search_cohort_assignable_students). teamStatus still
-  // defaults to "no team yet" — that's the actual "my roster to still
-  // process" narrowing this tab is built around.
   const [registeredOnly, setRegisteredOnly] = useState(false)
-  const [teamStatus, setTeamStatus] = useState<TeamStatusFilter>("no_team")
-  const [lmsStatus, setLmsStatus] = useState<LmsStatusFilter>("all")
+  const [teamStatus, setTeamStatus] = useState<TeamStatusFilter>("all")
   const [loginStatus, setLoginStatus] = useState<LoginStatusFilter>("all")
-  const [mode, setMode] = useState<"student" | "observer" | "all">("student")
-  const [teamIds, setTeamIds] = useState<Record<string, string>>({})
+  // Rebuild (2026-10): Students | Staff (literally not a student, with a
+  // role filter) | Observers (has the observer role). No All — the role
+  // sets and team pools are disjoint per toggle.
+  const [mode, setMode] = useState<AssignMode>("student")
+  const [role, setRole] = useState("")
+  const [page, setPage] = useState(1)
+  const [pageSize, setPageSize] = useState(25)
+  const [sort, setSort] = useState<AssignSort>("full_name")
+  const [direction, setDirection] = useState<"asc" | "desc">("asc")
+  const [selected, setSelected] = useState<Record<string, boolean>>({})
+  const [rowTeam, setRowTeam] = useState<Record<string, string>>({})
+  const [bulkTeam, setBulkTeam] = useState("")
+  const [newTeamName, setNewTeamName] = useState("")
   const [sendWelcomeEmail, setSendWelcomeEmail] = useState(true)
   const [sendTicketEmail, setSendTicketEmail] = useState(true)
   const [result, setResult] = useState<CompetitionAssignStudentsResult | null>(null)
+  // Snapshot of who each result row refers to, taken at click time — the
+  // list refreshes after the mutation, so looking names up from the live
+  // page afterwards would fall back to raw UUIDs.
+  const [resultNames, setResultNames] = useState<Record<string, { name: string; email: string; card_id: string | null }>>({})
+  const snapshotNames = (ids: string[]) => {
+    const map: Record<string, { name: string; email: string; card_id: string | null }> = {}
+    ids.forEach((id) => {
+      const s = students.find((row) => row.id === id)
+      if (s) map[id] = { name: s.full_name, email: s.email, card_id: s.card_id }
+    })
+    setResultNames(map)
+  }
 
-  const { data: students = [], isLoading } = useQuery({
-    queryKey: ["competitions-assignable-students", cohortId, query, inviteCode, registeredOnly, teamStatus, lmsStatus, loginStatus, mode],
+  // Any filter/mode change restarts at page 1.
+  useEffect(() => { setPage(1); setSelected({}) }, [query, inviteCode, registeredOnly, teamStatus, loginStatus, mode, role, pageSize, sort, direction])
+
+  const { data: assignPage, isLoading } = useQuery({
+    queryKey: ["competitions-assignable-students", cohortId, query, inviteCode, registeredOnly, teamStatus, loginStatus, mode, role, page, pageSize, sort, direction],
     queryFn: () => searchAssignableStudentsApi(cohortId, {
       q: query || undefined, invite_code: inviteCode || undefined, registered_only: registeredOnly,
-      team_status: teamStatus, lms_status: lmsStatus, login_status: loginStatus, mode,
+      team_status: teamStatus, login_status: loginStatus, mode,
+      role: mode === "staff" && role ? role : undefined,
+      page, page_size: pageSize, sort, direction,
     }),
   })
+  const students = assignPage?.items ?? []
+  const total = assignPage?.total ?? 0
+  const totalPages = Math.max(1, Math.ceil(total / pageSize))
   const { data: codes = [] } = useQuery({
     queryKey: ["lms-admin-invite-codes"],
     queryFn: listInviteCodesApi,
   })
+  const { data: allTeams = [] } = useQuery({
+    queryKey: ["competitions-cohort-teams", cohortId],
+    queryFn: () => getCohortTeamsApi(cohortId),
+  })
+  // Team pool is partitioned like the toggles: students get student teams,
+  // staff/observers get observer sandbox teams (the backend still enforces
+  // the partition — this just keeps the dropdown honest).
+  const teamPool = allTeams.filter((t) => mode === "student" ? !t.is_observer : !!t.is_observer)
 
-  const assignMutation = useMutation({
-    mutationFn: (rows: { user_id: string; team_id: string }[]) =>
-      assignExistingStudentsApi(cohortId, rows, { send_welcome_email: sendWelcomeEmail, send_ticket_email: sendTicketEmail }),
+  const invalidate = () => {
+    void queryClient.invalidateQueries({ queryKey: ["competitions-assignable-students", cohortId] })
+    void queryClient.invalidateQueries({ queryKey: ["competitions-cohort-teams", cohortId] })
+  }
+
+  // Add to program without a team (register + LMS assignment; staff gain
+  // the observer role + a mode="observer" assignment server-side).
+  const registerMutation = useMutation({
+    mutationFn: (userIds: string[]) =>
+      registerUsersToCohortApi(cohortId, userIds, { send_welcome_email: sendWelcomeEmail, send_ticket_email: sendTicketEmail }),
     onSuccess: (res) => {
       setResult(res)
-      setTeamIds({})
-      toast.success(`Assigned: ${res.summary.created} newly registered, ${res.summary.matched} already registered, ${res.summary.error} errors`)
+      setSelected({})
+      invalidate()
+      toast.success(`Added: ${res.summary.created} newly registered, ${res.summary.matched} already in program, ${res.summary.error} errors`)
     },
-    onError: (e: any) => toast.error(getErrorMessage(e, "Failed to assign students")),
+    onError: (e: any) => toast.error(getErrorMessage(e, "Failed to add to program")),
   })
 
-  const rowsToSubmit = Object.entries(teamIds)
-    .filter(([, teamId]) => teamId.trim())
-    .map(([userId, teamId]) => ({ user_id: userId, team_id: teamId.trim() }))
+  // Put user(s) on an existing team by UUID — the server registers them
+  // first when needed (same interchangeable rule as add-to-program) and
+  // enforces the single-team-per-cohort move.
+  const moveMutation = useMutation({
+    mutationFn: async (moves: { user_id: string; team_id: string }[]) => {
+      for (const m of moves) await addExistingTeamMemberApi(m.team_id, m.user_id)
+      return moves.length
+    },
+    onSuccess: (n) => {
+      setSelected({})
+      setRowTeam({})
+      setBulkTeam("")
+      invalidate()
+      toast.success(n === 1 ? "Moved to team" : `Moved ${n} to team`)
+    },
+    onError: (e: any) => toast.error(getErrorMessage(e, "Failed to move to team")),
+  })
+
+  const createTeamMutation = useMutation({
+    mutationFn: (name: string) => createCohortTeamApi(cohortId, name, mode !== "student"),
+    onSuccess: (team) => {
+      setNewTeamName("")
+      invalidate()
+      toast.success(`Team "${team.name}" created`)
+    },
+    onError: (e: any) => toast.error(getErrorMessage(e, "Failed to create team")),
+  })
+
+  const selectedIds = Object.keys(selected).filter((id) => selected[id])
+  const toggleSort = (key: AssignSort) => {
+    if (sort === key) setDirection((d) => (d === "asc" ? "desc" : "asc"))
+    else { setSort(key); setDirection("asc") }
+  }
+  const sortArrow = (key: AssignSort) => (sort === key ? (direction === "asc" ? " ↑" : " ↓") : "")
+
+  const allOnPageSelected = students.length > 0 && students.every((s) => selected[s.id])
 
   return (
-    // Wider than the other tabs' max-w-2xl/3xl/4xl (2026-09-15) — this is
-    // the one tab with a 6-column table (name/email/code/team/LMS/team ID
-    // input), and 4xl was clipping the Team ID column on an ordinary desktop
-    // viewport despite the table's own overflow-x-auto, since that scrolls
-    // the table *within* an already-too-narrow container instead of the
-    // container just using the room the page actually has.
-    <div className="flex flex-col gap-4 max-w-6xl">
-      <p className="text-sm text-muted-foreground max-w-4xl">
-        Find students who already signed up with an invite code, type in a Team ID for each, and assign them —
-        this registers them into this cohort and puts them on that team (creating it if it's new). Students set
-        their own team's display name later; a Team ID here is just the grouping code, not a name.
-      </p>
-
+    <div className="flex flex-col gap-4 w-full">
       <div className="flex flex-wrap items-center gap-3">
         <div className="relative max-w-md flex-1 min-w-[220px]">
           <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
           <input
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder="Search by name or email..."
+            placeholder={`Search ${mode === "student" ? "students" : mode === "staff" ? "staff" : "observers"} by name, email, or card ID...`}
             className="w-full h-10 pl-8 pr-3 border border-border bg-card text-foreground rounded-xl text-sm focus:outline-none focus:border-primary transition-colors"
           />
         </div>
@@ -498,15 +564,6 @@ function AssignTab({ cohortId }: { cohortId: string }) {
           <option value="has_team">Has a team</option>
         </select>
         <select
-          value={lmsStatus}
-          onChange={(e) => setLmsStatus(e.target.value as LmsStatusFilter)}
-          className="w-auto shrink-0 h-10 px-3 border border-border bg-card text-foreground rounded-xl text-sm focus:outline-none focus:border-primary transition-colors cursor-pointer"
-        >
-          <option value="all">Any LMS access</option>
-          <option value="no_access">No LMS access</option>
-          <option value="has_access">Has LMS access</option>
-        </select>
-        <select
           value={loginStatus}
           onChange={(e) => setLoginStatus(e.target.value as LoginStatusFilter)}
           className="w-auto shrink-0 h-10 px-3 border border-border bg-card text-foreground rounded-xl text-sm focus:outline-none focus:border-primary transition-colors cursor-pointer"
@@ -519,7 +576,7 @@ function AssignTab({ cohortId }: { cohortId: string }) {
         <div className="flex items-center p-1 bg-muted/60 border border-border/80 rounded-xl text-xs">
           <button
             type="button"
-            onClick={() => setMode("student")}
+            onClick={() => { setMode("student"); setRole("") }}
             className={`px-3 py-1 rounded-lg font-medium transition-colors cursor-pointer ${
               mode === "student" ? "bg-background text-foreground shadow-xs font-semibold" : "text-muted-foreground hover:text-foreground"
             }`}
@@ -528,22 +585,98 @@ function AssignTab({ cohortId }: { cohortId: string }) {
           </button>
           <button
             type="button"
-            onClick={() => setMode("observer")}
+            onClick={() => setMode("staff")}
+            className={`px-3 py-1 rounded-lg font-medium transition-colors cursor-pointer ${
+              mode === "staff" ? "bg-background text-foreground shadow-xs font-semibold" : "text-muted-foreground hover:text-foreground"
+            }`}
+          >
+            Staff
+          </button>
+          <button
+            type="button"
+            onClick={() => { setMode("observer"); setRole("") }}
             className={`px-3 py-1 rounded-lg font-medium transition-colors cursor-pointer ${
               mode === "observer" ? "bg-background text-indigo-600 dark:text-indigo-400 shadow-xs font-semibold" : "text-muted-foreground hover:text-foreground"
             }`}
           >
             Observers
           </button>
+        </div>
+        {mode === "staff" && (
+          <select
+            value={role}
+            onChange={(e) => setRole(e.target.value)}
+            className="w-auto shrink-0 h-10 px-3 border border-border bg-card text-foreground rounded-xl text-sm focus:outline-none focus:border-primary transition-colors cursor-pointer"
+          >
+            <option value="">All roles</option>
+            {STAFF_ROLE_OPTIONS.map((r) => (
+              <option key={r} value={r}>{r}</option>
+            ))}
+          </select>
+        )}
+      </div>
+
+      {/* Team bar: existing teams + create — on top, applies to selection or per row */}
+      <div className="flex flex-wrap items-center gap-3 p-3 bg-muted/40 border border-border rounded-xl">
+        <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+          {mode === "student" ? "Student teams" : "Observer teams"} ({teamPool.length})
+        </span>
+        <select
+          value={bulkTeam}
+          onChange={(e) => setBulkTeam(e.target.value)}
+          className="h-9 px-2 border border-border bg-card text-foreground rounded-lg text-sm focus:outline-none focus:border-primary transition-colors cursor-pointer min-w-[180px]"
+        >
+          <option value="">Select a team…</option>
+          {teamPool.map((t) => (
+            <option key={t.id} value={t.id}>{t.name} ({t.member_ids.length})</option>
+          ))}
+        </select>
+        <div className="flex items-center gap-2">
+          <input
+            value={newTeamName}
+            onChange={(e) => setNewTeamName(e.target.value)}
+            placeholder="New team name…"
+            className="h-9 px-2 border border-border bg-card text-foreground rounded-lg text-sm w-44 focus:outline-none focus:border-primary transition-colors"
+          />
           <button
             type="button"
-            onClick={() => setMode("all")}
-            className={`px-3 py-1 rounded-lg font-medium transition-colors cursor-pointer ${
-              mode === "all" ? "bg-background text-foreground shadow-xs font-semibold" : "text-muted-foreground hover:text-foreground"
-            }`}
+            onClick={() => newTeamName.trim() && createTeamMutation.mutate(newTeamName.trim())}
+            disabled={!newTeamName.trim() || createTeamMutation.isPending}
+            className="h-9 px-3 rounded-lg bg-secondary text-secondary-foreground text-sm font-medium hover:opacity-90 transition-colors disabled:opacity-50 cursor-pointer"
           >
-            All
+            <Plus size={13} className="inline mr-1" />Team
           </button>
+        </div>
+        {selectedIds.length > 0 && (
+          <>
+            <button
+              type="button"
+              onClick={() => { snapshotNames(selectedIds); registerMutation.mutate(selectedIds) }}
+              disabled={registerMutation.isPending}
+              className="h-9 px-3 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:opacity-90 transition-colors disabled:opacity-50 cursor-pointer"
+            >
+              <Check size={13} className="inline mr-1" />
+              {registerMutation.isPending ? "Adding…" : `Add to program (${selectedIds.length})`}
+            </button>
+            <button
+              type="button"
+              onClick={() => bulkTeam && moveMutation.mutate(selectedIds.map((id) => ({ user_id: id, team_id: bulkTeam })))}
+              disabled={!bulkTeam || moveMutation.isPending}
+              className="h-9 px-3 rounded-lg border border-border bg-card text-foreground text-sm font-medium hover:bg-muted transition-colors disabled:opacity-50 cursor-pointer"
+            >
+              {moveMutation.isPending ? "Moving…" : `Move to team (${selectedIds.length})`}
+            </button>
+          </>
+        )}
+        <div className="flex items-center gap-4 ml-auto">
+          <label className="flex items-center gap-2 text-xs text-foreground cursor-pointer select-none">
+            <input type="checkbox" checked={sendWelcomeEmail} onChange={(e) => setSendWelcomeEmail(e.target.checked)} />
+            LMS mail
+          </label>
+          <label className="flex items-center gap-2 text-xs text-foreground cursor-pointer select-none">
+            <input type="checkbox" checked={sendTicketEmail} onChange={(e) => setSendTicketEmail(e.target.checked)} />
+            Ticket
+          </label>
         </div>
       </div>
 
@@ -551,7 +684,7 @@ function AssignTab({ cohortId }: { cohortId: string }) {
         <Spinner />
       ) : students.length === 0 ? (
         <EmptyState
-          title="No students found"
+          title={mode === "staff" ? "No staff found" : mode === "observer" ? "No observers found" : "No students found"}
           hint={
             registeredOnly
               ? "Nobody registered to this cohort matches these filters — untick \"Registered to this cohort\" to search everyone."
@@ -559,48 +692,103 @@ function AssignTab({ cohortId }: { cohortId: string }) {
           }
         />
       ) : (
-        <div className="overflow-x-auto border border-border rounded-xl">
-          <table className="w-full text-sm">
+        <div className="overflow-x-auto border border-border rounded-xl w-full">
+          <table className="w-full min-w-[980px] text-sm table-fixed">
             <thead>
               <tr className="text-left text-xs text-muted-foreground uppercase tracking-wider border-b border-border">
-                <th className="py-2 pl-3 pr-2">Name</th>
-                <th className="py-2 pr-2">Email</th>
-                <th className="py-2 pr-2">Code used</th>
-                <th className="py-2 pr-2">Current team</th>
-                <th className="py-2 pr-2">LMS access</th>
-                <th className="py-2 pr-2">Login</th>
-                <th className="py-2 pr-3">Team ID</th>
+                <th className="py-2 pl-3 pr-2 w-10">
+                  <input
+                    type="checkbox"
+                    checked={allOnPageSelected}
+                    onChange={(e) => {
+                      const next: Record<string, boolean> = { ...selected }
+                      students.forEach((s) => { next[s.id] = e.target.checked })
+                      setSelected(next)
+                    }}
+                  />
+                </th>
+                <th className="py-2 pr-2 w-[22%]">
+                  <button type="button" onClick={() => toggleSort("full_name")} className="cursor-pointer hover:text-foreground">
+                    Name{sortArrow("full_name")}
+                  </button>
+                </th>
+                <th className="py-2 pr-2 w-[18%]">Email</th>
+                <th className="py-2 pr-2 w-[12%]">
+                  <button type="button" onClick={() => toggleSort("card_number")} className="cursor-pointer hover:text-foreground">
+                    Card ID{sortArrow("card_number")}
+                  </button>
+                </th>
+                <th className="py-2 pr-2 w-[10%]">Code used</th>
+                <th className="py-2 pr-2 w-[14%]">Status</th>
+                <th className="py-2 pr-2 w-[11%]">Login</th>
+                <th className="py-2 pr-3 w-[13%]">Team</th>
               </tr>
             </thead>
             <tbody>
               {students.map((s) => (
                 <tr key={s.id} className="border-b border-border/50">
-                  <td className="py-1.5 pl-3 pr-2 align-top pt-3 font-medium text-foreground whitespace-nowrap">
-                    <div className="flex items-center gap-1.5">
-                      <span>{s.full_name}</span>
+                  <td className="py-1.5 pl-3 pr-2">
+                    <input
+                      type="checkbox"
+                      checked={!!selected[s.id]}
+                      onChange={(e) => setSelected((prev) => ({ ...prev, [s.id]: e.target.checked }))}
+                    />
+                  </td>
+                  <td className="py-1.5 pr-2 align-top pt-3 font-medium text-foreground break-words">
+                    <div className="flex items-start gap-1.5 flex-wrap">
+                      <span className="break-words">{s.full_name}</span>
                       {s.is_observer && (
                         <span className="text-[10px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded bg-indigo-500/15 text-indigo-600 dark:text-indigo-400 border border-indigo-500/30">
                           Observer
                         </span>
                       )}
+                      {mode === "staff" && s.roles.length > 0 && (
+                        <span
+                          className="inline-flex items-center gap-1 flex-wrap"
+                          title={s.roles.join(", ")}
+                        >
+                          {s.roles.slice(0, 2).map((r) => (
+                            <span key={r} className="text-[10px] px-1.5 py-0.5 rounded bg-muted text-muted-foreground whitespace-nowrap">
+                              {r}
+                            </span>
+                          ))}
+                          {s.roles.length > 2 && (
+                            <span className="text-[10px] px-1.5 py-0.5 rounded bg-muted text-muted-foreground whitespace-nowrap">
+                              +{s.roles.length - 2}
+                            </span>
+                          )}
+                        </span>
+                      )}
                     </div>
                   </td>
-                  <td className="py-1.5 pr-2 align-top pt-3 text-muted-foreground whitespace-nowrap">{s.email}</td>
+                  <td className="py-1.5 pr-2 align-top pt-3 text-muted-foreground truncate max-w-0" title={s.email}>{s.email}</td>
+                  <td className="py-1.5 pr-2 align-top pt-3 text-muted-foreground whitespace-nowrap font-mono text-xs">
+                    {s.card_id ?? "—"}
+                  </td>
                   <td className="py-1.5 pr-2 align-top pt-3 text-muted-foreground whitespace-nowrap">
                     {s.invite_code ? (s.invite_label ?? s.invite_code) : "—"}
                   </td>
                   <td className="py-1.5 pr-2 align-top pt-3 whitespace-nowrap">
-                    {s.team_name ? (
-                      <span className="text-xs font-semibold text-primary">{s.team_name}</span>
+                    {/* "In program" is interchangeable: a Registration, this
+                    cohort's LMS assignment, or a team seat here all count —
+                    some flows (try-as-observer) team people up without ever
+                    writing a Registration row. The button only shows when
+                    none of those exist; clicking it backfills the missing
+                    Registration server-side. */}
+                    {s.registered || s.lms_access || s.team_uuid ? (
+                      <span className="text-xs font-semibold text-emerald-600 dark:text-emerald-400">In program</span>
                     ) : (
-                      <span className="text-muted-foreground">Not assigned</span>
+                      <button
+                        type="button"
+                        onClick={() => { snapshotNames([s.id]); registerMutation.mutate([s.id]) }}
+                        disabled={registerMutation.isPending}
+                        className="text-xs font-semibold text-primary hover:underline cursor-pointer disabled:opacity-50"
+                      >
+                        + Add to program
+                      </button>
                     )}
-                  </td>
-                  <td className="py-1.5 pr-2 align-top pt-3 whitespace-nowrap">
-                    {s.lms_access ? (
-                      <span className="text-xs font-semibold text-emerald-600 dark:text-emerald-400">Yes</span>
-                    ) : (
-                      <span className="text-muted-foreground">No</span>
+                    {s.team_name && (
+                      <span className="block text-xs text-muted-foreground">{s.team_name}</span>
                     )}
                   </td>
                   <td className="py-1.5 pr-2 align-top pt-3 whitespace-nowrap">
@@ -613,12 +801,24 @@ function AssignTab({ cohortId }: { cohortId: string }) {
                     )}
                   </td>
                   <td className="py-1.5 pr-3">
-                    <input
-                      value={teamIds[s.id] ?? ""}
-                      onChange={(e) => setTeamIds((prev) => ({ ...prev, [s.id]: e.target.value }))}
-                      placeholder="e.g. T1"
-                      className="w-32 h-8 px-2 rounded-lg border border-border bg-background text-sm"
-                    />
+                    <select
+                      value={rowTeam[s.id] ?? s.team_uuid ?? ""}
+                      onChange={(e) => {
+                        const teamId = e.target.value
+                        setRowTeam((prev) => ({ ...prev, [s.id]: teamId }))
+                        if (teamId) moveMutation.mutate([{ user_id: s.id, team_id: teamId }])
+                      }}
+                      className="h-8 px-2 rounded-lg border border-border bg-background text-sm min-w-[140px] max-w-[200px] cursor-pointer"
+                    >
+                      {s.team_uuid ? (
+                        <option value={s.team_uuid}>{s.team_name ?? "Current team"}</option>
+                      ) : (
+                        <option value="">No team</option>
+                      )}
+                      {teamPool.filter((t) => t.id !== s.team_uuid).map((t) => (
+                        <option key={t.id} value={t.id}>{t.name}</option>
+                      ))}
+                    </select>
                   </td>
                 </tr>
               ))}
@@ -627,38 +827,49 @@ function AssignTab({ cohortId }: { cohortId: string }) {
         </div>
       )}
 
-      {rowsToSubmit.length > 0 && (
-        <>
-          <div className="flex items-center gap-4">
-            <label className="flex items-center gap-2 text-sm text-foreground cursor-pointer select-none">
-              <input type="checkbox" checked={sendWelcomeEmail} onChange={(e) => setSendWelcomeEmail(e.target.checked)} />
-              Send LMS onboarding mail
-            </label>
-            <label className="flex items-center gap-2 text-sm text-foreground cursor-pointer select-none">
-              <input type="checkbox" checked={sendTicketEmail} onChange={(e) => setSendTicketEmail(e.target.checked)} />
-              Send Ticket
-            </label>
-          </div>
+      {/* Pagination */}
+      <div className="flex flex-wrap items-center gap-3 text-sm text-muted-foreground">
+        <span>{total} result{total === 1 ? "" : "s"}</span>
+        <div className="flex items-center gap-1 ml-auto">
           <button
-            onClick={() => assignMutation.mutate(rowsToSubmit)}
-            disabled={assignMutation.isPending}
-            className="self-start flex items-center gap-1.5 h-10 px-4 bg-primary text-primary-foreground rounded-xl text-sm font-medium hover:opacity-90 transition-colors disabled:opacity-50"
+            type="button"
+            onClick={() => setPage((p) => Math.max(1, p - 1))}
+            disabled={page <= 1}
+            className="h-8 px-3 rounded-lg border border-border bg-card disabled:opacity-40 cursor-pointer"
           >
-            <Check size={14} /> {assignMutation.isPending ? "Assigning…" : `Assign & register (${rowsToSubmit.length})`}
+            Prev
           </button>
-        </>
-      )}
+          <span className="px-2">Page {page} of {totalPages}</span>
+          <button
+            type="button"
+            onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+            disabled={page >= totalPages}
+            className="h-8 px-3 rounded-lg border border-border bg-card disabled:opacity-40 cursor-pointer"
+          >
+            Next
+          </button>
+          <select
+            value={pageSize}
+            onChange={(e) => setPageSize(Number(e.target.value))}
+            className="h-8 px-2 border border-border bg-card text-foreground rounded-lg text-sm cursor-pointer"
+          >
+            {[10, 25, 50, 100].map((n) => (
+              <option key={n} value={n}>{n} / page</option>
+            ))}
+          </select>
+        </div>
+      </div>
 
       {result && (
         <div className="flex flex-col gap-2">
           <div className="flex items-center justify-between">
             <p className="text-sm font-medium text-foreground">
-              {result.summary.total} rows · {result.summary.created} newly registered · {result.summary.matched} already registered ·{" "}
+              {result.summary.total} rows · {result.summary.created} newly registered · {result.summary.matched} already in program ·{" "}
               {result.summary.error} errors
             </p>
             <button
               onClick={() => setResult(null)}
-              className="text-sm text-muted-foreground hover:text-foreground transition-colors"
+              className="text-sm text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
             >
               Dismiss
             </button>
@@ -667,21 +878,30 @@ function AssignTab({ cohortId }: { cohortId: string }) {
             <table className="w-full text-sm">
               <thead>
                 <tr className="text-left text-xs text-muted-foreground uppercase tracking-wider border-b border-border">
-                  <th className="py-2 pr-3">Team ID</th>
-                  <th className="py-2 pr-3">Team</th>
+                  <th className="py-2 pr-3">Name</th>
+                  <th className="py-2 pr-3">Card ID</th>
                   <th className="py-2 pr-3">Result</th>
                 </tr>
               </thead>
               <tbody>
-                {result.rows.map((r) => (
-                  <tr key={r.row_number} className="border-b border-border/50">
-                    <td className="py-2 pr-3">{r.team_id ?? "—"}</td>
-                    <td className="py-2 pr-3">{r.team_name ?? "—"}</td>
-                    <td className={`py-2 pr-3 ${r.disposition === "error" ? "text-red-600 dark:text-red-400" : "text-foreground"}`}>
-                      {r.disposition === "error" ? r.reason : r.disposition}
-                    </td>
-                  </tr>
-                ))}
+                {result.rows.map((r) => {
+                  const snap = r.user_id ? resultNames[r.user_id] : undefined
+                  const live = r.user_id ? students.find((s) => s.id === r.user_id) : undefined
+                  const name = snap ? `${snap.name} (${snap.email})` : live ? `${live.full_name} (${live.email})` : (r.user_id ?? "—")
+                  const card = snap?.card_id ?? live?.card_id ?? "—"
+                  return (
+                    <tr key={r.row_number} className="border-b border-border/50">
+                      <td className="py-2 pr-3">
+                        {name}
+                        {r.team_name ? <span className="text-muted-foreground"> → {r.team_name}</span> : null}
+                      </td>
+                      <td className="py-2 pr-3 font-mono text-xs text-muted-foreground">{card}</td>
+                      <td className={`py-2 pr-3 ${r.disposition === "error" ? "text-red-600 dark:text-red-400" : "text-foreground"}`}>
+                        {r.disposition === "error" ? r.reason : r.disposition === "created" ? "added to program" : "already in program"}
+                      </td>
+                    </tr>
+                  )
+                })}
               </tbody>
             </table>
           </div>
@@ -871,17 +1091,18 @@ function TeamCard({ team, cohortId, onChanged }: { team: CompetitionTeam; cohort
   const isObserverTeam = !!team.is_observer
   const memberMode = isObserverTeam ? "observer" : "student"
 
-  const { data: assignableStudents = [], isLoading: isSearchingStudents } = useQuery<CompetitionAssignableStudent[]>({
+  const { data: assignablePage, isLoading: isSearchingStudents } = useQuery({
     queryKey: ["competitions-assignable-students-team", cohortId, studentSearch, memberMode],
     queryFn: () => searchAssignableStudentsApi(cohortId, {
       q: studentSearch.trim() || undefined,
       mode: memberMode,
+      page_size: 50,
     }),
     enabled: adding && addMode === "pick",
   })
 
   const existingMemberIds = new Set(team.member_ids)
-  const candidateStudents = assignableStudents.filter((s) => !existingMemberIds.has(s.id))
+  const candidateStudents = (assignablePage?.items ?? []).filter((s) => !existingMemberIds.has(s.id))
 
   const addExistingMemberMutation = useMutation({
     mutationFn: (userId: string) => addExistingTeamMemberApi(team.id, userId),

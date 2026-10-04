@@ -1161,6 +1161,15 @@ async def _self_registered_student(db, *, full_name: str = "Self Signup Student"
     return user
 
 
+def _rows(resp):
+    """Unwraps the paginated assignable-students shape (2026-10 rebuild:
+    `{"items", "total", ...}`)."""
+    body = resp.json()
+    if isinstance(body, dict):
+        return body["items"]
+    return body
+
+
 @pytest.mark.asyncio
 async def test_assignable_students_reports_team_state_and_filters_unassigned(db, client):
     """Ops's own ask (2026-09-14): "see people not assigned to teams yet
@@ -1185,7 +1194,7 @@ async def test_assignable_students_reports_team_state_and_filters_unassigned(db,
         headers=_headers(ops),
     )
     assert full.status_code == 200, full.text
-    by_id = {r["id"]: r for r in full.json()}
+    by_id = {r["id"]: r for r in _rows(full)}
     assert by_id[str(unassigned.id)]["team_id"] is None
     assert by_id[str(unassigned.id)]["team_name"] is None
     assert by_id[str(assigned.id)]["team_id"] == "T1"
@@ -1197,7 +1206,7 @@ async def test_assignable_students_reports_team_state_and_filters_unassigned(db,
         headers=_headers(ops),
     )
     assert filtered.status_code == 200, filtered.text
-    filtered_ids = {r["id"] for r in filtered.json()}
+    filtered_ids = {r["id"] for r in _rows(filtered)}
     assert str(unassigned.id) in filtered_ids
     assert str(assigned.id) not in filtered_ids
 
@@ -1207,7 +1216,7 @@ async def test_assignable_students_reports_team_state_and_filters_unassigned(db,
         headers=_headers(ops),
     )
     assert has_team.status_code == 200, has_team.text
-    has_team_ids = {r["id"] for r in has_team.json()}
+    has_team_ids = {r["id"] for r in _rows(has_team)}
     assert str(assigned.id) in has_team_ids
     assert str(unassigned.id) not in has_team_ids
 
@@ -1234,13 +1243,13 @@ async def test_assignable_students_treats_a_manually_created_team_as_assigned(db
         headers=_headers(ops),
     )
     assert resp.status_code == 200, resp.text
-    assert str(student.id) not in {r["id"] for r in resp.json()}
+    assert str(student.id) not in {r["id"] for r in _rows(resp)}
 
     unfiltered = await client.get(
         f"/competitions/admin/cohorts/{cohort.id}/assignable-students",
         headers=_headers(ops),
     )
-    row = next(r for r in unfiltered.json() if r["id"] == str(student.id))
+    row = next(r for r in _rows(unfiltered) if r["id"] == str(student.id))
     assert row["team_id"] is None
     assert row["team_name"] == "Hand-Made Team"
 
@@ -1268,7 +1277,7 @@ async def test_assignable_students_registered_only_excludes_unregistered_matches
     unfiltered = await client.get(
         f"/competitions/admin/cohorts/{cohort.id}/assignable-students", headers=_headers(ops),
     )
-    by_id = {r["id"]: r for r in unfiltered.json()}
+    by_id = {r["id"]: r for r in _rows(unfiltered)}
     assert by_id[str(never_registered.id)]["registered"] is False
     assert by_id[str(will_register.id)]["registered"] is True
 
@@ -1277,7 +1286,7 @@ async def test_assignable_students_registered_only_excludes_unregistered_matches
         params={"registered_only": "true"}, headers=_headers(ops),
     )
     assert registered_only.status_code == 200, registered_only.text
-    ids = {r["id"] for r in registered_only.json()}
+    ids = {r["id"] for r in _rows(registered_only)}
     assert str(will_register.id) in ids
     assert str(never_registered.id) not in ids
 
@@ -1304,7 +1313,7 @@ async def test_assignable_students_lms_status_filter(db, client):
         f"/competitions/admin/cohorts/{cohort.id}/assignable-students",
         params={"q": "Has Access After Assign"}, headers=_headers(ops),
     )
-    row = next(r for r in before.json() if r["id"] == str(student.id))
+    row = next(r for r in _rows(before) if r["id"] == str(student.id))
     assert row["lms_access"] is False
 
     assign = await client.post(
@@ -1318,13 +1327,13 @@ async def test_assignable_students_lms_status_filter(db, client):
         f"/competitions/admin/cohorts/{cohort.id}/assignable-students",
         params={"lms_status": "has_access"}, headers=_headers(ops),
     )
-    assert str(student.id) in {r["id"] for r in has_access.json()}
+    assert str(student.id) in {r["id"] for r in _rows(has_access)}
 
     no_access = await client.get(
         f"/competitions/admin/cohorts/{cohort.id}/assignable-students",
         params={"lms_status": "no_access"}, headers=_headers(ops),
     )
-    assert str(student.id) not in {r["id"] for r in no_access.json()}
+    assert str(student.id) not in {r["id"] for r in _rows(no_access)}
 
 
 @pytest.mark.asyncio
@@ -1341,7 +1350,7 @@ async def test_assignable_students_honors_invite_code_filter(db, client):
         headers=_headers(ops),
     )
     assert hit.status_code == 200, hit.text
-    assert str(student.id) in {r["id"] for r in hit.json()}
+    assert str(student.id) in {r["id"] for r in _rows(hit)}
 
     miss = await client.get(
         f"/competitions/admin/cohorts/{cohort.id}/assignable-students",
@@ -1349,7 +1358,7 @@ async def test_assignable_students_honors_invite_code_filter(db, client):
         headers=_headers(ops),
     )
     assert miss.status_code == 200, miss.text
-    assert str(student.id) not in {r["id"] for r in miss.json()}
+    assert str(student.id) not in {r["id"] for r in _rows(miss)}
 
 
 @pytest.mark.asyncio
@@ -1370,7 +1379,7 @@ async def test_assignable_students_login_status_filter(db, client):
         f"/competitions/admin/cohorts/{cohort.id}/assignable-students",
         params={"login_status": "never"}, headers=_headers(ops),
     )
-    never_ids = {r["id"] for r in never.json()}
+    never_ids = {r["id"] for r in _rows(never)}
     assert str(never_logged_in.id) in never_ids
     assert str(has_logged_in.id) not in never_ids
 
@@ -1378,7 +1387,7 @@ async def test_assignable_students_login_status_filter(db, client):
         f"/competitions/admin/cohorts/{cohort.id}/assignable-students",
         params={"login_status": "has_logged_in"}, headers=_headers(ops),
     )
-    has_ids = {r["id"] for r in has.json()}
+    has_ids = {r["id"] for r in _rows(has)}
     assert str(has_logged_in.id) in has_ids
     assert str(never_logged_in.id) not in has_ids
 
@@ -1413,21 +1422,22 @@ async def test_assignable_students_a_large_batch_is_not_truncated_by_the_open_se
 
     by_batch = await client.get(
         f"/competitions/admin/cohorts/{cohort.id}/assignable-students",
-        params={"invite_code": "BIGBATCH", "registered_only": "false"},
+        params={"invite_code": "BIGBATCH", "registered_only": "false", "page_size": 100},
         headers=_headers(ops),
     )
     assert by_batch.status_code == 200, by_batch.text
-    batch_ids = {r["id"] for r in by_batch.json()}
+    assert by_batch.json()["total"] == 55
+    batch_ids = {r["id"] for r in _rows(by_batch)}
     assert len(batch_ids) == 55
     assert {str(s.id) for s in batch_students} <= batch_ids
 
     unfiltered = await client.get(
         f"/competitions/admin/cohorts/{cohort.id}/assignable-students",
-        params={"registered_only": "false"},
+        params={"registered_only": "false", "page_size": 100},
         headers=_headers(ops),
     )
     assert unfiltered.status_code == 200, unfiltered.text
-    all_ids = {r["id"] for r in unfiltered.json()}
+    all_ids = {r["id"] for r in _rows(unfiltered)}
     assert {str(s.id) for s in batch_students} <= all_ids
     assert {str(s.id) for s in other_students} <= all_ids
 
@@ -1799,3 +1809,218 @@ async def test_operations_sub_criteria_require_all_leaves(db, client):
     row = next(r for r in board.json() if r["team_id"] == str(team.id))
     assert row["score"] == 12.0  # no judge scores yet — operations alone still ranks
     assert row["status"] == "scored"
+
+
+# ── Assign rebuild (2026-10): staff mode, pagination, register-users,
+# single-team move, observer auto-role ────────────────────────────────
+
+async def _staff_user(db, *, roles, full_name="Staff Member"):
+    user = User(
+        id=uuid.uuid4(), full_name=full_name, email=f"{full_name.lower().replace(' ', '-')}-{uuid.uuid4().hex[:6]}@example.com",
+        password_hash="x", roles=list(roles), status="active",
+    )
+    db.add(user)
+    await db.flush()
+    return user
+
+
+@pytest.mark.asyncio
+async def test_assignable_staff_mode_lists_non_students_with_card_and_roles(db, client):
+    ops = await _ops(db)
+    _program, cohort = await _program_and_cohort(db)
+    instructor = await _staff_user(db, roles=["instructor"], full_name="Staff Instructor")
+    intern = await _staff_user(db, roles=["intern"], full_name="Staff Intern")
+    student = await _self_registered_student(db, full_name="Plain Student")
+    await db.commit()
+
+    resp = await client.get(
+        f"/competitions/admin/cohorts/{cohort.id}/assignable-students",
+        params={"mode": "staff", "page_size": 100}, headers=_headers(ops),
+    )
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["total"] >= 2
+    by_id = {r["id"]: r for r in body["items"]}
+    assert str(instructor.id) in by_id and str(intern.id) in by_id
+    assert str(student.id) not in by_id
+    row = by_id[str(instructor.id)]
+    assert "instructor" in row["roles"]
+    assert row["is_observer"] is False
+    assert row["registered"] is False
+
+    narrowed = await client.get(
+        f"/competitions/admin/cohorts/{cohort.id}/assignable-students",
+        params={"mode": "staff", "role": "intern", "page_size": 100}, headers=_headers(ops),
+    )
+    ids = {r["id"] for r in _rows(narrowed)}
+    assert str(intern.id) in ids
+    assert str(instructor.id) not in ids
+
+
+@pytest.mark.asyncio
+async def test_assignable_pagination_and_card_sort(db, client):
+    ops = await _ops(db)
+    _program, cohort = await _program_and_cohort(db)
+    for i in range(5):
+        await _self_registered_student(db, full_name=f"Paged Student {i:02d}")
+    await db.commit()
+
+    p1 = await client.get(
+        f"/competitions/admin/cohorts/{cohort.id}/assignable-students",
+        params={"page": 1, "page_size": 2, "sort": "full_name", "direction": "asc"},
+        headers=_headers(ops),
+    )
+    assert p1.status_code == 200, p1.text
+    b1 = p1.json()
+    assert b1["page"] == 1 and b1["page_size"] == 2
+    assert b1["total"] >= 5 and len(b1["items"]) == 2
+
+    p2 = await client.get(
+        f"/competitions/admin/cohorts/{cohort.id}/assignable-students",
+        params={"page": 2, "page_size": 2, "sort": "full_name", "direction": "asc"},
+        headers=_headers(ops),
+    )
+    ids1 = {r["id"] for r in _rows(p1)}
+    ids2 = {r["id"] for r in _rows(p2)}
+    assert not ids1 & ids2
+
+    cards = await client.get(
+        f"/competitions/admin/cohorts/{cohort.id}/assignable-students",
+        params={"sort": "card_number", "page_size": 100}, headers=_headers(ops),
+    )
+    assert cards.status_code == 200, cards.text
+    assert "card_id" in _rows(cards)[0]
+
+
+@pytest.mark.asyncio
+async def test_register_users_adds_to_program_without_team(db, client):
+    from app.models.sessions.registration import Registration
+
+    ops = await _ops(db)
+    _program, cohort = await _program_and_cohort(db)
+    student = await _self_registered_student(db)
+    instructor = await _staff_user(db, roles=["instructor"], full_name="Observe Me")
+    await db.commit()
+
+    resp = await client.post(
+        f"/competitions/admin/cohorts/{cohort.id}/register-users",
+        json={"user_ids": [str(student.id), str(instructor.id)]},
+        headers=_headers(ops),
+    )
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["summary"] == {"total": 2, "created": 2, "matched": 0, "error": 0}
+
+    regs = (await db.execute(
+        select(Registration).where(Registration.cohort_id == cohort.id)
+    )).scalars().all()
+    assert len(regs) == 2
+
+    # Staff account gained the observer role + shows under observers.
+    await db.refresh(instructor)
+    assert "observer" in instructor.role_values
+    obs = await client.get(
+        f"/competitions/admin/cohorts/{cohort.id}/assignable-students",
+        params={"mode": "observer", "page_size": 100}, headers=_headers(ops),
+    )
+    assert str(instructor.id) in {r["id"] for r in _rows(obs)}
+
+    # Idempotent re-add reports matched.
+    again = await client.post(
+        f"/competitions/admin/cohorts/{cohort.id}/register-users",
+        json={"user_ids": [str(student.id)]}, headers=_headers(ops),
+    )
+    assert again.json()["summary"] == {"total": 1, "created": 0, "matched": 1, "error": 0}
+
+
+@pytest.mark.asyncio
+async def test_register_users_auto_creates_contact(db, client):
+    ops = await _ops(db)
+    _program, cohort = await _program_and_cohort(db)
+    lonely = User(
+        id=uuid.uuid4(), full_name="No Contact", email=f"nocontact-{uuid.uuid4().hex[:6]}@example.com",
+        password_hash="x", roles=["instructor"], status="active", contact_id=None,
+    )
+    db.add(lonely)
+    await db.commit()
+
+    resp = await client.post(
+        f"/competitions/admin/cohorts/{cohort.id}/register-users",
+        json={"user_ids": [str(lonely.id)]}, headers=_headers(ops),
+    )
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["summary"]["created"] == 1
+    await db.refresh(lonely)
+    assert lonely.contact_id is not None
+
+
+@pytest.mark.asyncio
+async def test_assign_moves_user_to_single_team(db, client):
+    from app.models.team import TeamMember
+
+    ops = await _ops(db)
+    _program, cohort = await _program_and_cohort(db)
+    student = await _self_registered_student(db)
+    await db.commit()
+
+    first = await client.post(
+        f"/competitions/admin/cohorts/{cohort.id}/assign-students",
+        json={"rows": [{"user_id": str(student.id), "team_id": "T1"}]},
+        headers=_headers(ops),
+    )
+    assert first.status_code == 200, first.text
+
+    second = await client.post(
+        f"/competitions/admin/cohorts/{cohort.id}/assign-students",
+        json={"rows": [{"user_id": str(student.id), "team_id": "T2"}]},
+        headers=_headers(ops),
+    )
+    assert second.status_code == 200, second.text
+
+    memberships = (await db.execute(
+        select(TeamMember.team_id)
+        .join(Team, Team.id == TeamMember.team_id)
+        .where(Team.cohort_id == cohort.id, TeamMember.user_id == student.id)
+    )).scalars().all()
+    assert len(memberships) == 1
+
+
+@pytest.mark.asyncio
+async def test_add_member_to_observer_team_grants_observer_role_and_moves(db, client):
+    from app.models.team import TeamMember
+    from app.services.competitions.team_management import create_empty_team
+
+    ops = await _ops(db)
+    _program, cohort = await _program_and_cohort(db)
+    instructor = await _staff_user(db, roles=["instructor"], full_name="Team Observer")
+    student = await _self_registered_student(db)
+    await db.commit()
+
+    team_a = await create_empty_team(db, cohort_id=cohort.id, name="Obs A", created_by=ops.id, is_observer=True)
+    team_b = await create_empty_team(db, cohort_id=cohort.id, name="Obs B", created_by=ops.id, is_observer=True)
+    assert team_a.roster_team_id == "Obs A"
+    await db.commit()
+
+    add = await client.post(
+        f"/competitions/admin/teams/{team_a.id}/members",
+        json={"user_id": str(instructor.id)}, headers=_headers(ops),
+    )
+    assert add.status_code in (200, 201), add.text
+    await db.refresh(instructor)
+    assert "observer" in instructor.role_values
+
+    move = await client.post(
+        f"/competitions/admin/teams/{team_b.id}/members",
+        json={"user_id": str(instructor.id)}, headers=_headers(ops),
+    )
+    assert move.status_code in (200, 201), move.text
+    memberships = (await db.execute(
+        select(TeamMember.team_id).where(TeamMember.user_id == instructor.id)
+    )).scalars().all()
+    assert memberships == [team_b.id]
+
+    # Partition still enforced: student onto observer team is rejected.
+    bad = await client.post(
+        f"/competitions/admin/teams/{team_a.id}/members",
+        json={"user_id": str(student.id)}, headers=_headers(ops),
+    )
+    assert bad.status_code == 400

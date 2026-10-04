@@ -469,7 +469,7 @@ function getNavItems(pathname: string, activeRole: Role | null): NavItem[] {
     ];
   }
   if (activeRole === "judge") {
-    return [mk("Teams", "/judge")];
+    return [mk("Teams", "/judge"), mk("Learn", "/learn")];
   }
   if (activeRole === "intern" || activeRole === "leader") {
     return [
@@ -593,7 +593,11 @@ function RoleSwitcher() {
     return () => document.removeEventListener("mousedown", handler);
   }, []);
 
-  if (roles.length <= 1 || !activeRole) return null;
+  // `observer` is a testing label, not a workspace — offering it here
+  // would strand the user (no nav branch, no portal home). It stays on
+  // the account and keeps working inside /learn boards.
+  const switchable = roles.filter((r) => r !== "observer");
+  if (switchable.length <= 1 || !activeRole) return null;
 
   const choose = (r: Role) => {
     setActiveRole(r);
@@ -613,7 +617,7 @@ function RoleSwitcher() {
       </button>
       {open && (
         <ul className="absolute right-0 z-50 mt-2 w-44 overflow-hidden rounded-xl border border-border bg-popover py-1 shadow-lg">
-          {roles.map((r) => (
+          {switchable.map((r) => (
             <li key={r}>
               <button
                 type="button"
@@ -787,11 +791,6 @@ export function AppShell({ children }: { children: ReactNode }) {
   const [drawerOpen, setDrawerOpen] = useState(false);
 
   const navItems = getNavItems(pathname, activeRole);
-  // Judges get no sidebar — their whole role is one Teams list plus team
-  // detail pages (which carry their own back-links), so a 256px rail with a
-  // single link is pure waste. Sign-out moves into the desktop header for
-  // them; the mobile drawer stays as-is (it holds their sign-out on phones).
-  const isJudge = activeRole === "judge";
 
   const { data: paySummary } = useQuery({
     queryKey: ["instructor-payment-summary"],
@@ -815,6 +814,10 @@ export function AppShell({ children }: { children: ReactNode }) {
       ? "/instructors/profile"
       : activeRole === "judge"
       ? "/judge"
+      // unreachable while the switcher hides observer, kept so a stored
+      // observer value can't break the avatar link
+      : activeRole === "observer"
+      ? "/learn"
       : activeRole === "lms_author"
       ? "/lms-authoring/courses"
       : "/interns/profile";
@@ -852,8 +855,7 @@ export function AppShell({ children }: { children: ReactNode }) {
 
   return (
     <div className="min-h-screen">
-      {/* ── Desktop sidebar (every role except judge) ─────────────── */}
-      {!isJudge && (
+      {/* ── Desktop sidebar ───────────────────────────────────────── */}
       <aside className="fixed inset-y-0 left-0 z-30 hidden w-64 flex-col border-r border-white/10 bg-card/60 backdrop-blur-xl md:flex">
         <div className="flex h-20 items-center justify-center border-b border-white/10 px-4">
           <Link to="/" aria-label="SpacePoint home">
@@ -874,7 +876,6 @@ export function AppShell({ children }: { children: ReactNode }) {
           </button>
         </div>
       </aside>
-      )}
 
       {/* ── Mobile drawer + overlay ─────────────────────────────── */}
       <div
@@ -933,7 +934,7 @@ export function AppShell({ children }: { children: ReactNode }) {
       </div>
 
       {/* ── Content column ──────────────────────────────────────── */}
-      <div className={`flex min-h-screen flex-col ${isJudge ? "" : "md:ml-64"}`}>
+      <div className="flex min-h-screen flex-col md:ml-64">
         {/* Mobile top bar */}
         <header className="sticky top-0 z-20 flex h-16 shrink-0 items-center justify-between border-b border-white/10 bg-card/60 px-4 backdrop-blur-xl md:hidden">
           <button
@@ -957,28 +958,12 @@ export function AppShell({ children }: { children: ReactNode }) {
         {/* Desktop top header */}
         <header className="sticky top-0 z-20 hidden h-20 shrink-0 items-center justify-between border-b border-white/5 bg-background/60 px-8 backdrop-blur-xl md:flex">
           <div className="flex items-center gap-3">
-            {isJudge && (
-              <Link to="/" aria-label="SpacePoint home" className="flex items-center">
-                <DomainIcon className="h-10 w-auto" />
-              </Link>
-            )}
             <h2 className="font-display text-lg font-semibold capitalize text-foreground/90">{pageTitle}</h2>
           </div>
           <div className="flex items-center gap-1.5">
             <NotificationsBell />
             <RoleSwitcher />
             <ThemeToggle />
-            {isJudge && (
-              <button
-                type="button"
-                onClick={handleLogout}
-                title="Sign out"
-                aria-label="Sign out"
-                className="rounded-xl p-2.5 text-muted-foreground transition-colors hover:bg-foreground/5 hover:text-destructive"
-              >
-                <LogOut size={20} />
-              </button>
-            )}
             <div className="mx-1 text-right">
               <p className="text-sm font-semibold text-foreground">{user.full_name}</p>
               {roleLabel && (
@@ -1034,7 +1019,9 @@ export function ApplicantShell({ children }: { children: ReactNode }) {
 function RoleSwitcherMobile({ onNavigate }: { onNavigate: () => void }) {
   const { roles, activeRole, setActiveRole } = useAuth();
   const navigate = useNavigate();
-  if (roles.length <= 1 || !activeRole) return null;
+  // Same observer exclusion as the desktop switcher above.
+  const switchable = roles.filter((r) => r !== "observer");
+  if (switchable.length <= 1 || !activeRole) return null;
   const choose = (r: Role) => {
     setActiveRole(r);
     onNavigate();
@@ -1045,7 +1032,7 @@ function RoleSwitcherMobile({ onNavigate }: { onNavigate: () => void }) {
       <p className="px-4 pb-1 text-xs font-medium uppercase tracking-wide text-muted-foreground">
         Switch role
       </p>
-      {roles.map((r) => (
+      {switchable.map((r) => (
         <button
           key={r}
           type="button"

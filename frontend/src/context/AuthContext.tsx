@@ -25,11 +25,14 @@ interface AuthContextValue {
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
 
-/** Pick a valid active role: the stored one if the user still has it, else their first role. */
+/** Pick a valid active role: the stored one if the user still has it, else their first role.
+ * `observer` is a testing label, never a workspace — it is skipped even when
+ * stored or first, so a judge/instructor turned observer keeps their real
+ * home instead of landing on the role fallback. */
 function resolveActiveRole(user: User): Role | null {
   const stored = localStorage.getItem(ACTIVE_ROLE) as Role | null;
-  if (stored && user.roles.includes(stored)) return stored;
-  return user.roles[0] ?? null;
+  if (stored && stored !== "observer" && user.roles.includes(stored)) return stored;
+  return user.roles.find((r) => r !== "observer") ?? user.roles[0] ?? null;
 }
 
 export function AuthProvider({ children }: { children: ReactNode }) {

@@ -44,8 +44,16 @@ async def create_empty_team(
     as a member too, correct for a student self-forming a team but wrong
     here: an ops account creating a team shell for students to be added to
     afterward is not itself a competitor. `created_by` is still recorded
-    for audit, just never turned into membership."""
-    team = Team(id=uuid.uuid4(), name=name, cohort_id=cohort_id, created_by=created_by, is_observer=is_observer)
+    for audit, just never turned into membership.
+
+    Assign rebuild (2026-10): `roster_team_id` is seeded to the name
+    itself, so the grouping code and the display name start identical and
+    students rename later via the deadline-gated rename (which only ever
+    touches `name`)."""
+    team = Team(
+        id=uuid.uuid4(), name=name, cohort_id=cohort_id, created_by=created_by,
+        roster_team_id=name, is_observer=is_observer,
+    )
     db.add(team)
     try:
         async with db.begin_nested():
@@ -126,6 +134,16 @@ async def add_existing_member(db: AsyncSession, *, team_id: uuid.UUID, user_id: 
     is_team_observer = getattr(team, "is_observer", False)
     is_user_observer = "observer" in user.role_values
 
+    if is_team_observer and not is_user_observer and "student" not in user.role_values:
+        # Assign rebuild (2026-10): dropping a staffer (non-student) onto
+        # an observer team promotes them to observer in place, so they
+        # show up under the Observers toggle immediately. Pure students
+        # still hit the partition guard below — they must be onboarded
+        # through the Students flow, never silently converted.
+        user.roles = [*user.roles, UserRole.observer]
+        await db.flush()
+        is_user_observer = True
+
     if is_team_observer and not is_user_observer:
         raise HTTPException(
             status.HTTP_400_BAD_REQUEST,
@@ -167,6 +185,20 @@ async def add_existing_member(db: AsyncSession, *, team_id: uuid.UUID, user_id: 
                     send_welcome_email=False, mode=mode,
                 )
     await join_team(db, team_id=team_id, user_id=user_id)
+    if team.cohort_id:
+        # Single-team rule (2026-10 rebuild): moving onto this team leaves
+        # every other team in the same cohort.
+        other_team_ids = (await db.execute(
+            select(TeamMember.team_id)
+            .join(Team, Team.id == TeamMember.team_id)
+            .where(
+                Team.cohort_id == team.cohort_id,
+                TeamMember.user_id == user.id,
+                TeamMember.team_id != team.id,
+            )
+        )).scalars().all()
+        for other_id in other_team_ids:
+            await leave_team(db, team_id=other_id, user_id=user.id)
 
 
 async def register_and_add_member(

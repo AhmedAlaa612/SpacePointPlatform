@@ -283,9 +283,10 @@ export interface CompetitionImportPreview {
  * when the student is already on a team in *this* cohort (both null
  * otherwise), `registered` says whether they have an actual Registration
  * here (the search itself is platform-wide unless `registered_only` is
- * set), and `lms_access` says whether they already have this cohort's LMS
- * program checklist. Backs the `registered_only`/`team_status`/
- * `lms_status` filters. */
+ * set — "In program" reads this, not `lms_access`), and `card_id` is the
+ * printable ID-card string. `roles` carries the account's actual roles
+ * (drives the Staff toggle + role filter). Backs the `registered_only`/
+ * `team_status`/`login_status` filters. */
 export interface CompetitionAssignableStudent {
   id: string
   full_name: string
@@ -302,9 +303,20 @@ export interface CompetitionAssignableStudent {
   last_login_at: string | null
   team_id: string | null
   team_name: string | null
+  team_uuid: string | null
   registered: boolean
   lms_access: boolean
   is_observer?: boolean
+  card_number: number | null
+  card_id: string | null
+  roles: string[]
+}
+
+export interface CompetitionAssignableStudentsPage {
+  items: CompetitionAssignableStudent[]
+  total: number
+  page: number
+  page_size: number
 }
 
 /** Assign tab (2026-09-14): a row of the bulk "assign already
@@ -497,11 +509,13 @@ export const confirmCohortRegistrationImportApi = (
     `/competitions/admin/cohorts/${cohortId}/registration-import/confirm`, { rows, ...options },
   ).then((r) => r.data)
 
-/** Assign tab's own cohort-scoped student search — same name/email +
+/** Assign tab's own cohort-scoped search — same name/email +
  * invite-code filters as `searchStudentsApi`, plus `registered_only`
- * (restrict to students who actually have a Registration in this cohort,
- * vs. the default platform-wide search) and `team_status`/`lms_status`/
- * `login_status` filters. */
+ * (restrict to accounts who actually have a Registration in this cohort,
+ * vs. the default platform-wide search), `team_status`/`login_status`
+ * filters, `mode` (`student` | `staff` = literally not a student |
+ * `observer` = has observer role), an optional `role` narrowing the
+ * staff toggle, and server-side pagination + sorting. */
 export const searchAssignableStudentsApi = (
   cohortId: string,
   params: {
@@ -509,10 +523,14 @@ export const searchAssignableStudentsApi = (
     team_status?: "all" | "has_team" | "no_team"
     lms_status?: "all" | "has_access" | "no_access"
     login_status?: "all" | "never" | "has_logged_in"
-    mode?: "all" | "student" | "observer"
+    mode?: "all" | "student" | "observer" | "staff"
+    role?: string
+    page?: number; page_size?: number
+    sort?: "full_name" | "card_number" | "created_at" | "email"
+    direction?: "asc" | "desc"
   } = {},
 ) =>
-  api.get<CompetitionAssignableStudent[]>(
+  api.get<CompetitionAssignableStudentsPage>(
     `/competitions/admin/cohorts/${cohortId}/assignable-students`, { params },
   ).then((r) => r.data)
 
@@ -527,6 +545,18 @@ export const assignExistingStudentsApi = (
 ) =>
   api.post<CompetitionAssignStudentsResult>(
     `/competitions/admin/cohorts/${cohortId}/assign-students`, { rows, ...options },
+  ).then((r) => r.data)
+
+/** Assign tab add-to-program (2026-10): registers accounts into the
+ * cohort without putting them on a team. Staff accounts gain the
+ * observer role + a mode="observer" assignment. */
+export const registerUsersToCohortApi = (
+  cohortId: string,
+  userIds: string[],
+  options?: { send_welcome_email?: boolean },
+) =>
+  api.post<CompetitionAssignStudentsResult>(
+    `/competitions/admin/cohorts/${cohortId}/register-users`, { user_ids: userIds, ...options },
   ).then((r) => r.data)
 
 export const advanceCohortTeamsApi = (
