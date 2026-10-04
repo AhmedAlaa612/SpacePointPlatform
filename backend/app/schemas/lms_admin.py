@@ -750,3 +750,17 @@ class BulkGrantOut(BaseModel):
     # LMS account. Bulk-grant doesn't create accounts; that's
     # ops_integration.sync_registration_lms's job, a separate concern.
     skipped_no_account: int = 0
+
+
+class TryAsObserverIn(BaseModel):
+    team_action: Literal["none", "join", "create"] = "none"
+    team_id: UUID | None = None
+    team_name: str | None = None
+
+
+class ObserverTeamSummaryOut(BaseModel):
+    id: UUID
+    name: str
+    member_count: int
+    member_names: list[str] = []
+    is_my_team: bool = False

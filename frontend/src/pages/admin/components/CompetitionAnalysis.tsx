@@ -749,6 +749,11 @@ function TeamTable({
                     <p className="text-sm font-semibold text-foreground truncate max-w-full">
                       {team.team_name}
                     </p>
+                    {team.is_observer && (
+                      <span className="text-[10px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded bg-indigo-500/15 text-indigo-600 dark:text-indigo-400 border border-indigo-500/30">
+                        Observer
+                      </span>
+                    )}
                     {team.roster_team_id && team.roster_team_id !== team.team_name && (
                       <span className="text-xs font-normal text-muted-foreground font-mono shrink-0">
                         ({team.roster_team_id})
@@ -1068,33 +1073,63 @@ function MissionsBlock({ missions, isDark }: { missions: CompetitionAnalytics["m
 
 export function CompetitionAnalysisTab({ cohortId }: { cohortId: string }) {
   const isDark = useIsDark()
+  const [mode, setMode] = useState<"participant" | "observer" | "all">("participant")
   const { data, isLoading, isError } = useQuery({
-    queryKey: ["competitions-team-analytics", cohortId],
-    queryFn: () => getCohortTeamAnalyticsApi(cohortId),
+    queryKey: ["competitions-team-analytics", cohortId, mode],
+    queryFn: () => getCohortTeamAnalyticsApi(cohortId, mode),
   })
-
-  if (isLoading) return <Spinner />
-  if (isError || !data) {
-    return <EmptyState title="Couldn't load the analysis" hint="Try reloading the page." />
-  }
-  if (data.totals.teams === 0) {
-    return (
-      <EmptyState
-        title="No teams yet"
-        hint="Import a roster or add a team first — everything on this tab is measured per team."
-      />
-    )
-  }
-
-  const { totals } = data
-  // Optional items are excluded from the completion bars for the same
-  // reason `_assignment_summary` excludes them from a student's own
-  // percentage: an optional step nobody did isn't a cohort behind.
-  const requiredItems = data.items.filter((i) => !i.optional)
 
   return (
     <div className="flex flex-col gap-4">
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="flex items-center justify-between gap-3 flex-wrap">
+        <div className="flex items-center p-1 bg-muted/60 border border-border/80 rounded-xl text-xs">
+          <button
+            type="button"
+            onClick={() => setMode("participant")}
+            className={`px-3 py-1 rounded-lg font-medium transition-colors cursor-pointer ${
+              mode === "participant" ? "bg-background text-foreground shadow-xs font-semibold" : "text-muted-foreground hover:text-foreground"
+            }`}
+          >
+            Students
+          </button>
+          <button
+            type="button"
+            onClick={() => setMode("observer")}
+            className={`px-3 py-1 rounded-lg font-medium transition-colors cursor-pointer ${
+              mode === "observer" ? "bg-background text-indigo-600 dark:text-indigo-400 shadow-xs font-semibold" : "text-muted-foreground hover:text-foreground"
+            }`}
+          >
+            Observers
+          </button>
+          <button
+            type="button"
+            onClick={() => setMode("all")}
+            className={`px-3 py-1 rounded-lg font-medium transition-colors cursor-pointer ${
+              mode === "all" ? "bg-background text-foreground shadow-xs font-semibold" : "text-muted-foreground hover:text-foreground"
+            }`}
+          >
+            All
+          </button>
+        </div>
+      </div>
+
+      {isLoading ? (
+        <Spinner />
+      ) : isError || !data ? (
+        <EmptyState title="Couldn't load the analysis" hint="Try reloading the page." />
+      ) : data.totals.teams === 0 ? (
+        <EmptyState
+          title={mode === "observer" ? "No observer teams yet" : "No teams yet"}
+          hint={mode === "observer" ? "No observer sandbox teams exist in this cohort." : "Import a roster or add a team first — everything on this tab is measured per team."}
+        />
+      ) : (
+        <>
+          {(() => {
+            const { totals } = data
+            const requiredItems = data.items.filter((i) => !i.optional)
+            return (
+              <>
+                <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
         <StatCard
           icon={<UsersRound size={20} />} label="Teams" value={totals.teams}
           sub={`${totals.empty_teams} with no members`}
@@ -1147,6 +1182,11 @@ export function CompetitionAnalysisTab({ cohortId }: { cohortId: string }) {
 
       <TeamTable teams={data.teams} isDark={isDark} cohortId={cohortId} cohortName={data.cohort_name} />
       <AttentionList data={data} />
+              </>
+            )
+          })()}
+        </>
+      )}
     </div>
   )
 }

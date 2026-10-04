@@ -37,13 +37,15 @@ from app.services.spine.identity import normalize_email, resolve_or_create_conta
 from app.services.teams import join_team, leave_team, team_member_ids, teams_for_cohort
 
 
-async def create_empty_team(db: AsyncSession, *, cohort_id: uuid.UUID, name: str, created_by: uuid.UUID) -> Team:
+async def create_empty_team(
+    db: AsyncSession, *, cohort_id: uuid.UUID, name: str, created_by: uuid.UUID, is_observer: bool = False,
+) -> Team:
     """Not `services/teams.py::create_team` — that always adds `created_by`
     as a member too, correct for a student self-forming a team but wrong
     here: an ops account creating a team shell for students to be added to
     afterward is not itself a competitor. `created_by` is still recorded
     for audit, just never turned into membership."""
-    team = Team(id=uuid.uuid4(), name=name, cohort_id=cohort_id, created_by=created_by)
+    team = Team(id=uuid.uuid4(), name=name, cohort_id=cohort_id, created_by=created_by, is_observer=is_observer)
     db.add(team)
     try:
         async with db.begin_nested():
@@ -67,6 +69,7 @@ async def list_teams_with_members(db: AsyncSession, *, cohort_id: uuid.UUID) -> 
             "member_ids": [m.id for m in members],
             "member_names": [m.full_name for m in members],
             "member_emails": [m.email for m in members],
+            "is_observer": getattr(team, "is_observer", False),
         })
     return out
 

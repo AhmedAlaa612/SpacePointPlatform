@@ -154,7 +154,9 @@ async def get_cohort_certificate_recipients(
 
     submission_item_ids = {i.id for i in submission_items}
     required_item_ids = {i.id for i in required_submission_items}
+    optional_item_ids = submission_item_ids - required_item_ids
     total_required = len(required_item_ids)
+    total_optional = len(optional_item_ids)
 
     # 2. Active registrations
     registrations = (await db.execute(
@@ -334,7 +336,11 @@ async def get_cohort_certificate_recipients(
             continue
         team = user_team_map.get(user.id) if user else None
 
-        # Calculate completed submission items
+        # Calculate completed submission items, split into required vs
+        # optional. Optionals never count toward participation/completion —
+        # they are bonus only. (Previously a single `submissions_done` total
+        # mixed both, so an optional submission masked a missing required
+        # one as e.g. "6/6".)
         submitted_item_ids = set()
         if team:
             submitted_item_ids.update(team_submitted_items.get(team.id, set()))
@@ -342,7 +348,11 @@ async def get_cohort_certificate_recipients(
             submitted_item_ids.update(individual_submitted_items.get(user.id, set()))
 
         submissions_done = len(submitted_item_ids)
-        meets_at_least_one = submissions_done >= 1
+        required_submissions_done = len(submitted_item_ids & required_item_ids)
+        optional_submissions_done = len(submitted_item_ids & optional_item_ids)
+        # Participation is earned by required work only — an optional-only
+        # submission does not qualify.
+        meets_at_least_one = required_submissions_done >= 1
 
         team_locked = bool(team and team.final_locked_at is not None)
         has_all_required = total_required > 0 and required_item_ids.issubset(submitted_item_ids)
@@ -387,6 +397,9 @@ async def get_cohort_certificate_recipients(
             "submissions_done": submissions_done,
             "submissions_total": len(submission_items),
             "required_submissions_total": total_required,
+            "required_submissions_done": required_submissions_done,
+            "optional_submissions_done": optional_submissions_done,
+            "optional_submissions_total": total_optional,
             "team_locked": team_locked,
             "meets_locked_only": meets_locked_only,
             "meets_participation": meets_participation,

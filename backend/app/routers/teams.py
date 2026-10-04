@@ -47,6 +47,8 @@ async def join_team_endpoint(
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Team not found")
     if current.id in await team_member_ids(db, team_id=team_id):
         raise HTTPException(status.HTTP_409_CONFLICT, detail="Already a member of this team")
+    if "observer" in current.role_values and not getattr(team, "is_observer", False):
+        team.is_observer = True
     await join_team(db, team_id=team_id, user_id=current.id)
     # Picks up any team-scoped LMS checklist item that couldn't be assigned
     # earlier because this team didn't exist/have a member yet — see

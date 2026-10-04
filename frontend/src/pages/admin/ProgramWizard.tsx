@@ -305,8 +305,8 @@ const PROGRAM_CARRY_OPTIONS: { key: string; label: string; competitionOnly?: boo
   { key: "rubric", label: "Judging rubric", competitionOnly: true },
 ]
 
-function TemplateStep({ program, onCloned, onFresh, onFormChange }: {
-  program: Program | null; onCloned: (p: Program) => void; onFresh: () => void;
+function TemplateStep({ program: _program, onCloned, onFresh, onFormChange }: {
+  program?: Program | null; onCloned: (p: Program) => void; onFresh: () => void;
   onFormChange: (form: { save: () => void; isPending: boolean; canSubmit: boolean }) => void
 }) {
   const toast = useToast()

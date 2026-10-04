@@ -1548,14 +1548,6 @@ async def checklist_item_write_target(
     but its state is never read or written once an item is team-scoped."""
     if item.scope != "team":
         return individual
-    if getattr(assignment, "mode", "participant") == "observer":
-        # Observer parity (2026-10): self-serve lazy team — an observer
-        # hitting a team-scoped item without a team yet gets their own
-        # flagged observer team instead of a 403.
-        team = await ensure_observer_team(db, cohort_id=assignment.cohort_id, user_id=user_id)
-        if team is None:
-            raise HTTPException(status.HTTP_403_FORBIDDEN, detail="You're not on a team for this cohort")
-        return await _get_or_create_team_progress(db, item_id=item.id, team_id=team.id)
     team = await team_for_cohort_member(db, cohort_id=assignment.cohort_id, user_id=user_id)
     if team is None:
         raise HTTPException(status.HTTP_403_FORBIDDEN, detail="You're not on a team for this cohort")

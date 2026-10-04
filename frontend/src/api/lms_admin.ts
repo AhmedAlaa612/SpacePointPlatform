@@ -793,12 +793,32 @@ export const updateInviteCodeApi = (id: string, data: Partial<{
 export const deleteInviteCodeApi = (id: string) =>
   api.delete<void>(`/lms/admin/invite-codes/${id}`).then((r) => r.data);
 
-/** 1-click staff authoring access (2026-10, observer mode) — "Try as
+export interface TryAsObserverPayload {
+  team_action?: "none" | "join" | "create";
+  team_id?: string;
+  team_name?: string;
+}
+
+export interface ObserverTeamSummary {
+  id: string;
+  name: string;
+  member_count: number;
+  member_names: string[];
+  is_my_team: boolean;
+}
+
+/** Staff authoring access (2026-10, observer mode) — "Try as
  * Observer". Creates (or reuses) the caller's own mode='observer'
  * assignment for this cohort and returns its id; the caller navigates to
  * `/learn/checklists/{assignment_id}`. */
-export const tryAsObserverApi = (cohortId: string) =>
-  api.post<{ assignment_id: string }>(`/lms/admin/cohorts/${cohortId}/try-as-observer`, {}).then((r) => r.data);
+export const tryAsObserverApi = (cohortId: string, payload?: TryAsObserverPayload) =>
+  api.post<{ assignment_id: string; team_id?: string | null }>(
+    `/lms/admin/cohorts/${cohortId}/try-as-observer`,
+    payload ?? {},
+  ).then((r) => r.data);
+
+export const getObserverTeamsApi = (cohortId: string) =>
+  api.get<ObserverTeamSummary[]>(`/lms/admin/cohorts/${cohortId}/observer-teams`).then((r) => r.data);
 
 // ── invite-code course/path/program grants (2026-08-21, program added
 // 2026-09-15) ─────────────────────────────────────────────────────────────

@@ -170,6 +170,7 @@ async def search_cohort_assignable_students(
     team_status: Literal["all", "has_team", "no_team"] = "all",
     lms_status: Literal["all", "has_access", "no_access"] = "all",
     login_status: Literal["all", "never", "has_logged_in"] = "all",
+    mode: Literal["all", "student", "observer"] = "student",
 ) -> list[CompetitionAssignableStudentOut]:
     """Backs the Assign tab's search + filters (`registered_only` added
     2026-09-15 alongside `team_status`/`lms_status`, replacing the old
@@ -188,7 +189,12 @@ async def search_cohort_assignable_students(
         users = await _registered_cohort_users(db, cohort_id=cohort_id, q=q, invite_code=invite_code)
         registered_ids = {u.id for u in users}
     else:
-        stmt = select(User).where(User.roles.any("student"))
+        role_filter = (
+            User.roles.any("observer") if mode == "observer"
+            else or_(User.roles.any("student"), User.roles.any("observer")) if mode == "all"
+            else User.roles.any("student")
+        )
+        stmt = select(User).where(role_filter)
         if q:
             like = f"%{q.strip()}%"
             stmt = stmt.where(or_(User.full_name.ilike(like), User.email.ilike(like)))

@@ -179,9 +179,11 @@ async def post_cohort_team(
     db: AsyncSession = Depends(get_db), current: User = Depends(get_current_active_user),
 ):
     await _get_cohort_or_404(db, cohort_id)
-    team = await team_service.create_empty_team(db, cohort_id=cohort_id, name=body.name, created_by=current.id)
+    team = await team_service.create_empty_team(
+        db, cohort_id=cohort_id, name=body.name, created_by=current.id, is_observer=body.is_observer,
+    )
     await db.commit()
-    return CompetitionTeamOut(id=team.id, name=team.name, cohort_id=team.cohort_id)
+    return CompetitionTeamOut(id=team.id, name=team.name, cohort_id=team.cohort_id, is_observer=team.is_observer)
 
 
 @router.patch("/teams/{team_id}", response_model=CompetitionTeamOut)
@@ -254,8 +256,12 @@ async def _team_cohort_id(db: AsyncSession, team_id: uuid.UUID) -> uuid.UUID:
 # cohort's LMS > Progress tab).
 
 @router.get("/cohorts/{cohort_id}/team-analytics", response_model=CompetitionAnalyticsOut)
-async def get_cohort_team_analytics(cohort_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
-    result = await analytics_service.cohort_team_analytics(db, cohort_id=cohort_id)
+async def get_cohort_team_analytics(
+    cohort_id: uuid.UUID,
+    mode: Literal["participant", "observer", "all"] = Query("participant"),
+    db: AsyncSession = Depends(get_db),
+):
+    result = await analytics_service.cohort_team_analytics(db, cohort_id=cohort_id, mode=mode)
     if result is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Cohort not found")
     return CompetitionAnalyticsOut(**result)
@@ -332,6 +338,7 @@ async def get_cohort_assignable_students(
     team_status: Literal["all", "has_team", "no_team"] = "all",
     lms_status: Literal["all", "has_access", "no_access"] = "all",
     login_status: Literal["all", "never", "has_logged_in"] = "all",
+    mode: Literal["all", "student", "observer"] = "student",
     db: AsyncSession = Depends(get_db),
 ):
     """Backs the Assign tab's search + filters (2026-09-15: `registered_only`,
@@ -346,7 +353,7 @@ async def get_cohort_assignable_students(
     await _get_cohort_or_404(db, cohort_id)
     return await student_search_service.search_cohort_assignable_students(
         db, cohort_id=cohort_id, q=q, invite_code=invite_code, registered_only=registered_only,
-        team_status=team_status, lms_status=lms_status, login_status=login_status,
+        team_status=team_status, lms_status=lms_status, login_status=login_status, mode=mode,
     )
 
 
@@ -416,10 +423,14 @@ async def post_cohort_advance_teams(
 # ── Leaderboard, publish, export ────────────────────────────────────────
 
 @router.get("/cohorts/{cohort_id}/leaderboard", response_model=list[CompetitionLeaderboardRowOut])
-async def get_cohort_leaderboard(cohort_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
+async def get_cohort_leaderboard(
+    cohort_id: uuid.UUID,
+    mode: Literal["participant", "observer", "all"] = Query("participant"),
+    db: AsyncSession = Depends(get_db),
+):
     await _get_cohort_or_404(db, cohort_id)
     try:
-        rows = await judging_service.leaderboard(db, cohort_id=cohort_id)
+        rows = await judging_service.leaderboard(db, cohort_id=cohort_id, mode=mode)
         return [CompetitionLeaderboardRowOut(**row) for row in rows]
     except Exception as exc:
         logger.exception("Failed to get leaderboard for cohort %s: %s", cohort_id, exc)

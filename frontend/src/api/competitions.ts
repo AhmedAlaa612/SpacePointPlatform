@@ -52,6 +52,7 @@ export interface CompetitionLeaderboardRow {
   rank: number
   team_id: string
   team_name: string
+  is_observer?: boolean
   score: number | null
   score_percent?: number | null
   qualification?: string | null
@@ -352,6 +353,7 @@ export interface CompetitionJudgeTeam {
   items_done?: number
   items_total?: number
   pct?: number
+  is_observer?: boolean
 }
 
 export interface CompetitionTeam {
@@ -361,6 +363,7 @@ export interface CompetitionTeam {
   member_ids: string[]
   member_names: string[]
   member_emails: string[]
+  is_observer?: boolean
 }
 
 export interface CompetitionTeamDetail {
@@ -427,8 +430,8 @@ export const resendJudgeOnboardingEmailApi = (cohortId: string, userId: string) 
     `/competitions/admin/cohorts/${cohortId}/judges/${userId}/resend-onboarding-email`,
   ).then((r) => r.data)
 
-export const getCohortLeaderboardApi = (cohortId: string) =>
-  api.get<CompetitionLeaderboardRow[]>(`/competitions/admin/cohorts/${cohortId}/leaderboard`).then((r) => r.data)
+export const getCohortLeaderboardApi = (cohortId: string, mode?: "participant" | "observer" | "all") =>
+  api.get<CompetitionLeaderboardRow[]>(`/competitions/admin/cohorts/${cohortId}/leaderboard`, { params: mode ? { mode } : {} }).then((r) => r.data)
 
 export const getCohortExportTop20Api = (cohortId: string) =>
   api.get<CompetitionLeaderboardRow[]>(`/competitions/admin/cohorts/${cohortId}/export-top20`).then((r) => r.data)
@@ -505,6 +508,7 @@ export const searchAssignableStudentsApi = (
     team_status?: "all" | "has_team" | "no_team"
     lms_status?: "all" | "has_access" | "no_access"
     login_status?: "all" | "never" | "has_logged_in"
+    mode?: "all" | "student" | "observer"
   } = {},
 ) =>
   api.get<CompetitionAssignableStudent[]>(
@@ -535,8 +539,8 @@ export const advanceCohortTeamsApi = (
 export const getCohortTeamsApi = (cohortId: string) =>
   api.get<CompetitionTeam[]>(`/competitions/admin/cohorts/${cohortId}/teams`).then((r) => r.data)
 
-export const createCohortTeamApi = (cohortId: string, name: string) =>
-  api.post<CompetitionTeam>(`/competitions/admin/cohorts/${cohortId}/teams`, { name }).then((r) => r.data)
+export const createCohortTeamApi = (cohortId: string, name: string, is_observer?: boolean) =>
+  api.post<CompetitionTeam>(`/competitions/admin/cohorts/${cohortId}/teams`, { name, is_observer: !!is_observer }).then((r) => r.data)
 
 export const renameTeamApi = (teamId: string, name: string) =>
   api.patch<CompetitionTeam>(`/competitions/admin/teams/${teamId}`, { name }).then((r) => r.data)
@@ -569,8 +573,8 @@ export const removeTeamMemberApi = (teamId: string, userId: string) =>
 export const getMyJudgeCohortsApi = () =>
   api.get<CompetitionJudgeCohort[]>("/competitions/judge/cohorts").then((r) => r.data)
 
-export const getMyJudgeTeamsApi = (cohortId: string) =>
-  api.get<CompetitionJudgeTeam[]>("/competitions/judge/teams", { params: { cohort_id: cohortId } }).then((r) => r.data)
+export const getMyJudgeTeamsApi = (cohortId: string, mode?: "participant" | "observer" | "all") =>
+  api.get<CompetitionJudgeTeam[]>("/competitions/judge/teams", { params: { cohort_id: cohortId, ...(mode ? { mode } : {}) } }).then((r) => r.data)
 
 export const getMyJudgeTeamApi = (teamId: string) =>
   api.get<CompetitionTeamDetail>(`/competitions/judge/teams/${teamId}`).then((r) => r.data)
@@ -658,6 +662,7 @@ export interface CompetitionAnalyticsTeam {
   team_id: string
   team_name: string
   roster_team_id: string | null
+  is_observer?: boolean
   member_count: number
   members: CompetitionAnalyticsTeamMember[]
   never_logged_in: number
@@ -717,8 +722,8 @@ export interface CompetitionAnalytics {
   stalled_after_days: number
 }
 
-export const getCohortTeamAnalyticsApi = (cohortId: string) =>
-  api.get<CompetitionAnalytics>(`/competitions/admin/cohorts/${cohortId}/team-analytics`).then((r) => r.data)
+export const getCohortTeamAnalyticsApi = (cohortId: string, mode?: "participant" | "observer" | "all") =>
+  api.get<CompetitionAnalytics>(`/competitions/admin/cohorts/${cohortId}/team-analytics`, { params: mode ? { mode } : {} }).then((r) => r.data)
 
 // ── Certificate issuance (2026-09) ──────────────────────────────────────────
 
@@ -733,6 +738,11 @@ export interface CompetitionCertificateRecipient {
   submissions_done: number
   submissions_total: number
   required_submissions_total: number
+  /** Required submissions done — the eligibility-driving count. */
+  required_submissions_done?: number
+  /** Optional (bonus-only) submissions done — never drives eligibility. */
+  optional_submissions_done?: number
+  optional_submissions_total?: number
   team_locked: boolean
   meets_locked_only: boolean
   meets_participation: boolean

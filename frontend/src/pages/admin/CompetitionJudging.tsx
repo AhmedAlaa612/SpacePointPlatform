@@ -682,9 +682,11 @@ function TeamsTab({ cohortId }: { cohortId: string }) {
   })
 
   const [newTeamName, setNewTeamName] = useState("")
+  const [isObserverTeam, setIsObserverTeam] = useState(false)
+  const [teamFilter, setTeamFilter] = useState<"all" | "student" | "observer">("all")
   const createMutation = useMutation({
-    mutationFn: () => createCohortTeamApi(cohortId, newTeamName.trim()),
-    onSuccess: () => { setNewTeamName(""); invalidate() },
+    mutationFn: () => createCohortTeamApi(cohortId, newTeamName.trim(), isObserverTeam),
+    onSuccess: () => { setNewTeamName(""); setIsObserverTeam(false); invalidate() },
     onError: (e: any) => toast.error(getErrorMessage(e, "Failed to create team")),
   })
 
@@ -694,6 +696,8 @@ function TeamsTab({ cohortId }: { cohortId: string }) {
   // the server for.
   const [search, setSearch] = useState("")
   const filteredTeams = teams.filter((team) => {
+    if (teamFilter === "student" && team.is_observer) return false
+    if (teamFilter === "observer" && !team.is_observer) return false
     const q = search.trim().toLowerCase()
     if (!q) return true
     return team.name.toLowerCase().includes(q) || team.member_names.some((n) => n.toLowerCase().includes(q))
@@ -726,30 +730,73 @@ function TeamsTab({ cohortId }: { cohortId: string }) {
         </div>
       )}
 
-      <div className="flex items-end gap-2">
-        <Field label="New team name">
+      <div className="flex flex-col gap-2 p-3.5 bg-card border border-border rounded-xl">
+        <div className="flex items-end gap-2 flex-wrap">
+          <Field label="New team name">
+            <input
+              value={newTeamName} onChange={(e) => setNewTeamName(e.target.value)} placeholder="Falcon Eye"
+              className="w-64 h-10 px-3 border border-border bg-background text-foreground rounded-xl text-sm focus:outline-none focus:border-primary"
+            />
+          </Field>
+          <button
+            onClick={() => createMutation.mutate()}
+            disabled={createMutation.isPending || !newTeamName.trim()}
+            className="flex items-center gap-1.5 h-10 px-4 bg-primary text-primary-foreground rounded-xl text-sm font-medium hover:opacity-90 transition-colors disabled:opacity-50 cursor-pointer"
+          >
+            <Plus size={14} /> Add team
+          </button>
+        </div>
+        <label className="flex items-center gap-2 text-xs text-muted-foreground cursor-pointer select-none">
           <input
-            value={newTeamName} onChange={(e) => setNewTeamName(e.target.value)} placeholder="Falcon Eye"
-            className="w-64 h-10 px-3 border border-border bg-card text-foreground rounded-xl text-sm focus:outline-none focus:border-primary"
+            type="checkbox"
+            checked={isObserverTeam}
+            onChange={(e) => setIsObserverTeam(e.target.checked)}
+            className="accent-primary"
           />
-        </Field>
-        <button
-          onClick={() => createMutation.mutate()}
-          disabled={createMutation.isPending || !newTeamName.trim()}
-          className="flex items-center gap-1.5 h-10 px-4 bg-primary text-primary-foreground rounded-xl text-sm font-medium hover:opacity-90 transition-colors disabled:opacity-50"
-        >
-          <Plus size={14} /> Add team
-        </button>
+          Create as observer sandbox team (testing & rehearsal only)
+        </label>
       </div>
 
-      <div className="relative max-w-sm">
-        <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
-        <input
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          placeholder="Search by team or student name..."
-          className="w-full h-10 pl-8 pr-3 border border-border bg-card text-foreground rounded-xl text-sm focus:outline-none focus:border-primary transition-colors"
-        />
+      <div className="flex items-center justify-between gap-3 flex-wrap">
+        <div className="relative max-w-sm flex-1 min-w-[200px]">
+          <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
+          <input
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Search by team or student name..."
+            className="w-full h-10 pl-8 pr-3 border border-border bg-card text-foreground rounded-xl text-sm focus:outline-none focus:border-primary transition-colors"
+          />
+        </div>
+
+        <div className="flex items-center p-1 bg-muted/60 border border-border/80 rounded-xl text-xs">
+          <button
+            type="button"
+            onClick={() => setTeamFilter("all")}
+            className={`px-3 py-1 rounded-lg font-medium transition-colors cursor-pointer ${
+              teamFilter === "all" ? "bg-background text-foreground shadow-xs font-semibold" : "text-muted-foreground hover:text-foreground"
+            }`}
+          >
+            All ({teams.length})
+          </button>
+          <button
+            type="button"
+            onClick={() => setTeamFilter("student")}
+            className={`px-3 py-1 rounded-lg font-medium transition-colors cursor-pointer ${
+              teamFilter === "student" ? "bg-background text-foreground shadow-xs font-semibold" : "text-muted-foreground hover:text-foreground"
+            }`}
+          >
+            Students ({teams.filter((t) => !t.is_observer).length})
+          </button>
+          <button
+            type="button"
+            onClick={() => setTeamFilter("observer")}
+            className={`px-3 py-1 rounded-lg font-medium transition-colors cursor-pointer ${
+              teamFilter === "observer" ? "bg-background text-indigo-600 dark:text-indigo-400 shadow-xs font-semibold" : "text-muted-foreground hover:text-foreground"
+            }`}
+          >
+            Observers ({teams.filter((t) => t.is_observer).length})
+          </button>
+        </div>
       </div>
 
       <div className="flex flex-col gap-3">
@@ -829,7 +876,14 @@ function TeamCard({ team, onChanged }: { team: CompetitionTeam; onChanged: () =>
           </div>
         ) : (
           <>
-            <p className="text-sm font-semibold text-foreground">{team.name}</p>
+            <div className="flex items-center gap-2">
+              <p className="text-sm font-semibold text-foreground">{team.name}</p>
+              {team.is_observer && (
+                <span className="text-[10px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded bg-indigo-500/15 text-indigo-600 dark:text-indigo-400 border border-indigo-500/30">
+                  Observer
+                </span>
+              )}
+            </div>
             <div className="flex items-center gap-1">
               <button
                 onClick={() => setRenaming(true)}
@@ -1458,9 +1512,10 @@ function ResultsTab({
     }
   }
 
+  const [mode, setMode] = useState<"participant" | "observer" | "all">("participant")
   const { data: board = [], isLoading } = useQuery<CompetitionLeaderboardRow[]>({
-    queryKey: ["competitions-leaderboard", cohortId],
-    queryFn: () => getCohortLeaderboardApi(cohortId),
+    queryKey: ["competitions-leaderboard", cohortId, mode],
+    queryFn: () => getCohortLeaderboardApi(cohortId, mode),
   })
   const { data: top20 = [] } = useQuery<CompetitionLeaderboardRow[]>({
     queryKey: ["competitions-top20", cohortId],
@@ -1579,6 +1634,35 @@ function ResultsTab({
             Publish results
           </button>
         )}
+        <div className="flex items-center p-1 bg-muted/60 border border-border/80 rounded-xl text-xs">
+          <button
+            type="button"
+            onClick={() => setMode("participant")}
+            className={`px-3 py-1 rounded-lg font-medium transition-colors cursor-pointer ${
+              mode === "participant" ? "bg-background text-foreground shadow-xs font-semibold" : "text-muted-foreground hover:text-foreground"
+            }`}
+          >
+            Students
+          </button>
+          <button
+            type="button"
+            onClick={() => setMode("observer")}
+            className={`px-3 py-1 rounded-lg font-medium transition-colors cursor-pointer ${
+              mode === "observer" ? "bg-background text-indigo-600 dark:text-indigo-400 shadow-xs font-semibold" : "text-muted-foreground hover:text-foreground"
+            }`}
+          >
+            Observers
+          </button>
+          <button
+            type="button"
+            onClick={() => setMode("all")}
+            className={`px-3 py-1 rounded-lg font-medium transition-colors cursor-pointer ${
+              mode === "all" ? "bg-background text-foreground shadow-xs font-semibold" : "text-muted-foreground hover:text-foreground"
+            }`}
+          >
+            All
+          </button>
+        </div>
         <button
           onClick={() => setShowTop20((s) => !s)}
           title="Filters the table below to only the 20 highest-ranked teams — doesn't download anything"
@@ -1832,6 +1916,11 @@ function LeaderboardTable({
               <td className="py-2 pr-3 text-foreground align-top">
                 <div className="flex items-center gap-1.5 flex-wrap">
                   <span className="font-medium">{r.team_name}</span>
+                  {r.is_observer && (
+                    <span className="text-[10px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded bg-indigo-500/15 text-indigo-600 dark:text-indigo-400 border border-indigo-500/30">
+                      Observer
+                    </span>
+                  )}
                   {r.qualification && (
                     <span
                       className={`inline-flex items-center text-[10px] font-semibold uppercase tracking-wide rounded-full px-2 py-0.5 whitespace-nowrap border ${

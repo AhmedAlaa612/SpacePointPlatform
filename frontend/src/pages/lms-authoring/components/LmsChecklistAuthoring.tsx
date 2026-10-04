@@ -1,8 +1,9 @@
 import { Fragment, useEffect, useRef, useState } from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { Plus, X, GripVertical, ImagePlus, Users, Crop, ExternalLink } from "lucide-react"
+import { Plus, X, GripVertical, ImagePlus, Users, Crop, ExternalLink, Eye } from "lucide-react"
 import { EmptyState, Spinner } from "@/components/ui/primitives"
 import { ImageCropModal } from "@/components/ui/ImageCropModal"
+import { ObserverTeamModal } from "@/components/lms/ObserverTeamModal"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { VideoPlayer } from "@/components/video/VideoPlayer"
 import { useToast } from "@/components/ui/toast"
@@ -355,6 +356,7 @@ export function CohortOverrideEditor({
       : undefined
 
   const [overrideValue, setOverrideValue] = useState("")
+  const [showObserverModal, setShowObserverModal] = useState(false)
 
   useEffect(() => {
     setOverrideValue(storedOverride ?? defaultTitle ?? "")
@@ -517,20 +519,38 @@ export function CohortOverrideEditor({
           </div>
         </div>
       )}
-      {isStaff && !readOnly && !hideResync && (
-        <div className="flex items-center justify-between gap-3 text-xs bg-muted/30 border border-border rounded-xl px-3 py-2">
-          <span className="text-muted-foreground">
-            Added a step and an already-assigned student isn't seeing it? New items backfill automatically now — this catches up anything added before that.
-          </span>
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs bg-muted/30 border border-border rounded-xl p-3">
+        <span className="text-muted-foreground flex-1">
+          Test student checklist flows directly or catch up missing items for enrolled students.
+        </span>
+        <div className="flex items-center gap-2 shrink-0">
           <button
-            onClick={() => resyncMutation.mutate()}
-            disabled={resyncMutation.isPending}
-            className="shrink-0 h-7 px-3 rounded-full border border-border text-xs font-medium text-foreground hover:border-primary/50 hover:bg-primary/5 transition-colors disabled:opacity-50 cursor-pointer"
+            type="button"
+            onClick={() => setShowObserverModal(true)}
+            className="h-7 px-3 rounded-full border border-indigo-500/30 bg-indigo-500/10 text-xs font-semibold text-indigo-900 dark:text-indigo-200 hover:bg-indigo-500/20 transition-colors cursor-pointer inline-flex items-center gap-1.5"
+            title="Try this cohort's checklist as an observer"
           >
-            {resyncMutation.isPending ? "Resyncing…" : "Resync students"}
+            <Eye className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />
+            Try as Observer
           </button>
+          {isStaff && !readOnly && !hideResync && (
+            <button
+              type="button"
+              onClick={() => resyncMutation.mutate()}
+              disabled={resyncMutation.isPending}
+              className="h-7 px-3 rounded-full border border-border text-xs font-medium text-foreground hover:border-primary/50 hover:bg-primary/5 transition-colors disabled:opacity-50 cursor-pointer"
+            >
+              {resyncMutation.isPending ? "Resyncing…" : "Resync students"}
+            </button>
+          )}
         </div>
-      )}
+      </div>
+      <ObserverTeamModal
+        cohortId={cohortId}
+        cohortName={cohortData?.name}
+        open={showObserverModal}
+        onClose={() => setShowObserverModal(false)}
+      />
       <ChecklistItemsEditor
         items={override.items}
         readOnly={readOnly}

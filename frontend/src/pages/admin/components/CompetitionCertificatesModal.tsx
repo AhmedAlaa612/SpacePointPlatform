@@ -811,17 +811,28 @@ export function CompetitionCertificatesModal({
                         )}
                       </td>
                       <td className="py-2.5 px-2">
-                        <span
-                          className={`font-semibold tabular-nums px-2 py-0.5 rounded-md ${
-                            r.meets_all_completed
-                              ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"
-                              : r.meets_at_least_one
-                              ? "bg-violet-500/10 text-violet-600 dark:text-violet-400"
-                              : "bg-muted text-muted-foreground"
-                          }`}
-                        >
-                          {r.submissions_done} / {r.required_submissions_total || r.submissions_total}
-                        </span>
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          <span
+                            title="Required submissions (drives eligibility)"
+                            className={`font-semibold tabular-nums px-2 py-0.5 rounded-md ${
+                              r.meets_all_completed
+                                ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"
+                                : r.meets_at_least_one
+                                ? "bg-violet-500/10 text-violet-600 dark:text-violet-400"
+                                : "bg-muted text-muted-foreground"
+                            }`}
+                          >
+                            {(r.required_submissions_done ?? r.submissions_done)} / {r.required_submissions_total || r.submissions_total}
+                          </span>
+                          {(r.optional_submissions_total ?? 0) > 0 && (
+                            <span
+                              title="Optional submissions (bonus only — never drives eligibility)"
+                              className="font-medium tabular-nums text-[11px] px-1.5 py-0.5 rounded-md bg-muted/60 text-muted-foreground border border-border/60"
+                            >
+                              +{r.optional_submissions_done ?? 0} opt
+                            </span>
+                          )}
+                        </div>
                       </td>
                       <td className="py-2.5 px-2">
                         {certType === "completion" ? (

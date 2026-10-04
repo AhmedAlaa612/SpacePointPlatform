@@ -122,7 +122,7 @@ async def _cohort_roster_user_ids(db: AsyncSession, *, cohort_id: uuid.UUID) -> 
 
 
 async def _individual_done_user_ids(
-    db: AsyncSession, *, items: list[LmsProgramItem], cohort_id: uuid.UUID,
+    db: AsyncSession, *, items: list[LmsProgramItem], cohort_id: uuid.UUID, mode: str = "participant",
 ) -> tuple[dict[uuid.UUID, set[uuid.UUID]], dict[uuid.UUID, set[uuid.UUID]], set[uuid.UUID]]:
     """For every individual-scoped, non-mission_run item: which users have
     it done, and which are awaiting confirmation. Returns
@@ -135,10 +135,14 @@ async def _individual_done_user_ids(
     the cohort failing rather than as an assignment gap (which the KPI
     row reports separately).
     """
-    assignments = (await db.execute(
-        select(LmsProgramAssignment.id, LmsProgramAssignment.user_id)
-        .where(LmsProgramAssignment.cohort_id == cohort_id)
-    )).all()
+    assign_query = select(LmsProgramAssignment.id, LmsProgramAssignment.user_id).where(
+        LmsProgramAssignment.cohort_id == cohort_id
+    )
+    if mode == "participant":
+        assign_query = assign_query.where(LmsProgramAssignment.mode != "observer")
+    elif mode == "observer":
+        assign_query = assign_query.where(LmsProgramAssignment.mode == "observer")
+    assignments = (await db.execute(assign_query)).all()
     user_by_assignment = {aid: uid for aid, uid in assignments}
     assigned_user_ids = set(user_by_assignment.values())
 
@@ -341,7 +345,7 @@ def _team_mission_runs(
     return out
 
 
-async def cohort_team_analytics(db: AsyncSession, *, cohort_id: uuid.UUID) -> dict | None:
+async def cohort_team_analytics(db: AsyncSession, *, cohort_id: uuid.UUID, mode: str = "participant") -> dict | None:
     """Returns None if the cohort doesn't exist — the router turns that
     into a 404, mirroring every other admin cohort lookup here.
 
@@ -353,9 +357,12 @@ async def cohort_team_analytics(db: AsyncSession, *, cohort_id: uuid.UUID) -> di
     if cohort is None:
         return None
 
-    teams = list((await db.execute(
-        select(Team).where(Team.cohort_id == cohort_id).order_by(Team.name)
-    )).scalars().all())
+    team_query = select(Team).where(Team.cohort_id == cohort_id)
+    if mode == "participant":
+        team_query = team_query.where(Team.is_observer.is_(False))
+    elif mode == "observer":
+        team_query = team_query.where(Team.is_observer.is_(True))
+    teams = list((await db.execute(team_query.order_by(Team.name))).scalars().all())
     team_ids = [t.id for t in teams]
     members_by_team, users_by_id = await _team_rosters(db, team_ids=team_ids)
     missing_locked_by = {t.final_locked_by for t in teams if t.final_locked_by and t.final_locked_by not in users_by_id}
@@ -384,7 +391,7 @@ async def cohort_team_analytics(db: AsyncSession, *, cohort_id: uuid.UUID) -> di
     progress_by_team_item = {(p.team_id, p.item_id): p for p in team_progress}
 
     done_users_by_item, awaiting_users_by_item, assigned_user_ids, assignment_by_user = await _individual_done_user_ids(
-        db, items=individual_items, cohort_id=cohort_id,
+        db, items=individual_items, cohort_id=cohort_id, mode=mode,
     )
 
     quiz_items = [i for i in items if i.item_type == "quiz"]
@@ -499,6 +506,7 @@ async def cohort_team_analytics(db: AsyncSession, *, cohort_id: uuid.UUID) -> di
             "team_id": team.id,
             "team_name": team.name,
             "roster_team_id": team.roster_team_id,
+            "is_observer": bool(team.is_observer),
             "member_count": len(member_ids),
             "members": [{"name": m.full_name, "last_login_at": m.last_login_at} for m in members],
             "never_logged_in": sum(1 for m in members if m.last_login_at is None),

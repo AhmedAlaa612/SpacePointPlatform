@@ -26,10 +26,12 @@ class CompetitionTeamOut(BaseModel):
     member_ids: list[UUID] = []
     member_names: list[str] = []
     member_emails: list[str] = []
+    is_observer: bool = False
 
 
 class CompetitionTeamCreateIn(BaseModel):
     name: str
+    is_observer: bool = False
 
 
 class CompetitionTeamRenameIn(BaseModel):
@@ -155,6 +157,7 @@ class CompetitionLeaderboardRowOut(BaseModel):
     ops_max_points: float | None = None
     ops_criterion_scores: dict[str, float] = {}
     ops_criterion_notes: str | None = None
+    is_observer: bool = False
 
 
 class CompetitionVisibilitySettings(BaseModel):
@@ -613,6 +616,7 @@ class CompetitionAnalyticsTeamOut(BaseModel):
     team_id: UUID
     team_name: str
     roster_team_id: str | None = None
+    is_observer: bool = False
     member_count: int
     members: list[CompetitionAnalyticsTeamMemberOut] = []
     never_logged_in: int
@@ -686,6 +690,11 @@ class CompetitionCertificateRecipientOut(BaseModel):
     submissions_done: int
     submissions_total: int
     required_submissions_total: int
+    # Required vs optional split — optionals are bonus only and never drive
+    # eligibility. Defaults keep older cached payloads valid.
+    required_submissions_done: int = 0
+    optional_submissions_done: int = 0
+    optional_submissions_total: int = 0
     team_locked: bool = False
     meets_locked_only: bool = False
     meets_participation: bool = False

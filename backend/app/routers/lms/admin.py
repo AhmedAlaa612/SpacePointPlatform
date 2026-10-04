@@ -36,6 +36,7 @@ from app.models.sessions.registration import Registration
 from app.models.spine.contact import Contact
 from app.models.spine.organization import Organization
 from app.models.user import User
+from app.models.team import Team
 from app.schemas.lms import AttachmentUrlOut
 from app.schemas.lms_admin import (
     AdminCheckpointNoteContent,
@@ -61,6 +62,8 @@ from app.schemas.lms_admin import (
     InviteCodeOut,
     InviteCodeUpdate,
     ItemAdminOut,
+    ObserverTeamSummaryOut,
+    TryAsObserverIn,
     ItemCreate,
     ItemReorderIn,
     ItemUpdate,
@@ -124,9 +127,10 @@ from app.services.lms.program import (
     PROGRAM_ITEM_PDF_BUCKET, assign_lms_program, check_item_conflicts, effective_cohort_program_items,
     ensure_observer_team, fork_cohort_override,
     guard_locked_submission_scope, item_out, items_out, next_position, renumber_program_items, reorder_program_items,
-    resolve_cohort_program, sync_cohort_assignments, sync_program_assignments, validate_item_payload,
-    validate_item_refs,
+    resolve_cohort_program, sync_cohort_assignments, sync_program_assignments, sync_team_mission_runs,
+    validate_item_payload, validate_item_refs,
 )
+from app.services.teams import create_team, join_team, team_member_ids
 from app.schemas.missions_component_config import ComponentConfigIn, ComponentConfigOut
 from app.services.missions import component_config as component_config_service
 from app.services.sessions.registration import ACTIVE_REGISTRATION_STATUSES
@@ -2039,15 +2043,17 @@ async def resync_cohort_program_assignments(
 
 @router.post("/cohorts/{cohort_id}/try-as-observer")
 async def try_as_observer(
-    cohort_id: uuid.UUID, db: AsyncSession = Depends(get_db), current: User = Depends(get_current_active_user),
+    cohort_id: uuid.UUID,
+    body: TryAsObserverIn | None = None,
+    db: AsyncSession = Depends(get_db),
+    current: User = Depends(get_current_active_user),
 ):
-    """1-click staff authoring access (2026-10, observer mode) — "Try as
-    Observer". Creates (or reuses) the caller's own `mode="observer"`
-    program assignment for this cohort, flags them onto an observer team,
-    and returns the assignment id the frontend navigates to
-    (`/learn/checklists/{assignment_id}`), where every program action
-    endpoint already works on their own assignment (ownership via
-    `_own_progress_row`, no `student` role needed).
+    """Staff authoring access (2026-10, observer mode) — "Try as Observer".
+    Creates (or reuses) the caller's own `mode="observer"` program assignment
+    for this cohort. Optionally attaches to an observer team or creates a
+    fresh observer sandbox team if requested, or proceeds without a team to
+    test the pure unassigned student onboarding flow. Returns the assignment
+    id and team id.
 
     Auth: `require_lms_content` staff (operations/facilitator/lms_author,
     admin passes) OR an instructor assigned to this cohort. Students and
@@ -2090,9 +2096,59 @@ async def try_as_observer(
             status.HTTP_400_BAD_REQUEST,
             detail="This cohort has no LMS checklist to observe yet — create one first",
         )
-    await ensure_observer_team(db, cohort_id=cohort_id, user_id=current.id)
+
+    assigned_team = None
+    if body and body.team_action == "join" and body.team_id:
+        team = await db.get(Team, body.team_id)
+        if team is None or team.cohort_id != cohort_id:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Team not found in this cohort")
+        if not getattr(team, "is_observer", False):
+            team.is_observer = True
+            await db.flush()
+        await join_team(db, team_id=team.id, user_id=current.id)
+        await sync_team_mission_runs(db, team=team)
+        assigned_team = team
+    elif body and body.team_action == "create":
+        existing_count = await db.scalar(
+            select(func.count(Team.id)).where(Team.cohort_id == cohort_id)
+        ) or 0
+        name = (body.team_name or "").strip() or f"[Observer] Team {existing_count + 1}"
+        team = await create_team(db, name=name, cohort_id=cohort_id, created_by=current.id, is_observer=True)
+        await sync_team_mission_runs(db, team=team)
+        assigned_team = team
+
     await db.commit()
-    return {"assignment_id": str(assignment.id)}
+    return {
+        "assignment_id": str(assignment.id),
+        "team_id": str(assigned_team.id) if assigned_team else None,
+    }
+
+
+@router.get("/cohorts/{cohort_id}/observer-teams", response_model=list[ObserverTeamSummaryOut])
+async def list_cohort_observer_teams(
+    cohort_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    current: User = Depends(get_current_active_user),
+):
+    """Lists observer sandbox teams for a cohort so observers can join an
+    existing test team or create a new one."""
+    if await db.get(Cohort, cohort_id) is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Cohort not found")
+    teams = list((await db.execute(
+        select(Team).where(Team.cohort_id == cohort_id, Team.is_observer.is_(True)).order_by(Team.name)
+    )).scalars().all())
+    out = []
+    for t in teams:
+        member_ids = await team_member_ids(db, team_id=t.id)
+        members = (await db.execute(select(User).where(User.id.in_(member_ids)))).scalars().all() if member_ids else []
+        out.append(ObserverTeamSummaryOut(
+            id=t.id,
+            name=t.name,
+            member_count=len(member_ids),
+            member_names=[m.full_name for m in members if m and m.full_name],
+            is_my_team=current.id in member_ids,
+        ))
+    return out
 
 
 @router.post(

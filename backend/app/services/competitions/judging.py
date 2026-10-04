@@ -365,15 +365,18 @@ async def list_judges_with_progress(db: AsyncSession, *, cohort_id: uuid.UUID) -
 
 # ── Leaderboard, publish, export ────────────────────────────────────────
 
-async def leaderboard(db: AsyncSession, *, cohort_id: uuid.UUID) -> list[dict]:
+async def leaderboard(db: AsyncSession, *, cohort_id: uuid.UUID, mode: str = "participant") -> list[dict]:
     """Standings for a cohort. Returns one row per team with final aggregated
     scores, timing adjustments (dynamic or overridden), and judge details.
 
-    Observer mode (2026-10): `is_observer=True` test teams never appear on
-    official leaderboards — same partition as the judge queue and certs."""
-    teams = (await db.execute(
-        select(Team).where(Team.cohort_id == cohort_id, Team.is_observer.is_(False)).order_by(Team.name)
-    )).scalars().all()
+    Observer mode (2026-10): partitioned by mode ('participant', 'observer', 'all').
+    Defaults to 'participant' so official leaderboards exclude test teams."""
+    team_query = select(Team).where(Team.cohort_id == cohort_id)
+    if mode == "participant":
+        team_query = team_query.where(Team.is_observer.is_(False))
+    elif mode == "observer":
+        team_query = team_query.where(Team.is_observer.is_(True))
+    teams = (await db.execute(team_query.order_by(Team.name))).scalars().all()
     advanced_to_by_name: dict[str, list[str]] = {}
     cohort = await db.scalar(select(Cohort).where(Cohort.id == cohort_id))
     if cohort is not None:
@@ -483,6 +486,7 @@ async def leaderboard(db: AsyncSession, *, cohort_id: uuid.UUID) -> list[dict]:
             "ops_max_points": ops_max_total if ops_criteria else None,
             "ops_criterion_scores": ops_scores,
             "ops_criterion_notes": getattr(team, "ops_criterion_notes", None),
+            "is_observer": getattr(team, "is_observer", False),
         })
 
     # Sort: ranked by final total, highest first. Unscored teams sort

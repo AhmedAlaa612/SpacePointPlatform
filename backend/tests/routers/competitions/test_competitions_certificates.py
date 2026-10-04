@@ -447,3 +447,77 @@ async def test_locked_only_and_participation_filters_and_custom_emails(db, clien
     assert custom_template.email_subject == "Custom Header for {student_name}"
     assert custom_template.email_body == "<p>Hello {student_name}, congrats to {team_name}!</p>"
 
+
+@pytest.mark.asyncio
+async def test_optional_submissions_never_drive_eligibility(db, client):
+    """Regression: an optional submission must not mask a missing required one.
+
+    Team Optional-Only submits just the bonus item -> no participation.
+    Team Partial submits 1/2 required + the optional -> required 1/2 shown
+    separately, not all-completed, but still participating.
+    """
+    ops = await _ops(db)
+    program, cohort, lms_program, (item1, item2) = await _setup_competition_cohort(db)
+    optional_item = LmsProgramItem(
+        id=uuid.uuid4(), owner_type="program", owner_id=lms_program.id, position=3,
+        item_type="submission", title="Bonus Summary", scope="team", optional=True,
+    )
+    db.add(optional_item)
+    await db.flush()
+
+    # Team Optional-Only: bonus item only
+    s_opt, _ = await _student(db, "Optional Only", cohort=cohort)
+    team_opt = await create_team(db, cohort_id=cohort.id, name="Team OptOnly", created_by=s_opt.id)
+    db.add(LmsProgramTeamItemProgress(
+        id=uuid.uuid4(), item_id=optional_item.id, team_id=team_opt.id, status="done",
+        submitted_url="https://example.com/bonus",
+    ))
+
+    # Team Partial: 1/2 required + the optional (the old single-fraction
+    # display read this as "2/2" — indistinguishable from complete)
+    s_part, _ = await _student(db, "Partial Pete", cohort=cohort)
+    team_part = await create_team(db, cohort_id=cohort.id, name="Team Partial", created_by=s_part.id)
+    db.add_all([
+        LmsProgramTeamItemProgress(
+            id=uuid.uuid4(), item_id=item1.id, team_id=team_part.id, status="done",
+            submitted_url="https://example.com/partial-1",
+        ),
+        LmsProgramTeamItemProgress(
+            id=uuid.uuid4(), item_id=optional_item.id, team_id=team_part.id, status="done",
+            submitted_url="https://example.com/partial-bonus",
+        ),
+    ])
+    await db.commit()
+
+    resp = await client.get(
+        f"/competitions/admin/cohorts/{cohort.id}/certificates/recipients?filter=all",
+        headers=_headers(ops),
+    )
+    assert resp.status_code == 200, resp.text
+    by_name = {r["student_name"]: r for r in resp.json()["recipients"]}
+
+    opt = by_name["Optional Only"]
+    assert opt["required_submissions_done"] == 0
+    assert opt["required_submissions_total"] == 2
+    assert opt["optional_submissions_done"] == 1
+    assert opt["optional_submissions_total"] == 1
+    assert opt["meets_at_least_one"] is False
+    assert opt["meets_participation"] is False
+    assert opt["meets_all_completed"] is False
+
+    part = by_name["Partial Pete"]
+    assert part["required_submissions_done"] == 1
+    assert part["required_submissions_total"] == 2
+    assert part["optional_submissions_done"] == 1
+    assert part["meets_at_least_one"] is True
+    assert part["meets_participation"] is True
+    assert part["meets_all_completed"] is False
+
+    # The optional-only student must not appear in the participation filter
+    resp_part = await client.get(
+        f"/competitions/admin/cohorts/{cohort.id}/certificates/recipients?filter=at_least_one",
+        headers=_headers(ops),
+    )
+    assert resp_part.status_code == 200
+    assert {r["student_name"] for r in resp_part.json()["recipients"]} == {"Partial Pete"}
+

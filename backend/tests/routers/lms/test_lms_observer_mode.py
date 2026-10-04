@@ -125,9 +125,18 @@ async def _cohort_with_checklist(db, *, author) -> tuple[Cohort, LmsProgram, dic
     return cohort, lms_program, items
 
 
-async def _observe(db, client, *, user, cohort) -> uuid.UUID:
+async def _observe(db, client, *, user, cohort, team_action: str | None = "create", team_id: uuid.UUID | None = None) -> uuid.UUID:
     """Runs the real try-as-observer endpoint for `user`."""
-    resp = await client.post(f"/lms/admin/cohorts/{cohort.id}/try-as-observer", headers=_headers(user))
+    body: dict = {}
+    if team_action:
+        body["team_action"] = team_action
+    if team_id:
+        body["team_id"] = str(team_id)
+    resp = await client.post(
+        f"/lms/admin/cohorts/{cohort.id}/try-as-observer",
+        headers=_headers(user),
+        json=body if body else None,
+    )
     assert resp.status_code == 200, resp.text
     return uuid.UUID(resp.json()["assignment_id"])
 
@@ -658,3 +667,92 @@ async def test_student_codes_still_sign_up_students(db, client):
     })
     assert resp.status_code == http_status.HTTP_201_CREATED, resp.text
     assert resp.json()["user"]["roles"] == ["student"]
+
+
+@pytest.mark.asyncio
+async def test_try_as_observer_without_team_experience_unassigned_student_flow(db, client):
+    ops = await _ops(db)
+    cohort, _, items = await _cohort_with_checklist(db, author=ops)
+    await db.commit()
+
+    # Enter observer mode with team_action="none"
+    assignment_id = await _observe(db, client, user=ops, cohort=cohort, team_action="none")
+    h = _headers(ops)
+
+    checklist = (await client.get(f"/lms/programs/{assignment_id}", headers=h)).json()
+    assert checklist["mode"] == "observer"
+    assert checklist["team_name"] is None
+
+    # Individual self-check works
+    resp = await client.post(
+        f"/lms/programs/{assignment_id}/items/{items['manual'].id}/complete", headers=h,
+    )
+    assert resp.status_code == 200
+
+    # Team item without a team returns 403 (pure student parity)
+    resp = await client.post(
+        f"/lms/programs/{assignment_id}/items/{items['team_poster'].id}/submit",
+        headers=h, json={"url": "https://example.com/poster"},
+    )
+    assert resp.status_code == 403
+    assert "not on a team" in resp.json()["detail"].lower()
+
+
+@pytest.mark.asyncio
+async def test_try_as_observer_join_existing_observer_team(db, client):
+    ops = await _ops(db)
+    other = await _ops(db)
+    cohort, _, _ = await _cohort_with_checklist(db, author=ops)
+    await db.commit()
+
+    # First observer creates an observer team
+    team_a = await create_team(db, name="Sandbox Pioneers", cohort_id=cohort.id, created_by=ops.id, is_observer=True)
+    await db.commit()
+
+    # Second observer joins team_a via try-as-observer
+    assignment_id = await _observe(db, client, user=other, cohort=cohort, team_action="join", team_id=team_a.id)
+    checklist = (await client.get(f"/lms/programs/{assignment_id}", headers=_headers(other))).json()
+    assert checklist["team_name"] == "Sandbox Pioneers"
+
+
+@pytest.mark.asyncio
+async def test_list_cohort_observer_teams(db, client):
+    ops = await _ops(db)
+    cohort, _, _ = await _cohort_with_checklist(db, author=ops)
+    # 1 normal student team, 1 observer team
+    t1 = await create_team(db, name="Student Team", cohort_id=cohort.id, created_by=ops.id, is_observer=False)
+    t2 = await create_team(db, name="Observer Sandbox", cohort_id=cohort.id, created_by=ops.id, is_observer=True)
+    await db.commit()
+
+    resp = await client.get(f"/lms/admin/cohorts/{cohort.id}/observer-teams", headers=_headers(ops))
+    assert resp.status_code == 200
+    names = [t["name"] for t in resp.json()]
+    assert "Observer Sandbox" in names
+    assert "Student Team" not in names
+
+
+@pytest.mark.asyncio
+async def test_competition_observer_toggles(db, client):
+    ops = await _ops(db)
+    cohort, _, _ = await _cohort_with_checklist(db, author=ops)
+    student_team = await create_team(db, name="Real Team", cohort_id=cohort.id, created_by=ops.id, is_observer=False)
+    observer_team = await create_team(db, name="Test Team", cohort_id=cohort.id, created_by=ops.id, is_observer=True)
+    judge = await _ops(db, roles=("judge",))
+    db.add(CompetitionJudge(cohort_id=cohort.id, user_id=judge.id))
+    await db.commit()
+
+    # Leaderboard participant vs observer
+    lb_part = (await client.get(f"/competitions/admin/cohorts/{cohort.id}/leaderboard?mode=participant", headers=_headers(ops))).json()
+    lb_obs = (await client.get(f"/competitions/admin/cohorts/{cohort.id}/leaderboard?mode=observer", headers=_headers(ops))).json()
+    assert any(r["team_name"] == "Real Team" for r in lb_part)
+    assert not any(r["team_name"] == "Test Team" for r in lb_part)
+    assert any(r["team_name"] == "Test Team" for r in lb_obs)
+    assert not any(r["team_name"] == "Real Team" for r in lb_obs)
+
+    # Judge queue participant vs observer
+    j_part = (await client.get(f"/competitions/judge/teams?cohort_id={cohort.id}&mode=participant", headers=_headers(judge))).json()
+    j_obs = (await client.get(f"/competitions/judge/teams?cohort_id={cohort.id}&mode=observer", headers=_headers(judge))).json()
+    assert any(t["name"] == "Real Team" for t in j_part)
+    assert not any(t["name"] == "Test Team" for t in j_part)
+    assert any(t["name"] == "Test Team" for t in j_obs)
+    assert not any(t["name"] == "Real Team" for t in j_obs)

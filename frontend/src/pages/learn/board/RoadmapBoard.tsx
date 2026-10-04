@@ -12,6 +12,7 @@ import { TileField } from "./TileField";
 import { FinalGateBar } from "./FinalGateBar";
 import { TaskDrawer } from "./TaskDrawer";
 import { StudentTeamResultCard } from "@/components/competitions/StudentTeamResultCard";
+import { ObserverTeamModal } from "@/components/lms/ObserverTeamModal";
 import { checklistItemToTile, computeLiveTaskId, groupByCheckpoint, readBoardScrollPosition } from "./roadmap";
 
 /** `/learn/checklists/$assignmentId` — the gated visual roadmap ("the
@@ -25,6 +26,7 @@ export default function RoadmapBoard() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [openItemId, setOpenItemId] = useState<string | null>(null);
+  const [showTeamModal, setShowTeamModal] = useState(false);
   // Observer mode (2026-10) — which reset is in flight, so its button reads
   // busy and double-clicks can't stack two resets.
   const [observerBusy, setObserverBusy] = useState<"mine" | "team" | "leave" | null>(null);
@@ -155,7 +157,7 @@ export default function RoadmapBoard() {
             >
               <RotateCcw size={12} /> {observerBusy === "mine" ? "Resetting…" : "Reset My Progress"}
             </button>
-            {checklist.team_name && (
+            {checklist.team_name ? (
               <button
                 onClick={() => void handleResetTeam()}
                 disabled={observerBusy !== null}
@@ -163,7 +165,15 @@ export default function RoadmapBoard() {
               >
                 <RotateCcw size={12} /> {observerBusy === "team" ? "Resetting…" : "Reset Team Deliverables"}
               </button>
-            )}
+            ) : checklist.cohort_id ? (
+              <button
+                onClick={() => setShowTeamModal(true)}
+                className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-indigo-500/30 hover:bg-indigo-500/10 transition-colors cursor-pointer text-xs font-semibold"
+                title="Join an existing observer team or create a new one"
+              >
+                <Users size={12} /> Join / Create Observer Team
+              </button>
+            ) : null}
             <button
               onClick={() => void handleLeaveProgram()}
               disabled={observerBusy !== null}
@@ -173,6 +183,17 @@ export default function RoadmapBoard() {
             </button>
           </div>
         </div>
+      )}
+      {isObserver && checklist?.cohort_id && (
+        <ObserverTeamModal
+          cohortId={checklist.cohort_id}
+          cohortName={checklist.cohort_name ?? undefined}
+          open={showTeamModal}
+          onClose={() => setShowTeamModal(false)}
+          onSuccess={() => {
+            void invalidate();
+          }}
+        />
       )}
       <div className={cn("transition-[filter,opacity] duration-150", openItem && "md:blur-[1.5px] md:opacity-50")}>
         {/* Banner — native ratio, full width, never cropped (the clipping
