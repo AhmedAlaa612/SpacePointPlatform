@@ -55,7 +55,7 @@ export default function LearnSignup() {
           country: country || undefined,
           city_id: cityId || undefined,
           city_other: cityOther || undefined,
-          invite_code: inviteCode.trim(),
+          invite_code: inviteCode.trim() || undefined,
           ...(parentName.trim() && parentPhone.trim()
             ? { parent_name: parentName.trim(), parent_phone: parentPhone.trim(), parent_email: parentEmail.trim() || undefined }
             : {}),
@@ -155,19 +155,16 @@ export default function LearnSignup() {
                 </div>
               ) : null}
             </div>
-            {/* Required as of 2026-08-13 — signup is invite-only. Ask your
-                instructor/school for the batch code. */}
             <div className="flex flex-col gap-1">
               <input
                 type="text"
-                placeholder="Invite code"
-                required
+                placeholder="Invite code (optional)"
                 value={inviteCode}
                 onChange={(e) => setInviteCode(e.target.value.toUpperCase())}
                 className="h-11 px-4 rounded-xl text-sm bg-background ring-1 ring-border focus:outline-none focus:ring-primary/50 transition-shadow font-mono"
               />
               <span className="text-xs text-muted-foreground px-1">
-                Ask your instructor for your class's invite code.
+                Optional — enter your class's invite code if you were given one.
               </span>
             </div>
             <PasswordInput
@@ -205,7 +202,7 @@ export default function LearnSignup() {
               </div>
             )}
 
-            <Button size="xl" type="submit" disabled={loading || !inviteCode.trim()} className="w-full mt-1">
+            <Button size="xl" type="submit" disabled={loading} className="w-full mt-1">
               {loading ? "Signing up..." : "Sign up"}
             </Button>
           </form>

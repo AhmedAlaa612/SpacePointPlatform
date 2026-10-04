@@ -386,28 +386,35 @@ async def test_signup_without_a_phone_is_422(db, client):
 # ── invite-code gate + pool split (2026-08-13) ──────────────────────────────
 
 @pytest.mark.asyncio
-async def test_signup_without_an_invite_code_is_refused(db, client):
-    """The gate itself. Ported from Madar, where registration required a
-    valid, active, non-exhausted code."""
+async def test_signup_without_an_invite_code_is_allowed(db, client):
+    """Invite code is optional — omitting it creates a regular student."""
     resp = await client.post("/auth/signup", json={
         "phone": "+971501234567",
         "full_name": "No Code", "email": "nocode@example.com", "password": "pass-nocode",
     })
-    assert resp.status_code == http_status.HTTP_400_BAD_REQUEST
-    assert "invite code" in resp.json()["detail"].lower()
-    assert (await db.execute(
+    assert resp.status_code == http_status.HTTP_201_CREATED, resp.text
+    user = (await db.execute(
         select(User).where(User.email == "nocode@example.com")
-    )).scalars().first() is None
+    )).scalars().first()
+    assert user is not None
+    assert user.roles == ["student"]
+    assert user.invitation_code_used is None
 
 
 @pytest.mark.asyncio
-async def test_a_blank_invite_code_is_refused_too(db, client):
+async def test_a_blank_invite_code_is_allowed_too(db, client):
     resp = await client.post("/auth/signup", json={
         "phone": "+971501234567",
         "invite_code": "   ",
         "full_name": "Blank Code", "email": "blank@example.com", "password": "pass-blank",
     })
-    assert resp.status_code == http_status.HTTP_400_BAD_REQUEST
+    assert resp.status_code == http_status.HTTP_201_CREATED, resp.text
+    user = (await db.execute(
+        select(User).where(User.email == "blank@example.com")
+    )).scalars().first()
+    assert user is not None
+    assert user.roles == ["student"]
+    assert user.invitation_code_used is None
 
 
 @pytest.mark.asyncio

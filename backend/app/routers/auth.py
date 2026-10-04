@@ -256,27 +256,24 @@ async def student_signup(data: StudentSignupRequest, request: Request, db: Async
             detail="An account with this email already exists — log in instead.",
         )
 
-    # Invite-code gate (2026-08-13, operator): student signup is invite-only,
-    # ported from Madar where registration required a valid, active,
-    # non-exhausted code and stamped it permanently onto the user
-    # (MISSIONS_REPORT.md §155). Enforced here rather than only in the
-    # schema so the message is a plain sentence rather than a 422 field
-    # error, and so it can't be bypassed by a client that omits the key.
-    code = data.invite_code.strip().upper() if data.invite_code else None
-    if not code:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="An invite code is required to sign up. Ask your instructor for one.",
-        )
-    # kind='student': an instructor-pool code must not open student signup.
-    # An ambassador's personal referral code still works (it's kind-agnostic
-    # inside resolve_invite_code) — the operator's explicit call.
-    # Observer mode (2026-10): an observer batch code opens the same signup
-    # (resolve matches student+observer here) — the account below branches
-    # on invitation.kind for roles/card/mode.
-    invitation, ambassador = await resolve_invite_code(db, code, kind="student")
-    referred_by_ambassador_id = ambassador.id if ambassador else None
-    is_observer_signup = invitation is not None and invitation.kind == "observer"
+    # Invite-code gate: optional as requested — if provided, validated against
+    # student/observer pool or ambassador referral; if omitted, regular student signup.
+    code = data.invite_code.strip().upper() if data.invite_code and data.invite_code.strip() else None
+    invitation = None
+    ambassador = None
+    referred_by_ambassador_id = None
+    is_observer_signup = False
+
+    if code:
+        # kind='student': an instructor-pool code must not open student signup.
+        # An ambassador's personal referral code still works (it's kind-agnostic
+        # inside resolve_invite_code) — the operator's explicit call.
+        # Observer mode (2026-10): an observer batch code opens the same signup
+        # (resolve matches student+observer here) — the account below branches
+        # on invitation.kind for roles/card/mode.
+        invitation, ambassador = await resolve_invite_code(db, code, kind="student")
+        referred_by_ambassador_id = ambassador.id if ambassador else None
+        is_observer_signup = invitation is not None and invitation.kind == "observer"
 
     city = await db.get(City, data.city_id) if data.city_id else None
 
