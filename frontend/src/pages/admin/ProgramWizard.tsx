@@ -382,14 +382,18 @@ function TemplateStep({ program, onCloned, onFresh, onFormChange }: {
 
       {mode === "clone" && (
         <div className="flex flex-col" style={{ gap: 16 }}>
-          <BigField label="Template program">
+          <BigField label="Template program" hint={source ? `Template type: ${source.is_competition ? "Competition (cloned program will be a Competition)" : "Standard Workshop/Course"}` : undefined}>
             <select
               value={sourceId} onChange={(e) => setSourceId(e.target.value)}
               style={{ ...bigInput, cursor: "pointer" }}
               className="border border-border bg-background text-foreground focus:outline-none focus:border-primary transition-colors"
             >
               <option value="">— Select a program —</option>
-              {programs.map((p) => <option key={p.id} value={p.id}>{p.name} ({p.code})</option>)}
+              {programs.map((p) => (
+                <option key={p.id} value={p.id}>
+                  [{p.is_competition ? "Competition" : "Standard"}] {p.name} ({p.code})
+                </option>
+              ))}
             </select>
           </BigField>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 sm:gap-6">

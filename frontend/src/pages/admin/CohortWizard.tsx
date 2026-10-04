@@ -73,11 +73,12 @@ function StepIntro({ eyebrow, title, lede, ledeWidth = 62, right }: {
 }
 
 /** Field label */
-function BigField({ label, children }: { label: string; children: ReactNode }) {
+function BigField({ label, hint, children }: { label: string; hint?: string; children: ReactNode }) {
   return (
     <label className="flex flex-col" style={{ gap: 6 }}>
       <span style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em" }} className="text-muted-foreground">{label}</span>
       {children}
+      {hint && <span style={{ fontSize: 13 }} className="text-muted-foreground">{hint}</span>}
     </label>
   )
 }
@@ -253,11 +254,20 @@ export default function CohortWizard() {
             {step < LAST_STEP ? (
               <WizardContinueButton step={step} cohort={cohort} onContinue={advance} basicsForm={basicsForm} templateForm={templateForm} />
             ) : (
-              <button
-                onClick={() => navigate({ to: "/operations/cohorts/$cohortId", params: { cohortId: cohort!.id } })}
-                style={{ height: 38, fontFamily: OUTFIT, fontWeight: 600 }}
-                className="px-4 sm:px-7 rounded-lg text-sm sm:text-base bg-primary text-primary-foreground hover:opacity-90 transition-opacity"
-              >Done</button>
+              <div className="flex items-center gap-2">
+                {Boolean(program?.is_competition || cohort?.program_is_competition) && (
+                  <button
+                    onClick={() => navigate({ to: "/operations/cohorts/$cohortId/judging", params: { cohortId: cohort!.id } })}
+                    style={{ height: 38, fontFamily: OUTFIT, fontWeight: 600 }}
+                    className="px-4 sm:px-6 rounded-lg text-sm sm:text-base border border-primary text-primary hover:bg-primary/10 transition-colors"
+                  >Open Judging Setup</button>
+                )}
+                <button
+                  onClick={() => navigate({ to: "/operations/cohorts/$cohortId", params: { cohortId: cohort!.id } })}
+                  style={{ height: 38, fontFamily: OUTFIT, fontWeight: 600 }}
+                  className="px-4 sm:px-7 rounded-lg text-sm sm:text-base bg-primary text-primary-foreground hover:opacity-90 transition-opacity"
+                >Done</button>
+              </div>
             )}
           </div>
           <div className="hidden sm:block">
@@ -376,25 +386,42 @@ function TemplateStep({ programs, cohort, onCloned, onFresh, onFormChange }: {
   const [carry, setCarry] = useState<string[]>(["basics", "windows", "roles", "materials", "assessment", "checklist", "rubric", "judges"])
   const [error, setError] = useState("")
 
-  const [copyFromOtherProgram, setCopyFromOtherProgram] = useState(false)
-  const [sourceProgramId, setSourceProgramId] = useState("")
-
   const { data: allCohorts = [] } = useQuery({ queryKey: ["sessions-cohorts-all"], queryFn: () => getCohortsApi() })
-  const source = allCohorts.find((c) => c.id === sourceId)
   const targetProgram = programs.find((p) => p.id === targetProgramId)
-  const sourceProgram = programs.find((p) => p.id === source?.program_id)
-  const showCompetition = Boolean(targetProgram?.is_competition || sourceProgram?.is_competition || source?.program_is_competition)
+  const isTargetCompetition = Boolean(targetProgram?.is_competition)
+  const showCompetition = isTargetCompetition
 
-  const effectiveSourceProgramId = copyFromOtherProgram ? sourceProgramId : targetProgramId
-  const availableCohorts = useMemo(() => {
-    if (!effectiveSourceProgramId) return []
-    return allCohorts.filter((c) => c.program_id === effectiveSourceProgramId)
-  }, [allCohorts, effectiveSourceProgramId])
+  // Strictly filter templates: competition cohorts for competition targets, standard cohorts for standard targets
+  const filteredCohorts = useMemo(() => {
+    if (!targetProgramId) return allCohorts
+    return allCohorts.filter((c) => {
+      const prog = programs.find((p) => p.id === c.program_id)
+      const isComp = Boolean(prog?.is_competition || c.program_is_competition)
+      return isTargetCompetition ? isComp : !isComp
+    })
+  }, [allCohorts, targetProgramId, isTargetCompetition, programs])
+
+  const source = filteredCohorts.find((c) => c.id === sourceId)
+
+  useEffect(() => {
+    if (sourceId && !filteredCohorts.some((c) => c.id === sourceId)) {
+      setSourceId("")
+      setName("")
+    }
+  }, [filteredCohorts, sourceId])
 
   useEffect(() => {
     if (source && !name) setName(`${source.name} (Copy)`)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sourceId])
+
+  useEffect(() => {
+    if (!isTargetCompetition) {
+      setCarry((prev) => prev.filter((k) => k !== "rubric" && k !== "judges"))
+    } else {
+      setCarry(["basics", "windows", "roles", "materials", "assessment", "checklist", "rubric", "judges"])
+    }
+  }, [isTargetCompetition])
 
   const clone = useMutation({
     mutationFn: () => cloneCohortApi(sourceId, {
@@ -452,77 +479,48 @@ function TemplateStep({ programs, cohort, onCloned, onFresh, onFormChange }: {
 
       {mode === "clone" && (
         <div className="flex flex-col" style={{ gap: 16 }}>
-          <BigField label="Target program">
+          <BigField label="Target program" hint={targetProgram ? `Selected type: ${targetProgram.is_competition ? "Competition" : "Standard Workshop/Course"}` : undefined}>
             <select
-              value={targetProgramId}
-              onChange={(e) => {
-                setTargetProgramId(e.target.value)
-                if (!copyFromOtherProgram) setSourceId("")
-              }}
+              value={targetProgramId} onChange={(e) => setTargetProgramId(e.target.value)}
               style={{ ...bigInput, cursor: "pointer" }}
               className="border border-border bg-background text-foreground focus:outline-none focus:border-primary transition-colors"
             >
-              <option value="">— Select a program —</option>
-              {programs.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+              <option value="">— Select target program —</option>
+              {programs.map((p) => (
+                <option key={p.id} value={p.id}>
+                  [{p.is_competition ? "Competition" : "Standard"}] {p.name}
+                </option>
+              ))}
             </select>
           </BigField>
-
-          <div className="flex items-center justify-between -mt-2">
-            <label className="flex items-center gap-2 text-xs text-muted-foreground hover:text-foreground cursor-pointer select-none transition-colors">
-              <input
-                type="checkbox"
-                checked={copyFromOtherProgram}
-                onChange={(e) => {
-                  setCopyFromOtherProgram(e.target.checked)
-                  setSourceId("")
-                }}
-                className="rounded border-border accent-primary w-3.5 h-3.5 cursor-pointer"
-              />
-              <span>Copy template from a different program</span>
-            </label>
-          </div>
-
-          {copyFromOtherProgram && (
-            <BigField label="Source program (template from)">
-              <select
-                value={sourceProgramId}
-                onChange={(e) => {
-                  setSourceProgramId(e.target.value)
-                  setSourceId("")
-                }}
-                style={{ ...bigInput, cursor: "pointer" }}
-                className="border border-border bg-background text-foreground focus:outline-none focus:border-primary transition-colors"
-              >
-                <option value="">— Select source program —</option>
-                {programs.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
-              </select>
-            </BigField>
-          )}
-
-          <BigField label="Template cohort">
+          <BigField
+            label="Template cohort"
+            hint={
+              targetProgramId
+                ? isTargetCompetition
+                  ? "Filtered: showing competition cohorts only"
+                  : "Filtered: showing standard workshop/course cohorts only"
+                : "Select target program first to filter templates"
+            }
+          >
             <select
-              value={sourceId}
-              onChange={(e) => setSourceId(e.target.value)}
-              disabled={!effectiveSourceProgramId}
-              style={{ ...bigInput, cursor: effectiveSourceProgramId ? "pointer" : "not-allowed" }}
+              value={sourceId} onChange={(e) => setSourceId(e.target.value)}
+              disabled={!targetProgramId}
+              style={{ ...bigInput, cursor: targetProgramId ? "pointer" : "not-allowed" }}
               className="border border-border bg-background text-foreground focus:outline-none focus:border-primary transition-colors disabled:opacity-50"
             >
               <option value="">
-                {!effectiveSourceProgramId
-                  ? "— Select a program first —"
-                  : availableCohorts.length === 0
-                  ? "— No cohorts in this program —"
+                {!targetProgramId
+                  ? "— Select a target program first —"
+                  : filteredCohorts.length === 0
+                  ? "— No matching templates found —"
                   : "— Select a cohort —"}
               </option>
-              {availableCohorts.map((c) => (
-                <option key={c.id} value={c.id}>{c.name}</option>
-              ))}
+              {filteredCohorts.map((c) => {
+                const pname = programs.find((p) => p.id === c.program_id)?.name ?? c.program_name ?? "Unknown program"
+                return <option key={c.id} value={c.id}>[{pname}] — {c.name}</option>
+              })}
             </select>
-            {targetProgramId && !copyFromOtherProgram && availableCohorts.length === 0 && (
-              <p style={{ fontSize: 13, margin: "4px 0 0" }} className="text-muted-foreground">
-                No existing cohorts in this program yet. Check <em>"Copy template from a different program"</em> above to clone from another program.
-              </p>
-            )}
           </BigField>
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 sm:gap-6">
             <BigField label="New cohort name">
@@ -1517,6 +1515,10 @@ function ReviewStep({ cohort, program }: { cohort: Cohort; program?: Program }) 
       label: "Students",
       value: registrations.length === 0 ? "Nobody registered yet" : `${registrations.length} student${registrations.length === 1 ? "" : "s"} registered`,
     },
+    ...(Boolean(program?.is_competition || cohort.program_is_competition) ? [{
+      label: "Judging & Competition",
+      value: "Rubric, timing windows and judges can be managed from the Judging Dashboard",
+    }] : []),
   ]
 
   return (
