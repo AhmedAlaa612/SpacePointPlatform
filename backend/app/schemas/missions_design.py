@@ -249,10 +249,16 @@ class DesignCustomComponentAdminOut(DesignCustomComponentOut):
 
     user_id: UUID | None = None
     student_name: str | None = None
+    student_email: str | None = None
     team_id: UUID | None = None
     team_name: str | None = None
     cohort_id: UUID | None = None
+    cohort_name: str | None = None
+    program_id: UUID | None = None
+    program_name: str | None = None
+    program_code: str | None = None
     mission_id: UUID | None = None
+    mission_title: str | None = None
 
 
 # ── CONOPS ────────────────────────────────────────────────────────────────

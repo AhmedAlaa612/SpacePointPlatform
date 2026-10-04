@@ -99,3 +99,54 @@ export async function bulkImportLibrary(
   const { data } = await api.post("/missions/library/bulk", { components });
   return data;
 }
+
+/** Student-built custom parts (DesignCustomComponent) for the ops explorer.
+ * Unlike the shared catalog above, these are per-attempt — owner + program/cohort
+ * attribution comes from the backend so ops can tell who built what and where. */
+export interface AdminCustomComponent {
+  id: string;
+  attempt_id: string;
+  component_name: string;
+  subsystem: string;
+  purpose_function: string;
+  voltage_v: number;
+  current_ma: number;
+  power_computed_mw: number;
+  pins_used: string;
+  measurement_output: string;
+  measurement_range: string | null;
+  datasheet_reference: string | null;
+  mass_g: number;
+  length_mm: number;
+  width_mm: number;
+  height_mm: number;
+  cost_aed: number;
+  is_active: boolean;
+  image_url: string | null;
+  created_at: string | null;
+  updated_at: string | null;
+  user_id: string | null;
+  student_name: string | null;
+  student_email: string | null;
+  team_id: string | null;
+  team_name: string | null;
+  cohort_id: string | null;
+  cohort_name: string | null;
+  program_id: string | null;
+  program_name: string | null;
+  program_code: string | null;
+  mission_id: string | null;
+  mission_title: string | null;
+}
+
+export async function listAdminCustomComponents(params?: {
+  cohort_id?: string;
+  mission_id?: string;
+  subsystem?: string;
+  search?: string;
+  user_id?: string;
+  is_active?: boolean;
+}): Promise<AdminCustomComponent[]> {
+  const { data } = await api.get<AdminCustomComponent[]>("/missions/admin/custom-components", { params });
+  return data;
+}

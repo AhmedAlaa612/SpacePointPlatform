@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect } from "react"
+import { useState, useMemo, useEffect, useRef } from "react"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
 import {
   Search,
@@ -7,7 +7,6 @@ import {
   ChevronDown,
   ChevronUp,
   Cpu,
-  Layers,
   Sparkles,
   Save,
   Check,
@@ -16,7 +15,6 @@ import {
   Zap,
   Box,
   Thermometer,
-  Shield,
   Sliders,
 } from "lucide-react"
 import { EmptyState, Spinner } from "@/components/ui/primitives"
@@ -31,6 +29,10 @@ import {
   type ComponentConfigOut,
   type ComponentItemSummary,
 } from "@/api/lmsComponentConfig"
+import {
+  listAdminCustomComponents,
+  type AdminCustomComponent,
+} from "@/api/missionsLibrary"
 
 interface LmsComponentConfigPanelProps {
   ownerType: "program" | "cohort"
@@ -80,15 +82,51 @@ export function LmsComponentConfigPanel({
   // UI view state
   const [searchQuery, setSearchQuery] = useState("")
   const [collapsedSubsystems, setCollapsedSubsystems] = useState<Set<string>>(new Set())
+  // System catalog vs student-built custom components in this cohort/program.
+  const [componentView, setComponentView] = useState<"system" | "custom">("system")
 
-  // Keep draft state in sync with server data
+  const { data: cohortCustoms = [], isLoading: customsLoading } = useQuery<AdminCustomComponent[]>({
+    queryKey: ["lms-component-config-customs", ownerType, ownerId],
+    queryFn: () =>
+      ownerType === "cohort"
+        ? listAdminCustomComponents({ cohort_id: ownerId })
+        : listAdminCustomComponents(),
+  })
+
+  const filteredCustoms = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase()
+    if (!q) return cohortCustoms
+    return cohortCustoms.filter(
+      (c) =>
+        c.component_name.toLowerCase().includes(q) ||
+        c.subsystem.toLowerCase().includes(q) ||
+        (c.student_name && c.student_name.toLowerCase().includes(q)) ||
+        (c.student_email && c.student_email.toLowerCase().includes(q)) ||
+        (c.team_name && c.team_name.toLowerCase().includes(q)) ||
+        (c.mission_title && c.mission_title.toLowerCase().includes(q)) ||
+        (c.cohort_name && c.cohort_name.toLowerCase().includes(q)) ||
+        (c.program_name && c.program_name.toLowerCase().includes(q))
+    )
+  }, [cohortCustoms, searchQuery])
+
+  // Sync draft once per owner — never on background refetch, otherwise an
+  // unsaved toggle (e.g. block customs) gets silently wiped back to Allowed.
+  const configKey = `${ownerType}:${ownerId}`
+  const syncedKeyRef = useRef("")
   useEffect(() => {
-    if (config) {
+    if (config && syncedKeyRef.current !== configKey) {
+      syncedKeyRef.current = configKey
       setDisabledSubsystems(new Set(config.disabled_subsystems || []))
       setDisabledTags(new Set(config.disabled_tags || []))
       setDisabledComponentIds(new Set(config.disabled_component_ids || []))
     }
-  }, [config])
+  }, [config, configKey])
+  const applyServerConfig = (next: ComponentConfigOut) => {
+    queryClient.setQueryData(queryKey, next)
+    setDisabledSubsystems(new Set(next.disabled_subsystems || []))
+    setDisabledTags(new Set(next.disabled_tags || []))
+    setDisabledComponentIds(new Set(next.disabled_component_ids || []))
+  }
 
   const saveMutation = useMutation({
     mutationFn: async () => {
@@ -102,7 +140,7 @@ export function LmsComponentConfigPanel({
         : updateCohortComponentsApi(ownerId, payload, isInstructor)
     },
     onSuccess: (updated) => {
-      queryClient.setQueryData(queryKey, updated)
+      applyServerConfig(updated)
       toast.success(
         ownerType === "program"
           ? "Program component defaults saved."
@@ -114,6 +152,10 @@ export function LmsComponentConfigPanel({
     },
   })
 
+  // Immediate save for the allow/block toggle — it must not depend on the
+  // main Save bar, otherwise a background refetch wipes it back to Allowed.
+  const [customSaving, setCustomSaving] = useState(false)
+
   const resetMutation = useMutation({
     mutationFn: async () => {
       return ownerType === "program"
@@ -121,7 +163,7 @@ export function LmsComponentConfigPanel({
         : resetCohortComponentsApi(ownerId, isInstructor)
     },
     onSuccess: (updated) => {
-      queryClient.setQueryData(queryKey, updated)
+      applyServerConfig(updated)
       toast.success(
         ownerType === "program"
           ? "Reset program component defaults to enabled."
@@ -318,10 +360,7 @@ export function LmsComponentConfigPanel({
       {ownerType === "cohort" ? (
         config.is_inherited ? (
           <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 p-4 rounded-xl border border-sky-500/30 bg-sky-500/10 text-sky-950 dark:text-sky-200">
-            <div className="flex items-start gap-3">
-              <div className="p-2 rounded-lg bg-sky-500/20 text-sky-600 dark:text-sky-400 shrink-0">
-                <Layers className="w-5 h-5" />
-              </div>
+            <div className="min-w-0">
               <div>
                 <div className="flex items-center gap-2 flex-wrap">
                   <span className="font-semibold text-sm sm:text-base">
@@ -340,10 +379,7 @@ export function LmsComponentConfigPanel({
           </div>
         ) : (
           <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 p-4 rounded-xl border border-amber-500/30 bg-amber-500/10 text-amber-950 dark:text-amber-200">
-            <div className="flex items-start gap-3">
-              <div className="p-2 rounded-lg bg-amber-500/20 text-amber-600 dark:text-amber-400 shrink-0">
-                <Shield className="w-5 h-5" />
-              </div>
+            <div className="min-w-0">
               <div>
                 <div className="flex items-center gap-2 flex-wrap">
                   <span className="font-semibold text-sm sm:text-base">
@@ -375,10 +411,7 @@ export function LmsComponentConfigPanel({
         )
       ) : (
         <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 p-4 rounded-xl border border-border bg-card text-foreground">
-          <div className="flex items-start gap-3">
-            <div className="p-2 rounded-lg bg-muted text-muted-foreground shrink-0">
-              <Cpu className="w-5 h-5" />
-            </div>
+          <div className="min-w-0">
             <div>
               <div className="flex items-center gap-2 flex-wrap">
                 <span className="font-semibold text-sm sm:text-base">
@@ -407,6 +440,96 @@ export function LmsComponentConfigPanel({
         </div>
       )}
 
+      {/* ── 1b. Custom components availability (text only, no icons) ─── */}
+      {(() => {
+        const customAllowed = ![...disabledTags].some((t) => t.toLowerCase() === "custom")
+        const toggleCustomAllowed = async () => {
+          if (customSaving || !config) return
+          const next = new Set(disabledTags)
+          const existing = [...next].find((t) => t.toLowerCase() === "custom")
+          if (existing) {
+            next.delete(existing)
+          } else {
+            const canonical =
+              config?.available_tags?.find((t) => t.toLowerCase() === "custom") ?? "Custom"
+            next.add(canonical)
+          }
+          const prevTags = disabledTags
+          setDisabledTags(next)
+          setCustomSaving(true)
+          try {
+            const payload = {
+              disabled_subsystems: Array.from(disabledSubsystems),
+              disabled_tags: Array.from(next),
+              disabled_component_ids: Array.from(disabledComponentIds),
+            }
+            const updated =
+              ownerType === "program"
+                ? await updateProgramComponentsApi(ownerId, payload)
+                : await updateCohortComponentsApi(ownerId, payload, isInstructor)
+            applyServerConfig(updated)
+            toast.success(
+              existing
+                ? "Custom components allowed."
+                : "Custom components blocked."
+            )
+          } catch (err: any) {
+            setDisabledTags(prevTags)
+            toast.error(err?.response?.data?.detail || "Failed to save component configuration.")
+          } finally {
+            setCustomSaving(false)
+          }
+        }
+        return (
+          <div className="bg-card border border-border rounded-xl p-3 sm:p-4 flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
+            <div className="min-w-0">
+              <p className="text-sm sm:text-base font-bold text-foreground">
+                Custom components {customAllowed ? "allowed" : "blocked"}
+              </p>
+              <p className="text-xs sm:text-sm text-muted-foreground mt-0.5">
+                {ownerType === "cohort"
+                  ? customAllowed
+                    ? "Students in this cohort can build their own custom components inside the design mission."
+                    : "Students in this cohort cannot create or add custom components — the student picker blocks them."
+                  : customAllowed
+                    ? "Cohorts under this program allow custom components unless a cohort overrides this."
+                    : "Cohorts under this program block custom components unless a cohort overrides this."}
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => void toggleCustomAllowed()}
+              disabled={customSaving}
+              className={`min-h-[44px] min-w-[110px] px-4 py-2 rounded-xl font-medium text-xs sm:text-sm flex items-center justify-center transition-all cursor-pointer border self-stretch sm:self-auto ${
+                customAllowed
+                  ? "bg-emerald-500/15 border-emerald-500/30 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-500/25"
+                  : "bg-muted border-border text-muted-foreground hover:bg-muted/80"
+              } ${customSaving ? "opacity-60 cursor-wait" : ""}`}
+            >
+              <span>{customSaving ? "Saving…" : customAllowed ? "Allowed — tap to block" : "Blocked — tap to allow"}</span>
+            </button>
+          </div>
+        )
+      })()}
+
+      {/* ── 1c. System vs student custom view toggle ───────────────────── */}
+      <div className="flex gap-1 border-b border-border overflow-x-auto">
+        {(["system", "custom"] as const).map((t) => (
+          <button
+            key={t}
+            onClick={() => setComponentView(t)}
+            className={`px-3 py-2 text-sm font-medium border-b-2 -mb-px transition-colors cursor-pointer shrink-0 whitespace-nowrap ${
+              componentView === t ? "border-primary text-primary" : "border-transparent text-muted-foreground hover:text-foreground"}`}
+          >
+            {t === "system"
+              ? "System components"
+              : `Custom components (${cohortCustoms.length})`}
+          </button>
+        ))}
+      </div>
+
+      {componentView === "system" ? (
+      <>
       {/* ── 2. Metric Counters & Sticky Action Bar ──────────────────────── */}
       <div className="bg-card border border-border rounded-xl p-3 sm:p-4 flex flex-col md:flex-row items-stretch md:items-center justify-between gap-4">
         <div className="grid grid-cols-3 gap-2 sm:gap-4 divide-x divide-border">
@@ -791,6 +914,83 @@ export function LmsComponentConfigPanel({
           )
         })}
       </div>
+      </>
+      ) : (
+      <div className="flex flex-col gap-3">
+        <div className="relative flex-1">
+          <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
+          <input
+            type="text"
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            placeholder="Search custom components by name, owner, team, or mission…"
+            className="w-full min-h-[44px] pl-9 pr-3 text-sm bg-card border border-border rounded-xl focus:outline-none focus:border-primary transition-colors text-foreground placeholder:text-muted-foreground"
+          />
+        </div>
+        {customsLoading ? (
+          <div className="py-12 flex justify-center items-center">
+            <Spinner />
+          </div>
+        ) : filteredCustoms.length === 0 ? (
+          <div className="py-6 text-center text-xs sm:text-sm text-muted-foreground">
+            {cohortCustoms.length === 0
+              ? ownerType === "cohort"
+                ? "No student-built custom components in this cohort yet — including observer test accounts."
+                : "No student-built custom components yet — including observer test accounts."
+              : `No custom components match "${searchQuery}".`}
+          </div>
+        ) : (
+          <div className="flex flex-col gap-3">
+            {filteredCustoms.map((c) => (
+              <div key={c.id} className="rounded-2xl border border-border bg-card p-3.5 sm:p-4 flex flex-col gap-2">
+                <div className="flex items-start gap-3 min-w-0">
+                  <div className="w-12 h-12 rounded-lg bg-muted border border-border shrink-0 flex items-center justify-center overflow-hidden">
+                    {c.image_url ? (
+                      <img src={c.image_url} alt={c.component_name} className="w-full h-full object-cover" />
+                    ) : (
+                      <Cpu className="w-6 h-6 text-muted-foreground/60" />
+                    )}
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                      <span className="font-semibold text-xs sm:text-sm text-foreground truncate" title={c.component_name}>
+                        {c.component_name}
+                      </span>
+                      <span className="px-1.5 py-0.5 rounded text-[10px] font-bold uppercase tracking-wide bg-violet-500/15 text-violet-600 dark:text-violet-400">
+                        Custom
+                      </span>
+                      <span className="px-1.5 py-0.5 rounded text-[10px] font-bold uppercase tracking-wide bg-muted text-muted-foreground">
+                        {c.subsystem}
+                      </span>
+                      {!c.is_active && (
+                        <span className="px-1.5 py-0.5 rounded text-[10px] font-bold uppercase tracking-wide bg-muted text-muted-foreground">
+                          Retired
+                        </span>
+                      )}
+                    </div>
+                    {c.purpose_function && (
+                      <p className="text-[11px] text-muted-foreground line-clamp-2 mt-1">{c.purpose_function}</p>
+                    )}
+                    <p className="text-[11px] text-muted-foreground mt-1">
+                      {`${c.mass_g ?? 0}g · ${c.voltage_v ?? 0}V/${c.current_ma ?? 0}mA · ${c.power_computed_mw ?? 0}mW · ${c.cost_aed ?? 0} AED`}
+                    </p>
+                    <p className="text-[10px] text-muted-foreground mt-1">
+                      Owner: {c.student_name || "(deleted user)"}{c.student_email ? ` · ${c.student_email}` : ""}
+                      {c.team_name && ` · team ${c.team_name}`}
+                    </p>
+                    <p className="text-[10px] text-muted-foreground">
+                      {[c.program_code || c.program_name, c.cohort_name].filter(Boolean).join(" — ") || "No cohort"}
+                      {c.mission_title && ` · ${c.mission_title}`}
+                      {c.created_at && ` · built ${new Date(c.created_at).toLocaleDateString()}`}
+                    </p>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+      )}
     </div>
   )
 }

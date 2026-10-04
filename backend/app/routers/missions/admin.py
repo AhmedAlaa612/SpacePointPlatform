@@ -246,6 +246,12 @@ async def list_custom_components_admin(
     for custom, attempt in rows:
         student = await db.get(User, custom.user_id) if custom.user_id else None
         team = await db.get(Team, custom.team_id) if custom.team_id else None
+        mission = await db.get(Mission, attempt.mission_id) if attempt.mission_id else None
+        cohort = await db.get(Cohort, attempt.cohort_id) if attempt.cohort_id else None
+        program = None
+        if cohort is not None and cohort.program_id is not None:
+            from app.models.sessions.program import Program
+            program = await db.get(Program, cohort.program_id)
         out.append(DesignCustomComponentAdminOut(
             id=custom.id, attempt_id=custom.attempt_id, component_name=custom.component_name,
             subsystem=custom.subsystem, purpose_function=custom.purpose_function,
@@ -258,8 +264,13 @@ async def list_custom_components_admin(
             image_url=await storage.resolve_url(custom.image_bucket, custom.image_path) if (custom.image_bucket and custom.image_path) else None,
             created_at=custom.created_at, updated_at=custom.updated_at,
             user_id=custom.user_id, student_name=student.full_name if student else None,
+            student_email=student.email if student else None,
             team_id=custom.team_id, team_name=team.name if team else None,
-            cohort_id=attempt.cohort_id, mission_id=attempt.mission_id,
+            cohort_id=attempt.cohort_id, cohort_name=cohort.name if cohort else None,
+            program_id=program.id if program else None,
+            program_name=program.name if program else None,
+            program_code=program.code if program else None,
+            mission_id=attempt.mission_id, mission_title=mission.title if mission else None,
         ))
     return out
 

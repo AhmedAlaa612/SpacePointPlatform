@@ -527,8 +527,6 @@ export function ComponentsTab({ state, attemptId, onChanged }: { state: DesignSt
   const [search, setSearch] = useState("");
   const [subsystemFilter, setSubsystemFilter] = useState("All");
   const [tagFilter, setTagFilter] = useState("All Tags");
-  // All | Standard | Mine — Mine lists only this attempt's own custom parts.
-  const [sourceFilter, setSourceFilter] = useState<"All" | "Standard" | "Mine">("All");
 
   useEffect(() => {
     fetchDesignLibrary({ attemptId }).then(setLibrary).catch(() => {});
@@ -563,18 +561,19 @@ export function ComponentsTab({ state, attemptId, onChanged }: { state: DesignSt
   );
   const tags = ["All Tags", "Custom", ...catalogTags];
 
+  // Custom is just a tag: picking it shows only this attempt's own custom
+  // components, any other tag (or All Tags) shows the matching catalog —
+  // customs appear alongside everything under All Tags.
   const filteredLibrary = library.filter((c) => {
-    if (sourceFilter === "Mine") return false;
     if (search.trim() && !c.component_name.toLowerCase().includes(search.trim().toLowerCase())) return false;
     if (subsystemFilter !== "All" && c.subsystem !== subsystemFilter) return false;
     if (tagFilter !== "All Tags" && (c.tag?.toLowerCase() !== tagFilter.toLowerCase())) return false;
     return true;
   });
 
-  // This attempt's own custom parts (never another student's) — filtered by
-  // search, subsystem, and tag filter (tagged "Custom").
+  // This attempt's own custom components (never another student's) — visible
+  // under All Tags and alone under the Custom tag.
   const filteredCustoms = customs.filter((c) => {
-    if (sourceFilter === "Standard") return false;
     if (tagFilter !== "All Tags" && tagFilter.toLowerCase() !== "custom") return false;
     if (search.trim() && !c.component_name.toLowerCase().includes(search.trim().toLowerCase())) return false;
     if (subsystemFilter !== "All" && c.subsystem !== subsystemFilter) return false;
@@ -668,7 +667,11 @@ export function ComponentsTab({ state, attemptId, onChanged }: { state: DesignSt
                 onChange={(e) => setTagFilter(e.target.value)}
                 className={`${inputCls} w-auto`}
               >
-                {tags.map((t) => <option key={t} value={t}>{t}</option>)}
+                {tags.map((t) => (
+                  <option key={t} value={t}>
+                    {t.toLowerCase() === "custom" && customs.length > 0 ? `Custom (${customs.length})` : t}
+                  </option>
+                ))}
               </select>
             )}
           </div>
@@ -676,19 +679,6 @@ export function ComponentsTab({ state, attemptId, onChanged }: { state: DesignSt
           {filteredLibrary.length === 0 && filteredCustoms.length === 0 && (
             <p className="text-xs text-muted-foreground">No components match this filter.</p>
           )}
-          <div className="flex flex-wrap gap-1.5">
-            {(["All", "Standard", "Mine"] as const).map((s) => (
-              <button
-                key={s}
-                onClick={() => setSourceFilter(s)}
-                className={`px-3 py-1.5 rounded-xl text-xs ring-1 transition-colors ${
-                  sourceFilter === s ? "ring-primary/40 bg-primary/10 text-primary font-medium" : "ring-border hover:bg-muted/50"
-                }`}
-              >
-                {s === "Mine" ? `Mine (${customs.length})` : s === "Standard" ? "Standard Catalog" : "All Components"}
-              </button>
-            ))}
-          </div>
           <div className="grid sm:grid-cols-2 gap-4">
             {filteredCustoms.map((c) => (
               <CustomLibraryCard

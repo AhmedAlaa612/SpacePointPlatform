@@ -16,7 +16,7 @@
  *    value. The "used in N designs" count is there so you can see the blast
  *    radius before changing a spec.
  */
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { isAxiosError } from "axios";
 import { AlertTriangle, CheckCircle2, ExternalLink, Plus, Search, Upload } from "lucide-react";
@@ -25,6 +25,7 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import {
   bulkImportLibrary, createLibraryComponent, deleteLibraryDatasheet, listLibrary,
+  listAdminCustomComponents,
   setLibraryRetired, updateLibraryComponent, uploadLibraryDatasheet, uploadLibraryImage, SUBSYSTEMS,
   type LibraryComponentAdmin, type LibraryComponentInput,
 } from "@/api/missionsLibrary";
@@ -182,6 +183,7 @@ export default function LmsDesignLibrary() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [libraryTab, setLibraryTab] = useState<"catalog" | "custom">("catalog");
   const fileRef = useRef<HTMLInputElement>(null);
   const imageRefs = useRef<Record<string, HTMLInputElement | null>>({});
   const datasheetRefs = useRef<Record<string, HTMLInputElement | null>>({});
@@ -192,16 +194,39 @@ export default function LmsDesignLibrary() {
     queryKey: ["design-library", subsystem, search],
     queryFn: () => listLibrary({ subsystem: subsystem || undefined, search: search || undefined }),
   });
+  // Student-built custom components (per-attempt DesignCustomComponent rows) —
+  // the ops explorer over everything students (including observer test
+  // accounts) created. Filtered by the same search/subsystem controls so an
+  // observer's part is findable without knowing which attempt made it.
+  const { data: customs = [], isLoading: customsLoading } = useQuery({
+    queryKey: ["design-library-customs", subsystem, search],
+    queryFn: () => listAdminCustomComponents({
+      subsystem: subsystem || undefined,
+      search: search || undefined,
+    }),
+  });
   const load = () => void queryClient.invalidateQueries({ queryKey: ["design-library"] });
 
+  // Catalog-only tags: derived strictly from shared-catalog rows. Student-built
+  // custom components live under the "Custom components" tab, never in this
+  // dropdown — offering a hardcoded "Custom" here filtered the catalog to
+  // zero rows and implied the customs were missing.
   const availableTags = useMemo(() => {
     const set = new Set<string>();
-    set.add("Custom");
     for (const r of rows) {
       if (r.tag) set.add(r.tag);
     }
     return Array.from(set);
   }, [rows]);
+
+  // A previously-selected tag can go stale (e.g. the old hardcoded "Custom"
+  // option that no longer exists) — fall back to unfiltered rather than a
+  // permanently empty catalog.
+  useEffect(() => {
+    if (tagFilter && !availableTags.some((t) => t.toLowerCase() === tagFilter.toLowerCase())) {
+      setTagFilter("");
+    }
+  }, [availableTags, tagFilter]);
 
   const displayedRows = useMemo(() => {
     if (!tagFilter) return rows;
@@ -325,6 +350,26 @@ export default function LmsDesignLibrary() {
       {error && <p className="text-xs text-destructive">{error}</p>}
       {notice && <p className="text-xs text-emerald-600 dark:text-emerald-400">{notice}</p>}
 
+      <div className="flex gap-1 border-b border-border overflow-x-auto">
+        {(["catalog", "custom"] as const).map((t) => (
+          <button
+            key={t}
+            onClick={() => setLibraryTab(t)}
+            className={`px-3 py-2 text-sm font-medium border-b-2 -mb-px transition-colors cursor-pointer shrink-0 whitespace-nowrap ${
+              libraryTab === t ? "border-primary text-primary" : "border-transparent text-muted-foreground hover:text-foreground"}`}
+          >
+            {t === "catalog" ? `Shared catalog (${rows.length})` : `Custom components (${customs.length})`}
+          </button>
+        ))}
+      </div>
+      {libraryTab === "custom" && (
+        <p className="text-xs text-muted-foreground max-w-[80ch] leading-relaxed">
+          Student-built components from inside design missions — including observer test accounts.
+          Each card shows the owner and the program / cohort / mission it was built in. These live
+          on the student's own attempt, not in the shared catalog, so there is nothing to edit here.
+        </p>
+      )}
+
       <div className="flex flex-wrap items-center gap-2">
         <div className="relative flex-1 min-w-[200px]">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 size-3.5 text-muted-foreground" />
@@ -337,18 +382,69 @@ export default function LmsDesignLibrary() {
           <option value="">All subsystems</option>
           {SUBSYSTEMS.map((s) => <option key={s} value={s}>{s}</option>)}
         </select>
-        <select className={`${inputCls} w-auto`} value={tagFilter} onChange={(e) => setTagFilter(e.target.value)}>
-          <option value="">All tags</option>
-          {availableTags.map((t) => <option key={t} value={t}>{t}</option>)}
-        </select>
+        {libraryTab === "catalog" && (
+          <select className={`${inputCls} w-auto`} value={tagFilter} onChange={(e) => setTagFilter(e.target.value)}>
+            <option value="">All tags</option>
+            {availableTags.map((t) => <option key={t} value={t}>{t}</option>)}
+          </select>
+        )}
       </div>
 
-      {creating && (
+      {libraryTab === "catalog" && creating && (
         <Editor initial={{}} saving={saving} onCancel={() => setCreating(false)}
           onSave={(body) => void handleSave(null, body)} />
       )}
 
-      {loading ? (
+      {libraryTab === "custom" ? (
+        customsLoading ? (
+          <p className="text-sm text-muted-foreground">Loading...</p>
+        ) : (
+          <div className="flex flex-col gap-2">
+            {customs.length === 0 && (
+              <p className="text-sm text-muted-foreground">
+                No custom components yet. Components students (or observer test accounts) build inside a design mission appear here.
+              </p>
+            )}
+            {customs.map((c) => (
+              <Card key={c.id} className={`p-4 flex flex-col gap-2 ${c.is_active ? "" : "opacity-60"}`}>
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div className="flex items-start gap-3 min-w-0">
+                    {c.image_url
+                      ? <img src={c.image_url} alt="" className="size-11 rounded-lg object-cover ring-1 ring-border shrink-0" />
+                      : <div className="size-11 rounded-lg ring-1 ring-border bg-muted shrink-0" />}
+                    <div className="min-w-0">
+                      <p className="text-sm font-semibold flex items-center gap-2 flex-wrap">
+                        {c.component_name}
+                        {!c.is_active && <span className="text-[10px] uppercase tracking-wide text-muted-foreground">retired</span>}
+                        <span className="px-1.5 py-0.5 rounded text-[10px] font-bold uppercase tracking-wide bg-violet-500/15 text-violet-600 dark:text-violet-400">
+                          Custom
+                        </span>
+                        <span className="px-1.5 py-0.5 rounded text-[10px] font-bold uppercase tracking-wide bg-muted text-muted-foreground">
+                          {c.subsystem}
+                        </span>
+                      </p>
+                      <p className="text-[11px] text-muted-foreground">
+                        {`${c.mass_g ?? 0}g · ${c.voltage_v ?? 0}V/${c.current_ma ?? 0}mA · ${c.power_computed_mw ?? 0}mW · ${c.cost_aed ?? 0} AED`}
+                        {` · ${c.length_mm ?? 0}×${c.width_mm ?? 0}×${c.height_mm ?? 0}mm`}
+                      </p>
+                      {c.purpose_function && <p className="text-[11px] text-primary mt-0.5 line-clamp-2">{c.purpose_function}</p>}
+                      <p className="text-[10px] text-muted-foreground mt-1">
+                        Owner: {c.student_name || "(deleted user)"}{c.student_email ? ` · ${c.student_email}` : ""}
+                        {c.team_name && ` · team ${c.team_name}`}
+                      </p>
+                      <p className="text-[10px] text-muted-foreground">
+                        {[c.program_code || c.program_name, c.cohort_name].filter(Boolean).join(" — ") || "No cohort"}
+                        {c.mission_title && ` · ${c.mission_title}`}
+                        {c.created_at && ` · built ${new Date(c.created_at).toLocaleDateString()}`}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              </Card>
+            ))}
+          </div>
+        )
+      ) : loading ? (
         <p className="text-sm text-muted-foreground">Loading...</p>
       ) : (
         <div className="flex flex-col gap-2">
