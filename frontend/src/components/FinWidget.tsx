@@ -1,6 +1,6 @@
 import { useEffect } from "react";
 
-import { fetchChatIdentity } from "@/api/lms";
+import { fetchChatIdentity, fetchSupportConfig } from "@/api/lms";
 import { useAuth } from "@/context/AuthContext";
 import { boot, isFinEnabled, shutdown } from "@/lib/fin";
 
@@ -32,7 +32,7 @@ import { boot, isFinEnabled, shutdown } from "@/lib/fin";
  *   inherits the previous student's chat history. See `lib/fin.ts::shutdown`.
  *
  * Renders as a no-op with no network calls when `VITE_INTERCOM_APP_ID` is
- * unset.
+ * unset, or when disabled by an administrator via system settings.
  */
 export function FinWidget() {
   const { user, loading } = useAuth();
@@ -46,6 +46,18 @@ export function FinWidget() {
     let cancelled = false;
 
     async function start() {
+      // Check admin toggle before booting Fin for students
+      try {
+        const config = await fetchSupportConfig();
+        if (cancelled) return;
+        if (!config.fin_enabled) {
+          shutdown();
+          return;
+        }
+      } catch {
+        // If config endpoint blips, proceed to attempt boot
+      }
+
       if (!userId) {
         boot();
         return;

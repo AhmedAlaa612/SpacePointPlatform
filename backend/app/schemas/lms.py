@@ -569,6 +569,10 @@ class ChatIdentityOut(BaseModel):
     card_id: str | None = None
 
 
+class SupportConfigOut(BaseModel):
+    fin_enabled: bool
+
+
 class LmsProgramAssignmentSummaryOut(BaseModel):
     assignment_id: UUID
     lms_program_id: UUID

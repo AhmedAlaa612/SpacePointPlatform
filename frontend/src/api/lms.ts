@@ -776,3 +776,12 @@ export async function fetchChatIdentity(): Promise<ChatIdentity> {
   const { data } = await api.get<ChatIdentity>("/lms/support/chat-identity");
   return data;
 }
+
+export interface SupportConfig {
+  fin_enabled: boolean;
+}
+
+export async function fetchSupportConfig(): Promise<SupportConfig> {
+  const { data } = await api.get<SupportConfig>("/lms/support/config");
+  return data;
+}

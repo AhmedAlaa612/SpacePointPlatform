@@ -22,6 +22,8 @@ async def list_settings(db: AsyncSession = Depends(get_db), current_user: User =
         data["admin_signatory_name"] = app_settings.DEFAULT_SIGNATORY_NAME
     if "admin_signatory_title" not in data:
         data["admin_signatory_title"] = app_settings.DEFAULT_SIGNATORY_TITLE
+    if "fin_support_enabled" not in data:
+        data["fin_support_enabled"] = "true"
     return data
 
 

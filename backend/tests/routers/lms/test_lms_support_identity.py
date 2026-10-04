@@ -262,3 +262,30 @@ async def test_card_id_uses_the_staff_prefix_for_a_non_student(db, client):
     user = await _user(db, roles=["operations"], card_number=12)
     body = (await client.get(URL, headers=_headers(user))).json()
     assert body["card_id"] == "SP-0012-UAE"
+
+
+async def test_support_config_enabled_by_default(client):
+    resp = await client.get("/lms/support/config")
+    assert resp.status_code == http_status.HTTP_200_OK
+    assert resp.json()["fin_enabled"] is True
+
+
+async def test_support_config_respects_disabled_setting(db, client):
+    from app.services.settings import set_portal_setting
+    await set_portal_setting(db, "fin_support_enabled", "false")
+    await db.commit()
+
+    resp = await client.get("/lms/support/config")
+    assert resp.status_code == http_status.HTTP_200_OK
+    assert resp.json()["fin_enabled"] is False
+
+
+async def test_chat_identity_disabled_when_fin_turned_off(db, client):
+    from app.services.settings import set_portal_setting
+    await set_portal_setting(db, "fin_support_enabled", "false")
+    await db.commit()
+
+    user = await _user(db, roles=["student"])
+    resp = await client.get(URL, headers=_headers(user))
+    assert resp.status_code == http_status.HTTP_403_FORBIDDEN
+    assert "disabled" in resp.json()["detail"].lower()
