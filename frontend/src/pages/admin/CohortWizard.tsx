@@ -14,7 +14,7 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useNavigate } from "@tanstack/react-router"
-import { Check, ChevronLeft, ChevronRight, Lock, Mail, Pencil, Phone, Plus, Trash2, X } from "lucide-react"
+import { Check, ChevronLeft, ChevronRight, Clock, Lock, Mail, Pencil, Phone, Plus, Trash2, X } from "lucide-react"
 import type { Cohort, CohortAssignment, CohortVisibility, Program, Registration, Session } from "@/types/sessions"
 import type { City, Location, Warehouse } from "@/types/inventory"
 import { getProgramsApi } from "@/api/sessions/programs"
@@ -41,9 +41,9 @@ import { useAuth } from "@/context/AuthContext"
 import { cn, getErrorMessage } from "@/lib/utils"
 import { listLmsProgramsApi, createLmsProgramApi, getCohortProgramOverrideApi, type LmsProgram } from "@/api/lms_admin"
 import { CohortOverrideEditor } from "@/pages/lms-authoring/components/LmsChecklistAuthoring"
+import { RubricTab, JudgesTab } from "@/pages/admin/CompetitionJudging"
+import { SubmissionWindowsModal } from "@/components/competitions/SubmissionWindowsModal"
 
-const STEP_LABELS = ["Template or scratch", "Cohort basics", "Sessions", "Roles & checklist", "LMS Checklist", "Materials", "Staffing", "Students", "Review & finish"]
-const LAST_STEP = STEP_LABELS.length - 1
 const WEEKDAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"] // index = backend's 0..6 (Monday first)
 const OUTFIT = "'Outfit', ui-sans-serif, system-ui, sans-serif"
 const CARD_SHADOW = "0 3px 0 hsl(var(--border)), 0 10px 20px -5px rgba(0,0,0,.35), 0 2px 6px -1px rgba(0,0,0,.20)"
@@ -119,8 +119,28 @@ export default function CohortWizard() {
 
   const { data: programs = [] } = useQuery({ queryKey: ["sessions-programs"], queryFn: getProgramsApi })
   const program = programs.find((p) => p.id === cohort?.program_id)
+  const isComp = Boolean(program?.is_competition || cohort?.program_is_competition)
 
-  const goStep = (i: number) => setStep(Math.max(0, Math.min(LAST_STEP, i)))
+  const stepLabels = useMemo(() => {
+    const list = [
+      "Template or scratch",
+      "Cohort basics",
+      "Sessions",
+      "Roles & checklist",
+      "LMS Checklist",
+      "Materials",
+      "Staffing",
+      "Students",
+    ]
+    if (isComp) {
+      list.push("Judging & Competition")
+    }
+    list.push("Review & finish")
+    return list
+  }, [isComp])
+  const lastStep = stepLabels.length - 1
+
+  const goStep = (i: number) => setStep(Math.max(0, Math.min(lastStep, i)))
   const advance = async () => {
     if (step === 3) await rolesForm.ensure()
     setSkipped((s) => { const n = { ...s }; delete n[step]; return n })
@@ -131,7 +151,7 @@ export default function CohortWizard() {
     setSkipped((s) => ({ ...s, [step]: true }))
     goStep(step + 1)
   }
-  const canSkip = step > 1 && step < LAST_STEP
+  const canSkip = step > 1 && step < lastStep
   const canBack = step > 0
 
   return (
@@ -146,12 +166,12 @@ export default function CohortWizard() {
               Setting up: {cohort?.name || "New Cohort"}
             </h1>
             <p className="text-xs sm:text-sm text-muted-foreground mt-0.5 truncate">
-              Step {step + 1} of {STEP_LABELS.length} — {STEP_LABELS[step]}
+              Step {step + 1} of {stepLabels.length} — {stepLabels[step]}
             </p>
           </div>
           <div className="flex items-center gap-3 sm:gap-6 shrink-0">
             <div className="hidden sm:block">
-              <StepDots steps={STEP_LABELS} current={step} skipped={skipped} onGo={(i) => { if (i <= step || cohort) goStep(i) }} />
+              <StepDots steps={stepLabels} current={step} skipped={skipped} onGo={(i) => { if (i <= step || cohort) goStep(i) }} />
             </div>
             <button
               onClick={() => navigate({ to: cohort ? "/operations/cohorts/$cohortId" : "/operations/cohorts", params: cohort ? { cohortId: cohort.id } : undefined })}
@@ -164,7 +184,7 @@ export default function CohortWizard() {
         <div className="sm:hidden absolute bottom-0 left-0 right-0 h-1 bg-muted/60 overflow-hidden">
           <div
             className="h-full bg-primary transition-all duration-300"
-            style={{ width: `${((step + 1) / STEP_LABELS.length) * 100}%` }}
+            style={{ width: `${((step + 1) / stepLabels.length) * 100}%` }}
           />
         </div>
       </header>
@@ -227,7 +247,8 @@ export default function CohortWizard() {
             <StudentsStep cohort={cohort} />
           </>
         )}
-        {step === 8 && cohort && <ReviewStep cohort={cohort} program={program} />}
+        {isComp && step === 8 && cohort && <CompetitionJudgingStep cohort={cohort} />}
+        {step === lastStep && cohort && <ReviewStep cohort={cohort} program={program} />}
       </div>
 
       <footer
@@ -251,7 +272,7 @@ export default function CohortWizard() {
                 className="px-2 sm:px-3 text-muted-foreground hover:text-foreground transition-colors"
               >Skip for now</button>
             )}
-            {step < LAST_STEP ? (
+            {step < lastStep ? (
               <WizardContinueButton step={step} cohort={cohort} onContinue={advance} basicsForm={basicsForm} templateForm={templateForm} />
             ) : (
               <div className="flex items-center gap-2">
@@ -260,7 +281,7 @@ export default function CohortWizard() {
                     onClick={() => navigate({ to: "/operations/cohorts/$cohortId/judging", params: { cohortId: cohort!.id } })}
                     style={{ height: 38, fontFamily: OUTFIT, fontWeight: 600 }}
                     className="px-4 sm:px-6 rounded-lg text-sm sm:text-base border border-primary text-primary hover:bg-primary/10 transition-colors"
-                  >Open Judging Setup</button>
+                  >Open Judging Dashboard</button>
                 )}
                 <button
                   onClick={() => navigate({ to: "/operations/cohorts/$cohortId", params: { cohortId: cohort!.id } })}
@@ -277,6 +298,7 @@ export default function CohortWizard() {
             {step === 5 && <SkipNote>Sessions will use the program&rsquo;s materials.</SkipNote>}
             {step === 6 && <SkipNote>You can staff sessions any time from the cohort&rsquo;s Staffing tab.</SkipNote>}
             {step === 7 && <SkipNote>You can add students any time from the cohort&rsquo;s Students tab.</SkipNote>}
+            {isComp && step === 8 && <SkipNote>You can fine-tune rubric and judges any time from the Judging tab.</SkipNote>}
           </div>
         </div>
       </footer>
@@ -1450,6 +1472,65 @@ function StudentsStep({ cohort }: { cohort: Cohort }) {
           onSuccess={done}
         />
       )}
+    </div>
+  )
+}
+
+function CompetitionJudgingStep({ cohort }: { cohort: Cohort }) {
+  const [activeTab, setActiveTab] = useState<"rubric" | "judges">("rubric")
+  const [windowsModalOpen, setWindowsModalOpen] = useState(false)
+
+  return (
+    <div className="flex flex-col gap-6 max-w-5xl">
+      <StepIntro
+        eyebrow="Judging & Competition"
+        title="Setup Rubric, Judges & Timing Windows"
+        ledeWidth={70}
+        lede="Set your scoring criteria, invite judges, and configure submission timing windows for this stage. You can edit everything later."
+        right={
+          <button
+            type="button"
+            onClick={() => setWindowsModalOpen(true)}
+            className="flex items-center gap-1.5 h-9 px-3.5 border border-border rounded-xl text-sm font-medium text-foreground hover:bg-muted transition-colors shrink-0 shadow-sm"
+          >
+            <Clock size={14} className="text-primary" /> Submission Windows
+          </button>
+        }
+      />
+
+      <div className="flex items-center gap-2 border-b border-border pb-3">
+        <button
+          type="button"
+          onClick={() => setActiveTab("rubric")}
+          className={cn(
+            "px-4 py-2 rounded-xl text-sm font-medium transition-colors",
+            activeTab === "rubric" ? "bg-primary text-primary-foreground shadow-sm" : "text-muted-foreground hover:text-foreground hover:bg-muted"
+          )}
+        >
+          Rubric Criteria
+        </button>
+        <button
+          type="button"
+          onClick={() => setActiveTab("judges")}
+          className={cn(
+            "px-4 py-2 rounded-xl text-sm font-medium transition-colors",
+            activeTab === "judges" ? "bg-primary text-primary-foreground shadow-sm" : "text-muted-foreground hover:text-foreground hover:bg-muted"
+          )}
+        >
+          Judges
+        </button>
+      </div>
+
+      <div className="mt-1">
+        {activeTab === "rubric" && <RubricTab cohortId={cohort.id} />}
+        {activeTab === "judges" && <JudgesTab cohortId={cohort.id} />}
+      </div>
+
+      <SubmissionWindowsModal
+        cohortId={cohort.id}
+        open={windowsModalOpen}
+        onClose={() => setWindowsModalOpen(false)}
+      />
     </div>
   )
 }

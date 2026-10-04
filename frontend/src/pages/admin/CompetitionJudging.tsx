@@ -938,7 +938,7 @@ function TeamCard({ team, onChanged }: { team: CompetitionTeam; onChanged: () =>
 /* ================================================================== */
 /* Rubric                                                               */
 /* ================================================================== */
-function RubricTab({ cohortId }: { cohortId: string }) {
+export function RubricTab({ cohortId }: { cohortId: string }) {
   const toast = useToast()
   const { data: rubric, isLoading } = useQuery<CompetitionRubric | null>({
     queryKey: ["competitions-rubric", cohortId],
@@ -1185,7 +1185,7 @@ function RubricTab({ cohortId }: { cohortId: string }) {
 /* ================================================================== */
 /* Judges                                                               */
 /* ================================================================== */
-function JudgesTab({ cohortId }: { cohortId: string }) {
+export function JudgesTab({ cohortId }: { cohortId: string }) {
   const toast = useToast()
   const queryClient = useQueryClient()
   const { data: judges = [], isLoading } = useQuery<CompetitionJudgeProgress[]>({
