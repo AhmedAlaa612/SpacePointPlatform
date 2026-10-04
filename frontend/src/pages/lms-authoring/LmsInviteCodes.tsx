@@ -88,6 +88,11 @@ export default function LmsInviteCodes() {
                     }`}>
                       {c.is_active ? "Active" : "Inactive"}
                     </span>
+                    {c.kind === "observer" && (
+                      <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-indigo-500/15 text-indigo-600 dark:text-indigo-400 border border-indigo-500/30">
+                        Observer batch
+                      </span>
+                    )}
                     {c.label && <span className="text-sm text-muted-foreground">{c.label}</span>}
                   </div>
                   <div className="text-xs text-muted-foreground mt-1">
@@ -304,6 +309,7 @@ function InviteCodeModal({ existing, onClose, onSuccess }: {
   const [code, setCode] = useState(existing?.code ?? "")
   const [label, setLabel] = useState(existing?.label ?? "")
   const [maxUses, setMaxUses] = useState(String(existing?.max_uses ?? 30))
+  const [kind, setKind] = useState<"student" | "observer">(existing?.kind === "observer" ? "observer" : "student")
   const [error, setError] = useState("")
 
   // A code that's already been used can't be renamed (the server refuses —
@@ -315,6 +321,7 @@ function InviteCodeModal({ existing, onClose, onSuccess }: {
       const payload = {
         label: label.trim() || null,
         max_uses: Number(maxUses) || 30,
+        kind,
       }
       return existing
         ? updateInviteCodeApi(existing.id, codeLocked ? payload : { ...payload, code: code.trim().toUpperCase() })
@@ -327,6 +334,35 @@ function InviteCodeModal({ existing, onClose, onSuccess }: {
   return (
     <Modal title={existing ? "Edit invite code" : "New invite code"} onClose={onClose}>
       <div className="flex flex-col gap-3">
+        {!existing && (
+          <Field label="Code purpose">
+            <div className="flex items-center p-1 bg-muted/60 border border-border rounded-xl text-xs w-fit">
+              <button
+                type="button"
+                onClick={() => setKind("student")}
+                className={`px-3 py-1.5 rounded-lg font-medium transition-colors cursor-pointer ${
+                  kind === "student" ? "bg-background text-foreground shadow-xs font-semibold" : "text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                Student batch
+              </button>
+              <button
+                type="button"
+                onClick={() => setKind("observer")}
+                className={`px-3 py-1.5 rounded-lg font-medium transition-colors cursor-pointer ${
+                  kind === "observer" ? "bg-background text-indigo-600 dark:text-indigo-400 shadow-xs font-semibold" : "text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                Observer / Tester batch
+              </button>
+            </div>
+            <p className="text-[11px] text-muted-foreground mt-1">
+              {kind === "observer"
+                ? "Signups on this code get the observer role (testing student view, observer toolbar, resets, partitioned from official analytics)."
+                : "Standard student signups with full cohort learning flow."}
+            </p>
+          </Field>
+        )}
         <Field label="Code">
           <input
             value={code}
