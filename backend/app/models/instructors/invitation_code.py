@@ -27,7 +27,9 @@ class InvitationCode(Base):
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     code = Column(String(100), unique=True, nullable=False, index=True)
-    # instructor|student
+    # instructor|student|observer (observer added 2026-10 — external
+    # testers sign up via /learn/signup with kind='observer' and get a
+    # mode='observer' program assignment + SP-OB card).
     kind = Column(String(16), nullable=False, default="instructor", server_default="instructor", index=True)
     label = Column(String(120), nullable=True)
     is_active = Column(Boolean, nullable=False, default=True)

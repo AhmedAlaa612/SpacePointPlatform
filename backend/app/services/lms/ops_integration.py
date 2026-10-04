@@ -72,7 +72,9 @@ async def get_or_create_student_account(db: AsyncSession, contact_id: uuid.UUID)
         select(User).where(User.contact_id == contact_id).order_by(User.created_at)
     )).scalars().first()
     if existing is not None:
-        if "student" not in existing.role_values:
+        # Observer mode (2026-10): a pure observer keeps their label — the
+        # program assignment carries mode='observer', not a second role.
+        if "student" not in existing.role_values and "observer" not in existing.role_values:
             # Transitioning from staff pool to student pool:
             # Clear old staff card_number so it reallocates from card_seq_student
             # without colliding with idx_users_card_number_student.
@@ -96,7 +98,8 @@ async def get_or_create_student_account(db: AsyncSession, contact_id: uuid.UUID)
         logger.info(
             "get_or_create_student_account: reusing existing account %s for email %s", dup.id, contact.email
         )
-        if "student" not in dup.role_values:
+        # Observer mode (2026-10): see above — pure observers keep their label.
+        if "student" not in dup.role_values and "observer" not in dup.role_values:
             # Transitioning from staff pool to student pool:
             # Clear old staff card_number so it reallocates from card_seq_student
             # without colliding with idx_users_card_number_student.
@@ -315,7 +318,7 @@ async def send_registration_onboarding_email(
 
 async def sync_registration_lms(
     db: AsyncSession, *, registration: Registration, cohort: Cohort, create_account: bool,
-    send_welcome_email: bool = True,
+    send_welcome_email: bool = True, mode: str = "participant",
 ) -> User | None:
     """The D4 flow for one registration: find-or-create the student account,
     assign the cohort's LMS Program checklist if it has one (2026-08-21 —
@@ -325,6 +328,10 @@ async def sync_registration_lms(
     all), email the onboarding link via `send_registration_onboarding_email`.
     Never raises — an LMS-side hiccup must not break registration, mirroring
     issue_ticket()'s "return False, log it" discipline.
+
+    `mode` (2026-10, observer mode): "observer" assignments partition the
+    tester from official rosters/analytics/judging/certs while running the
+    identical engine.
 
     `send_welcome_email=False` still creates the account (a caller that
     structurally needs a User back — e.g. adding someone to a competition
@@ -338,7 +345,7 @@ async def sync_registration_lms(
             if user is None:
                 return None
             await assign_lms_program(
-                db, user_id=user.id, cohort_id=cohort.id, registration_id=registration.id,
+                db, user_id=user.id, cohort_id=cohort.id, registration_id=registration.id, mode=mode,
             )
         if send_welcome_email and user:
             await send_registration_onboarding_email(db, user=user, registration=registration, cohort=cohort)

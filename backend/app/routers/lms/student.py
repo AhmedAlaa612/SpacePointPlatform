@@ -29,7 +29,7 @@ from html import escape
 from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy import func, or_, select
+from sqlalchemy import delete, func, or_, select
 
 # from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -37,6 +37,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.dependencies import get_current_active_user, require_lms_student
 from app.db.session import get_db
 from app.models.lms import Course, CourseModule, Enrollment, ItemProgress, ModuleItem, VideoCheckpoint
+from app.models.lms.cohort_quiz import CohortQuizAttempt
+from app.models.team import TeamMember
 from app.models.lms.learning_path import LearningPath, LearningPathStep
 from app.models.team import Team
 from app.models.lms.program import (
@@ -649,7 +651,7 @@ async def _checklist_item_out(
 @router.get("/programs/{assignment_id}/items/{item_id}/pdf-url")
 async def program_item_pdf_url(
     assignment_id: uuid.UUID, item_id: uuid.UUID,
-    db: AsyncSession = Depends(get_db), current: User = Depends(require_lms_student),
+    db: AsyncSession = Depends(get_db), current: User = Depends(get_current_active_user),
 ) -> dict[str, str]:
     """Resolved only when a student actually opens a `pdf` item's document
     (or a `pdf`-kind guideline on any other item type — same file, same
@@ -666,7 +668,7 @@ async def program_item_pdf_url(
 @router.get("/programs/{assignment_id}/items/{item_id}/guideline-video-url")
 async def program_item_guideline_video_url(
     assignment_id: uuid.UUID, item_id: uuid.UUID,
-    db: AsyncSession = Depends(get_db), current: User = Depends(require_lms_student),
+    db: AsyncSession = Depends(get_db), current: User = Depends(get_current_active_user),
 ) -> dict:
     """Resolved only when a student actually opens an *uploaded* video
     guideline — an embed-link guideline never needs this, the checklist
@@ -690,7 +692,7 @@ async def program_item_guideline_video_url(
 @router.post("/programs/{assignment_id}/items/{item_id}/complete", response_model=LmsProgramChecklistItemOut)
 async def complete_program_item(
     assignment_id: uuid.UUID, item_id: uuid.UUID,
-    db: AsyncSession = Depends(get_db), current: User = Depends(require_lms_student),
+    db: AsyncSession = Depends(get_db), current: User = Depends(get_current_active_user),
 ):
     """Self-check — for external_link/pdf/manual items with no
     `requires_confirmation`, and for `submission` items only after a link
@@ -729,7 +731,7 @@ async def complete_program_item(
 @router.post("/programs/{assignment_id}/items/{item_id}/submit", response_model=LmsProgramChecklistItemOut)
 async def submit_program_item(
     assignment_id: uuid.UUID, item_id: uuid.UUID, body: LmsProgramItemSubmitIn,
-    db: AsyncSession = Depends(get_db), current: User = Depends(require_lms_student),
+    db: AsyncSession = Depends(get_db), current: User = Depends(get_current_active_user),
 ):
     """Paste-back for a `submission` item — same shape as the Poster tab.
     Auto-completes on submit: marks the item `done` right away, or
@@ -868,7 +870,7 @@ async def submit_program_item(
 @router.post("/programs/{assignment_id}/items/{item_id}/team-name", response_model=LmsProgramChecklistItemOut)
 async def set_team_name(
     assignment_id: uuid.UUID, item_id: uuid.UUID, body: LmsProgramTeamNameIn,
-    db: AsyncSession = Depends(get_db), current: User = Depends(require_lms_student),
+    db: AsyncSession = Depends(get_db), current: User = Depends(get_current_active_user),
 ):
     """A `team_setup` item's one action — rename the caller's own team.
     Always team-scoped (validate_item_payload rejects any other scope at
@@ -930,7 +932,7 @@ async def set_team_name(
 @router.post("/programs/{assignment_id}/final-submit", response_model=LmsProgramChecklistOut)
 async def final_submit_program(
     assignment_id: uuid.UUID,
-    db: AsyncSession = Depends(get_db), current: User = Depends(require_lms_student),
+    db: AsyncSession = Depends(get_db), current: User = Depends(get_current_active_user),
 ):
     """The FINAL GATE card's one action — any teammate can call this once
     every required team-scoped item is done (`team_final_submit_readiness`
@@ -968,7 +970,7 @@ async def final_submit_program(
 @router.post("/programs/{assignment_id}/items/{item_id}/quiz/start", response_model=CohortQuizAttemptOut)
 async def start_cohort_quiz(
     assignment_id: uuid.UUID, item_id: uuid.UUID,
-    db: AsyncSession = Depends(get_db), current: User = Depends(require_lms_student),
+    db: AsyncSession = Depends(get_db), current: User = Depends(get_current_active_user),
 ):
     """Get-or-create the student's one attempt at this checklist item's
     quiz — a page refresh never reshuffles it (see
@@ -997,7 +999,7 @@ async def start_cohort_quiz(
 @router.post("/programs/{assignment_id}/items/{item_id}/quiz/submit", response_model=CohortQuizResultOut)
 async def submit_cohort_quiz(
     assignment_id: uuid.UUID, item_id: uuid.UUID, body: CohortQuizSubmitIn,
-    db: AsyncSession = Depends(get_db), current: User = Depends(require_lms_student),
+    db: AsyncSession = Depends(get_db), current: User = Depends(get_current_active_user),
 ):
     """All the student's answers at once (client-tracked per-question
     timing included) — grades, flips the checklist item to done via
@@ -1026,7 +1028,7 @@ async def submit_cohort_quiz(
 @router.get("/programs/{assignment_id}/items/{item_id}/quiz/result", response_model=CohortQuizResultOut)
 async def get_cohort_quiz_result(
     assignment_id: uuid.UUID, item_id: uuid.UUID,
-    db: AsyncSession = Depends(get_db), current: User = Depends(require_lms_student),
+    db: AsyncSession = Depends(get_db), current: User = Depends(get_current_active_user),
 ):
     _, item, _ = await _own_progress_row(db, assignment_id=assignment_id, item_id=item_id, user=current)
     if item.item_type != "quiz":
@@ -1036,6 +1038,180 @@ async def get_cohort_quiz_result(
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="No submitted attempt yet")
     review = await cohort_quiz_service.get_attempt_review(db, attempt)
     return cohort_quiz_service.result_out(attempt, review)
+
+
+# ── observer mode resets (2026-10) ──────────────────────────────────────────
+# An observer is a student with a label + a reset. These three endpoints are
+# the "reset" half — owner-only (ownership via the assignment row itself),
+# observer-assignments-only. Team deliverables are untouched by the
+# individual reset and vice versa, so one slice can be retried without
+# losing the other.
+
+async def _observer_assignment(
+    db: AsyncSession, *, assignment_id: uuid.UUID, user: User, allow_ops: bool = False,
+) -> LmsProgramAssignment:
+    """The caller's own observer assignment, or 404/403. `allow_ops` lets
+    operations/admin act on someone else's observer assignment (the
+    leave/unassign path) — every other reset is strictly self-serve."""
+    assignment = await db.get(LmsProgramAssignment, assignment_id)
+    if assignment is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Program assignment not found")
+    if assignment.user_id != user.id:
+        if not allow_ops or not ({"admin", "operations"} & set(user.role_values)):
+            raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Program assignment not found")
+    if getattr(assignment, "mode", "participant") != "observer":
+        raise HTTPException(
+            status.HTTP_403_FORBIDDEN, detail="Only observer assignments can use this reset",
+        )
+    return assignment
+
+
+@router.post("/programs/{assignment_id}/observer-reset", response_model=LmsProgramChecklistOut)
+async def observer_reset_progress(
+    assignment_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db), current: User = Depends(get_current_active_user),
+):
+    """Reset My Progress — wipes this observer's own slice only: every
+    individual progress row back to `pending`, their cohort-quiz attempts on
+    this program's items deleted (answers cascade), and their course-player
+    progress (`item_progress`) on courses attached to this program's items
+    deleted. Team deliverables are untouched. Returns the fresh checklist.
+
+    Mission/course auto-tracking is live-reconciled (not stored fact), so a
+    `mission_run` tile re-derives from its still-existing attempt — the
+    stored paste-backs and confirmations are what's actually wiped."""
+    assignment = await _observer_assignment(db, assignment_id=assignment_id, user=current)
+
+    rows = (await db.execute(
+        select(LmsProgramItemProgress).where(LmsProgramItemProgress.assignment_id == assignment.id)
+    )).scalars().all()
+    for progress in rows:
+        progress.status = "pending"
+        progress.completed_at = None
+        progress.confirmed_by_user_id = None
+        progress.submitted_url = None
+        progress.submitted_text = None
+        progress.submitted_links = None
+        progress.updated_at = None
+
+    item_ids = [p.item_id for p in rows]
+    if item_ids:
+        await db.execute(
+            delete(CohortQuizAttempt).where(
+                CohortQuizAttempt.program_item_id.in_(item_ids), CohortQuizAttempt.user_id == current.id,
+            )
+        )
+
+    course_ids: list = []
+    if item_ids:
+        program_items = (await db.execute(
+            select(LmsProgramItem).where(LmsProgramItem.id.in_(item_ids))
+        )).scalars().all()
+        course_ids = list({i.course_id for i in program_items if i.course_id})
+    if course_ids:
+        module_ids = (await db.execute(
+            select(CourseModule.id).where(CourseModule.course_id.in_(course_ids))
+        )).scalars().all()
+        if module_ids:
+            module_item_ids = (await db.execute(
+                select(ModuleItem.id).where(ModuleItem.module_id.in_(module_ids))
+            )).scalars().all()
+            if module_item_ids:
+                await db.execute(
+                    delete(ItemProgress).where(
+                        ItemProgress.user_id == current.id, ItemProgress.item_id.in_(module_item_ids),
+                    )
+                )
+
+    await db.commit()
+    checklist = await get_student_checklist(db, assignment_id=assignment_id, user_id=assignment.user_id)
+    if checklist is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Program assignment not found")
+    return checklist
+
+
+@router.post("/programs/{assignment_id}/observer-team-reset", response_model=LmsProgramChecklistOut)
+async def observer_reset_team(
+    assignment_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db), current: User = Depends(get_current_active_user),
+):
+    """Reset Team Deliverables — unlocks the observer team (`final_locked_at`
+    / `final_locked_by` cleared) and wipes every shared team progress row
+    back to `pending`. The observer's own individual slice is untouched.
+    Returns the fresh checklist."""
+    assignment = await _observer_assignment(db, assignment_id=assignment_id, user=current)
+    team = await team_for_cohort_member(db, cohort_id=assignment.cohort_id, user_id=current.id)
+    if team is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="No team found for this observer yet")
+    if not getattr(team, "is_observer", False):
+        raise HTTPException(
+            status.HTTP_403_FORBIDDEN, detail="Only observer teams can use this reset",
+        )
+
+    team_rows = (await db.execute(
+        select(LmsProgramTeamItemProgress).where(LmsProgramTeamItemProgress.team_id == team.id)
+    )).scalars().all()
+    for progress in team_rows:
+        progress.status = "pending"
+        progress.completed_at = None
+        progress.confirmed_by_user_id = None
+        progress.submitted_url = None
+        progress.submitted_text = None
+        progress.submitted_links = None
+        progress.updated_by_user_id = None
+        progress.updated_at = None
+    team.final_locked_at = None
+    team.final_locked_by = None
+
+    await db.commit()
+    checklist = await get_student_checklist(db, assignment_id=assignment_id, user_id=assignment.user_id)
+    if checklist is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Program assignment not found")
+    return checklist
+
+
+@router.delete("/programs/{assignment_id}/observer-unassign")
+async def observer_unassign(
+    assignment_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db), current: User = Depends(get_current_active_user),
+) -> dict:
+    """Leave Program — removes the observer from their observer team
+    (deleting the team itself once empty, so empty `[Observer]` shells never
+    accumulate) and deletes the observer assignment (item progress cascades).
+    Their quiz attempts on this program's items are deleted too (same items,
+    same user — a re-observe starts clean); course-player progress is left
+    alone (it's user-level, potentially shared with a real assignment in
+    another cohort). Ops/admin may call this for someone else's observer
+    assignment."""
+    assignment = await _observer_assignment(db, assignment_id=assignment_id, user=current, allow_ops=True)
+    owner_id = assignment.user_id
+
+    item_ids = list((await db.execute(
+        select(LmsProgramItemProgress.item_id).where(LmsProgramItemProgress.assignment_id == assignment.id)
+    )).scalars().all())
+    if item_ids:
+        await db.execute(
+            delete(CohortQuizAttempt).where(
+                CohortQuizAttempt.program_item_id.in_(item_ids), CohortQuizAttempt.user_id == owner_id,
+            )
+        )
+
+    team = await team_for_cohort_member(db, cohort_id=assignment.cohort_id, user_id=owner_id)
+    if team is not None and getattr(team, "is_observer", False):
+        member = await db.get(TeamMember, (team.id, owner_id))
+        if member is not None:
+            await db.delete(member)
+            await db.flush()
+        remaining = await db.scalar(
+            select(func.count()).select_from(TeamMember).where(TeamMember.team_id == team.id)
+        )
+        if not remaining:
+            await db.delete(team)
+            await db.flush()
+
+    await db.delete(assignment)
+    await db.commit()
+    return {"assignment_id": str(assignment_id), "unassigned": True}
 
 
 @router.get("/my-activity", response_model=list[ActivityItemOut])

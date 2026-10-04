@@ -26,6 +26,10 @@ class UserRole(str, enum.Enum):
     judge = "judge"
     # LMS author role for external partners and contributors
     lms_author = "lms_author"
+    # Observer mode — a student-parity testing label. Observers run the
+    # full student engine (quiz grading, missions, teams, final gate)
+    # partitioned by LmsProgramAssignment.mode / Team.is_observer.
+    observer = "observer"
 
 
 # ── Interns domain ───────────────────────────────────────────────────────────

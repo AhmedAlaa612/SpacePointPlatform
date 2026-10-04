@@ -103,6 +103,8 @@ export interface StudentSummary {
 export interface InviteCode {
   id: string;
   code: string;
+  /** student|observer (observer added 2026-10 — external tester batches). */
+  kind: string;
   label: string | null;
   is_active: boolean;
   max_uses: number;
@@ -598,6 +600,9 @@ export interface LmsProgramRosterRow {
   user_id: string;
   student_name: string;
   name: string;
+  /** participant|observer (observer added 2026-10) — the roster's
+   * `[Students | Observers]` toggle filters on this. */
+  mode: string;
   items_total: number;
   items_done: number;
   pct: number;
@@ -607,8 +612,12 @@ export interface LmsProgramRosterRow {
   pending_confirmations: PendingConfirmation[];
 }
 
-export const getCohortProgramProgressApi = (cohortId: string) =>
-  api.get<LmsProgramRosterRow[]>(`/lms/instructor/cohorts/${cohortId}/program-progress`).then((r) => r.data);
+export type RosterMode = "participant" | "observer" | "all";
+
+export const getCohortProgramProgressApi = (cohortId: string, mode: RosterMode = "participant") =>
+  api.get<LmsProgramRosterRow[]>(`/lms/instructor/cohorts/${cohortId}/program-progress`, {
+    params: { mode },
+  }).then((r) => r.data);
 export const confirmChecklistItemApi = (cohortId: string, assignmentId: string, itemId: string) =>
   api.post<LmsProgramRosterRow>(
     `/lms/instructor/cohorts/${cohortId}/program-progress/${assignmentId}/items/${itemId}/confirm`, {},
@@ -625,8 +634,10 @@ export const confirmChecklistItemApi = (cohortId: string, assignmentId: string, 
 export const getMyReachableProgramsApi = () =>
   api.get<LmsProgram[]>("/lms/instructor/programs").then((r) => r.data);
 
-export const getProgramProgressApi = (lmsProgramId: string) =>
-  api.get<LmsProgramRosterRow[]>(`/lms/instructor/programs/${lmsProgramId}/progress`).then((r) => r.data);
+export const getProgramProgressApi = (lmsProgramId: string, mode: RosterMode = "participant") =>
+  api.get<LmsProgramRosterRow[]>(`/lms/instructor/programs/${lmsProgramId}/progress`, {
+    params: { mode },
+  }).then((r) => r.data);
 
 export interface LmsAssignmentItemDetail {
   item_id: string;
@@ -772,6 +783,7 @@ export const listInviteCodesApi = () =>
 
 export const createInviteCodeApi = (data: {
   code: string; label?: string | null; max_uses?: number; is_active?: boolean;
+  kind?: "student" | "observer";
 }) => api.post<InviteCode>("/lms/admin/invite-codes", data).then((r) => r.data);
 
 export const updateInviteCodeApi = (id: string, data: Partial<{
@@ -780,6 +792,13 @@ export const updateInviteCodeApi = (id: string, data: Partial<{
 
 export const deleteInviteCodeApi = (id: string) =>
   api.delete<void>(`/lms/admin/invite-codes/${id}`).then((r) => r.data);
+
+/** 1-click staff authoring access (2026-10, observer mode) — "Try as
+ * Observer". Creates (or reuses) the caller's own mode='observer'
+ * assignment for this cohort and returns its id; the caller navigates to
+ * `/learn/checklists/{assignment_id}`. */
+export const tryAsObserverApi = (cohortId: string) =>
+  api.post<{ assignment_id: string }>(`/lms/admin/cohorts/${cohortId}/try-as-observer`, {}).then((r) => r.data);
 
 // ── invite-code course/path/program grants (2026-08-21, program added
 // 2026-09-15) ─────────────────────────────────────────────────────────────

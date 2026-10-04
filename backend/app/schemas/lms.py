@@ -576,6 +576,8 @@ class LmsProgramAssignmentSummaryOut(BaseModel):
     program_name: str | None = None
     cohort_id: UUID | None = None
     cohort_name: str | None = None
+    # Observer mode (2026-10) — "participant" (default) or "observer".
+    mode: str = "participant"
     items_total: int
     items_done: int
     pct: int
@@ -594,6 +596,9 @@ class LmsProgramChecklistOut(BaseModel):
     poster_template_url: str | None = None
     cohort_id: UUID | None = None
     cohort_name: str | None = None
+    # Observer mode (2026-10) — "participant" (default) or "observer".
+    # Drives the frontend's Observer toolbar banner.
+    mode: str = "participant"
     # Competition domain — the student's own team in this cohort, if any
     # (resolved once for the whole checklist, not per item). None when
     # they have no team yet or the program has no team-scoped items.

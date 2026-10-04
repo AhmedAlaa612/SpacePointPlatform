@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useNavigate, useSearch } from "@tanstack/react-router"
+import { Eye } from "lucide-react"
 import { PageHeader, EmptyState, Spinner } from "@/components/ui/primitives"
 import { useAuth } from "@/context/AuthContext"
 import { getProgramsApi } from "@/api/sessions/programs"
@@ -10,6 +11,7 @@ import {
   type LmsProgram,
 } from "@/api/lms_admin"
 import { myInstructorCohortsApi, type InstructorCohort } from "@/api/missionsInstructor"
+import { tryAsObserverApi } from "@/api/lms_admin"
 import type { Program } from "@/types/sessions"
 import { CreateChecklistPrompt, ProgramTemplateEditor, CohortOverrideEditor } from "./components/LmsChecklistAuthoring"
 import { ProgramMissionsPanel, CohortMissionsPanel, ProgressPanel } from "./components/LmsProgressAndMissions"
@@ -200,6 +202,24 @@ function ProgramWorkspace({
     onSuccess: (p) => setCreated(p),
   })
 
+  // Observer mode (2026-10) — 1-click staff authoring access ("Try as
+  // Observer"): creates/reuses the caller's own mode='observer' assignment
+  // for the viewed cohort, then lands on the real student board.
+  const [observerPending, setObserverPending] = useState(false)
+  const [observerError, setObserverError] = useState<string | null>(null)
+  const tryAsObserver = async (cohortId: string) => {
+    setObserverPending(true)
+    setObserverError(null)
+    try {
+      const { assignment_id } = await tryAsObserverApi(cohortId)
+      await navigate({ to: `/learn/checklists/${assignment_id}` })
+    } catch (e) {
+      setObserverError(e instanceof Error ? e.message : "Couldn't start observer mode")
+    } finally {
+      setObserverPending(false)
+    }
+  }
+
   const refresh = async () => {
     if (isStaff && effective) {
       const fresh = await getLmsProgramApi(effective.id)
@@ -272,6 +292,20 @@ function ProgramWorkspace({
             {SUBTAB_LABEL[t]}
           </button>
         ))}
+        <div className="flex-1" />
+        {typeof scope === "object" && (
+          <div className="flex items-center gap-2 pb-1 shrink-0">
+            {observerError && <span className="text-xs text-destructive whitespace-nowrap">{observerError}</span>}
+            <button
+              onClick={() => void tryAsObserver(scope.cohortId)}
+              disabled={observerPending}
+              title="Open this cohort's checklist as an observer — full student experience, sandboxed from official data"
+              className="flex items-center gap-1.5 h-8 px-3 rounded-full border border-indigo-500/30 text-xs font-semibold text-indigo-600 dark:text-indigo-400 hover:bg-indigo-500/10 transition-colors cursor-pointer disabled:opacity-50 whitespace-nowrap"
+            >
+              <Eye size={14} /> {observerPending ? "Opening…" : "Try as Observer"}
+            </button>
+          </div>
+        )}
       </div>
 
       {subtab === "checklist" && (

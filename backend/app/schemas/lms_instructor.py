@@ -99,6 +99,9 @@ class LmsProgramRosterRowOut(BaseModel):
     user_id: UUID
     student_name: str
     name: str
+    # Observer mode (2026-10) — "participant" or "observer"; the roster's
+    # `[Students | Observers]` toggle filters on this.
+    mode: str = "participant"
     items_total: int
     items_done: int
     pct: int

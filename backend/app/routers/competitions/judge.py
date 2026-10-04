@@ -52,6 +52,11 @@ async def _team_or_404(db: AsyncSession, team_id: uuid.UUID, *, current: User) -
     team = await db.get(Team, team_id)
     if team is None or team.cohort_id is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Team not found")
+    # Observer mode (2026-10): judges never receive observer test teams —
+    # a direct fetch reads as not-found, same posture as an unassigned
+    # cohort (don't leak which test teams exist).
+    if getattr(team, "is_observer", False):
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Team not found")
     await require_judge_cohort_access(db, cohort_id=team.cohort_id, user=current)
     return team
 
@@ -73,6 +78,8 @@ async def list_my_teams(
     if await db.get(Cohort, cohort_id) is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Cohort not found")
     teams = await teams_for_cohort(db, cohort_id=cohort_id)
+    # Observer mode (2026-10): observer test teams never enter the judge queue.
+    teams = [t for t in teams if not getattr(t, "is_observer", False)]
     scored = await scored_team_ids(db, judge_user_id=current.id, cohort_id=cohort_id)
 
     resolved = await effective_cohort_program_items(db, cohort_id)

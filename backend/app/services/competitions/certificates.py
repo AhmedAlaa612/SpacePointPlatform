@@ -233,6 +233,9 @@ async def get_cohort_certificate_recipients(
 
     # 3. Teams in this cohort
     teams = (await db.execute(select(Team).where(Team.cohort_id == cohort_id))).scalars().all()
+    # Observer mode (2026-10): observer test teams never count toward
+    # certificates — drop them before mapping members to teams.
+    teams = [t for t in teams if not getattr(t, "is_observer", False)]
     team_by_id = {t.id: t for t in teams}
 
     # Map user_id -> team
@@ -309,11 +312,26 @@ async def get_cohort_certificate_recipients(
     at_least_one_count = 0
     all_completed_count = 0
 
+    # Observer mode (2026-10): assignments with mode='observer' are
+    # suppressed from certificate pipelines entirely — never counted in
+    # stats, never listed as recipients.
+    observer_user_ids: set[uuid.UUID] = set()
+    if user_ids:
+        observer_user_ids = set((await db.execute(
+            select(LmsProgramAssignment.user_id).where(
+                LmsProgramAssignment.cohort_id == cohort_id,
+                LmsProgramAssignment.user_id.in_(user_ids),
+                LmsProgramAssignment.mode == "observer",
+            )
+        )).scalars().all())
+
     for reg in registrations:
         contact = contacts.get(reg.contact_id)
         if contact is None:
             continue
         user = users_by_contact.get(contact.id)
+        if user is not None and user.id in observer_user_ids:
+            continue
         team = user_team_map.get(user.id) if user else None
 
         # Calculate completed submission items

@@ -625,6 +625,8 @@ export interface LmsProgramAssignmentSummary {
   program_name?: string | null;
   cohort_id: string | null;
   cohort_name: string | null;
+  /** participant|observer (observer added 2026-10). */
+  mode?: string;
   items_total: number;
   items_done: number;
   pct: number;
@@ -645,6 +647,8 @@ export interface LmsProgramChecklist {
   poster_template_url?: string | null;
   cohort_id: string | null;
   cohort_name: string | null;
+  /** participant|observer (observer added 2026-10) — drives the Observer toolbar banner. */
+  mode?: string;
   team_name: string | null;
   // null means still editable — set once any teammate has hit "Final
   // Submit". Only ops can clear it again.
@@ -719,6 +723,26 @@ export async function getChecklistItemGuidelineVideoUrlApi(
   assignmentId: string, itemId: string,
 ): Promise<{ url: string; video_info: import("@/components/video/VideoPlayer").VideoPlaybackInfo | null }> {
   const { data } = await api.get(`/lms/programs/${assignmentId}/items/${itemId}/guideline-video-url`);
+  return data;
+}
+
+/** Observer mode (2026-10) — the "reset" half of "a student with a label
+ * plus a reset". All three are self-serve on the caller's own observer
+ * assignment; each returns (or confirms) the fresh checklist state. */
+export async function observerResetProgressApi(assignmentId: string): Promise<LmsProgramChecklist> {
+  const { data } = await api.post<LmsProgramChecklist>(`/lms/programs/${assignmentId}/observer-reset`, {});
+  return data;
+}
+
+export async function observerResetTeamApi(assignmentId: string): Promise<LmsProgramChecklist> {
+  const { data } = await api.post<LmsProgramChecklist>(`/lms/programs/${assignmentId}/observer-team-reset`, {});
+  return data;
+}
+
+export async function observerUnassignApi(assignmentId: string): Promise<{ assignment_id: string; unassigned: boolean }> {
+  const { data } = await api.delete<{ assignment_id: string; unassigned: boolean }>(
+    `/lms/programs/${assignmentId}/observer-unassign`,
+  );
   return data;
 }
 

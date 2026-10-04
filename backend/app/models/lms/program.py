@@ -261,6 +261,11 @@ class LmsProgramAssignment(Base):
     registration_id = Column(
         UUID(as_uuid=True), ForeignKey("registrations.id", ondelete="SET NULL"), nullable=True,
     )
+    # Observer mode (2026-10) — "participant" (default) or "observer".
+    # An observer is a student with a label: identical engine behavior,
+    # partitioned by this marker (+ Team.is_observer) for rosters,
+    # analytics, judging, and certificates.
+    mode = Column(String(16), nullable=False, default="participant", server_default="participant")
     assigned_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
 
 

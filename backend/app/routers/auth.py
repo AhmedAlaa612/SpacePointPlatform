@@ -271,8 +271,12 @@ async def student_signup(data: StudentSignupRequest, request: Request, db: Async
     # kind='student': an instructor-pool code must not open student signup.
     # An ambassador's personal referral code still works (it's kind-agnostic
     # inside resolve_invite_code) — the operator's explicit call.
+    # Observer mode (2026-10): an observer batch code opens the same signup
+    # (resolve matches student+observer here) — the account below branches
+    # on invitation.kind for roles/card/mode.
     invitation, ambassador = await resolve_invite_code(db, code, kind="student")
     referred_by_ambassador_id = ambassador.id if ambassador else None
+    is_observer_signup = invitation is not None and invitation.kind == "observer"
 
     city = await db.get(City, data.city_id) if data.city_id else None
 
@@ -302,7 +306,9 @@ async def student_signup(data: StudentSignupRequest, request: Request, db: Async
         full_name=data.full_name,
         email=email,
         password_hash=get_password_hash(data.password),
-        roles=[UserRole.student],
+        # Observer mode (2026-10): pure observers get roles=[observer] and
+        # an SP-OB card (same student sequence); everyone else is a student.
+        roles=[UserRole.observer] if is_observer_signup else [UserRole.student],
         status="active",
         must_change_password=False,
         contact_id=contact.id,

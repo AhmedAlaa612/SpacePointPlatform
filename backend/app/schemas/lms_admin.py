@@ -56,6 +56,8 @@ class StaffOptionOut(BaseModel):
 class InviteCodeOut(BaseModel):
     id: UUID
     code: str
+    # student|observer (observer added 2026-10 — external tester batches).
+    kind: str = "student"
     label: str | None = None
     is_active: bool
     max_uses: int
@@ -72,6 +74,9 @@ class InviteCodeOut(BaseModel):
 
 class InviteCodeCreate(BaseModel):
     code: str
+    # Observer mode (2026-10): "observer" batch codes sign testers up with
+    # the observer role, an SP-OB card, and mode='observer' assignments.
+    kind: Literal["student", "observer"] = "student"
     label: str | None = None
     max_uses: int = 30
     is_active: bool = True

@@ -27,6 +27,7 @@ from app.models.team import Team, TeamMember
 async def create_team(
     db: AsyncSession, *, name: str, created_by: uuid.UUID, cohort_id: uuid.UUID | None = None,
     member_ids: list[uuid.UUID] | None = None, roster_team_id: str | None = None,
+    is_observer: bool = False,
 ) -> Team:
     """Creates a team and adds `member_ids` (deduplicated with `created_by`,
     who is always a member of a team they create). Raises 409 on a name
@@ -54,6 +55,7 @@ async def create_team(
     not before."""
     team = Team(
         id=uuid.uuid4(), name=name, cohort_id=cohort_id, created_by=created_by, roster_team_id=roster_team_id,
+        is_observer=is_observer,
     )
     try:
         async with db.begin_nested():

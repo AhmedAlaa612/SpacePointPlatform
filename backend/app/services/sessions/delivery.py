@@ -30,6 +30,7 @@ from app.models.sessions.registration import Registration, RegistrationSession
 from app.models.sessions.session import Session, SessionInstructor
 from app.models.spine.contact import Contact
 from app.models.user import User
+from app.models.lms.program import LmsProgramAssignment
 from app.services.documents.certificate import (
     format_certificate_program_title, generate_completion_certificate_pdf,
 )
@@ -292,7 +293,18 @@ async def complete_cohort(db: AsyncSession, cohort_id: UUID, actor_user_id: UUID
         user_id = await db.scalar(
             select(User.id).where(User.contact_id == registration.contact_id).order_by(User.created_at)
         )
-        gate_ok = await certificate_gate_satisfied(db, cohort_id=cohort_id, user_id=user_id)
+        # Observer mode (2026-10): observers never auto-earn the student
+        # certificate, even with everything done — suppressed by label.
+        is_observer = False
+        if user_id is not None:
+            is_observer = await db.scalar(
+                select(LmsProgramAssignment.id).where(
+                    LmsProgramAssignment.user_id == user_id,
+                    LmsProgramAssignment.cohort_id == cohort_id,
+                    LmsProgramAssignment.mode == "observer",
+                )
+            ) is not None
+        gate_ok = False if is_observer else await certificate_gate_satisfied(db, cohort_id=cohort_id, user_id=user_id)
         if _meets_completion_rule(program, present, total) and gate_ok:
             registration.status = "completed"
             contact = await db.get(Contact, registration.contact_id)

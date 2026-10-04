@@ -27,6 +27,7 @@ import {
   getProgramProgressApi, getCohortProgramProgressApi, confirmChecklistItemApi, getAssignmentItemsApi,
   MISSION_STEP_KEYS,
   type LmsProgram, type LmsProgramItem, type LmsProgramItemInput, type LmsProgramRosterRow, type LmsAssignmentItemDetail,
+  type RosterMode,
 } from "@/api/lms_admin"
 import { ItemForm, ItemRow } from "./LmsChecklistAuthoring"
 import { errorDetail } from "./LmsChecklistShared"
@@ -500,15 +501,41 @@ function GatesTab({ cohortId, missionId }: { cohortId: string; missionId: string
 // submission link, not just the ones awaiting confirmation (operator ask,
 // 2026-08-22: "detailed submissions... by detailed I really mean detailed").
 
+// Observer mode (2026-10) — `[Students | Observers]` segmented toggle for
+// the ops Progress Panel. Participant is the default slice; observers are
+// staff/tester sandboxes inspected separately.
+function RosterModeToggle({ mode, onChange }: { mode: RosterMode; onChange: (m: RosterMode) => void }) {
+  const btn = (active: boolean) =>
+    `px-3 py-1.5 text-xs font-semibold rounded-lg transition-colors cursor-pointer ${
+      active ? "bg-primary text-primary-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"
+    }`
+  return (
+    <div className="flex items-center gap-1 p-1 rounded-xl border border-border bg-muted/40 w-fit">
+      <button onClick={() => onChange("participant")} className={btn(mode === "participant")}>
+        Students
+      </button>
+      <button onClick={() => onChange("observer")} className={btn(mode === "observer")}>
+        Observers
+      </button>
+    </div>
+  )
+}
+
 export function ProgressPanel({
   cohortId, lmsProgramId, scopeLabel,
 }: { cohortId?: string; lmsProgramId?: string; scopeLabel: string }) {
   const [search, setSearch] = useState("")
+  // Observer mode (2026-10) — `[Students | Observers]` toggle. The default
+  // slice is real students; observers are inspected separately so staff
+  // testing never mixes into official completion data.
+  const [rosterMode, setRosterMode] = useState<RosterMode>("participant")
   const queryClient = useQueryClient()
-  const queryKey = cohortId ? ["instructor-program-progress", cohortId] : ["instructor-program-wide-progress", lmsProgramId]
+  const queryKey = cohortId
+    ? ["instructor-program-progress", cohortId, rosterMode]
+    : ["instructor-program-wide-progress", lmsProgramId, rosterMode]
   const { data: rows, isLoading } = useQuery({
     queryKey,
-    queryFn: () => (cohortId ? getCohortProgramProgressApi(cohortId) : getProgramProgressApi(lmsProgramId as string)),
+    queryFn: () => (cohortId ? getCohortProgramProgressApi(cohortId, rosterMode) : getProgramProgressApi(lmsProgramId as string, rosterMode)),
   })
 
   const confirmMutation = useMutation({
@@ -526,25 +553,38 @@ export function ProgressPanel({
 
   if (isLoading) return <Spinner />
   if (!rows || rows.length === 0) {
-    return <EmptyState title="No students assigned this checklist yet" hint={`Showing ${scopeLabel}.`} />
+    return (
+      <div className="flex flex-col gap-3">
+        <RosterModeToggle mode={rosterMode} onChange={setRosterMode} />
+        <EmptyState
+          title={rosterMode === "observer" ? "No observers testing this checklist yet" : "No students assigned this checklist yet"}
+          hint={`Showing ${scopeLabel}.`}
+        />
+      </div>
+    )
   }
 
   return (
     <div className="flex flex-col gap-3">
-      {rows.length > 0 && (
-        <div className="relative w-full sm:w-64 self-end">
-          <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none" />
-          <input
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search by student name…"
-            className="h-8 w-full pl-8 pr-3 border border-border bg-background text-foreground rounded-lg text-xs focus:outline-none focus:border-primary transition-colors"
-          />
-        </div>
-      )}
+      <div className="flex items-center justify-between gap-3 flex-wrap">
+        <RosterModeToggle mode={rosterMode} onChange={setRosterMode} />
+        {rows.length > 0 && (
+          <div className="relative w-full sm:w-64">
+            <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none" />
+            <input
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder={rosterMode === "observer" ? "Search by observer name…" : "Search by student name…"}
+              className="h-8 w-full pl-8 pr-3 border border-border bg-background text-foreground rounded-lg text-xs focus:outline-none focus:border-primary transition-colors"
+            />
+          </div>
+        )}
+      </div>
 
       {filteredRows.length === 0 ? (
-        <p className="text-xs text-muted-foreground text-center py-6">No students match "{search}"</p>
+        <p className="text-xs text-muted-foreground text-center py-6">
+          {rosterMode === "observer" ? `No observers match "${search}"` : `No students match "${search}"`}
+        </p>
       ) : (
         <div className="flex flex-col gap-3">
           {filteredRows.map((row) => (

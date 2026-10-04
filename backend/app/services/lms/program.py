@@ -804,6 +804,7 @@ async def _sibling_individual_attempt(
 
 async def assign_lms_program(
     db: AsyncSession, *, user_id: uuid.UUID, cohort_id: uuid.UUID, registration_id: uuid.UUID | None = None,
+    mode: str = "participant",
 ) -> LmsProgramAssignment | None:
     """The per-registration path — called once, at registration time, by
     `sync_registration_lms`, exactly where `enroll_in_cohort_curriculum`
@@ -811,7 +812,11 @@ async def assign_lms_program(
     `course` item immediately and assigns every `mission_run` item's
     attempt immediately (same "enroll everything up front" behavior the
     old curriculum table had) — sequential position only governs the
-    checklist's own display/certificate gate, never actual access."""
+    checklist's own display/certificate gate, never actual access.
+
+    `mode` (2026-10, observer mode): "participant" (default) or "observer".
+    Observers enroll/attempt identically — the marker only partitions
+    rosters, analytics, judging, and certificates."""
     resolved = await resolve_cohort_program(db, cohort_id)
     if resolved is None:
         return None
@@ -830,7 +835,7 @@ async def assign_lms_program(
     cohort = await db.get(Cohort, cohort_id)
     assignment = LmsProgramAssignment(
         id=uuid.uuid4(), user_id=user_id, lms_program_id=program.id,
-        cohort_id=cohort_id, registration_id=registration_id,
+        cohort_id=cohort_id, registration_id=registration_id, mode=mode,
     )
     db.add(assignment)
     await db.flush()
@@ -1312,6 +1317,11 @@ async def certificate_gate_satisfied(db: AsyncSession, *, cohort_id: uuid.UUID, 
     )
     if assignment is None:
         return False
+    # Observer mode (2026-10): an observer's checklist never satisfies the
+    # student certificate gate — observers are suppressed from
+    # auto-issuance even with every item done.
+    if getattr(assignment, "mode", "participant") == "observer":
+        return False
 
     progress_rows = {
         p.item_id: p for p in (await db.execute(
@@ -1423,6 +1433,39 @@ async def team_for_cohort_member(db: AsyncSession, *, cohort_id: uuid.UUID | Non
     )
 
 
+async def ensure_observer_team(db: AsyncSession, *, cohort_id: uuid.UUID | None, user_id: uuid.UUID) -> Team | None:
+    """Self-serve observer team (2026-10, observer mode): the observer's
+    `Team` within this cohort, creating a flagged `is_observer=True` team
+    (`[Observer] Team N`) when they aren't on one yet. A solo/no-cohort
+    assignment (`cohort_id` None) never has a team — returns None, same
+    posture as `team_for_cohort_member`.
+
+    An existing team an observer lands on is flagged `is_observer=True` in
+    place — observers are never placed on real student teams (the
+    try-as-observer onboarding always routes them here first), so an
+    observer writing to a team makes it a test team by definition."""
+    if cohort_id is None:
+        return None
+    team = await team_for_cohort_member(db, cohort_id=cohort_id, user_id=user_id)
+    if team is not None:
+        if not getattr(team, "is_observer", False):
+            team.is_observer = True
+            await db.flush()
+        return team
+    existing_count = await db.scalar(
+        select(func.count(Team.id)).where(Team.cohort_id == cohort_id)
+    ) or 0
+    team = Team(
+        id=uuid.uuid4(), name=f"[Observer] Team {existing_count + 1}",
+        cohort_id=cohort_id, created_by=user_id, is_observer=True,
+    )
+    db.add(team)
+    await db.flush()
+    db.add(TeamMember(team_id=team.id, user_id=user_id))
+    await db.flush()
+    return team
+
+
 def _effective_status(
     item: LmsProgramItem, progress: LmsProgramItemProgress,
     team_progress_by_item: dict[uuid.UUID, LmsProgramTeamItemProgress],
@@ -1505,6 +1548,14 @@ async def checklist_item_write_target(
     but its state is never read or written once an item is team-scoped."""
     if item.scope != "team":
         return individual
+    if getattr(assignment, "mode", "participant") == "observer":
+        # Observer parity (2026-10): self-serve lazy team — an observer
+        # hitting a team-scoped item without a team yet gets their own
+        # flagged observer team instead of a 403.
+        team = await ensure_observer_team(db, cohort_id=assignment.cohort_id, user_id=user_id)
+        if team is None:
+            raise HTTPException(status.HTTP_403_FORBIDDEN, detail="You're not on a team for this cohort")
+        return await _get_or_create_team_progress(db, item_id=item.id, team_id=team.id)
     team = await team_for_cohort_member(db, cohort_id=assignment.cohort_id, user_id=user_id)
     if team is None:
         raise HTTPException(status.HTTP_403_FORBIDDEN, detail="You're not on a team for this cohort")
@@ -1749,7 +1800,7 @@ async def get_student_checklist(db: AsyncSession, *, assignment_id: uuid.UUID, u
             cohort.checklist_title_override
             if cohort and cohort.checklist_title_override
             else (
-                f"{sessions_program.name} \u2014 {cohort.name}"
+                f"{sessions_program.name} — {cohort.name}"
                 if cohort and sessions_program
                 else (sessions_program.name if sessions_program else program.name)
             )
@@ -1761,6 +1812,7 @@ async def get_student_checklist(db: AsyncSession, *, assignment_id: uuid.UUID, u
         "poster_template_url": effective_poster_template_url,
         "cohort_id": assignment.cohort_id,
         "cohort_name": cohort.name if cohort else None,
+        "mode": getattr(assignment, "mode", None) or "participant",
         # Only meaningful once any item is team-scoped — resolved from the
         # same `team` lookup above rather than a second query. A student
         # with no team yet (or a program with no team-scoped items at all)
@@ -1823,6 +1875,7 @@ async def _assignment_summary(db: AsyncSession, assignment: LmsProgramAssignment
         ),
         "program_name": sessions_program.name if sessions_program else program.name,
         "cohort_id": assignment.cohort_id, "cohort_name": cohort.name if cohort else None,
+        "mode": getattr(assignment, "mode", None) or "participant",
         "items_total": required_total, "items_done": done,
         "pct": round(100 * done / required_total) if required_total else 100,
         "next_item_title": next_item_title,
@@ -1847,18 +1900,26 @@ async def list_student_assignments(db: AsyncSession, *, user_id: uuid.UUID) -> l
 
 async def cohort_program_roster(
     db: AsyncSession, *, cohort_id: uuid.UUID, restrict_to_cohort_ids: set[uuid.UUID] | None = None,
+    mode: str = "participant",
 ) -> list[dict]:
     """Instructor/ops view — every student assigned this cohort's LMS
     Program checklist, each with the same progress summary shape as the
     student's own `/lms/programs` list. `restrict_to_cohort_ids` is an
     instructor's own scope (see `program_roster` below) — `None` (the
     default) is unrestricted, matching every other caller of this
-    function today (the cohort_id is already the scope)."""
+    function today (the cohort_id is already the scope).
+
+    `mode` (2026-10, observer mode): "participant" (default) lists real
+    students only; "observer" lists tester assignments only; "all" lists
+    everyone — the ops Progress Panel's `[Students | Observers]` toggle."""
     if restrict_to_cohort_ids is not None and cohort_id not in restrict_to_cohort_ids:
         return []
-    assignments = (await db.execute(
-        select(LmsProgramAssignment).where(LmsProgramAssignment.cohort_id == cohort_id)
-    )).scalars().all()
+    stmt = select(LmsProgramAssignment).where(LmsProgramAssignment.cohort_id == cohort_id)
+    if mode == "participant":
+        stmt = stmt.where(LmsProgramAssignment.mode == "participant")
+    elif mode == "observer":
+        stmt = stmt.where(LmsProgramAssignment.mode == "observer")
+    assignments = (await db.execute(stmt)).scalars().all()
     out = []
     for assignment in assignments:
         summary = await _assignment_summary(db, assignment)
@@ -1899,6 +1960,7 @@ async def cohort_program_roster(
 
 async def program_roster(
     db: AsyncSession, *, lms_program_id: uuid.UUID, restrict_to_cohort_ids: set[uuid.UUID] | None = None,
+    mode: str = "participant",
 ) -> list[dict]:
     """Program-wide sibling of `cohort_program_roster` — every student
     assigned this program's checklist, across every cohort using it (an
@@ -1907,10 +1969,14 @@ async def program_roster(
     already covers both). `restrict_to_cohort_ids`, when given, is an
     instructor's own reachable-cohort set (`instructor_cohort_ids()`) —
     the router computes it, this function just applies it, same split of
-    responsibility `require_cohort_access` already uses elsewhere."""
-    assignments = (await db.execute(
-        select(LmsProgramAssignment).where(LmsProgramAssignment.lms_program_id == lms_program_id)
-    )).scalars().all()
+    responsibility `require_cohort_access` already uses elsewhere.
+    `mode` partitions the same way `cohort_program_roster`'s does."""
+    stmt = select(LmsProgramAssignment).where(LmsProgramAssignment.lms_program_id == lms_program_id)
+    if mode == "participant":
+        stmt = stmt.where(LmsProgramAssignment.mode == "participant")
+    elif mode == "observer":
+        stmt = stmt.where(LmsProgramAssignment.mode == "observer")
+    assignments = (await db.execute(stmt)).scalars().all()
     out = []
     for assignment in assignments:
         if restrict_to_cohort_ids is not None and assignment.cohort_id not in restrict_to_cohort_ids:

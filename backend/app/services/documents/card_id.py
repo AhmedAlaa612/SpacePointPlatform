@@ -18,6 +18,17 @@ def format_card_id(card_number: int, roles: list[str]) -> str:
     number itself — student and staff numbers are drawn from separate
     sequences (2026-08-22, operator: students and staff must not look like
     they share a numbering pool) but a bare integer can't carry that
-    distinction on its own once printed."""
-    prefix = "SP-ST-" if "student" in roles else "SP-"
+    distinction on its own once printed.
+
+    Observer mode (2026-10): a pure observer (holds `observer` and none of
+    the staff/student roles) gets `SP-OB-####-UAE`. Multi-role staff
+    testing as observers keep their existing staff card `SP-####-UAE`."""
+    role_set = set(roles or [])
+    staff_roles = {"operations", "admin", "facilitator", "instructor", "student"}
+    if "observer" in role_set and not (staff_roles & role_set):
+        prefix = "SP-OB-"
+    elif "student" in role_set:
+        prefix = "SP-ST-"
+    else:
+        prefix = "SP-"
     return f"{prefix}{card_number:04d}-UAE"

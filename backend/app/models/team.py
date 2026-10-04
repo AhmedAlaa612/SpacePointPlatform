@@ -45,7 +45,7 @@ own grading semantics); only the team identity/roster itself is shared here.
 import uuid
 from datetime import datetime, timezone
 
-from sqlalchemy import Column, DateTime, Float, ForeignKey, PrimaryKeyConstraint, String, Text, UniqueConstraint
+from sqlalchemy import Boolean, Column, DateTime, Float, ForeignKey, PrimaryKeyConstraint, String, Text, UniqueConstraint
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 
 from app.db.base import Base
@@ -90,6 +90,10 @@ class Team(Base):
     ops_criterion_notes = Column(Text, nullable=True)
     ops_scored_by = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     ops_scored_at = Column(DateTime(timezone=True), nullable=True)
+    # Observer mode (2026-10) — true for any team joined/formed by
+    # observers. Excluded from judging queues, leaderboards, and
+    # certificates; ops can still inspect via explicit observer filters.
+    is_observer = Column(Boolean, nullable=False, default=False, server_default="false", index=True)
 
 
 class TeamMember(Base):

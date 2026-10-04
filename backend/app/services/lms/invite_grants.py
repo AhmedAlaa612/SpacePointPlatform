@@ -54,19 +54,24 @@ async def _register_into_cohort(db: AsyncSession, *, user: User, cohort_id: uuid
     account gets linked), or any other hiccup here must not break
     invite-code signup or a retroactive batch apply for every other
     holder — same "log it, don't raise" discipline `sync_registration_lms`
-    itself already follows for the exact same reason."""
+    itself already follows for the exact same reason.
+
+    Observer mode (2026-10): a user holding the `observer` role registers
+    into the same cohort but with a `mode="observer"` assignment —
+    identical engine, partitioned from official data."""
     if user.contact_id is None:
         logger.warning("invite-code program grant: user %s has no linked contact, skipping", user.id)
         return
     cohort = await db.get(Cohort, cohort_id)
     if cohort is None:
         return
+    mode = "observer" if "observer" in (user.role_values or []) else "participant"
     try:
         registration = await register(
             db, contact_id=user.contact_id, cohort_id=cohort_id,
             registered_via="invite_code", payment_status="waived",
         )
-        await sync_registration_lms(db, registration=registration, cohort=cohort, create_account=True)
+        await sync_registration_lms(db, registration=registration, cohort=cohort, create_account=True, mode=mode)
     except HTTPException:
         logger.exception("invite-code program grant: couldn't register user %s into cohort %s", user.id, cohort_id)
 

@@ -20,8 +20,9 @@ from pydantic import BaseModel, ValidationError
 from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.dependencies import require_lms_content
+from app.core.dependencies import get_current_active_user, require_lms_content
 from app.db.session import get_db
+from app.models.enums import UserRole
 from app.models.lms import Course, CourseModule, Enrollment, ModuleItem, VideoCheckpoint
 from app.models.videos import Video
 from app.models.lms.invite_grant import InvitationCodeGrant
@@ -120,7 +121,8 @@ from app.services.lms.invite_grants import grant_invite_code_access
 from app.services.lms.my_programs import my_programs
 from app.services.lms import students as student_search_service
 from app.services.lms.program import (
-    PROGRAM_ITEM_PDF_BUCKET, check_item_conflicts, effective_cohort_program_items, fork_cohort_override,
+    PROGRAM_ITEM_PDF_BUCKET, assign_lms_program, check_item_conflicts, effective_cohort_program_items,
+    ensure_observer_team, fork_cohort_override,
     guard_locked_submission_scope, item_out, items_out, next_position, renumber_program_items, reorder_program_items,
     resolve_cohort_program, sync_cohort_assignments, sync_program_assignments, validate_item_payload,
     validate_item_refs,
@@ -313,7 +315,7 @@ async def _invite_code_out(db: AsyncSession, row: InvitationCode) -> InviteCodeO
         select(func.count()).select_from(User).where(User.invitation_code_used == row.code)
     )
     return InviteCodeOut(
-        id=row.id, code=row.code, label=row.label, is_active=row.is_active,
+        id=row.id, code=row.code, kind=row.kind, label=row.label, is_active=row.is_active,
         max_uses=row.max_uses, used_count=row.used_count, expires_at=row.expires_at,
         created_at=row.created_at, created_by=row.created_by, signups=signups or 0,
     )
@@ -325,7 +327,9 @@ async def list_invite_codes(
     current_user: User = Depends(require_lms_content),
 ):
     _, scope_all = await get_author_permissions(db, current_user)
-    stmt = select(InvitationCode).where(InvitationCode.kind == "student")
+    # Observer mode (2026-10): the ops list covers both learner batches —
+    # student and observer codes alike.
+    stmt = select(InvitationCode).where(InvitationCode.kind.in_(["student", "observer"]))
     if not scope_all:
         stmt = stmt.where(InvitationCode.created_by == current_user.id)
     stmt = stmt.order_by(InvitationCode.created_at.desc())
@@ -352,7 +356,7 @@ async def create_invite_code(
         raise HTTPException(status.HTTP_409_CONFLICT, detail="That code already exists")
 
     row = InvitationCode(
-        id=uuid.uuid4(), code=code, kind="student", label=body.label,
+        id=uuid.uuid4(), code=code, kind=body.kind, label=body.label,
         max_uses=body.max_uses, is_active=body.is_active, expires_at=body.expires_at,
         created_by=current_user.id,
     )
@@ -370,7 +374,7 @@ async def update_invite_code(
     current_user: User = Depends(require_lms_content),
 ):
     row = await db.get(InvitationCode, code_id)
-    if row is None or row.kind != "student":
+    if row is None or row.kind not in ("student", "observer"):
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Invite code not found")
     await check_invite_code_access(db, current_user, row)
 
@@ -414,7 +418,7 @@ async def delete_invite_code(
     plain string, not an FK, so deleting the row would silently orphan them
     from the filter rather than cascade). Deactivate it instead."""
     row = await db.get(InvitationCode, code_id)
-    if row is None or row.kind != "student":
+    if row is None or row.kind not in ("student", "observer"):
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Invite code not found")
     await check_invite_code_access(db, current_user, row)
     signups = await db.scalar(
@@ -592,7 +596,7 @@ async def student_profile(
     exactly that (per-student enrollments, built in P1-5), so this endpoint
     doesn't duplicate it."""
     user = await db.get(User, user_id)
-    if user is None or "student" not in user.role_values:
+    if user is None or not ({"student", "observer"} & set(user.role_values)):
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Student not found")
     programs = await my_programs(db, user=user)
     return StudentProfileOut(
@@ -612,7 +616,7 @@ async def student_design_runs_route(
     as the progress grid's mission table, `design_steps_for_attempts`, just
     one row per run instead of one row per student."""
     user = await db.get(User, user_id)
-    if user is None or "student" not in user.role_values:
+    if user is None or not ({"student", "observer"} & set(user.role_values)):
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Student not found")
     return await student_design_runs(db, user_id=user_id)
 
@@ -628,7 +632,7 @@ async def student_quiz_breakdown(
     `services/lms/cohort_quiz.py::get_student_topic_breakdown`. Never
     cached, same posture as instructor_assessment's own performance read."""
     user = await db.get(User, user_id)
-    if user is None or "student" not in user.role_values:
+    if user is None or not ({"student", "observer"} & set(user.role_values)):
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Student not found")
     breakdown = await cohort_quiz_service.get_student_topic_breakdown(db, user_id)
     return CohortQuizTopicBreakdownOut(topic_breakdown=breakdown)
@@ -2033,6 +2037,64 @@ async def resync_cohort_program_assignments(
     return {"items_added": added}
 
 
+@router.post("/cohorts/{cohort_id}/try-as-observer")
+async def try_as_observer(
+    cohort_id: uuid.UUID, db: AsyncSession = Depends(get_db), current: User = Depends(get_current_active_user),
+):
+    """1-click staff authoring access (2026-10, observer mode) — "Try as
+    Observer". Creates (or reuses) the caller's own `mode="observer"`
+    program assignment for this cohort, flags them onto an observer team,
+    and returns the assignment id the frontend navigates to
+    (`/learn/checklists/{assignment_id}`), where every program action
+    endpoint already works on their own assignment (ownership via
+    `_own_progress_row`, no `student` role needed).
+
+    Auth: `require_lms_content` staff (operations/facilitator/lms_author,
+    admin passes) OR an instructor assigned to this cohort. Students and
+    unassigned accounts 403 — external testers use an observer invite
+    code via `/learn/signup` instead."""
+    from app.models.lms.program import LmsProgramAssignment
+
+    roles = set(current.role_values)
+    staff = (
+        "admin" in roles
+        or bool({"operations", "facilitator", "lms_author"} & roles)
+    )
+    if not staff:
+        if "instructor" not in roles:
+            raise HTTPException(status.HTTP_403_FORBIDDEN, detail="Operation not permitted")
+        from app.services.missions.cohort_access import require_cohort_access
+        await require_cohort_access(db, cohort_id=cohort_id, user=current)
+
+    if await db.get(Cohort, cohort_id) is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Cohort not found")
+
+    existing = await db.scalar(
+        select(LmsProgramAssignment).where(
+            LmsProgramAssignment.user_id == current.id, LmsProgramAssignment.cohort_id == cohort_id,
+        )
+    )
+    if existing is not None and (getattr(existing, "mode", "participant") or "participant") != "observer":
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            detail="You already have a participant assignment in this cohort — observers need a separate account",
+        )
+
+    if "observer" not in current.role_values:
+        current.roles = [*current.roles, UserRole.observer]
+        await db.flush()
+
+    assignment = await assign_lms_program(db, user_id=current.id, cohort_id=cohort_id, mode="observer")
+    if assignment is None:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            detail="This cohort has no LMS checklist to observe yet — create one first",
+        )
+    await ensure_observer_team(db, cohort_id=cohort_id, user_id=current.id)
+    await db.commit()
+    return {"assignment_id": str(assignment.id)}
+
+
 @router.post(
     "/cohorts/{cohort_id}/program-override/items", response_model=LmsProgramItemOut, status_code=status.HTTP_201_CREATED,
 )
@@ -2260,14 +2322,20 @@ async def reset_cohort_components(
 @router.get("/cohorts/{cohort_id}/quiz-analysis")
 async def cohort_quiz_analysis(
     cohort_id: uuid.UUID,
+    include_observers: bool = False,
     db: AsyncSession = Depends(get_db),
     _: User = Depends(require_lms_content),
 ):
-    """Live topic strength and weakness analysis across all submitted quizzes for a cohort."""
+    """Live topic strength and weakness analysis across all submitted quizzes for a cohort.
+
+    Observer mode (2026-10): observer test attempts are excluded from the
+    cohort average and topic mastery by default (`include_observers=false`)."""
     cohort = await db.get(Cohort, cohort_id)
     if cohort is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Cohort not found")
-    return await cohort_quiz_service.get_cohort_quiz_analysis(db, cohort_id=cohort_id)
+    return await cohort_quiz_service.get_cohort_quiz_analysis(
+        db, cohort_id=cohort_id, include_observers=include_observers,
+    )
 
 
 # ── learning paths (self-paced ordered course sequences, 2026-08-08) ───────

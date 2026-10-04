@@ -310,7 +310,13 @@ async def ensure_card_number(db: AsyncSession, user: User) -> int:
         return user.card_number
 
     from sqlalchemy import text
-    sequence = "card_seq_student" if "student" in user.role_values else "card_seq_person"
+    # Observer mode (2026-10): pure observers draw from the student
+    # sequence; multi-role staff keep the person sequence (their card
+    # number was already allocated as staff, never revisited).
+    roles = set(user.role_values or [])
+    staff_roles = {"operations", "admin", "facilitator", "instructor", "student"}
+    pure_observer = "observer" in roles and not (staff_roles & roles)
+    sequence = "card_seq_student" if ("student" in roles or pure_observer) else "card_seq_person"
     # A real Postgres sequence never repeats a value on its own — a
     # collision here (2026-09-14 incident, `idx_users_card_number_student`)
     # means the sequence has drifted behind an existing card_number set

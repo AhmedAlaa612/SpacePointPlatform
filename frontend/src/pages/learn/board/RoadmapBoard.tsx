@@ -1,8 +1,11 @@
 import { useEffect, useState } from "react";
-import { useParams } from "@tanstack/react-router";
+import { useNavigate, useParams } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Users } from "lucide-react";
-import { fetchChecklist, type LmsProgramChecklistItem } from "@/api/lms";
+import { LogOut, RotateCcw, Users } from "lucide-react";
+import {
+  fetchChecklist, observerResetProgressApi, observerResetTeamApi, observerUnassignApi,
+  type LmsProgramChecklistItem,
+} from "@/api/lms";
 import { cn } from "@/lib/utils";
 import { NextTaskCard } from "./NextTaskCard";
 import { TileField } from "./TileField";
@@ -19,8 +22,12 @@ import { checklistItemToTile, computeLiveTaskId, groupByCheckpoint, readBoardScr
  * (handoff decision #5). */
 export default function RoadmapBoard() {
   const { assignmentId } = useParams({ strict: false }) as { assignmentId: string };
+  const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [openItemId, setOpenItemId] = useState<string | null>(null);
+  // Observer mode (2026-10) — which reset is in flight, so its button reads
+  // busy and double-clicks can't stack two resets.
+  const [observerBusy, setObserverBusy] = useState<"mine" | "team" | "leave" | null>(null);
 
   const { data: checklist, isLoading, error } = useQuery({
     queryKey: ["lms-checklist", assignmentId],
@@ -37,6 +44,41 @@ export default function RoadmapBoard() {
   });
 
   const invalidate = () => queryClient.invalidateQueries({ queryKey: ["lms-checklist", assignmentId] });
+
+  const isObserver = checklist?.mode === "observer";
+
+  const handleResetMine = async () => {
+    if (!window.confirm("Reset your own observer progress? Your team deliverables stay intact.")) return;
+    setObserverBusy("mine");
+    try {
+      await observerResetProgressApi(assignmentId);
+      await invalidate();
+    } finally {
+      setObserverBusy(null);
+    }
+  };
+
+  const handleResetTeam = async () => {
+    if (!window.confirm("Reset this observer team's deliverables and unlock its final submission?")) return;
+    setObserverBusy("team");
+    try {
+      await observerResetTeamApi(assignmentId);
+      await invalidate();
+    } finally {
+      setObserverBusy(null);
+    }
+  };
+
+  const handleLeaveProgram = async () => {
+    if (!window.confirm("Leave this observer program? Your observer progress and team membership are removed.")) return;
+    setObserverBusy("leave");
+    try {
+      await observerUnassignApi(assignmentId);
+      await navigate({ to: "/learn/checklists" });
+    } finally {
+      setObserverBusy(null);
+    }
+  };
 
   // Restore scroll position on return from a deep link (flow rule 5: "Back
   // closes the loop... at the same scroll position"). Runs once the
@@ -95,6 +137,44 @@ export default function RoadmapBoard() {
 
   return (
     <div className="flex flex-col">
+      {/* Observer mode (2026-10) — the "reset" half of "a student with a
+          label plus a reset". Full student access; actions write to the
+          observer sandbox, never official data. */}
+      {isObserver && (
+        <div className="bg-indigo-500/10 border-b border-indigo-500/20 text-indigo-950 dark:text-indigo-200 px-4 py-2.5 text-xs font-medium flex items-center justify-between gap-3 flex-wrap">
+          <div className="flex items-center gap-2">
+            <span className="px-2 py-0.5 rounded font-bold uppercase tracking-wider bg-indigo-500/20 border border-indigo-500/30">
+              Observer Mode
+            </span>
+            <span className="hidden sm:inline">Full student access · Actions write to your observer sandbox</span>
+          </div>
+          <div className="flex items-center gap-2 flex-wrap">
+            <button
+              onClick={() => void handleResetMine()}
+              disabled={observerBusy !== null}
+              className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-indigo-500/30 hover:bg-indigo-500/10 transition-colors cursor-pointer disabled:opacity-50 text-xs font-semibold"
+            >
+              <RotateCcw size={12} /> {observerBusy === "mine" ? "Resetting…" : "Reset My Progress"}
+            </button>
+            {checklist.team_name && (
+              <button
+                onClick={() => void handleResetTeam()}
+                disabled={observerBusy !== null}
+                className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-indigo-500/30 hover:bg-indigo-500/10 transition-colors cursor-pointer disabled:opacity-50 text-xs font-semibold"
+              >
+                <RotateCcw size={12} /> {observerBusy === "team" ? "Resetting…" : "Reset Team Deliverables"}
+              </button>
+            )}
+            <button
+              onClick={() => void handleLeaveProgram()}
+              disabled={observerBusy !== null}
+              className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg hover:bg-indigo-500/10 transition-colors cursor-pointer disabled:opacity-50 text-xs font-semibold"
+            >
+              <LogOut size={12} /> {observerBusy === "leave" ? "Leaving…" : "Leave"}
+            </button>
+          </div>
+        </div>
+      )}
       <div className={cn("transition-[filter,opacity] duration-150", openItem && "md:blur-[1.5px] md:opacity-50")}>
         {/* Banner — native ratio, full width, never cropped (the clipping
             fix). The fade below is a lighting cue, not a crop: it sits on

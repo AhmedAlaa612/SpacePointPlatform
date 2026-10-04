@@ -367,8 +367,13 @@ async def list_judges_with_progress(db: AsyncSession, *, cohort_id: uuid.UUID) -
 
 async def leaderboard(db: AsyncSession, *, cohort_id: uuid.UUID) -> list[dict]:
     """Standings for a cohort. Returns one row per team with final aggregated
-    scores, timing adjustments (dynamic or overridden), and judge details."""
-    teams = (await db.execute(select(Team).where(Team.cohort_id == cohort_id).order_by(Team.name))).scalars().all()
+    scores, timing adjustments (dynamic or overridden), and judge details.
+
+    Observer mode (2026-10): `is_observer=True` test teams never appear on
+    official leaderboards — same partition as the judge queue and certs."""
+    teams = (await db.execute(
+        select(Team).where(Team.cohort_id == cohort_id, Team.is_observer.is_(False)).order_by(Team.name)
+    )).scalars().all()
     advanced_to_by_name: dict[str, list[str]] = {}
     cohort = await db.scalar(select(Cohort).where(Cohort.id == cohort_id))
     if cohort is not None:

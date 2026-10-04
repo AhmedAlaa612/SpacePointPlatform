@@ -47,7 +47,13 @@ async def resolve_invite_code(
         InvitationCode.code == normalized, InvitationCode.is_active.is_(True),
     )
     if kind is not None:
-        stmt = stmt.where(InvitationCode.kind == kind)
+        if kind == "student":
+            # Observer mode (2026-10): an observer batch code opens the
+            # same LMS signup as a student code — the signup itself branches
+            # on invitation.kind for roles/card/mode.
+            stmt = stmt.where(InvitationCode.kind.in_(["student", "observer"]))
+        else:
+            stmt = stmt.where(InvitationCode.kind == kind)
     invitation = (await db.execute(stmt)).scalars().first()
     if invitation:
         if invitation.expires_at and invitation.expires_at < datetime.now(timezone.utc):

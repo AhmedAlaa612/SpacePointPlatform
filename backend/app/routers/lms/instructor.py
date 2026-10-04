@@ -15,6 +15,7 @@ student's own active registrations instead.
 """
 
 import uuid
+from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
@@ -79,20 +80,26 @@ async def my_reachable_programs(
 @router.get("/cohorts/{cohort_id}/program-progress", response_model=list[LmsProgramRosterRowOut])
 async def cohort_program_progress(
     cohort_id: uuid.UUID, db: AsyncSession = Depends(get_db), current: User = Depends(get_current_active_user),
+    mode: Literal["participant", "observer", "all"] = "participant",
 ):
+    """Ops/instructor progress roster. `mode` (2026-10, observer mode)
+    partitions the `[Students | Observers]` toggle — "participant" (default)
+    lists real students only, "observer" lists tester assignments only,
+    "all" lists everyone."""
     await require_cohort_access(db, cohort_id=cohort_id, user=current)
-    return await cohort_program_roster(db, cohort_id=cohort_id)
+    return await cohort_program_roster(db, cohort_id=cohort_id, mode=mode)
 
 
 @router.get("/programs/{lms_program_id}/progress", response_model=list[LmsProgramRosterRowOut])
 async def program_progress(
     lms_program_id: uuid.UUID, db: AsyncSession = Depends(get_db), current: User = Depends(get_current_active_user),
+    mode: Literal["participant", "observer", "all"] = "participant",
 ):
     """Program-wide roster (2026-08-22) — every cohort using this program at
     once, restricted to the instructor's own cohorts when they aren't staff
     (`instructor_cohort_ids()` returns `None`, unrestricted, for staff)."""
     restrict = await instructor_cohort_ids(db, user=current)
-    return await program_roster(db, lms_program_id=lms_program_id, restrict_to_cohort_ids=restrict)
+    return await program_roster(db, lms_program_id=lms_program_id, restrict_to_cohort_ids=restrict, mode=mode)
 
 
 @router.get(
@@ -203,7 +210,10 @@ async def confirm_checklist_item(
     if progress is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Checklist item not found")
     await db.commit()
-    roster = await cohort_program_roster(db, cohort_id=cohort_id)
+    # mode="all": the confirmed assignment may be an observer's (the roster
+    # defaults to participants-only, which would 404 here after a good
+    # confirm) — this endpoint signs off either slice.
+    roster = await cohort_program_roster(db, cohort_id=cohort_id, mode="all")
     row = next((r for r in roster if r["assignment_id"] == assignment_id), None)
     if row is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Assignment not found")
@@ -395,7 +405,7 @@ async def student_profile(
 ):
     await _require_student_access(db, user_id=user_id, current=current)
     user = await db.get(User, user_id)
-    if user is None or "student" not in user.role_values:
+    if user is None or not ({"student", "observer"} & set(user.role_values)):
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Student not found")
     programs = await my_programs(db, user=user)
     return StudentProfileOut(
@@ -430,7 +440,7 @@ async def student_design_runs_route(
 ):
     await _require_student_access(db, user_id=user_id, current=current)
     user = await db.get(User, user_id)
-    if user is None or "student" not in user.role_values:
+    if user is None or not ({"student", "observer"} & set(user.role_values)):
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Student not found")
     return await student_design_runs(db, user_id=user_id)
 
@@ -444,7 +454,7 @@ async def student_quiz_breakdown_route(
     every other student endpoint in this file."""
     await _require_student_access(db, user_id=user_id, current=current)
     user = await db.get(User, user_id)
-    if user is None or "student" not in user.role_values:
+    if user is None or not ({"student", "observer"} & set(user.role_values)):
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Student not found")
     breakdown = await cohort_quiz_service.get_student_topic_breakdown(db, user_id)
     return CohortQuizTopicBreakdownOut(topic_breakdown=breakdown)
