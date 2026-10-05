@@ -11,6 +11,7 @@ import { NextTaskCard } from "./NextTaskCard";
 import { TileField } from "./TileField";
 import { FinalGateBar } from "./FinalGateBar";
 import { TaskDrawer } from "./TaskDrawer";
+import { CheckpointDrawer } from "./CheckpointDrawer";
 import { StudentTeamResultCard } from "@/components/competitions/StudentTeamResultCard";
 import { ObserverTeamModal } from "@/components/lms/ObserverTeamModal";
 import { checklistItemToTile, computeLiveTaskId, groupByCheckpoint, readBoardScrollPosition } from "./roadmap";
@@ -270,12 +271,21 @@ export default function RoadmapBoard() {
 
       {/* key remounts the drawer per item — its own per-item local state
           (guidelineOpened, submitUrl) resets via fresh useState instead of
-          a useEffect+setState reset on item change. */}
-      <TaskDrawer
-        key={openItem?.id ?? "closed"} item={openItem} assignmentId={assignmentId} teamName={checklist.team_name}
-        teamFinalLocked={!!checklist.team_final_locked_at}
-        onClose={() => setOpenItemId(null)} onChanged={invalidate}
-      />
+          a useEffect+setState reset on item change. Checkpoint gates get
+          their own simple lock modal instead of the task drawer. */}
+      {openItem?.item_type === "checkpoint" ? (
+        <CheckpointDrawer
+          key={openItem.id} item={openItem} items={items} assignmentId={assignmentId}
+          hasTeam={!!checklist.team_name}
+          onClose={() => setOpenItemId(null)} onChanged={invalidate}
+        />
+      ) : (
+        <TaskDrawer
+          key={openItem?.id ?? "closed"} item={openItem} assignmentId={assignmentId} teamName={checklist.team_name}
+          teamFinalLocked={!!checklist.team_final_locked_at}
+          onClose={() => setOpenItemId(null)} onChanged={invalidate}
+        />
+      )}
     </div>
   );
 }

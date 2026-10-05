@@ -8,6 +8,7 @@ import { searchStaffApi, listInviteCodesApi, type StaffOption } from "@/api/lms_
 import { UserProfileModal } from "@/components/UserProfileModal"
 import { CompetitionCertificatesModal } from "@/pages/admin/components/CompetitionCertificatesModal"
 import { TeamScoreBreakdownModal } from "@/components/competitions/TeamScoreBreakdownModal"
+import { TeamCheckpointGates } from "@/components/competitions/TeamCheckpointGates"
 import { TeamOperationsScoreModal } from "@/components/competitions/TeamOperationsScoreModal"
 import { PublishResultsModal } from "@/components/competitions/PublishResultsModal"
 import { TimingOverrideModal } from "@/components/competitions/TimingOverrideModal"
@@ -1390,6 +1391,7 @@ function TeamCard({ team, cohortId, onChanged }: { team: CompetitionTeam; cohort
           <UserPlus size={13} /> {isObserverTeam ? "Add observer" : "Add member"}
         </button>
       )}
+      <TeamCheckpointGates teamId={team.id} cohortId={cohortId} />
       {profileUserId && (
         <UserProfileModal userId={profileUserId} onClose={() => setProfileUserId(null)} />
       )}

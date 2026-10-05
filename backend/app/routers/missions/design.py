@@ -91,7 +91,7 @@ from app.services.missions.design.rf_calc import BAND_PRESETS
 from app.services.missions.verifiers.design import ensure_design, mark_design_complete
 from app.services.lms.admin_progress import DESIGN_STEP_LABELS
 from app.services.missions.gating import gate_map_for_attempt, require_step_unlocked
-from app.services.lms.program import team_final_locked_for_attempt
+from app.services.lms.program import team_final_locked_for_attempt, team_frozen_step_keys_for_attempt
 from app.routers.missions.student import _own_attempt
 
 router = APIRouter(prefix="/missions/design", tags=["missions-design"])
@@ -782,6 +782,17 @@ async def confirm_design_step(
         raise HTTPException(status.HTTP_400_BAD_REQUEST, detail=f"'{step_key}' can't be self-confirmed")
     attempt = await _own_design_attempt(db, attempt_id, current)
     await _require_team_not_final_locked(db, attempt=attempt)
+    # Checkpoint freeze (design slice): only this phase's *confirmed
+    # state* freezes when its own checklist tile sits above a locked
+    # checkpoint — every other design write in this file stays open on
+    # purpose, because the same shared attempt also drives
+    # downstream-phase tiles below the checkpoint that the team must
+    # keep editing.
+    if step_key in await team_frozen_step_keys_for_attempt(db, attempt_id=attempt.id):
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            detail="This design phase is frozen by a locked checkpoint — ask an ops staff member to reopen it",
+        )
     if step_key != "setup":
         await require_step_unlocked(db, attempt=attempt, step_key=step_key)
     design = await ensure_design(db, attempt=attempt)

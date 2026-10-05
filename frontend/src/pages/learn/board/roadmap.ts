@@ -1,5 +1,5 @@
 import {
-  BatteryCharging, BookOpen, Calendar, Cpu, FileText, HelpCircle, Image, Layout, Link2, Lock, Rocket, Scale, Target, Upload,
+  BatteryCharging, BookOpen, Calendar, Cpu, FileText, Flag, HelpCircle, Image, Layout, Link2, Lock, Rocket, Scale, Target, Upload,
   ClipboardCheck, ClipboardList, Users, type LucideIcon,
 } from "lucide-react";
 import type { LmsProgramChecklistItem } from "@/api/lms";
@@ -27,6 +27,8 @@ export interface BoardTile {
   icon: LucideIcon;
   optional?: boolean;
   meta?: string | null;
+  /** Set for checkpoint gates so the tile renders the gate glow. */
+  accent?: "checkpoint";
 }
 
 export function itemDone(item: LmsProgramChecklistItem): boolean {
@@ -95,11 +97,14 @@ export const STEP_ICON: Record<MissionStepKey, LucideIcon> = {
 const ITEM_TYPE_ICON: Record<LmsProgramChecklistItem["item_type"], LucideIcon> = {
   course: BookOpen, mission_run: Rocket, external_link: Link2, submission: Upload,
   pdf: FileText, manual: ClipboardCheck, session: Calendar, quiz: HelpCircle, team_setup: Users,
+  checkpoint: Flag,
 };
 
 /** Locked tiles always render `lock` regardless of type (README: "locked
- * tiles always render lock"). */
+ * tiles always render lock"). Checkpoint gates keep their flag even when
+ * locked — the gate identity matters more than the generic padlock here. */
 export function iconForItem(item: LmsProgramChecklistItem): LucideIcon {
+  if (item.item_type === "checkpoint" && item.status !== "done") return Flag;
   if (!itemDone(item) && item.locked) return Lock;
   if (item.item_type === "mission_run" && item.mission_step_key) {
     return STEP_ICON[item.mission_step_key as MissionStepKey] ?? Rocket;
@@ -135,7 +140,27 @@ export function checklistItemToTile(item: LmsProgramChecklistItem): BoardTile {
   return {
     id: item.id, title: item.title, state: tileState(item), icon: iconForItem(item),
     optional: item.optional, meta: tileMeta(item),
+    ...(item.item_type === "checkpoint" ? { accent: "checkpoint" as const } : {}),
   };
+}
+
+/** A checkpoint gate's own section: required team-scoped items after the
+ * previous checkpoint (or the start) and before this gate, in position
+ * order. Mirrors the backend's `checkpoint_lock_readiness` slice —
+ * individual items never block the lock, so they're excluded here too. */
+export function checkpointSectionItems(
+  items: LmsProgramChecklistItem[], checkpointId: string,
+): LmsProgramChecklistItem[] {
+  const ordered = [...items].sort((a, b) => a.position - b.position);
+  const idx = ordered.findIndex((i) => i.id === checkpointId);
+  if (idx === -1) return [];
+  let start = 0;
+  for (let i = idx - 1; i >= 0; i--) {
+    if (ordered[i].item_type === "checkpoint") { start = i + 1; break; }
+  }
+  return ordered.slice(start, idx).filter(
+    (i) => !i.optional && i.scope === "team" && i.item_type !== "checkpoint",
+  );
 }
 
 export type NavTarget =
@@ -170,7 +195,7 @@ export function navTargetFor(item: LmsProgramChecklistItem): NavTarget {
   if (item.item_type === "quiz") return { kind: "quiz", itemId: item.id };
   if (
     item.item_type === "submission" || item.item_type === "pdf" || item.item_type === "manual"
-    || item.item_type === "session" || item.item_type === "team_setup"
+    || item.item_type === "session" || item.item_type === "team_setup" || item.item_type === "checkpoint"
   ) {
     return { kind: "drawer" };
   }

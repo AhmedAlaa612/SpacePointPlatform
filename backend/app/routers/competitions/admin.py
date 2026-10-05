@@ -37,7 +37,7 @@ from app.schemas.competitions import (
     CompetitionLeaderboardRowOut, CompetitionPublicationOut, CompetitionPublishIn, CompetitionVisibilitySettings,
     CompetitionRubricIn, CompetitionRubricOut,
     CompetitionTeamCreateIn, CompetitionTeamMemberIn, CompetitionTeamOut, CompetitionTeamRenameIn,
-    CohortSubmissionWindowsUpdate, TeamTimingAdjustmentUpdate, TeamScoreBreakdownOut,
+    CohortSubmissionWindowsUpdate, TeamCheckpointStateOut, TeamTimingAdjustmentUpdate, TeamScoreBreakdownOut,
     OpsScoreIn, OpsScoreOut,
 )
 from app.services.competitions import analytics as analytics_service
@@ -208,6 +208,28 @@ async def unlock_team(team_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
     gated ops-only by this whole router's `require_lms_content` dependency
     — no separate check needed here."""
     await team_service.unlock_team_submission(db, team_id=team_id)
+    await db.commit()
+    rows = await team_service.list_teams_with_members(db, cohort_id=(await _team_cohort_id(db, team_id)))
+    return next(CompetitionTeamOut(**r) for r in rows if r["id"] == team_id)
+
+
+@router.get("/teams/{team_id}/checkpoints", response_model=list[TeamCheckpointStateOut])
+async def get_team_checkpoints(team_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
+    """This team's checkpoint gates with their lock states — backs the ops
+    Teams tab's gate badges + per-gate unlock buttons. Same ops-only gating
+    as everything else on this router."""
+    return await team_service.team_checkpoint_states(db, team_id=team_id)
+
+
+@router.post("/teams/{team_id}/unlock-checkpoint/{checkpoint_item_id}", response_model=CompetitionTeamOut)
+async def unlock_team_checkpoint(
+    team_id: uuid.UUID, checkpoint_item_id: uuid.UUID, db: AsyncSession = Depends(get_db),
+):
+    """Reopens one checkpoint gate for a team and cascades down: every
+    checkpoint at or after it on the team's checklist resets too, plus
+    the team's final lock — so the team can re-work and re-lock forward
+    again. Same ops-only gating as `unlock_team` above."""
+    await team_service.unlock_team_checkpoint(db, team_id=team_id, checkpoint_item_id=checkpoint_item_id)
     await db.commit()
     rows = await team_service.list_teams_with_members(db, cohort_id=(await _team_cohort_id(db, team_id)))
     return next(CompetitionTeamOut(**r) for r in rows if r["id"] == team_id)

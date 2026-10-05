@@ -585,6 +585,22 @@ export const deleteTeamApi = (teamId: string) =>
 export const unlockTeamApi = (teamId: string) =>
   api.post<CompetitionTeam>(`/competitions/admin/teams/${teamId}/unlock`).then((r) => r.data)
 
+/** One checkpoint gate's lock state for one team. */
+export interface TeamCheckpointState {
+  item_id: string
+  title: string
+  position: number
+  status: string
+}
+
+export const getTeamCheckpointsApi = (teamId: string) =>
+  api.get<TeamCheckpointState[]>(`/competitions/admin/teams/${teamId}/checkpoints`).then((r) => r.data)
+
+/** Reopens one checkpoint gate and cascades down (later gates + final
+ * lock) — see routers/competitions/admin.py::unlock_team_checkpoint. */
+export const unlockTeamCheckpointApi = (teamId: string, checkpointItemId: string) =>
+  api.post<CompetitionTeam>(`/competitions/admin/teams/${teamId}/unlock-checkpoint/${checkpointItemId}`).then((r) => r.data)
+
 export const resetObserverTeamApi = (teamId: string) =>
   api.post<CompetitionTeam>(`/competitions/admin/teams/${teamId}/observer-reset`).then((r) => r.data)
 

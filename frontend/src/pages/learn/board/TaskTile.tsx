@@ -35,6 +35,11 @@ export function TaskTile({
   const Icon = tile.icon;
   const interactive = state !== "locked";
   const meta = tile.meta;
+  // Checkpoint gates reuse the final gate's animated beacon border
+  // (FinalGateBar's `gate-beacon-border`, mounted on the same board) so a
+  // gate reads as a milestone, not a plain task. Only the reachable one
+  // glows — locked/cleared gates keep their own state styling.
+  const isGate = tile.accent === "checkpoint" && state === "live";
 
   return (
     <div
@@ -48,6 +53,7 @@ export function TaskTile({
         "relative z-[1] flex w-[200px] h-[104px] md:w-[158px] md:h-[136px] shrink-0 flex-col rounded-2xl p-3 md:p-[13px] box-border bg-card transition-transform transition-shadow duration-150 ease-in-out",
         interactive ? "cursor-pointer hover:-translate-y-1" : "cursor-default",
         isPulsing && "animate-board-pulse",
+        isGate && "gate-beacon-border border-[2px]",
       )}
       style={{ boxShadow: RING_GLOW[state] }}
     >
@@ -88,7 +94,7 @@ export function TaskTile({
         className={cn("mt-auto md:mt-1.5 text-[10px] font-bold tracking-[0.03em]", state === "locked" && "flex items-center gap-1")}
         style={{ color: INK[state] }}
       >
-        {actionLineText(state)}
+        {isGate ? "Review gate →" : actionLineText(state)}
       </div>
     </div>
   );

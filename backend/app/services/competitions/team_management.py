@@ -24,7 +24,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.competitions.judging import CompetitionScore
-from app.models.lms.program import LmsProgramTeamItemProgress
+from app.models.lms.program import LmsProgramItem, LmsProgramTeamItemProgress
 from app.models.missions.mission import MissionAttempt
 from app.models.sessions.cohort import Cohort
 from app.models.sessions.registration import Registration
@@ -305,6 +305,93 @@ async def unlock_team_submission(db: AsyncSession, *, team_id: uuid.UUID) -> Tea
     team = await db.get(Team, team_id)
     if team is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Team not found")
+    team.final_locked_at = None
+    team.final_locked_by = None
+    await db.flush()
+    return team
+
+
+async def team_checkpoint_states(db: AsyncSession, *, team_id: uuid.UUID) -> list[dict]:
+    """Every checkpoint gate on this team's own checklist with this team's
+    lock state — read-only backing for the ops Teams tab's gate badges.
+    A gate with no team row yet reads `pending` (never locked). Raises 404
+    when the team (or its checklist) doesn't exist."""
+    from app.services.lms.program import resolve_cohort_program
+
+    team = await db.get(Team, team_id)
+    if team is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Team not found")
+    if team.cohort_id is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="This team has no cohort checklist")
+    resolved = await resolve_cohort_program(db, team.cohort_id)
+    if resolved is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="This team's cohort has no checklist")
+    _program, items = resolved
+    checkpoints = sorted(
+        (i for i in items if i.item_type == "checkpoint"), key=lambda i: i.position,
+    )
+    states = {c.id: "pending" for c in checkpoints}
+    if checkpoints:
+        rows = (await db.execute(
+            select(LmsProgramTeamItemProgress).where(
+                LmsProgramTeamItemProgress.team_id == team.id,
+                LmsProgramTeamItemProgress.item_id.in_([c.id for c in checkpoints]),
+            )
+        )).scalars().all()
+        for progress in rows:
+            states[progress.item_id] = progress.status
+    return [
+        {"item_id": c.id, "title": c.title, "position": c.position, "status": states[c.id]}
+        for c in checkpoints
+    ]
+
+
+async def unlock_team_checkpoint(db: AsyncSession, *, team_id: uuid.UUID, checkpoint_item_id: uuid.UUID) -> Team:
+    """Ops-only checkpoint reopen — clears the target checkpoint's team
+    lock *and cascades down*: every checkpoint positioned at or after the
+    target on this team's own checklist is reset too (a later gate must
+    never read locked while an earlier one just reopened), plus the team's
+    final lock, so the team can re-work and re-lock the section. Only
+    checkpoint rows reset — section items above stay done, the team
+    re-locks rather than re-does them. first_locked_at is preserved for
+    auditing, same as `unlock_team_submission`. Idempotent: unlocking an
+    already-open checkpoint still clears anything locked after it (and the
+    final lock), rather than no-op-ing on the target alone."""
+    from app.services.lms.program import resolve_cohort_program
+
+    team = await db.get(Team, team_id)
+    if team is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Team not found")
+    target = await db.get(LmsProgramItem, checkpoint_item_id)
+    if target is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Checkpoint item not found")
+    if target.item_type != "checkpoint":
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="This item isn't a checkpoint")
+    if team.cohort_id is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="This team has no cohort checklist")
+    resolved = await resolve_cohort_program(db, team.cohort_id)
+    if resolved is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="This team's cohort has no checklist")
+    _program, items = resolved
+    if target.id not in {i.id for i in items}:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST, detail="This checkpoint isn't on the team's checklist",
+        )
+    cascade_ids = [
+        i.id for i in items
+        if i.item_type == "checkpoint" and i.position >= target.position
+    ]
+    if cascade_ids:
+        rows = (await db.execute(
+            select(LmsProgramTeamItemProgress).where(
+                LmsProgramTeamItemProgress.team_id == team.id,
+                LmsProgramTeamItemProgress.item_id.in_(cascade_ids),
+            )
+        )).scalars().all()
+        for progress in rows:
+            progress.status = "pending"
+            progress.completed_at = None
+            progress.confirmed_by_user_id = None
     team.final_locked_at = None
     team.final_locked_by = None
     await db.flush()

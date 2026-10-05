@@ -1115,6 +1115,9 @@ export function ItemForm({
   // misattributing whatever's already tracked against the item.
   const submissionScopeLocked = itemType === "submission"
   const missionRunScopeLocked = itemType === "mission_run"
+  // A checkpoint is a pure team gate (title/description only) — always
+  // team-scoped, never optional, no confirmation, no linked content.
+  const isCheckpoint = itemType === "checkpoint"
   const [courseId, setCourseId] = useState(initial?.course_id ?? "")
   const [missionId, setMissionId] = useState(initial?.mission_id ?? "")
   const [variantId, setVariantId] = useState(initial?.variant_id ?? "")
@@ -1220,9 +1223,9 @@ export function ItemForm({
         item_type: itemType,
         title: title.trim(),
         description: description.trim() || null,
-        optional,
-        requires_confirmation: requiresConfirmation,
-        scope: itemType === "team_setup" || (TEAM_SCOPABLE_TYPES.has(itemType) && teamScoped) ? "team" : "individual",
+        optional: isCheckpoint ? false : optional,
+        requires_confirmation: isCheckpoint ? false : requiresConfirmation,
+        scope: itemType === "team_setup" || isCheckpoint || (TEAM_SCOPABLE_TYPES.has(itemType) && teamScoped) ? "team" : "individual",
         course_id: itemType === "course" ? courseId : null,
         mission_id: itemType === "mission_run" ? missionId : null,
         variant_id: itemType === "mission_run" ? (variantId || null) : null,
@@ -1241,12 +1244,12 @@ export function ItemForm({
         session_meeting_url: itemType === "session" ? (sessionMeetingUrl.trim() || null) : null,
         cohort_quiz_template_id: itemType === "quiz" ? cohortQuizTemplateId : null,
         mission_step_key: isDesignMission && missionStepKey ? missionStepKey : null,
-        gated,
-        guideline_kind: guidelineKind || null,
-        guideline_url: guidelineKind === "link" ? (guidelineUrl.trim() || null)
+        gated: isCheckpoint ? false : gated,
+        guideline_kind: isCheckpoint ? null : guidelineKind || null,
+        guideline_url: isCheckpoint ? null : guidelineKind === "link" ? (guidelineUrl.trim() || null)
           : guidelineKind === "video" && videoMode === "embed" ? (guidelineUrl.trim() || null)
           : null,
-        checkpoint_label: checkpointLabel.trim() || null,
+        checkpoint_label: isCheckpoint ? null : checkpointLabel.trim() || null,
       })
     } catch (e: unknown) {
       const detail = (e as { response?: { data?: { detail?: string } } })?.response?.data?.detail
@@ -1443,6 +1446,13 @@ export function ItemForm({
         </p>
       )}
 
+      {isCheckpoint && (
+        <p className="text-xs text-muted-foreground">
+          A team gate on the roadmap: everything below it stays locked until the team locks it.
+          Always shared with the whole team and always required — just give it a title.
+        </p>
+      )}
+
       {itemType === "quiz" && (
         <div className="flex flex-col gap-1">
           <select
@@ -1469,7 +1479,7 @@ export function ItemForm({
         </div>
       )}
 
-      {itemType !== "session" && (
+      {itemType !== "session" && !isCheckpoint && (
         <div className="flex flex-col gap-1">
           <label className="text-[11px] font-medium text-muted-foreground">Deadline (optional)</label>
           <input
@@ -1490,7 +1500,10 @@ export function ItemForm({
 
       {/* Roadmap board (2026-09) — checkpoint grouping + the task drawer's
           guideline step. Shown for every item type, not just design phases:
-          any tile can carry a guideline before its own work/submit steps. */}
+          any tile can carry a guideline before its own work/submit steps.
+          Checkpoints skip both: a gate carries no label of its own and no
+          guide — just a title and description. */}
+      {!isCheckpoint && (
       <div className="flex flex-col gap-1.5 pt-1 border-t border-border/60">
         <label className="text-[11px] font-medium text-muted-foreground">Checkpoint (optional)</label>
         <input
@@ -1504,7 +1517,9 @@ export function ItemForm({
           </datalist>
         )}
       </div>
+      )}
 
+      {!isCheckpoint && (
       <div className="flex flex-col gap-1.5">
         <label className="text-[11px] font-medium text-muted-foreground">Guideline (optional)</label>
         <select
@@ -1558,20 +1573,27 @@ export function ItemForm({
           </>
         )}
       </div>
+      )}
 
       <div className="flex items-center gap-4 pt-1 flex-wrap">
+        {!isCheckpoint && (
         <label className="flex items-center gap-1.5 text-xs text-foreground cursor-pointer">
           <input type="checkbox" checked={optional} onChange={(e) => setOptional(e.target.checked)} />
           Optional
         </label>
+        )}
+        {!isCheckpoint && (
         <label className="flex items-center gap-1.5 text-xs text-foreground cursor-pointer">
           <input type="checkbox" checked={gated} onChange={(e) => setGated(e.target.checked)} />
           Locked until the previous task is done
         </label>
+        )}
+        {!isCheckpoint && (
         <label className="flex items-center gap-1.5 text-xs text-foreground cursor-pointer">
           <input type="checkbox" checked={requiresConfirmation} onChange={(e) => setRequiresConfirmation(e.target.checked)} />
           Needs instructor/ops confirmation
         </label>
+        )}
         {TEAM_SCOPABLE_TYPES.has(itemType) && !submissionScopeLocked && !missionRunScopeLocked && (
           <label className="flex items-center gap-1.5 text-xs text-foreground cursor-pointer">
             <input type="checkbox" checked={teamScoped} onChange={(e) => setTeamScoped(e.target.checked)} />
@@ -1593,6 +1615,11 @@ export function ItemForm({
         {itemType === "team_setup" && (
           <span className="text-xs text-muted-foreground">
             Always shared with the whole team — any teammate can set or change it until the deadline.
+          </span>
+        )}
+        {isCheckpoint && (
+          <span className="text-xs text-muted-foreground">
+            Always shared with the whole team and always required — any teammate can lock it once its section is done.
           </span>
         )}
       </div>

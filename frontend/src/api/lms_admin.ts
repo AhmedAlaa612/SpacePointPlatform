@@ -349,7 +349,7 @@ export const deleteCheckpointApi = (id: string) => api.delete<void>(`/lms/admin/
 // see backend/app/models/lms/program.py's module docstring for the full shape.
 
 export type LmsProgramItemType =
-  | "course" | "mission_run" | "external_link" | "submission" | "pdf" | "manual" | "session" | "quiz" | "team_setup";
+  | "course" | "mission_run" | "external_link" | "submission" | "pdf" | "manual" | "session" | "quiz" | "team_setup" | "checkpoint";
 /** individual (default): per-student progress. team: the whole Team shares
  * one progress row — only valid for submission/external_link/manual/
  * mission_run/team_setup items (enforced server-side in

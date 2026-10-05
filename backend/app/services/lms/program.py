@@ -170,6 +170,9 @@ def validate_item_payload(body: LmsProgramItemIn) -> None:
         # Always team-scoped (checked below), so there's no individual
         # variant to require anything of either.
         "team_setup": True,
+        # A checkpoint is a pure milestone gate (title/description only) —
+        # no linked content of its own, so nothing to require.
+        "checkpoint": True,
     }
     if not required[body.item_type]:
         raise HTTPException(
@@ -186,10 +189,10 @@ def validate_item_payload(body: LmsProgramItemIn) -> None:
     # can build one Design mission together, sharing a single
     # `MissionAttempt` — see `assign_lms_program`/`sync_assignment_items`'s
     # team-scoped mission_run branch.
-    if body.scope == "team" and body.item_type not in ("submission", "external_link", "manual", "mission_run", "team_setup"):
+    if body.scope == "team" and body.item_type not in ("submission", "external_link", "manual", "mission_run", "team_setup", "checkpoint"):
         raise HTTPException(
             status.HTTP_400_BAD_REQUEST,
-            detail=f"A '{body.item_type}' item can't be team-scoped — only submission, external_link, manual, mission_run, or team_setup items can be",
+            detail=f"A '{body.item_type}' item can't be team-scoped — only submission, external_link, manual, mission_run, team_setup, or checkpoint items can be",
         )
     # team_setup (2026-09-14, team onboarding) — the whole point is naming
     # the team, a fact that belongs to the team, not to any one member; an
@@ -199,6 +202,35 @@ def validate_item_payload(body: LmsProgramItemIn) -> None:
         raise HTTPException(
             status.HTTP_400_BAD_REQUEST, detail="A team_setup item is always team-scoped",
         )
+    # checkpoint — a team milestone gate. Always team-scoped (its lock
+    # lives in LmsProgramTeamItemProgress, like team_setup), never
+    # optional (it counts as a required step in N/M counters, the final
+    # lock, and the certificate gate), and never confirmation-gated
+    # (locking *is* the team's own confirm action via the lock endpoint).
+    if body.item_type == "checkpoint":
+        if body.scope != "team":
+            raise HTTPException(
+                status.HTTP_400_BAD_REQUEST, detail="A checkpoint item is always team-scoped",
+            )
+        if body.optional:
+            raise HTTPException(
+                status.HTTP_400_BAD_REQUEST, detail="A checkpoint item can't be optional — it always counts as a required step",
+            )
+        if body.requires_confirmation:
+            raise HTTPException(
+                status.HTTP_400_BAD_REQUEST, detail="A checkpoint item doesn't use instructor confirmation — locking it is the team's own confirm action",
+            )
+        # Pure gate: no linked content of its own.
+        if (
+            body.course_id is not None or body.mission_id is not None or body.variant_id is not None
+            or body.external_url or body.submission_prompt or body.submission_multi_link
+            or body.submission_link_labels is not None or body.cohort_quiz_template_id is not None
+            or body.mission_step_key is not None
+        ):
+            raise HTTPException(
+                status.HTTP_400_BAD_REQUEST,
+                detail="A checkpoint item is just a title/description gate — it can't link a course, mission, URL, submission, quiz, or mission phase",
+            )
 
     if body.submission_multi_link and body.item_type != "submission":
         raise HTTPException(
@@ -264,7 +296,7 @@ def guard_locked_submission_scope(item: LmsProgramItem, body: LmsProgramItemIn) 
     MissionAttempt and report it to the whole team and to judges as if it
     were their shared run. Delete and re-add the item instead of changing
     this once it might have anything tracked against it."""
-    if item.item_type in ("submission", "mission_run") and body.scope != item.scope:
+    if item.item_type in ("submission", "mission_run", "checkpoint") and body.scope != item.scope:
         raise HTTPException(
             status.HTTP_400_BAD_REQUEST,
             detail=f"A {item.item_type} item's scope (individual vs. team) can't be changed after it's created — "
@@ -1268,23 +1300,45 @@ async def refresh_item_progress(
 def compute_lock_states(
     items: list[LmsProgramItem], statuses: dict[uuid.UUID, str],
 ) -> dict[uuid.UUID, bool]:
-    """Roadmap board gating. An item is locked iff `item.gated` **and**
-    some *earlier* (by position) non-optional item on the same checklist
-    isn't `done` yet — `awaiting_confirmation` doesn't count as done, so a
-    submission pending review does not unlock the next tile (the spec's
-    "done when accepted, not when uploaded" rule). Optional items never
-    block anything and are never themselves locked by this rule (they can
-    still be individually `gated`, but nothing about being optional stops
-    them being reachable). `statuses` is keyed by item id — callers pass
-    whatever's already been resolved (post `refresh_item_progress`), so
-    this function does no I/O of its own."""
+    """Roadmap board gating. A regular item is locked iff `item.gated`
+    **and** some *earlier* (by position) non-optional item on the same
+    checklist isn't `done` yet — `awaiting_confirmation` doesn't count as
+    done, so a submission pending review does not unlock the next tile
+    (the spec's "done when accepted, not when uploaded" rule). Optional
+    items never block anything and are never themselves locked by this
+    rule (they can still be individually `gated`, but nothing about being
+    optional stops them being reachable). `statuses` is keyed by item id —
+    callers pass whatever's already been resolved (post
+    `refresh_item_progress`), so this function does no I/O of its own.
+
+    Checkpoints (`item_type == "checkpoint"`, always required team-scoped
+    gates) hard-lock *everything* positioned after them while unlocked,
+    regardless of each item's own `gated` flag — an unlocked checkpoint
+    freezes the rest of the roadmap until the team locks it. A checkpoint
+    tile itself is only ever locked by an *earlier* unlocked checkpoint
+    (no skipping ahead); an incomplete section does NOT lock its own
+    checkpoint tile — the team must still be able to open it to see X/Y
+    section progress and the (disabled until eligible) lock action. Lock
+    eligibility itself (only required *team-scoped* items in the section
+    since the previous checkpoint block it — individual items never do,
+    same rule as `team_final_submit_readiness`) is enforced by the lock
+    endpoint, not here."""
     ordered = sorted(items, key=lambda i: i.position)
     locked: dict[uuid.UUID, bool] = {}
     blocked_by_earlier = False
+    active_checkpoint_unlocked = False
     for item in ordered:
-        locked[item.id] = bool(item.gated) and blocked_by_earlier
+        is_checkpoint = item.item_type == "checkpoint"
+        if is_checkpoint:
+            locked[item.id] = active_checkpoint_unlocked
+        elif active_checkpoint_unlocked:
+            locked[item.id] = True
+        else:
+            locked[item.id] = bool(item.gated) and blocked_by_earlier
         if not item.optional and statuses.get(item.id) != "done":
             blocked_by_earlier = True
+            if is_checkpoint:
+                active_checkpoint_unlocked = True
     return locked
 
 
@@ -1640,6 +1694,142 @@ async def team_final_submit_readiness(
         if item_status != "done":
             return False, f"'{item.title}' isn't done yet"
     return True, None
+
+
+async def checkpoint_lock_readiness(
+    db: AsyncSession, *, assignment: LmsProgramAssignment, item: LmsProgramItem,
+) -> tuple[bool, str | None]:
+    """True once the team may lock this `checkpoint` item: every required
+    (non-optional), *team-scoped* item positioned after the previous
+    checkpoint (or the start of the checklist when there is none) and
+    before this checkpoint is `"done"` — an individual-scoped item never
+    blocks this, the exact same rule as `team_final_submit_readiness`
+    (one leftover personal task must not hold the whole team back). Uses
+    the same live-refreshed status `get_student_checklist` shows (via
+    `refresh_item_progress`). Returns `(ready, reason)` — `reason` is a
+    human-readable string for the 400 detail when not ready. Callers must
+    check `checklist_item_locked` first: an earlier unlocked checkpoint
+    (skipping ahead) 409s there, not here."""
+    pairs = await _assignment_items_and_progress(db, assignment.id)
+    team_progress_by_item = await _team_progress_by_item(
+        db, pairs=pairs, cohort_id=assignment.cohort_id, user_id=assignment.user_id,
+    )
+    prev_checkpoint_position = max(
+        (row_item.position for row_item, _ in pairs
+         if row_item.item_type == "checkpoint" and row_item.position < item.position),
+        default=None,
+    )
+    dashboard_cache: dict[uuid.UUID, dict | None] = {}
+    for row_item, progress in pairs:
+        if row_item.optional or row_item.scope != "team" or row_item.item_type == "checkpoint":
+            continue
+        if prev_checkpoint_position is not None and row_item.position <= prev_checkpoint_position:
+            continue
+        if row_item.position >= item.position:
+            continue
+        team_progress = team_progress_by_item.get(row_item.id)
+        item_status = await refresh_item_progress(
+            db, progress=team_progress or progress, item=row_item, user_id=assignment.user_id,
+            dashboard_cache=dashboard_cache,
+        )
+        if item_status != "done":
+            return False, f"'{row_item.title}' isn't done yet"
+    return True, None
+
+
+async def team_section_frozen(db: AsyncSession, *, assignment: LmsProgramAssignment, item: LmsProgramItem) -> bool:
+    """True once this item sits *above* (lower position than) a locked
+    checkpoint on its team's checklist — the checkpoint freeze. Checked
+    only for `scope=="team"` items; an individual-scoped item is never
+    frozen (same posture as `team_final_locked`), and a `checkpoint` item
+    itself is never frozen (locking a later checkpoint must stay possible
+    once its own section is done). Checkpoint state is the stored team
+    row — checkpoints are never auto-tracked, so `refresh_item_progress`
+    would return the same value. Callers 409 on True, same as the final
+    lock."""
+    if item.scope != "team" or item.item_type == "checkpoint":
+        return False
+    team = await team_for_cohort_member(db, cohort_id=assignment.cohort_id, user_id=assignment.user_id)
+    if team is None:
+        return False
+    pairs = await _assignment_items_and_progress(db, assignment.id)
+    checkpoint_ids = [
+        row_item.id for row_item, _ in pairs
+        if row_item.item_type == "checkpoint" and not row_item.optional
+        and row_item.position > item.position
+    ]
+    if not checkpoint_ids:
+        return False
+    rows = (await db.execute(
+        select(LmsProgramTeamItemProgress).where(
+            LmsProgramTeamItemProgress.team_id == team.id,
+            LmsProgramTeamItemProgress.item_id.in_(checkpoint_ids),
+            LmsProgramTeamItemProgress.status == "done",
+        )
+    )).scalars().all()
+    return len(rows) > 0
+
+
+async def team_frozen_step_keys_for_attempt(db: AsyncSession, *, attempt_id: uuid.UUID) -> set[str]:
+    """The `mission_step_key` phases of team-scoped `mission_run` tiles
+    backed by this shared design attempt that sit above a locked
+    checkpoint — the design-mission slice of the checkpoint freeze. Only
+    the *confirmed state* of these phases freezes (the design confirm
+    endpoint 409s on them); every other design write stays open, because
+    the same shared attempt also drives downstream-phase tiles below the
+    checkpoint that the team must keep editing. An attempt with no team
+    progress row (individual-scoped, or not on any checklist) is never
+    frozen."""
+    rows = (await db.execute(
+        select(LmsProgramTeamItemProgress).where(
+            LmsProgramTeamItemProgress.mission_attempt_id == attempt_id,
+        )
+    )).scalars().all()
+    if not rows:
+        return set()
+    items = {
+        i.id: i for i in (await db.execute(
+            select(LmsProgramItem).where(LmsProgramItem.id.in_({r.item_id for r in rows}))
+        )).scalars().all()
+    }
+    frozen: set[str] = set()
+    team_ids = {r.team_id for r in rows}
+    for team_id in team_ids:
+        team_item_ids = {r.item_id for r in rows if r.team_id == team_id}
+        team_tiles = [
+            items[iid] for iid in team_item_ids if iid in items
+            and items[iid].scope == "team" and items[iid].item_type == "mission_run"
+            and items[iid].mission_step_key
+        ]
+        if not team_tiles:
+            continue
+        owner = team_tiles[0]
+        siblings = (await db.execute(
+            select(LmsProgramItem).where(
+                LmsProgramItem.owner_type == owner.owner_type,
+                LmsProgramItem.owner_id == owner.owner_id,
+                LmsProgramItem.item_type == "checkpoint",
+                LmsProgramItem.optional.is_(False),
+            )
+        )).scalars().all()
+        if not siblings:
+            continue
+        # Checkpoint team rows live in this same table but carry no
+        # mission_attempt_id, so they never appear in `rows` above —
+        # fetch their locked positions explicitly.
+        cp_rows = (await db.execute(
+            select(LmsProgramTeamItemProgress).where(
+                LmsProgramTeamItemProgress.team_id == team_id,
+                LmsProgramTeamItemProgress.item_id.in_([c.id for c in siblings]),
+                LmsProgramTeamItemProgress.status == "done",
+            )
+        )).scalars().all()
+        done_ids = {r.item_id for r in cp_rows}
+        locked_positions = {c.position for c in siblings if c.id in done_ids}
+        for tile in team_tiles:
+            if any(cp_pos > tile.position for cp_pos in locked_positions):
+                frozen.add(tile.mission_step_key)
+    return frozen
 
 
 async def get_student_checklist(db: AsyncSession, *, assignment_id: uuid.UUID, user_id: uuid.UUID) -> dict | None:
@@ -2088,6 +2278,13 @@ async def confirm_program_item(
     item = await db.get(LmsProgramItem, item_id)
     if assignment is None or item is None:
         return None
+    if item.item_type == "checkpoint":
+        # A checkpoint locks only via the team's own lock-checkpoint
+        # action (section readiness, any-teammate-can-lock) — ops
+        # sign-off here would bypass that check entirely.
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST, detail="A checkpoint locks via the team's lock action, not ops confirmation",
+        )
     if item.scope == "team":
         team = await team_for_cohort_member(db, cohort_id=assignment.cohort_id, user_id=assignment.user_id)
         if team is None:

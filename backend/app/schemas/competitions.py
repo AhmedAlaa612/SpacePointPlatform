@@ -34,6 +34,17 @@ class CompetitionTeamCreateIn(BaseModel):
     is_observer: bool = False
 
 
+class TeamCheckpointStateOut(BaseModel):
+    """One checkpoint gate's lock state for one team — backs the ops Teams
+    tab's gate badges + per-gate unlock button. `status` is the team's own
+    shared row (`done` = locked, anything else = open); a team with no row
+    yet reads `pending`."""
+    item_id: UUID
+    title: str
+    position: int
+    status: str
+
+
 class CompetitionTeamRenameIn(BaseModel):
     name: str
 

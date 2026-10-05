@@ -519,7 +519,7 @@ export async function submitCheckpointAnswer(
 // /learn/checklists to keep well clear of that existing route.
 
 export type LmsProgramItemType =
-  | "course" | "mission_run" | "external_link" | "submission" | "pdf" | "manual" | "session" | "quiz" | "team_setup";
+  | "course" | "mission_run" | "external_link" | "submission" | "pdf" | "manual" | "session" | "quiz" | "team_setup" | "checkpoint";
 export type LmsProgramItemStatus = "pending" | "done" | "awaiting_confirmation";
 
 export type LmsProgramItemScope = "individual" | "team";
@@ -711,6 +711,15 @@ export async function setTeamNameChecklistItem(assignmentId: string, itemId: str
  * undo it. Returns the refreshed checklist (team_final_locked_at now set). */
 export async function finalSubmitChecklist(assignmentId: string): Promise<LmsProgramChecklist> {
   const { data } = await api.post<LmsProgramChecklist>(`/lms/programs/${assignmentId}/final-submit`, {});
+  return data;
+}
+
+/** A checkpoint gate's one action — see routers/lms/student.py's
+ * lock_checkpoint_item. Any teammate can call this once every required
+ * team-scoped item in the gate's section is done (individual items never
+ * block it). Returns the refreshed item (status now done). */
+export async function lockCheckpointChecklist(assignmentId: string, itemId: string): Promise<LmsProgramChecklistItem> {
+  const { data } = await api.post<LmsProgramChecklistItem>(`/lms/programs/${assignmentId}/items/${itemId}/lock-checkpoint`, {});
   return data;
 }
 

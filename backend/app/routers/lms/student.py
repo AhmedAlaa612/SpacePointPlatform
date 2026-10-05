@@ -109,9 +109,9 @@ from app.models.missions.mission import MissionAttempt
 from app.models.team import Team
 from app.services.missions.verifiers.design import ensure_design
 from app.services.lms.program import (
-    PROGRAM_ITEM_PDF_BUCKET, checklist_item_locked, checklist_item_write_target, get_student_checklist,
-    list_student_assignments, refresh_item_progress, resolve_effective_poster_template_url,
-    team_final_locked, team_final_submit_readiness, team_for_cohort_member,
+    PROGRAM_ITEM_PDF_BUCKET, checkpoint_lock_readiness, checklist_item_locked, checklist_item_write_target,
+    get_student_checklist, list_student_assignments, refresh_item_progress, resolve_effective_poster_template_url,
+    team_final_locked, team_final_submit_readiness, team_for_cohort_member, team_section_frozen,
 )
 from app.services.competitions.team_management import finalize_team_submission
 from app.services.lms import cohort_quiz as cohort_quiz_service
@@ -704,6 +704,8 @@ async def complete_program_item(
     assignment, item, individual = await _own_progress_row(db, assignment_id=assignment_id, item_id=item_id, user=current)
     if item.item_type in ("course", "mission_run", "quiz"):
         raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="This item is tracked automatically")
+    if item.item_type == "checkpoint":
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="A checkpoint locks via its lock action, not self-check")
     if item.deadline_at is not None and datetime.now(timezone.utc) > item.deadline_at:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="The deadline for this step has passed")
     if await checklist_item_locked(db, assignment=assignment, item=item):
@@ -712,6 +714,11 @@ async def complete_program_item(
         raise HTTPException(
             status.HTTP_409_CONFLICT,
             detail="Your team's final submission is locked — ask an ops staff member to reopen it",
+        )
+    if await team_section_frozen(db, assignment=assignment, item=item):
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            detail="This section is frozen by a locked checkpoint — ask an ops staff member to reopen it",
         )
     target = await checklist_item_write_target(db, assignment=assignment, item=item, individual=individual, user_id=current.id)
     if item.item_type == "submission" and not target.submitted_url:
@@ -758,6 +765,11 @@ async def submit_program_item(
         raise HTTPException(
             status.HTTP_409_CONFLICT,
             detail="Your team's final submission is locked — ask an ops staff member to reopen it",
+        )
+    if await team_section_frozen(db, assignment=assignment, item=item):
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            detail="This section is frozen by a locked checkpoint — ask an ops staff member to reopen it",
         )
     target = await checklist_item_write_target(db, assignment=assignment, item=item, individual=individual, user_id=current.id)
 
@@ -895,6 +907,11 @@ async def set_team_name(
             status.HTTP_409_CONFLICT,
             detail="Your team's final submission is locked — ask an ops staff member to reopen it",
         )
+    if await team_section_frozen(db, assignment=assignment, item=item):
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            detail="This section is frozen by a locked checkpoint — ask an ops staff member to reopen it",
+        )
     target = await checklist_item_write_target(db, assignment=assignment, item=item, individual=individual, user_id=current.id)
     if not isinstance(target, LmsProgramTeamItemProgress):
         # Can't happen given item.scope is forced to "team" at authoring
@@ -966,6 +983,45 @@ async def final_submit_program(
     if checklist is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Program assignment not found")
     return checklist
+
+
+@router.post("/programs/{assignment_id}/items/{item_id}/lock-checkpoint", response_model=LmsProgramChecklistItemOut)
+async def lock_checkpoint_item(
+    assignment_id: uuid.UUID, item_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db), current: User = Depends(get_current_active_user),
+):
+    """A checkpoint's one action — any teammate can call this once every
+    required *team-scoped* item in its section (since the previous
+    checkpoint, or the start) is done (`checkpoint_lock_readiness`
+    re-checks server-side; individual-scoped items never block it, same
+    rule as final submit). Locking freezes every team-scoped item above
+    the checkpoint (`team_section_frozen`); items below stay editable and
+    the next checkpoint opens. One-way for the team — only ops can
+    cascade-unlock afterward."""
+    assignment, item, individual = await _own_progress_row(db, assignment_id=assignment_id, item_id=item_id, user=current)
+    if item.item_type != "checkpoint":
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="This item isn't a checkpoint")
+    team = await team_for_cohort_member(db, cohort_id=assignment.cohort_id, user_id=current.id)
+    if team is None:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, detail="You're not on a team for this cohort")
+    if await checklist_item_locked(db, assignment=assignment, item=item):
+        raise HTTPException(status.HTTP_409_CONFLICT, detail="Lock the earlier checkpoint first")
+    ready, reason = await checkpoint_lock_readiness(db, assignment=assignment, item=item)
+    if not ready:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail=reason or "This section isn't done yet")
+    target = await checklist_item_write_target(db, assignment=assignment, item=item, individual=individual, user_id=current.id)
+    if not isinstance(target, LmsProgramTeamItemProgress):
+        # Can't happen given a checkpoint is forced team-scoped at
+        # authoring time — guard rather than silently write elsewhere.
+        raise HTTPException(status.HTTP_500_INTERNAL_SERVER_ERROR, detail="This checkpoint item is misconfigured")
+    target.status = "done"
+    target.completed_at = datetime.now(timezone.utc)
+    target.confirmed_by_user_id = current.id
+    target.updated_by_user_id = current.id
+    target.updated_at = datetime.now(timezone.utc)
+    await db.commit()
+    await db.refresh(target)
+    return await _checklist_item_out(db, item=item, target=target)
 
 
 @router.post("/programs/{assignment_id}/items/{item_id}/quiz/start", response_model=CohortQuizAttemptOut)

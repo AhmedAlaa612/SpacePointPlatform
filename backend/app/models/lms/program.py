@@ -107,7 +107,7 @@ class LmsProgramItem(Base):
     owner_type = Column(String(16), nullable=False)
     owner_id = Column(UUID(as_uuid=True), nullable=False)
     position = Column(Integer, nullable=False)
-    # course|mission_run|external_link|submission|pdf|manual|session|quiz|team_setup
+    # course|mission_run|external_link|submission|pdf|manual|session|quiz|team_setup|checkpoint
     item_type = Column(String(16), nullable=False)
     title = Column(String(255), nullable=False)
     description = Column(Text, nullable=True)
