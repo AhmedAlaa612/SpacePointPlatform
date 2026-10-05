@@ -1214,6 +1214,14 @@ def test_team_setup_team_scoped_is_valid():
     validate_item_payload(body)  # does not raise
 
 
+def test_team_setup_cannot_be_gated():
+    body = LmsProgramItemIn(item_type="team_setup", title="Name your team", scope="team", gated=True)
+    with pytest.raises(HTTPException) as exc_info:
+        validate_item_payload(body)
+    assert exc_info.value.status_code == 400
+    assert "cannot be gated" in exc_info.value.detail
+
+
 def test_team_setup_accepts_a_deadline():
     body = LmsProgramItemIn(
         item_type="team_setup", title="Name your team", scope="team",
@@ -1408,6 +1416,7 @@ async def test_resync_wires_a_team_mission_run_added_after_the_team_was_assigned
     assert len(runs) == 1
     assert runs[0]["attempt_id"] == attempts[0].id
 
+
     # And a second resync is a genuine no-op, not a second attempt.
     assert await sync_cohort_assignments(db, cohort_id=cohort.id) == 0
     await db.commit()
@@ -1415,3 +1424,28 @@ async def test_resync_wires_a_team_mission_run_added_after_the_team_was_assigned
         select(MissionAttempt).where(MissionAttempt.mission_id == mission.id)
     )).scalars().all()
     assert len(attempts) == 1
+
+
+def test_team_setup_never_gates_subsequent_items():
+    from app.services.lms.program import compute_lock_states
+    from unittest.mock import MagicMock
+
+    item_team_setup = MagicMock(id=uuid.uuid4(), position=1, item_type="team_setup", optional=False, gated=False)
+    item_task_1 = MagicMock(id=uuid.uuid4(), position=2, item_type="manual", optional=False, gated=True)
+    item_task_2 = MagicMock(id=uuid.uuid4(), position=3, item_type="manual", optional=False, gated=True)
+
+    # team_setup is NOT done, but it should not block item_task_1 even though item_task_1 is gated
+    statuses = {
+        item_team_setup.id: "pending",
+        item_task_1.id: "done",
+        item_task_2.id: "pending",
+    }
+    items = [item_team_setup, item_task_1, item_task_2]
+    locks = compute_lock_states(items, statuses)
+
+    # item_team_setup is never locked
+    assert locks[item_team_setup.id] is False
+    # item_task_1 was gated, but team_setup is excluded from blocking, so item_task_1 is unlocked!
+    assert locks[item_task_1.id] is False
+    # item_task_2 is gated, item_task_1 is done, team_setup is pending (ignored) -> unlocked!
+    assert locks[item_task_2.id] is False

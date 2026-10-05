@@ -1244,7 +1244,7 @@ export function ItemForm({
         session_meeting_url: itemType === "session" ? (sessionMeetingUrl.trim() || null) : null,
         cohort_quiz_template_id: itemType === "quiz" ? cohortQuizTemplateId : null,
         mission_step_key: isDesignMission && missionStepKey ? missionStepKey : null,
-        gated: isCheckpoint ? false : gated,
+        gated: (isCheckpoint || itemType === "team_setup") ? false : gated,
         guideline_kind: isCheckpoint ? null : guidelineKind || null,
         guideline_url: isCheckpoint ? null : guidelineKind === "link" ? (guidelineUrl.trim() || null)
           : guidelineKind === "video" && videoMode === "embed" ? (guidelineUrl.trim() || null)
@@ -1582,7 +1582,7 @@ export function ItemForm({
           Optional
         </label>
         )}
-        {!isCheckpoint && (
+        {!isCheckpoint && itemType !== "team_setup" && (
         <label className="flex items-center gap-1.5 text-xs text-foreground cursor-pointer">
           <input type="checkbox" checked={gated} onChange={(e) => setGated(e.target.checked)} />
           Locked until the previous task is done

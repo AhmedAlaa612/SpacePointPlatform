@@ -198,10 +198,16 @@ def validate_item_payload(body: LmsProgramItemIn) -> None:
     # the team, a fact that belongs to the team, not to any one member; an
     # "individual" team_setup item would need a definition of what that
     # even means (which member's name wins?) that nothing else here has.
-    if body.item_type == "team_setup" and body.scope != "team":
-        raise HTTPException(
-            status.HTTP_400_BAD_REQUEST, detail="A team_setup item is always team-scoped",
-        )
+    # It must never gate subsequent tasks.
+    if body.item_type == "team_setup":
+        if body.scope != "team":
+            raise HTTPException(
+                status.HTTP_400_BAD_REQUEST, detail="A team_setup item is always team-scoped",
+            )
+        if body.gated:
+            raise HTTPException(
+                status.HTTP_400_BAD_REQUEST, detail="A team_setup item cannot be gated",
+            )
     # checkpoint — a team milestone gate. Always team-scoped (its lock
     # lives in LmsProgramTeamItemProgress, like team_setup), never
     # optional (it counts as a required step in N/M counters, the final
@@ -1335,7 +1341,7 @@ def compute_lock_states(
             locked[item.id] = True
         else:
             locked[item.id] = bool(item.gated) and blocked_by_earlier
-        if not item.optional and statuses.get(item.id) != "done":
+        if not item.optional and item.item_type != "team_setup" and statuses.get(item.id) != "done":
             blocked_by_earlier = True
             if is_checkpoint:
                 active_checkpoint_unlocked = True
@@ -1721,7 +1727,7 @@ async def checkpoint_lock_readiness(
     )
     dashboard_cache: dict[uuid.UUID, dict | None] = {}
     for row_item, progress in pairs:
-        if row_item.optional or row_item.scope != "team" or row_item.item_type == "checkpoint":
+        if row_item.optional or row_item.scope != "team" or row_item.item_type in ("checkpoint", "team_setup"):
             continue
         if prev_checkpoint_position is not None and row_item.position <= prev_checkpoint_position:
             continue

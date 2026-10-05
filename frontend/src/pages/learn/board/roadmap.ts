@@ -186,7 +186,7 @@ export function unlockRequirementDetails(
   if (item.gated) {
     const blockingTask = ordered
       .slice(0, targetIdx)
-      .find((i) => !i.optional && i.status !== "done");
+      .find((i) => !i.optional && i.item_type !== "team_setup" && i.status !== "done");
     if (blockingTask) {
       return {
         type: "task",
@@ -230,7 +230,7 @@ export function unlockReasonForItem(
 /** A checkpoint gate's own section: required team-scoped items after the
  * previous checkpoint (or the start) and before this gate, in position
  * order. Mirrors the backend's `checkpoint_lock_readiness` slice —
- * individual items never block the lock, so they're excluded here too. */
+ * individual items and team_setup never block the lock, so they're excluded here too. */
 export function checkpointSectionItems(
   items: LmsProgramChecklistItem[], checkpointId: string,
 ): LmsProgramChecklistItem[] {
@@ -242,7 +242,7 @@ export function checkpointSectionItems(
     if (ordered[i].item_type === "checkpoint") { start = i + 1; break; }
   }
   return ordered.slice(start, idx).filter(
-    (i) => !i.optional && i.scope === "team" && i.item_type !== "checkpoint",
+    (i) => !i.optional && i.scope === "team" && i.item_type !== "checkpoint" && i.item_type !== "team_setup",
   );
 }
 
