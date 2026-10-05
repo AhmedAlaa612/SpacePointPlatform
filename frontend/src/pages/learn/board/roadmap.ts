@@ -29,6 +29,8 @@ export interface BoardTile {
   meta?: string | null;
   /** Set for checkpoint gates so the tile renders the gate glow. */
   accent?: "checkpoint";
+  /** Explains why this tile is locked and what to complete to unlock it. */
+  lockHint?: string;
 }
 
 export function itemDone(item: LmsProgramChecklistItem): boolean {
@@ -136,12 +138,59 @@ export function tileMeta(item: LmsProgramChecklistItem): string | null {
 
 /** One checklist item, reduced to what `TileField`/`TaskTile`/`TraceLayer`
  * actually need. */
-export function checklistItemToTile(item: LmsProgramChecklistItem): BoardTile {
+export function checklistItemToTile(item: LmsProgramChecklistItem, allItems?: LmsProgramChecklistItem[]): BoardTile {
+  const isLocked = item.locked && item.status !== "done";
   return {
     id: item.id, title: item.title, state: tileState(item), icon: iconForItem(item),
     optional: item.optional, meta: tileMeta(item),
+    lockHint: isLocked && allItems ? unlockReasonForItem(allItems, item) : undefined,
     ...(item.item_type === "checkpoint" ? { accent: "checkpoint" as const } : {}),
   };
+}
+
+/** When an item is locked, returns a clear human-readable explanation of
+ * what must be completed to unlock it (e.g. "Complete 'Step Name' first"). */
+export function unlockReasonForItem(
+  items: LmsProgramChecklistItem[], item: LmsProgramChecklistItem,
+): string {
+  if (!item.locked) return "";
+  const ordered = [...items].sort((a, b) => a.position - b.position);
+  const targetIdx = ordered.findIndex((i) => i.id === item.id);
+  if (targetIdx === -1) return "Complete earlier required tasks first.";
+
+  // Check 1: Is there an earlier unlocked checkpoint gate blocking this item?
+  // An uncompleted checkpoint hard-locks everything after it.
+  const blockingCheckpoint = ordered
+    .slice(0, targetIdx)
+    .reverse()
+    .find((i) => i.item_type === "checkpoint" && i.status !== "done");
+
+  if (blockingCheckpoint) {
+    return `Lock checkpoint "${blockingCheckpoint.title}" first.`;
+  }
+
+  // Check 2: If the item itself is gated, find the earlier incomplete non-optional task that is blocking it.
+  if (item.gated) {
+    const blockingTask = ordered
+      .slice(0, targetIdx)
+      .find((i) => !i.optional && i.status !== "done");
+    if (blockingTask) {
+      return `Complete "${blockingTask.title}" first.`;
+    }
+  }
+
+  // Check 3: Checkpoint tile itself waiting for earlier checkpoint
+  if (item.item_type === "checkpoint") {
+    const earlierCp = ordered
+      .slice(0, targetIdx)
+      .reverse()
+      .find((i) => i.item_type === "checkpoint" && i.status !== "done");
+    if (earlierCp) {
+      return `Lock checkpoint "${earlierCp.title}" first.`;
+    }
+  }
+
+  return "Complete earlier required tasks first.";
 }
 
 /** A checkpoint gate's own section: required team-scoped items after the

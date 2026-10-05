@@ -14,7 +14,10 @@ import { TaskDrawer } from "./TaskDrawer";
 import { CheckpointDrawer } from "./CheckpointDrawer";
 import { StudentTeamResultCard } from "@/components/competitions/StudentTeamResultCard";
 import { ObserverTeamModal } from "@/components/lms/ObserverTeamModal";
-import { checklistItemToTile, computeLiveTaskId, groupByCheckpoint, readBoardScrollPosition } from "./roadmap";
+import { useToast } from "@/components/ui/toast";
+import {
+  checklistItemToTile, computeLiveTaskId, groupByCheckpoint, readBoardScrollPosition, unlockReasonForItem,
+} from "./roadmap";
 
 /** `/learn/checklists/$assignmentId` — the gated visual roadmap ("the
  * board") that replaces the old flat `LearnChecklist.tsx`. Order per the
@@ -133,8 +136,14 @@ export default function RoadmapBoard() {
   if (error) return <div className="mx-auto max-w-[900px] px-5 py-10"><p className="text-sm text-destructive">Couldn't load this program.</p></div>;
   if (isLoading || !checklist) return <div className="mx-auto max-w-[900px] px-5 py-10"><p className="text-sm text-muted-foreground">Loading...</p></div>;
 
+  const toast = useToast();
+
   const openItemById = (item: LmsProgramChecklistItem) => {
-    if (item.locked && item.status !== "done") return; // flow rule 2: uncompleted locked tile → no-op
+    if (item.locked && item.status !== "done") {
+      const reason = unlockReasonForItem(items, item);
+      toast.info(reason || "Complete earlier required tasks first.");
+      return;
+    }
     setOpenItemId(item.id);
   };
 
@@ -246,9 +255,13 @@ export default function RoadmapBoard() {
 
           {items.length > 0 && (
             <TileField
-              items={items.map(checklistItemToTile)}
+              items={items.map((i) => checklistItemToTile(i, items))}
               liveTaskId={liveTaskId}
-              onOpenItem={(tile) => setOpenItemId(tile.id)}
+              onOpenItem={(tile) => {
+                const clicked = items.find((i) => i.id === tile.id);
+                if (clicked) openItemById(clicked);
+                else setOpenItemId(tile.id);
+              }}
             />
           )}
 

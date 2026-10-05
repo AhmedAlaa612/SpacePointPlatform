@@ -33,7 +33,7 @@ export function TaskTile({
 }) {
   const state = tile.state;
   const Icon = tile.icon;
-  const interactive = state !== "locked";
+  const isLocked = state === "locked";
   const meta = tile.meta;
   // Checkpoint gates reuse the final gate's animated beacon border
   // (FinalGateBar's `gate-beacon-border`, mounted on the same board) so a
@@ -44,14 +44,14 @@ export function TaskTile({
   return (
     <div
       ref={tileRef}
-      role={interactive ? "button" : undefined}
-      tabIndex={interactive ? 0 : -1}
-      aria-disabled={!interactive}
-      onClick={interactive ? onOpen : undefined}
-      onKeyDown={interactive ? (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onOpen(); } } : undefined}
+      role="button"
+      tabIndex={0}
+      title={isLocked && tile.lockHint ? tile.lockHint : undefined}
+      onClick={onOpen}
+      onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onOpen(); } }}
       className={cn(
-        "relative z-[1] flex w-[200px] h-[104px] md:w-[158px] md:h-[136px] shrink-0 flex-col rounded-2xl p-3 md:p-[13px] box-border bg-card transition-transform transition-shadow duration-150 ease-in-out",
-        interactive ? "cursor-pointer hover:-translate-y-1" : "cursor-default",
+        "relative z-[1] flex w-[200px] h-[104px] md:w-[158px] md:h-[136px] shrink-0 flex-col rounded-2xl p-3 md:p-[13px] box-border bg-card transition-transform transition-shadow duration-150 ease-in-out cursor-pointer hover:-translate-y-1",
+        isLocked && "hover:shadow-md",
         isPulsing && "animate-board-pulse",
         isGate && "gate-beacon-border border-[2px]",
       )}
@@ -94,7 +94,11 @@ export function TaskTile({
         className={cn("mt-auto md:mt-1.5 text-[10px] font-bold tracking-[0.03em]", state === "locked" && "flex items-center gap-1")}
         style={{ color: INK[state] }}
       >
-        {isGate ? "Review gate →" : actionLineText(state)}
+        {isGate ? "Review gate →" : state === "locked" && tile.lockHint ? (
+          <span className="truncate" title={tile.lockHint}>
+            🔒 {tile.lockHint}
+          </span>
+        ) : actionLineText(state)}
       </div>
     </div>
   );
