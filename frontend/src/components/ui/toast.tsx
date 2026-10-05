@@ -6,12 +6,13 @@ import { Button } from "@/components/ui/button"
 import { HugeiconsIcon } from "@hugeicons/react"
 import { Cancel01Icon } from "@hugeicons/core-free-icons"
 
-type ToastVariant = "success" | "error"
+type ToastVariant = "success" | "error" | "info"
 type ToastItem = { id: number; message: string; variant: ToastVariant }
 
 const ToastContext = React.createContext<{
   success: (message: string) => void
   error: (message: string) => void
+  info: (message: string) => void
 } | null>(null)
 
 let nextId = 0
@@ -39,6 +40,7 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
     () => ({
       success: (message: string) => push("success", message),
       error: (message: string) => push("error", message),
+      info: (message: string) => push("info", message),
     }),
     [push],
   )
@@ -54,13 +56,17 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
             onOpenChange={(open) => { if (!open) dismiss(item.id) }}
             className={cn(
               "flex items-center justify-between gap-3 rounded-2xl bg-popover/95 backdrop-blur-2xl p-3 pl-4 text-xs/relaxed shadow-2xl ring-1 data-open:animate-in data-open:slide-in-from-bottom-2 data-open:fade-in-0 data-closed:animate-out data-closed:fade-out-0 data-swipe-end:animate-out",
-              item.variant === "success" ? "ring-emerald-500/30" : "ring-red-500/30",
+              item.variant === "success" ? "ring-emerald-500/30" : item.variant === "info" ? "ring-primary/40" : "ring-red-500/30",
             )}
           >
             <ToastPrimitive.Description
               className={cn(
                 "font-medium",
-                item.variant === "success" ? "text-emerald-600 dark:text-emerald-400" : "text-red-600 dark:text-red-400",
+                item.variant === "success"
+                  ? "text-emerald-600 dark:text-emerald-400"
+                  : item.variant === "info"
+                  ? "text-foreground"
+                  : "text-red-600 dark:text-red-400",
               )}
             >
               {item.message}
