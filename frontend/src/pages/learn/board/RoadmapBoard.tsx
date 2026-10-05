@@ -14,9 +14,9 @@ import { TaskDrawer } from "./TaskDrawer";
 import { CheckpointDrawer } from "./CheckpointDrawer";
 import { StudentTeamResultCard } from "@/components/competitions/StudentTeamResultCard";
 import { ObserverTeamModal } from "@/components/lms/ObserverTeamModal";
-import { useToast } from "@/components/ui/toast";
+import { LockedTaskModal } from "./LockedTaskModal";
 import {
-  checklistItemToTile, computeLiveTaskId, groupByCheckpoint, readBoardScrollPosition, unlockReasonForItem,
+  checklistItemToTile, computeLiveTaskId, groupByCheckpoint, readBoardScrollPosition,
 } from "./roadmap";
 
 /** `/learn/checklists/$assignmentId` — the gated visual roadmap ("the
@@ -30,6 +30,7 @@ export default function RoadmapBoard() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [openItemId, setOpenItemId] = useState<string | null>(null);
+  const [lockedItem, setLockedItem] = useState<LmsProgramChecklistItem | null>(null);
   const [showTeamModal, setShowTeamModal] = useState(false);
   // Observer mode (2026-10) — which reset is in flight, so its button reads
   // busy and double-clicks can't stack two resets.
@@ -136,12 +137,9 @@ export default function RoadmapBoard() {
   if (error) return <div className="mx-auto max-w-[900px] px-5 py-10"><p className="text-sm text-destructive">Couldn't load this program.</p></div>;
   if (isLoading || !checklist) return <div className="mx-auto max-w-[900px] px-5 py-10"><p className="text-sm text-muted-foreground">Loading...</p></div>;
 
-  const toast = useToast();
-
   const openItemById = (item: LmsProgramChecklistItem) => {
     if (item.locked && item.status !== "done") {
-      const reason = unlockReasonForItem(items, item);
-      toast.info(reason || "Complete earlier required tasks first.");
+      setLockedItem(item);
       return;
     }
     setOpenItemId(item.id);
@@ -297,6 +295,18 @@ export default function RoadmapBoard() {
           key={openItem?.id ?? "closed"} item={openItem} assignmentId={assignmentId} teamName={checklist.team_name}
           teamFinalLocked={!!checklist.team_final_locked_at}
           onClose={() => setOpenItemId(null)} onChanged={invalidate}
+        />
+      )}
+
+      {lockedItem && (
+        <LockedTaskModal
+          item={lockedItem}
+          items={items}
+          onClose={() => setLockedItem(null)}
+          onGoToBlocker={(blockerId) => {
+            const blocker = items.find((i) => i.id === blockerId);
+            if (blocker) openItemById(blocker);
+          }}
         />
       )}
     </div>

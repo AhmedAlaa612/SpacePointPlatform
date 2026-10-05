@@ -94,11 +94,7 @@ export function TaskTile({
         className={cn("mt-auto md:mt-1.5 text-[10px] font-bold tracking-[0.03em]", state === "locked" && "flex items-center gap-1")}
         style={{ color: INK[state] }}
       >
-        {isGate ? "Review gate →" : state === "locked" && tile.lockHint ? (
-          <span className="truncate" title={tile.lockHint}>
-            🔒 {tile.lockHint}
-          </span>
-        ) : actionLineText(state)}
+        {isGate ? "Review gate →" : actionLineText(state)}
       </div>
     </div>
   );

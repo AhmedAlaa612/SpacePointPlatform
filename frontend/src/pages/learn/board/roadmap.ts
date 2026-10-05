@@ -148,49 +148,83 @@ export function checklistItemToTile(item: LmsProgramChecklistItem, allItems?: Lm
   };
 }
 
-/** When an item is locked, returns a clear human-readable explanation of
- * what must be completed to unlock it (e.g. "Complete 'Step Name' first"). */
-export function unlockReasonForItem(
+export interface UnlockRequirement {
+  type: "checkpoint" | "task" | "generic";
+  blockerTitle: string;
+  message: string;
+}
+
+/** Returns structured info about what blocks this item from unlocking. */
+export function unlockRequirementDetails(
   items: LmsProgramChecklistItem[], item: LmsProgramChecklistItem,
-): string {
-  if (!item.locked) return "";
+): UnlockRequirement {
   const ordered = [...items].sort((a, b) => a.position - b.position);
   const targetIdx = ordered.findIndex((i) => i.id === item.id);
-  if (targetIdx === -1) return "Complete earlier required tasks first.";
+  if (targetIdx === -1) {
+    return {
+      type: "generic",
+      blockerTitle: "Earlier tasks",
+      message: "Complete earlier required tasks on the checklist to unlock this step.",
+    };
+  }
 
-  // Check 1: Is there an earlier unlocked checkpoint gate blocking this item?
-  // An uncompleted checkpoint hard-locks everything after it.
+  // Check 1: An earlier uncompleted checkpoint gate hard-locks everything after it
   const blockingCheckpoint = ordered
     .slice(0, targetIdx)
     .reverse()
     .find((i) => i.item_type === "checkpoint" && i.status !== "done");
 
   if (blockingCheckpoint) {
-    return `Lock checkpoint "${blockingCheckpoint.title}" first.`;
+    return {
+      type: "checkpoint",
+      blockerTitle: blockingCheckpoint.title,
+      message: `Your team must lock the checkpoint "${blockingCheckpoint.title}" before this section becomes available.`,
+    };
   }
 
-  // Check 2: If the item itself is gated, find the earlier incomplete non-optional task that is blocking it.
+  // Check 2: Preceding task blocking a gated item
   if (item.gated) {
     const blockingTask = ordered
       .slice(0, targetIdx)
       .find((i) => !i.optional && i.status !== "done");
     if (blockingTask) {
-      return `Complete "${blockingTask.title}" first.`;
+      return {
+        type: "task",
+        blockerTitle: blockingTask.title,
+        message: `Complete "${blockingTask.title}" first to unlock this step.`,
+      };
     }
   }
 
-  // Check 3: Checkpoint tile itself waiting for earlier checkpoint
+  // Check 3: Checkpoint waiting for earlier checkpoint
   if (item.item_type === "checkpoint") {
     const earlierCp = ordered
       .slice(0, targetIdx)
       .reverse()
       .find((i) => i.item_type === "checkpoint" && i.status !== "done");
     if (earlierCp) {
-      return `Lock checkpoint "${earlierCp.title}" first.`;
+      return {
+        type: "checkpoint",
+        blockerTitle: earlierCp.title,
+        message: `Your team must lock the checkpoint "${earlierCp.title}" first.`,
+      };
     }
   }
 
-  return "Complete earlier required tasks first.";
+  return {
+    type: "generic",
+    blockerTitle: "Earlier tasks",
+    message: "Complete earlier required tasks on the roadmap to unlock this step.",
+  };
+}
+
+/** When an item is locked, returns a clear human-readable explanation of
+ * what must be completed to unlock it (e.g. "Complete 'Step Name' first"). */
+export function unlockReasonForItem(
+  items: LmsProgramChecklistItem[], item: LmsProgramChecklistItem,
+): string {
+  if (!item.locked) return "";
+  return unlockRequirementDetails(items, item).message;
 }
 
 /** A checkpoint gate's own section: required team-scoped items after the
