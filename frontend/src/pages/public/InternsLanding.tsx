@@ -308,7 +308,8 @@ export function InternsLanding() {
             Log In
           </Link>
           <Link
-            to="/apply/intern"
+            to="/apply/intern/$code"
+            params={{ code: "UOWD26" }}
             className="px-3 sm:px-5 py-1.5 sm:py-2 rounded-full font-medium tracking-wide text-space-900 bg-space-accent hover:bg-space-hover transition-colors shadow-[0_0_15px_rgba(167,125,255,0.4)] text-sm sm:text-base whitespace-nowrap"
           >
             Apply Now
@@ -351,7 +352,8 @@ export function InternsLanding() {
 
             <div className="flex flex-col sm:flex-row items-center justify-center gap-4 pt-4">
               <Link
-                to="/apply/intern"
+                to="/apply/intern/$code"
+                params={{ code: "UOWD26" }}
                 className="w-full sm:w-auto inline-flex items-center justify-center px-8 py-4 rounded-xl font-bold tracking-wide text-space-900 bg-space-accent hover:bg-space-hover transition-all transform hover:-translate-y-0.5 shadow-[0_0_20px_rgba(167,125,255,0.4)]"
               >
                 Start Application
@@ -688,7 +690,8 @@ export function InternsLanding() {
               </p>
               <div className="flex justify-center">
                 <Link
-                  to="/apply/intern"
+                  to="/apply/intern/$code"
+                  params={{ code: "UOWD26" }}
                   className="w-full sm:w-auto inline-flex items-center justify-center px-8 py-4 rounded-xl font-bold tracking-wide text-space-900 bg-space-accent hover:bg-space-hover transition-all transform hover:-translate-y-0.5 shadow-[0_0_20px_rgba(167,125,255,0.4)]"
                 >
                   Apply Today
