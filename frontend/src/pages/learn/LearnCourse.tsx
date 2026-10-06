@@ -5,9 +5,10 @@ import { CheckCircle2, ChevronDown, ChevronRight, Circle, Lock, PlayCircle } fro
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import {
-  enrollInCourse, fetchCourse, fetchModule, startCourseCheckout,
+  enrollInCourse, fetchCourse, fetchModule, fetchPublicCourse, startCourseCheckout,
   type CourseDetail, type ModuleDetail, type ModuleItem, type ModuleLock,
 } from "@/api/lms";
+import { useAuth } from "@/context/AuthContext";
 import { CourseProgress } from "./CourseProgress";
 
 function errorDetail(err: unknown, fallback: string): string {
@@ -36,6 +37,10 @@ export default function LearnCourse() {
   // as-is into the player below, not read for anything on this page itself.
   const search = useSearch({ strict: false }) as { program?: string };
   const navigate = useNavigate();
+  // Logged-out visitors get the public outline (same shape, prices
+  // included, module-1-open/rest-locked). Enrolling costs a login.
+  const { user } = useAuth();
+  const isAuthed = !!user;
   const [course, setCourse] = useState<CourseDetail | null>(null);
   const [error, setError] = useState("");
   const [enrolling, setEnrolling] = useState(false);
@@ -55,10 +60,10 @@ export default function LearnCourse() {
   const [loadingModuleId, setLoadingModuleId] = useState<string | null>(null);
 
   const load = useCallback(() => {
-    fetchCourse(courseId)
+    (isAuthed ? fetchCourse(courseId) : fetchPublicCourse(courseId))
       .then(setCourse)
       .catch(() => setError("Couldn't load this course."));
-  }, [courseId]);
+  }, [courseId, isAuthed]);
 
   useEffect(() => {
     load();
@@ -66,16 +71,24 @@ export default function LearnCourse() {
 
   const toggleModule = (moduleId: string) => {
     setExpandedModuleId((cur) => (cur === moduleId ? null : moduleId));
-    if (!moduleItems[moduleId]) {
-      setLoadingModuleId(moduleId);
-      fetchModule(moduleId)
-        .then((m) => setModuleItems((prev) => ({ ...prev, [moduleId]: m })))
-        .catch(() => {})
-        .finally(() => setLoadingModuleId((cur) => (cur === moduleId ? null : cur)));
-    }
+    // Module contents are an enrolled-student read — visitors expanding a
+    // module get the login nudge instead (rendered by ModuleRow), never a
+    // 401 that would bounce the whole page to /learn/login.
+    if (!isAuthed || moduleItems[moduleId]) return;
+    setLoadingModuleId(moduleId);
+    fetchModule(moduleId)
+      .then((m) => setModuleItems((prev) => ({ ...prev, [moduleId]: m })))
+      .catch(() => {})
+      .finally(() => setLoadingModuleId((cur) => (cur === moduleId ? null : cur)));
   };
 
   const handleEnroll = async () => {
+    // Browsing is free, enrolling costs a login — send visitors to sign in
+    // first rather than firing an authed POST that bounces them.
+    if (!isAuthed) {
+      void navigate({ to: "/learn/login" });
+      return;
+    }
     setEnrolling(true);
     setEnrollError("");
     try {
@@ -166,6 +179,7 @@ export default function LearnCourse() {
                   courseId={course.id}
                   program={search.program}
                   enrolled={course.enrolled}
+                  isAuthed={isAuthed}
                   expanded={expandedModuleId === module.module_id}
                   onToggle={() => toggleModule(module.module_id)}
                   detail={moduleItems[module.module_id]}
@@ -231,9 +245,13 @@ export default function LearnCourse() {
                 <Button size="xl" className="w-full" onClick={() => void handleEnroll()} disabled={enrolling}>
                   {enrolling
                     ? (course.access_mode === "paid" ? "Redirecting to checkout..." : "Enrolling...")
-                    : course.access_mode === "paid"
-                      ? `Buy${course.price_cents != null ? ` — ${formatPrice(course.price_cents, course.currency)}` : ""}`
-                      : "Enroll"}
+                    : !isAuthed
+                      ? (course.access_mode === "paid"
+                        ? `Log in to buy${course.price_cents != null ? ` — ${formatPrice(course.price_cents, course.currency)}` : ""}`
+                        : "Log in to enroll")
+                      : course.access_mode === "paid"
+                        ? `Buy${course.price_cents != null ? ` — ${formatPrice(course.price_cents, course.currency)}` : ""}`
+                        : "Enroll"}
                 </Button>
               )}
               {enrollError && <p className="text-sm text-destructive text-center">{enrollError}</p>}
@@ -279,12 +297,13 @@ export default function LearnCourse() {
  * modules still expand for a look — the header row and every item just
  * aren't clickable. */
 function ModuleRow({
-  module, courseId, program, enrolled, expanded, onToggle, detail, loading,
+  module, courseId, program, enrolled, isAuthed, expanded, onToggle, detail, loading,
 }: {
   module: ModuleLock;
   courseId: string;
   program: string | undefined;
   enrolled: boolean;
+  isAuthed: boolean;
   expanded: boolean;
   onToggle: () => void;
   detail: ModuleDetail | undefined;
@@ -321,7 +340,19 @@ function ModuleRow({
       {expanded && (
         <div className="px-5 pb-4 flex flex-col gap-0.5 border-t border-border/60 pt-3">
           {loading && <p className="text-sm text-muted-foreground py-2 px-3">Loading...</p>}
-          {!loading && detail && detail.items.length === 0 && (
+          {!loading && !isAuthed && (
+            <div className="flex flex-col sm:flex-row sm:items-center gap-3 py-2 px-3">
+              <p className="text-sm text-muted-foreground flex-1">Log in to see what's inside this module.</p>
+              <button
+                type="button"
+                onClick={() => void navigate({ to: "/learn/login" })}
+                className="shrink-0 px-4 py-2 rounded-xl text-sm font-semibold bg-primary text-primary-foreground hover:opacity-90 transition-opacity cursor-pointer"
+              >
+                Log in
+              </button>
+            </div>
+          )}
+          {!loading && isAuthed && detail && detail.items.length === 0 && (
             <p className="text-sm text-muted-foreground py-2 px-3">No content in this module yet.</p>
           )}
           {detail?.items.map((item) => {

@@ -15,6 +15,9 @@ export interface CourseCatalogItem {
   access_mode: "open" | "invite" | "paid"; // P1-7
   enrolled: boolean;
   locked: boolean; // 7B-2 — unmet prerequisites; independent of access_mode
+  // Storefront pricing — integer minor units, null unless paid.
+  price_cents: number | null;
+  currency: string;
 }
 
 /** 7B-2 — a unified course/mission prerequisite edge, evaluated for the
@@ -388,6 +391,32 @@ export async function submitProgramInterest(endpoint: string, body: PublicLeadIn
 
 export async function fetchCatalog(q?: string): Promise<CourseCatalogItem[]> {
   const { data } = await api.get<CourseCatalogItem[]>("/lms/catalog", { params: q ? { q } : undefined });
+  return data;
+}
+
+/** Anonymous storefront — same shape as fetchCatalog, no token needed.
+ * Published + non-invite courses with prices; enrolled/locked read False. */
+export async function fetchPublicCatalog(q?: string): Promise<CourseCatalogItem[]> {
+  const { data } = await api.get<CourseCatalogItem[]>("/public/courses", { params: q ? { q } : undefined });
+  return data;
+}
+
+/** Anonymous storefront — same shape as fetchLearningPaths, no token needed. */
+export async function fetchPublicPaths(): Promise<LearningPathCatalogItem[]> {
+  const { data } = await api.get<LearningPathCatalogItem[]>("/public/learning-paths");
+  return data;
+}
+
+/** Anonymous storefront — same shape as fetchCourse: published outline with
+ * prices, module-1-open/rest-locked, enrolled False. */
+export async function fetchPublicCourse(courseId: string): Promise<CourseDetail> {
+  const { data } = await api.get<CourseDetail>(`/public/courses/${courseId}`);
+  return data;
+}
+
+/** Anonymous storefront — same shape as fetchLearningPath, no token needed. */
+export async function fetchPublicPath(pathId: string): Promise<LearningPathDetail> {
+  const { data } = await api.get<LearningPathDetail>(`/public/learning-paths/${pathId}`);
   return data;
 }
 

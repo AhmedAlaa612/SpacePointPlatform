@@ -4,7 +4,7 @@ import { ArrowRight, PlayCircle, Route as RouteIcon, Users } from "lucide-react"
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { useAuth } from "@/context/AuthContext";
-import { fetchCatalog, fetchLearningPaths, fetchMyChecklists, fetchMyCourses, fetchUpcomingPrograms } from "@/api/lms";
+import { fetchCatalog, fetchLearningPaths, fetchMyChecklists, fetchMyCourses, fetchPublicCatalog, fetchPublicPaths, fetchUpcomingPrograms } from "@/api/lms";
 import { fetchMyTeams } from "@/api/missions";
 import { SatkitAssembly } from "@/components/satkit/SatkitAssembly";
 import { CourseProgress } from "./CourseProgress";
@@ -12,6 +12,10 @@ import { UpcomingProgramRow } from "./UpcomingProgramRow";
 import { Rail, RailCard } from "./Rail";
 
 const ART = "bg-[repeating-linear-gradient(135deg,hsl(var(--primary)/0.11)_0px,hsl(var(--primary)/0.11)_8px,hsl(var(--primary)/0.03)_8px,hsl(var(--primary)/0.03)_16px)]";
+
+function formatPrice(cents: number, currency: string): string {
+  return new Intl.NumberFormat("en-US", { style: "currency", currency: currency.toUpperCase() }).format(cents / 100);
+}
 
 /** /learn — landing/home base. Resume band sits above discovery so a
  * returning student never hunts for where they left off; below it, paths and
@@ -29,7 +33,9 @@ export default function LearnLanding() {
 
   const { data: dashboard } = useQuery({ queryKey: ["lms-my-courses"], queryFn: fetchMyCourses, enabled: isAuthed });
   const { data: catalog } = useQuery({ queryKey: ["lms-catalog"], queryFn: () => fetchCatalog(), enabled: isAuthed });
+  const { data: publicCatalog } = useQuery({ queryKey: ["public-catalog"], queryFn: () => fetchPublicCatalog(), enabled: !isAuthed });
   const { data: paths } = useQuery({ queryKey: ["lms-learning-paths"], queryFn: fetchLearningPaths, enabled: isAuthed });
+  const { data: publicPaths } = useQuery({ queryKey: ["public-learning-paths"], queryFn: fetchPublicPaths, enabled: !isAuthed });
   const { data: programs } = useQuery({ queryKey: ["lms-upcoming-programs"], queryFn: fetchUpcomingPrograms });
   const { data: myTeams } = useQuery({ queryKey: ["my-teams"], queryFn: fetchMyTeams, enabled: isAuthed });
   const { data: myChecklists } = useQuery({ queryKey: ["lms-my-checklists"], queryFn: fetchMyChecklists, enabled: isAuthed });
@@ -47,9 +53,12 @@ export default function LearnLanding() {
     ? (cohortTeams.find((t) => t.cohort_id === latestChecklist.cohort_id) ?? null)
     : (cohortTeams[0] ?? null);
   const myPaths = paths?.filter((p) => p.enrolled) ?? [];
-  const otherPaths = paths?.filter((p) => !p.enrolled) ?? [];
+  // Visitors browse the public catalog — everything unread is "explore".
+  const visiblePaths = isAuthed ? paths : publicPaths;
+  const otherPaths = (visiblePaths ?? []).filter((p) => !p.enrolled);
   const myCourses = dashboard?.courses ?? [];
-  const otherCourses = catalog?.filter((c) => !c.enrolled) ?? [];
+  const visibleCatalog = isAuthed ? catalog : publicCatalog;
+  const otherCourses = (visibleCatalog ?? []).filter((c) => !c.enrolled);
   const upcoming = programs?.slice(0, 3) ?? [];
 
   return (
@@ -195,6 +204,9 @@ export default function LearnLanding() {
                   <RouteIcon className="size-3.5" />
                   {path.course_count} course{path.course_count === 1 ? "" : "s"}
                   {path.mission_count > 0 && <span>· {path.mission_count} mission{path.mission_count === 1 ? "" : "s"}</span>}
+                  {path.access_mode === "paid" && path.price_cents != null && (
+                    <span className="text-primary font-semibold">· {formatPrice(path.price_cents, path.currency)}</span>
+                  )}
                 </div>
                 <div className="font-display text-base font-semibold leading-snug line-clamp-2">{path.title}</div>
                 {path.description && <div className="text-sm text-muted-foreground line-clamp-2">{path.description}</div>}
@@ -221,6 +233,9 @@ export default function LearnLanding() {
                   {course.kind === "mission" ? "Mission" : "Course"}
                   {course.level && <span className="capitalize">· {course.level}</span>}
                   {course.locked && <span className="text-amber-600 dark:text-amber-400">· Locked</span>}
+                  {course.access_mode === "paid" && course.price_cents != null && (
+                    <span className="text-primary font-semibold">· {formatPrice(course.price_cents, course.currency)}</span>
+                  )}
                 </div>
                 <div className="font-display text-base font-semibold leading-snug line-clamp-2">{course.title}</div>
                 {course.description && <div className="text-sm text-muted-foreground line-clamp-2">{course.description}</div>}

@@ -4,8 +4,9 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { CheckCircle2, ChevronRight, Download, Lock, Rocket, Trophy } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
-  fetchLearningPath, fetchMyCertificates, startLearningPath, startPathCheckout, type LearningPathStep,
+  fetchLearningPath, fetchMyCertificates, fetchPublicPath, startLearningPath, startPathCheckout, type LearningPathStep,
 } from "@/api/lms";
+import { useAuth } from "@/context/AuthContext";
 import { cn } from "@/lib/utils";
 
 function formatPrice(cents: number, currency: string): string {
@@ -22,10 +23,15 @@ export default function LearnPath() {
   const { pathId } = useParams({ strict: false }) as { pathId: string };
   const navigate = useNavigate();
   const queryClient = useQueryClient();
+  // Logged-out visitors get the public outline (same shape, prices
+  // included, first step current/rest locked). Starting or buying costs
+  // a login — those mutations never fire without a token.
+  const { user } = useAuth();
+  const isAuthed = !!user;
 
   const { data: path, isLoading, error } = useQuery({
-    queryKey: ["lms-learning-path", pathId],
-    queryFn: () => fetchLearningPath(pathId),
+    queryKey: [isAuthed ? "lms-learning-path" : "public-learning-path", pathId],
+    queryFn: () => (isAuthed ? fetchLearningPath(pathId) : fetchPublicPath(pathId)),
   });
   // The certificate is issued server-side on completion, so the source of
   // truth for "earned" is the certificate list, never a client-side
@@ -33,6 +39,7 @@ export default function LearnPath() {
   const { data: certificates } = useQuery({
     queryKey: ["lms-my-certificates"],
     queryFn: fetchMyCertificates,
+    enabled: isAuthed,
   });
   const earned = certificates?.find((c) => c.learning_path_id === pathId);
 
@@ -114,23 +121,37 @@ export default function LearnPath() {
           </div>
           <div className="flex flex-col items-end gap-2 shrink-0">
             <div className="flex items-center gap-2">
-              {path.price_cents != null && !path.fully_owned && (
-                <Button
-                  size="xl" variant={hasStarted ? "outline" : "default"}
-                  onClick={() => void checkout.mutate()} disabled={checkout.isPending}
-                >
-                  {checkout.isPending ? "Redirecting..." : `Buy path — ${formatPrice(path.price_cents, path.currency)}`}
-                </Button>
-              )}
-              {(path.price_cents == null || path.fully_owned || hasStarted) && (
+              {!isAuthed ? (
                 <Button
                   size="xl"
-                  variant={path.price_cents != null && !path.fully_owned ? "outline" : "default"}
-                  onClick={() => handleContinue()} disabled={start.isPending}
+                  onClick={() => void navigate({ to: "/learn/login" })}
                 >
-                  {ctaLabel}
+                  {path.price_cents != null
+                    ? `Log in to buy — ${formatPrice(path.price_cents, path.currency)}`
+                    : "Log in to start"}
                   <ChevronRight className="size-4" />
                 </Button>
+              ) : (
+                <>
+                  {path.price_cents != null && !path.fully_owned && (
+                    <Button
+                      size="xl" variant={hasStarted ? "outline" : "default"}
+                      onClick={() => void checkout.mutate()} disabled={checkout.isPending}
+                    >
+                      {checkout.isPending ? "Redirecting..." : `Buy path — ${formatPrice(path.price_cents, path.currency)}`}
+                    </Button>
+                  )}
+                  {(path.price_cents == null || path.fully_owned || hasStarted) && (
+                    <Button
+                      size="xl"
+                      variant={path.price_cents != null && !path.fully_owned ? "outline" : "default"}
+                      onClick={() => handleContinue()} disabled={start.isPending}
+                    >
+                      {ctaLabel}
+                      <ChevronRight className="size-4" />
+                    </Button>
+                  )}
+                </>
               )}
             </div>
             {checkoutError && <p className="text-xs text-destructive">{checkoutError}</p>}

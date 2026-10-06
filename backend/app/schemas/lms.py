@@ -139,6 +139,10 @@ class CourseCatalogOut(BaseModel):
     access_mode: str = "open"  # P1-7 — open|invite|paid
     enrolled: bool = False  # this caller's own active, unexpired enrollment
     locked: bool = False  # 7B-2 — unmet prerequisites; independent of access_mode
+    # Public storefront pricing (2026-10) — integer minor units, same
+    # convention as CourseDetailOut. NULL unless access_mode == "paid".
+    price_cents: int | None = None
+    currency: str = "usd"
 
 
 # ── my-courses dashboard (student, LMS redesign 2026-08-06) ────────────────

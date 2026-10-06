@@ -4,10 +4,14 @@ import { useQuery } from "@tanstack/react-query";
 import { BookOpen, CheckCircle2, Lock, Search, X } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { fetchCatalog, fetchMyCourses, fetchUpcomingPrograms } from "@/api/lms";
+import { fetchCatalog, fetchMyCourses, fetchPublicCatalog, fetchUpcomingPrograms } from "@/api/lms";
 import { useAuth } from "@/context/AuthContext";
 import { UpcomingProgramRow } from "./UpcomingProgramRow";
 import { CourseProgress } from "./CourseProgress";
+
+function formatPrice(cents: number, currency: string): string {
+  return new Intl.NumberFormat("en-US", { style: "currency", currency: currency.toUpperCase() }).format(cents / 100);
+}
 
 /** /learn/catalog (design 1d/1e) — three tabs behind one route, so the API
  * contract and the URL both stay single. "Upcoming programs" is /public/catalog
@@ -36,9 +40,8 @@ export default function LearnCatalog() {
   }, [searchInput]);
 
   const { data: catalog, isLoading: catalogLoading } = useQuery({
-    queryKey: ["lms-catalog", search],
-    queryFn: () => fetchCatalog(search || undefined),
-    enabled: isAuthed,
+    queryKey: [isAuthed ? "lms-catalog" : "public-catalog", search],
+    queryFn: () => (isAuthed ? fetchCatalog(search || undefined) : fetchPublicCatalog(search || undefined)),
   });
   const { data: programs, isLoading: programsLoading } = useQuery({ queryKey: ["lms-upcoming-programs"], queryFn: fetchUpcomingPrograms });
   const { data: dashboard, isLoading: dashboardLoading } = useQuery({ queryKey: ["lms-my-courses"], queryFn: fetchMyCourses, enabled: isAuthed });
@@ -124,7 +127,7 @@ export default function LearnCatalog() {
                       </span>
                     ) : course.access_mode !== "open" ? (
                       <span className="flex items-center gap-1 text-[10px] font-semibold text-muted-foreground bg-background/80 backdrop-blur px-2 py-1 rounded-md">
-                        <Lock className="size-3" /> {course.access_mode === "paid" ? "PAID" : "INVITE ONLY"}
+                        <Lock className="size-3" /> {course.access_mode === "paid" ? (course.price_cents != null ? formatPrice(course.price_cents, course.currency) : "PAID") : "INVITE ONLY"}
                       </span>
                     ) : null}
                   </div>

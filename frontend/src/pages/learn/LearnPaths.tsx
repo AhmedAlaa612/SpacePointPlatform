@@ -3,15 +3,27 @@ import { useQuery } from "@tanstack/react-query";
 import { CheckCircle2, Lock, Route as RouteIcon } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { EmptyState } from "@/components/ui/primitives";
-import { fetchLearningPaths } from "@/api/lms";
+import { fetchLearningPaths, fetchPublicPaths } from "@/api/lms";
+import { useAuth } from "@/context/AuthContext";
 import { CourseProgress } from "./CourseProgress";
+
+function formatPrice(cents: number, currency: string): string {
+  return new Intl.NumberFormat("en-US", { style: "currency", currency: currency.toUpperCase() }).format(cents / 100);
+}
 
 /** /learn/paths — catalog of curated multi-course sequences (design 4a "The
  * ledger" is the detail page this links into). Scaffolding for when more
  * paths ship; there's realistically one today. */
 export default function LearnPaths() {
   const navigate = useNavigate();
-  const { data: paths, isLoading } = useQuery({ queryKey: ["lms-learning-paths"], queryFn: fetchLearningPaths });
+  // Visitors browse the public list — the authed call 401s without a token
+  // and bounces the whole page to /learn/login via the api interceptor.
+  const { user } = useAuth();
+  const isAuthed = !!user;
+  const { data: paths, isLoading } = useQuery({
+    queryKey: [isAuthed ? "lms-learning-paths" : "public-learning-paths"],
+    queryFn: () => (isAuthed ? fetchLearningPaths() : fetchPublicPaths()),
+  });
 
   return (
     <div className="mx-auto max-w-[1320px] px-5 sm:px-8 lg:px-14 py-8 sm:py-10 flex flex-col gap-6">
@@ -45,7 +57,7 @@ export default function LearnPaths() {
                 // so in practice only "paid" ever renders here — this mirrors
                 // LearnCatalog.tsx's course badge for consistency either way.
                 <span className="flex items-center gap-1 text-[10px] font-semibold text-muted-foreground bg-background/80 backdrop-blur px-2 py-1 rounded-md">
-                  <Lock className="size-3" /> {path.access_mode === "paid" ? "PAID" : "INVITE ONLY"}
+                  <Lock className="size-3" /> {path.access_mode === "paid" ? (path.price_cents != null ? formatPrice(path.price_cents, path.currency) : "PAID") : "INVITE ONLY"}
                 </span>
               ) : null}
             </div>

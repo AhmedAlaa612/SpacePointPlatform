@@ -272,6 +272,7 @@ async def catalog(
             level=c.level, track=c.track,
             access_mode=c.access_mode, enrolled=c.id in enrolled_course_ids,
             locked=not await is_unlocked(db, item_type="course", item_id=c.id, user_id=current.id),
+            price_cents=c.price_cents, currency=c.currency,
         )
         for c in rows
     ]
