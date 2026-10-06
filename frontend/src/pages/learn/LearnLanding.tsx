@@ -3,6 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { ArrowRight, PlayCircle, Route as RouteIcon, Users } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
+import { useAuth } from "@/context/AuthContext";
 import { fetchCatalog, fetchLearningPaths, fetchMyChecklists, fetchMyCourses, fetchUpcomingPrograms } from "@/api/lms";
 import { fetchMyTeams } from "@/api/missions";
 import { SatkitAssembly } from "@/components/satkit/SatkitAssembly";
@@ -19,13 +20,19 @@ const ART = "bg-[repeating-linear-gradient(135deg,hsl(var(--primary)/0.11)_0px,h
  * be nav entries of their own. */
 export default function LearnLanding() {
   const navigate = useNavigate();
+  // Logged-out visitors see the public landing (hero + public programs).
+  // Authed-only queries stay disabled for them: firing /lms/* without a
+  // token 401s, and the api client's interceptor hard-redirects to
+  // /learn/login — exactly the bounce this page must not do.
+  const { user } = useAuth();
+  const isAuthed = !!user;
 
-  const { data: dashboard } = useQuery({ queryKey: ["lms-my-courses"], queryFn: fetchMyCourses });
-  const { data: catalog } = useQuery({ queryKey: ["lms-catalog"], queryFn: () => fetchCatalog() });
-  const { data: paths } = useQuery({ queryKey: ["lms-learning-paths"], queryFn: fetchLearningPaths });
+  const { data: dashboard } = useQuery({ queryKey: ["lms-my-courses"], queryFn: fetchMyCourses, enabled: isAuthed });
+  const { data: catalog } = useQuery({ queryKey: ["lms-catalog"], queryFn: () => fetchCatalog(), enabled: isAuthed });
+  const { data: paths } = useQuery({ queryKey: ["lms-learning-paths"], queryFn: fetchLearningPaths, enabled: isAuthed });
   const { data: programs } = useQuery({ queryKey: ["lms-upcoming-programs"], queryFn: fetchUpcomingPrograms });
-  const { data: myTeams } = useQuery({ queryKey: ["my-teams"], queryFn: fetchMyTeams });
-  const { data: myChecklists } = useQuery({ queryKey: ["lms-my-checklists"], queryFn: fetchMyChecklists });
+  const { data: myTeams } = useQuery({ queryKey: ["my-teams"], queryFn: fetchMyTeams, enabled: isAuthed });
+  const { data: myChecklists } = useQuery({ queryKey: ["lms-my-checklists"], queryFn: fetchMyChecklists, enabled: isAuthed });
 
   const resume = dashboard?.resume;
   // Self-formed teams (cohort_id null) have no program checklist to open —
@@ -55,10 +62,21 @@ export default function LearnLanding() {
           <p className="text-base leading-relaxed text-muted-foreground max-w-lg">
             Short videos, quick checks, and hands-on missions. Learn at your own pace — we'll keep your place.
           </p>
-          <div className="flex flex-wrap gap-3 pt-1">
-            <Button size="xl" onClick={() => void navigate({ to: "/learn/my-courses" })}>
-              Continue learning <ArrowRight className="size-4" />
-            </Button>
+          <div className="flex flex-col sm:flex-row sm:items-center gap-3 pt-1">
+            {isAuthed ? (
+              <Button size="xl" onClick={() => void navigate({ to: "/learn/my-courses" })}>
+                Continue learning <ArrowRight className="size-4" />
+              </Button>
+            ) : (
+              <>
+                <Button size="xl" onClick={() => void navigate({ to: "/learn/catalog" })}>
+                  Browse Catalog <ArrowRight className="size-4" />
+                </Button>
+                <Button size="xl" variant="outline" onClick={() => void navigate({ to: "/learn/signup" })}>
+                  Get Started
+                </Button>
+              </>
+            )}
           </div>
         </div>
         <div className="h-80 sm:h-[32rem]">

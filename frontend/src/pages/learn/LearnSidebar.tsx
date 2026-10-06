@@ -2,6 +2,7 @@ import { Link } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import { Rocket, Search } from "lucide-react";
 import { fetchMyChecklists } from "@/api/lms";
+import { useAuth } from "@/context/AuthContext";
 import { DomainIcon } from "@/components/ui/DomainIcon";
 import { ThemeToggle } from "@/components/layout/ThemeToggle";
 import { cn } from "@/lib/utils";
@@ -28,7 +29,14 @@ export function LearnSidebar({ active }: { active: LearnNavActive }) {
   // (`list_student_assignments`), so [0] is "their latest program" with no
   // client-side sort of our own. Empty for anyone with no program (or a
   // non-student role previewing /learn) — the card just doesn't render.
-  const { data: checklists } = useQuery({ queryKey: ["lms-my-checklists"], queryFn: fetchMyChecklists });
+  // Disabled for logged-out visitors: firing it without a token 401s, and
+  // the api client's interceptor hard-redirects to /learn/login.
+  const { user } = useAuth();
+  const { data: checklists } = useQuery({
+    queryKey: ["lms-my-checklists"],
+    queryFn: fetchMyChecklists,
+    enabled: !!user,
+  });
   const myProgram = checklists?.[0] ?? null;
 
   return (
@@ -102,8 +110,27 @@ export function LearnSidebar({ active }: { active: LearnNavActive }) {
         )}
         <div className="flex items-center gap-1 border-t border-border pt-3">
           <ThemeToggle />
-          <LearnNotificationsBell align="left" side="top" />
-          <LearnProfileMenu />
+          {user ? (
+            <>
+              <LearnNotificationsBell align="left" side="top" />
+              <LearnProfileMenu />
+            </>
+          ) : (
+            <>
+              <Link
+                to="/learn/login"
+                className="flex h-9 flex-1 items-center justify-center rounded-xl px-3 text-sm font-medium text-muted-foreground transition-colors hover:bg-foreground/5 hover:text-foreground"
+              >
+                Log in
+              </Link>
+              <Link
+                to="/learn/signup"
+                className="flex h-9 flex-1 items-center justify-center rounded-xl px-3 text-sm font-semibold bg-primary text-primary-foreground transition-opacity hover:opacity-90"
+              >
+                Sign up
+              </Link>
+            </>
+          )}
         </div>
         <BackToPortalButton />
       </div>

@@ -21,3 +21,10 @@ export function roleLogo(role: Role | null | undefined): string {
   const logo = role ? ROLE_LOGOS[role] : undefined;
   return logo ?? PLAIN_LOGO;
 }
+
+/**
+ * Main marketing website URL (spacepoint.ae, or localhost in dev).
+ * Override per-environment with VITE_WEBSITE_URL.
+ */
+export const WEBSITE_URL: string =
+  import.meta.env.VITE_WEBSITE_URL ?? "https://spacepoint.ae";

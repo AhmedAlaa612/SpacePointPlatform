@@ -938,11 +938,8 @@ const applyInstructorWithCodeRoute = createRoute({
 const learnLayoutRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/learn",
-  beforeLoad: () => {
-    if (!tokens.access) {
-      throw redirect({ to: "/learn/login" });
-    }
-  },
+  // No redirect at the layout level — bare /learn is a public landing page.
+  // Individual student routes guard themselves instead (see below).
   component: LearnShell,
 });
 
@@ -986,6 +983,10 @@ const learnLandingRoute = createRoute({
   path: "/",
   component: LearnLanding,
   beforeLoad: async () => {
+    // Logged-out visitors stay on the public landing — resolving needs an
+    // authed checklists call, and firing it without a token would 401 and
+    // bounce to /learn/login via the api client's interceptor.
+    if (!tokens.access) return;
     const target = await resolveLearnLanding();
     if (target !== "/learn") throw redirect({ to: target });
   },
@@ -1010,6 +1011,11 @@ const learnCatalogRoute = createRoute({
 const learnMyCoursesRoute = createRoute({
   getParentRoute: () => learnLayoutRoute,
   path: "/my-courses",
+  beforeLoad: () => {
+    if (!tokens.access) {
+      throw redirect({ to: "/learn/login" });
+    }
+  },
   component: LearnMyCourses,
 });
 
@@ -1068,6 +1074,11 @@ const learnPathRoute = createRoute({
 const learnChecklistsRoute = createRoute({
   getParentRoute: () => learnLayoutRoute,
   path: "/checklists",
+  beforeLoad: () => {
+    if (!tokens.access) {
+      throw redirect({ to: "/learn/login" });
+    }
+  },
   component: LearnChecklists,
 });
 
@@ -1076,6 +1087,11 @@ const learnChecklistsRoute = createRoute({
 const learnChecklistRoute = createRoute({
   getParentRoute: () => learnLayoutRoute,
   path: "/checklists/$assignmentId",
+  beforeLoad: () => {
+    if (!tokens.access) {
+      throw redirect({ to: "/learn/login" });
+    }
+  },
   component: RoadmapBoard,
 });
 
@@ -1093,6 +1109,11 @@ const learnCohortQuizRoute = createRoute({
 const learnProfileRoute = createRoute({
   getParentRoute: () => learnLayoutRoute,
   path: "/profile",
+  beforeLoad: () => {
+    if (!tokens.access) {
+      throw redirect({ to: "/learn/login" });
+    }
+  },
   component: LearnProfile,
 });
 

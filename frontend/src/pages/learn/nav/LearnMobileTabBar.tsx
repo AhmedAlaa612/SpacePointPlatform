@@ -19,7 +19,13 @@ export function LearnMobileTabBar({ active }: { active: LearnNavActive }) {
   // cached fetch, not a new one. Already ordered newest-first by the
   // backend, so [0] is the student's latest program; null for anyone with
   // none (or a non-student role), and the button just doesn't render.
-  const { data: checklists } = useQuery({ queryKey: ["lms-my-checklists"], queryFn: fetchMyChecklists });
+  // Disabled logged-out: an unauthed call 401s and the api interceptor
+  // hard-redirects to /learn/login.
+  const { data: checklists } = useQuery({
+    queryKey: ["lms-my-checklists"],
+    queryFn: fetchMyChecklists,
+    enabled: !!currentUser,
+  });
   const myProgram = checklists?.[0] ?? null;
 
   return (
@@ -57,29 +63,49 @@ export function LearnMobileTabBar({ active }: { active: LearnNavActive }) {
           <span />
         )}
         <div className="flex items-center gap-0.5">
-          {myProgram && (
-            <Link
-              to="/learn/checklists/$assignmentId"
-              params={{ assignmentId: myProgram.assignment_id }}
-              aria-label="Go to your program"
-              className="rounded-xl p-2.5 text-muted-foreground transition-colors hover:bg-foreground/5 hover:text-foreground"
-            >
-              <Rocket size={20} />
-            </Link>
+          {currentUser ? (
+            <>
+              {myProgram && (
+                <Link
+                  to="/learn/checklists/$assignmentId"
+                  params={{ assignmentId: myProgram.assignment_id }}
+                  aria-label="Go to your program"
+                  className="rounded-xl p-2.5 text-muted-foreground transition-colors hover:bg-foreground/5 hover:text-foreground"
+                >
+                  <Rocket size={20} />
+                </Link>
+              )}
+              <Link
+                to="/learn/home"
+                aria-label="Home"
+                className={cn(
+                  "rounded-xl p-2.5 transition-colors hover:bg-foreground/5 hover:text-foreground",
+                  active === "home" ? "text-primary" : "text-muted-foreground",
+                )}
+              >
+                <Home size={20} />
+              </Link>
+              <ThemeToggle />
+              <LearnNotificationsBell />
+              <LearnProfileMenu />
+            </>
+          ) : (
+            <>
+              <ThemeToggle />
+              <Link
+                to="/learn/login"
+                className="rounded-xl px-3 py-2 text-xs font-medium text-muted-foreground transition-colors hover:bg-foreground/5 hover:text-foreground"
+              >
+                Log in
+              </Link>
+              <Link
+                to="/learn/signup"
+                className="rounded-xl px-3 py-2 text-xs font-semibold bg-primary text-primary-foreground transition-opacity hover:opacity-90"
+              >
+                Sign up
+              </Link>
+            </>
           )}
-          <Link
-            to="/learn/home"
-            aria-label="Home"
-            className={cn(
-              "rounded-xl p-2.5 transition-colors hover:bg-foreground/5 hover:text-foreground",
-              active === "home" ? "text-primary" : "text-muted-foreground",
-            )}
-          >
-            <Home size={20} />
-          </Link>
-          <ThemeToggle />
-          <LearnNotificationsBell />
-          <LearnProfileMenu />
         </div>
       </div>
     </nav>

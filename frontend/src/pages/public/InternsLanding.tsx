@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Link } from "@tanstack/react-router";
-import { PLAIN_LOGO } from "@/lib/logos";
+import { PLAIN_LOGO, WEBSITE_URL } from "@/lib/logos";
 import { SiteFooter } from "@/components/layout/SiteFooter";
 import { GLASS, BODY_BACKGROUND } from "@/lib/theme";
 
@@ -297,7 +297,9 @@ export function InternsLanding() {
   return (
     <div className="dark min-h-screen text-white" style={BODY_BACKGROUND}>
       <header className={`flex items-center justify-between gap-2 px-4 sm:px-6 py-3 sm:py-4 border-b border-white/10 ${GLASS}`}>
-        <img src={PLAIN_LOGO} alt="SpacePoint" className="h-7 sm:h-10 w-auto object-contain shrink-0" />
+        <a href={WEBSITE_URL} aria-label="Back to SpacePoint website">
+          <img src={PLAIN_LOGO} alt="SpacePoint" className="h-7 sm:h-10 w-auto object-contain shrink-0" />
+        </a>
         <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
           <Link
             to="/login"

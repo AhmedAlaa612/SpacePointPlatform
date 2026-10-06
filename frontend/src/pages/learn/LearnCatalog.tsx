@@ -5,6 +5,7 @@ import { BookOpen, CheckCircle2, Lock, Search, X } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { fetchCatalog, fetchMyCourses, fetchUpcomingPrograms } from "@/api/lms";
+import { useAuth } from "@/context/AuthContext";
 import { UpcomingProgramRow } from "./UpcomingProgramRow";
 import { CourseProgress } from "./CourseProgress";
 
@@ -14,9 +15,16 @@ import { CourseProgress } from "./CourseProgress";
  * the dual "Notify me" / "Register now" CTA), no LMS-specific backend needed. */
 export default function LearnCatalog() {
   const navigate = useNavigate();
+  // Logged-out visitors get the public programs tab — the courses/enrolled
+  // tabs need authed /lms/* calls, which 401 without a token and bounce to
+  // /learn/login via the api client's interceptor.
+  const { user } = useAuth();
+  const isAuthed = !!user;
   const [tab, setTab] = useState<"courses" | "programs" | "enrolled">(() => {
     const t = new URLSearchParams(window.location.search).get("tab");
-    return t === "programs" || t === "enrolled" ? t : "courses";
+    if (t === "enrolled" && isAuthed) return "enrolled";
+    if (t === "courses" && isAuthed) return "courses";
+    return "programs";
   });
   const [searchInput, setSearchInput] = useState(() => new URLSearchParams(window.location.search).get("q") ?? "");
   const [search, setSearch] = useState(searchInput);
@@ -30,9 +38,10 @@ export default function LearnCatalog() {
   const { data: catalog, isLoading: catalogLoading } = useQuery({
     queryKey: ["lms-catalog", search],
     queryFn: () => fetchCatalog(search || undefined),
+    enabled: isAuthed,
   });
   const { data: programs, isLoading: programsLoading } = useQuery({ queryKey: ["lms-upcoming-programs"], queryFn: fetchUpcomingPrograms });
-  const { data: dashboard, isLoading: dashboardLoading } = useQuery({ queryKey: ["lms-my-courses"], queryFn: fetchMyCourses });
+  const { data: dashboard, isLoading: dashboardLoading } = useQuery({ queryKey: ["lms-my-courses"], queryFn: fetchMyCourses, enabled: isAuthed });
 
   const enrolledIds = useMemo(() => new Set((dashboard?.courses ?? []).map((c) => c.course_id)), [dashboard]);
 
@@ -51,6 +60,28 @@ export default function LearnCatalog() {
         </TabsList>
 
         <TabsContent value="courses">
+          {!isAuthed && (
+            <Card className="p-5 sm:p-6 mb-4 flex flex-col sm:flex-row sm:items-center gap-4">
+              <div className="flex-1">
+                <div className="font-display text-base font-semibold">Log in to browse the full course catalog</div>
+                <p className="text-sm text-muted-foreground mt-1">Courses unlock after sign-up — programs below are open to everyone.</p>
+              </div>
+              <div className="flex gap-2 shrink-0">
+                <button
+                  onClick={() => void navigate({ to: "/learn/login" })}
+                  className="px-4 py-2 rounded-xl text-sm font-medium border border-border hover:bg-foreground/5 transition-colors cursor-pointer"
+                >
+                  Log in
+                </button>
+                <button
+                  onClick={() => void navigate({ to: "/learn/signup" })}
+                  className="px-4 py-2 rounded-xl text-sm font-semibold bg-primary text-primary-foreground hover:opacity-90 transition-opacity cursor-pointer"
+                >
+                  Sign up
+                </button>
+              </div>
+            </Card>
+          )}
           <div className="relative max-w-sm mb-4">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-muted-foreground pointer-events-none" />
             <input
@@ -123,6 +154,28 @@ export default function LearnCatalog() {
         </TabsContent>
 
         <TabsContent value="enrolled">
+          {!isAuthed && (
+            <Card className="p-5 sm:p-6 mb-4 flex flex-col sm:flex-row sm:items-center gap-4">
+              <div className="flex-1">
+                <div className="font-display text-base font-semibold">Your enrolled courses live here</div>
+                <p className="text-sm text-muted-foreground mt-1">Log in or create an account to start learning.</p>
+              </div>
+              <div className="flex gap-2 shrink-0">
+                <button
+                  onClick={() => void navigate({ to: "/learn/login" })}
+                  className="px-4 py-2 rounded-xl text-sm font-medium border border-border hover:bg-foreground/5 transition-colors cursor-pointer"
+                >
+                  Log in
+                </button>
+                <button
+                  onClick={() => void navigate({ to: "/learn/signup" })}
+                  className="px-4 py-2 rounded-xl text-sm font-semibold bg-primary text-primary-foreground hover:opacity-90 transition-opacity cursor-pointer"
+                >
+                  Sign up
+                </button>
+              </div>
+            </Card>
+          )}
           {dashboardLoading && <p className="text-sm text-muted-foreground">Loading...</p>}
           {dashboard && dashboard.courses.length === 0 && (
             <p className="text-sm text-muted-foreground">You haven't enrolled in anything yet — browse the Courses tab.</p>
