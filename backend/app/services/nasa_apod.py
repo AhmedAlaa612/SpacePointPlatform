@@ -2,19 +2,30 @@
 
 Fetches an Astronomy Picture of the Day corresponding to the user's birth month and day
 from a random year, with automatic retries and a resilient SpacePoint curated fallback.
+
+Uses the keyless science.nasa.gov WordPress endpoint (no API key, no quota):
+  - Specific date: https://science.nasa.gov/wp-json/wp/v2/apod-basic/yyMMdd
+    (two-digit year, no dashes; 2022-09-30 -> .../apod-basic/220930)
+  - Latest: https://science.nasa.gov/wp-json/wp/v2/apod-basic?per_page=1
+
+The old https://api.nasa.gov/planetary/apod endpoint now returns HTTP 200 with a
+"NASA Science" placeholder for every date, so responses are explicitly validated
+to fail loudly instead of silently serving the placeholder.
 """
 
 import calendar
+import html
 import logging
 import random
+import re
 from datetime import date, datetime, timezone
 from typing import Any
 
 import httpx
 
-from app.core.config import settings
-
 logger = logging.getLogger(__name__)
+
+APOD_BASE_URL = "https://science.nasa.gov/wp-json/wp/v2/apod-basic"
 
 CURATED_FALLBACK_APOD = {
     "title": "Cosmic Cliffs in the Carina Nebula",
@@ -32,20 +43,47 @@ def _is_leap_year(year: int) -> bool:
     return calendar.isleap(year)
 
 
+def _strip_html(raw: str) -> str:
+    """Strip HTML tags and unescape entities, collapsing whitespace."""
+    if not raw:
+        return ""
+    text = re.sub(r"<[^>]+>", " ", raw)
+    text = html.unescape(text)
+    text = re.sub(r"\s+", " ", text).strip()
+    return text
+
+
+def _clean_explanation(raw: str) -> str:
+    """Strip HTML from the new API's explanation and drop leading 'Explanation:'."""
+    text = _strip_html(raw or "")
+    text = re.sub(r"^explanation\s*:\s*", "", text, flags=re.IGNORECASE)
+    return text
+
+
+def _is_placeholder_response(title: str | None, image_url: str | None) -> bool:
+    """Detect the silent-breakage placeholder from the retired API.
+
+    Rejects responses where the title is exactly "NASA Science" or the image
+    URL contains "nasa-logo", so this kind of silent breakage gets noticed
+    (logged as an error and retried) instead of emailed to users.
+    """
+    if (title or "").strip() == "NASA Science":
+        return True
+    if image_url and "nasa-logo" in image_url.lower():
+        return True
+    return False
+
+
 async def get_nasa_birthday_picture(birth_date: date, api_key: str | None = None) -> dict[str, Any]:
     """Fetches a NASA APOD image for the given birth month and day from a random year.
 
-    1. First uses the REAL configured NASA API key from settings.NASA_API_KEY (or explicit api_key param).
-    2. If the real key fails (401/403/429/timeout) or is not provided -> falls back to "DEMO_KEY".
-    3. If DEMO_KEY also fails/rate-limits -> falls back to curated SpacePoint deep space image.
+    Uses the keyless science.nasa.gov endpoint — no API key is needed and none
+    is sent. ``api_key`` is kept only for backwards compatibility and is ignored.
+    Retries up to 3 candidate years (skipping videos, placeholders, and 404s)
+    before falling back to a curated SpacePoint deep space image.
     """
-    configured_key = (api_key or settings.NASA_API_KEY or "").strip()
-
-    # Priority: Real key first (if provided and != "DEMO_KEY"), then DEMO_KEY as backup
-    keys_to_try: list[str] = []
-    if configured_key and configured_key.upper() != "DEMO_KEY":
-        keys_to_try.append(configured_key)
-    keys_to_try.append("DEMO_KEY")
+    if api_key:
+        logger.warning("api_key argument is deprecated and ignored; the new APOD endpoint needs no key.")
 
     current_year = datetime.now(timezone.utc).year
 
@@ -60,79 +98,98 @@ async def get_nasa_birthday_picture(birth_date: date, api_key: str | None = None
     candidate_pool = list(range(min_year, max_year + 1))
     random.shuffle(candidate_pool)
 
+    max_attempts = 3
+    attempts = 0
+
     async with httpx.AsyncClient(timeout=10.0) as client:
-        for current_key in keys_to_try:
-            is_demo = current_key.upper() == "DEMO_KEY"
-            key_label = "DEMO_KEY fallback" if is_demo else "Real NASA_API_KEY"
-            logger.info("Attempting NASA APOD fetch using %s...", key_label)
+        for year in candidate_pool:
+            if attempts >= max_attempts:
+                break
 
-            attempts = 0
-            max_attempts = 3
+            # Handle Feb 29 for non-leap years
+            target_day = day
+            if month == 2 and day == 29 and not _is_leap_year(year):
+                target_day = 28
 
-            for year in candidate_pool:
-                if attempts >= max_attempts:
-                    break
+            date_str = f"{year:04d}-{month:02d}-{target_day:02d}"
+            apod_code = f"{year % 100:02d}{month:02d}{target_day:02d}"
+            url = f"{APOD_BASE_URL}/{apod_code}"
+            attempts += 1
 
-                # Handle Feb 29 for non-leap years
-                target_day = day
-                if month == 2 and day == 29 and not _is_leap_year(year):
-                    target_day = 28
+            try:
+                logger.info(
+                    "Fetching NASA APOD for date=%s (attempt %s/%s)",
+                    date_str,
+                    attempts,
+                    max_attempts,
+                )
 
-                date_str = f"{year:04d}-{month:02d}-{target_day:02d}"
-                attempts += 1
-
-                try:
-                    url = "https://api.nasa.gov/planetary/apod"
-                    params = {"api_key": current_key, "date": date_str}
-                    logger.info(
-                        "Fetching NASA APOD for date=%s with %s (attempt %s/%s)",
+                resp = await client.get(url)
+                if resp.status_code != 200:
+                    # Dates with no entry may 404; any non-200 is retried, not fatal.
+                    logger.warning(
+                        "NASA APOD date %s returned status %s: %s",
                         date_str,
-                        key_label,
-                        attempts,
-                        max_attempts,
+                        resp.status_code,
+                        resp.text[:200],
                     )
+                    continue
 
-                    resp = await client.get(url, params=params)
-                    if resp.status_code == 200:
-                        data = resp.json()
-                        media_type = data.get("media_type")
+                data = resp.json()
+                if isinstance(data, list):
+                    if not data:
+                        logger.warning("NASA APOD date %s returned empty list, retrying...", date_str)
+                        continue
+                    data = data[0]
 
-                        # We want an image, not a youtube video or audio
-                        if media_type == "image":
-                            img_url = data.get("hdurl") or data.get("url")
-                            if img_url:
-                                title = data.get("title", f"Cosmic Wonder ({year})")
-                                explanation = data.get("explanation", "Astronomy Picture of the Day captured on your special day.")
-                                apod_code = f"{year % 100:02d}{month:02d}{target_day:02d}"
-                                return {
-                                    "title": title,
-                                    "explanation": explanation,
-                                    "image_url": img_url,
-                                    "year": year,
-                                    "date": date_str,
-                                    "apod_url": f"https://apod.nasa.gov/apod/ap{apod_code}.html",
-                                }
-                        logger.warning(
-                            "NASA APOD date %s returned non-image media_type=%s, retrying another year...",
-                            date_str,
-                            media_type,
-                        )
-                    elif resp.status_code in (401, 403, 429):
-                        # Key is invalid or rate-limited; break out to fallback to next key
-                        logger.warning(
-                            "%s returned HTTP %s (%s). Falling back to next available key...",
-                            key_label,
-                            resp.status_code,
-                            resp.text[:120],
-                        )
-                        break
-                    else:
-                        logger.warning("NASA APOD date %s returned status %s: %s", date_str, resp.status_code, resp.text[:200])
+                media_type = data.get("media_type")
 
-                except Exception as exc:
-                    logger.warning("NASA APOD fetch failed for %s using %s: %s", date_str, key_label, exc)
+                # We want an image, not a video — retry another year.
+                if media_type != "image":
+                    logger.warning(
+                        "NASA APOD date %s returned non-image media_type=%s, retrying another year...",
+                        date_str,
+                        media_type,
+                    )
+                    continue
 
-    logger.warning("All NASA APOD keys and attempts failed or rate-limited. Using curated SpacePoint fallback.")
+                # Use hdurl for the image; url now points to the article page.
+                img_url = data.get("hdurl")
+                title = (data.get("title") or f"Cosmic Wonder ({year})").strip()
+
+                # Fail loudly on the silent-breakage placeholder.
+                if _is_placeholder_response(title, img_url):
+                    logger.error(
+                        "NASA APOD date %s returned placeholder content (title=%r img=%r); "
+                        "rejecting so silent breakage is noticed.",
+                        date_str,
+                        title,
+                        img_url,
+                    )
+                    continue
+
+                if not img_url:
+                    logger.warning("NASA APOD date %s returned no hdurl, retrying another year...", date_str)
+                    continue
+
+                explanation = _clean_explanation(data.get("explanation") or "")
+                if not explanation:
+                    explanation = "Astronomy Picture of the Day captured on your special day."
+                apod_url = data.get("url") or data.get("permalink") or "https://science.nasa.gov/skywatching/apod/"
+                entry_date = data.get("date") or date_str
+                return {
+                    "title": title,
+                    "explanation": explanation,
+                    "image_url": img_url,
+                    "year": year,
+                    "date": entry_date,
+                    "apod_url": apod_url,
+                }
+
+            except Exception as exc:
+                logger.warning("NASA APOD fetch failed for %s: %s", date_str, exc)
+
+    logger.warning("All NASA APOD attempts failed. Using curated SpacePoint fallback.")
     fallback = dict(CURATED_FALLBACK_APOD)
     # Give the fallback a realistic year
     fallback["year"] = random.randint(min_year, max_year)
