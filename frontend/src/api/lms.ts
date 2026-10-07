@@ -643,6 +643,8 @@ export interface LmsProgramChecklistItem {
   /** Derived server-side (compute_lock_states) — true iff `gated` and some
    * earlier non-optional item on this checklist isn't `done` yet. */
   locked: boolean;
+  /** Team formation — max members for a team_setup item, null = unlimited. */
+  max_team_size?: number | null;
 }
 
 export interface LmsProgramAssignmentSummary {
@@ -664,6 +666,11 @@ export interface LmsProgramAssignmentSummary {
   certificate_earned: boolean;
 }
 
+export interface LmsTeamMember {
+  id: string;
+  name: string | null;
+}
+
 export interface LmsProgramChecklist {
   assignment_id: string;
   lms_program_id: string;
@@ -679,6 +686,9 @@ export interface LmsProgramChecklist {
   /** participant|observer (observer added 2026-10) — drives the Observer toolbar banner. */
   mode?: string;
   team_name: string | null;
+  team_id?: string | null;
+  team_code?: string | null;
+  team_members?: LmsTeamMember[];
   // null means still editable — set once any teammate has hit "Final
   // Submit". Only ops can clear it again.
   team_final_locked_at: string | null;
@@ -731,6 +741,39 @@ export async function submitChecklistItemLinks(
  * every other view that reads it) reflects it immediately. */
 export async function setTeamNameChecklistItem(assignmentId: string, itemId: string, name: string): Promise<LmsProgramChecklistItem> {
   const { data } = await api.post<LmsProgramChecklistItem>(`/lms/programs/${assignmentId}/items/${itemId}/team-name`, { name });
+  return data;
+}
+
+export interface TeamFormationPreview {
+  team_id: string;
+  team_name: string;
+  member_count: number;
+  member_names: string[];
+  requires_switch: boolean;
+  current_team_name: string | null;
+}
+
+/** Team formation — create a team (leaves current, auto-deletes empty). */
+export async function createFormationTeam(assignmentId: string, itemId: string, name: string): Promise<LmsProgramChecklist> {
+  const { data } = await api.post<LmsProgramChecklist>(`/lms/programs/${assignmentId}/items/${itemId}/team/create`, { name });
+  return data;
+}
+
+/** Preview a join code — no mutation. */
+export async function previewFormationJoin(assignmentId: string, itemId: string, code: string): Promise<TeamFormationPreview> {
+  const { data } = await api.post<TeamFormationPreview>(`/lms/programs/${assignmentId}/items/${itemId}/team/preview`, { code });
+  return data;
+}
+
+/** Join by code — confirm=true moves off the current team. */
+export async function joinFormationTeam(assignmentId: string, itemId: string, code: string, confirm = false): Promise<LmsProgramChecklist> {
+  const { data } = await api.post<LmsProgramChecklist>(`/lms/programs/${assignmentId}/items/${itemId}/team/join`, { code, confirm });
+  return data;
+}
+
+/** Leave the current team — empty team auto-deleted. */
+export async function leaveFormationTeam(assignmentId: string, itemId: string): Promise<LmsProgramChecklist> {
+  const { data } = await api.post<LmsProgramChecklist>(`/lms/programs/${assignmentId}/items/${itemId}/team/leave`, {});
   return data;
 }
 

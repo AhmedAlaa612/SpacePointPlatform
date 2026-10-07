@@ -67,6 +67,12 @@ class Team(Base):
     # See module docstring — the roster import's grouping key, distinct
     # from `name`. NULL for any team not created via that import.
     roster_team_id = Column(String(64), nullable=True)
+    # Team formation (student self-serve join code) — short human-readable
+    # code (e.g. "K7P2QX"), unique per cohort, shared by teammates to let
+    # others join. NULL for cohort-less teams and backfilled for pre-existing
+    # rows by migration. Observer and student pools never intersect: lookups
+    # always filter on is_observer too.
+    join_code = Column(String(16), nullable=True)
     cohort_id = Column(UUID(as_uuid=True), ForeignKey("cohorts.id", ondelete="CASCADE"), nullable=True)
     created_by = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))

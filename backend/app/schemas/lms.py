@@ -548,6 +548,8 @@ class LmsProgramChecklistItemOut(BaseModel):
     # Derived, never stored — see compute_lock_states. True iff `gated`
     # and some earlier non-optional item on this checklist isn't done yet.
     locked: bool = False
+    # Team formation — max members for a team_setup item, None = unlimited.
+    max_team_size: int | None = None
 
 
 class ChatIdentityOut(BaseModel):
@@ -594,6 +596,11 @@ class LmsProgramAssignmentSummaryOut(BaseModel):
     certificate_earned: bool
 
 
+class LmsTeamMemberOut(BaseModel):
+    id: UUID
+    name: str | None = None
+
+
 class LmsProgramChecklistOut(BaseModel):
     assignment_id: UUID
     lms_program_id: UUID
@@ -611,6 +618,10 @@ class LmsProgramChecklistOut(BaseModel):
     # (resolved once for the whole checklist, not per item). None when
     # they have no team yet or the program has no team-scoped items.
     team_name: str | None = None
+    team_id: UUID | None = None
+    # Student-shareable join code for team formation (None when no team).
+    team_code: str | None = None
+    team_members: list[LmsTeamMemberOut] = []
     # None means the team's checklist is still editable — set once any
     # teammate has hit "Final Submit" (routers/lms/student.py::
     # final_submit_program). Same None-for-no-team/no-team-items posture
@@ -620,6 +631,24 @@ class LmsProgramChecklistOut(BaseModel):
     certificate_required: bool
     certificate_earned: bool
     items: list[LmsProgramChecklistItemOut]
+
+
+class LmsTeamFormationCreateIn(BaseModel):
+    name: str = Field(min_length=1, max_length=100)
+
+
+class LmsTeamFormationJoinIn(BaseModel):
+    code: str = Field(min_length=1, max_length=16)
+    confirm: bool = False
+
+
+class LmsTeamFormationPreviewOut(BaseModel):
+    team_id: UUID
+    team_name: str
+    member_count: int
+    member_names: list[str] = []
+    requires_switch: bool = False
+    current_team_name: str | None = None
 
 
 class LmsProgramTeamNameIn(BaseModel):

@@ -158,13 +158,13 @@ export default function LearnSignup() {
             <div className="flex flex-col gap-1">
               <input
                 type="text"
-                placeholder="Invite code (optional)"
+                placeholder="Invite code"
                 value={inviteCode}
                 onChange={(e) => setInviteCode(e.target.value.toUpperCase())}
                 className="h-11 px-4 rounded-xl text-sm bg-background ring-1 ring-border focus:outline-none focus:ring-primary/50 transition-shadow font-mono"
               />
               <span className="text-xs text-muted-foreground px-1">
-                Optional — enter your class's invite code if you were given one.
+                Enter your class invite code if given one.
               </span>
             </div>
             <PasswordInput

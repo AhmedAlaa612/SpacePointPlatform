@@ -385,6 +385,10 @@ async def _register_and_assign_team(
             roster_team_id=team_id, is_observer=is_obs,
         )
     else:
+        if getattr(team, "join_code", None) is None:
+            from app.services.teams import generate_unique_join_code as _gen_code
+            team.join_code = await _gen_code(db, cohort_id=cohort.id)
+            await db.flush()
         if is_obs and not getattr(team, "is_observer", False):
             team.is_observer = True
         if user.id not in await team_member_ids(db, team_id=team.id):

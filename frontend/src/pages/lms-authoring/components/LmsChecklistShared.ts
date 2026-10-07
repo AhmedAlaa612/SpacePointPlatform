@@ -38,6 +38,7 @@ export function itemToInput(item: LmsProgramItem): LmsProgramItemInput {
     cohort_quiz_template_id: item.cohort_quiz_template_id,
     mission_step_key: item.mission_step_key, gated: item.gated, guideline_kind: item.guideline_kind,
     guideline_url: item.guideline_url, checkpoint_label: item.checkpoint_label,
+    max_team_size: item.max_team_size,
   }
 }
 

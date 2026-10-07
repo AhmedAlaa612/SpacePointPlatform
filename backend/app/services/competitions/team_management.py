@@ -54,6 +54,8 @@ async def create_empty_team(
         id=uuid.uuid4(), name=name, cohort_id=cohort_id, created_by=created_by,
         roster_team_id=name, is_observer=is_observer,
     )
+    from app.services.teams import generate_unique_join_code
+    team.join_code = await generate_unique_join_code(db, cohort_id=cohort_id)
     db.add(team)
     try:
         async with db.begin_nested():
@@ -78,8 +80,23 @@ async def list_teams_with_members(db: AsyncSession, *, cohort_id: uuid.UUID) -> 
             "member_names": [m.full_name for m in members],
             "member_emails": [m.email for m in members],
             "is_observer": getattr(team, "is_observer", False),
+            "join_code": getattr(team, "join_code", None),
+            "roster_team_id": getattr(team, "roster_team_id", None),
         })
     return out
+
+
+async def regenerate_team_code(db: AsyncSession, *, team_id: uuid.UUID) -> Team:
+    """Ops regen — new unique code within the cohort."""
+    from app.services.teams import generate_unique_join_code
+    team = await db.get(Team, team_id)
+    if team is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Team not found")
+    if team.cohort_id is None:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="This team has no cohort")
+    team.join_code = await generate_unique_join_code(db, cohort_id=team.cohort_id)
+    await db.flush()
+    return team
 
 
 async def rename_team(db: AsyncSession, *, team_id: uuid.UUID, name: str) -> Team:

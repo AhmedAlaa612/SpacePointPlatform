@@ -15,6 +15,7 @@ class TeamOut(BaseModel):
     cohort_id: UUID | None = None
     member_ids: list[UUID] = []
     member_names: list[str] = []
+    join_code: str | None = None
 
 
 class TeamCreateIn(BaseModel):

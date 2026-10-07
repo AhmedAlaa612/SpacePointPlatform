@@ -528,6 +528,8 @@ class LmsProgramItemIn(BaseModel):
     guideline_kind: str | None = None
     guideline_url: str | None = Field(default=None, max_length=512)
     checkpoint_label: str | None = Field(default=None, max_length=120)
+    # Team formation — max members for a team_setup item, None = unlimited.
+    max_team_size: int | None = Field(default=None, ge=2)
 
 
 class LmsProgramItemOut(BaseModel):
@@ -579,6 +581,7 @@ class LmsProgramItemOut(BaseModel):
     guideline_url: str | None = None
     guideline_video_uploaded: bool = False
     checkpoint_label: str | None = None
+    max_team_size: int | None = None
 
 
 class LmsProgramItemReorderIn(BaseModel):

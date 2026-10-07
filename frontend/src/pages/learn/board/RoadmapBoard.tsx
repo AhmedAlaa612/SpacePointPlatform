@@ -230,8 +230,15 @@ export default function RoadmapBoard() {
               </p>
             )}
             {checklist.team_name && (
-              <div className="inline-flex w-fit items-center gap-1.5 rounded-full border border-primary/30 bg-primary/10 px-3 py-1 text-sm font-semibold text-primary">
-                <Users className="size-4" /> Team {checklist.team_name}
+              <div className="flex flex-wrap items-center gap-2">
+                <div className="inline-flex w-fit items-center gap-1.5 rounded-full border border-primary/30 bg-primary/10 px-3 py-1 text-sm font-semibold text-primary">
+                  <Users className="size-4" /> Team {checklist.team_name}
+                </div>
+                {checklist.team_code && (
+                  <span className="inline-flex w-fit items-center gap-1 rounded-full border border-border px-2.5 py-1 text-xs font-mono font-bold tracking-[0.15em] text-muted-foreground">
+                    {checklist.team_code}
+                  </span>
+                )}
               </div>
             )}
           </div>
@@ -293,6 +300,7 @@ export default function RoadmapBoard() {
       ) : (
         <TaskDrawer
           key={openItem?.id ?? "closed"} item={openItem} assignmentId={assignmentId} teamName={checklist.team_name}
+          teamCode={checklist.team_code ?? null} teamMembers={checklist.team_members ?? []}
           teamFinalLocked={!!checklist.team_final_locked_at}
           onClose={() => setOpenItemId(null)} onChanged={invalidate}
         />

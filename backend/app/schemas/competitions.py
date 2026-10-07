@@ -27,6 +27,8 @@ class CompetitionTeamOut(BaseModel):
     member_names: list[str] = []
     member_emails: list[str] = []
     is_observer: bool = False
+    join_code: str | None = None
+    roster_team_id: str | None = None
 
 
 class CompetitionTeamCreateIn(BaseModel):

@@ -184,7 +184,11 @@ async def post_cohort_team(
         db, cohort_id=cohort_id, name=body.name, created_by=current.id, is_observer=body.is_observer,
     )
     await db.commit()
-    return CompetitionTeamOut(id=team.id, name=team.name, cohort_id=team.cohort_id, is_observer=team.is_observer)
+    await db.refresh(team)
+    return CompetitionTeamOut(
+        id=team.id, name=team.name, cohort_id=team.cohort_id, is_observer=team.is_observer,
+        join_code=getattr(team, "join_code", None), roster_team_id=getattr(team, "roster_team_id", None),
+    )
 
 
 @router.patch("/teams/{team_id}", response_model=CompetitionTeamOut)
@@ -239,6 +243,16 @@ async def unlock_team_checkpoint(
 async def observer_reset_team(team_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
     """Reset an observer team's deliverables and judging scores, unlocking the team."""
     await team_service.reset_observer_team(db, team_id=team_id)
+    await db.commit()
+    cohort_id = await _team_cohort_id(db, team_id)
+    rows = await team_service.list_teams_with_members(db, cohort_id=cohort_id)
+    return next(CompetitionTeamOut(**r) for r in rows if r["id"] == team_id)
+
+
+@router.post("/teams/{team_id}/regenerate-code", response_model=CompetitionTeamOut)
+async def regenerate_team_code(team_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
+    """Ops regen of a team's student-shareable join code."""
+    await team_service.regenerate_team_code(db, team_id=team_id)
     await db.commit()
     cohort_id = await _team_cohort_id(db, team_id)
     rows = await team_service.list_teams_with_members(db, cohort_id=cohort_id)

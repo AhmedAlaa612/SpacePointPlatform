@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { Link, useParams } from "@tanstack/react-router"
-import { ArrowLeft, ArrowUpRight, Award, Clock, Download, Eye, Mail, MessageSquare, Plus, Printer, Search, Trash2, Trophy, Upload, UserPlus, UserMinus, Pencil, X, Check, RotateCcw } from "lucide-react"
+import { ArrowLeft, ArrowUpRight, Award, Clock, Copy, Download, Eye, Mail, MessageSquare, Plus, Printer, RefreshCw, Search, Trash2, Trophy, Upload, UserPlus, UserMinus, Pencil, X, Check, RotateCcw } from "lucide-react"
 import { getCohortApi, getCohortsApi } from "@/api/sessions/cohorts"
 import type { Cohort, ProgramCertificateTemplate } from "@/types/sessions"
 import { searchStaffApi, listInviteCodesApi, type StaffOption } from "@/api/lms_admin"
@@ -23,7 +23,7 @@ import {
   previewCohortRegistrationImportApi, searchAssignableStudentsApi,
   inviteCohortJudgeApi, putCohortRubricApi, registerAndAddTeamMemberApi, addExistingTeamMemberApi,
   removeTeamMemberApi, renameTeamApi, resendJudgeOnboardingEmailApi, revokeCohortJudgeApi, unpublishCohortResultsApi,
-  resetObserverTeamApi,
+  resetObserverTeamApi, regenerateTeamCodeApi,
   type CompetitionAssignStudentsResult, type CompetitionImportPreviewRow, type CompetitionImportResult,
   type CompetitionJudgeProgress,
   type CompetitionLeaderboardRow, type CompetitionPublication, type CompetitionRubric, type CompetitionTeam,
@@ -1151,6 +1151,11 @@ function TeamCard({ team, cohortId, onChanged }: { team: CompetitionTeam; cohort
     },
     onError: (e: any) => toast.error(getErrorMessage(e, "Failed to reset observer team")),
   })
+  const regenCodeMutation = useMutation({
+    mutationFn: () => regenerateTeamCodeApi(team.id),
+    onSuccess: () => { onChanged(); toast.success("New team code generated") },
+    onError: (e: any) => toast.error(getErrorMessage(e, "Failed to regenerate code")),
+  })
 
   return (
     <div className="p-4 bg-card border border-border rounded-2xl flex flex-col gap-3">
@@ -1183,8 +1188,30 @@ function TeamCard({ team, cohortId, onChanged }: { team: CompetitionTeam; cohort
                   Observer
                 </span>
               )}
+              {team.join_code && (
+                <button
+                  type="button"
+                  title="Copy team code"
+                  onClick={() => {
+                    const c = team.join_code as string
+                    if (navigator.clipboard?.writeText) void navigator.clipboard.writeText(c).then(() => toast.success(`Code ${c} copied`)).catch(() => toast.success(`Code: ${c}`))
+                    else toast.success(`Code: ${c}`)
+                  }}
+                  className="inline-flex items-center gap-1 text-[11px] font-mono font-bold tracking-[0.15em] px-1.5 py-0.5 rounded bg-muted text-muted-foreground border border-border hover:text-foreground transition-colors cursor-pointer"
+                >
+                  <Copy size={11} /> {team.join_code}
+                </button>
+              )}
             </div>
             <div className="flex items-center gap-1">
+              <button
+                onClick={() => { if (confirm(`Generate a new join code for "${team.name}"? Old code stops working.`)) regenCodeMutation.mutate() }}
+                disabled={regenCodeMutation.isPending}
+                className="p-1.5 rounded-lg text-muted-foreground hover:text-primary hover:bg-primary/10 transition-colors cursor-pointer"
+                title="Regenerate join code"
+              >
+                <RefreshCw size={14} className={regenCodeMutation.isPending ? "animate-spin" : ""} />
+              </button>
               {team.is_observer && (
                 <button
                   onClick={() => {

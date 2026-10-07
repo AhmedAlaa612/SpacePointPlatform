@@ -66,6 +66,9 @@ from app.schemas.lms import (
     LmsProgramChecklistItemOut,
     LmsProgramChecklistOut,
     LmsProgramItemSubmitIn,
+    LmsTeamFormationCreateIn,
+    LmsTeamFormationJoinIn,
+    LmsTeamFormationPreviewOut,
     LmsProgramTeamNameIn,
     ModuleItemOut,
     ModuleLockOut,
@@ -110,6 +113,7 @@ from app.models.team import Team
 from app.services.missions.verifiers.design import ensure_design
 from app.services.lms.program import (
     PROGRAM_ITEM_PDF_BUCKET, checkpoint_lock_readiness, checklist_item_locked, checklist_item_write_target,
+    formation_create_team, formation_join_by_code, formation_leave, formation_preview_join,
     get_student_checklist, list_student_assignments, refresh_item_progress, resolve_effective_poster_template_url,
     team_final_locked, team_final_submit_readiness, team_for_cohort_member, team_section_frozen,
 )
@@ -647,6 +651,7 @@ async def _checklist_item_out(
         submission_multi_link=item.submission_multi_link,
         submitted_links=target.submitted_links,
         submission_link_labels=item.submission_link_labels,
+        max_team_size=getattr(item, "max_team_size", None),
     )
 
 
@@ -946,6 +951,104 @@ async def set_team_name(
     await db.commit()
     await db.refresh(target)
     return await _checklist_item_out(db, item=item, target=target)
+
+
+async def _require_formation_writable(
+    db: AsyncSession, *, assignment: LmsProgramAssignment, item: LmsProgramItem,
+) -> None:
+    """Shared deadline/lock guards for every team-formation mutation —
+    deadline hard-blocks create/join/leave/rename alike (ops admin bypasses)."""
+    if item.item_type != "team_setup":
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="This item isn't a team setup step")
+    if item.deadline_at is not None and datetime.now(timezone.utc) > item.deadline_at:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="The team formation deadline has passed")
+    if await checklist_item_locked(db, assignment=assignment, item=item):
+        raise HTTPException(status.HTTP_409_CONFLICT, detail="This step isn't unlocked yet")
+    if await team_final_locked(db, assignment=assignment, item=item):
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            detail="Your team's final submission is locked — ask an ops staff member to reopen it",
+        )
+    if await team_section_frozen(db, assignment=assignment, item=item):
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            detail="This section is frozen by a locked checkpoint — ask an ops staff member to reopen it",
+        )
+
+
+async def _formation_checklist_out(db: AsyncSession, *, assignment_id: uuid.UUID, user_id: uuid.UUID):
+    checklist = await get_student_checklist(db, assignment_id=assignment_id, user_id=user_id)
+    if checklist is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Program assignment not found")
+    return checklist
+
+
+@router.post("/programs/{assignment_id}/items/{item_id}/team/create", response_model=LmsProgramChecklistOut)
+async def formation_create(
+    assignment_id: uuid.UUID, item_id: uuid.UUID, body: LmsTeamFormationCreateIn,
+    db: AsyncSession = Depends(get_db), current: User = Depends(get_current_active_user),
+):
+    """Create a team — leaves the current one (single-team rule), new team
+    gets a shareable code. Empty old team is auto-deleted."""
+    assignment, item, _ = await _own_progress_row(db, assignment_id=assignment_id, item_id=item_id, user=current)
+    await _require_formation_writable(db, assignment=assignment, item=item)
+    await formation_create_team(db, assignment=assignment, item=item, user=current, name=body.name)
+    await db.commit()
+    return await _formation_checklist_out(db, assignment_id=assignment_id, user_id=current.id)
+
+
+@router.post("/programs/{assignment_id}/items/{item_id}/team/preview", response_model=LmsTeamFormationPreviewOut)
+async def formation_preview(
+    assignment_id: uuid.UUID, item_id: uuid.UUID, body: LmsTeamFormationJoinIn,
+    db: AsyncSession = Depends(get_db), current: User = Depends(get_current_active_user),
+):
+    """Preview a join code — who you'd join, whether it needs a switch
+    confirm. No mutation, but still deadline-gated so expired codes read as
+    expired rather than leaking team names."""
+    assignment, item, _ = await _own_progress_row(db, assignment_id=assignment_id, item_id=item_id, user=current)
+    if item.item_type != "team_setup":
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="This item isn't a team setup step")
+    if item.deadline_at is not None and datetime.now(timezone.utc) > item.deadline_at:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="The team formation deadline has passed")
+    preview = await formation_preview_join(db, assignment=assignment, user=current, code=body.code)
+    return preview
+
+
+@router.post("/programs/{assignment_id}/items/{item_id}/team/join", response_model=LmsProgramChecklistOut)
+async def formation_join(
+    assignment_id: uuid.UUID, item_id: uuid.UUID, body: LmsTeamFormationJoinIn,
+    db: AsyncSession = Depends(get_db), current: User = Depends(get_current_active_user),
+):
+    """Join by code — moves off the current team (single-team rule) when
+    confirm=true; without confirm and already on another team, 409s with the
+    switch question so the UI can ask first."""
+    assignment, item, _ = await _own_progress_row(db, assignment_id=assignment_id, item_id=item_id, user=current)
+    await _require_formation_writable(db, assignment=assignment, item=item)
+    if not body.confirm:
+        current_team = await team_for_cohort_member(db, cohort_id=assignment.cohort_id, user_id=current.id)
+        if current_team is not None:
+            preview = await formation_preview_join(db, assignment=assignment, user=current, code=body.code)
+            if preview["team_id"] != current_team.id:
+                raise HTTPException(
+                    status.HTTP_409_CONFLICT,
+                    detail=f"You're already on '{current_team.name}'. Confirm to leave it and join '{preview['team_name']}'?",
+                )
+    await formation_join_by_code(db, assignment=assignment, item=item, user=current, code=body.code)
+    await db.commit()
+    return await _formation_checklist_out(db, assignment_id=assignment_id, user_id=current.id)
+
+
+@router.post("/programs/{assignment_id}/items/{item_id}/team/leave", response_model=LmsProgramChecklistOut)
+async def formation_leave_route(
+    assignment_id: uuid.UUID, item_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db), current: User = Depends(get_current_active_user),
+):
+    """Leave the current team — empty team is auto-deleted."""
+    assignment, item, _ = await _own_progress_row(db, assignment_id=assignment_id, item_id=item_id, user=current)
+    await _require_formation_writable(db, assignment=assignment, item=item)
+    await formation_leave(db, assignment=assignment, user=current)
+    await db.commit()
+    return await _formation_checklist_out(db, assignment_id=assignment_id, user_id=current.id)
 
 
 @router.post("/programs/{assignment_id}/final-submit", response_model=LmsProgramChecklistOut)

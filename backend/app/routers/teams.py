@@ -35,6 +35,7 @@ async def _team_out(db: AsyncSession, team: Team) -> TeamOut:
     return TeamOut(
         id=team.id, name=team.name, cohort_id=team.cohort_id, member_ids=member_ids,
         member_names=[m.full_name for m in members if m is not None],
+        join_code=getattr(team, "join_code", None),
     )
 
 

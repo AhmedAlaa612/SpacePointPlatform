@@ -426,6 +426,8 @@ export interface LmsProgramItem {
   /** Groups tiles into the board's row sections ("Checkpoint 1 — Learn &
    * plan") — free text, matched by exact string. */
   checkpoint_label: string | null;
+  /** Team formation — max members for a team_setup item, null = unlimited. */
+  max_team_size: number | null;
 }
 
 /** Mirrors the backend's MISSION_STEP_KEYS (services/lms/program.py) — the
@@ -475,6 +477,7 @@ export interface LmsProgramItemInput {
   guideline_kind?: "pdf" | "link" | "video" | null;
   guideline_url?: string | null;
   checkpoint_label?: string | null;
+  max_team_size?: number | null;
 }
 
 export interface LmsProgram {

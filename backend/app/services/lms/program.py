@@ -208,6 +208,17 @@ def validate_item_payload(body: LmsProgramItemIn) -> None:
             raise HTTPException(
                 status.HTTP_400_BAD_REQUEST, detail="A team_setup item cannot be gated",
             )
+        if getattr(body, "max_team_size", None) is not None:
+            try:
+                mts = int(getattr(body, "max_team_size"))
+            except (TypeError, ValueError):
+                raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="max_team_size must be a number")
+            if mts < 2:
+                raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="max_team_size must be at least 2 or empty for unlimited")
+    elif getattr(body, "max_team_size", None) is not None:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST, detail="Only a team_setup item can set max_team_size",
+        )
     # checkpoint — a team milestone gate. Always team-scoped (its lock
     # lives in LmsProgramTeamItemProgress, like team_setup), never
     # optional (it counts as a required step in N/M counters, the final
@@ -731,9 +742,16 @@ async def fork_cohort_override(
             optional=item.optional, requires_confirmation=item.requires_confirmation, scope=item.scope,
             course_id=item.course_id, mission_id=item.mission_id, variant_id=item.variant_id,
             external_url=item.external_url, submission_prompt=item.submission_prompt,
+            submission_field_type=item.submission_field_type,
+            submission_multi_link=item.submission_multi_link,
+            submission_link_labels=item.submission_link_labels,
             pdf_path=copy_pdf_path, deadline_at=item.deadline_at,
+            max_team_size=getattr(item, "max_team_size", None),
             session_date=item.session_date, session_starts_at=item.session_starts_at,
             session_location=item.session_location, session_meeting_url=item.session_meeting_url,
+            mission_step_key=item.mission_step_key, gated=item.gated,
+            guideline_kind=item.guideline_kind, guideline_url=item.guideline_url,
+            checkpoint_label=item.checkpoint_label,
             cohort_quiz_template_id=item.cohort_quiz_template_id,
         )
         db.add(copy)
@@ -1515,9 +1533,11 @@ async def ensure_observer_team(db: AsyncSession, *, cohort_id: uuid.UUID | None,
     existing_count = await db.scalar(
         select(func.count(Team.id)).where(Team.cohort_id == cohort_id)
     ) or 0
+    from app.services.teams import generate_unique_join_code
     team = Team(
         id=uuid.uuid4(), name=f"[Observer] Team {existing_count + 1}",
         cohort_id=cohort_id, created_by=user_id, is_observer=True,
+        join_code=await generate_unique_join_code(db, cohort_id=cohort_id),
     )
     db.add(team)
     await db.flush()
@@ -1927,6 +1947,11 @@ async def get_student_checklist(db: AsyncSession, *, assignment_id: uuid.UUID, u
         status = await refresh_item_progress(
             db, progress=team_progress or progress, item=item, user_id=user_id, dashboard_cache=dashboard_cache,
         )
+        # Team formation: done = in a team. Ops-created teams never wrote a
+        # team_setup progress row, so derive it — stored row (if any) still
+        # wins when done/awaiting, but mere membership completes the step.
+        if item.item_type == "team_setup" and team is not None and status == "pending":
+            status = "done"
         statuses[item.id] = status
         submitted_url = team_progress.submitted_url if team_progress is not None else progress.submitted_url
         submitted_text = team_progress.submitted_text if team_progress is not None else progress.submitted_text
@@ -1975,10 +2000,24 @@ async def get_student_checklist(db: AsyncSession, *, assignment_id: uuid.UUID, u
             "guideline_video_uploaded": guideline_video_uploaded,
             "checkpoint_label": item.checkpoint_label,
             "poster_template_url": effective_poster_template_url if item.mission_step_key == "poster" else None,
+            "max_team_size": getattr(item, "max_team_size", None),
         })
 
     locked_by_item = compute_lock_states([item for item, _ in pairs], statuses)
     items_out = [{**row, "locked": locked_by_item.get(row["id"], False)} for row in rows]
+
+    team_members: list[dict] = []
+    if team is not None:
+        member_ids = list((await db.execute(
+            select(TeamMember.user_id).where(TeamMember.team_id == team.id)
+        )).scalars().all())
+        if member_ids:
+            names = dict((await db.execute(
+                select(User.id, User.full_name).where(User.id.in_(member_ids))
+            )).all())
+            team_members = [
+                {"id": str(uid), "name": names.get(uid)} for uid in member_ids
+            ]
 
     return {
         "assignment_id": assignment.id, "lms_program_id": program.id,
@@ -2006,6 +2045,9 @@ async def get_student_checklist(db: AsyncSession, *, assignment_id: uuid.UUID, u
         # with no team yet (or a program with no team-scoped items at all)
         # gets None, same as cohort_name for a program with no cohort.
         "team_name": team.name if team is not None else None,
+        "team_id": team.id if team is not None else None,
+        "team_code": getattr(team, "join_code", None) if team is not None else None,
+        "team_members": team_members,
         # None means still editable — see Team.final_locked_at's own
         # docstring. Same "resolved from the already-loaded team" posture
         # as team_name above, no extra query.
@@ -2015,6 +2057,164 @@ async def get_student_checklist(db: AsyncSession, *, assignment_id: uuid.UUID, u
         "certificate_earned": await _certificate_earned(db, assignment.registration_id),
         "items": items_out,
     }
+
+
+async def _mark_team_setup_done(
+    db: AsyncSession, *, team_id: uuid.UUID, user_id: uuid.UUID,
+) -> None:
+    """Marks every team_setup item's shared progress row done for a fresh
+    membership — create/join lands the student in a team, which by definition
+    completes the formation step. Uses the race-safe upsert so two teammates
+    joining at once don't collide."""
+    team = await db.get(Team, team_id)
+    if team is None or team.cohort_id is None:
+        return
+    # All team_setup items reachable from this cohort's checklist.
+    resolved = await resolve_cohort_program(db, team.cohort_id)
+    if resolved is None:
+        return
+    _, items = resolved
+    now = datetime.now(timezone.utc)
+    for item in items:
+        if item.item_type != "team_setup":
+            continue
+        row = await _get_or_create_team_progress(db, item_id=item.id, team_id=team_id)
+        if row.status != "done":
+            row.status = "done" if not item.requires_confirmation else "awaiting_confirmation"
+            row.completed_at = now if row.status == "done" else row.completed_at
+            row.updated_by_user_id = user_id
+            row.updated_at = now
+    await db.flush()
+
+
+async def formation_create_team(
+    db: AsyncSession, *, assignment: LmsProgramAssignment, item: LmsProgramItem,
+    user: User, name: str,
+) -> Team:
+    """Student self-serve create — leaves all other cohort teams (single-team
+    rule), creates a partitioned team (observer flag follows caller), marks
+    formation done. Caller has already passed deadline/lock guards."""
+    from app.services.teams import (
+        create_team, delete_team_if_empty, generate_unique_join_code, leave_team, team_size,
+    )
+    if assignment.cohort_id is None:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="This program has no cohort team")
+    is_observer = getattr(assignment, "mode", "participant") == "observer" or "observer" in (user.role_values or [])
+    clean = (name or "").strip()
+    if not clean:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="Team name can't be empty")
+    if len(clean) > 100:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="Team name is too long")
+    # Name collision within cohort (case-insensitive).
+    collision = await db.scalar(
+        select(Team.id).where(
+            Team.cohort_id == assignment.cohort_id,
+            func.lower(Team.name) == clean.lower(),
+        )
+    )
+    if collision is not None:
+        raise HTTPException(status.HTTP_409_CONFLICT, detail="That team name is already taken")
+    max_size = getattr(item, "max_team_size", None)
+    if max_size is not None and int(max_size) < 1:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="This team step is misconfigured")
+    # Leave every other team in this cohort first (single-team rule).
+    old_ids = list((await db.execute(
+        select(TeamMember.team_id)
+        .join(Team, Team.id == TeamMember.team_id)
+        .where(Team.cohort_id == assignment.cohort_id, TeamMember.user_id == user.id)
+    )).scalars().all())
+    for oid in old_ids:
+        await leave_team(db, team_id=oid, user_id=user.id)
+    await db.flush()
+    team = await create_team(
+        db, name=clean, created_by=user.id, cohort_id=assignment.cohort_id,
+        is_observer=is_observer,
+        join_code=await generate_unique_join_code(db, cohort_id=assignment.cohort_id),
+    )
+    # create_team already adds creator as member.
+    await _mark_team_setup_done(db, team_id=team.id, user_id=user.id)
+    await sync_team_mission_runs(db, team=team)
+    for oid in old_ids:
+        await delete_team_if_empty(db, team_id=oid)
+    return team
+
+
+async def formation_preview_join(
+    db: AsyncSession, *, assignment: LmsProgramAssignment, user: User, code: str,
+) -> dict:
+    from app.services.teams import get_team_by_code, team_size
+    if assignment.cohort_id is None:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="This program has no cohort team")
+    is_observer = getattr(assignment, "mode", "participant") == "observer" or "observer" in (user.role_values or [])
+    target = await get_team_by_code(db, cohort_id=assignment.cohort_id, code=code, is_observer=is_observer)
+    if target is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="No team found with this code")
+    current = await team_for_cohort_member(db, cohort_id=assignment.cohort_id, user_id=user.id)
+    if current is not None and current.id == target.id:
+        raise HTTPException(status.HTTP_409_CONFLICT, detail="You're already on this team")
+    size = await team_size(db, team_id=target.id)
+    member_ids = list((await db.execute(
+        select(TeamMember.user_id).where(TeamMember.team_id == target.id)
+    )).scalars().all())
+    names: list[str] = []
+    if member_ids:
+        names = list((await db.execute(
+            select(User.full_name).where(User.id.in_(member_ids))
+        )).scalars().all())
+    return {
+        "team_id": target.id, "team_name": target.name,
+        "member_count": size, "member_names": names,
+        "requires_switch": current is not None,
+        "current_team_name": current.name if current else None,
+    }
+
+
+async def formation_join_by_code(
+    db: AsyncSession, *, assignment: LmsProgramAssignment, item: LmsProgramItem,
+    user: User, code: str,
+) -> Team:
+    from app.services.teams import get_team_by_code, join_team, leave_team, delete_team_if_empty, team_size
+    if assignment.cohort_id is None:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="This program has no cohort team")
+    is_observer = getattr(assignment, "mode", "participant") == "observer" or "observer" in (user.role_values or [])
+    target = await get_team_by_code(db, cohort_id=assignment.cohort_id, code=code, is_observer=is_observer)
+    if target is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="No team found with this code")
+    current = await team_for_cohort_member(db, cohort_id=assignment.cohort_id, user_id=user.id)
+    if current is not None and current.id == target.id:
+        raise HTTPException(status.HTTP_409_CONFLICT, detail="You're already on this team")
+    max_size = getattr(item, "max_team_size", None)
+    if max_size is not None and await team_size(db, team_id=target.id) >= int(max_size):
+        raise HTTPException(status.HTTP_409_CONFLICT, detail="This team is full")
+    old_ids = list((await db.execute(
+        select(TeamMember.team_id)
+        .join(Team, Team.id == TeamMember.team_id)
+        .where(Team.cohort_id == assignment.cohort_id, TeamMember.user_id == user.id,
+               TeamMember.team_id != target.id)
+    )).scalars().all())
+    for oid in old_ids:
+        await leave_team(db, team_id=oid, user_id=user.id)
+    await join_team(db, team_id=target.id, user_id=user.id)
+    await _mark_team_setup_done(db, team_id=target.id, user_id=user.id)
+    await sync_team_mission_runs(db, team=target)
+    for oid in old_ids:
+        await delete_team_if_empty(db, team_id=oid)
+    return target
+
+
+async def formation_leave(
+    db: AsyncSession, *, assignment: LmsProgramAssignment, user: User,
+) -> uuid.UUID | None:
+    """Leaves the caller's cohort team; auto-deletes it when empty.
+    Returns the left team id (for response messaging) or None if none."""
+    from app.services.teams import leave_team, delete_team_if_empty
+    current = await team_for_cohort_member(db, cohort_id=assignment.cohort_id, user_id=user.id)
+    if current is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="You're not on a team")
+    await leave_team(db, team_id=current.id, user_id=user.id)
+    await db.flush()
+    await delete_team_if_empty(db, team_id=current.id)
+    return current.id
 
 
 async def _assignment_summary(db: AsyncSession, assignment: LmsProgramAssignment) -> dict | None:
@@ -2045,6 +2245,14 @@ async def _assignment_summary(db: AsyncSession, assignment: LmsProgramAssignment
             db, progress=team_progress or progress, item=item, user_id=assignment.user_id,
             dashboard_cache=dashboard_cache,
         )
+        if item.item_type == "team_setup" and status == "pending":
+            # done = in a team (see get_student_checklist) — cheap check: any
+            # team row for this user/cohort completes the step.
+            has_team = await team_for_cohort_member(
+                db, cohort_id=assignment.cohort_id, user_id=assignment.user_id,
+            )
+            if has_team is not None:
+                status = "done"
         if status == "done":
             done += 1
         elif next_item_title is None:

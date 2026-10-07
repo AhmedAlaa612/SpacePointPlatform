@@ -184,6 +184,10 @@ class LmsProgramItem(Base):
     # (routers/lms/student.py's submit_program_item), not a DB constraint.
     # Confirming an already-submitted item past the deadline is untouched.
     deadline_at = Column(DateTime(timezone=True), nullable=True)
+    # Team formation (student self-serve) — max members for a `team_setup`
+    # item. NULL means unlimited (default). Enforced on student create/join
+    # only; ops admin add bypasses. team_setup-only, validated in service.
+    max_team_size = Column(Integer, nullable=True)
     # A `session` item's own typed fields — always self-contained, never a
     # live FK to the Sessions domain's `Session` table: a program-level
     # checklist can span many cohorts with different session dates, so a

@@ -2,11 +2,13 @@ import { useState } from "react";
 import { useNavigate } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient, type UseMutationResult } from "@tanstack/react-query";
 import { isAxiosError } from "axios";
-import { Check, ExternalLink, Lock, Plus, Play, Trash2, X, type LucideIcon } from "lucide-react";
+import { Check, Copy, ExternalLink, Lock, LogOut, Pencil, Plus, Play, Trash2, Users, X, type LucideIcon } from "lucide-react";
 import {
-  completeChecklistItem, getChecklistItemGuidelineVideoUrlApi, getChecklistItemPdfUrlApi, setTeamNameChecklistItem,
+  completeChecklistItem, createFormationTeam, getChecklistItemGuidelineVideoUrlApi, getChecklistItemPdfUrlApi,
+  joinFormationTeam, leaveFormationTeam, previewFormationJoin, setTeamNameChecklistItem,
   submitChecklistItem, submitChecklistItemText, submitChecklistItemLinks,
-  type LmsProgramChecklistItem, type SubmissionLink, type SubmissionLinkLabel,
+  type LmsProgramChecklistItem, type LmsTeamMember, type SubmissionLink, type SubmissionLinkLabel,
+  type TeamFormationPreview,
 } from "@/api/lms";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -86,6 +88,9 @@ interface DrawerBodyProps {
   isMultiLink: boolean;
   isTeamSetup: boolean;
   teamName: string | null;
+  teamCode: string | null;
+  teamMembers: LmsTeamMember[];
+  assignmentId: string;
   isPoster: boolean;
   onOpenMadar?: () => void;
   isSelfCheck: boolean;
@@ -102,12 +107,293 @@ interface DrawerBodyProps {
   linksInput: SubmissionLink[];
   setLinksInput: (links: SubmissionLink[] | ((prev: SubmissionLink[]) => SubmissionLink[])) => void;
   submitLinksMutation: UseMutationResult<LmsProgramChecklistItem, Error, SubmissionLink[]>;
-  teamNameInput: string;
-  setTeamNameInput: (name: string) => void;
-  teamNameMutation: UseMutationResult<LmsProgramChecklistItem, Error, string>;
   Icon: LucideIcon;
   completeMutation: UseMutationResult<LmsProgramChecklistItem, Error, void>;
   teamFinalLocked?: boolean;
+  onChanged: () => void;
+}
+
+/** Team formation panel — create with code, join with code, switch with
+ * confirm, leave, rename. One item: when in a team it shows filled state
+ * (name editable, code shareable, members); when solo it shows the
+ * flowchart branches (create → get code / enter code to join). */
+function TeamFormationPanel({
+  assignmentId, item, teamName, teamCode, teamMembers, pastDeadline, onChanged,
+}: {
+  assignmentId: string;
+  item: LmsProgramChecklistItem;
+  teamName: string | null;
+  teamCode: string | null;
+  teamMembers: LmsTeamMember[];
+  pastDeadline: boolean;
+  onChanged: () => void;
+}) {
+  const queryClient = useQueryClient();
+  const toast = useToast();
+  const [createName, setCreateName] = useState("");
+  const [joinCode, setJoinCode] = useState("");
+  const [preview, setPreview] = useState<TeamFormationPreview | null>(null);
+  const [confirmLeave, setConfirmLeave] = useState(false);
+  const [copied, setCopied] = useState(false);
+  const [editingName, setEditingName] = useState(false);
+  const [editValue, setEditValue] = useState("");
+  // Server-confirmed deadline (stale local clock safe) — same posture the
+  // drawer takes for every other deadline-gated form.
+  const [deadlinePassed, setDeadlinePassed] = useState(false);
+  const isLocked = pastDeadline || deadlinePassed;
+  const invalidate = () => {
+    onChanged();
+    void queryClient.invalidateQueries({ queryKey: ["lms-checklist", assignmentId] });
+  };
+  const renameMutation = useMutation({
+    mutationFn: (name: string) => setTeamNameChecklistItem(assignmentId, item.id, name),
+    onSuccess: () => {
+      toast.success("Team name saved!");
+      setEditingName(false);
+      invalidate();
+    },
+    onError: (err) => {
+      const detail = errorDetail(err, "That name might already be taken — try another.");
+      toast.error(detail);
+      if (detail.toLowerCase().includes("deadline")) setDeadlinePassed(true);
+    },
+  });
+  const createMutation = useMutation({
+    mutationFn: (name: string) => createFormationTeam(assignmentId, item.id, name),
+    onSuccess: () => { toast.success("Team created — share your code!"); setCreateName(""); setPreview(null); invalidate(); },
+    onError: (err) => toast.error(errorDetail(err, "Couldn't create the team.")),
+  });
+  const joinMutation = useMutation({
+    mutationFn: ({ code, confirm }: { code: string; confirm: boolean }) => joinFormationTeam(assignmentId, item.id, code, confirm),
+    onSuccess: () => { toast.success("Joined the team!"); setJoinCode(""); setPreview(null); invalidate(); },
+    onError: (err) => {
+      // Switch needs confirm — surface the preview so the UI can ask.
+      if (isAxiosError(err) && err.response?.status === 409) {
+        const detail = typeof err.response?.data?.detail === "string" ? err.response.data.detail : "";
+        if (detail.includes("Confirm to leave")) {
+          void previewMutation.mutateAsync(joinCode.trim()).then(setPreview).catch(() => toast.error(detail));
+          return;
+        }
+        toast.error(detail || "Couldn't join the team.");
+        return;
+      }
+      toast.error(errorDetail(err, "Couldn't join the team."));
+    },
+  });
+  const previewMutation = useMutation({
+    mutationFn: (code: string) => previewFormationJoin(assignmentId, item.id, code),
+    onError: (err) => toast.error(errorDetail(err, "No team found with this code.")),
+  });
+  const leaveMutation = useMutation({
+    mutationFn: () => leaveFormationTeam(assignmentId, item.id),
+    onSuccess: () => { toast.success("Left the team."); setConfirmLeave(false); invalidate(); },
+    onError: (err) => toast.error(errorDetail(err, "Couldn't leave the team.")),
+  });
+
+  if (isLocked) {
+    return (
+      <div className="flex flex-col gap-2.5 rounded-xl ring-1 ring-border p-4 text-sm" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center gap-2 text-sm font-semibold text-foreground">
+          <Users size={16} /> {teamName ? `Team ${teamName}` : "Team formation"}
+        </div>
+        {teamName && (
+          <>
+            {teamCode && (
+              <div className="flex items-center gap-2 text-sm">
+                <span className="text-muted-foreground">Team code:</span>
+                <code className="font-mono font-bold tracking-widest text-foreground">{teamCode}</code>
+              </div>
+            )}
+            {teamMembers.length > 0 && (
+              <p className="text-sm text-muted-foreground">{teamMembers.length} member{teamMembers.length === 1 ? "" : "s"} · {teamMembers.map((m) => m.name ?? "—").join(", ")}</p>
+            )}
+          </>
+        )}
+        <p className="text-sm font-medium text-amber-600 dark:text-amber-500">Deadline passed — teams are locked in</p>
+      </div>
+    );
+  }
+
+  if (!teamName) {
+    return (
+      <div className="flex flex-col gap-3 rounded-xl ring-1 ring-border p-4 text-sm" onClick={(e) => e.stopPropagation()}>
+        <div className="flex flex-col gap-2">
+          <span className="text-xs font-bold uppercase tracking-wide text-muted-foreground">Have a team code?</span>
+          <div className="flex gap-2">
+            <input
+              value={joinCode}
+              onChange={(e) => { setJoinCode(e.target.value.toUpperCase()); setPreview(null); }}
+              placeholder="Enter code (e.g. K7P2QX)"
+              maxLength={16}
+              className="h-12 flex-1 min-w-0 px-4 border border-border bg-background text-foreground rounded-lg text-base font-mono uppercase tracking-widest focus:outline-none focus:border-primary transition-colors"
+            />
+            <Button
+              disabled={!joinCode.trim() || previewMutation.isPending || joinMutation.isPending}
+              onClick={() => previewMutation.mutate(joinCode.trim(), { onSuccess: (p) => { setPreview(p); if (!p.requires_switch) joinMutation.mutate({ code: joinCode.trim(), confirm: false }); } })}
+              className="h-12 px-4 shrink-0"
+            >
+              {previewMutation.isPending || joinMutation.isPending ? "Joining…" : "Join"}
+            </Button>
+          </div>
+          {preview && (
+            <div className="rounded-lg bg-muted/50 px-3 py-2.5 flex flex-col gap-2">
+              <p className="text-sm text-foreground">
+                Join <span className="font-semibold">{preview.team_name}</span> ({preview.member_count} member{preview.member_count === 1 ? "" : "s"})?
+              </p>
+              {preview.requires_switch && (
+                <p className="text-sm text-amber-600 dark:text-amber-500">
+                  You're on {preview.current_team_name} — joining will move you. Your old team is deleted if it goes empty.
+                </p>
+              )}
+              <div className="flex gap-2">
+                <Button size="sm" disabled={joinMutation.isPending} onClick={() => joinMutation.mutate({ code: joinCode.trim(), confirm: true })}>
+                  {joinMutation.isPending ? "Moving…" : preview.requires_switch ? `Leave ${preview.current_team_name} & join` : "Confirm join"}
+                </Button>
+                <Button size="sm" variant="outline" onClick={() => setPreview(null)}>Cancel</Button>
+              </div>
+            </div>
+          )}
+          {previewMutation.isError && !preview && (
+            <p className="text-sm text-destructive">No team found with this code — check it and try again.</p>
+          )}
+        </div>
+        <div className="flex items-center gap-2 text-xs text-muted-foreground">
+          <span className="h-px flex-1 bg-border" /> or <span className="h-px flex-1 bg-border" />
+        </div>
+        <div className="flex flex-col gap-2">
+          <span className="text-xs font-bold uppercase tracking-wide text-muted-foreground">No code? Create a team</span>
+          <div className="flex gap-2">
+            <input
+              value={createName}
+              onChange={(e) => setCreateName(e.target.value)}
+              placeholder="Your team's name"
+              maxLength={100}
+              className="h-12 flex-1 min-w-0 px-4 border border-border bg-background text-foreground rounded-lg text-base focus:outline-none focus:border-primary transition-colors"
+            />
+            <Button
+              disabled={!createName.trim() || createMutation.isPending}
+              onClick={() => createMutation.mutate(createName.trim())}
+              className="h-12 px-4 shrink-0"
+            >
+              {createMutation.isPending ? "Creating…" : "Create"}
+            </Button>
+          </div>
+          <p className="text-xs text-muted-foreground">You'll get a code to share with teammates.</p>
+        </div>
+        {item.max_team_size != null && (
+          <p className="text-xs text-muted-foreground">Max {item.max_team_size} members per team.</p>
+        )}
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex flex-col gap-3 rounded-xl ring-1 ring-border p-4 text-sm" onClick={(e) => e.stopPropagation()}>
+      {/* Team name — big and bold, edit-in-place via the pencil */}
+      <div className="flex flex-col gap-1.5">
+        {!editingName ? (
+          <>
+            <div className="flex items-center gap-2">
+              <span className="text-xl font-extrabold tracking-tight text-foreground">{teamName}</span>
+              <button
+                type="button"
+                aria-label="Rename team"
+                onClick={() => { setEditValue(teamName ?? ""); setEditingName(true); }}
+                className="flex h-8 w-8 items-center justify-center rounded-full text-muted-foreground hover:text-primary hover:bg-primary/10 transition-colors cursor-pointer"
+              >
+                <Pencil size={15} />
+              </button>
+            </div>
+            {item.updated_by_name && (
+              <span className="text-xs text-muted-foreground">
+                Set by {item.updated_by_name}
+                {item.updated_at && ` · ${new Date(item.updated_at).toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}`}
+              </span>
+            )}
+          </>
+        ) : (
+          <>
+            <input
+              value={editValue}
+              onChange={(e) => setEditValue(e.target.value)}
+              // eslint-disable-next-line jsx-a11y/no-autofocus
+              autoFocus
+              placeholder="Your team's name"
+              maxLength={100}
+              className="h-12 px-4 border border-border bg-background text-foreground rounded-lg text-base font-semibold focus:outline-none focus:border-primary transition-colors"
+            />
+            <div className="flex gap-2">
+              <Button
+                size="sm"
+                disabled={!editValue.trim() || renameMutation.isPending}
+                onClick={() => renameMutation.mutate(editValue.trim())}
+              >
+                {renameMutation.isPending ? "Saving…" : "Save"}
+              </Button>
+              <Button size="sm" variant="outline" onClick={() => setEditingName(false)}>Cancel</Button>
+            </div>
+          </>
+        )}
+      </div>
+      {/* Members — vertical, bold, one card each */}
+      <div className="flex flex-col gap-1.5">
+        <span className="text-xs font-bold uppercase tracking-wide text-muted-foreground">
+          Members · {teamMembers.length}
+        </span>
+        {teamMembers.map((m) => (
+          <div key={m.id} className="flex items-center gap-2.5 rounded-lg ring-1 ring-border bg-muted/30 px-3 py-2">
+            <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-primary/15 text-xs font-bold text-primary">
+              {(m.name ?? "?").charAt(0).toUpperCase()}
+            </span>
+            <span className="text-sm font-bold text-foreground">{m.name ?? "—"}</span>
+          </div>
+        ))}
+      </div>
+      {teamCode && (
+        <div className="flex items-center gap-2 rounded-lg bg-primary/10 border border-primary/25 px-3 py-2.5">
+          <div className="flex flex-col">
+            <span className="text-xs font-bold uppercase tracking-wide text-muted-foreground">Team code — share to add members</span>
+            <code className="font-mono text-lg font-bold tracking-[0.2em] text-foreground">{teamCode}</code>
+          </div>
+          <button
+            type="button"
+            aria-label="Copy team code"
+            onClick={() => {
+              const done = () => { setCopied(true); window.setTimeout(() => setCopied(false), 1500); };
+              if (navigator.clipboard?.writeText) void navigator.clipboard.writeText(teamCode).then(done).catch(done);
+              else done();
+            }}
+            className="ml-auto flex h-9 w-9 items-center justify-center rounded-full bg-background text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
+          >
+            {copied ? <Check size={16} className="text-emerald-600" /> : <Copy size={16} />}
+          </button>
+        </div>
+      )}
+      {/* Leave — to join another team, leave first then enter its code */}
+      {!confirmLeave ? (
+        <button
+          type="button"
+          onClick={() => setConfirmLeave(true)}
+          className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-destructive transition-colors cursor-pointer"
+        >
+          <LogOut size={14} /> Leave team
+        </button>
+      ) : (
+        <div className="rounded-lg bg-muted/50 px-3 py-2.5 flex flex-col gap-2">
+          <p className="text-sm text-foreground">Leave {teamName}? {teamMembers.length <= 1 ? "The team will be deleted." : ""}</p>
+          <div className="flex gap-2">
+            <Button size="sm" variant="destructive" disabled={leaveMutation.isPending} onClick={() => leaveMutation.mutate()}>
+              {leaveMutation.isPending ? "Leaving…" : "Yes, leave"}
+            </Button>
+            <Button size="sm" variant="outline" onClick={() => setConfirmLeave(false)}>Stay</Button>
+          </div>
+        </div>
+      )}
+      {item.max_team_size != null && (
+        <p className="text-xs text-muted-foreground">Max {item.max_team_size} members per team.</p>
+      )}
+    </div>
+  );
 }
 
 /** One task, three sections top to bottom: an optional **Guide** (a button
@@ -133,11 +419,12 @@ interface DrawerBodyProps {
 function DrawerBody({
   item, onClose, hasGuideline, effectiveGuidelineKind, guidelineOpened, openGuideline, workLabel, doWork,
   submissionReference, guidelineVideoUploaded, guidelineVideoInfo, isAutoTracked, isSubmission, isMultiLink, isTeamSetup, teamName,
+  teamCode, teamMembers, assignmentId,
   isPoster, onOpenMadar, isSelfCheck, done, awaiting, canSubmit, pastDeadline, submitUrl, setSubmitUrl, submitMutation,
   submitText, setSubmitText, submitTextMutation,
   linksInput, setLinksInput, submitLinksMutation,
-  teamNameInput, setTeamNameInput, teamNameMutation, Icon, completeMutation,
-  teamFinalLocked,
+  Icon, completeMutation,
+  teamFinalLocked, onChanged,
 }: DrawerBodyProps) {
   // A plain (non-multi) submission item can itself be a text field
   // (2026-09-16) — isPoster is excluded on purpose, it's always
@@ -286,35 +573,15 @@ function DrawerBody({
         </div>
       )}
 
-      {/* Team setup — name (or rename) your team. Always shared: any
-          teammate can change it right up until the deadline, last write
-          wins, same convention every other team-scoped item follows. */}
+      {/* Team setup — formation + rename. One item: create/join/leave with
+          codes plus rename, always shared (any teammate, last write wins). */}
       {isTeamSetup && (
-        <div className="flex flex-col gap-2.5 rounded-xl ring-1 ring-border p-4 text-sm" onClick={(e) => e.stopPropagation()}>
-          <div className="flex items-center justify-between gap-2">
-            <span className="text-xs font-bold uppercase tracking-wide text-muted-foreground">Current name</span>
-            {item.updated_by_name && (
-              <span className="text-xs text-muted-foreground">
-                Set by {item.updated_by_name}
-                {item.updated_at && ` · ${new Date(item.updated_at).toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}`}
-              </span>
-            )}
-          </div>
-          <span className="text-lg font-semibold text-foreground">{teamName ?? "—"}</span>
-          {pastDeadline ? (
-            <p className="text-sm font-medium text-amber-600 dark:text-amber-500">
-              Deadline passed — your team's name is locked in
-            </p>
-          ) : (
-            <input
-              value={teamNameInput}
-              onChange={(e) => setTeamNameInput(e.target.value)}
-              placeholder="Your team's name"
-              maxLength={100}
-              className="h-12 px-4 border border-border bg-background text-foreground rounded-lg text-base focus:outline-none focus:border-primary transition-colors"
-            />
-          )}
-        </div>
+        <TeamFormationPanel
+          assignmentId={assignmentId} item={item}
+          teamName={teamName} teamCode={teamCode} teamMembers={teamMembers}
+          pastDeadline={pastDeadline}
+          onChanged={onChanged}
+        />
       )}
 
       {isSubmission && submissionReference && (
@@ -534,15 +801,6 @@ function DrawerBody({
                 {item.item_type === "quiz" && pastDeadline && !done ? "Deadline passed" : workLabel}
               </Button>
             )}
-            {isTeamSetup && !pastDeadline && (
-              <Button
-                disabled={!canSubmit || !teamNameInput.trim() || teamNameMutation.isPending}
-                onClick={() => teamNameMutation.mutate(teamNameInput.trim())}
-                className="h-[52px] text-base"
-              >
-                {teamNameMutation.isPending ? "Saving…" : teamName ? "Update team name" : "Save team name"}
-              </Button>
-            )}
             {isSubmission && !isMultiLink && !isTextSubmission && !pastDeadline && (
               <Button
                 disabled={!canSubmit || (!submitUrl && !item.submitted_url) || submitMutation.isPending}
@@ -634,11 +892,13 @@ function DrawerBody({
  * lifted from the old `ChecklistItemRow` (`LearnChecklist.tsx`, now
  * retired), not rewritten. */
 export function TaskDrawer({
-  item, assignmentId, teamName, teamFinalLocked, onClose, onChanged,
+  item, assignmentId, teamName, teamCode, teamMembers, teamFinalLocked, onClose, onChanged,
 }: {
   item: LmsProgramChecklistItem | null;
   assignmentId: string;
   teamName: string | null;
+  teamCode?: string | null;
+  teamMembers?: LmsTeamMember[];
   teamFinalLocked?: boolean;
   onClose: () => void;
   onChanged: () => void;
@@ -669,7 +929,6 @@ export function TaskDrawer({
       ? item.submitted_links.map((l) => ({ label: l.label, url: l.url ?? "", text: l.text ?? "" }))
       : [{ label: "", url: "", text: "" }];
   });
-  const [teamNameInput, setTeamNameInput] = useState(teamName ?? "");
   const [viewingPdf, setViewingPdf] = useState(false);
 
   // A `pdf`-type item's own content IS its guideline even when
@@ -759,26 +1018,8 @@ export function TaskDrawer({
       toast.error(errorDetail(err, "Failed to submit. Please check your links."));
     },
   });
-  // A stale local clock can make the drawer *think* the deadline hasn't
-  // passed (pastDeadline below is computed client-side) even though the
-  // server — the only clock that actually matters — disagrees. Rather
-  // than let the student keep hitting the same rejected save, a 400 whose
-  // reason names the deadline flips this so the drawer immediately shows
-  // the real "locked" state instead of the form.
-  const [teamNameDeadlinePassed, setTeamNameDeadlinePassed] = useState(false);
-  const teamNameMutation = useMutation({
-    mutationFn: (name: string) => setTeamNameChecklistItem(assignmentId, item!.id, name),
-    onSuccess: () => {
-      toast.success("Team name saved!");
-      onChanged();
-      queryClient.invalidateQueries({ queryKey: ["lms-checklist", assignmentId] });
-    },
-    onError: (err) => {
-      const detail = errorDetail(err, "That name might already be taken — try another.");
-      toast.error(detail);
-      if (detail.toLowerCase().includes("deadline")) setTeamNameDeadlinePassed(true);
-    },
-  });
+  // (Rename now lives inside the team-formation panel, which owns its own
+  // mutation + server-confirmed deadline flip.)
 
   if (!item) return null;
 
@@ -847,22 +1088,20 @@ export function TaskDrawer({
   const canSubmit = !hasGuideline || guidelineOpened;
   // Once the deadline passes, the paste-link form is hidden — already
   // submitted content above stays visible/reviewable. Posters remain editable anytime.
-  // `teamNameDeadlinePassed` (server-confirmed, see teamNameMutation above)
-  // is ORed in so a stale local clock can't leave the team-setup form
-  // showing as open after the server has already said otherwise — isTeamSetup
-  // and isSubmission are never both true for the same item, so this never
-  // affects the submission form's own reading of this same flag.
-  const pastDeadline = (!isPoster && !!item.deadline_at && new Date(item.deadline_at) < new Date()) || teamNameDeadlinePassed;
+  // (Team formation handles its own server-confirmed deadline inside its panel.)
+  const pastDeadline = !isPoster && !!item.deadline_at && new Date(item.deadline_at) < new Date();
   const Icon = iconForItem(item);
 
   const bodyProps: DrawerBodyProps = {
     item, onClose, hasGuideline, effectiveGuidelineKind, guidelineOpened, openGuideline, workLabel, doWork,
     submissionReference, guidelineVideoUploaded: !!item.guideline_video_uploaded, guidelineVideoInfo, isAutoTracked,
-    isSubmission, isMultiLink, isTeamSetup, teamName, isPoster, onOpenMadar, isSelfCheck, done, awaiting, canSubmit, pastDeadline,
+    isSubmission, isMultiLink, isTeamSetup, teamName,
+    teamCode: teamCode ?? null, teamMembers: teamMembers ?? [], assignmentId,
+    isPoster, onOpenMadar, isSelfCheck, done, awaiting, canSubmit, pastDeadline,
     submitUrl, setSubmitUrl, submitMutation, submitText, setSubmitText, submitTextMutation,
     linksInput, setLinksInput, submitLinksMutation,
-    teamNameInput, setTeamNameInput, teamNameMutation, Icon, completeMutation,
-    teamFinalLocked,
+    Icon, completeMutation,
+    teamFinalLocked, onChanged,
   };
 
   return (

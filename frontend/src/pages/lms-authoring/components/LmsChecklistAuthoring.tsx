@@ -1162,6 +1162,7 @@ export function ItemForm({
   )
   const [checkpointLabel, setCheckpointLabel] = useState(initial?.checkpoint_label ?? "")
   const [cohortQuizTemplateId, setCohortQuizTemplateId] = useState(initial?.cohort_quiz_template_id ?? "")
+  const [maxTeamSize, setMaxTeamSize] = useState(initial?.max_team_size != null ? String(initial.max_team_size) : "")
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState("")
 
@@ -1216,6 +1217,10 @@ export function ItemForm({
     if (guidelineKind === "video" && videoMode === "embed" && !guidelineUrl.trim()) {
       setError("Add an embed link, or switch to Upload"); return
     }
+    if (itemType === "team_setup" && maxTeamSize.trim()) {
+      const n = Number(maxTeamSize.trim());
+      if (!Number.isInteger(n) || n < 2) { setError("Max members must be at least 2 or blank for unlimited"); return }
+    }
 
     setSaving(true)
     try {
@@ -1250,6 +1255,7 @@ export function ItemForm({
           : guidelineKind === "video" && videoMode === "embed" ? (guidelineUrl.trim() || null)
           : null,
         checkpoint_label: isCheckpoint ? null : checkpointLabel.trim() || null,
+        max_team_size: itemType === "team_setup" && maxTeamSize.trim() ? Number(maxTeamSize.trim()) : null,
       })
     } catch (e: unknown) {
       const detail = (e as { response?: { data?: { detail?: string } } })?.response?.data?.detail
@@ -1441,9 +1447,16 @@ export function ItemForm({
       )}
 
       {itemType === "team_setup" && (
-        <p className="text-xs text-muted-foreground">
-          Students can name their team directly on this step of the roadmap.
-        </p>
+        <div className="flex flex-col gap-1">
+          <p className="text-xs text-muted-foreground">
+            Students form teams here: create a team and get a code, or join with a code. Switching teams asks to confirm, one team per cohort, empty teams auto-delete.
+          </p>
+          <label className="text-[11px] font-medium text-muted-foreground">Max members per team (optional, blank = unlimited)</label>
+          <input
+            type="number" min={2} value={maxTeamSize} onChange={(e) => setMaxTeamSize(e.target.value)}
+            placeholder="Unlimited" className={inputCls}
+          />
+        </div>
       )}
 
       {isCheckpoint && (
@@ -1490,7 +1503,7 @@ export function ItemForm({
             {itemType === "submission"
               ? "Leave blank for no deadline. After it passes, students can no longer submit or replace answers; already-submitted content and confirmation are unaffected."
               : itemType === "team_setup"
-              ? "Leave blank for no deadline. After it passes, the team can no longer change their name — until then, any teammate can set or change it as many times as they want."
+              ? "Team formation deadline. After it passes, students can't create, join, leave, or rename — ops handles exceptions."
               : itemType === "quiz"
               ? "Leave blank for no deadline. After it passes, students can no longer start or submit this quiz; submitted results remain viewable."
               : "Leave blank for no deadline. After it passes, students can no longer complete this step."}

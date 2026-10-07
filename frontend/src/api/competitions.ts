@@ -377,6 +377,8 @@ export interface CompetitionTeam {
   member_names: string[]
   member_emails: string[]
   is_observer?: boolean
+  join_code?: string | null
+  roster_team_id?: string | null
 }
 
 export interface CompetitionTeamDetail {
@@ -603,6 +605,9 @@ export const unlockTeamCheckpointApi = (teamId: string, checkpointItemId: string
 
 export const resetObserverTeamApi = (teamId: string) =>
   api.post<CompetitionTeam>(`/competitions/admin/teams/${teamId}/observer-reset`).then((r) => r.data)
+
+export const regenerateTeamCodeApi = (teamId: string) =>
+  api.post<CompetitionTeam>(`/competitions/admin/teams/${teamId}/regenerate-code`).then((r) => r.data)
 
 export const addExistingTeamMemberApi = (teamId: string, userId: string) =>
   api.post<CompetitionTeam>(`/competitions/admin/teams/${teamId}/members`, { user_id: userId }).then((r) => r.data)

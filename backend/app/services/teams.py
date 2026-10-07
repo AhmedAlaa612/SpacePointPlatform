@@ -14,20 +14,42 @@ validation here.
 
 from __future__ import annotations
 
+import secrets
 import uuid
 
 from fastapi import HTTPException
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.team import Team, TeamMember
 
 
+JOIN_CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
+
+
+def generate_join_code(length: int = 6) -> str:
+    """Short human-readable team code — no 0/O/1/I so it survives dictation."""
+    return "".join(secrets.choice(JOIN_CODE_ALPHABET) for _ in range(length))
+
+
+async def generate_unique_join_code(
+    db: AsyncSession, *, cohort_id: uuid.UUID, length: int = 6,
+) -> str:
+    for _ in range(50):
+        code = generate_join_code(length)
+        exists = await db.scalar(
+            select(Team.id).where(Team.cohort_id == cohort_id, Team.join_code == code)
+        )
+        if exists is None:
+            return code
+    raise HTTPException(500, detail="Could not generate a unique team code")
+
+
 async def create_team(
     db: AsyncSession, *, name: str, created_by: uuid.UUID, cohort_id: uuid.UUID | None = None,
     member_ids: list[uuid.UUID] | None = None, roster_team_id: str | None = None,
-    is_observer: bool = False,
+    is_observer: bool = False, join_code: str | None = None,
 ) -> Team:
     """Creates a team and adds `member_ids` (deduplicated with `created_by`,
     who is always a member of a team they create). Raises 409 on a name
@@ -56,6 +78,7 @@ async def create_team(
     team = Team(
         id=uuid.uuid4(), name=name, cohort_id=cohort_id, created_by=created_by, roster_team_id=roster_team_id,
         is_observer=is_observer,
+        join_code=join_code or (await generate_unique_join_code(db, cohort_id=cohort_id) if cohort_id else None),
     )
     try:
         async with db.begin_nested():
@@ -63,6 +86,8 @@ async def create_team(
     except IntegrityError as exc:
         if "uq_learner_teams_cohort_roster_team_id" in str(exc.orig):
             raise HTTPException(409, detail="A team with this roster team ID already exists in this cohort")
+        if "uq_learner_teams_cohort_join_code" in str(exc.orig):
+            raise HTTPException(409, detail="Team code collision — please retry")
         raise HTTPException(409, detail="A team with this name already exists in this cohort")
 
     members = {created_by, *(member_ids or [])}
@@ -107,3 +132,38 @@ async def teams_for_user(db: AsyncSession, *, user_id: uuid.UUID) -> list[Team]:
         .where(TeamMember.user_id == user_id)
         .order_by(Team.created_at.desc())
     )).scalars().all())
+
+
+async def get_team_by_code(
+    db: AsyncSession, *, cohort_id: uuid.UUID, code: str, is_observer: bool,
+) -> Team | None:
+    """Code lookup scoped to cohort + observer partition — a student code
+    never resolves an observer team and vice versa."""
+    normalized = (code or "").strip().upper()
+    if not normalized:
+        return None
+    return await db.scalar(
+        select(Team).where(
+            Team.cohort_id == cohort_id,
+            Team.join_code == normalized,
+            Team.is_observer == is_observer,
+        )
+    )
+
+
+async def team_size(db: AsyncSession, *, team_id: uuid.UUID) -> int:
+    return await db.scalar(
+        select(func.count(TeamMember.user_id)).where(TeamMember.team_id == team_id)
+    ) or 0
+
+
+async def delete_team_if_empty(db: AsyncSession, *, team_id: uuid.UUID) -> bool:
+    """Auto-delete empty teams after leave/switch — returns True if deleted."""
+    remaining = await team_size(db, team_id=team_id)
+    if remaining == 0:
+        team = await db.get(Team, team_id)
+        if team is not None:
+            await db.delete(team)
+            await db.flush()
+            return True
+    return False
