@@ -337,20 +337,18 @@ export default function InstructorApplyPage() {
               </div>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div>
-                <label className="block text-sm font-medium text-foreground mb-1">University Enrolled / Attending</label>
-                <input className="input" placeholder="University" value={form.university} onChange={set("university")} required />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-foreground mb-1">Graduated University (if completed)</label>
-                <input
-                  className="input"
-                  placeholder="e.g. Khalifa University, UAEU"
-                  value={form.graduated_university}
-                  onChange={set("graduated_university")}
-                />
-              </div>
+            <div>
+              <label className="block text-sm font-medium text-foreground mb-1">University (Attending or Graduated)</label>
+              <input
+                className="input"
+                placeholder="e.g. Khalifa University, UAEU, UOWD"
+                value={form.university}
+                onChange={(e) => {
+                  const val = e.target.value
+                  setForm((prev) => ({ ...prev, university: val, graduated_university: val }))
+                }}
+                required
+              />
             </div>
 
             <div>
