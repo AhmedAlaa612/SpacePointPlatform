@@ -112,63 +112,59 @@ export default function JudgeTeams() {
         </div>
       )}
 
-      {teamsLoading ? (
-        <Spinner />
-      ) : teams.length === 0 ? (
-        <EmptyState title="No teams yet" hint="Teams appear here once they're formed for this cohort." />
-      ) : (
-        <div className="flex flex-col gap-4">
-          {/* Controls: Search, Filter by Locked, and Sort */}
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-            <div className="relative flex-1 min-w-[200px] max-w-md">
-              <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
-              <input
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                placeholder="Search by team or member name…"
-                className="w-full h-9 pl-8 pr-3 border border-border bg-background text-foreground rounded-xl text-sm focus:outline-none focus:border-primary transition-colors"
-              />
+      <div className="flex flex-col gap-4">
+        {/* Controls: Search, Mode filter, Filter by Locked, and Sort */}
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div className="relative flex-1 min-w-[200px] max-w-md">
+            <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
+            <input
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Search by team or member name…"
+              className="w-full h-9 pl-8 pr-3 border border-border bg-background text-foreground rounded-xl text-sm focus:outline-none focus:border-primary transition-colors"
+            />
+          </div>
+
+          <div className="flex items-center gap-2 flex-wrap">
+            {/* Mode filter (Students / Observers / All) */}
+            <div className="flex items-center p-1 bg-muted/60 border border-border/80 rounded-xl text-xs">
+              <button
+                type="button"
+                onClick={() => setMode("participant")}
+                className={`px-3 py-1 rounded-lg font-medium transition-colors cursor-pointer ${
+                  mode === "participant"
+                    ? "bg-background text-foreground shadow-xs font-semibold"
+                    : "text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                Students
+              </button>
+              <button
+                type="button"
+                onClick={() => setMode("observer")}
+                className={`px-3 py-1 rounded-lg font-medium transition-colors cursor-pointer ${
+                  mode === "observer"
+                    ? "bg-background text-indigo-600 dark:text-indigo-400 shadow-xs font-semibold"
+                    : "text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                Observers
+              </button>
+              <button
+                type="button"
+                onClick={() => setMode("all")}
+                className={`px-3 py-1 rounded-lg font-medium transition-colors cursor-pointer ${
+                  mode === "all"
+                    ? "bg-background text-foreground shadow-xs font-semibold"
+                    : "text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                All
+              </button>
             </div>
 
-            <div className="flex items-center gap-2 flex-wrap">
-              {/* Mode filter (Students / Observers / All) */}
-              <div className="flex items-center p-1 bg-muted/60 border border-border/80 rounded-xl text-xs">
-                <button
-                  type="button"
-                  onClick={() => setMode("participant")}
-                  className={`px-3 py-1 rounded-lg font-medium transition-colors cursor-pointer ${
-                    mode === "participant"
-                      ? "bg-background text-foreground shadow-xs font-semibold"
-                      : "text-muted-foreground hover:text-foreground"
-                  }`}
-                >
-                  Students
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setMode("observer")}
-                  className={`px-3 py-1 rounded-lg font-medium transition-colors cursor-pointer ${
-                    mode === "observer"
-                      ? "bg-background text-indigo-600 dark:text-indigo-400 shadow-xs font-semibold"
-                      : "text-muted-foreground hover:text-foreground"
-                  }`}
-                >
-                  Observers
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setMode("all")}
-                  className={`px-3 py-1 rounded-lg font-medium transition-colors cursor-pointer ${
-                    mode === "all"
-                      ? "bg-background text-foreground shadow-xs font-semibold"
-                      : "text-muted-foreground hover:text-foreground"
-                  }`}
-                >
-                  All
-                </button>
-              </div>
-
-              {/* Filter by locked */}
+            {/* Filter by locked */}
+            {teams.length > 0 && (
               <div className="flex items-center p-1 bg-muted/60 border border-border/80 rounded-xl text-xs">
                 <button
                   type="button"
@@ -205,8 +201,10 @@ export default function JudgeTeams() {
                   Unlocked ({unlockedCount})
                 </button>
               </div>
+            )}
 
-              {/* Sort selector */}
+            {/* Sort selector */}
+            {teams.length > 0 && (
               <select
                 value={sort}
                 onChange={(e) => setSort(e.target.value as SortKey)}
@@ -216,23 +214,54 @@ export default function JudgeTeams() {
                 <option value="name">Sort: name</option>
                 <option value="scored">Sort: scoring status</option>
               </select>
-            </div>
+            )}
           </div>
+        </div>
 
-          {/* Team list */}
-          {rows.length === 0 ? (
-            <div className="flex flex-col items-center justify-center p-8 bg-card border border-border rounded-2xl text-center">
-              <p className="text-sm font-medium text-foreground">No teams match your search or filter</p>
-              <p className="text-xs text-muted-foreground mt-1">Try clearing your search query or changing the filter</p>
+        {/* Content: Spinner, EmptyState, or Team List */}
+        {teamsLoading ? (
+          <Spinner />
+        ) : teams.length === 0 ? (
+          <div className="flex flex-col items-center gap-2">
+            <EmptyState
+              title={
+                mode === "observer"
+                  ? "No observer teams yet"
+                  : mode === "participant"
+                  ? "No student teams yet"
+                  : "No teams yet"
+              }
+              hint={
+                mode === "observer"
+                  ? "Observer teams appear here once observers form teams for this cohort."
+                  : mode === "participant"
+                  ? "Student teams appear here once they're formed for this cohort. Switch to Observers to see observer teams."
+                  : "Teams appear here once they're formed for this cohort."
+              }
+            />
+            {mode === "participant" && (
               <button
                 type="button"
-                onClick={() => { setSearch(""); setLockedFilter("all") }}
-                className="mt-3 text-xs font-semibold text-primary hover:underline cursor-pointer"
+                onClick={() => setMode("observer")}
+                className="text-xs font-semibold text-primary hover:underline -mt-4 cursor-pointer"
               >
-                Reset filters
+                Switch to Observers →
               </button>
-            </div>
-          ) : (
+            )}
+          </div>
+        ) : rows.length === 0 ? (
+          <div className="flex flex-col items-center justify-center p-8 bg-card border border-border rounded-2xl text-center">
+            <p className="text-sm font-medium text-foreground">No teams match your search or filter</p>
+            <p className="text-xs text-muted-foreground mt-1">Try clearing your search query or changing the filter</p>
+            <button
+              type="button"
+              onClick={() => { setSearch(""); setLockedFilter("all") }}
+              className="mt-3 text-xs font-semibold text-primary hover:underline cursor-pointer"
+            >
+              Reset filters
+            </button>
+          </div>
+        ) : (
             <div className="flex flex-col gap-2">
               {rows.map((team) => {
                 const done = team.items_done ?? 0
@@ -324,8 +353,7 @@ export default function JudgeTeams() {
             </div>
           )}
         </div>
-      )}
-    </div>
-  )
-}
+      </div>
+    )
+  }
 

@@ -1069,7 +1069,26 @@ function TeamsTab({ cohortId }: { cohortId: string }) {
         {teams.length === 0 ? (
           <EmptyState title="No teams yet" hint="Add one above, or import a roster from the Roster tab." />
         ) : filteredTeams.length === 0 && (
-          <EmptyState title="No teams found" hint="Try a different name." />
+          <EmptyState
+            title={
+              search
+                ? "No teams found"
+                : teamFilter === "student"
+                ? "No student teams yet"
+                : teamFilter === "observer"
+                ? "No observer teams yet"
+                : "No teams found"
+            }
+            hint={
+              search
+                ? "Try a different search term."
+                : teamFilter === "student"
+                ? "No student teams exist in this cohort. Switch to Observers to see observer teams."
+                : teamFilter === "observer"
+                ? "No observer teams exist in this cohort."
+                : "Try a different filter."
+            }
+          />
         )}
       </div>
     </div>
@@ -2263,6 +2282,7 @@ function ResultsTab({
         onEditTiming={(team) => setOverrideTeam(team)}
         hasOperationsCriteria={(rubric?.criteria ?? []).some((c) => (c.scored_by ?? "judge") === "operations")}
         onGradeOperations={(team) => setGradingTeam(team)}
+        mode={mode}
       />
 
       <SubmissionWindowsModal
@@ -2312,6 +2332,7 @@ function LeaderboardTable({
   onEditTiming,
   hasOperationsCriteria,
   onGradeOperations,
+  mode,
 }: {
   rows: CompetitionLeaderboardRow[]
   selected?: Set<string>
@@ -2320,8 +2341,22 @@ function LeaderboardTable({
   onEditTiming?: (team: CompetitionLeaderboardRow) => void
   hasOperationsCriteria?: boolean
   onGradeOperations?: (team: CompetitionLeaderboardRow) => void
+  mode?: "participant" | "observer" | "all"
 }) {
-  if (rows.length === 0) return <EmptyState title="No teams yet" hint="Teams appear here once they're formed for this cohort." />
+  if (rows.length === 0) {
+    return (
+      <EmptyState
+        title={mode === "observer" ? "No observer teams yet" : mode === "participant" ? "No student teams yet" : "No teams yet"}
+        hint={
+          mode === "observer"
+            ? "Observer sandbox teams will appear here once scored."
+            : mode === "participant"
+            ? "Student teams appear here once they're formed and scored for this cohort. Switch to Observers to see observer teams."
+            : "Teams appear here once they're formed and scored for this cohort."
+        }
+      />
+    )
+  }
   return (
     <div className="overflow-x-auto">
       <table className="w-full text-sm">

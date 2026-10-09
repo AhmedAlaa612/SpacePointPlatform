@@ -605,16 +605,26 @@ function TeamQuizSubmissionRow({
 
 type SortKey = "pct" | "name" | "members" | "activity"
 
-function TeamTable({
-  teams, isDark, cohortId, cohortName,
+export function TeamAnalysisCard({
+  team,
+  cohortId,
+  cohortName,
+  joinCode,
+  isExpanded,
+  onToggleExpand,
 }: {
-  teams: CompetitionAnalyticsTeam[]; isDark: boolean; cohortId: string; cohortName?: string
+  team: CompetitionAnalyticsTeam
+  cohortId: string
+  cohortName?: string | null
+  joinCode?: string | null
+  isExpanded?: boolean
+  onToggleExpand?: () => void
 }) {
+  const isDark = useIsDark()
   const c = isDark ? CHART.dark : CHART.light
-  const [search, setSearch] = useState("")
-  const [sort, setSort] = useState<SortKey>("pct")
-  const [expanded, setExpanded] = useState<string | null>(null)
-  const [exportingQuiz, setExportingQuiz] = useState(false)
+  const [localExpanded, setLocalExpanded] = useState(false)
+  const expanded = isExpanded !== undefined ? isExpanded : localExpanded
+  const handleToggle = onToggleExpand ?? (() => setLocalExpanded((v) => !v))
   const toast = useToast()
   const queryClient = useQueryClient()
   const unlockMutation = useMutation({
@@ -625,6 +635,249 @@ function TeamTable({
     },
     onError: (e: unknown) => toast.error(getErrorMessage(e, "Failed to unlock this team")),
   })
+
+  return (
+    <div className="rounded-2xl border border-border/70 bg-background/40 overflow-hidden shadow-xs hover:border-border transition-all">
+      <button
+        onClick={handleToggle}
+        className="w-full flex items-center gap-3 p-3 sm:p-3.5 text-left hover:bg-muted/40 transition-colors cursor-pointer"
+      >
+        <div className="p-1 rounded-lg bg-muted/60 text-muted-foreground shrink-0">
+          {expanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+        </div>
+
+        <div className="w-8 h-8 rounded-xl bg-primary/10 border border-primary/20 text-primary font-bold flex items-center justify-center text-xs shrink-0">
+          {team.team_name.trim().slice(0, 2).toUpperCase()}
+        </div>
+
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-1.5 sm:gap-2 flex-wrap">
+            <p className="text-sm font-semibold text-foreground truncate max-w-full">
+              {team.team_name}
+            </p>
+            {team.is_observer && (
+              <span className="text-[10px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded bg-indigo-500/15 text-indigo-600 dark:text-indigo-400 border border-indigo-500/30">
+                Observer
+              </span>
+            )}
+            {team.roster_team_id && team.roster_team_id !== team.team_name && (
+              <span className="text-xs font-normal text-muted-foreground font-mono shrink-0">
+                ({team.roster_team_id})
+              </span>
+            )}
+            {team.locked && (
+              <span
+                className="inline-flex sm:hidden items-center gap-1 text-[10px] font-semibold px-1.5 py-0.5 rounded-md bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30 shrink-0"
+                title={team.locked_at ? `Locked on ${formatDateTime(team.locked_at)}${team.locked_by_name ? ` by ${team.locked_by_name}` : ""}` : "Final submission locked"}
+              >
+                <Lock size={10} /> Locked
+              </span>
+            )}
+          </div>
+          <p className="text-xs text-muted-foreground truncate mt-0.5">
+            {cohortName ? `${cohortName} · ` : ""}
+            {team.member_count} {team.member_count === 1 ? "member" : "members"}
+            {joinCode ? <> · Code: <span className="font-mono">{joinCode}</span></> : null}
+          </p>
+        </div>
+
+        {team.locked && (
+          <span
+            className="hidden sm:flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-lg bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30 shrink-0"
+            title={team.locked_at ? `Locked on ${formatDateTime(team.locked_at)}${team.locked_by_name ? ` by ${team.locked_by_name}` : ""}` : "Final submission locked"}
+          >
+            <Lock size={11} /> Locked
+          </span>
+        )}
+        {team.stalled && (
+          <span className="hidden sm:flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-lg bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/30 shrink-0">
+            <Clock size={11} /> Stalled
+          </span>
+        )}
+        {team.awaiting > 0 && (
+          <span className="hidden sm:inline text-[11px] font-semibold px-2 py-0.5 rounded-lg bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/30 shrink-0">
+            {team.awaiting} to confirm
+          </span>
+        )}
+
+        <div className="w-20 sm:w-36 md:w-40 shrink-0">
+          <div className="flex items-center justify-between text-[11px] font-semibold tabular-nums mb-1">
+            <span className="text-muted-foreground">{team.items_done}/{team.items_total}</span>
+            <span className={team.pct === 100 ? "text-emerald-600 dark:text-emerald-400" : "text-foreground"}>
+              {team.pct}%
+            </span>
+          </div>
+          <div className="h-2 rounded-full overflow-hidden" style={{ backgroundColor: c.track }}>
+            <div
+              className="h-full rounded-full transition-all duration-300"
+              style={{ width: `${team.pct}%`, backgroundColor: team.pct === 100 ? c.done : c.accent }}
+            />
+          </div>
+        </div>
+      </button>
+
+      {expanded && (
+        <div className="p-3 sm:p-4 border-t border-border/50 bg-muted/15 flex flex-col gap-4 text-xs">
+          {/* Roster */}
+          <div>
+            <div className="flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider text-muted-foreground mb-2">
+              <Users size={13} />
+              <span>Team Roster ({team.members.length})</span>
+            </div>
+            {team.members.length === 0 ? (
+              <p className="text-xs text-muted-foreground italic">No members yet</p>
+            ) : (
+              <div className="flex flex-wrap gap-2">
+                {team.members.map((m, i) => (
+                  <div
+                    key={m.name + i}
+                    className="flex items-center gap-2 px-2.5 py-1.5 rounded-xl border border-border/60 bg-card/60 shadow-2xs max-w-full min-w-0"
+                  >
+                    <div className="w-6 h-6 rounded-lg bg-primary/10 border border-primary/20 text-primary font-bold flex items-center justify-center text-[10px] shrink-0">
+                      {m.name.trim().slice(0, 2).toUpperCase()}
+                    </div>
+                    <span className="font-semibold text-foreground text-xs truncate">{m.name}</span>
+                    {m.last_login_at ? (
+                      <span className="text-[11px] text-muted-foreground shrink-0">
+                        {relativeTime(m.last_login_at)}
+                      </span>
+                    ) : (
+                      <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-md bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/25 shrink-0">
+                        never logged in
+                      </span>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Deliverables */}
+          <div>
+            <div className="flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider text-muted-foreground mb-2">
+              <FileSpreadsheet size={13} />
+              <span>Deliverables ({team.items_done}/{team.items_total})</span>
+            </div>
+            {team.deliverables.length === 0 ? (
+              <p className="text-xs text-muted-foreground italic">No deliverables</p>
+            ) : (
+              <DeliverableList deliverables={team.deliverables} />
+            )}
+          </div>
+
+          {/* Mission runs */}
+          {team.mission_runs.length > 0 && (
+            <div>
+              <div className="flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider text-muted-foreground mb-2">
+                <Rocket size={13} />
+                <span>Mission Runs ({team.mission_runs.length})</span>
+              </div>
+              <div className="flex flex-col gap-2">
+                {team.mission_runs.map((run) => (
+                  <MissionRunRow key={run.mission_id} run={run} />
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Quiz submissions */}
+          {team.quiz_submissions && team.quiz_submissions.length > 0 && (
+            <div>
+              <div className="flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider text-muted-foreground mb-2">
+                <CheckCircle2 size={13} />
+                <span>Quiz Submissions ({team.quiz_submissions.length})</span>
+              </div>
+              <div className="flex flex-col gap-2">
+                {team.quiz_submissions.map((sub) => (
+                  <TeamQuizSubmissionRow
+                    key={`${sub.user_id}-${sub.item_id}`}
+                    submission={sub}
+                    cohortId={cohortId}
+                  />
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Locked submission banner */}
+          {team.locked && (
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-3 rounded-xl border border-emerald-500/30 bg-emerald-500/10 text-xs">
+              <div className="flex items-start sm:items-center gap-2.5 min-w-0">
+                <div className="p-1.5 rounded-lg bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 shrink-0 mt-0.5 sm:mt-0">
+                  <Lock size={14} />
+                </div>
+                <div className="min-w-0">
+                  <div className="font-semibold text-emerald-700 dark:text-emerald-300 flex items-center gap-1.5 flex-wrap">
+                    <span>Final submission locked</span>
+                    {team.locked_at && (
+                      <span className="text-[11px] font-normal text-muted-foreground">
+                        · {relativeTime(team.locked_at)}
+                      </span>
+                    )}
+                  </div>
+                  <p className="text-[11px] text-muted-foreground mt-0.5 flex flex-wrap gap-x-1 gap-y-0.5">
+                    {team.locked_at && (
+                      <span>
+                        Locked on <strong className="text-foreground font-medium">{formatDateTime(team.locked_at)}</strong>
+                      </span>
+                    )}
+                    {team.locked_by_name && (
+                      <span>
+                        by <strong className="text-foreground font-medium">{team.locked_by_name}</strong>
+                        {team.locked_by_email ? <span className="text-muted-foreground"> ({team.locked_by_email})</span> : ""}
+                      </span>
+                    )}
+                    {!team.locked_at && !team.locked_by_name && (
+                      <span>Checklist is finalized and locked.</span>
+                    )}
+                  </p>
+                </div>
+              </div>
+
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => {
+                  if (confirm(`Reopen "${team.team_name}"'s checklist for editing?`)) {
+                    unlockMutation.mutate(team.team_id)
+                  }
+                }}
+                disabled={unlockMutation.isPending}
+                className="h-8 text-xs font-semibold gap-1.5 border-emerald-500/40 text-emerald-600 dark:text-emerald-400 hover:bg-emerald-500/20 shrink-0 self-start sm:self-center cursor-pointer"
+              >
+                <Lock size={12} /> Unlock final submission
+              </Button>
+            </div>
+          )}
+
+          {/* Footer metadata */}
+          <div className="flex items-center justify-between flex-wrap gap-2 pt-2 border-t border-border/40 text-xs">
+            <div className="flex items-center gap-1.5 text-muted-foreground">
+              <Clock size={12} className="text-muted-foreground/70" />
+              <span>Last activity: <strong className="text-foreground font-medium">{relativeTime(team.last_activity_at)}</strong></span>
+            </div>
+
+            {!team.locked && (
+              <span className="text-[11px] text-muted-foreground italic">
+                Submission not locked
+              </span>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+function TeamTable({
+  teams, cohortId, cohortName,
+}: {
+  teams: CompetitionAnalyticsTeam[]; isDark?: boolean; cohortId: string; cohortName?: string
+}) {
+  const [search, setSearch] = useState("")
+  const [sort, setSort] = useState<SortKey>("pct")
+  const [expanded, setExpanded] = useState<string | null>(null)
+  const [exportingQuiz, setExportingQuiz] = useState(false)
 
   const rows = useMemo(() => {
     const q = search.trim().toLowerCase()
@@ -729,235 +982,13 @@ function TeamTable({
       ) : (
         <div className="flex flex-col gap-1.5">
           {rows.map((team) => (
-            <div key={team.team_id} className="rounded-2xl border border-border/70 bg-background/40 overflow-hidden shadow-xs hover:border-border transition-all">
-              <button
-                onClick={() => setExpanded(expanded === team.team_id ? null : team.team_id)}
-                className="w-full flex items-center gap-3 p-3 sm:p-3.5 text-left hover:bg-muted/40 transition-colors cursor-pointer"
-              >
-                <div className="p-1 rounded-lg bg-muted/60 text-muted-foreground shrink-0">
-                  {expanded === team.team_id
-                    ? <ChevronDown size={14} />
-                    : <ChevronRight size={14} />}
-                </div>
-
-                <div className="w-8 h-8 rounded-xl bg-primary/10 border border-primary/20 text-primary font-bold flex items-center justify-center text-xs shrink-0">
-                  {team.team_name.trim().slice(0, 2).toUpperCase()}
-                </div>
-
-                <div className="min-w-0 flex-1">
-                  <div className="flex items-center gap-1.5 sm:gap-2 flex-wrap">
-                    <p className="text-sm font-semibold text-foreground truncate max-w-full">
-                      {team.team_name}
-                    </p>
-                    {team.is_observer && (
-                      <span className="text-[10px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded bg-indigo-500/15 text-indigo-600 dark:text-indigo-400 border border-indigo-500/30">
-                        Observer
-                      </span>
-                    )}
-                    {team.roster_team_id && team.roster_team_id !== team.team_name && (
-                      <span className="text-xs font-normal text-muted-foreground font-mono shrink-0">
-                        ({team.roster_team_id})
-                      </span>
-                    )}
-                    {team.locked && (
-                      <span
-                        className="inline-flex sm:hidden items-center gap-1 text-[10px] font-semibold px-1.5 py-0.5 rounded-md bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30 shrink-0"
-                        title={team.locked_at ? `Locked on ${formatDateTime(team.locked_at)}${team.locked_by_name ? ` by ${team.locked_by_name}` : ""}` : "Final submission locked"}
-                      >
-                        <Lock size={10} /> Locked
-                      </span>
-                    )}
-                  </div>
-                  <p className="text-xs text-muted-foreground truncate mt-0.5">
-                    {team.member_count} {team.member_count === 1 ? "member" : "members"}
-                  </p>
-                </div>
-
-                {team.locked && (
-                  <span
-                    className="hidden sm:flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-lg bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30 shrink-0"
-                    title={team.locked_at ? `Locked on ${formatDateTime(team.locked_at)}${team.locked_by_name ? ` by ${team.locked_by_name}` : ""}` : "Final submission locked"}
-                  >
-                    <Lock size={11} /> Locked
-                  </span>
-                )}
-                {team.stalled && (
-                  <span className="hidden sm:flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-lg bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/30 shrink-0">
-                    <Clock size={11} /> Stalled
-                  </span>
-                )}
-                {team.awaiting > 0 && (
-                  <span className="hidden sm:inline text-[11px] font-semibold px-2 py-0.5 rounded-lg bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/30 shrink-0">
-                    {team.awaiting} to confirm
-                  </span>
-                )}
-
-                <div className="w-20 sm:w-36 md:w-40 shrink-0">
-                  <div className="flex items-center justify-between text-[11px] font-semibold tabular-nums mb-1">
-                    <span className="text-muted-foreground">{team.items_done}/{team.items_total}</span>
-                    <span className={team.pct === 100 ? "text-emerald-600 dark:text-emerald-400" : "text-foreground"}>
-                      {team.pct}%
-                    </span>
-                  </div>
-                  <div className="h-2 rounded-full overflow-hidden" style={{ backgroundColor: c.track }}>
-                    <div
-                      className="h-full rounded-full transition-all duration-300"
-                      style={{ width: `${team.pct}%`, backgroundColor: team.pct === 100 ? c.done : c.accent }}
-                    />
-                  </div>
-                </div>
-              </button>
-
-              {expanded === team.team_id && (
-                <div className="p-3 sm:p-4 border-t border-border/50 bg-muted/15 flex flex-col gap-4 text-xs">
-                  {/* Roster */}
-                  <div>
-                    <div className="flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider text-muted-foreground mb-2">
-                      <Users size={13} />
-                      <span>Team Roster ({team.members.length})</span>
-                    </div>
-                    {team.members.length === 0 ? (
-                      <p className="text-xs text-muted-foreground italic">No members yet</p>
-                    ) : (
-                      <div className="flex flex-wrap gap-2">
-                        {team.members.map((m, i) => (
-                          <div
-                            key={m.name + i}
-                            className="flex items-center gap-2 px-2.5 py-1.5 rounded-xl border border-border/60 bg-card/60 shadow-2xs max-w-full min-w-0"
-                          >
-                            <div className="w-6 h-6 rounded-lg bg-primary/10 border border-primary/20 text-primary font-bold flex items-center justify-center text-[10px] shrink-0">
-                              {m.name.trim().slice(0, 2).toUpperCase()}
-                            </div>
-                            <span className="font-semibold text-foreground text-xs truncate">{m.name}</span>
-                            {m.last_login_at ? (
-                              <span className="text-[11px] text-muted-foreground shrink-0">
-                                {relativeTime(m.last_login_at)}
-                              </span>
-                            ) : (
-                              <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-md bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/25 shrink-0">
-                                never logged in
-                              </span>
-                            )}
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-
-                  {/* Deliverables */}
-                  <div>
-                    <div className="flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider text-muted-foreground mb-2">
-                      <FileSpreadsheet size={13} />
-                      <span>Deliverables ({team.items_done}/{team.items_total})</span>
-                    </div>
-                    {team.deliverables.length === 0 ? (
-                      <p className="text-xs text-muted-foreground italic">No deliverables</p>
-                    ) : (
-                      <DeliverableList deliverables={team.deliverables} />
-                    )}
-                  </div>
-
-                  {/* Mission runs */}
-                  {team.mission_runs.length > 0 && (
-                    <div>
-                      <div className="flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider text-muted-foreground mb-2">
-                        <Rocket size={13} />
-                        <span>Mission Runs ({team.mission_runs.length})</span>
-                      </div>
-                      <div className="flex flex-col gap-2">
-                        {team.mission_runs.map((run) => (
-                          <MissionRunRow key={run.mission_id} run={run} />
-                        ))}
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Quiz submissions */}
-                  {team.quiz_submissions && team.quiz_submissions.length > 0 && (
-                    <div>
-                      <div className="flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider text-muted-foreground mb-2">
-                        <CheckCircle2 size={13} />
-                        <span>Quiz Submissions ({team.quiz_submissions.length})</span>
-                      </div>
-                      <div className="flex flex-col gap-2">
-                        {team.quiz_submissions.map((sub) => (
-                          <TeamQuizSubmissionRow
-                            key={`${sub.user_id}-${sub.item_id}`}
-                            submission={sub}
-                            cohortId={cohortId}
-                          />
-                        ))}
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Locked submission banner */}
-                  {team.locked && (
-                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-3 rounded-xl border border-emerald-500/30 bg-emerald-500/10 text-xs">
-                      <div className="flex items-start sm:items-center gap-2.5 min-w-0">
-                        <div className="p-1.5 rounded-lg bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 shrink-0 mt-0.5 sm:mt-0">
-                          <Lock size={14} />
-                        </div>
-                        <div className="min-w-0">
-                          <div className="font-semibold text-emerald-700 dark:text-emerald-300 flex items-center gap-1.5 flex-wrap">
-                            <span>Final submission locked</span>
-                            {team.locked_at && (
-                              <span className="text-[11px] font-normal text-muted-foreground">
-                                · {relativeTime(team.locked_at)}
-                              </span>
-                            )}
-                          </div>
-                          <p className="text-[11px] text-muted-foreground mt-0.5 flex flex-wrap gap-x-1 gap-y-0.5">
-                            {team.locked_at && (
-                              <span>
-                                Locked on <strong className="text-foreground font-medium">{formatDateTime(team.locked_at)}</strong>
-                              </span>
-                            )}
-                            {team.locked_by_name && (
-                              <span>
-                                by <strong className="text-foreground font-medium">{team.locked_by_name}</strong>
-                                {team.locked_by_email ? <span className="text-muted-foreground"> ({team.locked_by_email})</span> : ""}
-                              </span>
-                            )}
-                            {!team.locked_at && !team.locked_by_name && (
-                              <span>Checklist is finalized and locked.</span>
-                            )}
-                          </p>
-                        </div>
-                      </div>
-
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        onClick={() => {
-                          if (confirm(`Reopen "${team.team_name}"'s checklist for editing?`)) {
-                            unlockMutation.mutate(team.team_id)
-                          }
-                        }}
-                        disabled={unlockMutation.isPending}
-                        className="h-8 text-xs font-semibold gap-1.5 border-emerald-500/40 text-emerald-600 dark:text-emerald-400 hover:bg-emerald-500/20 shrink-0 self-start sm:self-center cursor-pointer"
-                      >
-                        <Lock size={12} /> Unlock final submission
-                      </Button>
-                    </div>
-                  )}
-
-                  {/* Footer metadata */}
-                  <div className="flex items-center justify-between flex-wrap gap-2 pt-2 border-t border-border/40 text-xs">
-                    <div className="flex items-center gap-1.5 text-muted-foreground">
-                      <Clock size={12} className="text-muted-foreground/70" />
-                      <span>Last activity: <strong className="text-foreground font-medium">{relativeTime(team.last_activity_at)}</strong></span>
-                    </div>
-
-                    {!team.locked && (
-                      <span className="text-[11px] text-muted-foreground italic">
-                        Submission not locked
-                      </span>
-                    )}
-                  </div>
-                </div>
-              )}
-            </div>
+            <TeamAnalysisCard
+              key={team.team_id}
+              team={team}
+              cohortId={cohortId}
+              isExpanded={expanded === team.team_id}
+              onToggleExpand={() => setExpanded(expanded === team.team_id ? null : team.team_id)}
+            />
           ))}
         </div>
       )}

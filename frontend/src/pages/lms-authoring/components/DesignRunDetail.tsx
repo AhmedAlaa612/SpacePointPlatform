@@ -1,4 +1,4 @@
-import { useState } from "react"
+import { Fragment, useState } from "react"
 import { useQuery } from "@tanstack/react-query"
 import { FileText } from "lucide-react"
 import { Spinner } from "@/components/ui/primitives"
@@ -107,8 +107,8 @@ export function DesignRunDetail({
                 </thead>
                 <tbody>
                   {detail.components.map((c) => (
-                    <>
-                      <tr key={c.id} className="border-b border-border/50 last:border-0">
+                    <Fragment key={c.id}>
+                      <tr className="border-b border-border/50 last:border-0">
                         <td className="py-1.5 pr-3 text-foreground">
                           {c.is_custom && (
                             <span className="mr-1.5 px-1.5 py-0.5 rounded text-[10px] font-bold bg-violet-500/15 text-violet-600 dark:text-violet-400">CUSTOM</span>
@@ -159,7 +159,7 @@ export function DesignRunDetail({
                           </td>
                         </tr>
                       )}
-                    </>
+                    </Fragment>
                   ))}
                 </tbody>
               </table>

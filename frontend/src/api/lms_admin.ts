@@ -117,12 +117,36 @@ export interface InviteCode {
 }
 
 export interface StudentProgram {
-  registration_id: string;
+  registration_id: string | null;
+  assignment_id: string | null;
   cohort_id: string;
   program_name: string;
   cohort_name: string;
   starts_on: string | null;
   ends_on: string | null;
+  mode: string;
+  team_id: string | null;
+  team_name: string | null;
+  team_join_code: string | null;
+}
+
+export interface StudentTeam {
+  team_id: string;
+  team_name: string;
+  cohort_id: string | null;
+  cohort_name: string | null;
+  join_code: string | null;
+  is_observer: boolean;
+}
+
+export interface StudentCertificate {
+  id: string;
+  type: string;
+  title: string;
+  generated_at: string | null;
+  url: string | null;
+  cohort_id: string | null;
+  course_id: string | null;
 }
 
 export interface StudentProfile {
@@ -131,6 +155,7 @@ export interface StudentProfile {
   nickname: string | null;
   avatar: string | null;
   email: string;
+  is_observer?: boolean;
   programs: StudentProgram[];
 }
 
@@ -775,9 +800,26 @@ export const revokeLearningPathEnrollmentApi = (pathId: string, userId: string) 
 // ── student management (2026-08-12) ─────────────────────────────────────────
 
 export const searchStudentsApi = (
-  params: { q?: string; invite_code?: string; login_status?: "all" | "never" | "has_logged_in" } = {},
-) =>
-  api.get<StudentSummary[]>("/lms/admin/students", { params }).then((r) => r.data);
+  params: {
+    q?: string;
+    invite_code?: string;
+    login_status?: "all" | "never" | "has_logged_in";
+    mode?: "student" | "observer" | "all";
+  } = {},
+) => api.get<StudentSummary[]>("/lms/admin/students", { params }).then((r) => r.data);
+
+export const updateStudentAccountApi = (userId: string, data: { email: string; full_name?: string }) =>
+  api.patch<StudentProfile>(`/lms/admin/students/${userId}/account`, data).then((r) => r.data);
+export const getStudentPasswordLinkApi = (userId: string) =>
+  api.post<{ link: string }>(`/lms/admin/students/${userId}/set-password-link`).then((r) => r.data);
+export const enrollStudentCohortApi = (userId: string, cohortId: string) =>
+  api.post<{ detail: string }>(`/lms/admin/students/${userId}/cohorts`, { cohort_id: cohortId }).then((r) => r.data);
+export const unenrollStudentCohortApi = (userId: string, cohortId: string) =>
+  api.post<{ detail: string }>(`/lms/admin/students/${userId}/cohorts/${cohortId}/unenroll`).then((r) => r.data);
+export const getStudentTeamsApi = (userId: string) =>
+  api.get<StudentTeam[]>(`/lms/admin/students/${userId}/teams`).then((r) => r.data);
+export const getStudentCertificatesApi = (userId: string) =>
+  api.get<StudentCertificate[]>(`/lms/admin/students/${userId}/certificates`).then((r) => r.data);
 
 // ── student invite codes (2026-08-13) ───────────────────────────────────────
 

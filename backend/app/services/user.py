@@ -5,6 +5,7 @@ from sqlalchemy.future import select
 from sqlalchemy import text
 from fastapi import HTTPException, status
 from uuid import UUID
+from app.models.spine.contact import Contact
 from app.models.user import User
 from app.schemas.user import UserCreate, UserSelfUpdate, UserUpdate
 from app.core.security import get_password_hash
@@ -13,6 +14,7 @@ from app.services.spine.identity import (
     contact_roles_for_user,
     ensure_user_contact,
     normalize_user_email,
+    replace_user_email,
     user_email_matches,
 )
 from app.services.spine.role_history import record_role_diff
@@ -89,6 +91,13 @@ async def update_user(db: AsyncSession, user_id: UUID, user_in: UserUpdate | Use
         )).scalars().first()
         if clash is not None:
             raise HTTPException(status.HTTP_409_CONFLICT, detail="Email already registered")
+        # Replace everywhere (user row + every contact carrying the old
+        # address + identity alias), not just the user row — the old
+        # address must survive nowhere as this person's identifier. Runs
+        # before the setattr loop below, which would otherwise overwrite
+        # user.email first and blind the helper to the old address. The
+        # loop re-sets the same value afterward, harmlessly.
+        await replace_user_email(db, user, update_data["email"])
 
     if "password" in update_data:
         update_data["password_hash"] = get_password_hash(update_data.pop("password"))
@@ -125,6 +134,16 @@ async def update_user(db: AsyncSession, user_id: UUID, user_in: UserUpdate | Use
 
     for field, value in update_data.items():
         setattr(user, field, value)
+
+    # A rename follows the person onto their linked contact — the contact
+    # row was seeded from this same name at account creation, and the
+    # student-manage endpoint keeps the two in sync the same way. Email
+    # itself is already handled above (replace_user_email).
+    if update_data.get("full_name") and isinstance(user.full_name, str) and user.full_name.strip():
+        if user.contact_id:
+            named = await db.get(Contact, user.contact_id)
+            if named is not None:
+                named.full_name = user.full_name.strip()
 
     if roles_before is not None:
         roles_after = list(user.role_values)

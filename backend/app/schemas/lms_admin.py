@@ -165,13 +165,59 @@ class StudentProgramOut(BaseModel):
     profile page shows; `my_programs` itself is reused as-is rather than
     duplicated (it already composes cohort/program/registration correctly
     for a given user, staff viewing a student is the same query shape as a
-    student viewing themself)."""
-    registration_id: UUID
+    student viewing themself).
+
+    Enriched (operations student management): `assignment_id` + `mode`
+    come from `LmsProgramAssignment` so observers (assignment without an
+    active registration, or vice versa) still appear; `team_*` is the
+    student's team in that cohort, if any. `registration_id` is None for
+    pure-assignment rows (e.g. checklist assigned with no registration)."""
+    registration_id: UUID | None = None
+    assignment_id: UUID | None = None
     cohort_id: UUID
     program_name: str
     cohort_name: str
     starts_on: date | None = None
     ends_on: date | None = None
+    mode: str = "participant"
+    team_id: UUID | None = None
+    team_name: str | None = None
+    team_join_code: str | None = None
+
+
+class StudentTeamOut(BaseModel):
+    """One team membership for the student-detail "Learner Teams" section —
+    team + cohort it belongs to + join code + observer flag."""
+
+    team_id: UUID
+    team_name: str
+    cohort_id: UUID | None = None
+    cohort_name: str | None = None
+    join_code: str | None = None
+    is_observer: bool = False
+
+
+class StudentCertificateOut(BaseModel):
+    """One earned certificate for the student-detail "Certificates" section.
+    `url` is signed at query time (resolve_url pattern), never stored."""
+
+    id: UUID
+    type: str
+    title: str
+    generated_at: datetime | None = None
+    url: str | None = None
+    cohort_id: UUID | None = None
+    course_id: UUID | None = None
+
+
+class StudentAccountUpdateIn(BaseModel):
+    email: str
+    full_name: str | None = None
+
+
+class StudentCohortEnrollIn(BaseModel):
+    cohort_id: UUID
+    mode: Literal["participant", "observer"] | None = None
 
 
 class StudentProfileOut(BaseModel):
@@ -183,6 +229,7 @@ class StudentProfileOut(BaseModel):
     # game lobby, which left staff no way to correct one.
     avatar: str | None = None
     email: str
+    is_observer: bool = False
     programs: list[StudentProgramOut]
 
 

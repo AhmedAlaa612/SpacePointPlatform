@@ -229,6 +229,72 @@ async def ensure_alias(db: AsyncSession, contact_id: UUID, alias_type: Literal["
     await db.flush()
 
 
+async def replace_user_email(db: AsyncSession, user: User, new_email: str) -> int:
+    """Replace a user's email everywhere it identifies them — the user row,
+    every contact carrying the old address, and the identity alias — so the
+    old address survives nowhere as this person's identifier.
+
+    Email is person-unique at every layer that enforces anything
+    (`users.email` is DB-unique, an email alias has one global owner,
+    exact-email matches auto-merge instead of duplicating), so any extra
+    contact still carrying the old address is that person's own dirt: an
+    unmerged duplicate, a desk/import row, or a stale address left by an
+    email change that never synced contact. One guard: a contact linked
+    to a DIFFERENT user account is someone else's row and is skipped.
+
+    Precondition: the caller has already duplicate-checked `new_email`
+    (case-insensitive, excluding this user) — this only performs the
+    rewrite, flushing but never committing. Returns how many contact rows
+    were rewritten. Never touches `password_hash`, roles, or status, so
+    the account logs in with the new email + unchanged password exactly
+    as before."""
+    old_email = normalize_user_email(user.email)
+    new_email = normalize_user_email(new_email)
+    user.email = new_email
+    rewritten = 0
+    if old_email and old_email != new_email:
+        foreign_contact_ids = set((await db.execute(
+            select(User.contact_id).where(User.contact_id.is_not(None), User.id != user.id)
+        )).scalars().all())
+        dupes = (await db.execute(
+            select(Contact).where(func.lower(Contact.email) == old_email)
+        )).scalars().all()
+        rewritten_ids: list[UUID] = []
+        for dupe in dupes:
+            if dupe.id in foreign_contact_ids:
+                continue
+            dupe.email = new_email
+            rewritten_ids.append(dupe.id)
+        rewritten = len(rewritten_ids)
+        # The old address stops resolving: drop its alias rows on the
+        # contacts just rewritten (global uniqueness means at most one
+        # row exists, but scope the delete anyway — never touch another
+        # contact's alias).
+        if rewritten_ids:
+            stale = (await db.execute(
+                select(IdentityAlias).where(
+                    IdentityAlias.contact_id.in_(rewritten_ids),
+                    IdentityAlias.alias_type == "email",
+                    IdentityAlias.alias_value_hash == _alias_hash(old_email),
+                )
+            )).scalars().all()
+            for alias in stale:
+                await db.delete(alias)
+    if user.contact_id:
+        contact = await db.get(Contact, user.contact_id)
+        if contact:
+            # Covered by the sweep above when it carried the old address;
+            # this also heals a linked contact whose email had drifted to
+            # something else entirely.
+            contact.email = new_email
+            # Record the new address or future exact-email identity
+            # matching won't resolve it to this contact. Idempotent,
+            # never reassigns another contact's alias.
+            await ensure_alias(db, contact.id, "email", new_email)
+    await db.flush()
+    return rewritten
+
+
 async def resolve_or_create_organization(
     db: AsyncSession, name: str, org_type: str = "school",
 ) -> Organization:

@@ -32,11 +32,14 @@ from app.models.lms.learning_path import LearningPath, LearningPathStep
 from app.models.instructors.invitation_code import InvitationCode
 from app.models.sessions.cohort import Cohort
 from app.models.sessions.program import Program
+from app.models.certificate import Certificate
+from app.models.lms.course import Course as CourseModel
+from app.models.lms.program import LmsProgramAssignment
 from app.models.sessions.registration import Registration
 from app.models.spine.contact import Contact
 from app.models.spine.organization import Organization
 from app.models.user import User
-from app.models.team import Team
+from app.models.team import Team, TeamMember
 from app.schemas.lms import AttachmentUrlOut
 from app.schemas.lms_admin import (
     AdminCheckpointNoteContent,
@@ -86,9 +89,13 @@ from app.schemas.lms_admin import (
     ModuleReorderIn,
     ModuleUpdate,
     StaffOptionOut,
+    StudentAccountUpdateIn,
+    StudentCertificateOut,
+    StudentCohortEnrollIn,
     StudentProfileOut,
     StudentProgramOut,
     StudentSummaryOut,
+    StudentTeamOut,
     VideoCheckpointAdminOut,
     VideoCheckpointCreate,
     VideoCheckpointUpdate,
@@ -288,6 +295,7 @@ async def search_students(
     q: str | None = None,
     invite_code: str | None = None,
     login_status: Literal["all", "never", "has_logged_in"] = "all",
+    mode: Literal["student", "observer", "all"] = Query("student"),
     db: AsyncSession = Depends(get_db),
     _: User = Depends(require_lms_content),
 ):
@@ -303,10 +311,13 @@ async def search_students(
     actually been logged into (`User.last_login_at`), not just whether it
     exists.
 
+    `mode` (operations Students|Observers toggle) partitions real students
+    from observer test accounts.
+
     The actual query lives in `services/lms/students.py` (extracted
     2026-09-14) — the Competition Judging Assign tab's cohort-scoped search
     reuses it rather than re-implementing this from scratch."""
-    return await student_search_service.search_students(db, q=q, invite_code=invite_code, login_status=login_status)
+    return await student_search_service.search_students(db, q=q, invite_code=invite_code, login_status=login_status, mode=mode)
 
 
 # ── student invite codes (2026-08-13) ───────────────────────────────────────
@@ -475,7 +486,7 @@ async def list_invite_code_grants(
     current_user: User = Depends(require_lms_content),
 ):
     code = await db.get(InvitationCode, code_id)
-    if code is None or code.kind != "student":
+    if code is None or code.kind not in ("student", "observer"):
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Invite code not found")
     await check_invite_code_access(db, current_user, code)
     rows = (await db.execute(
@@ -498,7 +509,7 @@ async def create_invite_code_grant(
     used this code gets enrolled the moment this returns, not just future
     signups."""
     code = await db.get(InvitationCode, code_id)
-    if code is None or code.kind != "student":
+    if code is None or code.kind not in ("student", "observer"):
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Invite code not found")
     await check_invite_code_access(db, current, code)
 
@@ -568,7 +579,7 @@ async def delete_invite_code_grant(
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Grant not found")
 
     code = await db.get(InvitationCode, code_id)
-    if code is None:
+    if code is None or code.kind not in ("student", "observer"):
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Invite code not found")
     await check_invite_code_access(db, current, code)
 
@@ -589,6 +600,69 @@ async def delete_invite_code_grant(
     await db.commit()
 
 
+async def _enriched_student_programs(db: AsyncSession, user: User) -> list[StudentProgramOut]:
+    """Union of Registration rows and LmsProgramAssignment rows for one user,
+    so observers and students both appear even when only one side exists.
+
+    - Registration side: active registrations on the user's contact (the
+      `my_programs` shape — program/cohort names + dates).
+    - Assignment side: every LmsProgramAssignment (carries assignment_id +
+      mode). Registration-only rows (cohort with no checklist yet) get
+      assignment_id=None; assignment-only rows (e.g. try-as-observer) get
+      registration_id=None.
+    - Team: resolved per cohort via team_for_cohort_member."""
+    from app.services.lms.program import team_for_cohort_member
+
+    assignments = (await db.execute(
+        select(LmsProgramAssignment).where(LmsProgramAssignment.user_id == user.id)
+    )).scalars().all()
+    by_cohort: dict[uuid.UUID, dict] = {}
+    for a in assignments:
+        if a.cohort_id is None:
+            continue
+        by_cohort[a.cohort_id] = {"assignment": a, "registration": None}
+
+    regs: list[Registration] = []
+    if user.contact_id:
+        regs = (await db.execute(
+            select(Registration).where(
+                Registration.contact_id == user.contact_id,
+                Registration.status.in_(ACTIVE_REGISTRATION_STATUSES),
+            )
+        )).scalars().all()
+        for reg in regs:
+            entry = by_cohort.setdefault(reg.cohort_id, {"assignment": None, "registration": None})
+            entry["registration"] = reg
+
+    default_mode = "observer" if "observer" in user.role_values else "participant"
+    out: list[StudentProgramOut] = []
+    for cohort_id, entry in by_cohort.items():
+        cohort = await db.get(Cohort, cohort_id)
+        if cohort is None:
+            continue
+        program = await db.get(Program, cohort.program_id) if cohort.program_id else None
+        team = await team_for_cohort_member(db, cohort_id=cohort_id, user_id=user.id)
+        assignment = entry["assignment"]
+        reg = entry["registration"]
+        out.append(StudentProgramOut(
+            registration_id=reg.id if reg else None,
+            assignment_id=assignment.id if assignment else None,
+            cohort_id=cohort_id,
+            program_name=program.name if program else "Program",
+            cohort_name=cohort.name,
+            starts_on=cohort.starts_on,
+            ends_on=cohort.ends_on,
+            mode=assignment.mode if assignment else default_mode,
+            team_id=team.id if team else None,
+            team_name=team.name if team else None,
+            team_join_code=team.join_code if team else None,
+        ))
+    # Fall back to my_programs ordering signal (newest registration first)
+    # when registrations exist; otherwise keep cohort-name order for stable UI.
+    out.sort(key=lambda p: p.cohort_name)
+    return out
+
+
 @router.get("/students/{user_id}", response_model=StudentProfileOut)
 async def student_profile(
     user_id: uuid.UUID,
@@ -598,15 +672,257 @@ async def student_profile(
     """Profile: nickname, programs attended. Current courses are a separate
     call — `GET /lms/admin/users/{user_id}/enrollments` already returns
     exactly that (per-student enrollments, built in P1-5), so this endpoint
-    doesn't duplicate it."""
+    doesn't duplicate it.
+
+    Programs are the enriched union (Registration + LmsProgramAssignment)
+    so observers show up alongside real students, with mode + team inline."""
     user = await db.get(User, user_id)
     if user is None or not ({"student", "observer"} & set(user.role_values)):
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Student not found")
-    programs = await my_programs(db, user=user)
+    programs = await _enriched_student_programs(db, user)
+    is_obs = "observer" in user.role_values and "student" not in user.role_values
     return StudentProfileOut(
         id=user.id, full_name=user.full_name, nickname=user.nickname, avatar=user.avatar,
-        email=user.email, programs=[StudentProgramOut(**p) for p in programs],
+        email=user.email, is_observer=is_obs, programs=programs,
     )
+
+
+@router.patch("/students/{user_id}/account", response_model=StudentProfileOut)
+async def update_student_account(
+    user_id: uuid.UUID,
+    body: StudentAccountUpdateIn,
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(require_lms_content),
+):
+    """Ops email/name correction — duplicate-checked, contact-synced.
+
+    Login keeps working with the new email + unchanged password: auth
+    resolves by case-insensitive email (`user_email_matches`) and verifies
+    `password_hash`, which this never touches. Nothing else denormalizes
+    the email (enrollments/certs/teams/registrations all key on user_id /
+    contact_id), and outstanding password-set tokens are stateless
+    (user_id inside the JWT), so they survive the change too.
+
+    The old address is replaced everywhere it identifies this person —
+    user row, every contact carrying the old address, identity alias —
+    via `replace_user_email` (services/spine/identity.py), the same
+    helper the generic admin user-update path uses, so the two can never
+    drift apart again. Historical application submissions and other
+    people's parent/supervisor email fields are records of who typed
+    what / whose parent it is, not this person's identity, and are left
+    untouched."""
+    from app.services.spine.identity import normalize_user_email, replace_user_email, user_email_matches
+
+    user = await db.get(User, user_id)
+    if user is None or not ({"student", "observer"} & set(user.role_values)):
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Student not found")
+    new_email = normalize_user_email(body.email)
+    if not new_email or "@" not in new_email:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="Enter a valid email")
+    clash = (await db.execute(
+        select(User).where(user_email_matches(new_email), User.id != user_id)
+    )).scalars().first()
+    if clash:
+        raise HTTPException(status.HTTP_409_CONFLICT, detail="Email already registered")
+    await replace_user_email(db, user, new_email)
+    if body.full_name and body.full_name.strip():
+        user.full_name = body.full_name.strip()
+        if user.contact_id:
+            contact = await db.get(Contact, user.contact_id)
+            if contact:
+                contact.full_name = body.full_name.strip()
+    await db.commit()
+    await db.refresh(user)
+    return await student_profile(user_id=user_id, db=db, _=_)
+
+
+@router.post("/students/{user_id}/set-password-link")
+async def student_set_password_link(
+    user_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(require_lms_content),
+):
+    """Stateless password-set link for ops to paste into WhatsApp/email."""
+    from app.services.lms.ops_integration import build_set_password_link
+
+    user = await db.get(User, user_id)
+    if user is None or not ({"student", "observer"} & set(user.role_values)):
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Student not found")
+    return {"link": build_set_password_link(user)}
+
+
+@router.post("/students/{user_id}/cohorts")
+async def enroll_student_cohort(
+    user_id: uuid.UUID,
+    body: StudentCohortEnrollIn,
+    db: AsyncSession = Depends(get_db),
+    current: User = Depends(require_lms_content),
+):
+    """Enroll a learner into a cohort: ensure contact, (re)activate the
+    Registration, then assign the cohort's LMS checklist for the effective
+    mode. Idempotent — re-enrolling an active registration just ensures the
+    assignment exists."""
+    from app.services.lms.program import assign_lms_program
+    from app.services.sessions.registration import register
+    from app.services.spine.identity import ensure_user_contact
+
+    user = await db.get(User, user_id)
+    if user is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="User not found")
+    cohort = await db.get(Cohort, body.cohort_id)
+    if cohort is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Cohort not found")
+    contact = await ensure_user_contact(db, user, source="desk")
+    effective_mode = "observer" if ("observer" in user.role_values and "student" not in user.role_values) else "participant"
+    existing_reg = (await db.execute(
+        select(Registration).where(
+            Registration.contact_id == contact.id, Registration.cohort_id == cohort.id
+        )
+    )).scalars().first()
+    if existing_reg:
+        if existing_reg.status == "cancelled":
+            existing_reg.status = "registered"
+        reg = existing_reg
+        await db.flush()
+    else:
+        try:
+            reg = await register(
+                db, contact_id=contact.id, cohort_id=cohort.id,
+                registered_via="desk", payment_status="waived",
+            )
+        except HTTPException:
+            raise
+        await db.flush()
+    await assign_lms_program(
+        db, user_id=user.id, cohort_id=cohort.id, registration_id=reg.id, mode=effective_mode,
+    )
+    await db.commit()
+    return {"detail": "Enrolled in cohort successfully"}
+
+
+@router.post("/students/{user_id}/cohorts/{cohort_id}/unenroll")
+async def unenroll_student_cohort(
+    user_id: uuid.UUID,
+    cohort_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(require_lms_content),
+):
+    """Unenroll: cancel the Registration, deactivate its course enrollments,
+    drop team membership, delete the LMS assignment. Progress rows cascade
+    with the assignment; enrollment rows survive as inactive."""
+    from app.services.lms.ops_integration import deactivate_registration_enrollments
+    from app.services.lms.program import team_for_cohort_member
+
+    user = await db.get(User, user_id)
+    if user is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="User not found")
+    if user.contact_id:
+        reg = (await db.execute(
+            select(Registration).where(
+                Registration.contact_id == user.contact_id, Registration.cohort_id == cohort_id
+            )
+        )).scalars().first()
+        if reg:
+            reg.status = "cancelled"
+            await db.flush()
+            await deactivate_registration_enrollments(db, reg.id)
+    assignment = (await db.execute(
+        select(LmsProgramAssignment).where(
+            LmsProgramAssignment.user_id == user_id, LmsProgramAssignment.cohort_id == cohort_id
+        )
+    )).scalars().first()
+    if assignment:
+        team = await team_for_cohort_member(db, cohort_id=cohort_id, user_id=user_id)
+        if team:
+            member = await db.get(TeamMember, (team.id, user_id))
+            if member:
+                await db.delete(member)
+                await db.flush()
+        await db.delete(assignment)
+    await db.commit()
+    return {"detail": "Unenrolled from cohort successfully"}
+
+
+@router.get("/students/{user_id}/teams", response_model=list[StudentTeamOut])
+async def student_teams(
+    user_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(require_lms_content),
+):
+    """Every team this learner belongs to, across cohorts."""
+    user = await db.get(User, user_id)
+    if user is None or not ({"student", "observer"} & set(user.role_values)):
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Student not found")
+    rows = (await db.execute(
+        select(TeamMember, Team, Cohort)
+        .join(Team, Team.id == TeamMember.team_id)
+        .outerjoin(Cohort, Cohort.id == Team.cohort_id)
+        .where(TeamMember.user_id == user_id)
+        .order_by(Team.created_at.desc())
+    )).all()
+    return [
+        StudentTeamOut(
+            team_id=team.id, team_name=team.name,
+            cohort_id=team.cohort_id, cohort_name=cohort.name if cohort else None,
+            join_code=team.join_code, is_observer=bool(team.is_observer),
+        )
+        for _member, team, cohort in rows
+    ]
+
+
+@router.get("/students/{user_id}/certificates", response_model=list[StudentCertificateOut])
+async def student_certificates(
+    user_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(require_lms_content),
+):
+    """Every certificate for this learner — user-owned LMS certs plus
+    contact-owned program certs — with query-time signed URLs."""
+    from sqlalchemy import or_ as _or
+
+    user = await db.get(User, user_id)
+    if user is None or not ({"student", "observer"} & set(user.role_values)):
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Student not found")
+    conds = [Certificate.user_id == user_id]
+    if user.contact_id:
+        conds.append(Certificate.contact_id == user.contact_id)
+    rows = (await db.execute(
+        select(Certificate).where(_or(*conds)).order_by(Certificate.generated_at.desc())
+    )).scalars().all()
+    out: list[StudentCertificateOut] = []
+    for row in rows:
+        title = "Certificate"
+        cohort_id = None
+        if row.course_id is not None:
+            course = await db.get(CourseModel, row.course_id)
+            title = course.title if course else "Course"
+        elif row.learning_path_id is not None:
+            path = await db.get(LearningPath, row.learning_path_id)
+            title = path.title if path else "Learning path"
+        elif row.registration_id is not None:
+            reg = await db.get(Registration, row.registration_id)
+            cohort = await db.get(Cohort, reg.cohort_id) if reg and reg.cohort_id else None
+            program = await db.get(Program, cohort.program_id) if cohort and cohort.program_id else None
+            cohort_id = cohort.id if cohort else None
+            if program and cohort:
+                title = f"{program.name} — {cohort.name}"
+            elif cohort:
+                title = cohort.name
+            elif row.workshop_name:
+                title = row.workshop_name
+        elif row.workshop_name:
+            title = row.workshop_name
+        url = await storage.resolve_url(row.bucket, row.file_path, getattr(row, "file_url", None))
+        out.append(StudentCertificateOut(
+            id=row.id,
+            type=row.type.value if hasattr(row.type, "value") else str(row.type),
+            title=title,
+            generated_at=row.generated_at,
+            url=url,
+            cohort_id=cohort_id,
+            course_id=row.course_id,
+        ))
+    return out
 
 
 @router.get("/students/{user_id}/design-runs", response_model=StudentDesignRunsOut)

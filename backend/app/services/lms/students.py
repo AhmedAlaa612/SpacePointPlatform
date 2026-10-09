@@ -32,7 +32,7 @@ async def _summarize_users(db: AsyncSession, users: list[User]) -> list[StudentS
     spine Contact, not on `users`, resolved in two batched queries rather
     than one pair per row."""
     labels = dict((await db.execute(
-        select(InvitationCode.code, InvitationCode.label).where(InvitationCode.kind == "student")
+        select(InvitationCode.code, InvitationCode.label).where(InvitationCode.kind.in_(["student", "observer"]))
     )).all())
 
     contact_ids = [u.contact_id for u in users if u.contact_id]
@@ -69,7 +69,9 @@ async def _summarize_users(db: AsyncSession, users: list[User]) -> list[StudentS
 
 async def search_students(
     db: AsyncSession, *, q: str | None = None, invite_code: str | None = None,
-    login_status: Literal["all", "never", "has_logged_in"] = "all", limit: int = 50,
+    login_status: Literal["all", "never", "has_logged_in"] = "all",
+    mode: Literal["student", "observer", "all"] = "student",
+    limit: int = 50,
 ) -> list[StudentSummaryOut]:
     """Name/email substring search over student accounts, capped at `limit` rows.
 
@@ -81,8 +83,17 @@ async def search_students(
     `login_status` (2026-09-16) filters on `User.last_login_at` — "never"
     finds an account (however it was created) that's never actually been
     opened, same signal search_cohort_assignable_students's own
-    login_status filters on."""
-    stmt = select(User).where(User.roles.any("student"))
+    login_status filters on.
+
+    `mode` (operations roster toggle): "student" = student role without
+    observer, "observer" = has observer role, "all" = either."""
+    if mode == "observer":
+        role_filter = User.roles.any("observer")
+    elif mode == "student":
+        role_filter = and_(User.roles.any("student"), ~User.roles.any("observer"))
+    else:
+        role_filter = or_(User.roles.any("student"), User.roles.any("observer"))
+    stmt = select(User).where(role_filter)
     if q:
         like = f"%{q.strip()}%"
         stmt = stmt.where(or_(User.full_name.ilike(like), User.email.ilike(like)))

@@ -31,11 +31,12 @@ export default function LmsStudents() {
   const [query, setQuery] = useState("")
   const [profileUserId, setProfileUserId] = useState<string | null>(null)
   const [loginStatus, setLoginStatus] = useState<"all" | "never" | "has_logged_in">("all")
+  const [rosterMode, setRosterMode] = useState<"student" | "observer">("student")
   const inviteCode = search.invite_code ?? ""
 
   const { data: students = [], isLoading } = useQuery({
-    queryKey: ["lms-admin-students", query, inviteCode, loginStatus],
-    queryFn: () => searchStudentsApi({ q: query || undefined, invite_code: inviteCode || undefined, login_status: loginStatus }),
+    queryKey: ["lms-admin-students", query, inviteCode, loginStatus, rosterMode],
+    queryFn: () => searchStudentsApi({ q: query || undefined, invite_code: inviteCode || undefined, login_status: loginStatus, mode: rosterMode }),
   })
   const { data: codes = [] } = useQuery({
     queryKey: ["lms-admin-invite-codes"],
@@ -54,6 +55,26 @@ export default function LmsStudents() {
       <PageHeader title="Students" subtitle="Search students, view their profile, and manage what they're enrolled in." />
 
       <div className="flex flex-wrap items-center gap-3">
+        <div className="flex rounded-xl bg-card border border-border p-0.5">
+          <button
+            type="button"
+            onClick={() => setRosterMode("student")}
+            className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition-colors cursor-pointer ${
+              rosterMode === "student" ? "bg-primary text-primary-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"
+            }`}
+          >
+            Students
+          </button>
+          <button
+            type="button"
+            onClick={() => setRosterMode("observer")}
+            className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition-colors cursor-pointer ${
+              rosterMode === "observer" ? "bg-primary text-primary-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"
+            }`}
+          >
+            Observers
+          </button>
+        </div>
         <div className="relative max-w-md flex-1 min-w-[220px]">
           <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
           <input
@@ -91,15 +112,21 @@ export default function LmsStudents() {
         <Spinner />
       ) : students.length === 0 ? (
         <EmptyState
-          title="No students found"
-          hint={query || inviteCode ? "Try a different search or batch." : "No student accounts exist yet."}
+          title={rosterMode === "observer" ? "No observers found" : "No students found"}
+          hint={
+            query || inviteCode
+              ? "Try a different search or batch."
+              : rosterMode === "observer"
+              ? "No observer accounts exist yet."
+              : "No student accounts exist yet."
+          }
         />
       ) : (
         <div className="overflow-x-auto rounded-2xl ring-1 ring-border">
           <table className="min-w-full text-sm">
             <thead>
               <tr className="border-b border-border bg-muted/40">
-                {["Name", "Email", "School", "Grade", "Code used", "Joined", "Login", "Status", ""].map((header, i) => (
+                {["Name", "Code used", "Joined", "Login", ""].map((header, i) => (
                   <th
                     key={i}
                     className="text-left font-medium text-muted-foreground px-4 py-2.5 whitespace-nowrap text-xs uppercase tracking-wider"
@@ -115,18 +142,13 @@ export default function LmsStudents() {
                   <td className="px-4 py-3 whitespace-nowrap">
                     <button
                       onClick={() => setProfileUserId(s.id)}
-                      className="font-semibold text-foreground hover:text-primary hover:underline transition-colors"
+                      className="font-semibold text-foreground hover:text-primary hover:underline transition-colors text-left"
                       title="Open profile"
                     >
                       {s.full_name}
                     </button>
-                    {s.nickname && (
-                      <span className="block text-[11px] text-primary">{s.nickname}</span>
-                    )}
+                    <span className="block text-xs text-muted-foreground">{s.email}</span>
                   </td>
-                  <td className="px-4 py-3 text-muted-foreground whitespace-nowrap">{s.email}</td>
-                  <td className="px-4 py-3 text-muted-foreground">{s.school_name ?? "—"}</td>
-                  <td className="px-4 py-3 text-muted-foreground whitespace-nowrap">{s.grade ?? "—"}</td>
                   <td className="px-4 py-3 whitespace-nowrap">
                     {s.invite_code ? (
                       <span className="text-xs font-semibold text-primary" title={s.invite_label ?? undefined}>
@@ -147,17 +169,6 @@ export default function LmsStudents() {
                         NEVER LOGGED IN
                       </span>
                     )}
-                  </td>
-                  <td className="px-4 py-3 whitespace-nowrap">
-                    <span
-                      className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
-                        s.status === "active"
-                          ? "bg-emerald-500/10 text-emerald-500"
-                          : "bg-muted text-muted-foreground"
-                      }`}
-                    >
-                      {(s.status ?? "unknown").toUpperCase()}
-                    </span>
                   </td>
                   <td className="px-4 py-3 whitespace-nowrap text-right">
                     <button

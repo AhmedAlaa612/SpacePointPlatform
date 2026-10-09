@@ -858,7 +858,7 @@ function ProgressRow({
  * time, what was left unanswered), plus a "Reset" ops/instructor can use
  * any time to let the student retake it — deletes the attempt so their
  * next visit starts fresh. */
-function AssignmentItemRow({
+export function AssignmentItemRow({
   item, cohortId, assignmentId,
 }: { item: LmsAssignmentItemDetail; cohortId?: string; assignmentId: string }) {
   const queryClient = useQueryClient()
@@ -876,6 +876,14 @@ function AssignmentItemRow({
   const canOpenConsole = isMissionRun && item.mission_kind === "ground_station"
   const isQuiz = item.item_type === "quiz"
 
+  const confirmMutation = useMutation({
+    mutationFn: () => confirmChecklistItemApi(cohortId as string, assignmentId, item.item_id),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["assignment-items", cohortId, assignmentId] })
+      void queryClient.invalidateQueries({ queryKey: ["instructor-program-progress", cohortId] })
+    },
+  })
+
   const resetMutation = useMutation({
     mutationFn: () => resetCohortQuizAttemptApi(cohortId as string, assignmentId, item.item_id),
     onSuccess: () => {
@@ -891,7 +899,7 @@ function AssignmentItemRow({
   const isPoster = item.mission_step_key === "poster"
   const hasActions = Boolean(
     item.submitted_url || item.submitted_text || (item.submission_multi_link && item.submitted_links?.length)
-    || canViewRun || canOpenConsole || (isQuiz && (isDone || cohortId)) || isPoster,
+    || canViewRun || canOpenConsole || (isQuiz && (isDone || cohortId)) || isPoster || (isAwaiting && cohortId),
   )
 
   return (
@@ -1034,6 +1042,19 @@ function AssignmentItemRow({
                   title="Let this student retake the quiz"
                 >
                   <RotateCcw size={13} /> Reset
+                </Button>
+              )}
+
+              {isAwaiting && cohortId && (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  disabled={confirmMutation.isPending}
+                  onClick={() => confirmMutation.mutate()}
+                  className="h-8 text-xs font-bold border-amber-500/40 bg-amber-500/10 text-amber-400 hover:bg-amber-500/20 gap-1.5 shrink-0 cursor-pointer"
+                >
+                  <CheckCircle2 size={13} className={confirmMutation.isPending ? "animate-spin" : ""} />
+                  Confirm
                 </Button>
               )}
             </div>
