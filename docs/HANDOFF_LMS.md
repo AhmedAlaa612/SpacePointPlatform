@@ -1024,3 +1024,68 @@ Identity is secured using Intercom Messenger Security (HMAC-SHA256 JWT):
   - `api.intercom.io`
   - `nexus.intercom.io`
   - `js.intercomcdn.com`
+
+---
+
+## 21. Student & Observer Operations Hub (`/lms-authoring/students`) (October 2026)
+
+### Purpose
+The unified student & observer administration portal. Ops uses this surface to inspect individual learner records, monitor cohort progression, manage course and learning path enrollments, inspect learner teams, and issue/view certificates.
+
+### Key Components & Files
+- **Roster View (`frontend/src/pages/lms-authoring/LmsStudents.tsx`)**:
+  - Filter bar: Toggle between `Students` and `Observers` (`rosterMode`), search by query, filter by invite code batch, filter by login status.
+  - Table: Displays full name, email, invite code used with batch label, joined date, and last login.
+- **Detail View (`frontend/src/pages/lms-authoring/LmsStudentDetail.tsx`)**:
+  - **Profile Header**: Name, email, phone, city, parent/guardian relationship, student identity card (`SP-ST` or `SP-OB`).
+  - **Cohort Enrollments**: Expandable accordion for each cohort registration. Displays progress bar and embeds `CohortChecklistDetail`—a live rendering of the student's program checklist items (`AssignmentItemRow`) with submission links, status badges, and item review action drawers.
+  - **Learner Teams**: `LearnerTeamCard` embedding `TeamAnalysisCard` to view real-time team submissions, item completion percentages, and join codes.
+  - **Course & Learning Path Assignment**: Allows ops to assign courses or learning paths directly.
+    - *No conflicting dropdown selectors*: Role matching is automatic. Uses the user's role (`observer` vs `participant`) when invoking `enroll(..., role=...)` or `enroll_learning_path(...)`.
+  - **Unenroll Action**: `unenroll_student_from_cohort` cancels registration, marks cohort enrollments inactive, deletes the checklist assignment, and detaches the learner from cohort teams.
+  - **Program Certificates**: Lists all issued program certificates for the learner with direct view and download links.
+- **Backend API & Service**:
+  - Router: `backend/app/routers/lms/admin.py` (`/lms/admin/students/*`).
+  - Service: `backend/app/services/lms/students.py` (`search_students`, `get_student_detail`, `unenroll_student_from_cohort`, `assign_student_courses`).
+
+---
+
+## 22. Observer Mode Architecture & Partitioning (October 2026)
+
+### Key Rules & Invariants
+1. **User Role**: Pure observers hold `roles = ["observer"]` (`UserRole.observer`).
+2. **Identity Card**: Observers receive an identity card with the `SP-OB` prefix (instead of `SP-ST`).
+3. **Cohort Registration**: When an observer joins a cohort (via invite code, import, or desk register), `sync_registration_lms` is passed `mode="observer"`. This produces an `LmsProgramAssignment` with `mode="observer"`.
+4. **Data Isolation**:
+   - Observer assignments and progress rows never appear on student-facing competition leaderboards or finalist pools.
+   - Observer checklist progress is tracked via the same engine, but tagged with `mode="observer"`.
+
+---
+
+## 23. Invite Code Grants Architecture (`models/lms/invite_grant.py`)
+
+### Concept
+An `InvitationCode` can carry standing course, learning path, or cohort grants (`InvitationCodeGrant`).
+- **Immediate Retroactive Application**: When a grant is attached via `grant_invite_code_access()`, every account that has *ever* signed up with that code is instantly enrolled.
+- **Future Application**: Fresh signups via `apply_invite_code_grants_to_new_user()` inherit the grants automatically.
+- **Pool Parity**: Both `student` and `observer` batch codes (`kind in ("student", "observer")`) support course, learning path, and cohort grants:
+  - `GET /lms/admin/invite-codes/{code_id}/grants`
+  - `POST /lms/admin/invite-codes/{code_id}/grants`
+  - `DELETE /lms/admin/invite-codes/{code_id}/grants/{grant_id}`
+
+---
+
+## 24. Engineering Discipline & Common Traps (Read Before Editing!)
+
+### Trap 1: Unkeyed React Fragments in Lists
+- **Symptom**: Console warning: `Each child in a list should have a unique "key" prop.`
+- **Cause**: Returning a short-syntax `<> ... </>` fragment inside an `.map()` iteration (e.g. returning multiple table rows `<tr key="1"/> <tr key="2"/>`).
+- **Fix**: Always import `Fragment` from `react` and provide a top-level key: `<Fragment key={item.id}> ... </Fragment>`.
+
+### Trap 2: Nesting Control Toolbars Inside Empty State Checks
+- **Symptom**: When a list has 0 items (or 0 items in the active mode filter), all search inputs, mode toggle pills, and filters disappear, trapping the user.
+- **Rule**: **Always render the filter toolbar unconditionally at the top.** Only the content container below the toolbar should switch between `<Spinner/>`, `<EmptyState/>`, and the list.
+
+### Trap 3: Email Updates Without Contact & Alias Sync
+- **Symptom**: Changing a user's email leaves the underlying `Contact` with the old email, or breaks alias matching.
+- **Rule**: **Never update `user.email` alone.** Always use `replace_user_email(db, user, new_email)` from `services/spine/identity.py`. It updates `users.email`, rewrites matching `contacts.email`, deletes old alias records, and registers the new alias on the linked contact.

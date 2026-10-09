@@ -3,15 +3,7 @@
 **Entry point for anyone (human or agent) picking up this codebase.** This file is a *map*:
 where everything is and what it does. Depth lives in the per-domain files linked below.
 
-**Last verified against the code: 2026-09-17**, as part of a doc-freshness pass: every per-domain
-doc below was individually re-verified against current code that same day (see each file's own
-status line for exactly what was checked), two previously-undocumented domains got their first
-doc (Ground Station, the current Video architecture), and four docs describing finished one-off
-events (not living domains) were moved to `docs/archive/` — see `docs/archive/README.md`. This
-top-level file itself only got a targeted pass (§1–2, the schema-head/container-count corrections
-below, and the domain table) — it was not rewritten section-by-section the way the per-domain
-docs were, so treat §3 onward as orientation carried forward from 2026-08-21 and verify anything
-load-bearing against the code before relying on it.
+**Last verified against the code: 2026-10-09**, as part of a major domain update covering Observer Mode, the unified Student & Observer Operations Hub, Invite Code Grants, and Judging toolbar fixes.
 
 ---
 
@@ -20,38 +12,51 @@ load-bearing against the code before relying on it.
 | | |
 |---|---|
 | **Live at** | `https://portal.spacepoint.ae` |
-| **Schema head** | `a3f7c1e9b284` — single Alembic head (re-checked 2026-09-17 via `alembic heads`; this file previously cited two different, both-stale head IDs in §1 and §9 — don't trust either old value). Production follows `main` deploys; the API container runs `alembic upgrade head` before binding its port |
+| **Schema head** | `a3f7c1e9b284` — single Alembic head. Production follows `main` deploys; the API container runs `alembic upgrade head` before binding its port |
 | **Branch** | `main` = production. `v2-dev` tracks it |
-| **What's live** | Registration, bulk import, check-in, staffing marketplace (multiple calls per session + cohort-level campaigns), instructor delivery + payment letters, attendance, certificates, calendar, ops dashboard, **inventory end to end** (kits, warehouses, stock, custody, equipment, fulfilment, public QR scan), plus the pre-existing interns / ambassadors / instructors domains, **the internship request/letter domain** (an existing account requests the intern role, admin approves, an in-app-signed internship letter is generated — see `HANDOFF_INTERNSHIP.md`) — **and the LMS/Missions/Games domain**: student accounts, courses + encrypted-HLS video (Stripe Checkout for paid courses and learning-path bundles, both with promo-code support), learning paths (now with a one-shot cohort/role bulk grant), the CubeSat design + Flight Operations missions with a real 36-part component library, Live Quiz games, cohort-scoped instructor progress/gating/review, the **LMS Program checklist** (mixed-item-type program tracks replacing the old flat course-list curriculum), and **invite-code course/path grants** — a school/cohort batch code can carry a standing free-access list applied to every holder, old or new. See [`HANDOFF_LMS.md`](./HANDOFF_LMS.md) |
-| **Tests** | 1591 collected, `pytest` from `backend/`. A handful need a live Redis and error without one — everything else is broker-free. Nine (`test_applicant_role_promotion.py`, `test_intern_application_letter.py`, `test_internship.py`) need a working LibreOffice headless PDF conversion — unrelated to LMS, pre-existing in any environment where `soffice --headless --convert-to pdf` doesn't produce output |
+| **What's live** | Registration, bulk import, check-in, staffing marketplace, attendance, certificates, calendar, ops dashboard, **inventory end to end**, interns/ambassadors/instructors/internship letters — **LMS/Missions/Games domain**: student and observer accounts, courses + encrypted-HLS video, learning paths, CubeSat design + Flight Operations missions, Live Quiz games, cohort-scoped instructor progress/gating/review, **LMS Program checklists**, **Invite-Code Grants** (instant course/path/cohort provisioning for student & observer batches), **Student & Observer Operations Hub** (`/lms-authoring/students` with live checklist trees, team progress cards, direct course/path assignment, and unenroll), and **Competition Judging with Observer Partitioning** (`JudgeTeams.tsx` with top toolbar toggling `Students | Observers | All`, blind scoring, rubric builder, timing windows, and analysis dashboard). See [`HANDOFF_LMS.md`](./HANDOFF_LMS.md) & [`HANDOFF_COMPETITIONS.md`](./HANDOFF_COMPETITIONS.md) |
+| **Tests** | Collected via `pytest` from `backend/`. Requires live Redis for worker tasks |
 
 ## 2. Read next
 
-This file plus the per-domain docs below are the complete, self-contained map — everything you
-need to navigate this codebase lives in this repo's `docs/` folder. (The operator separately
-keeps week-to-week sprint planning/status boards outside this repo; those are working documents
-for active development, not architecture references, and get deleted once a phase wraps — don't
-expect them to exist, and nothing here depends on them.)
-
 | Read | For |
 |---|---|
-| [`HANDOFF_LMS.md`](./HANDOFF_LMS.md) | Student accounts, courses, learning paths, the CubeSat design + Flight Operations missions, Live Quiz games, the Cohort Knowledge Quiz domain — the whole `/learn` + `/lms-authoring` surface. Ground Station's hardware/telemetry internals live in their own doc (below); this one covers the `mission_run` checklist-item/mission-kind side only |
-| [`HANDOFF_GROUND_STATION.md`](./HANDOFF_GROUND_STATION.md) | New 2026-09-17 — previously undocumented. Live CubeSat telemetry/command console: device provisioning, the telemetry ingest → Redis pub/sub → websocket flow, alerts/thresholds, the ops device/attempt view, and how it plugs into a `ground_station`-kind mission |
-| [`HANDOFF_COMPETITIONS.md`](./HANDOFF_COMPETITIONS.md) | A competition is a flagged `Program` with team-scoped checklist items, built on top of the LMS Program domain above, not a new one. Also covers judging, registration import/progression, manual team management, the Assign tab, and the Analysis tab (team-progress dashboard) |
-| [`HANDOFF_SPINE.md`](./HANDOFF_SPINE.md) | Contacts / identity matching / merge review |
+| [`HANDOFF_LMS.md`](./HANDOFF_LMS.md) | Student & Observer accounts, courses, learning paths, missions, live quiz games, checklist programs, **Student Operations Hub (`/lms-authoring/students`)**, **Invite-Code Grants**, and **Observer Mode Architecture** (§21–24) |
+| [`HANDOFF_COMPETITIONS.md`](./HANDOFF_COMPETITIONS.md) | Competitions, team-scoped checklists, rubric scoring, judging surface (`JudgeTeams.tsx`), team analytics (`CompetitionAnalysis.tsx`), and **Observer Sandbox Teams Partitioning** (§6) |
+| [`HANDOFF_GROUND_STATION.md`](./HANDOFF_GROUND_STATION.md) | Live CubeSat telemetry/command console, device provisioning, Redis pub/sub websocket flow, alerts/thresholds |
+| [`HANDOFF_SPINE.md`](./HANDOFF_SPINE.md) | Contacts / identity matching / merge review / `replace_user_email` synchronization |
 | [`HANDOFF_SESSIONS.md`](./HANDOFF_SESSIONS.md) | Programs, cohorts, sessions, registration, staffing, delivery |
-| [`HANDOFF_INSTRUCTORS.md`](./HANDOFF_INSTRUCTORS.md) | Applicant pipeline, contracts, payments, certificates. Also covers Instructor Assessment (the question-bank/priority-ranking system gating staffing) and the Documents system (four distinct mechanisms, not one shared engine — see that doc) |
+| [`HANDOFF_INSTRUCTORS.md`](./HANDOFF_INSTRUCTORS.md) | Applicant pipeline, contracts, payments, certificates, assessments |
 | [`HANDOFF_INTERNS.md`](./HANDOFF_INTERNS.md) | Projects, epics, tasks, kanban, teams |
-| [`HANDOFF_INTERNSHIP.md`](./HANDOFF_INTERNSHIP.md) | The HR-side intern pipeline: role request -> admin approval -> in-app-signed internship letter (not the kanban domain above, despite the name) |
-| [`MISSIONS_INTERN_SPEC.md`](./MISSIONS_INTERN_SPEC.md) | Intern-facing: how to propose a mission, what gets ported vs. rebuilt, lessons from the first real port (SatKit → Operate Your Satellite, Phase 2B) |
+| [`HANDOFF_INTERNSHIP.md`](./HANDOFF_INTERNSHIP.md) | HR-side intern pipeline: role request -> admin approval -> in-app-signed internship letter |
 | [`HANDOFF_AMBASSADORS.md`](./HANDOFF_AMBASSADORS.md) | Leads, points/titles/badges, teacher sessions, the task approval state machine |
-| [`HANDOFF_VPS_DEPLOYMENT.md`](./HANDOFF_VPS_DEPLOYMENT.md) | What's actually running on the VPS, the deploy scripts' real behavior (including their auto-rollback logic), storage layout |
-| [`HANDOFF_VIDEO.md`](./HANDOFF_VIDEO.md) | New 2026-09-17 — previously only existed as event-specific migration runbooks (now archived). The current video architecture: per-row storage backend (new uploads always go to R2), the transcode pipeline, playback token/HLS mechanics, the two ARQ workers |
+| [`HANDOFF_VPS_DEPLOYMENT.md`](./HANDOFF_VPS_DEPLOYMENT.md) | VPS environment, deploy scripts, auto-rollback logic, storage layout |
+| [`HANDOFF_VIDEO.md`](./HANDOFF_VIDEO.md) | Cloudflare R2 video storage, transcode pipeline, playback tokens, HLS mechanics |
 | [`OPS_BACKUPS.md`](./OPS_BACKUPS.md) | Database backup script — usage, cron, restore |
-| [`archive/README.md`](./archive/README.md) | Docs retired 2026-09-17 for describing a finished, one-off event rather than a living domain (an agent-collab scope note, the video R2 migration plan + its pre-deploy review fixes, the competition-day deploy runbook) — kept for history, not current |
 
-Credentials are in `secrets.md` / `vps_envs.md`, kept out of version control (one directory
-above this repo). Production env file: `/etc/spacepoint/env`.
+---
+
+## 2.5 Fast Navigation Map (Zero-Effort Code Exploration)
+
+*Use this cheat sheet to jump directly to the right files without grepping across the codebase.*
+
+| Feature / Domain | Frontend UI | Backend Router | Backend Service / Model |
+|---|---|---|---|
+| **Student & Observer Roster** | `pages/lms-authoring/LmsStudents.tsx` | `routers/lms/admin.py::search_students` | `services/lms/students.py::search_students` |
+| **Student & Observer Detail** (Manage Page) | `pages/lms-authoring/LmsStudentDetail.tsx` | `routers/lms/admin.py::get_student_detail` | `services/lms/students.py::get_student_detail`<br/>`models/user.py`, `models/lms/program.py` |
+| **Invite Codes & Grants** | `pages/lms-authoring/LmsInviteCodes.tsx` | `routers/lms/admin.py::/invite-codes/*` | `services/lms/invite_grants.py`<br/>`models/instructors/invitation_code.py`<br/>`models/lms/invite_grant.py` |
+| **Judge Teams Portal** | `pages/judge/JudgeTeams.tsx` | `routers/competitions/judge.py::list_my_teams` | `services/competitions/judges.py`<br/>`models/team.py` |
+| **Judge Team Scoring & Runs** | `pages/judge/JudgeTeamDetail.tsx`<br/>`pages/lms-authoring/components/DesignRunDetail.tsx` | `routers/competitions/judge.py::put_my_team_score` | `services/competitions/judging.py`<br/>`models/competitions.py` |
+| **Admin Judging Management** | `pages/admin/CompetitionJudging.tsx`<br/>`pages/admin/components/CompetitionAnalysis.tsx` | `routers/competitions/admin.py` | `services/competitions/analytics.py`<br/>`services/competitions/judging.py` |
+| **Course & Path Enrollments** | `pages/lms-authoring/LmsStudentDetail.tsx` | `routers/lms/admin.py::assign_student_courses` | `services/lms/enrollment.py::enroll` |
+| **User & Contact Email Sync** | `pages/admin/Users.tsx`<br/>`pages/lms-authoring/LmsStudentDetail.tsx` | `routers/admin/users.py`<br/>`routers/lms/admin.py` | `services/spine/identity.py::replace_user_email` *(Mandatory helper)* |
+| **Student App Shell (`/learn`)** | `pages/learn/LearnShell.tsx`<br/>`pages/learn/nav/LearnSidebar.tsx` | `routers/lms/student.py` | `services/lms/progress.py` |
+
+### Critical Codebase Invariants (Avoid Pitfalls)
+1. **Never Nest Control Bars Inside Conditional Empty States**: Filter/search toolbars (such as `Students | Observers | All`) must **always** sit above `{isLoading ? <Spinner/> : items.length === 0 ? <EmptyState/> : <List/>}` so users are never trapped when an active filter is empty.
+2. **Keyed React Fragments in Lists**: When returning multiple elements (like sibling `<tr>`s) inside `.map()`, always use `<Fragment key={id}>`, never `<>`.
+3. **Email Updates Require Spine Sync**: Updating a user's email address must always invoke `replace_user_email(db, user, new_email)` so that `users.email`, `contacts.email`, and `identity_aliases` remain consistent.
+4. **Invite Code Pool Checks**: Invite code validation and grants endpoints must check `kind.in_(["student", "observer"])`, not `kind == "student"`.
 
 ---
 

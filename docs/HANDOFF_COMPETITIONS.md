@@ -568,3 +568,43 @@ for the same cohort. It has not been fixed as of this doc's writing (2026-09-17)
 so a regression here wouldn't be caught by the current suite. Fixing it means giving
 `_cohort_roster_user_ids()` the same two-step resolution `_registered_cohort_users()` already has
 (and, ideally, factoring the two into one shared helper rather than a third copy of the same hop).
+
+---
+
+## 6. Observer Sandbox Teams & Surface Partitioning (October 2026)
+
+### Purpose & Rationale
+Observer mode allows educators, testing coordinators, guest evaluators, and rehearsal teams to participate in a competition cohort—forming teams, working through the checklist, running missions, and being scored by judges—without contaminating official competition leaderboards, awards, top 20 exports, or stage-advancement queues.
+
+### Architecture & Data Partition
+- **`Team.is_observer` (`learner_teams.is_observer`)**:
+  - Boolean flag marking an observer sandbox team.
+  - Set via the "Create as observer sandbox team" checkbox in the Teams tab (`createCohortTeamApi(..., is_observer=True)`), or automatically when observer accounts self-form a team.
+- **Roster & Registrations**:
+  - Observers register with `mode="observer"` (`LmsProgramAssignment.mode = "observer"`).
+- **Universal Query Partitioning**:
+  Every competition endpoint dealing with teams, progress, analytics, or scoring accepts:
+  ```python
+  mode: Literal["participant", "observer", "all"] = Query("participant")
+  ```
+  - `participant` (default): Strictly real students. Excludes all observer teams and observer members.
+  - `observer`: Strictly observer teams/members.
+  - `all`: Combined view, with observer teams explicitly tagged with an "Observer" badge.
+- **Affected Endpoints & Services**:
+  - `GET /competitions/cohorts/{cohort_id}/teams` (`services/competitions/teams.py`)
+  - `GET /competitions/cohorts/{cohort_id}/leaderboard` (`services/competitions/judging.py`)
+  - `GET /competitions/cohorts/{cohort_id}/team-analytics` (`services/competitions/analytics.py`)
+  - `GET /competitions/judge/teams` (`routers/competitions/judge.py`)
+  - `GET /competitions/cohorts/{cohort_id}/assignable-students` (`services/competitions/registration_import.py`)
+
+### Judging UI Surface (`frontend/src/pages/judge/JudgeTeams.tsx`)
+- **Top Controls Invariant**:
+  - The control toolbar (`Search`, **`Students | Observers | All`** toggle, `Locked Filter`, and `Sort Selector`) is **unconditionally rendered** at the top of the page.
+  - *Never* nest the toolbar inside a `teams.length === 0` conditional. If a cohort has 0 student teams, judges must still be able to click "Observers" or "All" immediately.
+- **Scoring Parity**:
+  - Judges score observer teams using the exact same rubric and submission inspector (`JudgeTeamDetail.tsx`). Observer scores are recorded under `CompetitionScore`, but partitioned out of official finalist advancement queues (`advanceCohortTeamsApi`).
+
+### Admin Surface (`CompetitionJudging.tsx`)
+- **Teams Tab**: Has an inline toggle `Students (N) | Observers (M) | All (Total)`. Empty state dynamically clarifies if only observer teams exist.
+- **Analysis Tab (`CompetitionAnalysis.tsx`)**: Toggles completion rates, submission breakdowns, and bottleneck metrics between official students and observers.
+- **Leaderboard / Results Tab**: Defaults to official participant scores. Observers can be inspected on the observer tab, but are barred from one-click stage advancement (`advanceTargets`).
