@@ -81,7 +81,7 @@ stripe[async]
 # R2 speaks the S3 API, so the standard AWS SDK works against it unmodified.
 boto3
 
-# Website articles CMS (Step 5) — markdown authoring rendered to sanitized HTML
+# Website articles CMS (Step 5) - markdown authoring rendered to sanitized HTML
 markdown
 bleach
 
