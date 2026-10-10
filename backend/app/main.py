@@ -18,6 +18,14 @@ from app.core.log_context import RequestContextMiddleware, configure_logging
 configure_logging(level=settings.LOG_LEVEL)
 
 from app.routers import admin, auth, documents, notifications
+from app.routers.public_website import router as public_website_router
+from app.routers.public_sponsors import router as public_sponsors_router
+from app.routers.public_content import router as public_content_router
+from app.routers.public_articles import router as public_articles_router
+from app.routers.public_people import router as public_people_router
+from app.routers.public_labs import router as public_labs_router
+from app.routers.public_shop import router as public_shop_router
+from app.routers.contributor_articles import router as contributor_articles_router
 from app.routers.admin.birthdays import router as birthdays_router
 from app.routers.apply import router as apply_router
 from app.routers.internship import router as internship_router
@@ -147,6 +155,14 @@ app.add_middleware(RequestContextMiddleware)
 app.include_router(auth.router)
 app.include_router(files_router)          # public (HMAC-signed): /files/* — local storage backend
 app.include_router(apply_router)          # public: /apply/*
+app.include_router(public_website_router)  # public: /public/website/* (Step 1 — website global config)
+app.include_router(public_sponsors_router)  # public: /public/sponsors (Step 3 — partners & clients showcase; path predates the /public/website/* namespace)
+app.include_router(public_content_router)  # public: /public/faqs, /public/media, /public/newsletters, /public/newsletter/subscribe (Step 4)
+app.include_router(public_articles_router)  # public: /public/articles, /public/articles/{slug} (Step 5)
+app.include_router(public_people_router)  # public: /public/team, /ambassadors, /alumni, /student-missions (Step 6)
+app.include_router(public_labs_router)  # public: /public/labs/projects (Step 7)
+app.include_router(public_shop_router)  # public: /public/shop/* (Step 7 — products, checkout, webhook)
+app.include_router(contributor_articles_router)  # contributor: /articles/me, /articles (Step 5)
 app.include_router(notifications.router)  # shared: /notifications/*
 app.include_router(documents.router)  # shared: /documents/*  (Phase 4)
 app.include_router(admin.router, prefix="/admin")  # shared: /admin/users/*  (generic user management)

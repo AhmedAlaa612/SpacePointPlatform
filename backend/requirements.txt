@@ -80,3 +80,8 @@ stripe[async]
 # Cloudflare R2 (S3-compatible object storage) â€” services/storage_r2.py.
 # R2 speaks the S3 API, so the standard AWS SDK works against it unmodified.
 boto3
+
+# Website articles CMS (Step 5) — markdown authoring rendered to sanitized HTML
+markdown
+bleach
+

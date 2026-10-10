@@ -29,4 +29,18 @@ from app.models import games  # noqa: F401  (Live Games Phase 2C — Kahoot-styl
 from app.models import instructor_assessment  # noqa: F401  (2026-09 — instructor assessment & performance ranking)
 from app.models import ground_station  # noqa: F401  (2026-09 — live ground-station telemetry tool, ported from Madar)
 from app.models.birthday_log import BirthdayEmailLog  # noqa: F401
+from app.models.website_config import WebsiteConfig  # noqa: F401  (Step 1 — website global config singleton)
+from app.models.website_program import WebsiteProgram  # noqa: F401  (Step 2 — website flagship programs & pricing)
+from app.models.website_sponsor import WebsiteSponsor  # noqa: F401  (Step 3 — website partners & clients showcase)
+from app.models.website_faq import WebsiteFaq  # noqa: F401  (Step 4 — website FAQs)
+from app.models.website_media import MediaClipping  # noqa: F401  (Step 4 — website media coverage)
+from app.models.website_newsletter import Newsletter, WebsiteLead  # noqa: F401  (Step 4 — newsletters & leads)
+from app.models.website_article import WebsiteArticle  # noqa: F401  (Step 5 — articles & editorial queue)
+from app.models.website_labs import WebsiteLabProject  # noqa: F401  (Step 7 — labs R&D projects)
+from app.models.website_people import (  # noqa: F401  (Step 6 — people showcase)
+    StudentMission,
+    TeamMember,
+    WebsiteAlumni,
+    WebsiteAmbassador,
+)
 

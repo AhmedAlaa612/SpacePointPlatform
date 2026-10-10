@@ -16,6 +16,7 @@ import {
   FileText,
   FolderOpen,
   GitMerge,
+  Globe,
   GraduationCap,
   LayoutGrid,
   LayoutList,
@@ -23,10 +24,12 @@ import {
   ListTodo,
   LogOut,
   Menu,
+  Newspaper,
   PlayCircle,
   QrCode,
   Settings as SettingsIcon,
   Share2,
+  ShoppingCart,
   Target,
   Ticket,
   Trophy,
@@ -114,6 +117,13 @@ const ICONS: Record<string, LucideIcon> = {
   Operations: Warehouse,
   Inventory: Warehouse,
   "Ground Station Devices": Antenna,
+  "My Articles": Newspaper,
+  Website: Globe,
+  "General Config": SettingsIcon,
+  "Programs & Pricing": BookOpen,
+  "Partners & Clients": Users,
+  "Media & Press": Newspaper,
+  "Newsletters & Leads": Bell,
   Birthdays: Cake,
   "Admin Hub": UserCog,
   Kits: Boxes,
@@ -122,6 +132,7 @@ const ICONS: Record<string, LucideIcon> = {
   Fulfilment: Wrench,
   "Delivery Settings": SettingsIcon,
   Catalogue: ClipboardList,
+  Shop: ShoppingCart,
   Learn: GraduationCap,
   Students: Users,
   "Invite Codes": Ticket,
@@ -161,6 +172,7 @@ const INVENTORY_GROUP = mkGroup("Inventory", undefined, [
   mk("Warehouses", "/operations/inventory/warehouses"),
   mk("Fulfilment", "/operations/inventory/fulfilment"),
   mk("Catalogue", "/operations/inventory/catalog"),
+  mk("Shop", "/operations/inventory/shop"),
 ]);
 
 const PROGRAMS_GROUP = mkGroup("Programs", undefined, [
@@ -168,6 +180,18 @@ const PROGRAMS_GROUP = mkGroup("Programs", undefined, [
   mk("Cohorts", "/operations/cohorts"),
   mk("Reviews", "/operations/reviews"),
   mk("Delivery Settings", "/operations/delivery-settings"),
+]);
+
+const WEBSITE_GROUP = mkGroup("Website", undefined, [
+  mk("General Config", "/operations/website"),
+  mk("Programs & Pricing", "/operations/website/programs"),
+  mk("Partners & Clients", "/operations/website/partners"),
+  mk("FAQs", "/operations/website/faqs"),
+  mk("Media & Press", "/operations/website/media"),
+  mk("Newsletters & Leads", "/operations/website/newsletters"),
+  mk("Articles & Queue", "/operations/website/articles"),
+  mk("People & Showcase", "/operations/website/people"),
+  mk("Labs R&D", "/operations/website/labs"),
 ]);
 
 const DOMAIN_TITLE: Record<string, string> = {
@@ -232,9 +256,11 @@ function getNavItems(pathname: string, activeRole: Role | null): NavItem[] {
       PROGRAMS_GROUP,
       LMS_GROUP,
       INVENTORY_GROUP,
+      WEBSITE_GROUP,
       mk("Learn", "/learn"),
       mk("Sessions Calendar", "/operations/calendar"),
       mk("Ground Station Devices", "/operations/ground-station-devices"),
+      mk("My Articles", "/articles"),
     ];
   }
   if (pathname.startsWith("/admin")) {
@@ -245,6 +271,7 @@ function getNavItems(pathname: string, activeRole: Role | null): NavItem[] {
       mk("Applications", "/admin/applications"),
       mk("Role Requests", "/admin/role-requests"),
       mk("Birthdays", "/admin/birthdays"),
+      mk("My Articles", "/articles"),
       mk("Learn", "/learn"),
       mk("Settings", "/admin/settings"),
       // I0-1: admin previously had NO navigational path into the registration/
@@ -314,6 +341,7 @@ function getNavItems(pathname: string, activeRole: Role | null): NavItem[] {
         ]),
         LMS_GROUP,
         mk("Personal Documents", "/instructors/personal-documents"),
+        mk("My Articles", "/articles"),
         mk("Learn", "/learn"),
         mk("Facilitator ID", "/instructors/id-card"),
         mk("My Kits & Items", "/instructors/my-holdings"),
@@ -338,6 +366,7 @@ function getNavItems(pathname: string, activeRole: Role | null): NavItem[] {
       mk("Overview", "/instructors/dashboard"),
       mk("Sessions", "/instructors/my-sessions"),
       mk("Library Resources", "/instructors/library"),
+      mk("My Articles", "/articles"),
       mk("SatKit Training", "/instructors/training"),
       mk("Personal Documents", "/instructors/personal-documents"),
       mk("Payments", "/instructors/payments"),
@@ -362,6 +391,7 @@ function getNavItems(pathname: string, activeRole: Role | null): NavItem[] {
       mk("Propose a Mission", "/interns/propose-mission"),
       mk("Manage Missions", "/interns/manage-missions"),
       mk("Documents", "/interns/documents"),
+      mk("My Articles", "/articles"),
       mk("ID Card", "/interns/id-card"),
       mk("Learn", "/learn"),
     ];
@@ -404,6 +434,7 @@ function getNavItems(pathname: string, activeRole: Role | null): NavItem[] {
       mk("Overview", "/instructors/dashboard"),
       mk("Sessions", "/instructors/my-sessions"),
       mk("Library Resources", "/instructors/library"),
+      mk("My Articles", "/articles"),
       mk("SatKit Training", "/instructors/training"),
       mk("Personal Documents", "/instructors/personal-documents"),
       mk("Payments", "/instructors/payments"),
@@ -438,6 +469,7 @@ function getNavItems(pathname: string, activeRole: Role | null): NavItem[] {
       mk("Role Requests", "/admin/role-requests"),
       mk("Birthdays", "/admin/birthdays"),
       LMS_GROUP,
+      mk("My Articles", "/articles"),
       mk("Learn", "/learn"),
       mk("Settings", "/admin/settings"),
       mk("Operations", "/operations/dashboard"),
@@ -449,9 +481,11 @@ function getNavItems(pathname: string, activeRole: Role | null): NavItem[] {
       PROGRAMS_GROUP,
       LMS_GROUP,
       INVENTORY_GROUP,
+      WEBSITE_GROUP,
       mk("Learn", "/learn"),
       mk("Sessions Calendar", "/operations/calendar"),
       mk("Ground Station Devices", "/operations/ground-station-devices"),
+      mk("My Articles", "/articles"),
     ];
   }
   if (activeRole === "storekeeper") {
@@ -478,6 +512,7 @@ function getNavItems(pathname: string, activeRole: Role | null): NavItem[] {
       mk("Propose a Mission", "/interns/propose-mission"),
       mk("Manage Missions", "/interns/manage-missions"),
       mk("Documents", "/interns/documents"),
+      mk("My Articles", "/articles"),
       mk("ID Card", "/interns/id-card"),
       mk("Learn", "/learn"),
     ];
@@ -488,7 +523,11 @@ function getNavItems(pathname: string, activeRole: Role | null): NavItem[] {
 const isActive = (pathname: string, to?: string) =>
   !to || to === "#"
     ? false
-    : to === "/interns" || to === "/ambassadors" || to === "/admin" || to === "/instructors/dashboard"
+    : to === "/interns" ||
+      to === "/ambassadors" ||
+      to === "/admin" ||
+      to === "/instructors/dashboard" ||
+      to === "/operations/website"
     ? pathname === to
     : pathname.startsWith(to);
 

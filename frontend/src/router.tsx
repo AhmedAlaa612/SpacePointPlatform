@@ -56,6 +56,7 @@ import InstructorTrainingPlayer from "@/pages/instructors/TrainingPlayer";
 import InstructorLibrary from "@/pages/instructors/Library";
 import UserDocuments from "@/pages/shared/UserDocuments";
 import PersonalDocuments from "@/pages/shared/PersonalDocuments";
+import MyArticles from "@/pages/cms/MyArticles";
 import ProfileCard from "@/pages/shared/ProfileCard";
 import InstructorIdCard from "@/pages/instructors/ProfileCard";
 import InstructorPayments from "@/pages/instructors/Payments";
@@ -115,9 +116,11 @@ import InventoryStock from "@/pages/operations/inventory/Stock";
 import InventoryWarehouses from "@/pages/operations/inventory/Warehouses";
 import InventoryCatalog from "@/pages/operations/inventory/Catalog";
 import InventoryFulfilment from "@/pages/operations/inventory/Fulfilment";
+import InventoryShop from "@/pages/operations/inventory/Shop";
 import DeliverySettings from "@/pages/operations/DeliverySettings";
 import GroundStationDevices from "@/pages/operations/GroundStationDevices";
 import Birthdays from "@/pages/operations/Birthdays";
+import WebsiteManagement from "@/pages/operations/website/WebsiteManagement";
 
 // Unified apply flow
 import ApplyFlow from "@/pages/apply/ApplyFlow";
@@ -294,6 +297,15 @@ const documentsRoute = createRoute({
     if (role === "ambassador" || role === "teacher") throw redirect({ to: "/ambassadors/documents" });
     throw redirect({ to: "/interns/documents" });
   },
+});
+
+// Contributor articles (Step 5) — a role-agnostic surface like /documents
+// above: interns, instructors, facilitators, and staff all draft here, so
+// one URL space serves every role instead of per-domain duplicates.
+const articlesRoute = createRoute({
+  getParentRoute: () => authLayoutRoute,
+  path: "/articles",
+  component: MyArticles,
 });
 
 const internsLayoutRoute = createRoute({
@@ -765,8 +777,20 @@ const operationsRoutes = [
   createRoute({ getParentRoute: po, path: "/inventory/warehouses", component: InventoryWarehouses }),
   createRoute({ getParentRoute: po, path: "/inventory/catalog", component: InventoryCatalog }),
   createRoute({ getParentRoute: po, path: "/inventory/fulfilment", component: InventoryFulfilment }),
+  createRoute({ getParentRoute: po, path: "/inventory/shop", component: InventoryShop }),
   createRoute({ getParentRoute: po, path: "/delivery-settings", component: DeliverySettings }),
   createRoute({ getParentRoute: po, path: "/ground-station-devices", component: GroundStationDevices }),
+  createRoute({ getParentRoute: po, path: "/website", component: WebsiteManagement }),
+  // Website hub tabs as deep-linkable routes (same pattern as the LMS and
+  // Programs sidebar groups — one route per section, shared component).
+  createRoute({ getParentRoute: po, path: "/website/programs", component: () => <WebsiteManagement initialTab="programs" /> }),
+  createRoute({ getParentRoute: po, path: "/website/partners", component: () => <WebsiteManagement initialTab="partners" /> }),
+  createRoute({ getParentRoute: po, path: "/website/faqs", component: () => <WebsiteManagement initialTab="faqs" /> }),
+  createRoute({ getParentRoute: po, path: "/website/media", component: () => <WebsiteManagement initialTab="media" /> }),
+  createRoute({ getParentRoute: po, path: "/website/newsletters", component: () => <WebsiteManagement initialTab="newsletters" /> }),
+  createRoute({ getParentRoute: po, path: "/website/articles", component: () => <WebsiteManagement initialTab="articles" /> }),
+  createRoute({ getParentRoute: po, path: "/website/people", component: () => <WebsiteManagement initialTab="people" /> }),
+  createRoute({ getParentRoute: po, path: "/website/labs", component: () => <WebsiteManagement initialTab="labs" /> }),
   createRoute({
     getParentRoute: po,
     path: "/birthdays",
@@ -1259,6 +1283,7 @@ const routeTree = rootRoute.addChildren([
   authLayoutRoute.addChildren([
     indexRoute,
     documentsRoute,
+    articlesRoute,
     adminHubRoute,
     adminUsersRoute,
     adminDocumentsRoute,
