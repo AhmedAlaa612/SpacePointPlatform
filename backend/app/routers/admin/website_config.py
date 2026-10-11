@@ -20,6 +20,19 @@ async def _get_or_seed(db: AsyncSession) -> WebsiteConfig:
         db.add(row)
         await db.commit()
         await db.refresh(row)
+    elif row.contact_phone == "+971 4 000 0000" and not row.social_linkedin:
+        row.students_count = "2,700+"
+        row.workshops_count = "40+"
+        row.partners_count = "25"
+        row.contact_phone = "+971 56 298 7005"
+        row.contact_whatsapp = "+971 56 298 7005"
+        row.office_address = "Sharjah Research, Technology and Innovation Park (SRTIP), Block B – Office B22-120, Sharjah, United Arab Emirates"
+        row.social_linkedin = "https://www.linkedin.com/company/spacepointae/posts/?feedView=all"
+        row.social_x = "https://www.tiktok.com/@spacepoint.ae"
+        row.social_instagram = "https://www.instagram.com/spacepoint.ae"
+        row.social_youtube = row.social_youtube or ""
+        await db.commit()
+        await db.refresh(row)
     return row
 
 

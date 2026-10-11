@@ -23,7 +23,11 @@ type Tab = "catalog" | "orders"
 
 const WEBSITE_BASE_URL =
   (import.meta.env.VITE_WEBSITE_URL as string | undefined)?.replace(/\/$/, "") ||
-  "http://localhost:4321"
+  (typeof window !== "undefined" &&
+  window.location.hostname !== "localhost" &&
+  window.location.hostname !== "127.0.0.1"
+    ? "https://spacepoint.ae"
+    : "http://localhost:4321")
 
 function resolveWebsiteAsset(url: string | null | undefined): string {
   const raw = (url ?? "").trim()

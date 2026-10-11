@@ -27,6 +27,7 @@ jobs:
         working-directory: frontend
         env:
           VITE_API_URL: https://portal.spacepoint.ae/api
+          VITE_WEBSITE_URL: https://spacepoint.ae
           # Intercom/Fin workspace App ID for the student support messenger.
           # Inline rather than a secret on purpose: it ships inside the JS
           # bundle and is readable in devtools, so Intercom treats it as
