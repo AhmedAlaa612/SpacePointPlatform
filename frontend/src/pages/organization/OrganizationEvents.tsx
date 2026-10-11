@@ -141,7 +141,7 @@ export default function OrganizationEvents() {
             <div>
               <h3 className="text-base font-bold text-foreground">{org.name_latin}</h3>
               <p className="text-xs text-muted-foreground">
-                {org.org_type.toUpperCase()} • {org.city || org.country.toUpperCase()}
+                {org.org_type.toUpperCase()} • {org.city || (org.country || "UAE").toUpperCase()}
               </p>
             </div>
           </div>

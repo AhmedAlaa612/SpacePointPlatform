@@ -47,8 +47,10 @@ export interface EventPartnerItem {
 export interface EventContactItem {
   name: string
   role: string
-  organization: string
+  organization?: string
+  org?: string
   email: string
+  phone?: string
 }
 
 export interface EventContactMetaItem {

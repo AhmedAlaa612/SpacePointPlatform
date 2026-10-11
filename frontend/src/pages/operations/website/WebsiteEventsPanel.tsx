@@ -447,7 +447,7 @@ export function EventEditorModal({
                     <option value="">SpacePoint (Unassigned)</option>
                     {organizations.map((o) => (
                       <option key={o.id} value={o.id}>
-                        {o.name_latin} ({o.user_email || "No login yet"})
+                        {o.name_latin} ({o.owner_email || "No login yet"})
                       </option>
                     ))}
                   </select>
@@ -1244,7 +1244,7 @@ export function EventEditorModal({
                   onClick={() =>
                     set("contacts", [
                       ...(form.contacts || []),
-                      { name: "", role: "", org: "", email: "", phone: "" },
+                      { name: "", role: "", organization: "", org: "", email: "", phone: "" },
                     ])
                   }
                   className="inline-flex items-center gap-1.5 rounded-xl bg-primary/15 px-3 py-1.5 text-xs font-semibold text-primary hover:bg-primary/25 transition"
@@ -1278,10 +1278,10 @@ export function EventEditorModal({
                     className={cn(inputCls, "md:col-span-3")}
                   />
                   <input
-                    value={row.org}
+                    value={row.organization ?? row.org ?? ""}
                     onChange={(e) => {
                       const next = [...(form.contacts || [])]
-                      next[idx] = { ...row, org: e.target.value }
+                      next[idx] = { ...row, organization: e.target.value, org: e.target.value }
                       set("contacts", next)
                     }}
                     placeholder="Organization"
