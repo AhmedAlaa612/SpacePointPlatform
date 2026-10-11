@@ -29,7 +29,8 @@ export type Role =
   // the student engine via /learn boards. Never an activeRole (see
   // AuthContext.resolveActiveRole + RoleSwitcher filtering); listed here
   // so multi-role accounts carrying it type-check and label correctly.
-  | "observer";
+  | "observer"
+  | "organization";
 
 /**
  * There is deliberately no `ROLE_DOMAIN` map. One existed until I0-1
@@ -59,6 +60,7 @@ export const ROLE_LABEL: Record<Role, string> = {
   judge: "Judge",
   lms_author: "LMS Author",
   observer: "Observer",
+  organization: "Organization",
 };
 
 export interface User {
@@ -69,6 +71,12 @@ export interface User {
   status: string;
   author_can_publish?: boolean;
   author_scope_all?: boolean;
+  organization_id?: string | null;
+  organization_name?: string | null;
+  organization_name_arabic?: string | null;
+  organization_type?: string | null;
+  organization_country?: string | null;
+  organization_city?: string | null;
   // Auto-generated student callsign (Live Games Phase 2C, 8-1) — present
   // on student accounts, absent/null for other roles.
   nickname?: string | null;

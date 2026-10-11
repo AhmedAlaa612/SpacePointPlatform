@@ -53,10 +53,26 @@ async def create_user(db: AsyncSession, user_in: UserCreate) -> User:
     # backfill script) so a role assigned at account-creation time — e.g.
     # "applicant" — has a role-history entry from day one, not a gap until
     # the next backfill run or role edit.
-    await ensure_user_contact(db, db_user, source="user_created")
+    contact = await ensure_user_contact(db, db_user, source="user_created")
     # Every account gets its SP-0000 number the moment it exists, not on
     # first card view (operator ask, 2026-08-17).
     await ensure_card_number(db, db_user)
+
+    if "organization" in db_user.role_values or user_in.org_name_latin:
+        from app.models.spine.organization import Organization
+        org = Organization(
+            name_latin=(user_in.org_name_latin or db_user.full_name).strip(),
+            name_arabic=(user_in.org_name_arabic or "").strip() or None,
+            org_type=(user_in.org_type or "university").strip().lower(),
+            country=(user_in.org_country or "uae").strip().lower(),
+            city=(user_in.org_city or "").strip() or None,
+            primary_contact_id=contact.id if contact else db_user.contact_id,
+            owner_user_id=db_user.id,
+        )
+        db.add(org)
+        await db.flush()
+        if contact:
+            contact.organization_id = org.id
 
     await db.commit()
     await db.refresh(db_user)
@@ -79,6 +95,12 @@ async def get_user_by_id(db: AsyncSession, user_id: UUID) -> User:
 async def update_user(db: AsyncSession, user_id: UUID, user_in: UserUpdate | UserSelfUpdate, actor_user_id: UUID | None = None) -> User:
     user = await get_user_by_id(db, user_id)
     update_data = user_in.dict(exclude_unset=True)
+
+    org_fields = {
+        k: update_data.pop(k)
+        for k in ("org_name_latin", "org_name_arabic", "org_type", "org_country", "org_city")
+        if k in update_data
+    }
 
     if update_data.get("email"):
         update_data["email"] = normalize_user_email(update_data["email"])
@@ -195,6 +217,41 @@ async def update_user(db: AsyncSession, user_id: UUID, user_in: UserUpdate | Use
             if "author_scope_all" in update_data and update_data["author_scope_all"] is not None:
                 profile.scope_all = bool(update_data["author_scope_all"])
 
+    # Sync Organization profile if user has 'organization' role or org fields were sent
+    if "organization" in user.role_values or org_fields:
+        from app.models.spine.organization import Organization
+        org = (
+            await db.execute(select(Organization).where(Organization.owner_user_id == user.id))
+        ).scalars().first()
+        if org is None and user.contact_id:
+            contact_row = await db.get(Contact, user.contact_id)
+            if contact_row and contact_row.organization_id:
+                org = await db.get(Organization, contact_row.organization_id)
+        if org is None:
+            org = Organization(
+                name_latin=(org_fields.get("org_name_latin") or user.full_name).strip(),
+                name_arabic=(org_fields.get("org_name_arabic") or "").strip() or None,
+                org_type=(org_fields.get("org_type") or "university").strip().lower(),
+                country=(org_fields.get("org_country") or user.country or "uae").strip().lower(),
+                city=(org_fields.get("org_city") or user.city_other or "").strip() or None,
+                primary_contact_id=user.contact_id,
+                owner_user_id=user.id,
+            )
+            db.add(org)
+        else:
+            if "org_name_latin" in org_fields and org_fields["org_name_latin"]:
+                org.name_latin = org_fields["org_name_latin"].strip()
+            if "org_name_arabic" in org_fields:
+                org.name_arabic = (org_fields["org_name_arabic"] or "").strip() or None
+            if "org_type" in org_fields and org_fields["org_type"]:
+                org.org_type = org_fields["org_type"].strip().lower()
+            if "org_country" in org_fields and org_fields["org_country"] is not None:
+                org.country = org_fields["org_country"].strip().lower() or None
+            if "org_city" in org_fields:
+                org.city = (org_fields["org_city"] or "").strip() or None
+            if org.owner_user_id is None:
+                org.owner_user_id = user.id
+
     await db.commit()
     await db.refresh(user)
     return user
@@ -242,6 +299,18 @@ async def delete_user(db: AsyncSession, user_id: UUID):
     await db.execute(text("DELETE FROM team_members WHERE user_id = :uid"), {"uid": user_id})
     # Remove from task_assignees
     await db.execute(text("DELETE FROM task_assignees WHERE user_id = :uid"), {"uid": user_id})
+    # Unlink website_events created_by_user_id
+    await db.execute(text("UPDATE website_events SET created_by_user_id = NULL WHERE created_by_user_id = :uid"), {"uid": user_id})
+    # Unlink or delete owned organizations if no cohorts reference them
+    owned_orgs = (await db.execute(text("SELECT id FROM organizations WHERE owner_user_id = :uid"), {"uid": user_id})).all()
+    for (oid,) in owned_orgs:
+        await db.execute(text("UPDATE website_events SET organization_id = NULL WHERE organization_id = :oid"), {"oid": oid})
+        await db.execute(text("UPDATE contacts SET organization_id = NULL WHERE organization_id = :oid"), {"oid": oid})
+        cohort_cnt = (await db.execute(text("SELECT COUNT(*) FROM cohorts WHERE organization_id = :oid"), {"oid": oid})).scalar_one()
+        if cohort_cnt == 0:
+            await db.execute(text("DELETE FROM organizations WHERE id = :oid"), {"oid": oid})
+        else:
+            await db.execute(text("UPDATE organizations SET owner_user_id = NULL WHERE id = :oid"), {"oid": oid})
 
     await db.delete(user)
     await db.commit()

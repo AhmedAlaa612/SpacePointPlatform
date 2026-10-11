@@ -30,6 +30,9 @@ class UserRole(str, enum.Enum):
     # full student engine (quiz grading, missions, teams, final gate)
     # partitioned by LmsProgramAssignment.mode / Team.is_observer.
     observer = "observer"
+    # External partner/organization account that can create & edit its own
+    # website events while admin controls publishing.
+    organization = "organization"
 
 
 # ── Interns domain ───────────────────────────────────────────────────────────

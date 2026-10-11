@@ -208,3 +208,5 @@ require_instructor_missions = RequireRole(["instructor", "facilitator", "operati
 # judge surface staff needs to see goes through the ops endpoints, not this
 # one, so there's no reason to widen it.
 require_judge = RequireRole(["judge"])
+require_organization_account = RequireRole(["organization", "operations", "admin"])
+require_website_admin = RequireRole(["operations", "admin"])

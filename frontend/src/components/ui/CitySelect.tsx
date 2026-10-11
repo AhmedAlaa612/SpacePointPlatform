@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 
 import { fetchPublicCities } from "@/api/lms";
-import { getCountries } from "@/lib/countries";
+import { resolveCountryCode } from "./CountrySelect";
 
 export const CITY_OTHER = "__other__";
 
@@ -12,10 +12,7 @@ export const CITY_OTHER = "__other__";
  * Emirates") on others; both resolve to the same code here.
  */
 export function useCountryCode(country: string): string {
-  return useMemo(() => {
-    const match = getCountries().find((c) => c.code === country || c.name === country);
-    return match ? match.code : country;
-  }, [country]);
+  return useMemo(() => resolveCountryCode(country), [country]);
 }
 
 /** Cities of one country — the "does this country have cities at all"
@@ -125,6 +122,87 @@ export function CitySelect({
       {otherField && (
         <option value={CITY_OTHER}>Other (type it)</option>
       )}
+    </select>
+  );
+}
+
+/**
+ * City `<select>` that stores the city's display name (used by Organization
+ * signup, Organization admin forms, and Organization profile, where `city` is
+ * stored as a name string on `organizations.city`). Uses the exact same
+ * `/public/cities` list gated by `country` plus "Other (type it)".
+ */
+export function CityNameSelect({
+  country,
+  value,
+  onChange,
+  className,
+  placeholder = "Select city...",
+  required,
+}: {
+  country: string;
+  value: string;
+  onChange: (cityName: string) => void;
+  className?: string;
+  placeholder?: string;
+  required?: boolean;
+}) {
+  const options = useCitiesForCountry(country);
+  const { isPending } = useQuery({ queryKey: ["public-cities"], queryFn: fetchPublicCities });
+  const [otherMode, setOtherMode] = useState(false);
+
+  const mounted = useRef(false);
+  useEffect(() => {
+    if (!mounted.current) {
+      mounted.current = true;
+      return;
+    }
+    setOtherMode(false);
+    onChange("");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [country]);
+
+  useEffect(() => {
+    if (isPending) return;
+    if (value && options.length > 0 && !options.some((c) => c.name === value)) {
+      setOtherMode(true);
+    }
+  }, [isPending, value, options]);
+
+  if (!country) return null;
+
+  if (otherMode) {
+    return (
+      <input
+        type="text"
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder="Type your city..."
+        required={required}
+        className={className}
+      />
+    );
+  }
+
+  return (
+    <select
+      value={options.some((c) => c.name === value) ? value : ""}
+      onChange={(e) => {
+        if (e.target.value === CITY_OTHER) {
+          onChange("");
+          setOtherMode(true);
+        } else {
+          onChange(e.target.value);
+        }
+      }}
+      required={required}
+      className={className}
+    >
+      <option value="" disabled>{placeholder}</option>
+      {options.map((c) => (
+        <option key={c.id} value={c.name}>{c.name}</option>
+      ))}
+      <option value={CITY_OTHER}>Other (type it)</option>
     </select>
   );
 }

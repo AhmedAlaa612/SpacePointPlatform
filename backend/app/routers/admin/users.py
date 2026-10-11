@@ -48,9 +48,35 @@ _CERT_LABEL = {
 }
 
 
+async def _attach_org_and_author(db: AsyncSession, user: User, row: UserOut) -> UserOut:
+    row.card_id = format_card_id(user.card_number, user.roles) if user.card_number is not None else None
+    if "lms_author" in user.role_values:
+        ap = await db.get(LmsAuthorProfile, user.id)
+        if ap:
+            row.author_can_publish = ap.can_publish
+            row.author_scope_all = ap.scope_all
+    org = (
+        await db.execute(select(Organization).where(Organization.owner_user_id == user.id))
+    ).scalars().first()
+    if org is None and user.contact_id:
+        contact = await db.get(Contact, user.contact_id)
+        if contact and contact.organization_id:
+            org = await db.get(Organization, contact.organization_id)
+    if org is not None:
+        row.organization_id = org.id
+        row.organization_name = org.name_latin
+        row.organization_name_arabic = org.name_arabic
+        row.organization_type = org.org_type
+        row.organization_country = org.country
+        row.organization_city = org.city
+    return row
+
+
 @router.post("", response_model=UserOut)
 async def create_user(user_in: UserCreate, db: AsyncSession = Depends(get_db), current_user: User = Depends(require_admin)):
-    return await user_service.create_user(db, user_in)
+    user = await user_service.create_user(db, user_in)
+    row = UserOut.model_validate(user)
+    return await _attach_org_and_author(db, user, row)
 
 
 @router.get("", response_model=List[UserOut])
@@ -71,13 +97,9 @@ async def read_users(db: AsyncSession = Depends(get_db), current_user: User = De
             if contact_ids else []
         )
     }
-    org_ids = {c.organization_id for c in contacts.values() if c.organization_id}
-    orgs = {
-        o.id: o for o in (
-            (await db.execute(select(Organization).where(Organization.id.in_(org_ids)))).scalars().all()
-            if org_ids else []
-        )
-    }
+    all_orgs = (await db.execute(select(Organization))).scalars().all()
+    orgs = {o.id: o for o in all_orgs}
+    orgs_by_owner = {o.owner_user_id: o for o in all_orgs if o.owner_user_id}
 
     author_profiles = {
         p.user_id: p for p in (
@@ -88,7 +110,7 @@ async def read_users(db: AsyncSession = Depends(get_db), current_user: User = De
     out: list[UserOut] = []
     for user in users:
         contact = contacts.get(user.contact_id) if user.contact_id else None
-        org = orgs.get(contact.organization_id) if contact and contact.organization_id else None
+        org = orgs_by_owner.get(user.id) or (orgs.get(contact.organization_id) if contact and contact.organization_id else None)
         ap = author_profiles.get(user.id)
         row = UserOut.model_validate(user)
         row.grade = contact.grade if contact else None
@@ -96,6 +118,13 @@ async def read_users(db: AsyncSession = Depends(get_db), current_user: User = De
         row.card_id = format_card_id(user.card_number, user.roles) if user.card_number is not None else None
         row.author_can_publish = ap.can_publish if ap else None
         row.author_scope_all = ap.scope_all if ap else None
+        if org is not None:
+            row.organization_id = org.id
+            row.organization_name = org.name_latin
+            row.organization_name_arabic = org.name_arabic
+            row.organization_type = org.org_type
+            row.organization_country = org.country
+            row.organization_city = org.city
         out.append(row)
     return out
 
@@ -104,17 +133,35 @@ async def read_users(db: AsyncSession = Depends(get_db), current_user: User = De
 async def update_user(id: UUID, user_in: UserUpdate, db: AsyncSession = Depends(get_db), current_user: User = Depends(require_admin)):
     user = await user_service.update_user(db, id, user_in, actor_user_id=current_user.id)
     row = UserOut.model_validate(user)
-    if "lms_author" in user.role_values:
-        ap = await db.get(LmsAuthorProfile, user.id)
-        if ap:
-            row.author_can_publish = ap.can_publish
-            row.author_scope_all = ap.scope_all
-    return row
+    return await _attach_org_and_author(db, user, row)
 
 
 @router.delete("/{id}")
 async def delete_user(id: UUID, db: AsyncSession = Depends(get_db), current_user: User = Depends(require_admin)):
     return await user_service.delete_user(db, id)
+
+
+@router.post("/{id}/reset-link")
+async def generate_user_password_reset_link(
+    id: UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_admin),
+):
+    """Generates a direct password-set/reset link for a user account (valid for 72h)."""
+    from datetime import timedelta
+    from app.core.config import settings
+    from app.core.security import create_password_set_token
+
+    target = await db.get(User, id)
+    if not target:
+        raise HTTPException(status_code=404, detail="User not found")
+    token = create_password_set_token(target.id, expires_delta=timedelta(days=3))
+    base = (settings.FRONTEND_URL or "http://localhost:5173").rstrip("/")
+    return {
+        "user_id": str(target.id),
+        "email": target.email,
+        "reset_url": f"{base}/set-password?token={token}",
+    }
 
 
 @router.get("/{id}/documents", response_model=UserDossierOut)

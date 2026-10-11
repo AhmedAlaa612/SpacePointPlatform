@@ -56,7 +56,7 @@ async function refreshAccessToken(): Promise<string | null> {
 // password" rather than being torn down by a redirect. Before this, a student
 // fat-fingering their password on /learn/login was thrown at the portal's
 // /login page with no error shown at all.
-const CREDENTIAL_PATHS = ["/auth/login", "/auth/signup", "/auth/refresh", "/auth/instructor-apply"];
+const CREDENTIAL_PATHS = ["/auth/login", "/auth/signup", "/auth/refresh", "/auth/instructor-apply", "/auth/organization-signup"];
 
 function isCredentialRequest(config?: InternalAxiosRequestConfig): boolean {
   const url = config?.url ?? "";

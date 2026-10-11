@@ -6,15 +6,17 @@ import { ROLE_LABEL } from "@/types/shared"
 import { UserProfileModal } from "@/components/UserProfileModal"
 import { AVATAR_PRESETS } from "@/components/games/avatarPresets"
 import type { Team } from "@/types/interns"
-import { getUsersApi, createUserApi, updateUserApi, deleteUserApi } from "@/api/admin/users"
+import { getUsersApi, createUserApi, updateUserApi, deleteUserApi, getUserPasswordResetLinkApi } from "@/api/admin/users"
 import { getTeamsApi, addTeamMemberApi } from "@/api/interns/teams"
 import { listAdminTemplatesApi, adminGenerateDocumentApi } from "@/api/documents"
 import { getSettingsApi } from "@/api/admin/settings"
 import { cn } from "@/lib/utils"
 import { Modal, Field, ModalActions, Spinner } from "@/pages/admin/components/common"
 import { PasswordInput } from "@/components/ui/PasswordInput"
+import { CountrySelect } from "@/components/ui/CountrySelect"
+import { CityNameSelect } from "@/components/ui/CitySelect"
 
-const ALL_ROLES: Role[] = ["admin", "intern", "leader", "applicant", "instructor", "facilitator", "ambassador", "teacher", "operations", "coo", "storekeeper", "judge", "lms_author", "observer"]
+const ALL_ROLES: Role[] = ["admin", "intern", "leader", "applicant", "instructor", "facilitator", "ambassador", "teacher", "operations", "coo", "storekeeper", "judge", "lms_author", "observer", "organization"]
 
 const roleBadgeColor: Record<Role, string> = {
   admin: "bg-foreground text-background",
@@ -32,6 +34,7 @@ const roleBadgeColor: Record<Role, string> = {
   judge: "bg-fuchsia-100 text-fuchsia-700 dark:bg-fuchsia-500/15 dark:text-fuchsia-400",
   lms_author: "bg-violet-100 text-violet-700 dark:bg-violet-500/15 dark:text-violet-400",
   observer: "bg-indigo-100 text-indigo-700 dark:bg-indigo-500/15 dark:text-indigo-400",
+  organization: "bg-[#643f83]/20 text-[#a880ff]",
 }
 
 /* ================================================================== */
@@ -41,18 +44,15 @@ export default function Users() {
   const queryClient = useQueryClient()
   const [createOpen, setCreateOpen] = useState(false)
   const [changePasswordUser, setChangePasswordUser] = useState<User | null>(null)
+  const [resetLinkData, setResetLinkData] = useState<{ user: User; url: string } | null>(null)
   const [documentsUser, setDocumentsUser] = useState<User | null>(null)
   const [editUser, setEditUser] = useState<User | null>(null)
   const [profileUserId, setProfileUserId] = useState<string | null>(null)
   const [search, setSearch] = useState("")
   const [roleFilter, setRoleFilter] = useState<Role | "all">("all")
-  // Students aren't in ALL_ROLES (they're not a role you hand-assign from
-  // here — they come from signup/invite codes), so they need their own
-  // switch rather than a dropdown option. Staff by default: an admin
-  // landing on this page is far more often chasing a role/permission
-  // question than a student's name.
-  const [view, setView] = useState<"staff" | "students">("staff")
+  const [view, setView] = useState<"staff" | "students" | "organizations">("staff")
   const studentsOnly = view === "students"
+  const organizationsOnly = view === "organizations"
 
   const { data: users = [], isLoading } = useQuery<User[]>({
     queryKey: ["users"],
@@ -62,24 +62,43 @@ export default function Users() {
   const filteredUsers = useMemo(() => {
     const q = search.trim().toLowerCase()
     return users.filter((u) => {
+      const isOrgUser = u.roles.includes("organization") || !!u.organization_id
       if (q) {
         const matchesName = u.full_name.toLowerCase().includes(q)
         const matchesEmail = u.email.toLowerCase().includes(q)
+        const matchesOrg = !!u.organization_name && u.organization_name.toLowerCase().includes(q)
         // Matches "SP-0005", "sp-0005-uae", or a bare "0005" against card_id.
         const matchesId = !!u.card_id && u.card_id.toLowerCase().includes(q)
-        if (!matchesName && !matchesEmail && !matchesId) return false
+        if (!matchesName && !matchesEmail && !matchesOrg && !matchesId) return false
       }
       if (studentsOnly) return u.roles.includes("student")
+      if (organizationsOnly) return isOrgUser
       if (u.roles.includes("student")) return false
+      // If admin explicitly filtered by "organization" role in the dropdown, show org users
+      if (roleFilter === "organization") return isOrgUser
+      if (u.roles.length === 1 && u.roles[0] === "organization") return false
       if (roleFilter !== "all" && !u.roles.includes(roleFilter)) return false
       return true
     })
-  }, [users, search, roleFilter, studentsOnly])
+  }, [users, search, roleFilter, studentsOnly, organizationsOnly])
 
 
   const deleteMutation = useMutation({
     mutationFn: deleteUserApi,
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["users"] }),
+  })
+
+  const resetLinkMutation = useMutation({
+    mutationFn: async (u: User) => {
+      const res = await getUserPasswordResetLinkApi(u.id)
+      return { user: u, url: res.reset_url }
+    },
+    onSuccess: (data) => {
+      if (navigator.clipboard) {
+        navigator.clipboard.writeText(data.url).catch(() => {})
+      }
+      setResetLinkData(data)
+    },
   })
 
   // Deactivating (not deleting) is the right lever for an account that's
@@ -99,20 +118,20 @@ export default function Users() {
     <div className="flex flex-col gap-6">
       <div>
         <h1 className="text-xl font-bold text-foreground tracking-tight">Users</h1>
-        <p className="text-sm text-muted-foreground mt-0.5">Manage users and roles across the whole platform</p>
+        <p className="text-sm text-muted-foreground mt-0.5">Manage staff, students, and partner organizations across the platform</p>
       </div>
 
       <div className="flex flex-col gap-4">
         <div className="flex items-center justify-between">
           <p className="text-sm text-muted-foreground">
-            {filteredUsers.length} user{filteredUsers.length !== 1 ? "s" : ""}
+            {filteredUsers.length} {organizationsOnly ? "organization" : "user"}{filteredUsers.length !== 1 ? "s" : ""}
             {filteredUsers.length !== users.length ? ` of ${users.length}` : ""}
           </p>
           <button
             onClick={() => setCreateOpen(true)}
             className="flex items-center gap-1.5 h-9 px-4 bg-primary text-primary-foreground text-sm font-medium rounded-xl hover:opacity-90 transition-colors"
           >
-            <UserPlus size={14} /> New user
+            <UserPlus size={14} /> {organizationsOnly ? "New organization" : "New user"}
           </button>
         </div>
 
@@ -120,12 +139,21 @@ export default function Users() {
           <input
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search by name, email, or ID…"
+            placeholder={organizationsOnly ? "Search by organization, contact, or email…" : "Search by name, email, or ID…"}
             className="h-9 px-3 w-full sm:w-64 border border-border bg-card text-foreground rounded-xl text-sm focus:outline-none focus:border-primary transition-colors"
           />
           <select
-            value={roleFilter}
-            onChange={(e) => setRoleFilter(e.target.value as Role | "all")}
+            value={organizationsOnly ? "organization" : roleFilter}
+            onChange={(e) => {
+              const val = e.target.value as Role | "all"
+              if (val === "organization") {
+                setView("organizations")
+                setRoleFilter("all")
+              } else {
+                if (organizationsOnly) setView("staff")
+                setRoleFilter(val)
+              }
+            }}
             disabled={studentsOnly}
             className="h-9 px-3 border border-border bg-card text-foreground rounded-xl text-sm focus:outline-none focus:border-primary transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
           >
@@ -138,10 +166,13 @@ export default function Users() {
 
         <div className="flex justify-center">
           <div className="flex items-center h-9 p-1 border border-border bg-card rounded-xl text-sm">
-            {(["staff", "students"] as const).map((v) => (
+            {(["staff", "students", "organizations"] as const).map((v) => (
               <button
                 key={v}
-                onClick={() => setView(v)}
+                onClick={() => {
+                  setView(v)
+                  setRoleFilter("all")
+                }}
                 className={cn(
                   "h-7 px-3 rounded-lg capitalize transition-colors cursor-pointer",
                   view === v ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground",
@@ -167,15 +198,23 @@ export default function Users() {
                   {u.photo_url ? (
                     <img src={u.photo_url} alt={u.full_name} className="w-full h-full object-cover" />
                   ) : (
-                    u.full_name.split(" ").map((w) => w[0]).join("").slice(0, 2).toUpperCase()
+                    (u.organization_name || u.full_name).split(" ").map((w) => w[0]).join("").slice(0, 2).toUpperCase()
                   )}
                 </div>
                 <div className="min-w-0 flex-1">
                   <div className="flex flex-wrap items-center gap-1.5">
-                    <p className="text-sm font-medium text-foreground truncate">{u.full_name}</p>
+                    <p className="text-sm font-medium text-foreground truncate">
+                      {u.organization_name ? `${u.organization_name} (${u.full_name})` : u.full_name}
+                    </p>
                     {u.card_id && (
                       <span className="text-[10px] font-mono font-semibold px-1.5 py-0.5 rounded bg-primary/10 text-primary shrink-0">
                         {u.card_id}
+                      </span>
+                    )}
+                    {u.organization_type && (
+                      <span className="text-[10px] font-semibold uppercase px-1.5 py-0.5 rounded bg-primary/15 text-primary shrink-0">
+                        {u.organization_type}
+                        {u.organization_country ? ` · ${u.organization_country.toUpperCase()}` : ""}
                       </span>
                     )}
                     {u.status !== "active" && (
@@ -184,7 +223,10 @@ export default function Users() {
                       </span>
                     )}
                   </div>
-                  <p className="text-xs text-muted-foreground truncate">{u.email}</p>
+                  <p className="text-xs text-muted-foreground truncate">
+                    {u.email}
+                    {u.organization_city ? ` · ${u.organization_city}` : ""}
+                  </p>
                   <div className="flex sm:hidden flex-wrap gap-1 mt-1.5">
                     {u.roles.map((r) => (
                       <span key={r} className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${roleBadgeColor[r]}`}>
@@ -204,6 +246,14 @@ export default function Users() {
                   ))}
                 </div>
                 <div className="flex items-center gap-1 sm:gap-1.5 w-full sm:w-auto justify-between sm:justify-start">
+                  <button
+                    onClick={() => resetLinkMutation.mutate(u)}
+                    disabled={resetLinkMutation.isPending}
+                    className="px-2 py-1 text-xs font-medium text-primary hover:opacity-80 bg-primary/10 rounded-lg transition-colors"
+                    title="Generate & copy password reset link"
+                  >
+                    Reset link
+                  </button>
                   <button
                     onClick={() => setChangePasswordUser(u)}
                     className="px-2 py-1 text-xs font-medium text-muted-foreground hover:text-foreground bg-muted/40 sm:bg-transparent rounded-lg sm:rounded-none transition-colors"
@@ -238,7 +288,7 @@ export default function Users() {
                       {u.status === "active" ? <UserX size={15} /> : <UserCheck size={15} />}
                     </button>
                     <button
-                      onClick={() => { if (confirm(`Delete ${u.full_name}?`)) deleteMutation.mutate(u.id) }}
+                      onClick={() => { if (confirm(`Delete ${u.organization_name || u.full_name}?`)) deleteMutation.mutate(u.id) }}
                       className="p-2 sm:p-1.5 rounded-lg text-muted-foreground hover:text-red-500 hover:bg-red-500/10 transition-colors"
                       title="Delete user"
                     >
@@ -260,8 +310,16 @@ export default function Users() {
 
         {createOpen && (
           <CreateUserModal
+            defaultRoles={organizationsOnly ? ["organization"] : ["intern"]}
             onClose={() => setCreateOpen(false)}
-            onSuccess={() => { queryClient.invalidateQueries({ queryKey: ["users"] }); setCreateOpen(false) }}
+            onSuccess={(createdUser) => {
+              queryClient.invalidateQueries({ queryKey: ["users"] })
+              queryClient.invalidateQueries({ queryKey: ["admin-website-organizations"] })
+              if (createdUser?.roles?.includes("organization") || createdUser?.organization_id) {
+                setView("organizations")
+              }
+              setCreateOpen(false)
+            }}
           />
         )}
 
@@ -273,6 +331,14 @@ export default function Users() {
           />
         )}
 
+        {resetLinkData && (
+          <ResetLinkModal
+            user={resetLinkData.user}
+            url={resetLinkData.url}
+            onClose={() => setResetLinkData(null)}
+          />
+        )}
+
         {documentsUser && (
           <DocumentsModal user={documentsUser} onClose={() => setDocumentsUser(null)} />
         )}
@@ -281,7 +347,11 @@ export default function Users() {
           <EditUserModal
             user={editUser}
             onClose={() => setEditUser(null)}
-            onSuccess={() => { queryClient.invalidateQueries({ queryKey: ["users"] }); setEditUser(null) }}
+            onSuccess={() => {
+              queryClient.invalidateQueries({ queryKey: ["users"] })
+              queryClient.invalidateQueries({ queryKey: ["admin-website-organizations"] })
+              setEditUser(null)
+            }}
           />
         )}
 
@@ -370,13 +440,26 @@ function LmsAuthorPermissionsField({
 /* ================================================================== */
 /* Create user modal                                                   */
 /* ================================================================== */
-function CreateUserModal({ onClose, onSuccess }: { onClose: () => void; onSuccess: () => void }) {
+function CreateUserModal({
+  defaultRoles = ["intern"],
+  onClose,
+  onSuccess,
+}: {
+  defaultRoles?: Role[]
+  onClose: () => void
+  onSuccess: (createdUser?: User) => void
+}) {
   const [fullName, setFullName] = useState("")
   const [email,    setEmail]    = useState("")
   const [password, setPassword] = useState("")
-  const [roles,    setRoles]    = useState<Role[]>(["intern"])
+  const [roles,    setRoles]    = useState<Role[]>(defaultRoles)
   const [authorCanPublish, setAuthorCanPublish] = useState(false)
   const [authorScopeAll,   setAuthorScopeAll]   = useState(false)
+  const [orgNameLatin, setOrgNameLatin] = useState("")
+  const [orgNameArabic, setOrgNameArabic] = useState("")
+  const [orgType, setOrgType] = useState("university")
+  const [orgCountry, setOrgCountry] = useState("AE")
+  const [orgCity, setOrgCity] = useState("")
   const [teamId,   setTeamId]   = useState("")
   const [phone,    setPhone]    = useState("")
   const [error,    setError]    = useState("")
@@ -384,7 +467,15 @@ function CreateUserModal({ onClose, onSuccess }: { onClose: () => void; onSucces
   const { data: teams = [] } = useQuery<Team[]>({ queryKey: ["teams"], queryFn: getTeamsApi })
 
   const toggleRole = (role: Role) =>
-    setRoles((prev) => (prev.includes(role) ? prev.filter((r) => r !== role) : [...prev, role]))
+    setRoles((prev) => {
+      if (prev.includes(role)) return prev.filter((r) => r !== role)
+      if (role === "organization" && prev.length === 1 && prev[0] === "intern") {
+        return ["organization"]
+      }
+      return [...prev, role]
+    })
+
+  const isOrg = roles.includes("organization")
 
   const mutation = useMutation({
     mutationFn: async () => {
@@ -396,21 +487,84 @@ function CreateUserModal({ onClose, onSuccess }: { onClose: () => void; onSucces
         phone: phone || undefined,
         author_can_publish: roles.includes("lms_author") ? authorCanPublish : undefined,
         author_scope_all: roles.includes("lms_author") ? authorScopeAll : undefined,
+        ...(isOrg
+          ? {
+              org_name_latin: orgNameLatin.trim() || fullName.trim(),
+              org_name_arabic: orgNameArabic.trim() || undefined,
+              org_type: orgType,
+              org_country: orgCountry,
+              org_city: orgCity.trim() || undefined,
+            }
+          : {}),
       })
       if (teamId && roles.includes("intern")) {
         await addTeamMemberApi(teamId, user.id)
       }
       return user
     },
-    onSuccess,
+    onSuccess: (createdUser) => onSuccess(createdUser),
     onError: (e: any) => setError(e?.response?.data?.detail ?? "Failed to create user"),
   })
 
   return (
-    <Modal title="New user" onClose={onClose}>
+    <Modal title={isOrg ? "New organization account" : "New user"} onClose={onClose}>
       <div className="flex flex-col gap-3">
-        <Field label="Full name">
-          <input value={fullName} onChange={(e) => setFullName(e.target.value)} placeholder="Jane Smith" autoFocus
+        {isOrg && (
+          <div className="rounded-xl border border-primary/25 bg-primary/5 p-3 flex flex-col gap-3">
+            <span className="text-xs font-semibold text-primary">Organization Profile</span>
+            <Field label="Organization Name *">
+              <input
+                value={orgNameLatin}
+                onChange={(e) => setOrgNameLatin(e.target.value)}
+                placeholder="Abu Dhabi University"
+                autoFocus
+                className="w-full h-10 px-3 border border-border bg-card text-foreground rounded-xl text-sm focus:outline-none focus:border-primary transition-colors"
+              />
+            </Field>
+            <Field label="Organization Arabic Name (optional)">
+              <input
+                value={orgNameArabic}
+                onChange={(e) => setOrgNameArabic(e.target.value)}
+                placeholder="جامعة أبوظبي"
+                className="w-full h-10 px-3 border border-border bg-card text-foreground rounded-xl text-sm focus:outline-none focus:border-primary transition-colors"
+              />
+            </Field>
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+              <Field label="Type">
+                <select
+                  value={orgType}
+                  onChange={(e) => setOrgType(e.target.value)}
+                  className="w-full h-10 px-3 border border-border bg-card text-foreground rounded-xl text-sm focus:outline-none focus:border-primary transition-colors"
+                >
+                  <option value="university">University</option>
+                  <option value="school">School</option>
+                  <option value="company">Company</option>
+                  <option value="government">Government</option>
+                  <option value="ngo">NGO / Club</option>
+                  <option value="other">Other</option>
+                </select>
+              </Field>
+              <Field label="Country">
+                <CountrySelect
+                  value={orgCountry}
+                  onChange={setOrgCountry}
+                  valueType="code"
+                  className="w-full h-10 px-3 border border-border bg-card text-foreground rounded-xl text-sm focus:outline-none focus:border-primary transition-colors"
+                />
+              </Field>
+              <Field label="City">
+                <CityNameSelect
+                  country={orgCountry}
+                  value={orgCity}
+                  onChange={setOrgCity}
+                  className="w-full h-10 px-3 border border-border bg-card text-foreground rounded-xl text-sm focus:outline-none focus:border-primary transition-colors"
+                />
+              </Field>
+            </div>
+          </div>
+        )}
+        <Field label={isOrg ? "Contact person full name *" : "Full name"}>
+          <input value={fullName} onChange={(e) => setFullName(e.target.value)} placeholder="Jane Smith" autoFocus={!isOrg}
             className="w-full h-10 px-3 border border-border bg-card text-foreground rounded-xl text-sm focus:outline-none focus:border-primary transition-colors" />
         </Field>
         <Field label="Email">
@@ -457,15 +611,65 @@ function CreateUserModal({ onClose, onSuccess }: { onClose: () => void; onSucces
           </Field>
         )}
         <Field label="WhatsApp number (optional)">
-          <input value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="+20 10 0000 0000"
+          <input value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="+971 50 000 0000"
             className="w-full h-10 px-3 border border-border bg-card text-foreground rounded-xl text-sm focus:outline-none focus:border-primary transition-colors" />
         </Field>
         {error && <p className="text-xs text-red-500">{error}</p>}
         <ModalActions
           onCancel={onClose} onConfirm={() => mutation.mutate()}
-          loading={mutation.isPending} disabled={!fullName.trim() || !email.trim() || !password.trim() || roles.length === 0}
-          label="Create user"
+          loading={mutation.isPending} disabled={!fullName.trim() || !email.trim() || !password.trim() || roles.length === 0 || (isOrg && !orgNameLatin.trim())}
+          label={isOrg ? "Create organization" : "Create user"}
         />
+      </div>
+    </Modal>
+  )
+}
+
+/* ================================================================== */
+/* Reset link modal                                                    */
+/* ================================================================== */
+function ResetLinkModal({
+  user,
+  url,
+  onClose,
+}: {
+  user: User
+  url: string
+  onClose: () => void
+}) {
+  const [copied, setCopied] = useState(true)
+
+  const handleCopy = () => {
+    navigator.clipboard?.writeText(url)
+    setCopied(true)
+    setTimeout(() => setCopied(false), 2000)
+  }
+
+  return (
+    <Modal title={`Password reset link — ${user.organization_name || user.full_name}`} onClose={onClose}>
+      <div className="flex flex-col gap-3">
+        <p className="text-xs text-muted-foreground">
+          Share this direct link with <strong>{user.email}</strong> so they can set or reset their password (valid for 72 hours):
+        </p>
+        <div className="rounded-xl border border-border bg-background p-3 font-mono text-xs text-foreground break-all select-all">
+          {url}
+        </div>
+        <div className="flex items-center justify-end gap-2 pt-1">
+          <button
+            type="button"
+            onClick={onClose}
+            className="h-9 px-4 border border-border rounded-xl text-xs font-medium text-muted-foreground hover:bg-muted transition-colors"
+          >
+            Close
+          </button>
+          <button
+            type="button"
+            onClick={handleCopy}
+            className="h-9 px-4 bg-primary text-primary-foreground rounded-xl text-xs font-medium hover:opacity-90 transition-colors"
+          >
+            {copied ? "Copied to clipboard ✓" : "Copy link"}
+          </button>
+        </div>
       </div>
     </Modal>
   )
@@ -769,11 +973,17 @@ function EditUserModal({ user, onClose, onSuccess }: { user: User; onClose: () =
   const [roles,    setRoles]    = useState<Role[]>(user.roles)
   const [authorCanPublish, setAuthorCanPublish] = useState(user.author_can_publish ?? false)
   const [authorScopeAll,   setAuthorScopeAll]   = useState(user.author_scope_all ?? false)
+  const [orgNameLatin, setOrgNameLatin] = useState(user.organization_name || "")
+  const [orgNameArabic, setOrgNameArabic] = useState(user.organization_name_arabic || "")
+  const [orgType, setOrgType] = useState(user.organization_type || "university")
+  const [orgCountry, setOrgCountry] = useState(user.organization_country || user.country || "AE")
+  const [orgCity, setOrgCity] = useState(user.organization_city || user.city_other || "")
   const [phone,    setPhone]    = useState(user.phone || "")
   const [nickname, setNickname] = useState(user.nickname || "")
   const [avatar,   setAvatar]   = useState(user.avatar || "")
   const [error,    setError]    = useState("")
   const isStudent = user.roles.includes("student")
+  const isOrg = roles.includes("organization")
 
   const toggleRole = (role: Role) =>
     setRoles((prev) => (prev.includes(role) ? prev.filter((r) => r !== role) : [...prev, role]))
@@ -785,15 +995,77 @@ function EditUserModal({ user, onClose, onSuccess }: { user: User; onClose: () =
       // identity, and there is nothing for a staff account to set them on.
       ...(isStudent ? { nickname: nickname || undefined, avatar: avatar || undefined } : {}),
       ...(roles.includes("lms_author") ? { author_can_publish: authorCanPublish, author_scope_all: authorScopeAll } : {}),
+      ...(isOrg
+        ? {
+            org_name_latin: orgNameLatin.trim() || fullName.trim(),
+            org_name_arabic: orgNameArabic.trim(),
+            org_type: orgType,
+            org_country: orgCountry,
+            org_city: orgCity.trim(),
+          }
+        : {}),
     }),
     onSuccess,
     onError: (e: any) => setError(e?.response?.data?.detail ?? "Failed to update user"),
   })
 
   return (
-    <Modal title={`Edit user — ${user.full_name}`} onClose={onClose}>
+    <Modal title={`Edit ${isOrg ? "organization" : "user"} — ${user.organization_name || user.full_name}`} onClose={onClose}>
       <div className="flex flex-col gap-3">
-        <Field label="Full name">
+        {isOrg && (
+          <div className="rounded-xl border border-primary/25 bg-primary/5 p-3 flex flex-col gap-3">
+            <span className="text-xs font-semibold text-primary">Organization Profile</span>
+            <Field label="Organization Name *">
+              <input
+                value={orgNameLatin}
+                onChange={(e) => setOrgNameLatin(e.target.value)}
+                placeholder="Abu Dhabi University"
+                className="w-full h-10 px-3 border border-border bg-card text-foreground rounded-xl text-sm focus:outline-none focus:border-primary transition-colors"
+              />
+            </Field>
+            <Field label="Organization Arabic Name (optional)">
+              <input
+                value={orgNameArabic}
+                onChange={(e) => setOrgNameArabic(e.target.value)}
+                placeholder="جامعة أبوظبي"
+                className="w-full h-10 px-3 border border-border bg-card text-foreground rounded-xl text-sm focus:outline-none focus:border-primary transition-colors"
+              />
+            </Field>
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+              <Field label="Type">
+                <select
+                  value={orgType}
+                  onChange={(e) => setOrgType(e.target.value)}
+                  className="w-full h-10 px-3 border border-border bg-card text-foreground rounded-xl text-sm focus:outline-none focus:border-primary transition-colors"
+                >
+                  <option value="university">University</option>
+                  <option value="school">School</option>
+                  <option value="company">Company</option>
+                  <option value="government">Government</option>
+                  <option value="ngo">NGO / Club</option>
+                  <option value="other">Other</option>
+                </select>
+              </Field>
+              <Field label="Country">
+                <CountrySelect
+                  value={orgCountry}
+                  onChange={setOrgCountry}
+                  valueType="code"
+                  className="w-full h-10 px-3 border border-border bg-card text-foreground rounded-xl text-sm focus:outline-none focus:border-primary transition-colors"
+                />
+              </Field>
+              <Field label="City">
+                <CityNameSelect
+                  country={orgCountry}
+                  value={orgCity}
+                  onChange={setOrgCity}
+                  className="w-full h-10 px-3 border border-border bg-card text-foreground rounded-xl text-sm focus:outline-none focus:border-primary transition-colors"
+                />
+              </Field>
+            </div>
+          </div>
+        )}
+        <Field label={isOrg ? "Contact person full name" : "Full name"}>
           <input value={fullName} onChange={(e) => setFullName(e.target.value)} placeholder="Jane Smith" autoFocus
             className="w-full h-10 px-3 border border-border bg-card text-foreground rounded-xl text-sm focus:outline-none focus:border-primary transition-colors" />
         </Field>
@@ -826,7 +1098,7 @@ function EditUserModal({ user, onClose, onSuccess }: { user: User; onClose: () =
           />
         )}
         <Field label="WhatsApp number (optional)">
-          <input value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="+20 10 0000 0000"
+          <input value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="+971 50 000 0000"
             className="w-full h-10 px-3 border border-border bg-card text-foreground rounded-xl text-sm focus:outline-none focus:border-primary transition-colors" />
         </Field>
         {/* A generated callsign occasionally lands somewhere unusable in
@@ -865,7 +1137,7 @@ function EditUserModal({ user, onClose, onSuccess }: { user: User; onClose: () =
         {error && <p className="text-xs text-red-500">{error}</p>}
         <ModalActions
           onCancel={onClose} onConfirm={() => mutation.mutate()}
-          loading={mutation.isPending} disabled={!fullName.trim() || !email.trim() || roles.length === 0}
+          loading={mutation.isPending} disabled={!fullName.trim() || !email.trim() || roles.length === 0 || (isOrg && !orgNameLatin.trim())}
           label="Save changes"
         />
       </div>

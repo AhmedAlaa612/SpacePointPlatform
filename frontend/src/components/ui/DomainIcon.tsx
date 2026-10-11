@@ -10,6 +10,7 @@ const DOMAIN_LABELS: Record<string, string> = {
   operations: "Operations",
   learn: "Explorers",
   judge: "Competitions",
+  organization: "Partners",
 };
 
 const ROLE_DOMAINS: Record<string, string> = {
@@ -25,6 +26,7 @@ const ROLE_DOMAINS: Record<string, string> = {
   leader: "Interns",
   admin: "Admin",
   judge: "Competitions",
+  organization: "Partners",
 };
 
 export function DomainIcon({ className }: { className?: string }) {

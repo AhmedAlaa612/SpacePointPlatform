@@ -266,7 +266,7 @@ export function UserProfileModal({ userId, onClose }: Props) {
                         )}
                       </div>
                       <p className="text-sm text-muted-foreground truncate">{user.email}</p>
-                      {user.country && (
+                      {!roles.includes("organization") && !user.organization_name && user.country && (
                         <p className="text-xs text-muted-foreground mt-0.5">
                           {getCountries().find((c) => c.code === user.country)?.name ?? user.country}
                         </p>
@@ -281,6 +281,49 @@ export function UserProfileModal({ userId, onClose }: Props) {
                     </div>
                   </CardContent>
                 </Card>
+
+                {/* Organization Info */}
+                {(roles.includes("organization") || user.organization_name) && (
+                  <Card>
+                    <CardContent className="p-5 flex flex-col gap-3">
+                      <p className="text-xs text-muted-foreground font-semibold uppercase tracking-wider">Organization Profile</p>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
+                        <div>
+                          <p className="text-xs text-muted-foreground uppercase tracking-wider font-medium mb-0.5">Organization Name</p>
+                          <p className="text-foreground font-semibold">{user.organization_name || <span className="text-muted-foreground italic">Not set</span>}</p>
+                        </div>
+                        {user.organization_name_arabic && (
+                          <div>
+                            <p className="text-xs text-muted-foreground uppercase tracking-wider font-medium mb-0.5">Arabic Name</p>
+                            <p className="text-foreground">{user.organization_name_arabic}</p>
+                          </div>
+                        )}
+                        <div>
+                          <p className="text-xs text-muted-foreground uppercase tracking-wider font-medium mb-0.5">Organization Type</p>
+                          <p className="text-foreground capitalize">{user.organization_type || <span className="text-muted-foreground italic">Not set</span>}</p>
+                        </div>
+                        <div>
+                          <p className="text-xs text-muted-foreground uppercase tracking-wider font-medium mb-0.5">Country</p>
+                          <p className="text-foreground">
+                            {(() => {
+                              const code = user.organization_country || user.country
+                              if (!code) return <span className="text-muted-foreground italic">Not set</span>
+                              return getCountries().find((c) => c.code === code)?.name ?? code
+                            })()}
+                          </p>
+                        </div>
+                        <div>
+                          <p className="text-xs text-muted-foreground uppercase tracking-wider font-medium mb-0.5">City</p>
+                          <p className="text-foreground">{user.organization_city || user.city_other || <span className="text-muted-foreground italic">Not set</span>}</p>
+                        </div>
+                        <div>
+                          <p className="text-xs text-muted-foreground uppercase tracking-wider font-medium mb-0.5">Contact Person</p>
+                          <p className="text-foreground">{user.full_name}</p>
+                        </div>
+                      </div>
+                    </CardContent>
+                  </Card>
+                )}
 
                 {/* Account info */}
                 <Card>
@@ -301,16 +344,18 @@ export function UserProfileModal({ userId, onClose }: Props) {
                           {user.status}
                         </p>
                       </div>
-                      <div>
-                        <p className="text-xs text-muted-foreground uppercase tracking-wider font-medium mb-0.5">Date of Birth</p>
-                        <p className="text-foreground">
-                          {user.birthdate || user.date_of_birth ? (
-                            new Date(user.birthdate || user.date_of_birth!).toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" })
-                          ) : (
-                            <span className="text-muted-foreground italic">Not set</span>
-                          )}
-                        </p>
-                      </div>
+                      {!roles.includes("organization") && !user.organization_name && (
+                        <div>
+                          <p className="text-xs text-muted-foreground uppercase tracking-wider font-medium mb-0.5">Date of Birth</p>
+                          <p className="text-foreground">
+                            {user.birthdate || user.date_of_birth ? (
+                              new Date(user.birthdate || user.date_of_birth!).toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" })
+                            ) : (
+                              <span className="text-muted-foreground italic">Not set</span>
+                            )}
+                          </p>
+                        </div>
+                      )}
                       {user.created_at && (
                         <div>
                           <p className="text-xs text-muted-foreground uppercase tracking-wider font-medium mb-0.5">Member since</p>

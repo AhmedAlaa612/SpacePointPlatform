@@ -8,7 +8,7 @@ import { getProfileApi, updateProfileApi } from "@/api/instructors/instructor"
 import { ROLE_LABEL } from "@/types/shared"
 import { Button } from "@/components/ui/button"
 import { CountrySelect } from "@/components/ui/CountrySelect"
-import { CitySelect, useCitiesForCountry } from "@/components/ui/CitySelect"
+import { CitySelect, CityNameSelect, useCitiesForCountry } from "@/components/ui/CitySelect"
 import { PasswordInput } from "@/components/ui/PasswordInput"
 import {
   Dialog,
@@ -29,6 +29,7 @@ export default function Profile() {
   const isAmbassador = roles.includes("ambassador")
   const isTeacher = roles.includes("teacher")
   const isInstructor = roles.includes("instructor") || roles.includes("facilitator")
+  const isOrganization = roles.includes("organization")
   const hasApplicantDetails =
     roles.includes("instructor") || roles.includes("facilitator") || roles.includes("applicant")
 
@@ -47,6 +48,11 @@ export default function Profile() {
   const [workStatus, setWorkStatus] = useState("")
   const [fluentLanguages, setFluentLanguages] = useState<string[]>([])
   const [graduatedUniversity, setGraduatedUniversity] = useState("")
+  const [orgNameLatin, setOrgNameLatin] = useState(user?.organization_name ?? "")
+  const [orgNameArabic, setOrgNameArabic] = useState(user?.organization_name_arabic ?? "")
+  const [orgType, setOrgType] = useState(user?.organization_type ?? "university")
+  const [orgCountry, setOrgCountry] = useState(user?.organization_country ?? "uae")
+  const [orgCity, setOrgCity] = useState(user?.organization_city ?? "")
   const [saved, setSaved] = useState(false)
   const [pwOpen, setPwOpen] = useState(false)
   const [cropSrc, setCropSrc] = useState<string | null>(null)
@@ -68,6 +74,11 @@ export default function Profile() {
     setCityOther(me.city_other ?? "")
     setHasTransport(!!me.has_own_transportation)
     setDeliverCityIds(me.deliver_city_ids ?? [])
+    setOrgNameLatin(me.organization_name ?? "")
+    setOrgNameArabic(me.organization_name_arabic ?? "")
+    setOrgType(me.organization_type ?? "university")
+    setOrgCountry(me.organization_country ?? "uae")
+    setOrgCity(me.organization_city ?? "")
   }, [me])
 
   useEffect(() => {
@@ -108,6 +119,15 @@ export default function Profile() {
               city_other: cityOther || undefined,
               deliver_city_ids: deliverCityIds,
               has_own_transportation: hasTransport,
+            }
+          : {}),
+        ...(isOrganization
+          ? {
+              org_name_latin: orgNameLatin.trim() || undefined,
+              org_name_arabic: orgNameArabic.trim(),
+              org_type: orgType,
+              org_country: orgCountry,
+              org_city: orgCity.trim(),
             }
           : {}),
       })
@@ -225,9 +245,75 @@ export default function Profile() {
 
         {/* Form */}
         <div className="flex flex-col gap-6">
+          {isOrganization && (
+            <div className="rounded-2xl border border-primary/25 bg-primary/5 p-5 flex flex-col gap-5">
+              <div>
+                <p className="text-sm font-semibold text-primary">Organization Profile</p>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  Public and coordinator details for your organization across SpacePoint events.
+                </p>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
+                <div>
+                  <label className={labelCls}>Organization Name *</label>
+                  <input
+                    value={orgNameLatin}
+                    onChange={(e) => setOrgNameLatin(e.target.value)}
+                    placeholder="Abu Dhabi University"
+                    className={inputCls}
+                  />
+                </div>
+                <div>
+                  <label className={labelCls}>Organization Arabic Name (Optional)</label>
+                  <input
+                    value={orgNameArabic}
+                    onChange={(e) => setOrgNameArabic(e.target.value)}
+                    placeholder="جامعة أبوظبي"
+                    className={inputCls}
+                  />
+                </div>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-5">
+                <div>
+                  <label className={labelCls}>Organization Type</label>
+                  <select
+                    value={orgType}
+                    onChange={(e) => setOrgType(e.target.value)}
+                    className={inputCls}
+                  >
+                    <option value="university">University</option>
+                    <option value="school">School</option>
+                    <option value="company">Company</option>
+                    <option value="government">Government Entity</option>
+                    <option value="ngo">NGO / Club</option>
+                    <option value="other">Other</option>
+                  </select>
+                </div>
+                <div>
+                  <label className={labelCls}>Country</label>
+                  <CountrySelect
+                    value={orgCountry}
+                    onChange={setOrgCountry}
+                    valueType="code"
+                    className={inputCls}
+                  />
+                </div>
+                <div>
+                  <label className={labelCls}>City</label>
+                  <CityNameSelect
+                    country={orgCountry}
+                    value={orgCity}
+                    onChange={setOrgCity}
+                    className={inputCls}
+                  />
+                </div>
+              </div>
+            </div>
+          )}
+
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
             <div>
-              <label className={labelCls}>Full Name</label>
+              <label className={labelCls}>{isOrganization ? "Contact Person Full Name" : "Full Name"}</label>
               <input value={fullName} onChange={(e) => setFullName(e.target.value)} className={inputCls} />
             </div>
             <div>
@@ -241,7 +327,7 @@ export default function Profile() {
             </div>
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
+          <div className={isOrganization ? "" : "grid grid-cols-1 sm:grid-cols-2 gap-5"}>
             <div>
               <label className={labelCls}>
                 Email <span className="normal-case font-normal text-muted-foreground/60">(cannot be changed)</span>
@@ -250,15 +336,17 @@ export default function Profile() {
                 {user.email}
               </div>
             </div>
-            <div>
-              <label className={labelCls}>Date of Birth</label>
-              <input
-                type="date"
-                value={birthdate}
-                onChange={(e) => setBirthdate(e.target.value)}
-                className={inputCls}
-              />
-            </div>
+            {!isOrganization && (
+              <div>
+                <label className={labelCls}>Date of Birth</label>
+                <input
+                  type="date"
+                  value={birthdate}
+                  onChange={(e) => setBirthdate(e.target.value)}
+                  className={inputCls}
+                />
+              </div>
+            )}
           </div>
 
           {hasApplicantDetails ? (
@@ -284,12 +372,12 @@ export default function Profile() {
                 <CountrySelect value={country} onChange={setCountry} valueType="code" className={inputCls} />
               </div>
             </div>
-          ) : (
+          ) : !isOrganization ? (
             <div>
               <label className={labelCls}>Country</label>
               <CountrySelect value={country} onChange={setCountry} valueType="code" className={inputCls} />
             </div>
-          )}
+          ) : null}
 
           {hasApplicantDetails && (
             <>

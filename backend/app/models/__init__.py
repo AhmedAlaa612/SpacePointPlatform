@@ -43,4 +43,5 @@ from app.models.website_people import (  # noqa: F401  (Step 6 — people showca
     WebsiteAlumni,
     WebsiteAmbassador,
 )
+from app.models.website_event import MegaEvent, WebsiteEvent  # noqa: F401  (Step 8 — events & mega-events)
 

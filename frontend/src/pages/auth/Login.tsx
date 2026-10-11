@@ -141,6 +141,9 @@ export function Login() {
         <div className="pt-1 border-t border-slate-800/80 text-center space-y-2.5">
           <p className="pt-3 text-xs font-medium text-slate-400">Don't have an account?</p>
           <div className="flex items-center justify-center gap-x-5 gap-y-1.5 flex-wrap text-xs font-semibold">
+            <Link to="/organization-signup" className="text-[#a880ff] hover:text-[#a880ff]/80 transition-colors">
+              Sign up as Organization
+            </Link>
             <Link to="/apply/instructor" className="text-[#a880ff] hover:text-[#a880ff]/80 transition-colors">
               Apply as Instructor
             </Link>

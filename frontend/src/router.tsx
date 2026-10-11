@@ -121,6 +121,8 @@ import DeliverySettings from "@/pages/operations/DeliverySettings";
 import GroundStationDevices from "@/pages/operations/GroundStationDevices";
 import Birthdays from "@/pages/operations/Birthdays";
 import WebsiteManagement from "@/pages/operations/website/WebsiteManagement";
+import OrganizationEvents from "@/pages/organization/OrganizationEvents";
+import { OrganizationSignup } from "@/pages/auth/OrganizationSignup";
 
 // Unified apply flow
 import ApplyFlow from "@/pages/apply/ApplyFlow";
@@ -783,6 +785,7 @@ const operationsRoutes = [
   createRoute({ getParentRoute: po, path: "/website", component: WebsiteManagement }),
   // Website hub tabs as deep-linkable routes (same pattern as the LMS and
   // Programs sidebar groups — one route per section, shared component).
+  createRoute({ getParentRoute: po, path: "/website/events", component: () => <WebsiteManagement initialTab="events" /> }),
   createRoute({ getParentRoute: po, path: "/website/programs", component: () => <WebsiteManagement initialTab="programs" /> }),
   createRoute({ getParentRoute: po, path: "/website/partners", component: () => <WebsiteManagement initialTab="partners" /> }),
   createRoute({ getParentRoute: po, path: "/website/faqs", component: () => <WebsiteManagement initialTab="faqs" /> }),
@@ -799,6 +802,38 @@ const operationsRoutes = [
     },
   }),
 ];
+
+const organizationSignupRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/organization-signup",
+  component: OrganizationSignup,
+});
+
+const organizationLayoutRoute = createRoute({
+  getParentRoute: () => authLayoutRoute,
+  path: "/organization",
+  beforeLoad: () => {
+    const role = localStorage.getItem("active_role");
+    if (role !== "organization" && role !== "operations" && role !== "admin") {
+      throw redirect({ to: "/" });
+    }
+  },
+  component: () => <Outlet />,
+});
+
+const porg = () => organizationLayoutRoute;
+const organizationRoutes = [
+  createRoute({
+    getParentRoute: porg,
+    path: "/",
+    beforeLoad: () => {
+      throw redirect({ to: "/organization/events" });
+    },
+  }),
+  createRoute({ getParentRoute: porg, path: "/events", component: OrganizationEvents }),
+  createRoute({ getParentRoute: porg, path: "/profile", component: SharedProfile }),
+];
+
 
 // Judge surface (Competition domain, 2026-08-24) — a temporary, cohort-scoped
 // account with zero ops access, same "own separate surface" treatment as
@@ -1255,6 +1290,7 @@ const routeTree = rootRoute.addChildren([
   ticketRoute,
   kitScanRoute,
   loginRoute,
+  organizationSignupRoute,
   setPasswordRoute,
   forgotPasswordRoute,
   learnLoginRoute,
@@ -1299,6 +1335,7 @@ const routeTree = rootRoute.addChildren([
     sessionsCalendarRoute,
     adminProfileRoute,
     operationsLayoutRoute.addChildren(operationsRoutes),
+    organizationLayoutRoute.addChildren(organizationRoutes),
     judgeLayoutRoute.addChildren(judgeRoutes),
     lmsAuthoringLayoutRoute.addChildren(lmsAuthoringRoutes),
     internsLayoutRoute.addChildren(internsRoutes),

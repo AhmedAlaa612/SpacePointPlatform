@@ -87,8 +87,9 @@ import {
   type WebsiteStudentMission,
   type WebsiteTeamMember,
 } from "@/api/websitePeople"
+import { WebsiteEventsPanel } from "./WebsiteEventsPanel"
 
-type Tab = "general" | "programs" | "partners" | "faqs" | "media" | "newsletters" | "articles" | "people" | "labs"
+type Tab = "general" | "events" | "programs" | "partners" | "faqs" | "media" | "newsletters" | "articles" | "people" | "labs"
 
 const WEBSITE_BASE_URL =
   (import.meta.env.VITE_WEBSITE_URL as string | undefined)?.replace(/\/$/, "") ||
@@ -420,6 +421,8 @@ export default function WebsiteManagement({ initialTab = "general" }: { initialT
           </button>
         </div>
       )}
+
+      {activeTab === "events" && <WebsiteEventsPanel />}
 
       {activeTab === "programs" && <ProgramsSection />}
 

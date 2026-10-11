@@ -124,6 +124,8 @@ const ICONS: Record<string, LucideIcon> = {
   "Partners & Clients": Users,
   "Media & Press": Newspaper,
   "Newsletters & Leads": Bell,
+  Events: CalendarDays,
+  "My Events": CalendarDays,
   Birthdays: Cake,
   "Admin Hub": UserCog,
   Kits: Boxes,
@@ -184,6 +186,7 @@ const PROGRAMS_GROUP = mkGroup("Programs", undefined, [
 
 const WEBSITE_GROUP = mkGroup("Website", undefined, [
   mk("General Config", "/operations/website"),
+  mk("Events", "/operations/website/events"),
   mk("Programs & Pricing", "/operations/website/programs"),
   mk("Partners & Clients", "/operations/website/partners"),
   mk("FAQs", "/operations/website/faqs"),
@@ -201,6 +204,7 @@ const DOMAIN_TITLE: Record<string, string> = {
   admin: "Admin",
   operations: "Operations",
   "lms-authoring": "Authoring",
+  organization: "Partners",
 };
 
 /**
@@ -209,6 +213,13 @@ const DOMAIN_TITLE: Record<string, string> = {
  * each item now carries a lucide icon via `mk`.
  */
 function getNavItems(pathname: string, activeRole: Role | null): NavItem[] {
+  if (activeRole === "organization" || pathname.startsWith("/organization")) {
+    return [
+      mk("My Events", "/organization/events"),
+      mk("Profile & Settings", "/organization/profile"),
+    ];
+  }
+
   if (activeRole === "lms_author") {
     return [
       mk("Courses", "/lms-authoring/courses"),
@@ -859,6 +870,8 @@ export function AppShell({ children }: { children: ReactNode }) {
       ? "/learn"
       : activeRole === "lms_author"
       ? "/lms-authoring/courses"
+      : activeRole === "organization"
+      ? "/organization/profile"
       : "/interns/profile";
 
   // Body scroll lock + Escape-to-close for the mobile drawer.

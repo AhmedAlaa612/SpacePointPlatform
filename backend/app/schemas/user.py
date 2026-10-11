@@ -32,6 +32,11 @@ class UserCreate(UserBase):
     roles: list[UserRole] = []
     author_can_publish: bool | None = None
     author_scope_all: bool | None = None
+    org_name_latin: str | None = None
+    org_name_arabic: str | None = None
+    org_type: str | None = None
+    org_country: str | None = None
+    org_city: str | None = None
 
 
 class UserUpdate(BaseModel):
@@ -55,6 +60,11 @@ class UserUpdate(BaseModel):
     # without touching their historical CompetitionScore rows the way a
     # hard delete would (see delete_user's guard below).
     status: str | None = None
+    org_name_latin: str | None = None
+    org_name_arabic: str | None = None
+    org_type: str | None = None
+    org_country: str | None = None
+    org_city: str | None = None
 
 
 class UserSelfUpdate(BaseModel):
@@ -99,6 +109,12 @@ class UserOut(UserReadBase):
     card_id: str | None = None
     author_can_publish: bool | None = None
     author_scope_all: bool | None = None
+    organization_id: UUID | None = None
+    organization_name: str | None = None
+    organization_name_arabic: str | None = None
+    organization_type: str | None = None
+    organization_country: str | None = None
+    organization_city: str | None = None
 
     class Config:
         from_attributes = True

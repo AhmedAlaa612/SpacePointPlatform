@@ -20,12 +20,14 @@ from app.core.security import (
 from app.db.session import get_db
 from app.models.inventory.city import City
 from app.models.spine.contact import Contact
+from app.models.spine.organization import Organization
 from app.models.user import User
 from app.schemas.auth import (
     ChangePasswordRequest,
     ForgotPasswordRequest,
     LoginRequest,
     LoginResponse,
+    OrganizationSignupRequest,
     RefreshRequest,
     SetPasswordRequest,
     StudentSignupRequest,
@@ -114,6 +116,14 @@ async def _user_out(db: AsyncSession, user: User, profile: ApplicantProfile | No
             author_can_publish = False
             author_scope_all = False
 
+    org = (
+        await db.execute(
+            select(Organization).where(Organization.owner_user_id == user.id)
+        )
+    ).scalars().first()
+    if org is None and contact and contact.organization_id:
+        org = await db.get(Organization, contact.organization_id)
+
     return {
         "id": str(user.id),
         "full_name": user.full_name,
@@ -144,6 +154,12 @@ async def _user_out(db: AsyncSession, user: User, profile: ApplicantProfile | No
         "city_other": user.city_other,
         "author_can_publish": author_can_publish,
         "author_scope_all": author_scope_all,
+        "organization_id": org.id if org else None,
+        "organization_name": org.name_latin if org else None,
+        "organization_name_arabic": org.name_arabic if org else None,
+        "organization_type": org.org_type if org else None,
+        "organization_country": org.country if org else None,
+        "organization_city": org.city if org else None,
         # Applicant-profile fields — surfaced on Profile & Settings for
         # instructors/facilitators/applicants. None when no profile exists.
         "city_of_residence_id": profile.city_of_residence_id if profile else None,
@@ -340,6 +356,74 @@ async def student_signup(data: StudentSignupRequest, request: Request, db: Async
     # wrongly flags students who set their own password and are using the
     # account.
     user.last_login_at = datetime.now(timezone.utc)
+
+    await db.commit()
+    await db.refresh(user)
+
+    roles = user.role_values
+    return {
+        "access_token": create_access_token(user.id, roles),
+        "refresh_token": create_refresh_token(user.id, roles),
+        "token_type": "bearer",
+        "user": await _user_out(db, user),
+    }
+
+
+@router.post("/organization-signup", status_code=status.HTTP_201_CREATED, response_model=LoginResponse)
+async def organization_signup(
+    data: OrganizationSignupRequest, request: Request, db: AsyncSession = Depends(get_db)
+):
+    """Self-service signup for partner organizations to create and manage
+    their own events in the portal while admin controls publishing."""
+    enforce_rate_limit(request)
+
+    email = _lower_email(data.email)
+    if await _email_taken(db, email):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="An account with this email already exists — log in instead.",
+        )
+
+    contact, _ = await resolve_or_create_contact(
+        db,
+        full_name=data.full_name.strip(),
+        phone=data.phone.strip(),
+        email=email,
+        contact_roles=["sponsor_rep"],
+        role_event_source="organization_signup",
+        country=(data.country or "uae").strip().lower(),
+        city=(data.city or "").strip() or None,
+    )
+
+    user = User(
+        full_name=data.full_name.strip(),
+        email=email,
+        password_hash=get_password_hash(data.password),
+        roles=[UserRole.organization],
+        status="active",
+        must_change_password=False,
+        contact_id=contact.id,
+        phone=data.phone.strip(),
+        country=(data.country or "uae").strip().lower(),
+        city_other=(data.city or "").strip() or None,
+        last_login_at=datetime.now(timezone.utc),
+    )
+    db.add(user)
+    await db.flush()
+    await ensure_card_number(db, user)
+
+    org = Organization(
+        name_latin=data.org_name_latin.strip(),
+        name_arabic=(data.org_name_arabic or "").strip() or None,
+        org_type=(data.org_type or "university").strip().lower(),
+        country=(data.country or "uae").strip().lower(),
+        city=(data.city or "").strip() or None,
+        primary_contact_id=contact.id,
+        owner_user_id=user.id,
+    )
+    db.add(org)
+    await db.flush()
+    contact.organization_id = org.id
 
     await db.commit()
     await db.refresh(user)
@@ -743,6 +827,30 @@ async def update_me(
             profile.deliver_city_ids = data.deliver_city_ids
         if data.has_own_transportation is not None:
             profile.has_own_transportation = data.has_own_transportation
+
+    wants_org_fields = any(
+        f is not None
+        for f in (data.org_name_latin, data.org_name_arabic, data.org_type, data.org_country, data.org_city)
+    )
+    if wants_org_fields or "organization" in current_user.role_values:
+        org = (
+            await db.execute(select(Organization).where(Organization.owner_user_id == current_user.id))
+        ).scalars().first()
+        if org is None and current_user.contact_id:
+            contact_row = await db.get(Contact, current_user.contact_id)
+            if contact_row and contact_row.organization_id:
+                org = await db.get(Organization, contact_row.organization_id)
+        if org is not None:
+            if data.org_name_latin is not None and data.org_name_latin.strip():
+                org.name_latin = data.org_name_latin.strip()
+            if data.org_name_arabic is not None:
+                org.name_arabic = data.org_name_arabic.strip() or None
+            if data.org_type is not None and data.org_type.strip():
+                org.org_type = data.org_type.strip().lower()
+            if data.org_country is not None:
+                org.country = data.org_country.strip().lower() or None
+            if data.org_city is not None:
+                org.city = data.org_city.strip() or None
 
     await db.commit()
     return await _user_out(db, current_user, profile)

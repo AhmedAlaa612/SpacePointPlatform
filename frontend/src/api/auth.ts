@@ -172,6 +172,11 @@ export async function updateMeApi(
     city_of_residence_id: string
     deliver_city_ids: string[]
     has_own_transportation: boolean
+    org_name_latin: string
+    org_name_arabic: string
+    org_type: string
+    org_country: string
+    org_city: string
   }>,
 ): Promise<User> {
   const { data: res } = await api.patch<User>("/auth/me", data)

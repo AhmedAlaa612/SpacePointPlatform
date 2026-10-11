@@ -25,6 +25,8 @@ from app.routers.public_articles import router as public_articles_router
 from app.routers.public_people import router as public_people_router
 from app.routers.public_labs import router as public_labs_router
 from app.routers.public_shop import router as public_shop_router
+from app.routers.public_events import router as public_events_router
+from app.routers.organization_events import router as organization_events_router
 from app.routers.contributor_articles import router as contributor_articles_router
 from app.routers.admin.birthdays import router as birthdays_router
 from app.routers.apply import router as apply_router
@@ -92,8 +94,18 @@ async def lifespan(app: FastAPI):
             exc_info=True,
         )
     try:
-        from app.db.session import AsyncSessionLocal
+        from app.db.session import AsyncSessionLocal, engine
+        from app.models.website_event import MegaEvent, WebsiteEvent
+        from app.services.website_events import ensure_default_events_seeded
         from sqlalchemy import text
+        async with engine.begin() as conn:
+            await conn.execute(text("ALTER TYPE user_role ADD VALUE IF NOT EXISTS 'organization';"))
+            await conn.run_sync(
+                lambda sync_conn: MegaEvent.__table__.create(sync_conn, checkfirst=True)
+            )
+            await conn.run_sync(
+                lambda sync_conn: WebsiteEvent.__table__.create(sync_conn, checkfirst=True)
+            )
         async with AsyncSessionLocal() as db:
             await db.execute(text("ALTER TABLE cohorts ADD COLUMN IF NOT EXISTS checklist_title_override VARCHAR(255);"))
             await db.execute(text("ALTER TABLE cohorts ADD COLUMN IF NOT EXISTS submission_windows JSONB DEFAULT '[]'::jsonb;"))
@@ -109,8 +121,9 @@ async def lifespan(app: FastAPI):
             await db.execute(text("ALTER TABLE learner_teams ADD COLUMN IF NOT EXISTS ops_scored_at TIMESTAMP WITH TIME ZONE;"))
             await db.execute(text("UPDATE cohorts SET checklist_title_override = 'testcohortname', name = 'Cohort Test' WHERE name = 'testcohortname';"))
             await db.commit()
+            await ensure_default_events_seeded(db)
     except Exception:
-        logger.warning("Could not auto-add checklist_title_override to cohorts table", exc_info=True)
+        logger.warning("Could not auto-add schema updates or seed events at startup", exc_info=True)
 
     yield
     if app.state.arq_redis is not None:
@@ -162,6 +175,8 @@ app.include_router(public_articles_router)  # public: /public/articles, /public/
 app.include_router(public_people_router)  # public: /public/team, /ambassadors, /alumni, /student-missions (Step 6)
 app.include_router(public_labs_router)  # public: /public/labs/projects (Step 7)
 app.include_router(public_shop_router)  # public: /public/shop/* (Step 7 — products, checkout, webhook)
+app.include_router(public_events_router)  # public: /public/website/events/* (Step 8 — events & mega-events)
+app.include_router(organization_events_router)  # organization self-service: /organization/* (Step 8)
 app.include_router(contributor_articles_router)  # contributor: /articles/me, /articles (Step 5)
 app.include_router(notifications.router)  # shared: /notifications/*
 app.include_router(documents.router)  # shared: /documents/*  (Phase 4)

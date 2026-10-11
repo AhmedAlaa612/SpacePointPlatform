@@ -1,5 +1,37 @@
 import { getCountries } from "@/lib/countries";
 
+const LEGACY_CODE_MAP: Record<string, string> = {
+  uae: "AE",
+  ae: "AE",
+  ksa: "SA",
+  sa: "SA",
+  egypt: "EG",
+  eg: "EG",
+  oman: "OM",
+  om: "OM",
+  bahrain: "BH",
+  bh: "BH",
+  kuwait: "KW",
+  kw: "KW",
+  qatar: "QA",
+  qa: "QA",
+  jordan: "JO",
+  jo: "JO",
+};
+
+export function resolveCountryCode(raw: string | null | undefined): string {
+  if (!raw) return "";
+  const trimmed = raw.trim();
+  if (!trimmed) return "";
+  const lower = trimmed.toLowerCase();
+  if (LEGACY_CODE_MAP[lower]) return LEGACY_CODE_MAP[lower];
+  const countries = getCountries();
+  const match = countries.find(
+    (c) => c.code.toLowerCase() === lower || c.name.toLowerCase() === lower,
+  );
+  return match ? match.code : trimmed.toUpperCase();
+}
+
 /** Shared country `<select>` (2026-08-08) — same options everywhere a
  * country is picked, sourced from `lib/countries.ts` instead of each place
  * hand-typing its own list. This codebase has two pre-existing storage
@@ -27,9 +59,15 @@ export function CountrySelect({
   valueType?: "name" | "code";
 }) {
   const countries = getCountries();
+  const code = resolveCountryCode(value);
+  const resolvedValue =
+    valueType === "code"
+      ? code
+      : countries.find((c) => c.code === code)?.name ?? value;
+
   return (
     <select
-      value={value}
+      value={resolvedValue}
       onChange={(e) => onChange(e.target.value)}
       required={required}
       disabled={disabled}
@@ -42,3 +80,4 @@ export function CountrySelect({
     </select>
   );
 }
+

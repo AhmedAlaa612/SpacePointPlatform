@@ -12,6 +12,11 @@ export const createUserApi = (data: {
   phone?: string
   author_can_publish?: boolean
   author_scope_all?: boolean
+  org_name_latin?: string
+  org_name_arabic?: string
+  org_type?: string
+  org_country?: string
+  org_city?: string
 }) => api.post<User>("/admin/users", data).then((r) => r.data)
 
 export const updateUserApi = (
@@ -20,11 +25,15 @@ export const updateUserApi = (
     full_name: string; email: string; password: string; phone: string; roles: string[];
     nickname: string; avatar: string; status: string;
     author_can_publish: boolean; author_scope_all: boolean;
+    org_name_latin: string; org_name_arabic: string; org_type: string; org_country: string; org_city: string;
   }>
 ) => api.patch<User>(`/admin/users/${id}`, data).then((r) => r.data)
 
 export const deleteUserApi = (id: string) =>
   api.delete(`/admin/users/${id}`).then((r) => r.data)
+
+export const getUserPasswordResetLinkApi = (id: string) =>
+  api.post<{ user_id: string; email: string; reset_url: string }>(`/admin/users/${id}/reset-link`).then((r) => r.data)
 
 export interface DossierItem {
   category: string

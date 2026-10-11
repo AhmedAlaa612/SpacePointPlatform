@@ -121,6 +121,32 @@ class UserOut(BaseModel):
     graduated_university: str | None = None
     author_can_publish: bool | None = None
     author_scope_all: bool | None = None
+    organization_id: UUID | None = None
+    organization_name: str | None = None
+    organization_name_arabic: str | None = None
+    organization_type: str | None = None
+    organization_country: str | None = None
+    organization_city: str | None = None
+
+
+class OrganizationSignupRequest(BaseModel):
+    org_name_latin: str
+    org_name_arabic: str | None = None
+    org_type: str = "university"
+    country: str = "uae"
+    city: str | None = None
+    full_name: str
+    email: EmailStr
+    phone: str
+    password: str
+
+    @classmethod
+    def _clean_email(cls, v: object) -> object:
+        return v.strip().lower() if isinstance(v, str) else v
+
+    def model_post_init(self, __context: object) -> None:
+        self.email = self.email.strip().lower()
+
 
 
 
@@ -136,6 +162,11 @@ class UpdateMeRequest(BaseModel):
     city_of_residence_id: UUID | None = None
     deliver_city_ids: list[UUID] | None = None
     has_own_transportation: bool | None = None
+    org_name_latin: str | None = None
+    org_name_arabic: str | None = None
+    org_type: str | None = None
+    org_country: str | None = None
+    org_city: str | None = None
 
 
 class Token(BaseModel):
