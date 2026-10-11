@@ -20,13 +20,13 @@ an org sharing a raw integer (harmless now that the strings never collide)
 would trip the staff unique index.
 
 Revision ID: c9d4e5f60011
-Revises: 708204e63b20
+Revises: d8e2f4a6b9c0
 """
 
 from alembic import op
 
 revision = "c9d4e5f60011"
-down_revision = "708204e63b20"
+down_revision = "d8e2f4a6b9c0"
 branch_labels = None
 depends_on = None
 
