@@ -299,7 +299,7 @@ export default function RoadmapBoard() {
         />
       ) : (
         <TaskDrawer
-          key={openItem?.id ?? "closed"} item={openItem} assignmentId={assignmentId} teamName={checklist.team_name}
+          key={openItem?.id ?? "closed"} item={openItem} items={items} assignmentId={assignmentId} teamName={checklist.team_name}
           teamCode={checklist.team_code ?? null} teamMembers={checklist.team_members ?? []}
           teamFinalLocked={!!checklist.team_final_locked_at}
           onClose={() => setOpenItemId(null)} onChanged={invalidate}

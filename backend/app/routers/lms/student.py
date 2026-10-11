@@ -724,7 +724,7 @@ async def complete_program_item(
     if await team_section_frozen(db, assignment=assignment, item=item):
         raise HTTPException(
             status.HTTP_409_CONFLICT,
-            detail="This section is frozen by a locked checkpoint — ask an ops staff member to reopen it",
+            detail="This section is frozen by a locked checkpoint — this checkpoint is now locked for your team",
         )
     target = await checklist_item_write_target(db, assignment=assignment, item=item, individual=individual, user_id=current.id)
     if item.item_type == "submission" and not target.submitted_url:
@@ -775,7 +775,7 @@ async def submit_program_item(
     if await team_section_frozen(db, assignment=assignment, item=item):
         raise HTTPException(
             status.HTTP_409_CONFLICT,
-            detail="This section is frozen by a locked checkpoint — ask an ops staff member to reopen it",
+            detail="This section is frozen by a locked checkpoint — this checkpoint is now locked for your team",
         )
     target = await checklist_item_write_target(db, assignment=assignment, item=item, individual=individual, user_id=current.id)
 
@@ -916,7 +916,7 @@ async def set_team_name(
     if await team_section_frozen(db, assignment=assignment, item=item):
         raise HTTPException(
             status.HTTP_409_CONFLICT,
-            detail="This section is frozen by a locked checkpoint — ask an ops staff member to reopen it",
+            detail="This section is frozen by a locked checkpoint — this checkpoint is now locked for your team",
         )
     target = await checklist_item_write_target(db, assignment=assignment, item=item, individual=individual, user_id=current.id)
     if not isinstance(target, LmsProgramTeamItemProgress):
@@ -972,7 +972,7 @@ async def _require_formation_writable(
     if await team_section_frozen(db, assignment=assignment, item=item):
         raise HTTPException(
             status.HTTP_409_CONFLICT,
-            detail="This section is frozen by a locked checkpoint — ask an ops staff member to reopen it",
+            detail="This section is frozen by a locked checkpoint — this checkpoint is now locked for your team",
         )
 
 

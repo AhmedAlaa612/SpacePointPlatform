@@ -791,7 +791,7 @@ async def confirm_design_step(
     if step_key in await team_frozen_step_keys_for_attempt(db, attempt_id=attempt.id):
         raise HTTPException(
             status.HTTP_409_CONFLICT,
-            detail="This design phase is frozen by a locked checkpoint — ask an ops staff member to reopen it",
+            detail="This design phase is frozen by a locked checkpoint — this checkpoint is now locked for your team",
         )
     if step_key != "setup":
         await require_step_unlocked(db, attempt=attempt, step_key=step_key)

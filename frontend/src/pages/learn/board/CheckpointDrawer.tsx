@@ -95,7 +95,7 @@ export function CheckpointDrawer({
 
           {locked ? (
             <div className="flex items-center justify-center gap-2 p-3.5 rounded-xl bg-primary/10 border border-primary/25 text-primary text-sm font-semibold">
-              <Lock size={16} />
+              <Lock size={16} className="shrink-0 text-muted-foreground" />
               {item.updated_by_name
                 ? `Locked by ${item.updated_by_name}${item.updated_at ? ` on ${new Date(item.updated_at).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })}` : ""}`
                 : "Locked"}

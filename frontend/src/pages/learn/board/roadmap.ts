@@ -218,6 +218,27 @@ export function unlockRequirementDetails(
   };
 }
 
+/** True once this item sits *above* a locked checkpoint on its team's
+ * checklist — the client-side mirror of the backend's `team_section_frozen`
+ * (services/lms/program.py). Only team-scoped, non-checkpoint items freeze;
+ * only a done, non-optional checkpoint below this item counts; no team (solo
+ * student) never freezes. Used to hide submit/complete actions and show the
+ * neutral "locked for your team" notice instead of letting the write 409. */
+export function isSectionFrozen(
+  items: LmsProgramChecklistItem[], item: LmsProgramChecklistItem, hasTeam: boolean,
+): boolean {
+  if (!hasTeam) return false;
+  if (item.scope !== "team") return false;
+  if (item.item_type === "checkpoint") return false;
+  return items.some(
+    (c) =>
+      c.item_type === "checkpoint" &&
+      !c.optional &&
+      c.status === "done" &&
+      c.position > item.position,
+  );
+}
+
 /** When an item is locked, returns a clear human-readable explanation of
  * what must be completed to unlock it (e.g. "Complete 'Step Name' first"). */
 export function unlockReasonForItem(

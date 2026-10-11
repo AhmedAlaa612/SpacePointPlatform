@@ -18,7 +18,7 @@ import { isKnownEmbedHost, toEmbedUrl } from "@/lib/embed";
 import { ensureAbsoluteUrl } from "@/lib/utils";
 import { useToast } from "@/components/ui/toast";
 import {
-  iconForItem, MISSION_STEP_LABELS, navTargetFor, saveBoardScrollPosition, type MissionStepKey,
+  iconForItem, isSectionFrozen, MISSION_STEP_LABELS, navTargetFor, saveBoardScrollPosition, type MissionStepKey,
 } from "./roadmap";
 
 const SELF_CHECK_TYPES = new Set<LmsProgramChecklistItem["item_type"]>(["manual", "pdf", "external_link", "session"]);
@@ -110,6 +110,7 @@ interface DrawerBodyProps {
   Icon: LucideIcon;
   completeMutation: UseMutationResult<LmsProgramChecklistItem, Error, void>;
   teamFinalLocked?: boolean;
+  sectionFrozen?: boolean;
   onChanged: () => void;
 }
 
@@ -424,12 +425,17 @@ function DrawerBody({
   submitText, setSubmitText, submitTextMutation,
   linksInput, setLinksInput, submitLinksMutation,
   Icon, completeMutation,
-  teamFinalLocked, onChanged,
+  teamFinalLocked, sectionFrozen, onChanged,
 }: DrawerBodyProps) {
   // A plain (non-multi) submission item can itself be a text field
   // (2026-09-16) — isPoster is excluded on purpose, it's always
   // item_type=="mission_run" and always link-only regardless of this flag.
   const isTextSubmission = item.item_type === "submission" && !isMultiLink && item.submission_field_type === "text";
+  // Checkpoint freeze — this team item sits above a locked checkpoint, so
+  // every write 409s. Hide all inputs/actions and show the neutral locked
+  // notice instead (never the submit button + an error toast).
+  const frozen = !!sectionFrozen;
+  const inputsHidden = (teamFinalLocked && item.scope === "team") || frozen;
   return (
     <>
       <div className="flex items-center justify-between gap-2">
@@ -574,14 +580,22 @@ function DrawerBody({
       )}
 
       {/* Team setup — formation + rename. One item: create/join/leave with
-          codes plus rename, always shared (any teammate, last write wins). */}
+          codes plus rename, always shared (any teammate, last write wins).
+          Frozen by a locked checkpoint → neutral lock notice, no forms. */}
       {isTeamSetup && (
-        <TeamFormationPanel
-          assignmentId={assignmentId} item={item}
-          teamName={teamName} teamCode={teamCode} teamMembers={teamMembers}
-          pastDeadline={pastDeadline}
-          onChanged={onChanged}
-        />
+        frozen ? (
+          <div className="flex items-center justify-center gap-2 p-3.5 rounded-xl bg-primary/10 border border-primary/25 text-primary text-sm font-semibold">
+            <Lock size={16} className="shrink-0 text-muted-foreground" />
+            This checkpoint is now locked for your team
+          </div>
+        ) : (
+          <TeamFormationPanel
+            assignmentId={assignmentId} item={item}
+            teamName={teamName} teamCode={teamCode} teamMembers={teamMembers}
+            pastDeadline={pastDeadline}
+            onChanged={onChanged}
+          />
+        )
       )}
 
       {isSubmission && submissionReference && (
@@ -654,7 +668,7 @@ function DrawerBody({
         </div>
       )}
 
-      {isSubmission && !isMultiLink && !(teamFinalLocked && item.scope === "team") && (
+      {isSubmission && !isMultiLink && !inputsHidden && (
         pastDeadline ? (
           <p className="text-sm font-medium text-amber-600 dark:text-amber-500">
             Deadline passed — no longer accepting submissions
@@ -689,7 +703,7 @@ function DrawerBody({
         )
       )}
 
-      {isSubmission && isMultiLink && !(teamFinalLocked && item.scope === "team") && (
+      {isSubmission && isMultiLink && !inputsHidden && (
         pastDeadline ? (
           <p className="text-sm font-medium text-amber-600 dark:text-amber-500">
             Deadline passed — no longer accepting submissions
@@ -769,21 +783,27 @@ function DrawerBody({
         )
       )}
 
-      {item.item_type === "quiz" && pastDeadline && !done && (
+      {item.item_type === "quiz" && pastDeadline && !done && !frozen && (
         <p className="text-sm font-medium text-amber-600 dark:text-amber-500">
           Deadline passed — no longer accepting quiz attempts
         </p>
       )}
 
-      {isSelfCheck && pastDeadline && !done && !awaiting && (
+      {isSelfCheck && pastDeadline && !done && !awaiting && !frozen && (
         <p className="text-sm font-medium text-amber-600 dark:text-amber-500">
           Deadline passed — this step can no longer be completed
         </p>
       )}
 
-      {/* Exactly one primary action, whatever this item's type. */}
+      {/* Exactly one primary action, whatever this item's type. A section
+          frozen by a locked checkpoint never shows a submit/complete button —
+          just the neutral lock notice, so the write can never 409. */}
       <div className="mt-auto pt-3 flex flex-col gap-2.5 border-t border-border">
-        {teamFinalLocked && item.scope === "team" ? (
+        {frozen ? (
+          <div className="flex items-center justify-center gap-2 p-3.5 rounded-xl bg-primary/10 border border-primary/25 text-primary text-sm font-semibold">
+            <Lock size={16} className="shrink-0 text-muted-foreground" /> This checkpoint is now locked for your team
+          </div>
+        ) : teamFinalLocked && item.scope === "team" ? (
           <div className="flex items-center justify-center gap-2 p-3.5 rounded-xl bg-primary/10 border border-primary/25 text-primary text-sm font-semibold">
             <Lock size={16} /> Final submission locked · Sealed for review
           </div>
@@ -892,9 +912,10 @@ function DrawerBody({
  * lifted from the old `ChecklistItemRow` (`LearnChecklist.tsx`, now
  * retired), not rewritten. */
 export function TaskDrawer({
-  item, assignmentId, teamName, teamCode, teamMembers, teamFinalLocked, onClose, onChanged,
+  item, items, assignmentId, teamName, teamCode, teamMembers, teamFinalLocked, onClose, onChanged,
 }: {
   item: LmsProgramChecklistItem | null;
+  items?: LmsProgramChecklistItem[];
   assignmentId: string;
   teamName: string | null;
   teamCode?: string | null;
@@ -1091,6 +1112,7 @@ export function TaskDrawer({
   // (Team formation handles its own server-confirmed deadline inside its panel.)
   const pastDeadline = !isPoster && !!item.deadline_at && new Date(item.deadline_at) < new Date();
   const Icon = iconForItem(item);
+  const sectionFrozen = !!items?.length && isSectionFrozen(items, item, !!teamName);
 
   const bodyProps: DrawerBodyProps = {
     item, onClose, hasGuideline, effectiveGuidelineKind, guidelineOpened, openGuideline, workLabel, doWork,
@@ -1101,7 +1123,7 @@ export function TaskDrawer({
     submitUrl, setSubmitUrl, submitMutation, submitText, setSubmitText, submitTextMutation,
     linksInput, setLinksInput, submitLinksMutation,
     Icon, completeMutation,
-    teamFinalLocked, onChanged,
+    teamFinalLocked, sectionFrozen, onChanged,
   };
 
   return (
