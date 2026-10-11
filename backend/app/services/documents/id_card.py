@@ -141,6 +141,7 @@ ROLE_LABEL: dict[UserRole, str] = {
     UserRole.facilitator: "Facilitator",
     UserRole.ambassador:  "Ambassador",
     UserRole.teacher:     "Teacher",
+    UserRole.organization: "Organization",
 }
 
 # ── Font embedding ─────────────────────────────────────────────────────────────
@@ -302,7 +303,9 @@ async def ensure_card_number(db: AsyncSession, user: User) -> int:
     Students draw from a separate `card_seq_student` sequence (2026-08-22)
     — a student and a staff member never end up with the same-looking number
     from what used to be one shared pool, and `format_card_id` above is what
-    turns that into a visually distinct prefix. Branches once, at
+    turns that into a visually distinct prefix. Pure organization accounts
+    (holds ONLY `organization`) draw from `card_seq_organization` (2026-10)
+    for the same reason — `SP-ORG-####-UAE`, never `SP-ST-`. Branches once, at
     allocation time, on whichever roles the account holds right then — same
     "allocate once, never revisited" posture as the number itself.
     """
@@ -310,13 +313,19 @@ async def ensure_card_number(db: AsyncSession, user: User) -> int:
         return user.card_number
 
     from sqlalchemy import text
-    # Observer mode (2026-10): pure observers draw from the student
-    # sequence; multi-role staff keep the person sequence (their card
-    # number was already allocated as staff, never revisited).
     roles = set(user.role_values or [])
-    staff_roles = {"operations", "admin", "facilitator", "instructor", "student"}
-    pure_observer = "observer" in roles and not (staff_roles & roles)
-    sequence = "card_seq_student" if ("student" in roles or pure_observer) else "card_seq_person"
+    # Pure organization accounts get their own pool (SP-ORG-). Multi-role
+    # accounts carrying `organization` plus a staff/student role stay in
+    # their staff/student pool — same posture as pure-observer branching.
+    if roles == {"organization"}:
+        sequence = "card_seq_organization"
+    else:
+        # Observer mode (2026-10): pure observers draw from the student
+        # sequence; multi-role staff keep the person sequence (their card
+        # number was already allocated as staff, never revisited).
+        staff_roles = {"operations", "admin", "facilitator", "instructor", "student"}
+        pure_observer = "observer" in roles and not (staff_roles & roles)
+        sequence = "card_seq_student" if ("student" in roles or pure_observer) else "card_seq_person"
     # A real Postgres sequence never repeats a value on its own — a
     # collision here (2026-09-14 incident, `idx_users_card_number_student`)
     # means the sequence has drifted behind an existing card_number set

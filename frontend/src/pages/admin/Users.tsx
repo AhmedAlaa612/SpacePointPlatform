@@ -16,7 +16,7 @@ import { PasswordInput } from "@/components/ui/PasswordInput"
 import { CountrySelect } from "@/components/ui/CountrySelect"
 import { CityNameSelect } from "@/components/ui/CitySelect"
 
-const ALL_ROLES: Role[] = ["admin", "intern", "leader", "applicant", "instructor", "facilitator", "ambassador", "teacher", "operations", "coo", "storekeeper", "judge", "lms_author", "observer", "organization"]
+const ALL_ROLES: Role[] = ["admin", "intern", "leader", "applicant", "instructor", "facilitator", "ambassador", "teacher", "operations", "coo", "storekeeper", "student", "judge", "lms_author", "observer", "organization"]
 
 const roleBadgeColor: Record<Role, string> = {
   admin: "bg-foreground text-background",
@@ -62,7 +62,11 @@ export default function Users() {
   const filteredUsers = useMemo(() => {
     const q = search.trim().toLowerCase()
     return users.filter((u) => {
-      const isOrgUser = u.roles.includes("organization") || !!u.organization_id
+      // An "organization user" is an ACCOUNT with the organization role —
+      // NOT any student/staff merely linked to a school via organization_id
+      // (every student with a school carries that field from their contact,
+      // which used to leak SP-ST- students with Student badges into this tab).
+      const isOrgUser = u.roles.includes("organization")
       if (q) {
         const matchesName = u.full_name.toLowerCase().includes(q)
         const matchesEmail = u.email.toLowerCase().includes(q)
@@ -198,20 +202,20 @@ export default function Users() {
                   {u.photo_url ? (
                     <img src={u.photo_url} alt={u.full_name} className="w-full h-full object-cover" />
                   ) : (
-                    (u.organization_name || u.full_name).split(" ").map((w) => w[0]).join("").slice(0, 2).toUpperCase()
+                    (organizationsOnly && u.organization_name ? u.organization_name : u.full_name).split(" ").map((w) => w[0]).join("").slice(0, 2).toUpperCase()
                   )}
                 </div>
                 <div className="min-w-0 flex-1">
                   <div className="flex flex-wrap items-center gap-1.5">
                     <p className="text-sm font-medium text-foreground truncate">
-                      {u.organization_name ? `${u.organization_name} (${u.full_name})` : u.full_name}
+                      {organizationsOnly && u.organization_name ? `${u.organization_name} (${u.full_name})` : u.full_name}
                     </p>
                     {u.card_id && (
                       <span className="text-[10px] font-mono font-semibold px-1.5 py-0.5 rounded bg-primary/10 text-primary shrink-0">
                         {u.card_id}
                       </span>
                     )}
-                    {u.organization_type && (
+                    {organizationsOnly && u.organization_type && (
                       <span className="text-[10px] font-semibold uppercase px-1.5 py-0.5 rounded bg-primary/15 text-primary shrink-0">
                         {u.organization_type}
                         {u.organization_country ? ` · ${u.organization_country.toUpperCase()}` : ""}
@@ -225,6 +229,7 @@ export default function Users() {
                   </div>
                   <p className="text-xs text-muted-foreground truncate">
                     {u.email}
+                    {!organizationsOnly && u.organization_name ? ` · ${u.organization_name}` : ""}
                     {u.organization_city ? ` · ${u.organization_city}` : ""}
                   </p>
                   <div className="flex sm:hidden flex-wrap gap-1 mt-1.5">

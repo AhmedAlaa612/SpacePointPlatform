@@ -54,11 +54,12 @@ class User(Base):
     photo_path = Column(String, nullable=True)  # path inside the "profile_pictures" bucket
     linkedin_url = Column(String, nullable=True)
     # Shared identity number for ID cards — one per person, reused across every
-    # role's card. Formatted as "SP-{card_number:04d}-UAE" for staff or
-    # "SP-ST-{card_number:04d}-UAE" for students (services/documents/
+    # role's card. Formatted as "SP-{card_number:04d}-UAE" for staff,
+    # "SP-ST-{card_number:04d}-UAE" for students or "SP-ORG-{card_number:04d}-UAE"
+    # for pure organization accounts (services/documents/
     # card_id.py::format_card_id) — drawn from separate sequences
-    # (card_seq_person / card_seq_student) so the two never look
-    # interchangeable, even though this raw integer alone doesn't carry that
+    # (card_seq_person / card_seq_student / card_seq_organization) so the pools
+    # never look interchangeable, even though this raw integer alone doesn't carry that
     # distinction. Allocated once, at account-creation time, never per-role
     # and never revisited. See services/documents/id_card.ensure_card_number.
     card_number = Column(Integer, nullable=True)
