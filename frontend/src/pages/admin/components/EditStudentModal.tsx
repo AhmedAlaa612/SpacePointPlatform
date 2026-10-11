@@ -19,6 +19,7 @@ export function EditStudentModal({
   const [studentName, setStudentName] = useState(registration.student_name || "")
   const [email, setEmail] = useState(registration.student_email || "")
   const [phone, setPhone] = useState(registration.student_phone || "")
+  const [gender, setGender] = useState(registration.student_gender || "")
   const [error, setError] = useState("")
 
   const mutation = useMutation({
@@ -27,6 +28,7 @@ export function EditStudentModal({
         full_name: studentName.trim(),
         email: email.trim() || null,
         primary_phone_e164: phone.trim() || null,
+        gender: gender.trim() || null,
       }),
     onSuccess: () => {
       toast.success("Student details updated")
@@ -69,6 +71,19 @@ export function EditStudentModal({
             />
           </Field>
         </div>
+        <Field label="Gender (optional)">
+          <input
+            value={gender}
+            onChange={(e) => setGender(e.target.value)}
+            placeholder="Male / Female"
+            list="student-gender-options"
+            className="w-full h-10 px-3 border border-border bg-card text-foreground rounded-xl text-sm focus:outline-none focus:border-primary transition-colors"
+          />
+          <datalist id="student-gender-options">
+            <option value="Male" />
+            <option value="Female" />
+          </datalist>
+        </Field>
 
         <div className="flex items-center justify-end gap-2 pt-2 border-t border-border/50">
           <button

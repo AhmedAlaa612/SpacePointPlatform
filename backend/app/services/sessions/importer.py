@@ -47,6 +47,7 @@ TEMPLATE_COLUMNS: list[tuple[str, bool]] = [
     ("city", True),
     ("date_of_birth", False),
     ("grade", False),
+    ("gender", False),
     ("organization", False),
     ("parent_name", False),
     ("parent_phone", False),
@@ -219,6 +220,7 @@ async def _process_row(
 
         date_of_birth = _parse_date_of_birth(raw.get("date_of_birth"))
         grade = _clean_str(raw.get("grade"))
+        gender = _clean_str(raw.get("gender"))
         organization_name = _clean_str(raw.get("organization"))
 
         parent_name = _clean_str(raw.get("parent_name"))
@@ -229,7 +231,8 @@ async def _process_row(
 
     student, evaluation = await resolve_or_create_contact(
         db, full_name=student_name, phone=phone_raw, email=email, contact_roles=["student"], city=city,
-        role_event_source="import", date_of_birth=date_of_birth, grade=grade, organization_name=organization_name,
+        role_event_source="import", date_of_birth=date_of_birth, grade=grade, gender=gender,
+        organization_name=organization_name,
     )
     if set_contact_organization and cohort.organization_id and student.organization_id is None:
         student.organization_id = cohort.organization_id

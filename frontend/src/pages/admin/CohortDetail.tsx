@@ -137,6 +137,7 @@ function CohortDetailView({ cohort }: { cohort: Cohort }) {
   const [regSearch, setRegSearch] = useState("")
   const [regLoginFilter, setRegLoginFilter] = useState<"all" | "never" | "has_logged_in">("all")
   const [regConsentFilter, setRegConsentFilter] = useState<"all" | "consented" | "declined" | "pending">("all")
+  const [regGenderFilter, setRegGenderFilter] = useState<string>("all")
   const [consentTarget, setConsentTarget] = useState<Registration | null>(null)
   const [deleteTarget, setDeleteTarget] = useState<Registration | null>(null)
   const [cancelTarget, setCancelTarget] = useState<Registration | null>(null)
@@ -167,6 +168,26 @@ function CohortDetailView({ cohort }: { cohort: Cohort }) {
     queryFn: () => listCohortReportsApi(cohort.id),
   })
 
+  const normalizeGenderKey = (raw?: string | null): string => {
+    const s = (raw ?? "").trim().toLowerCase()
+    if (!s) return "unspecified"
+    if (s === "m" || s === "male" || s === "boy" || s === "ذكر") return "male"
+    if (s === "f" || s === "female" || s === "girl" || s === "أنثى" || s === "انثى") return "female"
+    return s
+  }
+
+  const customGenderOptions = Array.from(
+    registrations.reduce((map, r) => {
+      const raw = (r.student_gender ?? "").trim()
+      if (!raw) return map
+      const key = normalizeGenderKey(raw)
+      if (key !== "male" && key !== "female" && key !== "unspecified" && !map.has(key)) {
+        map.set(key, raw)
+      }
+      return map
+    }, new Map<string, string>()).entries(),
+  )
+
   // Ops open this on a phone at a venue door, where a cohort can easily run to
   // dozens of rows — searching beats scrolling. Matches every field shown on
   // the row so "the school" or "the parent's number" both work.
@@ -177,10 +198,13 @@ function CohortDetailView({ cohort }: { cohort: Cohort }) {
       const cStatus = r.media_consent_status ?? "pending"
       if (cStatus !== regConsentFilter) return false
     }
+    if (regGenderFilter !== "all") {
+      if (normalizeGenderKey(r.student_gender) !== regGenderFilter) return false
+    }
     const q = regSearch.trim().toLowerCase()
     if (!q) return true
     return [
-      r.student_name, r.student_phone, r.student_email, r.student_grade,
+      r.student_name, r.student_phone, r.student_email, r.student_grade, r.student_gender,
       r.student_organization_name, r.guardian_name, r.guardian_phone,
       r.media_consent_parent_name, r.media_consent_parent_phone,
       r.status, r.payment_status,
@@ -194,6 +218,7 @@ function CohortDetailView({ cohort }: { cohort: Cohort }) {
   const handleExportRegistrations = () => {
     const rows = filteredRegistrations.map((r) => ({
       "Student Name": r.student_name,
+      "Gender": r.student_gender ?? "",
       "Phone": r.student_phone ?? "",
       "Email": r.student_email ?? "",
       "School": r.student_organization_name ?? "",
@@ -211,6 +236,7 @@ function CohortDetailView({ cohort }: { cohort: Cohort }) {
     const ws = XLSX.utils.json_to_sheet(rows)
     ws["!cols"] = [
       { wch: 24 }, // Student Name
+      { wch: 12 }, // Gender
       { wch: 16 }, // Phone
       { wch: 26 }, // Email
       { wch: 22 }, // School
@@ -626,6 +652,20 @@ function CohortDetailView({ cohort }: { cohort: Cohort }) {
             </div>
             <div className="flex items-center gap-2 flex-wrap sm:flex-nowrap w-full sm:w-auto">
               <select
+                value={regGenderFilter}
+                onChange={(e) => setRegGenderFilter(e.target.value)}
+                aria-label="Filter registrations by gender"
+                className="flex-1 sm:flex-none sm:w-auto h-9 px-2.5 bg-background border border-border rounded-xl text-xs focus:outline-none focus:border-primary transition-colors cursor-pointer"
+              >
+                <option value="all">Any gender</option>
+                <option value="male">Gender: Male</option>
+                <option value="female">Gender: Female</option>
+                {customGenderOptions.map(([key, label]) => (
+                  <option key={key} value={key}>Gender: {label}</option>
+                ))}
+                <option value="unspecified">Gender: Not specified</option>
+              </select>
+              <select
                 value={regLoginFilter}
                 onChange={(e) => setRegLoginFilter(e.target.value as "all" | "never" | "has_logged_in")}
                 className="flex-1 sm:flex-none sm:w-auto h-9 px-2.5 bg-background border border-border rounded-xl text-xs focus:outline-none focus:border-primary transition-colors cursor-pointer"
@@ -686,6 +726,11 @@ function CohortDetailView({ cohort }: { cohort: Cohort }) {
                       >
                         {r.student_name}
                       </button>
+                      {r.student_gender && (
+                        <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-muted text-muted-foreground">
+                          {r.student_gender}
+                        </span>
+                      )}
                       {/* Media Consent Clickable Badge */}
                       <button
                         type="button"
@@ -752,6 +797,7 @@ function CohortDetailView({ cohort }: { cohort: Cohort }) {
                     <p className="text-xs text-muted-foreground truncate">
                       {r.student_phone ?? "—"}
                       {r.student_email ? ` · ${r.student_email}` : ""}
+                      {r.student_gender ? ` · ${r.student_gender}` : ""}
                       {r.student_date_of_birth ? ` · DOB: ${r.student_date_of_birth}` : ""}
                       {r.student_grade ? ` · ${r.student_grade}` : ""}
                       {r.student_organization_name ? ` · ${r.student_organization_name}` : ""}
@@ -1296,6 +1342,7 @@ function EditStudentModal({
   const [phone, setPhone] = useState(registration.student_phone || "")
   const [dateOfBirth, setDateOfBirth] = useState(registration.student_date_of_birth || "")
   const [grade, setGrade] = useState(registration.student_grade || "")
+  const [gender, setGender] = useState(registration.student_gender || "")
   const [organizationName, setOrganizationName] = useState(registration.student_organization_name || "")
   const [error, setError] = useState("")
 
@@ -1307,6 +1354,7 @@ function EditStudentModal({
         primary_phone_e164: phone.trim() || null,
         date_of_birth: dateOfBirth || null,
         grade: grade.trim() || null,
+        gender: gender.trim() || null,
         ...(organizationName.trim() ? { organization_name: organizationName.trim() } : {}),
       }),
     onSuccess: () => { toast.success("Student info saved"); onSuccess() },
@@ -1342,7 +1390,7 @@ function EditStudentModal({
             />
           </Field>
         </div>
-        <div className="grid grid-cols-2 gap-2">
+        <div className="grid grid-cols-3 gap-2">
           <Field label="Date of birth">
             <input
               type="date"
@@ -1358,6 +1406,19 @@ function EditStudentModal({
               placeholder="e.g. Grade 10"
               className="w-full h-10 px-3 border border-border bg-card text-foreground rounded-xl text-sm focus:outline-none focus:border-primary transition-colors"
             />
+          </Field>
+          <Field label="Gender">
+            <input
+              value={gender}
+              onChange={(e) => setGender(e.target.value)}
+              placeholder="Male / Female"
+              list="cohort-student-gender-list"
+              className="w-full h-10 px-3 border border-border bg-card text-foreground rounded-xl text-sm focus:outline-none focus:border-primary transition-colors"
+            />
+            <datalist id="cohort-student-gender-list">
+              <option value="Male" />
+              <option value="Female" />
+            </datalist>
           </Field>
         </div>
         <Field label="School / Organization">

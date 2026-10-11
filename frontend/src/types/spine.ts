@@ -108,6 +108,8 @@ export interface ContactDetail {
   city?: string | null;
   date_of_birth?: string | null;
   grade?: string | null;
+  gender?: string | null;
+  nationality?: string | null;
   lifecycle_stage: string;
   owner_user_id?: string | null;
   organization_id?: string | null;
@@ -156,6 +158,8 @@ export type ContactUpdate = Partial<{
   city: string | null;
   date_of_birth: string | null;
   grade: string | null;
+  gender: string | null;
+  nationality: string | null;
   lifecycle_stage: string;
   owner_user_id: string | null;
   organization_id: string | null;

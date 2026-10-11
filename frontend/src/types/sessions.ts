@@ -457,6 +457,7 @@ export interface Registration {
   student_email?: string | null;
   student_date_of_birth?: string | null;
   student_grade?: string | null;
+  student_gender?: string | null;
   student_organization_name?: string | null;
   payer_contact_id?: string | null;
   guardian_name?: string | null;
@@ -572,6 +573,7 @@ export interface DeskRegistrationInput {
   // organization_name resolves or creates a school Organization by name.
   date_of_birth?: string;
   grade?: string;
+  gender?: string;
   organization_name?: string;
   // Always optional — no age/minor detection or enforcement anywhere in
   // this system. If given, the parent is linked as guardian/payer.

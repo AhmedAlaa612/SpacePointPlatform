@@ -229,6 +229,7 @@ class CleanedRow:
     phone: str | None
     nationality: str | None
     school: str | None
+    gender: str | None = None
 
 
 def _clean_row(row_number: int, raw: dict) -> CleanedRow:
@@ -239,6 +240,7 @@ def _clean_row(row_number: int, raw: dict) -> CleanedRow:
         member_name=_clean_str(raw.get("member_name")),
         email=_clean_str(raw.get("email")),
         phone=_clean_str(raw.get("phone")),
+        gender=_clean_str(raw.get("gender")),
         nationality=_clean_str(raw.get("nationality")),
         school=_clean_str(raw.get("school")),
     )
@@ -299,7 +301,7 @@ def preview_registration_sheet(file_bytes: bytes, filename: str | None = None) -
             issues.append("Same email appears under multiple Team IDs — import keeps only the last team")
         out.append(ImportPreviewRow(
             row_number=row.row_number, team_id=row.team_id, team_name=row.team_name, member_name=row.member_name,
-            email=row.email, phone=row.phone, nationality=row.nationality, school=row.school,
+            email=row.email, phone=row.phone, gender=row.gender, nationality=row.nationality, school=row.school,
             issues=issues,
         ))
     return out
@@ -436,17 +438,21 @@ async def _import_row(
     issues = _blocking_issues(row)
     if issues:
         return ImportRowResult(row_number, row.team_id, row.team_name, row.email, "error", "; ".join(issues))
-    team_id, team_name, member_name, email, phone, nationality, school = (
-        row.team_id, row.team_name, row.member_name, row.email, row.phone, row.nationality, row.school,
+    team_id, team_name, member_name, email, phone, gender, nationality, school = (
+        row.team_id, row.team_name, row.member_name, row.email, row.phone, row.gender, row.nationality, row.school,
     )
 
     existing_contact_id = await _find_existing_contact_by_email(db, email=email, cohort_id=cohort.id)
     if existing_contact_id is not None:
         contact = await db.get(Contact, existing_contact_id)
+        if gender and contact and not contact.gender:
+            contact.gender = gender
+        if nationality and contact and not contact.nationality:
+            contact.nationality = nationality
     else:
         contact, _evaluation = await resolve_or_create_contact(
             db, full_name=member_name, phone=phone, email=email, contact_roles=["student"],
-            role_event_source="import", organization_name=school, nationality=nationality,
+            role_event_source="import", organization_name=school, gender=gender, nationality=nationality,
         )
 
     try:

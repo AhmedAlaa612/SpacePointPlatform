@@ -17,6 +17,7 @@ export function DeskRegisterModal({ cohort, sessions, onClose, onSuccess }: {
   const [city, setCity] = useState("")
   const [dateOfBirth, setDateOfBirth] = useState("")
   const [grade, setGrade] = useState("")
+  const [gender, setGender] = useState("")
   const [organizationName, setOrganizationName] = useState("")
   const [parentName, setParentName] = useState("")
   const [parentPhone, setParentPhone] = useState("")
@@ -42,6 +43,7 @@ export function DeskRegisterModal({ cohort, sessions, onClose, onSuccess }: {
       city: city.trim() || undefined,
       date_of_birth: dateOfBirth || undefined,
       grade: grade.trim() || undefined,
+      gender: gender.trim() || undefined,
       organization_name: organizationName.trim() || undefined,
       parent_name: parentName.trim() || undefined,
       parent_phone: parentPhone.trim() || undefined,
@@ -79,12 +81,24 @@ export function DeskRegisterModal({ cohort, sessions, onClose, onSuccess }: {
             />
           </Field>
         </div>
-        <Field label="City (optional)">
-          <input
-            value={city} onChange={(e) => setCity(e.target.value)} placeholder="Dubai"
-            className="w-full h-10 px-3 border border-border bg-card text-foreground rounded-xl text-sm focus:outline-none focus:border-primary transition-colors"
-          />
-        </Field>
+        <div className="grid grid-cols-2 gap-3">
+          <Field label="City (optional)">
+            <input
+              value={city} onChange={(e) => setCity(e.target.value)} placeholder="Dubai"
+              className="w-full h-10 px-3 border border-border bg-card text-foreground rounded-xl text-sm focus:outline-none focus:border-primary transition-colors"
+            />
+          </Field>
+          <Field label="Gender (optional)">
+            <input
+              value={gender} onChange={(e) => setGender(e.target.value)} placeholder="Male / Female" list="desk-gender-list"
+              className="w-full h-10 px-3 border border-border bg-card text-foreground rounded-xl text-sm focus:outline-none focus:border-primary transition-colors"
+            />
+            <datalist id="desk-gender-list">
+              <option value="Male" />
+              <option value="Female" />
+            </datalist>
+          </Field>
+        </div>
         <div className="grid grid-cols-2 gap-3">
           <Field label="Date of birth (optional)">
             <input

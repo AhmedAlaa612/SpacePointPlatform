@@ -269,6 +269,7 @@ export interface CompetitionImportPreviewRow {
   member_name: string | null
   email: string | null
   phone: string | null
+  gender: string | null
   nationality: string | null
   school: string | null
   issues: string[]

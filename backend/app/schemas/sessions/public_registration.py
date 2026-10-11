@@ -15,6 +15,7 @@ class PublicRegistrationRequest(BaseModel):
     # organization_name resolves or creates an Organization by name (school).
     date_of_birth: date | None = None
     grade: str | None = None
+    gender: str | None = None
     organization_name: str | None = None
 
     # Always optional — no age/minor detection or enforcement happens in this

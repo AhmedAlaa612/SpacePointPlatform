@@ -215,6 +215,7 @@ async def public_register(
             city=body.city,
             date_of_birth=body.date_of_birth,
             grade=body.grade,
+            gender=body.gender,
             organization_name=body.organization_name,
         )
 

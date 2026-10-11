@@ -248,6 +248,8 @@ export function ContactDetailModal({
               <InfoField label="Country" value={contact.country} />
               <InfoField label="Date of birth" value={contact.date_of_birth} />
               <InfoField label="Grade" value={contact.grade} />
+              <InfoField label="Gender" value={contact.gender} />
+              <InfoField label="Nationality" value={contact.nationality} />
               <InfoField label="Organization" value={contact.organization_name} />
             </div>
 
@@ -383,6 +385,7 @@ function ContactEditForm({
   const [country, setCountry] = useState(contact.country || "")
   const [dateOfBirth, setDateOfBirth] = useState(contact.date_of_birth || "")
   const [grade, setGrade] = useState(contact.grade || "")
+  const [gender, setGender] = useState(contact.gender || "")
   const [organizationId, setOrganizationId] = useState(contact.organization_id || "")
   const [lifecycleStage, setLifecycleStage] = useState(contact.lifecycle_stage)
   const [notes, setNotes] = useState(contact.notes || "")
@@ -403,6 +406,7 @@ function ContactEditForm({
       country: country || null,
       date_of_birth: dateOfBirth || null,
       grade: grade || null,
+      gender: gender || null,
       organization_id: organizationId || null,
       lifecycle_stage: lifecycleStage,
       notes: notes || null,
@@ -453,7 +457,7 @@ function ContactEditForm({
           />
         </Field>
       </div>
-      <div className="grid grid-cols-2 gap-3">
+      <div className="grid grid-cols-3 gap-3">
         <Field label="Date of birth">
           <input
             value={dateOfBirth} onChange={(e) => setDateOfBirth(e.target.value)} type="date"
@@ -463,6 +467,12 @@ function ContactEditForm({
         <Field label="Grade">
           <input
             value={grade} onChange={(e) => setGrade(e.target.value)} placeholder="Grade 8"
+            className="w-full h-10 px-3 border border-border bg-card text-foreground rounded-xl text-sm focus:outline-none focus:border-primary transition-colors"
+          />
+        </Field>
+        <Field label="Gender">
+          <input
+            value={gender} onChange={(e) => setGender(e.target.value)} placeholder="Male / Female"
             className="w-full h-10 px-3 border border-border bg-card text-foreground rounded-xl text-sm focus:outline-none focus:border-primary transition-colors"
           />
         </Field>

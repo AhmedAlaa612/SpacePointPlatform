@@ -202,6 +202,51 @@ async def test_import_captures_nationality_on_the_contact(db):
 
 
 @pytest.mark.asyncio
+async def test_import_captures_gender_on_the_contact_and_backfills_on_reimport(db):
+    from app.services.competitions.registration_import import preview_registration_sheet
+
+    cohort = await _make_cohort(db)
+    await db.commit()
+    email_f = f"lina-{uuid.uuid4().hex[:6]}@example.com"
+    email_m = f"amir-{uuid.uuid4().hex[:6]}@example.com"
+
+    # First import: Lina has Gender="Female", Amir has no Gender yet
+    wb = openpyxl.Workbook()
+    sheet = wb.active
+    sheet.append(["Team ID", "Student Name", "Email", "Gender"])
+    sheet.append(["T1", "Lina Nasser", email_f, "Female"])
+    sheet.append(["T1", "Amir Salem", email_m, None])
+    buf = io.BytesIO()
+    wb.save(buf)
+    file_bytes = buf.getvalue()
+
+    preview = preview_registration_sheet(file_bytes)
+    assert [r.gender for r in preview] == ["Female", None]
+
+    await import_registrations(db, cohort_id=cohort.id, rows=parse_registration_sheet(file_bytes))
+    await db.commit()
+
+    contact_f = (await db.execute(select(Contact).where(Contact.email == email_f))).scalar_one()
+    contact_m = (await db.execute(select(Contact).where(Contact.email == email_m))).scalar_one()
+    assert contact_f.gender == "Female"
+    assert contact_m.gender is None
+
+    # Re-import with Amir's Gender filled in — should gap-fill on existing cohort contact
+    wb2 = openpyxl.Workbook()
+    sheet2 = wb2.active
+    sheet2.append(["Team ID", "Student Name", "Email", "Gender"])
+    sheet2.append(["T1", "Lina Nasser", email_f, "Female"])
+    sheet2.append(["T1", "Amir Salem", email_m, "Male"])
+    buf2 = io.BytesIO()
+    wb2.save(buf2)
+
+    await import_registrations(db, cohort_id=cohort.id, rows=parse_registration_sheet(buf2.getvalue()))
+    await db.commit()
+    await db.refresh(contact_m)
+    assert contact_m.gender == "Male"
+
+
+@pytest.mark.asyncio
 async def test_import_is_idempotent_on_email(db):
     cohort = await _make_cohort(db)
     await db.commit()

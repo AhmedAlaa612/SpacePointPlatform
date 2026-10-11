@@ -96,6 +96,8 @@ async def _build_contact_detail(db: AsyncSession, contact: Contact) -> ContactDe
         city=contact.city,
         date_of_birth=contact.date_of_birth,
         grade=contact.grade,
+        gender=contact.gender,
+        nationality=contact.nationality,
         lifecycle_stage=contact.lifecycle_stage,
         owner_user_id=contact.owner_user_id,
         organization_id=contact.organization_id,

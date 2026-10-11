@@ -220,7 +220,7 @@ function RosterTab({ cohortId }: { cohortId: string }) {
           <p className="text-sm text-muted-foreground">
             Upload the final roster exported from the registration form — columns <code>team_id</code>,{" "}
             <code>member_name</code>, <code>email</code>, and optionally <code>team_name</code>/<code>phone</code>/
-            <code>nationality</code>/<code>school</code>. A team with no <code>team_name</code> yet gets its{" "}
+            <code>gender</code>/<code>nationality</code>/<code>school</code>. A team with no <code>team_name</code> yet gets its{" "}
             <code>team_id</code> as a placeholder — students set the real one themselves later. You'll get a
             preview to review before anything is created — a missing field blocks that row, a malformed email is
             just flagged (fix it or leave it, your call). Re-uploading the same sheet later just matches instead of
@@ -272,6 +272,7 @@ function RosterTab({ cohortId }: { cohortId: string }) {
                   <th className="py-2 pr-2">Member</th>
                   <th className="py-2 pr-2">Email</th>
                   <th className="py-2 pr-2">Phone</th>
+                  <th className="py-2 pr-2">Gender</th>
                   <th className="py-2 pr-2">Nationality</th>
                   <th className="py-2 pr-3">School</th>
                 </tr>
@@ -284,7 +285,7 @@ function RosterTab({ cohortId }: { cohortId: string }) {
                       blocked ? "bg-red-50 dark:bg-red-950/20" : r.issues.length > 0 ? "bg-amber-50 dark:bg-amber-950/20" : ""
                     }`}>
                       <td className="py-1.5 pl-3 pr-2 text-muted-foreground align-top pt-3">{r.row_number}</td>
-                      {(["team_id", "team_name", "member_name", "email", "phone", "nationality", "school"] as const).map((field) => (
+                      {(["team_id", "team_name", "member_name", "email", "phone", "gender", "nationality", "school"] as const).map((field) => (
                         <td key={field} className="py-1.5 pr-2">
                           <input
                             value={r[field] ?? ""}
