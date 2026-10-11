@@ -50,6 +50,10 @@ class Contact(Base):
     # systems vary (American/British/etc.), and nothing here validates or
     # acts on the value.
     grade = Column(String(32), nullable=True)
+    # Free text (e.g. "Male", "Female") — populated from competition roster
+    # imports ("Gender" column) or desk/contact edits, and used to filter
+    # cohort registrations.
+    gender = Column(String(32), nullable=True)
     # Citizenship, not residence — deliberately distinct from `country`
     # above (which is location/CRM-ish). Added for the competition roster
     # import (2026-09-14), where eligibility is nationality-gated by an

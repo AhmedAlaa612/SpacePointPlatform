@@ -1239,6 +1239,7 @@ async def list_registrations(
                 student_email=student.email,
                 student_date_of_birth=student.date_of_birth,
                 student_grade=student.grade,
+                student_gender=student.gender,
                 student_organization_name=student_org.name_latin if student_org is not None else None,
                 payer_contact_id=reg.payer_contact_id,
                 guardian_name=consent.parent_name if (consent and consent.parent_name) else (guardian.full_name if guardian is not None else None),
@@ -1296,6 +1297,7 @@ async def desk_register(
         role_event_source="desk",
         date_of_birth=body.date_of_birth,
         grade=body.grade,
+        gender=body.gender,
         organization_name=body.organization_name,
     )
 

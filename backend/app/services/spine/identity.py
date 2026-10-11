@@ -70,7 +70,7 @@ MERGE_FK_REGISTRY: list[tuple[str, str]] = [
 # fields that are NOT NULL with a default (never NULL, so the rule never fires).
 _MERGEABLE_SCALAR_FIELDS = [
     "primary_phone_e164", "whatsapp_e164", "email",
-    "country", "city", "owner_user_id",
+    "country", "city", "gender", "owner_user_id",
     "organization_id", "notes",
 ]
 
@@ -332,6 +332,7 @@ async def resolve_or_create_contact(
     role_event_source: str = "registration",
     date_of_birth: date | None = None,
     grade: str | None = None,
+    gender: str | None = None,
     nationality: str | None = None,
     organization_name: str | None = None,
 ) -> tuple[Contact, IdentityEvaluation]:
@@ -361,10 +362,11 @@ async def resolve_or_create_contact(
     anywhere. `organization_name` resolves (or creates) an Organization via
     resolve_or_create_organization and sets it on the contact.
 
-    `nationality` (2026-09-14, competition roster import) is the same kind
-    of purely informational field — deliberately distinct from `country`
-    (residence/CRM location), same gap-fill-only posture as `grade`.
+    `nationality` (2026-09-14, competition roster import) and `gender` are the
+    same kind of purely informational fields — deliberately distinct from
+    `country` (residence/CRM location), same gap-fill-only posture as `grade`.
     """
+    gender_clean = (gender or "").strip() or None
     evaluation = await evaluate(db, phone, email)
 
     if evaluation.outcome == "EXACT_MERGE":
@@ -386,6 +388,8 @@ async def resolve_or_create_contact(
             contact.date_of_birth = date_of_birth
         if contact.grade is None and grade is not None:
             contact.grade = grade
+        if contact.gender is None and gender_clean is not None:
+            contact.gender = gender_clean
         if contact.nationality is None and nationality is not None:
             contact.nationality = nationality
         if contact.organization_id is None and organization_name:
@@ -411,6 +415,7 @@ async def resolve_or_create_contact(
         lifecycle_stage=lifecycle_stage,
         date_of_birth=date_of_birth,
         grade=grade,
+        gender=gender_clean,
         nationality=nationality,
         organization_id=organization_id,
     )

@@ -442,6 +442,7 @@ class CompetitionImportPreviewRowOut(BaseModel):
     member_name: str | None = None
     email: str | None = None
     phone: str | None = None
+    gender: str | None = None
     nationality: str | None = None
     school: str | None = None
     issues: list[str] = []
@@ -462,6 +463,7 @@ class CompetitionImportConfirmRowIn(BaseModel):
     member_name: str | None = None
     email: str | None = None
     phone: str | None = None
+    gender: str | None = None
     nationality: str | None = None
     school: str | None = None
 

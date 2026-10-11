@@ -34,6 +34,7 @@ class DeskRegistrationRequest(BaseModel):
     # Organization by name.
     date_of_birth: date | None = None
     grade: str | None = None
+    gender: str | None = None
     organization_name: str | None = None
 
     parent_name: str | None = None
@@ -79,6 +80,7 @@ class RegistrationOut(BaseModel):
     student_email: str | None = None
     student_date_of_birth: date | None = None
     student_grade: str | None = None
+    student_gender: str | None = None
     student_organization_name: str | None = None
     payer_contact_id: UUID | None = None
     guardian_name: str | None = None

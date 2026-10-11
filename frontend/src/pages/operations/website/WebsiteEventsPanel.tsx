@@ -520,12 +520,14 @@ export function EventEditorModal({
                 </div>
               </div>
 
-              <InputField
-                label="Official World Space Week Listing URL (Optional)"
-                value={form.wsw_official_url || ""}
-                onChange={(v) => set("wsw_official_url", v)}
-                placeholder="https://www.worldspaceweek.org/events/..."
-              />
+              {form.mega_event_id && (
+                <InputField
+                  label="Official World Space Week / Campaign Listing URL (Optional)"
+                  value={form.wsw_official_url || ""}
+                  onChange={(v) => set("wsw_official_url", v)}
+                  placeholder="https://www.worldspaceweek.org/events/..."
+                />
+              )}
             </div>
 
             {isAdmin && (

@@ -81,7 +81,7 @@ from app.services.spine.identity import normalize_email, resolve_or_create_conta
 from app.services.teams import create_team, join_team, leave_team, team_member_ids
 
 REQUIRED_COLUMNS = ["team_id", "member_name", "email"]
-OPTIONAL_COLUMNS = ["phone", "nationality", "team_name", "school"]
+OPTIONAL_COLUMNS = ["phone", "gender", "nationality", "team_name", "school"]
 
 # Deliberately loose — this only needs to catch "a column shifted and this
 # clearly isn't an email" (a bare number, a name, empty), not reject every
@@ -101,6 +101,7 @@ _HEADER_ALIASES = {
     "student_name": "member_name",
     "school_/_university": "school",
     "school_university": "school",  # in case a re-save strips the slash
+    "student_gender": "gender",
 }
 
 
@@ -132,6 +133,7 @@ class ImportPreviewRow:
     nationality: str | None
     school: str | None
     issues: list[str]
+    gender: str | None = None
 
 
 def _normalize_header(raw: object) -> str:
