@@ -51,3 +51,13 @@ class LeadOut(BaseModel):
 
 class NewsletterSubscribeIn(BaseModel):
     email: EmailStr
+
+
+class LeadCreateIn(BaseModel):
+    lead_type: str = Field(default="inquiry", max_length=32)
+    contact_name: Optional[str] = Field(default=None, max_length=255)
+    email: EmailStr
+    phone: Optional[str] = Field(default=None, max_length=64)
+    organization_name: Optional[str] = Field(default=None, max_length=255)
+    program_interest: Optional[str] = Field(default=None, max_length=255)
+    details: Optional[dict] = None

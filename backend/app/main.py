@@ -124,7 +124,7 @@ app = FastAPI(title=settings.PROJECT_NAME, lifespan=lifespan)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=list(dict.fromkeys(settings.cors_origins + settings.public_form_origins)),
-    allow_origin_regex=r"https?://(localhost|127\.0\.0\.1)(:\d+)?",
+    allow_origin_regex=r"https?://((localhost|127\.0\.0\.1)(:\d+)?|([a-z0-9-]+\.)?spacepoint\.ae)",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

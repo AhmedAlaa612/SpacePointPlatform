@@ -195,6 +195,21 @@ Standard sequence when both sides changed: `deploy-backend.sh && deploy-frontend
 first). Deploy is **manual on purpose** — CI builds the artifact; a human (or an agent, if
 explicitly told to) runs the script. Nothing auto-deploys on merge.
 
+**`deploy-website.sh`** (Marketing Website — `https://spacepoint.ae`)
+```
+deploy-website.sh            # pull AhmedAlaa612/spacepoint-website, build Astro static site, atomic swap into /var/www/spacepoint-website
+deploy-website.sh --legacy   # emergency rollback to legacy static site
+```
+1. Pulls `main` from `https://github.com/AhmedAlaa612/spacepoint-website` into `/var/www/spacepoint-website-repo`.
+2. Runs `npm install` and `npm run build` (`astro build`).
+3. Backs up the current live build into `/var/www/spacepoint-website/backups/<timestamp>` and atomically swaps the new `dist/` into place, then reloads nginx.
+
+**`deploy-labs.sh`** (SpacePoint Labs — `https://labs.spacepoint.ae`)
+```
+deploy-labs.sh               # pull AhmedAlaa612/spacepoint-labs into /var/www/spacepoint-labs and reload nginx
+```
+Pulls `main` from `https://github.com/AhmedAlaa612/spacepoint-labs` into `/var/www/spacepoint-labs` (pure static HTML/WebGL simulation, no build step) and reloads nginx.
+
 ### The recurring gotcha, worth internalizing
 
 `deploy-backend.sh` recreates `spacepoint-api`/`spacepoint-worker`/`spacepoint-worker-video`
