@@ -13,14 +13,14 @@
 # any time, even mid-deploy.
 #
 # Paste-friendly: no tabs, no variable word-splitting. Run on the VPS as
-# root (Postgres 16 peer auth over the Unix socket — no password):
+# root using the usual invocation (peer auth over the Unix socket):
 #   bash /tmp/explore_org_mess.sh
 #
 set -u
 
 run() {
   echo "--- $1"
-  sudo -u postgres psql -d spacepoint_unified -X -q -t -A -F "|" -c "$2" 2>&1
+  sudo -u postgres psql -P pager=off spacepoint_unified -c "$2" 2>&1
   echo ""
 }
 
