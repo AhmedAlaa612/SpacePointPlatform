@@ -401,3 +401,51 @@ async def test_resolve_or_create_contact_gap_fills_dob_grade_org_on_exact_merge(
     assert contact.grade == "Grade 4"  # NOT overwritten — already had a value
     org = await db.get(Organization, contact.organization_id)
     assert org.name_latin == "New School"
+
+
+# ── partner-organization fence (2026-10) ────────────────────────────────────
+# Partner accounts share the `organizations` table with plain schools. Intake
+# school matching must never latch a contact onto a login-holding partner
+# row, even on an exact case-insensitive name hit.
+
+async def _partner_org(db, name: str) -> Organization:
+    owner = User(
+        id=uuid.uuid4(), full_name="Partner Rep", email=f"rep-{uuid.uuid4().hex[:8]}@example.com",
+        password_hash="x", roles=["organization"], status="active",
+    )
+    db.add(owner)
+    await db.flush()
+    org = Organization(id=uuid.uuid4(), name_latin=name, org_type="university", owner_user_id=owner.id)
+    db.add(org)
+    await db.flush()
+    return org
+
+
+@pytest.mark.asyncio
+async def test_resolve_or_create_organization_ignores_partner_rows(db):
+    partner = await _partner_org(db, "ADNOC Schools")
+
+    resolved = await resolve_or_create_organization(db, "  adnoc schools  ")
+
+    assert resolved.id != partner.id
+    assert resolved.owner_user_id is None
+    assert resolved.name_latin == "adnoc schools"
+    count = await db.scalar(
+        select(func.count()).select_from(Organization).where(func.lower(Organization.name_latin) == "adnoc schools")
+    )
+    assert count == 2
+
+
+@pytest.mark.asyncio
+async def test_resolve_or_create_contact_never_links_partner_org(db):
+    partner = await _partner_org(db, "Riverside School")
+
+    contact, _ = await resolve_or_create_contact(
+        db, full_name="New Student", phone="0509998877", email="partner-collision@example.com",
+        contact_roles=["student"], organization_name="riverside school",
+    )
+
+    assert contact.organization_id is not None
+    assert contact.organization_id != partner.id
+    linked = await db.get(Organization, contact.organization_id)
+    assert linked.owner_user_id is None

@@ -305,10 +305,20 @@ async def resolve_or_create_organization(
     here; this is not a reversal of the "name plays no role in matching"
     policy above, which is specifically about not silently merging two
     different PEOPLE — a school genuinely only has a name.
+
+    Partner-organization fence (2026-10): only login-less rows
+    (`owner_user_id IS NULL`) are ever matched or created here. Partner
+    accounts live in the same table but are a different tenant — an intake
+    typing a school name that happens to equal a partner's name must resolve
+    to (or create) a plain school row, never latch the contact onto the
+    partner's login-holding row.
     """
     normalized = name.strip()
     existing = (await db.execute(
-        select(Organization).where(func.lower(Organization.name_latin) == normalized.lower())
+        select(Organization).where(
+            func.lower(Organization.name_latin) == normalized.lower(),
+            Organization.owner_user_id.is_(None),
+        )
     )).scalars().first()
     if existing is not None:
         return existing
