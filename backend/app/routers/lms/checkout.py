@@ -4,6 +4,11 @@ driven fulfilment. Never trust the client-side redirect alone as proof of
 payment; `/checkout/session/{id}/fulfill` only ever confirms what the
 webhook has already established or will shortly establish, via the same
 `fulfill()` function.
+
+Purchasing is open to any authenticated account — instructor, intern,
+facilitator, student, etc. Payment itself is the access grant, so there is
+no `student`-role gate here (unlike self-enrol of `open`/`invite` content
+in `student.py`, which stays student-only).
 """
 
 import logging
@@ -17,7 +22,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
-from app.core.dependencies import require_lms_student
+from app.core.dependencies import get_current_active_user
 from app.db.session import get_db
 from app.models.lms.course import Course
 from app.models.lms.enrollment import Enrollment
@@ -67,7 +72,7 @@ async def _revoke_purchase_enrollments(db: AsyncSession, purchase: Purchase) -> 
 async def start_course_checkout(
     course_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    current: User = Depends(require_lms_student),
+    current: User = Depends(get_current_active_user),
 ):
     course = await db.get(Course, course_id)
     if course is None:
@@ -147,7 +152,7 @@ async def start_course_checkout(
 async def start_path_checkout(
     path_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    current: User = Depends(require_lms_student),
+    current: User = Depends(get_current_active_user),
 ):
     path = await db.get(LearningPath, path_id)
     if path is None or not path.is_published:
@@ -296,7 +301,7 @@ async def stripe_webhook(request: Request, db: AsyncSession = Depends(get_db)):
 async def fulfill_checkout_session(
     session_id: str,
     db: AsyncSession = Depends(get_db),
-    current: User = Depends(require_lms_student),
+    current: User = Depends(get_current_active_user),
 ):
     """Success-page trigger. With the webhook configured, Stripe waits up to
     10 seconds for it before redirecting, so this is usually a fast,
