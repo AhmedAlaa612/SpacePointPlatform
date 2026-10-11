@@ -3,7 +3,7 @@
 **Entry point for anyone (human or agent) picking up this codebase.** This file is a *map*:
 where everything is and what it does. Depth lives in the per-domain files linked below.
 
-**Last verified against the code: 2026-10-09**, as part of a major domain update covering Observer Mode, the unified Student & Observer Operations Hub, Invite Code Grants, and Judging toolbar fixes.
+**Last verified against the code: 2026-10-11**, covering the Website CMS, E-Commerce Store, SpacePoint Labs integration (`spacepoint.ae` & `labs.spacepoint.ae`), Observer Mode, the unified Student & Observer Operations Hub, Invite Code Grants, and Judging toolbar fixes.
 
 ---
 
@@ -11,16 +11,17 @@ where everything is and what it does. Depth lives in the per-domain files linked
 
 | | |
 |---|---|
-| **Live at** | `https://portal.spacepoint.ae` |
-| **Schema head** | `a3f7c1e9b284` — single Alembic head. Production follows `main` deploys; the API container runs `alembic upgrade head` before binding its port |
+| **Live at** | `https://portal.spacepoint.ae` · Marketing site: `https://spacepoint.ae` · Labs: `https://labs.spacepoint.ae` |
+| **Schema head** | `c7d3e1f9a2b5` — single Alembic head. Production follows `main` deploys; the API container runs `alembic upgrade head` before binding its port |
 | **Branch** | `main` = production. `v2-dev` tracks it |
-| **What's live** | Registration, bulk import, check-in, staffing marketplace, attendance, certificates, calendar, ops dashboard, **inventory end to end**, interns/ambassadors/instructors/internship letters — **LMS/Missions/Games domain**: student and observer accounts, courses + encrypted-HLS video, learning paths, CubeSat design + Flight Operations missions, Live Quiz games, cohort-scoped instructor progress/gating/review, **LMS Program checklists**, **Invite-Code Grants** (instant course/path/cohort provisioning for student & observer batches), **Student & Observer Operations Hub** (`/lms-authoring/students` with live checklist trees, team progress cards, direct course/path assignment, and unenroll), and **Competition Judging with Observer Partitioning** (`JudgeTeams.tsx` with top toolbar toggling `Students | Observers | All`, blind scoring, rubric builder, timing windows, and analysis dashboard). See [`HANDOFF_LMS.md`](./HANDOFF_LMS.md) & [`HANDOFF_COMPETITIONS.md`](./HANDOFF_COMPETITIONS.md) |
+| **What's live** | Registration, bulk import, check-in, staffing marketplace, attendance, certificates, calendar, ops dashboard, **inventory end to end**, interns/ambassadors/instructors/internship letters, **Public Website CMS & E-Commerce Store** (`/admin/website`, `/operations/inventory/website`, `/admin/shop`, `/operations/inventory/shop` powering `spacepoint.ae` and `labs.spacepoint.ae`) — **LMS/Missions/Games domain**: student and observer accounts, courses + encrypted-HLS video, learning paths, CubeSat design + Flight Operations missions, Live Quiz games, cohort-scoped instructor progress/gating/review, **LMS Program checklists**, **Invite-Code Grants** (instant course/path/cohort provisioning for student & observer batches), **Student & Observer Operations Hub** (`/lms-authoring/students` with live checklist trees, team progress cards, direct course/path assignment, and unenroll), and **Competition Judging with Observer Partitioning** (`JudgeTeams.tsx` with top toolbar toggling `Students | Observers | All`, blind scoring, rubric builder, timing windows, and analysis dashboard). See [`HANDOFF_WEBSITE.md`](./HANDOFF_WEBSITE.md), [`HANDOFF_LMS.md`](./HANDOFF_LMS.md) & [`HANDOFF_COMPETITIONS.md`](./HANDOFF_COMPETITIONS.md) |
 | **Tests** | Collected via `pytest` from `backend/`. Requires live Redis for worker tasks |
 
 ## 2. Read next
 
 | Read | For |
 |---|---|
+| [`HANDOFF_WEBSITE.md`](./HANDOFF_WEBSITE.md) | **Marketing Website (`spacepoint.ae`), SpacePoint Labs (`labs.spacepoint.ae`), & E-Commerce Store** — 12-tab Portal CMS (`WebsiteManagement.tsx`), Stripe store (`Shop.tsx`), public hydration APIs, lead email forwarding, `deploy-website.sh` & `deploy-labs.sh` |
 | [`HANDOFF_LMS.md`](./HANDOFF_LMS.md) | Student & Observer accounts, courses, learning paths, missions, live quiz games, checklist programs, **Student Operations Hub (`/lms-authoring/students`)**, **Invite-Code Grants**, and **Observer Mode Architecture** (§21–24) |
 | [`HANDOFF_COMPETITIONS.md`](./HANDOFF_COMPETITIONS.md) | Competitions, team-scoped checklists, rubric scoring, judging surface (`JudgeTeams.tsx`), team analytics (`CompetitionAnalysis.tsx`), and **Observer Sandbox Teams Partitioning** (§6) |
 | [`HANDOFF_GROUND_STATION.md`](./HANDOFF_GROUND_STATION.md) | Live CubeSat telemetry/command console, device provisioning, Redis pub/sub websocket flow, alerts/thresholds |
@@ -30,7 +31,7 @@ where everything is and what it does. Depth lives in the per-domain files linked
 | [`HANDOFF_INTERNS.md`](./HANDOFF_INTERNS.md) | Projects, epics, tasks, kanban, teams |
 | [`HANDOFF_INTERNSHIP.md`](./HANDOFF_INTERNSHIP.md) | HR-side intern pipeline: role request -> admin approval -> in-app-signed internship letter |
 | [`HANDOFF_AMBASSADORS.md`](./HANDOFF_AMBASSADORS.md) | Leads, points/titles/badges, teacher sessions, the task approval state machine |
-| [`HANDOFF_VPS_DEPLOYMENT.md`](./HANDOFF_VPS_DEPLOYMENT.md) | VPS environment, deploy scripts, auto-rollback logic, storage layout |
+| [`HANDOFF_VPS_DEPLOYMENT.md`](./HANDOFF_VPS_DEPLOYMENT.md) | VPS environment, deploy scripts (`deploy-backend.sh`, `deploy-frontend.sh`, `deploy-website.sh`, `deploy-labs.sh`), auto-rollback logic, storage layout |
 | [`HANDOFF_VIDEO.md`](./HANDOFF_VIDEO.md) | Cloudflare R2 video storage, transcode pipeline, playback tokens, HLS mechanics |
 | [`OPS_BACKUPS.md`](./OPS_BACKUPS.md) | Database backup script — usage, cron, restore |
 
@@ -42,6 +43,8 @@ where everything is and what it does. Depth lives in the per-domain files linked
 
 | Feature / Domain | Frontend UI | Backend Router | Backend Service / Model |
 |---|---|---|---|
+| **Website & Labs CMS (12 Tabs)** | `pages/admin/WebsiteManagement.tsx` | `routers/admin/website.py`<br/>`routers/admin/website_config.py`<br/>`routers/admin/website_people.py`<br/>`routers/public_content.py`<br/>`routers/public_website.py` | `models/website_cms.py`<br/>`models/website_config.py`<br/>`models/website_people.py` |
+| **Store & Merchandise (Stripe)** | `pages/admin/Shop.tsx` | `routers/admin/store.py`<br/>`routers/public_store.py` | `models/store.py` |
 | **Student & Observer Roster** | `pages/lms-authoring/LmsStudents.tsx` | `routers/lms/admin.py::search_students` | `services/lms/students.py::search_students` |
 | **Student & Observer Detail** (Manage Page) | `pages/lms-authoring/LmsStudentDetail.tsx` | `routers/lms/admin.py::get_student_detail` | `services/lms/students.py::get_student_detail`<br/>`models/user.py`, `models/lms/program.py` |
 | **Invite Codes & Grants** | `pages/lms-authoring/LmsInviteCodes.tsx` | `routers/lms/admin.py::/invite-codes/*` | `services/lms/invite_grants.py`<br/>`models/instructors/invitation_code.py`<br/>`models/lms/invite_grant.py` |
@@ -124,14 +127,15 @@ app sees the request.
 | `/lms/*` | student catalog + enrollment, course outline/player, video, curriculum, learning paths, points/leaderboard, admin course/module CRUD, progress grid. See `HANDOFF_LMS.md` |
 | `/missions/*` | design mission (state, budgets, component library), operate mission, proposals, teams, manager dashboards, cohort-scoped instructor dashboards (progress/gating/review), admin CRUD. See `HANDOFF_LMS.md` |
 | `/games/*` | Live Quiz authoring, live run control + realtime, student play. See `HANDOFF_LMS.md` |
-| `/public/*` | registration form, catalog, ticket — **no auth** |
+| `/admin/website/*` · `/admin/store/*` | Website CMS (12 tabs: leads, newsletter, articles, press, programs, missions, labs, team, ambassadors, alumni, sponsors, FAQs/config) + Store & Merchandise CRUD (`require_operations`). See [`HANDOFF_WEBSITE.md`](./HANDOFF_WEBSITE.md) |
+| `/public/*` | registration form, catalog, ticket, **plus public Website CMS, Labs projects, Store checkout, Lead submission (`POST /public/leads`), and Newsletter subscription** — **no auth** |
 | `/apply/*` · `/files/*` · `/documents/*` · `/notifications/*` | shared |
 | `/health`, `/health/worker` | liveness + ARQ heartbeat |
 
 **Frontend** domains — each has its own sidebar in `Sidebar.tsx::getNavItems`:
-`/interns` · `/ambassadors` · `/instructors` · `/admin` (platform management) ·
+`/interns` · `/ambassadors` · `/instructors` · `/admin` (platform management, including `/admin/website` and `/admin/shop`) ·
 `/operations` (running the business: programs, cohorts, contacts, check-in, calendar, and
-`/operations/inventory/*` for kits, stock, fulfilment and the catalogue).
+`/operations/inventory/*` for kits, stock, fulfilment, the catalogue, `/operations/inventory/website`, and `/operations/inventory/shop`).
 **`/learn`** is a separate surface for the `student` role — own shell, not part of `Sidebar.tsx`
 at all (see `HANDOFF_LMS.md` §1) — with staff-facing authoring at `/lms-authoring` living inside
 the normal `AppShell` like everything else.
@@ -171,6 +175,7 @@ Alembic is the source of truth for the exact schema — this is orientation, not
 | Domain | Tables |
 |---|---|
 | **Shared** | `users`, `notifications`, `documents`, `document_requests`, `document_templates` (now with `student_completion` and `workshop_delivery` system templates seeded — `d8a2c94e0035` / `e1b3d05f0036`), `certificates`, `applications`, `application_questions`, `id_cards`, `portal_settings` |
+| **Website, Store & Labs** | `website_leads`, `newsletter_subscribers`, `website_articles`, `press_mentions`, `sponsors_partners`, `website_faqs`, `website_settings` (`WebsiteConfig`), `website_programs`, `website_resources`, `labs_projects`, `team_members`, `website_ambassadors`, `alumni_members`, `student_missions`; `store_products`, `store_orders`, `store_order_items`, `discount_codes`. Full detail in [`HANDOFF_WEBSITE.md`](./HANDOFF_WEBSITE.md) |
 | **Spine** | `contacts`, `contact_relationships`, `organizations`, `identity_aliases`, `merge_reviews`, `touchpoints`, `contact_role_events`, `consent_records` *(schema only — nothing writes to it)* |
 | **Sessions** | `programs`, `cohorts`, `sessions`, `session_instructors` (`role_id` → `delivery_roles`, not a `lead\|co` string since I5-3), `delivery_roles`, `session_openings`, `session_addons`, `session_materials`, `session_call_targets`, `session_calls` (multiple concurrent calls per session — `c4e7a39f0028`), `cohort_openings` (cohort-level opening defaults — `b3d6f28e0027`), `cohort_calls` (grouped cohort-wide staffing campaigns — `e7c4a92d0036`), `cohort_instructor_assignments` + `cohort_call_interests` (**cohort-level staffing**, 2026-08-24 — see below), `delivery_checklist_items` / `instructor_session_days` / `instructor_checklist_progress` (the **instructor daily loop**), `payment_session_coverage` (which sessions one payment line covers), `registrations`, `registration_sessions`, `attendance_records`, `instructor_interests`, `session_reports`, `import_batches`, `activities` / `activity_versions` / `activity_assignments` *(quiz — schema only until the LMS games phase)*. Cohorts and sessions now have `location_id` → `locations` (`a2c5e17d0026`; `locations.address`/`maps_url` live on the entity); `locations.city_id` → `cities` (8 seeded UAE cities) is the anchor — `locations.country` is legacy/derived-only and nullable, never entered directly (see §8) |
 | **Inventory** | `locations`, `items`, `kit_templates`, `kit_template_items`, `kits`, `kit_items`, `stock_levels`, `movements`, plus `session_kits` / `kit_checks` (I2-1/I2-2) — and, since 2026-08-01: `item_categories` (`d2e6f81a0029`), `warehouses` (`f8d9e21a0033`, `c4f1a83b0034` — **stock and kits now key on `warehouse_id`; a location is the union of its warehouses**), `cohort_kits` (cohort-level kit defaults, `a3c7f95e0037`), and `items.variant_group`/`variant_label` (T-shirt-style size grouping, `d1e4c73f0038`). **`items.is_consumable` is gone** (`a7c9e15f0032` — everything now counts toward kit completeness). **Kit custody legs were replaced** (`e3f8b04c0030`): there is no issue/collected/return movement flow; `session_kits` carries `received_at` / `return_status` / `returned_at` / `ops_confirmed_at` instead, and moving a kit to a shelf is an ordinary `movements` row. Equipment pickup (I2-7) adds no tables — it is a form over `items` + `stock_levels` + `movements` with a persisted "returning later" flag (`f4a1c65d0031`). `movements` is the single ledger every physical thing passes through — issue, return, transfer, refill, receive, write-off, adjust — and either side of it can be a location, a person or a kit. Custody keys on `users`, so nothing here touches `MERGE_FK_REGISTRY`. `POST /inventory/stock/adjust-bulk` writes one item across every warehouse in one transaction (`StockCountModal.tsx`); `POST /inventory/kits/{kit_id}/count` (`require_storekeeper`, a deliberate narrow exception to this router's usual `require_operations`) lets a storekeeper count a kit's contents directly instead of going through individual stock rows |
@@ -279,7 +284,7 @@ Every one of these has already caused a real bug.
 
 Alembic is the single source of truth. Revisions in `backend/alembic/versions/`; the API
 container runs `alembic upgrade head` **before binding a port**, so anything health-checking it
-after a deploy must poll, not sleep. Current head: **`a1f0c9b2d4e7`**.
+after a deploy must poll, not sleep. Current head: **`c7d3e1f9a2b5`**.
 
 Edit the model → `alembic revision --autogenerate -m "…"` → **review the generated file**
 (enum columns use `create_type=False` and produce spurious diffs) → commit → deploy. Never
@@ -294,11 +299,12 @@ production is owned: `createdb -O spacepoint_app`, `pgcrypto` as superuser,
 
 Pluggable via `STORAGE_BACKEND`. In production files sit on disk under
 `/var/lib/spacepoint/storage/{bucket}/{path}`, **Fernet-encrypted at rest**. The DB stores only
-`bucket` + `path`; URLs are minted per request as HMAC-signed `/files/{bucket}/{path}?exp=…&sig=…`.
+`bucket` + `path`; URLs are minted per request as HMAC-signed `/files/{bucket}/{path}?exp=…&sig=…`
+(except `website-assets`, which is in `PUBLIC_BUCKETS` in `routers/files.py` so public website and store images can be embedded on `spacepoint.ae` and `labs.spacepoint.ae` without expiring signatures).
 
 Buckets: `documents`, `certificates`, `instructor-documents`, `applicant-submissions`,
 `contracts`, `payment-letters`, `profile_pictures`, `library-resources`, `cvs`,
-`session-reports`.
+`session-reports`, `website-assets`.
 
 Always import `services/storage.py`, never the backend modules directly.
 

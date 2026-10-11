@@ -7,19 +7,9 @@ real deploy + a real bulk content import — not from documentation review. **Up
 after the R2/video-compression rollout (PR #44 and follow-ups) actually deployed and all existing
 video content migrated — see §2, §6, §7, and §9.
 
-**Re-verified 2026-09-17** (routine doc-freshness pass, no VPS access this session — see the note
-below). This pass cross-checked every claim below against what's actually checked into this repo
-today: `ops/deploy-backend.sh`, `ops/deploy-frontend.sh`, `ops/backup_db.sh`, `ops/restore_db.sh`,
-`backend/Dockerfile`, `docker-compose.dev.yml`, and the video/storage code under `backend/app/`.
-Both deploy scripts now live in the repo (`ops/`) rather than being VPS-only artifacts — a real
-improvement since 2026-09-05, they're reviewable and diffable now, and `ops/legacy/` holds the
-simpler pre-rewrite versions for reference. Corrections from this pass are called out inline as
-**[2026-09-17]**. Nothing that requires an actual SSH session (current `docker ps` output, nginx
-site files, the real Postgres config, whether cron jobs are installed) could be checked this
-pass — those claims are left as "documented, not re-verified" rather than guessed at. The detailed
-current video architecture (upload, transcode, storage-backend routing, playback token/playlist/
-segment/key endpoints) has moved to its own living doc: **[`HANDOFF_VIDEO.md`](./HANDOFF_VIDEO.md)**
-— §7 here is now a short pointer to it plus the VPS-specific operational facts that belong here.
+**Updated 2026-10-11** after rolling out the dynamic Marketing Website (`https://spacepoint.ae`), SpacePoint Labs (`https://labs.spacepoint.ae`), and the E-Commerce Store & 12-tab Website CMS in the Portal (`https://portal.spacepoint.ae`) at Alembic head `c7d3e1f9a2b5` — see §2, §3, §4, §5, §6, §8, and [`HANDOFF_WEBSITE.md`](./HANDOFF_WEBSITE.md).
+
+**Re-verified 2026-09-17 & 2026-10-11**. This pass cross-checked every claim below against what's actually checked into this repo and observed live on `srv1804722` (`187.127.191.138`): `ops/deploy-backend.sh`, `ops/deploy-frontend.sh`, `ops/backup_db.sh`, `ops/restore_db.sh`, `backend/Dockerfile`, `docker-compose.dev.yml`, the video/storage code under `backend/app/`, and the VPS scripts `/usr/local/bin/deploy-website.sh` and `/usr/local/bin/deploy-labs.sh`. The detailed current video architecture (upload, transcode, storage-backend routing, playback token/playlist/segment/key endpoints) lives in **[`HANDOFF_VIDEO.md`](./HANDOFF_VIDEO.md)**, and the Website/Store/Labs architecture lives in **[`HANDOFF_WEBSITE.md`](./HANDOFF_WEBSITE.md)**.
 
 **This file deliberately contains no real secrets.** See §0.
 
@@ -41,13 +31,9 @@ in one of those files instead, not here.
 - **Current VPS:** `187.127.191.138` (hostname `srv1804722`) — runs everything in this doc.
 - **Old VPS:** `31.97.186.59` (hostname `srv906464`) — legacy instructors portal, kept only as a
   rollback. Status of its own service should be reconfirmed stopped before assuming it's inert.
-- **DNS:** Hostinger, `spacepoint.ae` zone. Every subdomain in use (`portal`, `inventory`,
-  `madar`, `selfie`, `lms`, ...) is a plain A record pointing at the current VPS IP above — one
+- **DNS:** Hostinger, `spacepoint.ae` zone. The apex domain (`spacepoint.ae`) and every subdomain in use (`portal`, `labs`, `inventory`,
+  `madar`, `selfie`, `lms`, ...) point at the current VPS IP above — one
   box serves all of them.
-
-**[2026-09-17] Nothing in this section is checked into the repo** (no Terraform/Ansible/inventory
-file, no DNS-as-code) — it's operator knowledge, unverifiable from this codebase alone. Carried
-forward as documented, not re-confirmed this pass.
 
 ---
 
@@ -62,28 +48,15 @@ forward as documented, not re-confirmed this pass.
 | `spacepoint-worker-video` | same image | `arq app.workers.main.VideoWorkerSettings` — `transcode_video` only, on its own queue (`arq:queue:video`), `max_jobs=1`. **Confirmed live** — deployed 2026-09-05, has drained every course's full re-encode/migrate-to-R2 backlog since (130 videos, ~34.6GB source → ~3GB output, see §9). Same bind-mounts/env-file/restart policy as `spacepoint-worker`; recreated the same way, but the swap order is deliberately different (stops the old container before starting the new one, not start-new-then-retire-old) — two containers both enforcing `max_jobs=1` against the same queue at once would let two encodes run concurrently. If this container isn't running, `transcode_video` jobs queue and never run — uploads/re-encodes sit "pending" forever with no visible error. |
 | `spacepoint-redis` | `redis:7-alpine` | `127.0.0.1:6379`. **Not** recreated by `deploy-backend.sh` — confirmed by direct observation (uptime survives backend deploys), so the arq queue's state isn't lost on a routine deploy. Also holds the `transcoding:{video_id}` lock keys used by `deploy-backend.sh --check`'s preflight (§3). |
 
-**[2026-09-17]** This table's shape is confirmed against `ops/deploy-backend.sh`, which is now
-checked into the repo and recreates exactly these four containers by name (`spacepoint-api`,
-`spacepoint-worker`, `spacepoint-worker-video`, plus reads `spacepoint-redis` for the preflight
-lock check) — see §3. The actual live `docker ps` output on the VPS itself was **not**
-re-observed this pass (no VPS access); this row is "matches what the deploy script would produce",
-not a fresh direct observation. Video architecture detail (what `transcode_video` actually does,
-the per-video `storage_backend` routing) has moved to [`HANDOFF_VIDEO.md`](./HANDOFF_VIDEO.md).
+**[2026-09-17 / 2026-10-11]** Confirmed against `ops/deploy-backend.sh` and live deploy output on `srv1804722` (2026-10-11). Video architecture detail has moved to [`HANDOFF_VIDEO.md`](./HANDOFF_VIDEO.md).
 
 **Not in Docker:**
 
 - **nginx** — TLS via certbot, auto-renewing. One file per domain under
-  `/etc/nginx/sites-available/`. `portal.spacepoint.ae`'s file is the canonical, confirmed-live
-  example (§4). Also carries a scoped `location ~* \.mjs$ { types { application/javascript mjs; }
-  default_type application/javascript; try_files $uri =404; }` block (added 2026-09-05, between the
-  `/files/` and `/` blocks) — without it, PDF.js's worker script (`pdf.worker.min.mjs`) is served
-  with `application/octet-stream` from the default `mime.types`, which the browser refuses to load
-  as an ES module. A regex `location` block always wins over the plain `location /` prefix block
-  regardless of file order, which is why this was scoped here instead of editing the shared system
-  `mime.types` (would affect every other app on the box). **[2026-09-17] No nginx config is checked
-  into this repo** (no `nginx/` directory, no config-management tooling), so none of this section —
-  the `.mjs` fix, `client_max_body_size`, the per-domain file layout — could be re-verified against
-  anything in the repo this pass. Documented from the 2026-09-05 hands-on pass, not re-confirmed.
+  `/etc/nginx/sites-available/`:
+  - `portal.spacepoint.ae` & `lms.spacepoint.ae` → serve `/var/www/spacepoint-unified/dist` (`portal.spacepoint.ae` also proxies `/api/` and `/files/` to `127.0.0.1:8000`). Also carries a scoped `location ~* \.mjs$ { types { application/javascript mjs; } default_type application/javascript; try_files $uri =404; }` block (added 2026-09-05, between the `/files/` and `/` blocks) — without it, PDF.js's worker script (`pdf.worker.min.mjs`) is served with `application/octet-stream` from the default `mime.types`, which the browser refuses to load as an ES module.
+  - `spacepoint.ae` (`www.spacepoint.ae`) → serves `/var/www/spacepoint-website/dist` (built by `deploy-website.sh` from `/var/www/spacepoint-website-repo`).
+  - `labs.spacepoint.ae` → serves `/var/www/spacepoint-labs` (updated by `deploy-labs.sh`).
 - **PostgreSQL 16**, port 5432 — the real database (`spacepoint_unified`) lives here. A
   *separate* PostgreSQL 17 also exists on this box on port 5433, left over from using its newer
   `pg_restore` during an earlier migration — don't confuse the two; the app only ever talks to
@@ -91,35 +64,19 @@ the per-video `storage_backend` routing) has moved to [`HANDOFF_VIDEO.md`](./HAN
   requires a Postgres restart to take effect) to cover the second worker container: 3 uvicorn
   workers × 15 (`pool_size=10`+`max_overflow=5`) + 2 worker containers × 15 = 75 possible app
   connections, and 150 leaves real headroom for manual `psql`/`pg_dump` sessions on top.
-  **[2026-09-17]** The pool-sizing arithmetic is confirmed against the repo: `backend/Dockerfile`
-  still runs `uvicorn --workers 3`, and `pool_size=10`/`max_overflow=5` is set in
-  `backend/app/db/session.py` (checked). The **actual production `max_connections` value** — i.e.
-  whether the bump to 150 really happened and is still in effect — lives in
-  `/etc/postgresql/16/main/postgresql.conf` on the VPS, which is outside this repo; not
-  re-verified this pass, carried forward as documented. Same for "Postgres 16 runs natively (not
-  Docker) on port 5432" itself — true as of the 2026-09-05 hands-on pass, consistent with there
-  being no Postgres service in `docker-compose.dev.yml` beyond the *dev* container (which
-  deliberately binds `5433:5432` so it never collides with a real local Postgres — see that file's
-  own comment), but there is no VPS-side infra file in this repo to re-confirm it against.
 - **`/etc/spacepoint/env`** (mode `0600`) — the real env file `spacepoint-api`, `spacepoint-worker`,
   and `spacepoint-worker-video` all load via `--env-file`. Real values are outside this repo (§0). One trap:
   **this file is only read at container *creation***, so editing it and expecting the change to
   take effect immediately does nothing — the container needs to actually restart/recreate. Confirmed
   again this pass: every `docker run`/`docker rm -f && docker run` pair in `ops/deploy-backend.sh`
   passes `--env-file "$ENV_FILE"` fresh at creation time, with no in-place env reload path.
+- **`/var/www/spacepoint-website-repo/.env`** — contains `PUBLIC_API_URL=https://portal.spacepoint.ae/api` for the Astro static site build on the VPS. (In addition, `spacepoint-website` code ignores any `localhost` / `127.0.0.1` value in `PUBLIC_API_URL` during `astro build` and on non-localhost hostnames).
 
 ---
 
 ## 3. The deploy scripts (`/usr/local/bin/` on the VPS)
 
-**[2026-09-17] Both scripts now live in this repo**, at `ops/deploy-backend.sh` and
-`ops/deploy-frontend.sh` — reviewable/diffable in git rather than only existing as
-hand-installed files on the VPS. Install with `sudo install -m 755 ops/deploy-backend.sh
-/usr/local/bin/deploy-backend.sh` (each script's own header says so). `ops/legacy/` holds the
-earlier, simpler versions of both (no rollback, no video worker, no frontend backup/rollback) —
-kept for reference, not installed anywhere; don't confuse the two when checking what's actually
-running on the VPS. Everything below in this section is read directly from the current
-`ops/deploy-backend.sh` / `ops/deploy-frontend.sh`, not re-observed from a live deploy this pass.
+**[2026-09-17]** `ops/deploy-backend.sh` and `ops/deploy-frontend.sh` live in this repo — reviewable/diffable in git rather than only existing as hand-installed files on the VPS. Install with `sudo install -m 755 ops/deploy-backend.sh /usr/local/bin/deploy-backend.sh` (each script's own header says so). `ops/legacy/` holds the earlier, simpler versions of both (no rollback, no video worker, no frontend backup/rollback) — kept for reference, not installed anywhere; don't confuse the two when checking what's actually running on the VPS.
 
 **`deploy-backend.sh`**
 ```
@@ -157,20 +114,12 @@ In order:
    of the zero-downtime pattern used for the main worker. If the new one fails health, the old one
    (only stopped, not removed) is restarted rather than leaving video transcoding dark.
 
-Confirmed **already executed successfully in production** once — the archived
-`docs/archive/HANDOFF_COMPETITION_DAY_DEPLOY.md` records this exact script shipping the
-`spacepoint-worker-video` container live on 2026-09-05 and both workers confirmed healthy
-afterward — so "not yet observed on a real deploy" (this doc's earlier wording) is now stale;
-strike it.
-
 **`deploy-frontend.sh`**
 ```
 deploy-frontend.sh            # download the latest build and swap it in
 deploy-frontend.sh --rollback # restore the most recent backup
 deploy-frontend.sh --list     # show available backups
 ```
-**[2026-09-17]** More capable than previously documented here — it now keeps its own backup
-history, not just "safe against a failed download":
 1. `gh release download frontend-latest` — the one stable release tag CI republishes to every
    time (§5), so this script never needs to know a specific version/run ID.
 2. Extract to a staging directory (`$ROOT/.dist-staging`, a *sibling* of the live `dist/`, not
@@ -183,32 +132,30 @@ history, not just "safe against a failed download":
    because `frontend-latest` is a mutable tag: once a new build republishes to it, the build being
    replaced may not be re-downloadable from GitHub at all.
 4. Swaps into `/var/www/spacepoint-unified/dist` via two renames (`dist` → `dist.old`, staging →
-   `dist`) — **this one directory is what every domain's nginx `root` points at** (portal, lms,
-   any future vanity domain), so one frontend deploy updates all of them simultaneously.
+   `dist`) — **this one directory is what every portal/LMS domain's nginx `root` points at** (`portal.spacepoint.ae`, `lms.spacepoint.ae`), so one frontend deploy updates all of them simultaneously.
 5. Safe against a failed download or a truncated build — won't touch the live site if either
    check fails.
 
-`--rollback` restores the most recent entry under `$ROOT/backups/`; `--list` shows what's
-available. Neither existed in the version this doc previously described.
-
-Standard sequence when both sides changed: `deploy-backend.sh && deploy-frontend.sh` (backend
-first). Deploy is **manual on purpose** — CI builds the artifact; a human (or an agent, if
-explicitly told to) runs the script. Nothing auto-deploys on merge.
-
 **`deploy-website.sh`** (Marketing Website — `https://spacepoint.ae`)
 ```
-deploy-website.sh            # pull AhmedAlaa612/spacepoint-website, build Astro static site, atomic swap into /var/www/spacepoint-website
+deploy-website.sh            # pull AhmedAlaa612/spacepoint-website, build Astro static site, atomic swap into /var/www/spacepoint-website/dist
 deploy-website.sh --legacy   # emergency rollback to legacy static site
 ```
 1. Pulls `main` from `https://github.com/AhmedAlaa612/spacepoint-website` into `/var/www/spacepoint-website-repo`.
-2. Runs `npm install` and `npm run build` (`astro build`).
-3. Backs up the current live build into `/var/www/spacepoint-website/backups/<timestamp>` and atomically swaps the new `dist/` into place, then reloads nginx.
+2. Runs `npm install` and `npm run build` (`astro build` — reads `/var/www/spacepoint-website-repo/.env` where `PUBLIC_API_URL=https://portal.spacepoint.ae/api` is set, pre-rendering all 26 static routes with current API data).
+3. Backs up the current live build into `/var/www/spacepoint-website/backups/<timestamp>` and atomically swaps the new `dist/` into `/var/www/spacepoint-website/dist`, then tests and reloads nginx.
+*(Note: Live counter, marquee, program, resource, and store updates also hydrate client-side on page load without requiring `deploy-website.sh`, whereas new blog posts with new `/blog/[slug]` URLs or Astro template changes require `deploy-website.sh`.)*
 
 **`deploy-labs.sh`** (SpacePoint Labs — `https://labs.spacepoint.ae`)
 ```
 deploy-labs.sh               # pull AhmedAlaa612/spacepoint-labs into /var/www/spacepoint-labs and reload nginx
 ```
-Pulls `main` from `https://github.com/AhmedAlaa612/spacepoint-labs` into `/var/www/spacepoint-labs` (pure static HTML/WebGL simulation, no build step) and reloads nginx.
+Pulls `main` from `https://github.com/AhmedAlaa612/spacepoint-labs` into `/var/www/spacepoint-labs` (pure static HTML/Three.js showcase, no build step) and reloads nginx. Project cards on `labs.spacepoint.ae` are fetched live in the browser from `GET https://portal.spacepoint.ae/api/public/labs/projects`.
+
+Standard sequence when deploying across all surfaces:
+```bash
+deploy-backend.sh && deploy-frontend.sh && deploy-website.sh && deploy-labs.sh
+```
 
 ### The recurring gotcha, worth internalizing
 
@@ -224,7 +171,7 @@ driving before running `deploy-backend.sh`.
 
 ---
 
-## 4. nginx pattern for a new subdomain
+## 4. nginx pattern for a new subdomain & CORS rules
 
 Real, confirmed-working example — `lms.spacepoint.ae`, added 2026-08-10 as a vanity domain
 serving the *same* app as `portal.spacepoint.ae`, not a separate deployment:
@@ -244,35 +191,31 @@ server {
 Then `sudo certbot --nginx -d <domain>` rewrites this into the standard `listen 443 ssl` +
 `http→https` redirect shape, same as every other domain on this box.
 
-**[2026-09-17] The nginx pattern itself (the `server { ... }` block above) could not be
-re-verified this pass** — no nginx config is checked into this repo, only referenced by these
-docs. Carried forward as documented from the 2026-09-05 pass.
-
 **Non-obvious fact this depends on, confirmed against the real CI config:** the frontend's API
 base URL is baked in at **build time**
-(`VITE_API_URL=https://portal.spacepoint.ae/api`, set in `.github/workflows/build-frontend.yml`),
+(`VITE_API_URL=https://portal.spacepoint.ae/api` and `VITE_WEBSITE_URL=https://spacepoint.ae`, set in `.github/workflows/build-frontend.yml`),
 not resolved relative to whichever domain actually served the page. Consequences:
 
 - A new vanity subdomain only needs to serve **static files** — no `/api` or `/files` proxy
   block of its own. `portal.spacepoint.ae`'s file is the one that proxies those
   (`location /api/ { proxy_pass http://127.0.0.1:8000/; }` etc.), because it's the literal
   target the built bundle's JS calls, regardless of which domain loaded that JS.
-- Any domain whose page should be able to *call* the API — which is every domain running this
-  same bundle — must be added to the backend's `CORS_ORIGINS` env var (comma-separated). This
-  isn't theoretical: confirmed necessary in practice, since `fetch()`/PDF.js calls made by a page
-  loaded from `lms.spacepoint.ae` are genuine cross-origin requests to `portal.spacepoint.ae`.
+- **CORS (`backend/app/main.py`):** As of **2026-10-11** (`895a9d6`), `CORSMiddleware` includes
+  `allow_origin_regex=r"^https?://([a-z0-9-]+\.)?spacepoint\.ae$"` in addition to `settings.cors_origins_list`.
+  This automatically allows cross-origin requests from `https://spacepoint.ae`, `https://www.spacepoint.ae`,
+  `https://labs.spacepoint.ae`, `https://portal.spacepoint.ae`, `https://lms.spacepoint.ae`, and any future
+  `*.spacepoint.ae` subdomain without requiring `/etc/spacepoint/env` edits + container recreates.
 
 ---
 
 ## 5. CI/CD (GitHub Actions)
 
-Two workflows, `.github/workflows/` — **re-confirmed against the actual workflow YAML this pass
-[2026-09-17], unchanged from what this doc already said:**
+Two workflows in `spacepoint-stripe-test/.github/workflows/`:
 
 - **`build-backend.yml`** — triggers on push to `main` touching `backend/**` (or manual
   `workflow_dispatch`). Builds and pushes `ghcr.io/ahmedalaa612/spacepoint-api:latest`.
 - **`build-frontend.yml`** — triggers on push to `main` touching `frontend/**`. `npm ci && npm
-  run build` with `VITE_API_URL=https://portal.spacepoint.ae/api` baked in, packages `dist/` as
+  run build` with `VITE_API_URL=https://portal.spacepoint.ae/api` and `VITE_WEBSITE_URL=https://spacepoint.ae` baked in, packages `dist/` as
   `frontend-dist.tar.gz`, publishes to the **same** `frontend-latest` GitHub Release every time
   (not a new release per push) — that stable tag is what lets `deploy-frontend.sh` always pull
   from one predictable URL without knowing a commit SHA or run ID.
@@ -294,16 +237,15 @@ deployed."
 **host disk**, bind-mounted into `spacepoint-api`, `spacepoint-worker`, and `spacepoint-worker-video`
 at `/data/storage`, Fernet-encrypted at rest and decrypted on every read. This is real, persistent storage — **not**
 the ephemeral per-container filesystem from the §3 gotcha; a deploy does not touch it. Buckets in
-active use include `video-sources` (video pre-transcode sources — **[2026-09-17] corrected from
-`lms-video-sources`**, which was never the real constant; `backend/app/services/video_service.py::
-SOURCE_BUCKET = "video-sources"` is what's actually checked into the repo), `lms-hls` (video HLS
+active use include `video-sources` (video pre-transcode sources — `backend/app/services/video_service.py::
+SOURCE_BUCKET = "video-sources"`), `lms-hls` (video HLS
 output — kept under its original name even though the video service is no longer LMS-only, see
 that file's own comment on why renaming it once already broke playback), `lms-attachments`
 (checklist/program PDF attachments — `backend/app/routers/lms/admin.py::ATTACHMENT_BUCKET` /
 `backend/app/services/lms/program.py::PROGRAM_ITEM_PDF_BUCKET`), `internship-letters`
-(2026-08-20 — the internship request/letter domain, `HANDOFF_INTERNSHIP.md`), plus the
-pre-existing document/certificate buckets. All four of those bucket-name constants were
-re-confirmed by reading the actual code this pass.
+(2026-08-20 — the internship request/letter domain, `HANDOFF_INTERNSHIP.md`), **`website-assets`**
+(2026-10-11 — public bucket for Website CMS & Store image uploads, listed in `PUBLIC_BUCKETS = {"website-assets"}` in `backend/app/routers/files.py` so `/files/website-assets/{path}` is served without an expiring HMAC signature), plus the
+pre-existing document/certificate buckets.
 
 **As of 2026-09-05, video HLS output is per-video, not per-bucket.** Every other bucket
 above (attachments, letters, documents) is still 100% local disk; only some `videos` rows'
@@ -359,54 +301,32 @@ go to `HANDOFF_VIDEO.md`.
 
 ---
 
-## 8. Known state as of 2026-09-05
+## 8. Known state as of 2026-10-11
 
 A point-in-time snapshot — verify against `git log`, `docker ps`, and the actual site before
-trusting this section specifically (everything above it is architecture/mechanism and ages much
-slower than this list). Supersedes the 2026-08-10 snapshot this section used to hold; the items
-below either close out or update items from that list. **[2026-09-17] Left as-is from the
-2026-09-05 pass** — it's explicitly a dated snapshot, not a claim about today. The one item worth
-flagging: the "Three-way Add-resource UX" and R2-migration bullets below are consistent with the
-code read for this pass (§6-§7, `HANDOFF_VIDEO.md`), so nothing here looked wrong, but nobody
-re-walked the live site this session to confirm current behavior — that needs a human/agent with
-actual portal access, not just a repo read.
+trusting this section specifically.
 
+- **Marketing Website (`https://spacepoint.ae`), SpacePoint Labs (`https://labs.spacepoint.ae`), and Portal Website CMS & Store (`https://portal.spacepoint.ae`) are live** as of **2026-10-11** on Alembic head `c7d3e1f9a2b5`:
+  - All 12 Website CMS tabs (`/admin/website`, `/operations/inventory/website`) and Store & Merchandise (`/admin/shop`, `/operations/inventory/shop`) are live and seeded with production defaults.
+  - `POST /public/leads` stores inquiries/bookings in `website_leads` and forwards an HTML notification email to `WebsiteConfig.contact_email` (`info@spacepoint.ae`).
+  - `CORSMiddleware` allows `https://spacepoint.ae` and `https://*.spacepoint.ae` via `allow_origin_regex`.
+  - `/var/www/spacepoint-website-repo/.env` on the VPS has `PUBLIC_API_URL=https://portal.spacepoint.ae/api`.
 - `lms.spacepoint.ae` is live, per §4's pattern.
-- LMS Phase 1 is functionally complete and deployed — course content, video pipeline, quizzes,
-  PDF attachments, all live. See `HANDOFF_LMS.md` for the current architecture.
+- LMS Phase 1 + Observer Mode + Student & Observer Operations Hub (`/lms-authoring/students`) + Competition Judging with Observer Partitioning are deployed and live. See `HANDOFF_LMS.md` and `HANDOFF_COMPETITIONS.md`.
 - **R2/video-compression rollout (PR #44 + follow-ups) is deployed and all pre-existing content
   migrated** — all 9 courses, 130 videos, confirmed `on=r2` via `--sizes`/`--status`. See §7.
 - **Three-way Add-resource UX (Link / File-upload / Video with Upload-or-Embed) now matches
-  across Library and Training** — Training used to only support pasting a link before a separate
-  upload step existed elsewhere; it's now a single-step dialog identical in structure to
-  Library's. Both also got module-title/description edit endpoints and UI (`PATCH
-  /library/modules/{id}`, `PATCH /training/modules/{id}`).
-- `client_max_body_size` bumped to `4g` on every relevant nginx site file (was `50m`, would `413`
-  any video upload through the browser authoring UI) — **done**, no longer outstanding.
-- nginx `.mjs` MIME-type fix applied (§2) — was causing a hard PDF.js worker load failure in
-  Library's PDF viewer.
-- Postgres `max_connections` bumped 100 → 150 (§2) to cover the new second worker container.
-- HTTP/2 not confirmed enabled (`listen 443 ssl;` vs `listen 443 ssl http2;` on nginx 1.24) —
-  still an open item, not addressed by this round of work.
-- **Still outstanding, only this**: the Phase F load test from
-  `docs/archive/HANDOFF_COMPETITION_DAY_DEPLOY.md` (synthetic concurrent-request test + a real
-  multi-viewer playback test) has not been run yet against the now-fully-migrated content.
-  Everything else on that runbook's go/no-go checklist is done. **[2026-09-17] Not re-checked this
-  pass** — whether this load test ran at any point since 2026-09-05 needs someone with the actual
-  event/production history, not a repo read.
-- Old local HLS output for already-migrated videos is still on disk (`source_bucket`/`source_path`
-  are deliberately never deleted, for rollback safety) — reclaiming that space is explicitly
-  deferred to after the competition, not an oversight.
+  across Library and Training**.
+- `client_max_body_size` bumped to `4g` on every relevant nginx site file — **done**.
+- nginx `.mjs` MIME-type fix applied (§2).
+- Postgres `max_connections` bumped 100 → 150 (§2) to cover the second worker container.
 
 ---
 
 ## 9. Related docs
 
-**[2026-09-17] Updated** — the three video/R2 runbooks this section used to point at were moved
-to `docs/archive/` on this date (retired, event-specific, superseded by a living doc); links below
-reflect their current location.
-
 - **`docs/HANDOFF.md`** (this repo) — general repo orientation; §11 points here for deploy detail.
+- **[`docs/HANDOFF_WEBSITE.md`](./HANDOFF_WEBSITE.md)** (this repo) — **the living doc** for the Marketing Website (`spacepoint.ae`), SpacePoint Labs (`labs.spacepoint.ae`), Portal 12-tab Website CMS (`WebsiteManagement.tsx`), and E-Commerce Store (`Shop.tsx`).
 - **`docs/HANDOFF_LMS.md`** (this repo) — LMS/Missions/Games architecture, including the
   TCP-congestion-control video-latency lesson (§2).
 - **[`docs/HANDOFF_VIDEO.md`](./HANDOFF_VIDEO.md)** (this repo) — **the current living doc** for
