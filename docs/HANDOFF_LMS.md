@@ -1003,7 +1003,7 @@ The AI student support assistant mounted exclusively on `/learn/*` routes (`Lear
 Identity is secured using Intercom Messenger Security (HMAC-SHA256 JWT):
 - Secret: `INTERCOM_IDENTITY_SECRET` (backend runtime environment variable).
 - Frontend passes **only** `intercom_user_jwt` to Intercom `boot()` — passing unsigned attributes (`user_id`, `email`) alongside a signed token causes Intercom Messenger Security to reject the boot with a 403.
-- All verified user attributes are embedded as JWT claims inside the token by `services/lms/support.py`: `user_id`, `name`, `email`, `roles` (space-delimited string for Intercom audience filter compatibility), `program` (checklist template name — Fin answers general program docs off this), `cohort`, `team`, `card_id`, and casing variations.
+- All verified user attributes are embedded as JWT claims inside the token by `services/lms/support.py`: `user_id`, `name`, `email`, `roles` (space-delimited string for Intercom audience filter compatibility), `program` (real Sessions program name via the cohort — never the LMS checklist label, same convention as the checklist title), `cohort` (Sessions cohort name), `team`, `card_id`, and casing variations.
 
 ### Mobile View Positioning (`frontend/src/index.css`)
 - **Problem**: Intercom's mobile web messenger defaults to `bottom: 20px` and ignores vertical padding configured in the dashboard or passed to `boot()` on mobile viewports. On `/learn/*`, this places the launcher icon right on top of the fixed mobile bottom bar (`LearnMobileTabBar.tsx`, ~112px tall + up to 34px iOS safe area).

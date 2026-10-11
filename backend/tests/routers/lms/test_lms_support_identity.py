@@ -51,9 +51,9 @@ def _headers(user: User) -> dict:
     return {"Authorization": f"Bearer {create_access_token(user.id, user.role_values)}"}
 
 
-async def _cohort(db, *, name: str) -> Cohort:
+async def _cohort(db, *, name: str, program_name: str = "Ru'ya Space Race") -> Cohort:
     program = Program(
-        id=uuid.uuid4(), code=f"P-{uuid.uuid4().hex[:8]}", name="Ru'ya Space Race",
+        id=uuid.uuid4(), code=f"P-{uuid.uuid4().hex[:8]}", name=program_name,
         program_type="competition", pricing_model="free", active=True,
     )
     db.add(program)
@@ -64,8 +64,10 @@ async def _cohort(db, *, name: str) -> Cohort:
     return cohort
 
 
-async def _assign(db, *, user: User, cohort: Cohort, assigned_at: datetime, program_name: str | None = None):
-    lms_program = LmsProgram(id=uuid.uuid4(), name=program_name or f"Checklist {uuid.uuid4().hex[:6]}")
+async def _assign(db, *, user: User, cohort: Cohort, assigned_at: datetime, lms_name: str | None = None):
+    """An assignment whose LMS checklist label deliberately differs from the
+    Sessions program name — proving chat-identity reports the real one."""
+    lms_program = LmsProgram(id=uuid.uuid4(), name=lms_name or f"Checklist {uuid.uuid4().hex[:6]}")
     db.add(lms_program)
     await db.flush()
     assignment = LmsProgramAssignment(
@@ -206,23 +208,25 @@ async def test_picks_the_most_recently_assigned_cohort(db, client):
     assert body["cohort"] == "Ru'ya 2026"
 
 
-async def test_includes_the_program_name_alongside_the_cohort(db, client):
-    """Fin answers general program docs off `program` and cohort-specific
-    docs off `program` + `cohort` — both must ride the signed claims."""
+async def test_includes_the_real_program_name_alongside_the_cohort(db, client):
+    """`program` is the Sessions program name ("Ru'ya Space Race"), never
+    the LMS checklist label ("week 1 checklist") — same convention as the
+    student-facing checklist title (`_assignment_summary`). Fin answers
+    general program docs off this, cohort-specific docs off it + `cohort`."""
     user = await _user(db)
     cohort = await _cohort(db, name="Ru'ya 2026")
     await _assign(
         db, user=user, cohort=cohort, assigned_at=datetime.now(timezone.utc),
-        program_name="Ru'ya Qualifier",
+        lms_name="week 1 checklist",
     )
 
     body = (await client.get(URL, headers=_headers(user))).json()
-    assert body["program"] == "Ru'ya Qualifier"
+    assert body["program"] == "Ru'ya Space Race"
     assert body["cohort"] == "Ru'ya 2026"
     claims = jwt.decode(body["intercom_user_jwt"], SECRET, algorithms=["HS256"])
-    assert claims["program"] == "Ru'ya Qualifier"
-    assert claims["Program"] == "Ru'ya Qualifier"
-    assert claims["custom_attributes"]["program"] == "Ru'ya Qualifier"
+    assert claims["program"] == "Ru'ya Space Race"
+    assert claims["Program"] == "Ru'ya Space Race"
+    assert claims["custom_attributes"]["program"] == "Ru'ya Space Race"
 
 
 async def test_program_is_null_when_there_is_no_assignment(db, client):
@@ -236,15 +240,15 @@ async def test_assignment_id_scopes_to_the_board_being_viewed(db, client):
     on their older board gets that board's program/cohort, not the latest."""
     user = await _user(db)
     now = datetime.now(timezone.utc)
-    old_cohort = await _cohort(db, name="Ru'ya 2025")
-    new_cohort = await _cohort(db, name="Ru'ya 2026")
+    old_cohort = await _cohort(db, name="Ru'ya 2025", program_name="Winter Challenge")
+    new_cohort = await _cohort(db, name="Ru'ya 2026", program_name="Ru'ya Space Race")
     old_assignment = await _assign(
         db, user=user, cohort=old_cohort, assigned_at=now - timedelta(days=200),
-        program_name="Winter Challenge",
+        lms_name="old checklist",
     )
     await _assign(
         db, user=user, cohort=new_cohort, assigned_at=now,
-        program_name="Ru'ya Qualifier",
+        lms_name="new checklist",
     )
 
     body = (

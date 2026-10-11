@@ -849,8 +849,9 @@ export interface ChatIdentity {
    * an Intercom audience rule matches with `roles contains student`. */
   roles: string;
   team: string | null;
-  /** Checklist template name (e.g. "Ru'ya Qualifier") — Fin answers general
-   * program docs off this; `cohort` below narrows to cohort-specific docs. */
+  /** Real Sessions program name (e.g. "Ru'ya Space Race") — never the LMS
+   * checklist label. Fin answers general program docs off this; `cohort`
+   * below narrows to cohort-specific docs. */
   program: string | null;
   cohort: string | null;
   card_id: string | null;

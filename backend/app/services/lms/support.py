@@ -28,6 +28,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.lms.program import LmsProgram, LmsProgramAssignment
 from app.models.sessions.cohort import Cohort
+from app.models.sessions.program import Program as SessionsProgram
 from app.models.team import Team
 from app.models.user import User
 from app.services.documents.card_id import format_card_id
@@ -82,6 +83,13 @@ async def _resolve_context(
 ) -> tuple[str | None, str | None, uuid.UUID | None]:
     """The (program, cohort, cohort_id) triple Fin audiences filter on.
 
+    `program` is the real Sessions program name (e.g. "Ru'ya"), loaded via
+    the cohort exactly like the student-facing checklist title does
+    (`services/lms/program.py::_assignment_summary`) — never the LMS program
+    name, which is an ops-internal checklist label like "week 1 checklist".
+    `cohort` is likewise the Sessions cohort name. Both fall back to None
+    (never a 500) when the student holds no assignment.
+
     When `assignment_id` names one of the caller's own `LmsProgramAssignment`
     rows (e.g. the checklist board currently open on `/learn/*`), the names
     come from that assignment — so Fin answers from the cohort being viewed,
@@ -97,7 +105,7 @@ async def _resolve_context(
     A student can hold assignments across several cohorts concurrently, so
     "most recent" is a choice, not a lookup of something unique. Assignments
     whose `cohort_id` went NULL when a cohort was deleted still contribute
-    their program name — only the cohort half is missing.
+    their LMS program name — only the Sessions halves are missing.
     """
     if assignment_id is not None:
         assignment = await db.scalar(
@@ -107,20 +115,18 @@ async def _resolve_context(
             )
         )
         if assignment is not None:
-            program_name = await db.scalar(
-                select(LmsProgram.name).where(LmsProgram.id == assignment.lms_program_id)
-            )
-            cohort_name: str | None = None
-            if assignment.cohort_id is not None:
-                cohort_name = await db.scalar(
-                    select(Cohort.name).where(Cohort.id == assignment.cohort_id)
-                )
-            return program_name, cohort_name, assignment.cohort_id
+            return await _names_for_assignment(db, assignment)
 
     row = await db.execute(
-        select(LmsProgram.name, Cohort.name, LmsProgramAssignment.cohort_id)
+        select(
+            SessionsProgram.name,
+            LmsProgram.name,
+            Cohort.name,
+            LmsProgramAssignment.cohort_id,
+        )
         .join(LmsProgram, LmsProgram.id == LmsProgramAssignment.lms_program_id)
         .outerjoin(Cohort, Cohort.id == LmsProgramAssignment.cohort_id)
+        .outerjoin(SessionsProgram, SessionsProgram.id == Cohort.program_id)
         .where(LmsProgramAssignment.user_id == user_id)
         .order_by(LmsProgramAssignment.assigned_at.desc().nullslast())
         .limit(1)
@@ -128,7 +134,25 @@ async def _resolve_context(
     first = row.first()
     if first is None:
         return None, None, None
-    return first[0], first[1], first[2]
+    sessions_name, lms_name, cohort_name, cohort_id = first
+    return sessions_name or lms_name, cohort_name, cohort_id
+
+
+async def _names_for_assignment(
+    db: AsyncSession, assignment: LmsProgramAssignment
+) -> tuple[str | None, str | None, uuid.UUID | None]:
+    """Program/cohort names for one known-good assignment row."""
+    cohort = await db.get(Cohort, assignment.cohort_id) if assignment.cohort_id else None
+    sessions_program = (
+        await db.get(SessionsProgram, cohort.program_id)
+        if cohort and cohort.program_id else None
+    )
+    if sessions_program is not None:
+        return sessions_program.name, cohort.name if cohort else None, assignment.cohort_id
+    lms_name = await db.scalar(
+        select(LmsProgram.name).where(LmsProgram.id == assignment.lms_program_id)
+    )
+    return lms_name, cohort.name if cohort else None, assignment.cohort_id
 
 
 async def chat_identity(
