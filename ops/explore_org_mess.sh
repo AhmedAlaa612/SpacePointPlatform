@@ -20,7 +20,9 @@
 #
 set -u
 
-PSQL="psql -U postgres -h 127.0.0.1 -p 5432 -d spacepoint_unified -X -q -t -A -F	"
+PSQL="psql -d spacepoint_unified -X -q -t -A -F	"
+# NOTE: no -h flag on purpose — Unix socket + `sudo -u postgres` = peer auth,
+# no password. Adding `-h 127.0.0.1` forces TCP/md5 and prompts for one.
 
 q() {
   echo "── $1"
