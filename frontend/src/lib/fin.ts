@@ -121,6 +121,19 @@ export function boot(payload: FinBootPayload = {}): void {
   });
 }
 
+/** Refresh identity/attributes on an already-booted messenger.
+
+ * Used when the student navigates between cohort boards (`assignmentId`
+ * changes) — carries a fresh signed JWT so `program`/`cohort`/`team` track
+ * the board being viewed. Unlike `boot()` this preserves the open
+ * conversation; only signed payloads go through it, never unsigned
+ * attribute copies (see `FinBootPayload`). No-op before the first boot. */
+export function update(payload: FinBootPayload = {}): void {
+  if (!isFinEnabled()) return;
+  ensureLoaded();
+  window.Intercom?.("update", { app_id: APP_ID, ...payload });
+}
+
 /** Hide the messenger and **clear the local conversation**.
  *
  * This is why the caller tracks the logged-in user rather than booting once

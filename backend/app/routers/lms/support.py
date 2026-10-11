@@ -14,7 +14,9 @@ concepts, the LMS router already aggregates sub-routers, and `auth.py` is
 long enough already.
 """
 
-from fastapi import APIRouter, Depends, HTTPException, status
+import uuid
+
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
@@ -40,6 +42,7 @@ async def get_support_config(db: AsyncSession = Depends(get_db)):
 async def chat_identity_route(
     db: AsyncSession = Depends(get_db),
     current: User = Depends(get_current_active_user),
+    assignment_id: uuid.UUID | None = Query(default=None),
 ):
     """The caller's own Fin messenger identity.
 
@@ -47,6 +50,13 @@ async def chat_identity_route(
     how `/lms/my-courses` is deliberately scoped (see the student router's
     docstring): staff who were granted an LMS course reach `/learn/*` too, and
     the widget is mounted for them there.
+
+    `assignment_id` is optional context, not a lookup: when it names one of
+    the caller's own checklist assignments (the board open on `/learn/*`),
+    `program`/`cohort`/`team` describe that assignment instead of the latest
+    one. Anything else — unknown id, someone else's assignment — is ignored
+    and falls back to the latest, so there is no IDOR to defend: the payload
+    still describes nobody but the caller.
 
     503 when `INTERCOM_IDENTITY_SECRET` is unset. A blank secret would still
     produce a syntactically valid HMAC — one keyed on the empty string, which
@@ -66,4 +76,4 @@ async def chat_identity_route(
             status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="Chat identity is not configured",
         )
-    return await chat_identity(db, user=current, secret=settings.INTERCOM_IDENTITY_SECRET)
+    return await chat_identity(db, user=current, secret=settings.INTERCOM_IDENTITY_SECRET, assignment_id=assignment_id)

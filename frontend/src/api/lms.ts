@@ -849,12 +849,17 @@ export interface ChatIdentity {
    * an Intercom audience rule matches with `roles contains student`. */
   roles: string;
   team: string | null;
+  /** Checklist template name (e.g. "Ru'ya Qualifier") — Fin answers general
+   * program docs off this; `cohort` below narrows to cohort-specific docs. */
+  program: string | null;
   cohort: string | null;
   card_id: string | null;
 }
 
-export async function fetchChatIdentity(): Promise<ChatIdentity> {
-  const { data } = await api.get<ChatIdentity>("/lms/support/chat-identity");
+export async function fetchChatIdentity(assignmentId?: string): Promise<ChatIdentity> {
+  const { data } = await api.get<ChatIdentity>("/lms/support/chat-identity", {
+    params: assignmentId ? { assignment_id: assignmentId } : undefined,
+  });
   return data;
 }
 

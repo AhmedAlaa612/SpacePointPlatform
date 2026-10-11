@@ -26,7 +26,7 @@ from jose import jwt
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.lms.program import LmsProgramAssignment
+from app.models.lms.program import LmsProgram, LmsProgramAssignment
 from app.models.sessions.cohort import Cohort
 from app.models.team import Team
 from app.models.user import User
@@ -77,34 +77,63 @@ def _pick_team(teams: list[Team]) -> Team | None:
     return next((t for t in teams if t.cohort_id is not None), None) or (teams[0] if teams else None)
 
 
-async def _latest_cohort_name(db: AsyncSession, *, user_id: uuid.UUID) -> str | None:
-    """The name of the cohort this student was most recently assigned to.
+async def _resolve_context(
+    db: AsyncSession, *, user_id: uuid.UUID, assignment_id: uuid.UUID | None
+) -> tuple[str | None, str | None, uuid.UUID | None]:
+    """The (program, cohort, cohort_id) triple Fin audiences filter on.
 
-    Deliberately its own query rather than reusing the two existing paths —
-    both do far too much work for something that runs on every `/learn/*`
-    mount. `list_student_assignments` (services/lms/program.py) refreshes
-    per-item checklist progress; `my_programs` (services/lms/my_programs.py)
-    resolves a location and computes course completion per row, and is keyed
-    off `user.contact_id`, so it returns nothing at all for a student with no
-    linked Contact.
+    When `assignment_id` names one of the caller's own `LmsProgramAssignment`
+    rows (e.g. the checklist board currently open on `/learn/*`), the names
+    come from that assignment — so Fin answers from the cohort being viewed,
+    not just the latest one. An unknown id, or one belonging to someone else,
+    is ignored and falls back to the latest assignment: the widget must
+    degrade rather than 500, and must never leak another student's context.
 
-    A student can hold assignments across several cohorts concurrently — an
-    explicit operator decision recorded in `LmsProgramAssignment`'s own
-    docstring — so "most recent" is a choice, not a lookup of something
-    unique. The inner join also drops assignments whose `cohort_id` went NULL
-    when a cohort was deleted (`ondelete="SET NULL"`), which is right: there
-    is no name left to show.
+    Without a usable `assignment_id` this is the most recently assigned
+    checklist, deliberately the same lightweight query as before rather than
+    `list_student_assignments` (which refreshes per-item progress) or
+    `my_programs` (keyed off `contact_id`, empty for contact-less students).
+
+    A student can hold assignments across several cohorts concurrently, so
+    "most recent" is a choice, not a lookup of something unique. Assignments
+    whose `cohort_id` went NULL when a cohort was deleted still contribute
+    their program name — only the cohort half is missing.
     """
-    return await db.scalar(
-        select(Cohort.name)
-        .join(LmsProgramAssignment, LmsProgramAssignment.cohort_id == Cohort.id)
+    if assignment_id is not None:
+        assignment = await db.scalar(
+            select(LmsProgramAssignment).where(
+                LmsProgramAssignment.id == assignment_id,
+                LmsProgramAssignment.user_id == user_id,
+            )
+        )
+        if assignment is not None:
+            program_name = await db.scalar(
+                select(LmsProgram.name).where(LmsProgram.id == assignment.lms_program_id)
+            )
+            cohort_name: str | None = None
+            if assignment.cohort_id is not None:
+                cohort_name = await db.scalar(
+                    select(Cohort.name).where(Cohort.id == assignment.cohort_id)
+                )
+            return program_name, cohort_name, assignment.cohort_id
+
+    row = await db.execute(
+        select(LmsProgram.name, Cohort.name, LmsProgramAssignment.cohort_id)
+        .join(LmsProgram, LmsProgram.id == LmsProgramAssignment.lms_program_id)
+        .outerjoin(Cohort, Cohort.id == LmsProgramAssignment.cohort_id)
         .where(LmsProgramAssignment.user_id == user_id)
         .order_by(LmsProgramAssignment.assigned_at.desc().nullslast())
         .limit(1)
     )
+    first = row.first()
+    if first is None:
+        return None, None, None
+    return first[0], first[1], first[2]
 
 
-async def chat_identity(db: AsyncSession, *, user: User, secret: str) -> dict:
+async def chat_identity(
+    db: AsyncSession, *, user: User, secret: str, assignment_id: uuid.UUID | None = None
+) -> dict:
     """Everything the Messenger needs for one student.
 
     Every attribute but the id and the hash is nullable on purpose: a student
@@ -118,7 +147,15 @@ async def chat_identity(db: AsyncSession, *, user: User, secret: str) -> dict:
     can't silently mislabel a student's card as staff.
     """
     teams = await teams_for_user(db, user_id=user.id)
-    team = _pick_team(teams)
+    program_name, cohort_name, context_cohort_id = await _resolve_context(
+        db, user_id=user.id, assignment_id=assignment_id
+    )
+    if context_cohort_id is not None:
+        team = next(
+            (t for t in teams if t.cohort_id == context_cohort_id), None
+        ) or _pick_team(teams)
+    else:
+        team = _pick_team(teams)
 
     fields = {
         "user_id": str(user.id),
@@ -134,7 +171,8 @@ async def chat_identity(db: AsyncSession, *, user: User, secret: str) -> dict:
         # (AuthContext::resolveActiveRole).
         "roles": ",".join(user.role_values),
         "team": team.name if team is not None else None,
-        "cohort": await _latest_cohort_name(db, user_id=user.id),
+        "program": program_name,
+        "cohort": cohort_name,
         "card_id": (
             format_card_id(user.card_number, user.role_values)
             if user.card_number is not None

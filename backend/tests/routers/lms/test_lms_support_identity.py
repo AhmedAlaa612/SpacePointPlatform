@@ -64,15 +64,17 @@ async def _cohort(db, *, name: str) -> Cohort:
     return cohort
 
 
-async def _assign(db, *, user: User, cohort: Cohort, assigned_at: datetime) -> None:
-    lms_program = LmsProgram(id=uuid.uuid4(), name=f"Checklist {uuid.uuid4().hex[:6]}")
+async def _assign(db, *, user: User, cohort: Cohort, assigned_at: datetime, program_name: str | None = None):
+    lms_program = LmsProgram(id=uuid.uuid4(), name=program_name or f"Checklist {uuid.uuid4().hex[:6]}")
     db.add(lms_program)
     await db.flush()
-    db.add(LmsProgramAssignment(
+    assignment = LmsProgramAssignment(
         id=uuid.uuid4(), user_id=user.id, lms_program_id=lms_program.id,
         cohort_id=cohort.id, assigned_at=assigned_at,
-    ))
+    )
+    db.add(assignment)
     await db.flush()
+    return assignment
 
 
 async def _team(db, *, user: User, name: str, cohort: Cohort | None, created_at: datetime) -> Team:
@@ -201,6 +203,110 @@ async def test_picks_the_most_recently_assigned_cohort(db, client):
     await _assign(db, user=user, cohort=new, assigned_at=now)
 
     body = (await client.get(URL, headers=_headers(user))).json()
+    assert body["cohort"] == "Ru'ya 2026"
+
+
+async def test_includes_the_program_name_alongside_the_cohort(db, client):
+    """Fin answers general program docs off `program` and cohort-specific
+    docs off `program` + `cohort` — both must ride the signed claims."""
+    user = await _user(db)
+    cohort = await _cohort(db, name="Ru'ya 2026")
+    await _assign(
+        db, user=user, cohort=cohort, assigned_at=datetime.now(timezone.utc),
+        program_name="Ru'ya Qualifier",
+    )
+
+    body = (await client.get(URL, headers=_headers(user))).json()
+    assert body["program"] == "Ru'ya Qualifier"
+    assert body["cohort"] == "Ru'ya 2026"
+    claims = jwt.decode(body["intercom_user_jwt"], SECRET, algorithms=["HS256"])
+    assert claims["program"] == "Ru'ya Qualifier"
+    assert claims["Program"] == "Ru'ya Qualifier"
+    assert claims["custom_attributes"]["program"] == "Ru'ya Qualifier"
+
+
+async def test_program_is_null_when_there_is_no_assignment(db, client):
+    user = await _user(db, card_number=None)
+    body = (await client.get(URL, headers=_headers(user))).json()
+    assert body["program"] is None
+
+
+async def test_assignment_id_scopes_to_the_board_being_viewed(db, client):
+    """The checklist board open on `/learn/*` picks the context — a student
+    on their older board gets that board's program/cohort, not the latest."""
+    user = await _user(db)
+    now = datetime.now(timezone.utc)
+    old_cohort = await _cohort(db, name="Ru'ya 2025")
+    new_cohort = await _cohort(db, name="Ru'ya 2026")
+    old_assignment = await _assign(
+        db, user=user, cohort=old_cohort, assigned_at=now - timedelta(days=200),
+        program_name="Winter Challenge",
+    )
+    await _assign(
+        db, user=user, cohort=new_cohort, assigned_at=now,
+        program_name="Ru'ya Qualifier",
+    )
+
+    body = (
+        await client.get(
+            URL, params={"assignment_id": str(old_assignment.id)}, headers=_headers(user)
+        )
+    ).json()
+    assert body["cohort"] == "Ru'ya 2025"
+    assert body["program"] == "Winter Challenge"
+
+
+async def test_assignment_id_scopes_the_team_to_that_board(db, client):
+    """The team follows the viewed board too — the agent sees the teammates
+    the question is actually about."""
+    user = await _user(db)
+    now = datetime.now(timezone.utc)
+    old_cohort = await _cohort(db, name="Ru'ya 2025")
+    new_cohort = await _cohort(db, name="Ru'ya 2026")
+    old_assignment = await _assign(
+        db, user=user, cohort=old_cohort, assigned_at=now - timedelta(days=200),
+    )
+    await _assign(db, user=user, cohort=new_cohort, assigned_at=now)
+    await _team(db, user=user, name="Old Squad", cohort=old_cohort, created_at=now - timedelta(days=5))
+    await _team(db, user=user, name="New Squad", cohort=new_cohort, created_at=now)
+
+    body = (
+        await client.get(
+            URL, params={"assignment_id": str(old_assignment.id)}, headers=_headers(user)
+        )
+    ).json()
+    assert body["team"] == "Old Squad"
+
+
+async def test_unknown_assignment_id_falls_back_to_the_latest(db, client):
+    """A bad id degrades to today's behaviour — never a 500, never a leak."""
+    user = await _user(db)
+    now = datetime.now(timezone.utc)
+    cohort = await _cohort(db, name="Ru'ya 2026")
+    await _assign(db, user=user, cohort=cohort, assigned_at=now)
+
+    res = await client.get(
+        URL, params={"assignment_id": str(uuid.uuid4())}, headers=_headers(user)
+    )
+    assert res.status_code == http_status.HTTP_200_OK
+    assert res.json()["cohort"] == "Ru'ya 2026"
+
+
+async def test_someone_elses_assignment_id_falls_back_to_the_latest(db, client):
+    """The payload still describes nobody but the caller — a foreign id is
+    ignored rather than honoured (no IDOR to defend)."""
+    one, two = await _user(db), await _user(db)
+    now = datetime.now(timezone.utc)
+    cohort_one = await _cohort(db, name="Ru'ya 2025")
+    cohort_two = await _cohort(db, name="Ru'ya 2026")
+    foreign = await _assign(db, user=one, cohort=cohort_one, assigned_at=now)
+    await _assign(db, user=two, cohort=cohort_two, assigned_at=now)
+
+    body = (
+        await client.get(
+            URL, params={"assignment_id": str(foreign.id)}, headers=_headers(two)
+        )
+    ).json()
     assert body["cohort"] == "Ru'ya 2026"
 
 
