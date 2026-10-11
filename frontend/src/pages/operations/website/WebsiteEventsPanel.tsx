@@ -1350,11 +1350,6 @@ export function WebsiteEventsPanel() {
   const toast = useToast()
   const qc = useQueryClient()
   const [subTab, setSubTab] = useState<"events" | "mega" | "organizations">("events")
-  // Partner orgs (event-host logins, owner_user_id set) vs plain CRM school
-  // rows auto-created by imports/registrations (no login). One shared
-  // `organizations` table holds both — default to partner accounts so the
-  // school rows don't bury the real event hosts.
-  const [orgView, setOrgView] = useState<"partners" | "schools">("partners")
 
   const megaQuery = useQuery({
     queryKey: ["admin-website-mega-events"],
@@ -1525,9 +1520,10 @@ export function WebsiteEventsPanel() {
   const megaEvents = megaQuery.data || []
   const events = eventsQuery.data || []
   const organizations = orgsQuery.data || []
+  // Partner accounts ONLY (event-host logins, owner_user_id set). Plain CRM
+  // school rows auto-created by imports/registrations live in the same table
+  // but are just contact attributes — they are deliberately NOT listed here.
   const partnerOrgs = organizations.filter((o) => !!o.owner_user_id)
-  const schoolOrgs = organizations.filter((o) => !o.owner_user_id)
-  const visibleOrgs = orgView === "partners" ? partnerOrgs : schoolOrgs
 
   if (megaQuery.isLoading || eventsQuery.isLoading) {
     return (
@@ -2274,23 +2270,6 @@ export function WebsiteEventsPanel() {
       {/* 3. PARTNER ORGANIZATIONS LIST */}
       {subTab === "organizations" && (
         <div className="space-y-4">
-          <div className="flex justify-center">
-            <div className="flex items-center h-9 p-1 border border-border bg-card rounded-xl text-sm">
-              {(["partners", "schools"] as const).map((v) => (
-                <button
-                  key={v}
-                  type="button"
-                  onClick={() => setOrgView(v)}
-                  className={cn(
-                    "h-7 px-3 rounded-lg capitalize transition-colors cursor-pointer",
-                    orgView === v ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground",
-                  )}
-                >
-                  {v === "partners" ? `Partner accounts (${partnerOrgs.length})` : `Schools, no login (${schoolOrgs.length})`}
-                </button>
-              ))}
-            </div>
-          </div>
           {orgResetLink && (
             <div className="rounded-2xl border border-primary/40 bg-primary/10 p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
               <div className="min-w-0 flex-1 space-y-1">
@@ -2324,7 +2303,7 @@ export function WebsiteEventsPanel() {
           )}
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {visibleOrgs.map((org) => (
+            {partnerOrgs.map((org) => (
               <div
                 key={org.id}
                 className="rounded-2xl border border-border bg-card p-5 flex flex-col justify-between gap-4"
@@ -2419,10 +2398,10 @@ export function WebsiteEventsPanel() {
               </div>
             ))}
           </div>
-          {visibleOrgs.length === 0 && (
+          {partnerOrgs.length === 0 && (
             <div className="flex items-center justify-center h-32 border border-dashed border-border rounded-2xl">
               <p className="text-sm text-muted-foreground">
-                {orgView === "partners" ? "No partner accounts yet — create one above" : "No unlinked schools"}
+                No partner accounts yet — create one above
               </p>
             </div>
           )}
