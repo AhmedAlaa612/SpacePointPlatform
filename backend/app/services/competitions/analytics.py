@@ -18,9 +18,11 @@ own. One pass per table, joined in Python.
 
 **Where a "done" comes from**, per item type — this is the one subtle part:
 
-- `scope="team"` items (`submission`/`external_link`/`manual`/`team_setup`)
+- `scope="team"` items (`submission`/`external_link`/`manual`/`team_setup`/`checkpoint`)
   — `lms_program_team_item_progress.status` is the literal truth. Nothing
-  auto-tracks these; a self-check or an ops confirmation is what writes them.
+  auto-tracks these; a self-check, a submission, a checkpoint lock, or an
+  ops confirmation is what writes them. (`mission_run` team items live in
+  the same table but are charted separately — see below.)
 - `scope="individual"` items — the stored `lms_program_item_progress.status`,
   EXCEPT the two auto-tracked types that can be batch-reconciled honestly:
   `course` (via `batch_course_completion`, same rule `_course_item_done`

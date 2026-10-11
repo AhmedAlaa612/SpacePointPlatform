@@ -727,8 +727,8 @@ async def complete_program_item(
             detail="This section is frozen by a locked checkpoint — this checkpoint is now locked for your team",
         )
     target = await checklist_item_write_target(db, assignment=assignment, item=item, individual=individual, user_id=current.id)
-    if item.item_type == "submission" and not target.submitted_url:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="Submit a link first")
+    if item.item_type == "submission" and not (target.submitted_url or target.submitted_text or target.submitted_links):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="Submit an answer first")
     if item.requires_confirmation:
         target.status = "awaiting_confirmation"
     else:
@@ -1069,7 +1069,7 @@ async def final_submit_program(
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Program assignment not found")
     team = await team_for_cohort_member(db, cohort_id=assignment.cohort_id, user_id=current.id)
     if team is None:
-        raise HTTPException(status.HTTP_403_FORBIDDEN, detail="You're not on a team for this cohort")
+        raise HTTPException(status.HTTP_403_FORBIDDEN, detail="This is a team task — join a team first to work on it")
     ready, reason = await team_final_submit_readiness(db, assignment=assignment)
     if not ready:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, detail=reason or "Not every required item is done yet")
@@ -1107,7 +1107,7 @@ async def lock_checkpoint_item(
         raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="This item isn't a checkpoint")
     team = await team_for_cohort_member(db, cohort_id=assignment.cohort_id, user_id=current.id)
     if team is None:
-        raise HTTPException(status.HTTP_403_FORBIDDEN, detail="You're not on a team for this cohort")
+        raise HTTPException(status.HTTP_403_FORBIDDEN, detail="This is a team task — join a team first to work on it")
     if await checklist_item_locked(db, assignment=assignment, item=item):
         raise HTTPException(status.HTTP_409_CONFLICT, detail="Lock the earlier checkpoint first")
     ready, reason = await checkpoint_lock_readiness(db, assignment=assignment, item=item)

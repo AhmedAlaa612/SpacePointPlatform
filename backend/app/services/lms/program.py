@@ -298,7 +298,7 @@ def validate_item_payload(body: LmsProgramItemIn) -> None:
 
 
 def guard_locked_submission_scope(item: LmsProgramItem, body: LmsProgramItemIn) -> None:
-    """A submission or mission_run item's `scope` (individual vs. team) is
+    """A team-capable item's `scope` (individual vs. team) is
     locked at creation — flipping it later silently orphans/misattributes
     whatever's already tracked against it. For `submission`, individual and
     team progress live in two entirely separate tables keyed differently
@@ -313,7 +313,7 @@ def guard_locked_submission_scope(item: LmsProgramItem, body: LmsProgramItemIn) 
     MissionAttempt and report it to the whole team and to judges as if it
     were their shared run. Delete and re-add the item instead of changing
     this once it might have anything tracked against it."""
-    if item.item_type in ("submission", "mission_run", "checkpoint") and body.scope != item.scope:
+    if item.item_type in ("submission", "external_link", "manual", "mission_run", "team_setup", "checkpoint") and body.scope != item.scope:
         raise HTTPException(
             status.HTTP_400_BAD_REQUEST,
             detail=f"A {item.item_type} item's scope (individual vs. team) can't be changed after it's created — "
@@ -358,6 +358,12 @@ async def validate_item_refs(db: AsyncSession, body: LmsProgramItemIn, *, requir
                 status.HTTP_400_BAD_REQUEST,
                 detail="This mission's Team policy is Solo-only — it can't be assigned as a team run. "
                        "Change the mission's Team policy first, or make this item individual-scoped.",
+            )
+        if body.scope != "team" and body.item_type == "mission_run" and mission.team_policy == "team":
+            raise HTTPException(
+                status.HTTP_400_BAD_REQUEST,
+                detail="This mission's Team policy is Team-only — it can't be assigned as an individual run. "
+                       "Change the mission's Team policy first, or make this item team-scoped.",
             )
 
 
@@ -1630,7 +1636,7 @@ async def checklist_item_write_target(
         return individual
     team = await team_for_cohort_member(db, cohort_id=assignment.cohort_id, user_id=user_id)
     if team is None:
-        raise HTTPException(status.HTTP_403_FORBIDDEN, detail="You're not on a team for this cohort")
+        raise HTTPException(status.HTTP_403_FORBIDDEN, detail="This is a team task — join a team first to work on it")
     return await _get_or_create_team_progress(db, item_id=item.id, team_id=team.id)
 
 

@@ -280,13 +280,25 @@ def preview_registration_sheet(file_bytes: bytes, filename: str | None = None) -
     cells in the browser is always safe. `import_registrations` (further
     down) is the only function that actually writes anything."""
     parsed = parse_registration_sheet(file_bytes, filename)
+    cleaned = [_clean_row(entry["row_number"], entry["raw"]) for entry in parsed]
+    # Same email under two Team IDs: the import keeps only the last team
+    # (single-team rule moves the student). Warning-only — preview must
+    # never refuse a legitimate correction move, but ops should see it.
+    teams_by_email: dict[str, set[str]] = {}
+    for row in cleaned:
+        norm = normalize_email(row.email)
+        if norm and row.team_id:
+            teams_by_email.setdefault(norm, set()).add(row.team_id.strip())
     out = []
-    for entry in parsed:
-        row = _clean_row(entry["row_number"], entry["raw"])
+    for row in cleaned:
+        issues = _row_issues(row)
+        norm = normalize_email(row.email)
+        if norm and row.team_id and len(teams_by_email.get(norm, set())) > 1:
+            issues.append("Same email appears under multiple Team IDs — import keeps only the last team")
         out.append(ImportPreviewRow(
             row_number=row.row_number, team_id=row.team_id, team_name=row.team_name, member_name=row.member_name,
             email=row.email, phone=row.phone, nationality=row.nationality, school=row.school,
-            issues=_row_issues(row),
+            issues=issues,
         ))
     return out
 
