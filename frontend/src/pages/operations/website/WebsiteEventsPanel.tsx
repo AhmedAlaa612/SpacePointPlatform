@@ -25,6 +25,7 @@ import { useToast } from "@/components/ui/toast"
 import { CountrySelect } from "@/components/ui/CountrySelect"
 import { CityNameSelect } from "@/components/ui/CitySelect"
 import { UserProfileModal } from "@/components/UserProfileModal"
+import { apiBaseUrl } from "@/api/client"
 import { uploadWebsiteAsset } from "@/api/websiteConfig"
 import {
   createAdminMegaEvent,
@@ -155,6 +156,23 @@ export function getUploadedBannerUrl(url?: string | null): string | null {
   return clean
 }
 
+export function resolvePreviewImageUrl(url?: string | null): string | null {
+  const clean = (url || "").trim()
+  if (!clean) return null
+  const apiPrefix = apiBaseUrl.replace(/\/$/, "")
+  if (clean.startsWith("/public/website/uploads/") || clean.startsWith("/files/")) {
+    return `${apiPrefix}${clean}`
+  }
+  if (clean.startsWith("https://portal.spacepoint.ae/public/website/uploads/")) {
+    return clean.replace(
+      "https://portal.spacepoint.ae/public/website/uploads/",
+      `${apiPrefix}/public/website/uploads/`
+    )
+  }
+  if (clean.startsWith("/assets/")) return `${WEBSITE_BASE_URL}${clean}`
+  return clean
+}
+
 export function EventBannerUploader({
   bannerUrl,
   onChange,
@@ -172,7 +190,7 @@ export function EventBannerUploader({
   const [selectedImageForCrop, setSelectedImageForCrop] = useState<string | null>(null)
   const [uploading, setUploading] = useState(false)
 
-  const effectiveUrl = getUploadedBannerUrl(bannerUrl)
+  const effectiveUrl = resolvePreviewImageUrl(getUploadedBannerUrl(bannerUrl))
 
   const handleFilePicked = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
@@ -306,13 +324,6 @@ export function EventBannerUploader({
       />
     </div>
   )
-}
-
-export function resolvePreviewImageUrl(url?: string | null): string | null {
-  const clean = (url || "").trim()
-  if (!clean) return null
-  if (clean.startsWith("/assets/")) return `${WEBSITE_BASE_URL}${clean}`
-  return clean
 }
 
 export function HeroBackgroundUploader({
