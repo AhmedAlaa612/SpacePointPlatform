@@ -320,6 +320,9 @@ async def complete_cohort(db: AsyncSession, cohort_id: UUID, actor_user_id: UUID
 
     cohort.status = "completed"
     await db.flush()
+    if not cohort.keep_course_access_after_completion:
+        from app.services.lms.ops_integration import revoke_completed_cohort_course_access
+        await revoke_completed_cohort_course_access(db, cohort)
     return cohort
 
 

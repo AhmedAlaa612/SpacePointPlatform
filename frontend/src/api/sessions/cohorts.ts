@@ -34,6 +34,7 @@ export const createCohortApi = (data: {
   visibility?: CohortVisibility
   notes?: string
   poster_template_url?: string
+  keep_course_access_after_completion?: boolean
 }) => api.post<Cohort>("/sessions/cohorts", data).then((r) => r.data)
 
 export const updateCohortApi = (
@@ -55,6 +56,7 @@ export const updateCohortApi = (
      *  "Program — Cohort" label on the student's checklist. Pass null to
      *  revert to the default fallback. */
     checklist_title_override: string | null
+    keep_course_access_after_completion: boolean
   }>
 ) => api.patch<Cohort>(`/sessions/cohorts/${id}`, data).then((r) => r.data)
 

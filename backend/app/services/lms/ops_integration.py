@@ -365,3 +365,139 @@ async def deactivate_registration_enrollments(db: AsyncSession, registration_id:
     )).scalars().all()
     for row in rows:
         row.status = "inactive"
+
+
+async def _cohort_student_registrations(
+    db: AsyncSession, cohort_id: uuid.UUID,
+) -> dict[uuid.UUID, uuid.UUID | None]:
+    """Map of user_id -> registration_id for all non-cancelled students and
+    checklist assignments in `cohort_id`."""
+    from app.models.lms.program import LmsProgramAssignment
+
+    user_reg: dict[uuid.UUID, uuid.UUID | None] = {}
+    reg_rows = (await db.execute(
+        select(User.id, Registration.id)
+        .join(Registration, Registration.contact_id == User.contact_id)
+        .where(Registration.cohort_id == cohort_id, Registration.status != "cancelled")
+    )).all()
+    for uid, rid in reg_rows:
+        user_reg[uid] = rid
+
+    assign_rows = (await db.execute(
+        select(LmsProgramAssignment.user_id, LmsProgramAssignment.registration_id)
+        .where(LmsProgramAssignment.cohort_id == cohort_id)
+    )).all()
+    for uid, rid in assign_rows:
+        if uid not in user_reg or user_reg[uid] is None:
+            user_reg[uid] = rid
+    return user_reg
+
+
+async def revoke_completed_cohort_course_access(db: AsyncSession, cohort: Cohort) -> int:
+    """Soft-revoke (`status = 'inactive'`) course enrollments for students in a
+    completed cohort when `cohort.keep_course_access_after_completion` is False.
+    Preserves all ItemProgress, quiz scores, and checklist progress.
+    Never revokes a course purchased via Stripe Checkout (`source == 'purchase'`)
+    or a course the student still has active access to via another cohort."""
+    from app.models.lms.program import LmsProgramAssignment
+    from app.services.lms.program import resolve_cohort_program_course_ids
+
+    course_ids = await resolve_cohort_program_course_ids(db, cohort.id)
+    if not course_ids:
+        return 0
+
+    user_reg = await _cohort_student_registrations(db, cohort.id)
+    if not user_reg:
+        return 0
+    user_ids = list(user_reg.keys())
+
+    # Check if any of these users have access to any of `course_ids` via another
+    # cohort that is either not completed or keeps course access after completion.
+    other_cohort_users: dict[uuid.UUID, set[uuid.UUID]] = {}
+    other_reg_rows = (await db.execute(
+        select(Registration.cohort_id, User.id)
+        .join(User, User.contact_id == Registration.contact_id)
+        .join(Cohort, Cohort.id == Registration.cohort_id)
+        .where(
+            User.id.in_(user_ids),
+            Registration.cohort_id != cohort.id,
+            Registration.status != "cancelled",
+            Cohort.status != "cancelled",
+            (Cohort.status != "completed") | (Cohort.keep_course_access_after_completion.is_(True)),
+        )
+    )).all()
+    for cid, uid in other_reg_rows:
+        other_cohort_users.setdefault(cid, set()).add(uid)
+
+    other_assign_rows = (await db.execute(
+        select(LmsProgramAssignment.cohort_id, LmsProgramAssignment.user_id)
+        .join(Cohort, Cohort.id == LmsProgramAssignment.cohort_id)
+        .where(
+            LmsProgramAssignment.user_id.in_(user_ids),
+            LmsProgramAssignment.cohort_id != cohort.id,
+            Cohort.status != "cancelled",
+            (Cohort.status != "completed") | (Cohort.keep_course_access_after_completion.is_(True)),
+        )
+    )).all()
+    for cid, uid in other_assign_rows:
+        if cid is not None:
+            other_cohort_users.setdefault(cid, set()).add(uid)
+
+    entitled_elsewhere: set[tuple[uuid.UUID, uuid.UUID]] = set()
+    for other_cid, uids in other_cohort_users.items():
+        other_courses = await resolve_cohort_program_course_ids(db, other_cid)
+        for ocid in other_courses:
+            if ocid in course_ids:
+                for uid in uids:
+                    entitled_elsewhere.add((uid, ocid))
+
+    enrollments = (await db.execute(
+        select(Enrollment).where(
+            Enrollment.user_id.in_(user_ids),
+            Enrollment.course_id.in_(course_ids),
+            Enrollment.status == "active",
+            Enrollment.source != "purchase",
+        )
+    )).scalars().all()
+
+    revoked = 0
+    for row in enrollments:
+        if (row.user_id, row.course_id) in entitled_elsewhere:
+            continue
+        row.status = "inactive"
+        revoked += 1
+
+    await db.flush()
+    return revoked
+
+
+async def restore_completed_cohort_course_access(db: AsyncSession, cohort: Cohort) -> int:
+    """Re-activate course enrollments for all non-cancelled students in `cohort`
+    when `keep_course_access_after_completion` is switched back to True."""
+    from app.services.lms.enrollment import enroll
+    from app.services.lms.program import resolve_cohort_program_course_ids
+
+    course_ids = await resolve_cohort_program_course_ids(db, cohort.id)
+    if not course_ids:
+        return 0
+
+    user_reg = await _cohort_student_registrations(db, cohort.id)
+    if not user_reg:
+        return 0
+
+    restored = 0
+    for uid, rid in user_reg.items():
+        for cid in course_ids:
+            await enroll(
+                db,
+                user_id=uid,
+                course_id=cid,
+                source="registration",
+                program_id=cohort.program_id,
+                registration_id=rid,
+            )
+            restored += 1
+
+    await db.flush()
+    return restored
+

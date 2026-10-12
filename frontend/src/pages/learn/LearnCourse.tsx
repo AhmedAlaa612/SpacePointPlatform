@@ -82,6 +82,8 @@ export default function LearnCourse() {
       .finally(() => setLoadingModuleId((cur) => (cur === moduleId ? null : cur)));
   };
 
+  const isPurchasable = course?.access_mode === "paid" || (course?.price_cents != null && course.price_cents > 0);
+
   const handleEnroll = async () => {
     // Browsing is free, enrolling costs a login — send visitors to sign in
     // first rather than firing an authed POST that bounces them.
@@ -92,7 +94,7 @@ export default function LearnCourse() {
     setEnrolling(true);
     setEnrollError("");
     try {
-      if (course?.access_mode === "paid") {
+      if (isPurchasable) {
         const { checkout_url } = await startCourseCheckout(courseId);
         window.location.href = checkout_url;
         return; // leaving the page — don't clear `enrolling` on the way out
@@ -215,7 +217,7 @@ export default function LearnCourse() {
                     {itemCta}
                   </Button>
                 </>
-              ) : course.access_mode === "invite" ? (
+              ) : course.access_mode === "invite" && !isPurchasable ? (
                 <>
                   <Button size="xl" className="w-full" disabled>
                     <Lock className="size-[18px]" /> Invite only
@@ -244,12 +246,12 @@ export default function LearnCourse() {
               ) : (
                 <Button size="xl" className="w-full" onClick={() => void handleEnroll()} disabled={enrolling}>
                   {enrolling
-                    ? (course.access_mode === "paid" ? "Redirecting to checkout..." : "Enrolling...")
+                    ? (isPurchasable ? "Redirecting to checkout..." : "Enrolling...")
                     : !isAuthed
-                      ? (course.access_mode === "paid"
+                      ? (isPurchasable
                         ? `Log in to buy${course.price_cents != null ? ` — ${formatPrice(course.price_cents, course.currency)}` : ""}`
                         : "Log in to enroll")
-                      : course.access_mode === "paid"
+                      : isPurchasable
                         ? `Buy${course.price_cents != null ? ` — ${formatPrice(course.price_cents, course.currency)}` : ""}`
                         : "Enroll"}
                 </Button>

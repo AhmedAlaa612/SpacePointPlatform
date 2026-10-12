@@ -599,6 +599,9 @@ function BasicsStep({ programs, program, cohort, onSaved, onFormChange }: {
   const [capacity, setCapacity] = useState(cohort?.capacity != null ? String(cohort.capacity) : "")
   const [durationHours, setDurationHours] = useState(cohort?.duration_hours != null ? String(cohort.duration_hours) : "")
   const [visibility, setVisibility] = useState<CohortVisibility>(cohort?.visibility ?? "public")
+  const [keepCourseAccessAfterCompletion, setKeepCourseAccessAfterCompletion] = useState(
+    cohort?.keep_course_access_after_completion ?? program?.keep_course_access_after_completion ?? true,
+  )
   const [error, setError] = useState("")
 
   const { data: locations = [] } = useQuery({ queryKey: ["inv-locations"], queryFn: () => getLocationsApi() })
@@ -628,6 +631,7 @@ function BasicsStep({ programs, program, cohort, onSaved, onFormChange }: {
           capacity: capacity.trim() ? Number(capacity) : null,
           duration_hours: durationHours.trim() ? Number(durationHours) : null,
           visibility,
+          keep_course_access_after_completion: keepCourseAccessAfterCompletion,
         })
       : createCohortApi({
           program_id: programId, name: name.trim(), starts_on: startsOn || undefined, ends_on: endsOn || undefined,
@@ -635,6 +639,7 @@ function BasicsStep({ programs, program, cohort, onSaved, onFormChange }: {
           capacity: capacity.trim() ? Number(capacity) : undefined,
           duration_hours: durationHours.trim() ? Number(durationHours) : undefined,
           visibility,
+          keep_course_access_after_completion: keepCourseAccessAfterCompletion,
         }),
     onSuccess: (c) => { toast.success(cohort ? "Cohort updated" : "Cohort created"); qc.invalidateQueries({ queryKey: ["sessions-cohorts"] }); onSaved(c) },
     onError: (e: any) => setError(getErrorMessage(e, "Failed to save cohort")),
@@ -648,7 +653,7 @@ function BasicsStep({ programs, program, cohort, onSaved, onFormChange }: {
       isPending: save.isPending,
       canSubmit,
     })
-  }, [name, programId, cohort, save.isPending, canSubmit, startsOn, endsOn, locationId, warehouseId, capacity, durationHours, visibility])
+  }, [name, programId, cohort, save.isPending, canSubmit, startsOn, endsOn, locationId, warehouseId, capacity, durationHours, visibility, keepCourseAccessAfterCompletion])
 
   const selectStyle: React.CSSProperties = { ...bigInput, cursor: "pointer" }
 
@@ -680,7 +685,19 @@ function BasicsStep({ programs, program, cohort, onSaved, onFormChange }: {
 
       {!cohort && (
         <BigField label="Program">
-          <select value={programId} onChange={(e) => setProgramId(e.target.value)} style={selectStyle} className="border border-border bg-background text-foreground focus:outline-none focus:border-primary transition-colors">
+          <select
+            value={programId}
+            onChange={(e) => {
+              const nextId = e.target.value
+              setProgramId(nextId)
+              const prog = programs.find((p) => p.id === nextId)
+              if (prog) {
+                setKeepCourseAccessAfterCompletion(prog.keep_course_access_after_completion ?? true)
+              }
+            }}
+            style={selectStyle}
+            className="border border-border bg-background text-foreground focus:outline-none focus:border-primary transition-colors"
+          >
             <option value="">— Select a program —</option>
             {programs.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
           </select>
@@ -785,6 +802,18 @@ function BasicsStep({ programs, program, cohort, onSaved, onFormChange }: {
         <p style={{ fontSize: 13, maxWidth: "60ch", alignSelf: "end" }} className="text-muted-foreground m-0">
           Every session in this cohort uses this duration unless it has its own override. Shown to instructors before they apply, and feeds the payment letter&rsquo;s hours.
         </p>
+
+        <div className="col-span-1 sm:col-span-2">
+          <label className="flex items-center gap-2.5 text-foreground cursor-pointer select-none" style={{ fontSize: 14 }}>
+            <input
+              type="checkbox"
+              checked={keepCourseAccessAfterCompletion}
+              onChange={(e) => setKeepCourseAccessAfterCompletion(e.target.checked)}
+              className="rounded border-border accent-primary w-4 h-4 cursor-pointer"
+            />
+            <span>Keep course access after completion</span>
+          </label>
+        </div>
       </div>
 
       {error && <p style={{ fontSize: 14 }} className="text-red-500">{error}</p>}
@@ -1561,6 +1590,7 @@ function ReviewStep({ cohort, program }: { cohort: Cohort; program?: Program }) 
     { label: "Location", value: cohort.location_name ?? "Not set" },
     { label: "Capacity · duration", value: `${cohort.capacity ?? "—"} students · ${cohort.duration_hours ?? "—"} hrs / session` },
     { label: "Visibility", value: cohort.visibility === "public" ? "Public" : "Private" },
+    { label: "Course access after completion", value: cohort.keep_course_access_after_completion ? "Yes" : "No" },
     {
       label: "Sessions",
       value: sorted.length === 0 ? "None yet — add them from the cohort page"

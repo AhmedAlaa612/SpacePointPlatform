@@ -931,6 +931,9 @@ async def assign_lms_program(
         db.add(progress)
 
     await db.flush()
+    if cohort is not None and cohort.status == "completed" and not cohort.keep_course_access_after_completion:
+        from app.services.lms.ops_integration import revoke_completed_cohort_course_access
+        await revoke_completed_cohort_course_access(db, cohort)
     return assignment
 
 
@@ -1123,6 +1126,9 @@ async def sync_assignment_items(db: AsyncSession, *, assignment: LmsProgramAssig
     if not missing and not team_attached:
         return 0
     await db.flush()
+    if cohort is not None and cohort.status == "completed" and not cohort.keep_course_access_after_completion:
+        from app.services.lms.ops_integration import revoke_completed_cohort_course_access
+        await revoke_completed_cohort_course_access(db, cohort)
     return len(missing) + team_attached
 
 

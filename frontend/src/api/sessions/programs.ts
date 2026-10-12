@@ -19,6 +19,7 @@ export const createProgramApi = (data: {
   completion_rule_type?: CompletionRuleType
   completion_rule_value?: number
   default_assessment_config_id?: string | null
+  keep_course_access_after_completion?: boolean
 }) => api.post<Program>("/sessions/programs", data).then((r) => r.data)
 
 export const updateProgramApi = (
@@ -35,6 +36,7 @@ export const updateProgramApi = (
     completion_rule_type: CompletionRuleType
     completion_rule_value: number
     default_assessment_config_id: string | null
+    keep_course_access_after_completion: boolean
   }>
 ) => api.patch<Program>(`/sessions/programs/${id}`, data).then((r) => r.data)
 

@@ -62,6 +62,9 @@ class Program(Base):
         ),
         nullable=True,
     )
+    keep_course_access_after_completion = Column(
+        Boolean, nullable=False, default=True, server_default="true",
+    )
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
 
     @property

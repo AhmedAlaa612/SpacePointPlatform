@@ -41,6 +41,7 @@ class ProgramBase(BaseModel):
     # docstring.
     default_assessment_config_id: UUID | None = None
     default_certificate_template_id: UUID | None = None
+    keep_course_access_after_completion: bool = True
 
 
 class ProgramCreate(ProgramBase):
@@ -65,6 +66,7 @@ class ProgramUpdate(BaseModel):
     poster_template_url: str | None = None
     default_assessment_config_id: UUID | None = None
     default_certificate_template_id: UUID | None = None
+    keep_course_access_after_completion: bool | None = None
 
 
 class ProgramOut(ProgramBase):

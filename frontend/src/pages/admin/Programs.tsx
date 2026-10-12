@@ -201,6 +201,9 @@ function ProgramModal({ program, onClose, onSuccess }: {
     program?.completion_rule_value != null ? String(program.completion_rule_value) : "70",
   )
   const [posterTemplateUrl, setPosterTemplateUrl] = useState(program?.poster_template_url ?? "")
+  const [keepCourseAccessAfterCompletion, setKeepCourseAccessAfterCompletion] = useState(
+    program?.keep_course_access_after_completion ?? true,
+  )
   const [error, setError] = useState("")
 
   const mutation = useMutation({
@@ -217,6 +220,7 @@ function ProgramModal({ program, onClose, onSuccess }: {
         completion_rule_type: completionRuleType,
         completion_rule_value: completionRuleValue.trim() ? Number(completionRuleValue) : undefined,
         poster_template_url: posterTemplateUrl.trim() || undefined,
+        keep_course_access_after_completion: keepCourseAccessAfterCompletion,
       }
       return isEdit ? updateProgramApi(program!.id, payload) : createProgramApi(payload)
     },
@@ -319,6 +323,14 @@ function ProgramModal({ program, onClose, onSuccess }: {
             className="w-full px-3 py-2 border border-border bg-card text-foreground rounded-xl text-sm focus:outline-none focus:border-primary transition-colors resize-none"
           />
         </Field>
+        <label className="flex items-center gap-2 text-sm text-foreground cursor-pointer select-none">
+          <input
+            type="checkbox"
+            checked={keepCourseAccessAfterCompletion}
+            onChange={(e) => setKeepCourseAccessAfterCompletion(e.target.checked)}
+          />
+          Keep course access after completion
+        </label>
         {isEdit && (
           <label className="flex items-center gap-2 text-sm text-foreground cursor-pointer select-none">
             <input type="checkbox" checked={active} onChange={(e) => setActive(e.target.checked)} />

@@ -48,11 +48,13 @@ class CohortBase(BaseModel):
     # default "Program Name — Cohort Name" shown to students. Clear to revert
     # to the default fallback.
     checklist_title_override: str | None = None
+    keep_course_access_after_completion: bool = True
 
 
 class CohortCreate(CohortBase):
     program_id: UUID
     status: CohortStatus = "planned"
+    keep_course_access_after_completion: bool | None = None
 
 
 class CohortUpdate(BaseModel):
@@ -72,6 +74,7 @@ class CohortUpdate(BaseModel):
     visibility: Visibility | None = None
     poster_template_url: str | None = None
     checklist_title_override: str | None = None
+    keep_course_access_after_completion: bool | None = None
 
 
 class CohortOut(CohortBase):

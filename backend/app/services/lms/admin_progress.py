@@ -216,7 +216,7 @@ async def course_progress_all(
     if course is None:
         return None
 
-    stmt = select(Enrollment.user_id).where(Enrollment.course_id == course_id, *enrollment_is_active())
+    stmt = select(Enrollment.user_id).where(Enrollment.course_id == course_id)
     if cohort_id is not None:
         contact_ids = (await db.execute(
             select(Registration.contact_id).where(
@@ -356,7 +356,7 @@ async def courses_overview(db: AsyncSession) -> list[dict]:
     enrolled_by_course: dict[uuid.UUID, list[uuid.UUID]] = {}
     for user_id, course_id in (await db.execute(
         select(Enrollment.user_id, Enrollment.course_id).where(
-            Enrollment.course_id.in_([c.id for c in courses]), *enrollment_is_active(),
+            Enrollment.course_id.in_([c.id for c in courses]),
         )
     )).all():
         enrolled_by_course.setdefault(course_id, []).append(user_id)

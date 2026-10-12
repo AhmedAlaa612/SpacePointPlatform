@@ -394,16 +394,40 @@ export function CohortOverrideEditor({
     onError: () => toast.error("Failed to update poster template"),
   })
 
+  const updateKeepAccessMutation = useMutation({
+    mutationFn: (keep: boolean) =>
+      updateCohortApi(cohortId, { keep_course_access_after_completion: keep }),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["cohort-detail", cohortId] })
+      void queryClient.invalidateQueries({ queryKey: ["sessions-cohorts"] })
+    },
+    onError: (e: unknown) => toast.error(errorDetail(e, "Failed to update course access setting")),
+  })
+
   if (isLoading) return <Spinner />
   if (!override) return <EmptyState title="This cohort's program has no checklist yet" />
 
   const effectivePosterUrl = override.poster_template_url || override.inherited_poster_template_url
+  const keepCourseAccess = cohortData?.keep_course_access_after_completion ?? true
 
   return (
     <div className="flex flex-col gap-3">
       {override.is_inherited && (
         <div className="text-xs text-muted-foreground bg-muted/50 border border-border rounded-xl px-3 py-2">
           Showing the program's own checklist — {readOnly ? "nothing has been overridden for this cohort yet." : "edit anything below to start this cohort's own override."}
+        </div>
+      )}
+      {isStaff && !readOnly && cohortData && (
+        <div className="flex items-center justify-between p-3 bg-card border border-border rounded-xl">
+          <div className="text-sm font-medium">Keep course access after completion</div>
+          <button
+            type="button"
+            onClick={() => updateKeepAccessMutation.mutate(!keepCourseAccess)}
+            disabled={updateKeepAccessMutation.isPending}
+            className={`w-10 h-6 rounded-full relative transition-colors cursor-pointer disabled:opacity-50 ${keepCourseAccess ? "bg-primary" : "bg-muted"}`}
+          >
+            <span className={`absolute left-1 top-1 w-4 h-4 rounded-full bg-white transition-transform ${keepCourseAccess ? "translate-x-4" : "translate-x-0"}`} />
+          </button>
         </div>
       )}
       {isStaff && !readOnly && (

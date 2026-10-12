@@ -32,6 +32,7 @@ export interface Program {
    * afterwards. See backend Program.default_assessment_config_id. */
   default_assessment_config_id?: string | null;
   default_certificate_template_id?: string | null;
+  keep_course_access_after_completion: boolean;
   created_at: string;
 }
 
@@ -139,6 +140,7 @@ export interface Cohort {
   /** Student-facing title override for the LMS checklist. When set, replaces
    *  the default "Program — Cohort" shown to students. Null means use default. */
   checklist_title_override?: string | null;
+  keep_course_access_after_completion: boolean;
   // Convenience join, populated only by the list endpoint.
   program_name?: string | null;
   program_code?: string | null;

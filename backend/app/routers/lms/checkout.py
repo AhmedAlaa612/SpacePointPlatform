@@ -77,8 +77,16 @@ async def start_course_checkout(
     course = await db.get(Course, course_id)
     if course is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Course not found")
-    if course.access_mode != "paid" or not course.price_cents or course.price_cents <= 0:
+    if not course.price_cents or course.price_cents <= 0:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="This course isn't set up for purchase")
+    if course.access_mode != "paid":
+        prior_enrollment = (await db.execute(
+            select(Enrollment.id).where(
+                Enrollment.user_id == current.id, Enrollment.course_id == course.id,
+            )
+        )).scalars().first()
+        if prior_enrollment is None:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="This course isn't set up for purchase")
 
     active = (await db.execute(
         select(Enrollment).where(

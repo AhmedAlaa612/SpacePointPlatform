@@ -103,6 +103,7 @@ from app.services.sessions import staffing as staffing_service
 from app.services.sessions import reports as reports_service
 from app.services.lms.ops_integration import (
     build_set_password_link, deactivate_registration_enrollments, resolve_user_for_contact,
+    restore_completed_cohort_course_access, revoke_completed_cohort_course_access,
     send_registration_onboarding_email, sync_registration_lms,
 )
 from app.services.sessions.registration import format_cohort_dates, register
@@ -246,7 +247,10 @@ async def create_cohort(
     if body.warehouse_id and await db.get(Warehouse, body.warehouse_id) is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Warehouse not found")
 
-    cohort = Cohort(id=uuid.uuid4(), **body.model_dump())
+    data = body.model_dump()
+    if data.get("keep_course_access_after_completion") is None:
+        data["keep_course_access_after_completion"] = program.keep_course_access_after_completion
+    cohort = Cohort(id=uuid.uuid4(), **data)
     db.add(cohort)
     await db.flush()
     # One-time seed from the program's role template (2026-09) — never
@@ -330,8 +334,22 @@ async def update_cohort(
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Warehouse not found")
 
     was_planned = cohort.status == "planned"
+    old_keep_access = cohort.keep_course_access_after_completion
     for field, value in changes.items():
+        if field == "keep_course_access_after_completion" and value is None:
+            continue
         setattr(cohort, field, value)
+
+    if (
+        cohort.status == "completed"
+        and "keep_course_access_after_completion" in changes
+        and cohort.keep_course_access_after_completion != old_keep_access
+    ):
+        if cohort.keep_course_access_after_completion:
+            await restore_completed_cohort_course_access(db, cohort)
+        else:
+            await revoke_completed_cohort_course_access(db, cohort)
+
     await db.commit()
     await db.refresh(cohort)
 
@@ -401,6 +419,7 @@ async def clone_cohort(
         starts_on=body.starts_on,
         ends_on=body.ends_on,
         status="planned",
+        keep_course_access_after_completion=target_program.keep_course_access_after_completion,
     )
     if "basics" in body.carry:
         new_cohort.location_id = source.location_id
@@ -410,6 +429,7 @@ async def clone_cohort(
         new_cohort.visibility = source.visibility
         new_cohort.organization_id = source.organization_id
         new_cohort.poster_template_url = source.poster_template_url
+        new_cohort.keep_course_access_after_completion = source.keep_course_access_after_completion
     if "windows" in body.carry:
         new_cohort.submission_windows = list(source.submission_windows or [])
     db.add(new_cohort)

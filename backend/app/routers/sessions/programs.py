@@ -211,6 +211,7 @@ async def clone_program(
         default_certificate_template_id=(
             source.default_certificate_template_id if "certificate" in body.carry else None
         ),
+        keep_course_access_after_completion=source.keep_course_access_after_completion,
     )
     db.add(new_program)
     await db.flush()

@@ -450,6 +450,9 @@ function BasicsStep({ program, onSaved, onFormChange }: {
   const [completionRuleValue, setCompletionRuleValue] = useState(
     program?.completion_rule_value != null ? String(program.completion_rule_value) : "70",
   )
+  const [keepCourseAccessAfterCompletion, setKeepCourseAccessAfterCompletion] = useState(
+    program?.keep_course_access_after_completion ?? true,
+  )
   const [error, setError] = useState("")
 
   const save = useMutation({
@@ -464,6 +467,7 @@ function BasicsStep({ program, onSaved, onFormChange }: {
         default_capacity: defaultCapacity.trim() ? Number(defaultCapacity) : undefined,
         completion_rule_type: completionRuleType,
         completion_rule_value: completionRuleValue.trim() ? Number(completionRuleValue) : undefined,
+        keep_course_access_after_completion: keepCourseAccessAfterCompletion,
       }
       return program ? updateProgramApi(program.id, payload) : createProgramApi(payload)
     },
@@ -479,7 +483,7 @@ function BasicsStep({ program, onSaved, onFormChange }: {
       isPending: save.isPending,
       canSubmit,
     })
-  }, [name, code, programType, pricingModel, price, defaultCapacity, description, completionRuleType, completionRuleValue, save.isPending, canSubmit])
+  }, [name, code, programType, pricingModel, price, defaultCapacity, description, completionRuleType, completionRuleValue, keepCourseAccessAfterCompletion, save.isPending, canSubmit])
 
   const selectStyle: React.CSSProperties = { ...bigInput, cursor: "pointer" }
 
@@ -583,6 +587,18 @@ function BasicsStep({ program, onSaved, onFormChange }: {
             />
           </BigField>
         </div>
+
+        <div className="col-span-1 sm:col-span-2">
+          <label className="flex items-center gap-2.5 text-foreground cursor-pointer select-none" style={{ fontSize: 14 }}>
+            <input
+              type="checkbox"
+              checked={keepCourseAccessAfterCompletion}
+              onChange={(e) => setKeepCourseAccessAfterCompletion(e.target.checked)}
+              className="rounded border-border accent-primary w-4 h-4 cursor-pointer"
+            />
+            <span>Keep course access after completion</span>
+          </label>
+        </div>
       </div>
 
       {error && <p style={{ fontSize: 14 }} className="text-red-500">{error}</p>}
@@ -638,6 +654,7 @@ function ReviewStep({ program }: { program: Program }) {
     { label: "Type", value: PROGRAM_TYPE_LABEL[program.program_type] },
     { label: "Pricing", value: program.pricing_model === "free" ? "Free" : `AED ${program.price ?? "—"}` },
     { label: "Default capacity", value: program.default_capacity != null ? String(program.default_capacity) : "Not set" },
+    { label: "Course access after completion", value: program.keep_course_access_after_completion ? "Yes" : "No" },
     {
       label: "Roles & checklist",
       value: openings.length === 0 ? "No roles set yet — new cohorts will offer none until you add some" : `${openings.length} role${openings.length === 1 ? "" : "s"} templated, copied into every new cohort`,

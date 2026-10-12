@@ -335,6 +335,9 @@ const { data: warehouses = [] } = useQuery({
   const [status, setStatus] = useState<CohortStatus>(cohort?.status ?? "planned")
   const [notes, setNotes] = useState(cohort?.notes ?? "")
   const [posterTemplateUrl, setPosterTemplateUrl] = useState(cohort?.poster_template_url ?? "")
+  const [keepCourseAccessAfterCompletion, setKeepCourseAccessAfterCompletion] = useState(
+    cohort?.keep_course_access_after_completion ?? true,
+  )
   const [error, setError] = useState("")
 
   // Inline "+ New location" — so ops doesn't have to leave the cohort form
@@ -385,6 +388,7 @@ const { data: warehouses = [] } = useQuery({
           status,
           notes: notes.trim() || null,
           poster_template_url: posterTemplateUrl.trim() || null,
+          keep_course_access_after_completion: keepCourseAccessAfterCompletion,
         })
       }
       return createCohortApi({
@@ -399,6 +403,7 @@ const { data: warehouses = [] } = useQuery({
         visibility,
         notes: notes.trim() || undefined,
         poster_template_url: posterTemplateUrl.trim() || undefined,
+        keep_course_access_after_completion: keepCourseAccessAfterCompletion,
       })
     },
     onSuccess: () => { toast.success(isEdit ? "Cohort updated" : "Cohort created"); onSuccess() },
@@ -411,7 +416,15 @@ const { data: warehouses = [] } = useQuery({
         {!isEdit && (
           <Field label="Program">
             <select
-              value={programId} onChange={(e) => setProgramId(e.target.value)}
+              value={programId}
+              onChange={(e) => {
+                const nextId = e.target.value
+                setProgramId(nextId)
+                const prog = programs.find((p) => p.id === nextId)
+                if (prog) {
+                  setKeepCourseAccessAfterCompletion(prog.keep_course_access_after_completion ?? true)
+                }
+              }}
               className="w-full h-10 px-3 border border-border bg-card text-foreground rounded-xl text-sm focus:outline-none focus:border-primary transition-colors cursor-pointer"
             >
               <option value="">— Select a program —</option>
@@ -584,6 +597,14 @@ const { data: warehouses = [] } = useQuery({
               : "Shown to students and teams for their mission poster — set a cohort-specific template."}
           </p>
         </Field>
+        <label className="flex items-center gap-2 text-sm text-foreground cursor-pointer select-none">
+          <input
+            type="checkbox"
+            checked={keepCourseAccessAfterCompletion}
+            onChange={(e) => setKeepCourseAccessAfterCompletion(e.target.checked)}
+          />
+          Keep course access after completion
+        </label>
         {error && <p className="text-xs text-red-500">{error}</p>}
         <ModalActions
           onCancel={onClose} onConfirm={() => mutation.mutate()}

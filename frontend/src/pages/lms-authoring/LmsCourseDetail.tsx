@@ -449,7 +449,9 @@ function EditCourseModal({ courseId, course, onClose, onSuccess }: {
       outcomes: outcomes.map((o) => o.trim()).filter(Boolean),
       instructor_id: instructorId || null, instructor_title: instructorTitle.trim() || null,
       access_mode: accessMode,
-      price_cents: accessMode === "paid" && priceDollars.trim() ? Math.round(Number(priceDollars) * 100) : null,
+      price_cents: (accessMode === "paid" || accessMode === "invite") && priceDollars.trim() && Number(priceDollars) > 0
+        ? Math.round(Number(priceDollars) * 100)
+        : null,
       certificate_enabled: certificateEnabled,
     }),
     onSuccess,
@@ -544,8 +546,8 @@ function EditCourseModal({ courseId, course, onClose, onSuccess }: {
               <option value="paid">Paid — Stripe Checkout</option>
             </select>
           </Field>
-          {accessMode === "paid" && (
-            <Field label="Price (USD)">
+          {(accessMode === "paid" || accessMode === "invite") && (
+            <Field label={accessMode === "invite" ? "Price (USD, optional)" : "Price (USD)"}>
               <input
                 value={priceDollars} onChange={(e) => setPriceDollars(e.target.value)}
                 type="number" min="0" step="0.01" placeholder="49.00"

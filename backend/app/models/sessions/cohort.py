@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime, timezone
 
-from sqlalchemy import Column, Date, DateTime, ForeignKey, Integer, Numeric, String, Text
+from sqlalchemy import Boolean, Column, Date, DateTime, ForeignKey, Integer, Numeric, String, Text
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 
 from app.db.base import Base
@@ -64,5 +64,9 @@ class Cohort(Base):
     # Submission time windows & brackets (2026-09) — e.g. Early Bird bonus,
     # On-Time, Late penalties. Array of dicts: [{id, name, cutoff_at, points, badge, ...}].
     submission_windows = Column(JSONB, nullable=False, default=list, server_default="[]")
+
+    keep_course_access_after_completion = Column(
+        Boolean, nullable=False, default=True, server_default="true",
+    )
 
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
