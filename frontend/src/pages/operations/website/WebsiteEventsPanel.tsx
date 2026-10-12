@@ -448,6 +448,37 @@ export function HeroBackgroundUploader({
   )
 }
 
+const AR_LOCALIZED_KEYS = new Set<string>([
+  "title",
+  "subtitle",
+  "tagline",
+  "city",
+  "audience",
+  "host_org_name",
+  "date_label",
+  "location",
+  "about_text",
+  "benefits",
+  "at_a_glance",
+  "eligibility_intro",
+  "eligibility_rows",
+  "eligibility_note",
+  "journey_stages",
+  "timeline",
+  "timeline_note",
+  "deliverables",
+  "deliverables_note",
+  "awards_text",
+  "registration_text",
+  "registration_deadline",
+  "registration_note",
+  "faqs",
+  "partners",
+  "partners_note",
+  "contacts",
+  "contact_meta",
+])
+
 export function emptyEventDraft(defaults?: Partial<WebsiteEventInput>): WebsiteEventInput {
   return {
     slug: "",
@@ -493,6 +524,8 @@ export function emptyEventDraft(defaults?: Partial<WebsiteEventInput>): WebsiteE
     contact_meta: [],
     display_order: 0,
     is_published: false,
+    default_language: "en",
+    ar_content: { enabled: false, en_enabled: true },
     ...defaults,
   }
 }
@@ -520,17 +553,112 @@ export function EventEditorModal({
   saving: boolean
 }) {
   const toast = useToast()
-  const [form, setForm] = useState<WebsiteEventInput>({
+  const [rawForm, setRawForm] = useState<WebsiteEventInput>({
+    default_language: "en",
+    ar_content: { enabled: false, en_enabled: true },
     ...initial,
   })
+  const [editorLang, setEditorLang] = useState<"en" | "ar">("en")
   const [sectionTab, setSectionTab] = useState<
     "hero" | "about" | "eligibility" | "journey" | "deliverables" | "registration" | "faqs" | "partners"
   >("hero")
 
   if (!open) return null
 
-  const set = <K extends keyof WebsiteEventInput>(key: K, val: WebsiteEventInput[K]) =>
-    setForm((prev) => ({ ...prev, [key]: val }))
+  const arContent = (rawForm.ar_content || {}) as Record<string, any>
+  const isArMode = editorLang === "ar"
+  const enEnabled = arContent.en_enabled !== false
+  const arEnabled = Boolean(arContent.enabled)
+  const defaultLanguage = rawForm.default_language === "ar" ? "ar" : "en"
+
+  const form: WebsiteEventInput = isArMode
+    ? {
+        ...rawForm,
+        title: arContent.title ?? rawForm.title_ar ?? "",
+        subtitle: arContent.subtitle ?? "",
+        tagline: arContent.tagline ?? "",
+        city: arContent.city ?? rawForm.city ?? "",
+        audience: arContent.audience ?? "",
+        host_org_name: arContent.host_org_name ?? "",
+        date_label: arContent.date_label ?? "",
+        location: arContent.location ?? "",
+        about_text: arContent.about_text ?? "",
+        benefits: arContent.benefits ?? [],
+        at_a_glance: arContent.at_a_glance ?? [],
+        eligibility_intro: arContent.eligibility_intro ?? "",
+        eligibility_rows: arContent.eligibility_rows ?? [],
+        eligibility_note: arContent.eligibility_note ?? "",
+        journey_stages: arContent.journey_stages ?? [],
+        timeline: arContent.timeline ?? [],
+        timeline_note: arContent.timeline_note ?? "",
+        deliverables: arContent.deliverables ?? [],
+        deliverables_note: arContent.deliverables_note ?? "",
+        awards_text: arContent.awards_text ?? "",
+        registration_text: arContent.registration_text ?? "",
+        registration_deadline: arContent.registration_deadline ?? "",
+        registration_note: arContent.registration_note ?? "",
+        faqs: arContent.faqs ?? [],
+        partners: arContent.partners ?? rawForm.partners ?? [],
+        partners_note: arContent.partners_note ?? "",
+        contacts: arContent.contacts ?? rawForm.contacts ?? [],
+        contact_meta: arContent.contact_meta ?? [],
+      }
+    : rawForm
+
+  const set = <K extends keyof WebsiteEventInput>(key: K, val: WebsiteEventInput[K]) => {
+    if (isArMode && AR_LOCALIZED_KEYS.has(key as string)) {
+      setRawForm((prev) => ({
+        ...prev,
+        ...(key === "title" ? { title_ar: String(val || "") } : {}),
+        ar_content: {
+          ...(prev.ar_content || {}),
+          enabled: true,
+          [key]: val,
+        },
+      }))
+    } else {
+      setRawForm((prev) => ({ ...prev, [key]: val }))
+    }
+  }
+
+  const copyEnglishToArabic = () => {
+    setRawForm((prev) => ({
+      ...prev,
+      title_ar: prev.title_ar || prev.title || "",
+      ar_content: {
+        ...(prev.ar_content || {}),
+        enabled: true,
+        title: prev.ar_content?.title || prev.title_ar || prev.title || "",
+        subtitle: prev.ar_content?.subtitle || prev.subtitle || "",
+        tagline: prev.ar_content?.tagline || prev.tagline || "",
+        city: prev.ar_content?.city || prev.city || "",
+        audience: prev.ar_content?.audience || prev.audience || "",
+        host_org_name: prev.ar_content?.host_org_name || prev.host_org_name || "",
+        date_label: prev.ar_content?.date_label || prev.date_label || "",
+        location: prev.ar_content?.location || prev.location || "",
+        about_text: prev.ar_content?.about_text || prev.about_text || "",
+        benefits: prev.ar_content?.benefits?.length ? prev.ar_content.benefits : [...(prev.benefits || [])],
+        at_a_glance: prev.ar_content?.at_a_glance?.length ? prev.ar_content.at_a_glance : [...(prev.at_a_glance || [])],
+        eligibility_intro: prev.ar_content?.eligibility_intro || prev.eligibility_intro || "",
+        eligibility_rows: prev.ar_content?.eligibility_rows?.length ? prev.ar_content.eligibility_rows : [...(prev.eligibility_rows || [])],
+        eligibility_note: prev.ar_content?.eligibility_note || prev.eligibility_note || "",
+        journey_stages: prev.ar_content?.journey_stages?.length ? prev.ar_content.journey_stages : [...(prev.journey_stages || [])],
+        timeline: prev.ar_content?.timeline?.length ? prev.ar_content.timeline : [...(prev.timeline || [])],
+        timeline_note: prev.ar_content?.timeline_note || prev.timeline_note || "",
+        deliverables: prev.ar_content?.deliverables?.length ? prev.ar_content.deliverables : [...(prev.deliverables || [])],
+        deliverables_note: prev.ar_content?.deliverables_note || prev.deliverables_note || "",
+        awards_text: prev.ar_content?.awards_text || prev.awards_text || "",
+        registration_text: prev.ar_content?.registration_text || prev.registration_text || "",
+        registration_deadline: prev.ar_content?.registration_deadline || prev.registration_deadline || "",
+        registration_note: prev.ar_content?.registration_note || prev.registration_note || "",
+        faqs: prev.ar_content?.faqs?.length ? prev.ar_content.faqs : [...(prev.faqs || [])],
+        partners: prev.ar_content?.partners?.length ? prev.ar_content.partners : [...(prev.partners || [])],
+        contacts: prev.ar_content?.contacts?.length ? prev.ar_content.contacts : [...(prev.contacts || [])],
+        contact_meta: prev.ar_content?.contact_meta?.length ? prev.ar_content.contact_meta : [...(prev.contact_meta || [])],
+      },
+    }))
+    toast.success("Copied English sections into Arabic template (click Save to apply)")
+  }
 
   const SECTION_TABS = [
     { id: "hero", label: "1. Hero & Routing" },
@@ -542,6 +670,12 @@ export function EventEditorModal({
     { id: "faqs", label: "10. FAQs" },
     { id: "partners", label: "11–12. Partners & Contacts" },
   ] as const
+
+  const canSave = Boolean(
+    (rawForm.title && rawForm.title.trim()) ||
+      (arContent.title && String(arContent.title).trim()) ||
+      (rawForm.title_ar && rawForm.title_ar.trim())
+  )
 
   return (
     <div className="space-y-6">
@@ -558,35 +692,162 @@ export function EventEditorModal({
           </button>
           <div>
             <h2 className="text-lg font-bold text-foreground">
-              {initial.title ? `Edit Event: ${form.title || initial.title}` : "Create Event"}
+              {initial.title
+                ? `Edit Event: ${rawForm.title || arContent.title || initial.title}`
+                : "Create Event"}
             </h2>
             <p className="text-xs text-muted-foreground">
-              Public Route: <span className="font-mono text-primary">/events/{form.country || "uae"}/{form.slug || "slug"}</span>
+              Public Routes:{" "}
+              <span className="font-mono text-primary">
+                /events/{rawForm.country || "uae"}/{rawForm.slug || "slug"}/en
+              </span>{" "}
+              &amp;{" "}
+              <span className="font-mono text-primary">
+                /events/{rawForm.country || "uae"}/{rawForm.slug || "slug"}/ar
+              </span>
             </p>
           </div>
         </div>
 
-        <div className="flex items-center gap-3">
-          {form.slug && (
+        <div className="flex flex-wrap items-center gap-2.5">
+          {rawForm.slug && enEnabled && (
             <a
-              href={`${WEBSITE_BASE_URL}/events/${form.country || "uae"}/${form.slug}`}
+              href={`${WEBSITE_BASE_URL}/events/${rawForm.country || "uae"}/${rawForm.slug}/en`}
               target="_blank"
               rel="noreferrer"
-              className="inline-flex items-center gap-1.5 rounded-xl border border-border bg-background px-4 py-2 text-xs font-semibold text-foreground hover:bg-muted transition"
+              className="inline-flex items-center gap-1.5 rounded-xl border border-border bg-background px-3.5 py-2 text-xs font-semibold text-foreground hover:bg-muted transition"
             >
               <ExternalLink className="h-3.5 w-3.5" />
-              Preview Page
+              Preview /en
+            </a>
+          )}
+          {rawForm.slug && arEnabled && (
+            <a
+              href={`${WEBSITE_BASE_URL}/events/${rawForm.country || "uae"}/${rawForm.slug}/ar`}
+              target="_blank"
+              rel="noreferrer"
+              className="font-thmanyah inline-flex items-center gap-1.5 rounded-xl border border-border bg-background px-3.5 py-2 text-xs font-semibold text-foreground hover:bg-muted transition"
+            >
+              <ExternalLink className="h-3.5 w-3.5" />
+              معاينة /ar
             </a>
           )}
           <button
             type="button"
-            disabled={saving || !form.title?.trim()}
-            onClick={() => onSave(form)}
+            disabled={saving || !canSave}
+            onClick={() =>
+              onSave({
+                ...rawForm,
+                title:
+                  (rawForm.title || "").trim() ||
+                  String(arContent.title || rawForm.title_ar || "Event"),
+              })
+            }
             className="inline-flex items-center gap-2 rounded-xl bg-primary px-5 py-2.5 text-xs font-semibold text-primary-foreground hover:opacity-90 disabled:opacity-50 transition"
           >
             <Save className="h-4 w-4" />
             {saving ? "Saving..." : "Save Event"}
           </button>
+        </div>
+      </div>
+
+      {/* Bilingual Language Configuration & Editor Switcher Bar */}
+      <div className="flex flex-wrap items-center justify-between gap-4 rounded-2xl border border-border bg-card p-4">
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="text-xs font-bold uppercase tracking-wider text-muted-foreground mr-1">
+            Editing Language:
+          </span>
+          <button
+            type="button"
+            onClick={() => setEditorLang("en")}
+            className={cn(
+              "rounded-xl px-4 py-2 text-xs font-bold transition cursor-pointer",
+              editorLang === "en"
+                ? "bg-primary text-primary-foreground shadow"
+                : "border border-border bg-background text-muted-foreground hover:text-foreground"
+            )}
+          >
+            English Version (/en)
+          </button>
+          <button
+            type="button"
+            onClick={() => setEditorLang("ar")}
+            className={cn(
+              "font-thmanyah rounded-xl px-4 py-2 text-xs font-bold transition cursor-pointer",
+              editorLang === "ar"
+                ? "bg-primary text-primary-foreground shadow"
+                : "border border-border bg-background text-muted-foreground hover:text-foreground"
+            )}
+          >
+            النسخة العربية (/ar)
+          </button>
+
+          {isArMode && (
+            <button
+              type="button"
+              onClick={copyEnglishToArabic}
+              className="rounded-xl border border-border bg-background px-3 py-2 text-xs font-semibold text-primary hover:bg-muted transition cursor-pointer"
+            >
+              Copy Missing Fields from English
+            </button>
+          )}
+        </div>
+
+        <div className="flex flex-wrap items-center gap-4 text-xs">
+          <label className="inline-flex items-center gap-2 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={enEnabled}
+              onChange={(e) =>
+                setRawForm((prev) => ({
+                  ...prev,
+                  ar_content: {
+                    ...(prev.ar_content || {}),
+                    en_enabled: e.target.checked,
+                  },
+                }))
+              }
+              className="h-4 w-4 rounded accent-primary"
+            />
+            <span className="font-semibold text-foreground">Enable English (/en)</span>
+          </label>
+
+          <label className="inline-flex items-center gap-2 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={arEnabled}
+              onChange={(e) =>
+                setRawForm((prev) => ({
+                  ...prev,
+                  ar_content: {
+                    ...(prev.ar_content || {}),
+                    enabled: e.target.checked,
+                  },
+                }))
+              }
+              className="h-4 w-4 rounded accent-primary"
+            />
+            <span className="font-thmanyah font-semibold text-foreground">
+              تفعيل النسخة العربية (/ar)
+            </span>
+          </label>
+
+          <label className="inline-flex items-center gap-2">
+            <span className="font-semibold text-muted-foreground">Default Page:</span>
+            <select
+              value={defaultLanguage}
+              onChange={(e) =>
+                setRawForm((prev) => ({
+                  ...prev,
+                  default_language: e.target.value,
+                }))
+              }
+              className="h-8 rounded-lg border border-border bg-background px-2.5 text-xs font-semibold text-foreground"
+            >
+              <option value="en">English (/en)</option>
+              <option value="ar">Arabic (/ar — العربية)</option>
+            </select>
+          </label>
         </div>
       </div>
 
@@ -610,44 +871,58 @@ export function EventEditorModal({
       </div>
 
       {/* Full-Page Section Content Card */}
-      <div className="rounded-2xl border border-border bg-card p-6 sm:p-8 space-y-6">
+      <div
+        dir={isArMode ? "rtl" : "ltr"}
+        className={cn(
+          "rounded-2xl border border-border bg-card p-6 sm:p-8 space-y-6",
+          isArMode && "font-thmanyah"
+        )}
+      >
         {/* TAB 1: HERO & ROUTING */}
         {sectionTab === "hero" && (
           <div className="space-y-6">
             <div className="grid grid-cols-1 gap-5 md:grid-cols-3">
               <InputField
-                label="Event Title *"
+                label={isArMode ? "عنوان الفعالية بالعربية *" : "Event Title *"}
                 value={form.title || ""}
                 onChange={(v) => set("title", v)}
-                placeholder="e.g. SatForge UAE 2026"
+                placeholder={isArMode ? "مثال: سات فورج الإمارات 2026" : "e.g. SatForge UAE 2026"}
               />
               <InputField
-                label="Arabic Title (Optional)"
-                value={form.title_ar || ""}
-                onChange={(v) => set("title_ar", v)}
+                label="Arabic Subtitle Line on English Hero (Optional)"
+                value={rawForm.title_ar || ""}
+                onChange={(v) => setRawForm((p) => ({ ...p, title_ar: v }))}
                 placeholder="سات فورج الإمارات 2026..."
               />
               <InputField
-                label="URL Slug"
-                value={form.slug || ""}
-                onChange={(v) => set("slug", v)}
+                label="URL Slug (Shared for /en and /ar)"
+                value={rawForm.slug || ""}
+                onChange={(v) => setRawForm((p) => ({ ...p, slug: v }))}
                 placeholder="satforge-2026 (auto-generated if blank)"
-                helper={`Route: /events/${form.country || "uae"}/${form.slug || "slug"}`}
+                helper={`Routes: /events/${rawForm.country || "uae"}/${rawForm.slug || "slug"}/en & /ar`}
               />
             </div>
 
             <div className="grid grid-cols-1 gap-5 md:grid-cols-2">
               <InputField
-                label="Subtitle"
+                label={isArMode ? "العنوان الفرعي (Subtitle)" : "Subtitle"}
                 value={form.subtitle || ""}
                 onChange={(v) => set("subtitle", v)}
-                placeholder="National University Satellite Engineering Challenge"
+                placeholder={
+                  isArMode
+                    ? "التحدي الوطني لطلبة الجامعات في هندسة الأقمار الصناعية"
+                    : "National University Satellite Engineering Challenge"
+                }
               />
               <InputField
-                label="Tagline"
+                label={isArMode ? "الشعار الوصفي (Tagline)" : "Tagline"}
                 value={form.tagline || ""}
                 onChange={(v) => set("tagline", v)}
-                placeholder="From Campus Innovation to Future Space Missions"
+                placeholder={
+                  isArMode
+                    ? "من ابتكارات الحرم الجامعي إلى مهمات الفضاء المستقبلية"
+                    : "From Campus Innovation to Future Space Missions"
+                }
               />
             </div>
 
@@ -657,8 +932,8 @@ export function EventEditorModal({
                   Country Route
                 </span>
                 <select
-                  value={form.country || "uae"}
-                  onChange={(e) => set("country", e.target.value)}
+                  value={rawForm.country || "uae"}
+                  onChange={(e) => setRawForm((p) => ({ ...p, country: e.target.value }))}
                   className={inputCls}
                 >
                   {COUNTRIES.map((c) => (
@@ -669,25 +944,34 @@ export function EventEditorModal({
                 </select>
               </label>
 
-              <label className="flex flex-col gap-1.5">
-                <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                  City
-                </span>
-                <CityNameSelect
-                  country={form.country || "uae"}
+              {isArMode ? (
+                <InputField
+                  label="المدينة (بالعربية)"
                   value={form.city || ""}
                   onChange={(v) => set("city", v)}
-                  className={inputCls}
+                  placeholder="العين، أبوظبي"
                 />
-              </label>
+              ) : (
+                <label className="flex flex-col gap-1.5">
+                  <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                    City
+                  </span>
+                  <CityNameSelect
+                    country={rawForm.country || "uae"}
+                    value={form.city || ""}
+                    onChange={(v) => set("city", v)}
+                    className={inputCls}
+                  />
+                </label>
+              )}
 
               <label className="flex flex-col gap-1.5">
                 <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
                   Event Type
                 </span>
                 <select
-                  value={form.event_type || "competition"}
-                  onChange={(e) => set("event_type", e.target.value)}
+                  value={rawForm.event_type || "competition"}
+                  onChange={(e) => setRawForm((p) => ({ ...p, event_type: e.target.value }))}
                   className={inputCls}
                 >
                   {EVENT_TYPES.map((t) => (
@@ -1604,8 +1888,15 @@ export function EventEditorModal({
           </button>
           <button
             type="button"
-            disabled={saving || !form.title?.trim()}
-            onClick={() => onSave(form)}
+            disabled={saving || !canSave}
+            onClick={() =>
+              onSave({
+                ...rawForm,
+                title:
+                  (rawForm.title || "").trim() ||
+                  String(arContent.title || rawForm.title_ar || "Event"),
+              })
+            }
             className="inline-flex items-center gap-2 rounded-xl bg-primary px-6 py-2.5 text-xs font-semibold text-primary-foreground hover:opacity-90 disabled:opacity-50 transition"
           >
             <Save className="h-4 w-4" />
@@ -1645,6 +1936,7 @@ export function WebsiteEventsPanel() {
   // Full-page MegaEvent Editor state
   const [editingMega, setEditingMega] = useState<MegaEvent | null>(null)
   const [creatingMega, setCreatingMega] = useState(false)
+  const [megaLangTab, setMegaLangTab] = useState<"en" | "ar">("en")
   const [megaDraft, setMegaDraft] = useState<MegaEventCreateInput>({
     title: "",
     slug: "",
@@ -1656,6 +1948,8 @@ export function WebsiteEventsPanel() {
     official_note: "",
     official_url: "https://www.worldspaceweek.org",
     is_published: true,
+    default_language: "en",
+    ar_content: { enabled: false, en_enabled: true },
   })
 
   // Full-page Create / Edit Organization Account state
@@ -1827,6 +2121,19 @@ export function WebsiteEventsPanel() {
 
   // 2. FULL-PAGE FEATURED / MEGA EVENT VIEW
   if (creatingMega || editingMega) {
+    const megaAr = (megaDraft.ar_content || {}) as Record<string, any>
+    const isMegaAr = megaLangTab === "ar"
+    const setMegaArField = (key: string, val: any) =>
+      setMegaDraft((p) => ({
+        ...p,
+        ...(key === "title" ? { title_ar: String(val || "") } : {}),
+        ar_content: {
+          ...(p.ar_content || {}),
+          enabled: true,
+          [key]: val,
+        },
+      }))
+
     return (
       <div className="space-y-6">
         <div className="flex flex-wrap items-center justify-between gap-4 rounded-2xl border border-border bg-card p-5">
@@ -1857,16 +2164,109 @@ export function WebsiteEventsPanel() {
           </button>
         </div>
 
-        <div className="rounded-2xl border border-border bg-card p-6 sm:p-8 space-y-5">
+        {/* Language Configuration Bar for Featured Event */}
+        <div className="flex flex-wrap items-center justify-between gap-4 rounded-2xl border border-border bg-card p-4">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-xs font-bold uppercase tracking-wider text-muted-foreground mr-1">
+              Editing Language:
+            </span>
+            <button
+              type="button"
+              onClick={() => setMegaLangTab("en")}
+              className={cn(
+                "rounded-xl px-4 py-2 text-xs font-bold transition cursor-pointer",
+                megaLangTab === "en"
+                  ? "bg-primary text-primary-foreground shadow"
+                  : "border border-border bg-background text-muted-foreground hover:text-foreground"
+              )}
+            >
+              English Version (/en)
+            </button>
+            <button
+              type="button"
+              onClick={() => setMegaLangTab("ar")}
+              className={cn(
+                "font-thmanyah rounded-xl px-4 py-2 text-xs font-bold transition cursor-pointer",
+                megaLangTab === "ar"
+                  ? "bg-primary text-primary-foreground shadow"
+                  : "border border-border bg-background text-muted-foreground hover:text-foreground"
+              )}
+            >
+              النسخة العربية (/ar)
+            </button>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-4 text-xs">
+            <label className="inline-flex items-center gap-2 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={megaAr.en_enabled !== false}
+                onChange={(e) =>
+                  setMegaDraft((p) => ({
+                    ...p,
+                    ar_content: { ...(p.ar_content || {}), en_enabled: e.target.checked },
+                  }))
+                }
+                className="h-4 w-4 rounded accent-primary"
+              />
+              <span className="font-semibold text-foreground">Enable English (/en)</span>
+            </label>
+
+            <label className="inline-flex items-center gap-2 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={Boolean(megaAr.enabled)}
+                onChange={(e) =>
+                  setMegaDraft((p) => ({
+                    ...p,
+                    ar_content: { ...(p.ar_content || {}), enabled: e.target.checked },
+                  }))
+                }
+                className="h-4 w-4 rounded accent-primary"
+              />
+              <span className="font-thmanyah font-semibold text-foreground">
+                تفعيل النسخة العربية (/ar)
+              </span>
+            </label>
+
+            <label className="inline-flex items-center gap-2">
+              <span className="font-semibold text-muted-foreground">Default Page:</span>
+              <select
+                value={megaDraft.default_language === "ar" ? "ar" : "en"}
+                onChange={(e) =>
+                  setMegaDraft((p) => ({ ...p, default_language: e.target.value }))
+                }
+                className="h-8 rounded-lg border border-border bg-background px-2.5 text-xs font-semibold text-foreground"
+              >
+                <option value="en">English (/en)</option>
+                <option value="ar">Arabic (/ar — العربية)</option>
+              </select>
+            </label>
+          </div>
+        </div>
+
+        <div
+          dir={isMegaAr ? "rtl" : "ltr"}
+          className={cn(
+            "rounded-2xl border border-border bg-card p-6 sm:p-8 space-y-5",
+            isMegaAr && "font-thmanyah"
+          )}
+        >
           <div className="grid grid-cols-1 gap-5 md:grid-cols-3">
             <InputField
-              label="Title *"
-              value={megaDraft.title || ""}
-              onChange={(v) => setMegaDraft((p) => ({ ...p, title: v }))}
-              placeholder="World Space Week UAE 2026"
+              label={isMegaAr ? "عنوان الفعالية بالعربية *" : "Title *"}
+              value={isMegaAr ? megaAr.title || megaDraft.title_ar || "" : megaDraft.title || ""}
+              onChange={(v) =>
+                isMegaAr
+                  ? setMegaArField("title", v)
+                  : setMegaDraft((p) => ({ ...p, title: v }))
+              }
+              placeholder={
+                isMegaAr ? "أسبوع الفضاء العالمي — الإمارات 2026" : "World Space Week UAE 2026"
+              }
             />
             <InputField
-              label="Slug"
+              label="Slug (Shared for /en and /ar)"
               value={megaDraft.slug || ""}
               onChange={(v) => setMegaDraft((p) => ({ ...p, slug: v }))}
               placeholder="wsw"
@@ -1890,23 +2290,35 @@ export function WebsiteEventsPanel() {
           </div>
           <div className="grid grid-cols-1 gap-5 md:grid-cols-2">
             <InputField
-              label="Subtitle"
-              value={megaDraft.subtitle || ""}
-              onChange={(v) => setMegaDraft((p) => ({ ...p, subtitle: v }))}
+              label={isMegaAr ? "العنوان الفرعي" : "Subtitle"}
+              value={isMegaAr ? megaAr.subtitle || "" : megaDraft.subtitle || ""}
+              onChange={(v) =>
+                isMegaAr
+                  ? setMegaArField("subtitle", v)
+                  : setMegaDraft((p) => ({ ...p, subtitle: v }))
+              }
               placeholder="One Week. One Ecosystem. Endless Possibilities."
             />
             <InputField
-              label="Tagline"
-              value={megaDraft.tagline || ""}
-              onChange={(v) => setMegaDraft((p) => ({ ...p, tagline: v }))}
+              label={isMegaAr ? "الشعار الوصفي" : "Tagline"}
+              value={isMegaAr ? megaAr.tagline || "" : megaDraft.tagline || ""}
+              onChange={(v) =>
+                isMegaAr
+                  ? setMegaArField("tagline", v)
+                  : setMegaDraft((p) => ({ ...p, tagline: v }))
+              }
               placeholder="Discover. Participate. Connect. Measure Impact."
             />
           </div>
           <div className="grid grid-cols-1 gap-5 md:grid-cols-2">
             <InputField
-              label="Date Label"
-              value={megaDraft.date_label || ""}
-              onChange={(v) => setMegaDraft((p) => ({ ...p, date_label: v }))}
+              label={isMegaAr ? "التاريخ" : "Date Label"}
+              value={isMegaAr ? megaAr.date_label || "" : megaDraft.date_label || ""}
+              onChange={(v) =>
+                isMegaAr
+                  ? setMegaArField("date_label", v)
+                  : setMegaDraft((p) => ({ ...p, date_label: v }))
+              }
               placeholder="October 2026 • Across All 7 Emirates"
             />
             <InputField
@@ -1929,16 +2341,24 @@ export function WebsiteEventsPanel() {
             />
           </div>
           <TextAreaField
-            label="Hero / Overview Description"
+            label={isMegaAr ? "الوصف التعريفي بالفعالية" : "Hero / Overview Description"}
             rows={4}
-            value={megaDraft.about_text || ""}
-            onChange={(v) => setMegaDraft((p) => ({ ...p, about_text: v }))}
+            value={isMegaAr ? megaAr.about_text || "" : megaDraft.about_text || ""}
+            onChange={(v) =>
+              isMegaAr
+                ? setMegaArField("about_text", v)
+                : setMegaDraft((p) => ({ ...p, about_text: v }))
+            }
           />
           <TextAreaField
-            label="Official Note / Disclaimer"
+            label={isMegaAr ? "ملاحظة رسمية" : "Official Note / Disclaimer"}
             rows={2}
-            value={megaDraft.official_note || ""}
-            onChange={(v) => setMegaDraft((p) => ({ ...p, official_note: v }))}
+            value={isMegaAr ? megaAr.official_note || "" : megaDraft.official_note || ""}
+            onChange={(v) =>
+              isMegaAr
+                ? setMegaArField("official_note", v)
+                : setMegaDraft((p) => ({ ...p, official_note: v }))
+            }
           />
         </div>
 
@@ -2213,6 +2633,7 @@ export function WebsiteEventsPanel() {
             <button
               type="button"
               onClick={() => {
+                setMegaLangTab("en")
                 setMegaDraft({
                   title: "",
                   slug: "",
@@ -2224,6 +2645,8 @@ export function WebsiteEventsPanel() {
                   official_note: "",
                   official_url: "",
                   is_published: true,
+                  default_language: "en",
+                  ar_content: { enabled: false, en_enabled: true },
                 })
                 setCreatingMega(true)
               }}
@@ -2275,6 +2698,16 @@ export function WebsiteEventsPanel() {
                   <span className="rounded-full bg-muted px-2.5 py-0.5 text-xs font-semibold uppercase text-foreground">
                     /{ev.country}/{ev.slug}
                   </span>
+                  {ev.ar_content?.en_enabled !== false && (
+                    <span className="rounded-full border border-border bg-background px-2 py-0.5 text-[11px] font-bold text-foreground">
+                      EN{ev.default_language !== "ar" ? " (Default)" : ""}
+                    </span>
+                  )}
+                  {ev.ar_content?.enabled && (
+                    <span className="font-thmanyah rounded-full border border-primary/40 bg-primary/10 px-2 py-0.5 text-[11px] font-bold text-primary">
+                      AR العربية{ev.default_language === "ar" ? " (Default)" : ""}
+                    </span>
+                  )}
                   {ev.mega_event_title && (
                     <span className="inline-flex items-center gap-1.5 rounded-full bg-primary/15 px-2.5 py-0.5 text-xs font-semibold text-primary">
                       Parent: {ev.mega_event_title}
@@ -2433,6 +2866,16 @@ export function WebsiteEventsPanel() {
                       <span className="rounded-full bg-primary/20 px-2.5 py-0.5 text-xs font-bold uppercase text-primary">
                         Featured Event • /{m.country}/{m.slug}
                       </span>
+                      {m.ar_content?.en_enabled !== false && (
+                        <span className="rounded-full border border-border bg-background px-2 py-0.5 text-[11px] font-bold text-foreground">
+                          EN{m.default_language !== "ar" ? " (Default)" : ""}
+                        </span>
+                      )}
+                      {m.ar_content?.enabled && (
+                        <span className="font-thmanyah rounded-full border border-primary/40 bg-primary/10 px-2 py-0.5 text-[11px] font-bold text-primary">
+                          AR العربية{m.default_language === "ar" ? " (Default)" : ""}
+                        </span>
+                      )}
                       <span className="text-xs font-semibold text-muted-foreground">
                         {attachedEvents.length} child event(s)
                       </span>
@@ -2476,9 +2919,11 @@ export function WebsiteEventsPanel() {
                     <button
                       type="button"
                       onClick={() => {
+                        setMegaLangTab("en")
                         setEditingMega(m)
                         setMegaDraft({
                           title: m.title,
+                          title_ar: m.title_ar,
                           slug: m.slug,
                           country: m.country,
                           subtitle: m.subtitle,
@@ -2490,6 +2935,8 @@ export function WebsiteEventsPanel() {
                           official_note: m.official_note,
                           official_url: m.official_url,
                           is_published: m.is_published,
+                          default_language: m.default_language || "en",
+                          ar_content: m.ar_content || { enabled: false, en_enabled: true },
                         })
                       }}
                       className="inline-flex items-center gap-1 rounded-xl bg-primary/15 px-3.5 py-2 text-xs font-semibold text-primary hover:bg-primary/25"

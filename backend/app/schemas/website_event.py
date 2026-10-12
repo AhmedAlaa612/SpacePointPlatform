@@ -25,6 +25,8 @@ class MegaEventBase(BaseModel):
     coordinator_info: dict[str, Any] = Field(default_factory=dict)
     partners: list[dict[str, Any]] = Field(default_factory=list)
     faqs: list[dict[str, Any]] = Field(default_factory=list)
+    default_language: str = "en"
+    ar_content: dict[str, Any] = Field(default_factory=dict)
     display_order: int = 0
     is_published: bool = True
 
@@ -53,6 +55,8 @@ class MegaEventUpdate(BaseModel):
     coordinator_info: dict[str, Any] | None = None
     partners: list[dict[str, Any]] | None = None
     faqs: list[dict[str, Any]] | None = None
+    default_language: str | None = None
+    ar_content: dict[str, Any] | None = None
     display_order: int | None = None
     is_published: bool | None = None
 
@@ -135,6 +139,9 @@ class WebsiteEventBase(BaseModel):
     contacts: list[dict[str, Any]] = Field(default_factory=list)
     contact_meta: list[dict[str, Any]] = Field(default_factory=list)
 
+    default_language: str = "en"
+    ar_content: dict[str, Any] = Field(default_factory=dict)
+
     display_order: int = 0
     is_published: bool = False
 
@@ -194,6 +201,9 @@ class WebsiteEventUpdate(BaseModel):
     partners_note: str | None = None
     contacts: list[dict[str, Any]] | None = None
     contact_meta: list[dict[str, Any]] | None = None
+
+    default_language: str | None = None
+    ar_content: dict[str, Any] | None = None
 
     display_order: int | None = None
     is_published: bool | None = None

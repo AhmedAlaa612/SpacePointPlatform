@@ -46,6 +46,9 @@ class MegaEvent(Base):
     # [{ "question": "...", "answer": "..." }, ...]
     faqs = Column(JSONB, nullable=False, default=list, server_default="[]")
 
+    default_language = Column(String(8), nullable=False, default="en", server_default="en")
+    ar_content = Column(JSONB, nullable=False, default=dict, server_default="{}")
+
     display_order = Column(Integer, nullable=False, default=0)
     is_published = Column(Boolean, nullable=False, default=True)
 
@@ -181,6 +184,9 @@ class WebsiteEvent(Base):
     contacts = Column(JSONB, nullable=False, default=list, server_default="[]")
     # [{ "label": "Host institution", "value": "Abu Dhabi University — Al Ain Campus", "url": "" }, ...]
     contact_meta = Column(JSONB, nullable=False, default=list, server_default="[]")
+
+    default_language = Column(String(8), nullable=False, default="en", server_default="en")
+    ar_content = Column(JSONB, nullable=False, default=dict, server_default="{}")
 
     display_order = Column(Integer, nullable=False, default=0)
     is_published = Column(Boolean, nullable=False, default=False)

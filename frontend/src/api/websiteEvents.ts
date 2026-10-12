@@ -89,6 +89,8 @@ export interface MegaEvent {
   faqs: EventFaqItem[]
   display_order: number
   is_published: boolean
+  default_language?: string
+  ar_content?: Record<string, any>
   events_count: number
   created_at: string
   updated_at: string
@@ -173,6 +175,8 @@ export interface WebsiteEvent {
 
   display_order: number
   is_published: boolean
+  default_language?: string
+  ar_content?: Record<string, any>
   created_at: string
   updated_at: string
 }
