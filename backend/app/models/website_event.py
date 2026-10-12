@@ -26,6 +26,7 @@ class MegaEvent(Base):
     subtitle = Column(String(255), nullable=True)
     tagline = Column(String(512), nullable=True)
     banner_url = Column(String(512), nullable=True)
+    top_banner_url = Column(String(512), nullable=True)
     date_label = Column(String(128), nullable=True)
 
     about_text = Column(Text, nullable=True)
@@ -120,6 +121,7 @@ class WebsiteEvent(Base):
     subtitle = Column(String(255), nullable=True)
     tagline = Column(String(512), nullable=True)
     banner_url = Column(String(512), nullable=True)
+    top_banner_url = Column(String(512), nullable=True)
     host_org_name = Column(String(255), nullable=True)
     date_label = Column(String(128), nullable=True)
     location = Column(String(255), nullable=True)

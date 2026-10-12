@@ -75,6 +75,7 @@ async def ensure_default_events_seeded(db: AsyncSession) -> None:
             subtitle="One Week. One Ecosystem. Endless Possibilities.",
             tagline="Discover. Participate. Connect. Measure Impact.",
             banner_url="/assets/img/The Mission.jpg",
+            top_banner_url=None,
             date_label="October 2026 • Across All 7 Emirates",
             about_text=(
                 "A public platform bringing together events, speakers, mentors, volunteers and "
@@ -151,6 +152,12 @@ async def ensure_default_events_seeded(db: AsyncSession) -> None:
         )
         db.add(wsw)
         await db.flush()
+    else:
+        if wsw.banner_url and wsw.banner_url.endswith("-cropped.png") and wsw.top_banner_url is None:
+            wsw.top_banner_url = wsw.banner_url
+            wsw.banner_url = "/assets/img/The Mission.jpg"
+        elif wsw.banner_url is None and wsw.top_banner_url is None:
+            wsw.banner_url = "/assets/img/The Mission.jpg"
 
     satforge = (
         await db.execute(select(WebsiteEvent).where(WebsiteEvent.slug == "satforge-2026"))
@@ -170,6 +177,7 @@ async def ensure_default_events_seeded(db: AsyncSession) -> None:
             subtitle="National University Satellite Engineering Challenge",
             tagline="From Campus Innovation to Future Space Missions",
             banner_url="/assets/img/The Mission.jpg",
+            top_banner_url=None,
             host_org_name="Abu Dhabi University",
             date_label="11 October – 11 November 2026",
             location="Abu Dhabi University — Al Ain Campus",
@@ -385,6 +393,12 @@ async def ensure_default_events_seeded(db: AsyncSession) -> None:
             is_published=True,
         )
         db.add(satforge)
+    else:
+        if satforge.banner_url and satforge.banner_url.endswith("-cropped.png") and satforge.top_banner_url is None:
+            satforge.top_banner_url = satforge.banner_url
+            satforge.banner_url = "/assets/img/The Mission.jpg"
+        elif satforge.banner_url is None and satforge.top_banner_url is None:
+            satforge.banner_url = "/assets/img/The Mission.jpg"
 
     await db.commit()
 

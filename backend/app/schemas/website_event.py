@@ -13,6 +13,7 @@ class MegaEventBase(BaseModel):
     subtitle: str | None = None
     tagline: str | None = None
     banner_url: str | None = None
+    top_banner_url: str | None = None
     date_label: str | None = None
     about_text: str | None = None
     official_note: str | None = None
@@ -40,6 +41,7 @@ class MegaEventUpdate(BaseModel):
     subtitle: str | None = None
     tagline: str | None = None
     banner_url: str | None = None
+    top_banner_url: str | None = None
     date_label: str | None = None
     about_text: str | None = None
     official_note: str | None = None
@@ -82,6 +84,7 @@ class WebsiteEventBase(BaseModel):
     subtitle: str | None = None
     tagline: str | None = None
     banner_url: str | None = None
+    top_banner_url: str | None = None
     host_org_name: str | None = None
     date_label: str | None = None
     location: str | None = None
@@ -156,6 +159,7 @@ class WebsiteEventUpdate(BaseModel):
     subtitle: str | None = None
     tagline: str | None = None
     banner_url: str | None = None
+    top_banner_url: str | None = None
     host_org_name: str | None = None
     date_label: str | None = None
     location: str | None = None

@@ -1,4 +1,4 @@
-import { useState } from "react"
+import { useRef, useState } from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import {
   ArrowLeft,
@@ -6,9 +6,11 @@ import {
   CalendarDays,
   CheckCircle2,
   Clock,
+  Crop,
   ExternalLink,
   Eye,
   EyeOff,
+  ImagePlus,
   Layers,
   Pencil,
   Plus,
@@ -18,6 +20,7 @@ import {
 } from "lucide-react"
 import { cn, getErrorMessage } from "@/lib/utils"
 import { Spinner } from "@/components/ui/primitives"
+import { ImageCropModal } from "@/components/ui/ImageCropModal"
 import { useToast } from "@/components/ui/toast"
 import { CountrySelect } from "@/components/ui/CountrySelect"
 import { CityNameSelect } from "@/components/ui/CitySelect"
@@ -146,6 +149,294 @@ function TextAreaField({
   )
 }
 
+export function getUploadedBannerUrl(url?: string | null): string | null {
+  const clean = (url || "").trim()
+  if (!clean || clean === "/assets/img/The Mission.jpg") return null
+  return clean
+}
+
+export function EventBannerUploader({
+  bannerUrl,
+  onChange,
+  eventTitle,
+  breadcrumb,
+}: {
+  bannerUrl: string | null | undefined
+  onChange: (url: string | null) => void
+  eventTitle: string
+  breadcrumb: string
+}) {
+  const toast = useToast()
+  const fileInputRef = useRef<HTMLInputElement>(null)
+  const [cropModalOpen, setCropModalOpen] = useState(false)
+  const [selectedImageForCrop, setSelectedImageForCrop] = useState<string | null>(null)
+  const [uploading, setUploading] = useState(false)
+
+  const effectiveUrl = getUploadedBannerUrl(bannerUrl)
+
+  const handleFilePicked = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    const reader = new FileReader()
+    reader.onload = () => {
+      if (typeof reader.result === "string") {
+        setSelectedImageForCrop(reader.result)
+        setCropModalOpen(true)
+      }
+    }
+    reader.readAsDataURL(file)
+    e.target.value = ""
+  }
+
+  const handleCropConfirmed = async (croppedFile: File) => {
+    setUploading(true)
+    try {
+      const res = await uploadWebsiteAsset(croppedFile)
+      onChange(res.url)
+      setCropModalOpen(false)
+      setSelectedImageForCrop(null)
+      toast.success("Top banner uploaded")
+    } catch (err) {
+      toast.error(getErrorMessage(err, "Failed to upload banner"))
+    } finally {
+      setUploading(false)
+    }
+  }
+
+  return (
+    <div className="rounded-xl border border-border bg-background p-4 space-y-3">
+      <div className="flex items-start gap-4">
+        <button
+          type="button"
+          onClick={() => fileInputRef.current?.click()}
+          className="group relative w-24 h-24 shrink-0 rounded-2xl bg-muted overflow-hidden ring-1 ring-border cursor-pointer"
+          title="Upload top banner image"
+        >
+          {effectiveUrl ? (
+            <img src={effectiveUrl} alt="" className="w-full h-full object-cover" />
+          ) : (
+            <div className="w-full h-full flex flex-col items-center justify-center gap-1 text-muted-foreground">
+              <ImagePlus size={16} />
+              <span className="text-[10px]">Add banner</span>
+            </div>
+          )}
+          <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center text-white text-xs font-medium">
+            {uploading ? "Uploading..." : effectiveUrl ? "Change" : "Upload"}
+          </div>
+        </button>
+
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept="image/*"
+          className="hidden"
+          onChange={handleFilePicked}
+        />
+
+        <div className="flex flex-col gap-1 pt-0.5 flex-1 min-w-0">
+          <div className="text-sm font-semibold text-foreground">
+            Event Page Top Banner (Optional)
+          </div>
+          <div className="text-xs text-muted-foreground">
+            Displayed full-width between the top navbar and the route breadcrumb (just like LMS checklists). If no banner is uploaded, nothing is shown.
+          </div>
+
+          <div className="flex flex-wrap items-center gap-3 mt-1.5">
+            <button
+              type="button"
+              onClick={() => fileInputRef.current?.click()}
+              className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-card px-3 py-1.5 text-xs font-semibold text-foreground hover:bg-muted transition cursor-pointer"
+            >
+              <Upload size={12} />
+              <span>{effectiveUrl ? "Replace Image" : "Upload Banner"}</span>
+            </button>
+
+            {effectiveUrl && (
+              <>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSelectedImageForCrop(effectiveUrl)
+                    setCropModalOpen(true)
+                  }}
+                  className="text-xs font-semibold text-primary hover:underline flex items-center gap-1 cursor-pointer"
+                >
+                  <Crop size={12} />
+                  <span>Crop &amp; Preview Banner</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    onChange(null)
+                    toast.success("Banner removed (click Save to apply)")
+                  }}
+                  className="text-xs font-semibold text-destructive hover:underline flex items-center gap-1 cursor-pointer"
+                >
+                  <Trash2 size={12} />
+                  <span>Remove Banner</span>
+                </button>
+              </>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {effectiveUrl && (
+        <div className="relative rounded-xl overflow-hidden border border-border bg-neutral-950">
+          <img src={effectiveUrl} alt="Event top banner preview" className="w-full h-auto max-h-44 object-cover block" />
+        </div>
+      )}
+
+      <ImageCropModal
+        isOpen={cropModalOpen}
+        onClose={() => {
+          if (!uploading) {
+            setCropModalOpen(false)
+            setSelectedImageForCrop(null)
+          }
+        }}
+        imageSrc={selectedImageForCrop}
+        title="Crop & Preview Event Banner"
+        previewMode="event"
+        previewBreadcrumb={breadcrumb}
+        programName={eventTitle || "Event Title"}
+        onCropComplete={handleCropConfirmed}
+        isUploading={uploading}
+      />
+    </div>
+  )
+}
+
+export function resolvePreviewImageUrl(url?: string | null): string | null {
+  const clean = (url || "").trim()
+  if (!clean) return null
+  if (clean.startsWith("/assets/")) return `${WEBSITE_BASE_URL}${clean}`
+  return clean
+}
+
+export function HeroBackgroundUploader({
+  imageUrl,
+  onChange,
+}: {
+  imageUrl: string | null | undefined
+  onChange: (url: string | null) => void
+}) {
+  const toast = useToast()
+  const fileInputRef = useRef<HTMLInputElement>(null)
+  const [uploading, setUploading] = useState(false)
+
+  const cleanUrl = (imageUrl || "").trim() || null
+  const previewSrc = resolvePreviewImageUrl(cleanUrl)
+
+  const handleFilePicked = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    e.target.value = ""
+    setUploading(true)
+    try {
+      const res = await uploadWebsiteAsset(file)
+      onChange(res.url)
+      toast.success("Hero background image uploaded")
+    } catch (err) {
+      toast.error(getErrorMessage(err, "Failed to upload background image"))
+    } finally {
+      setUploading(false)
+    }
+  }
+
+  return (
+    <div className="rounded-xl border border-border bg-background p-4 space-y-3">
+      <div className="flex items-start gap-4">
+        <button
+          type="button"
+          onClick={() => fileInputRef.current?.click()}
+          className="group relative w-24 h-24 shrink-0 rounded-2xl bg-muted overflow-hidden ring-1 ring-border cursor-pointer"
+          title="Upload hero card background image"
+        >
+          {previewSrc ? (
+            <img src={previewSrc} alt="" className="w-full h-full object-cover" />
+          ) : (
+            <div className="w-full h-full flex flex-col items-center justify-center gap-1 text-muted-foreground">
+              <ImagePlus size={16} />
+              <span className="text-[10px]">No bg image</span>
+            </div>
+          )}
+          <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center text-white text-xs font-medium">
+            {uploading ? "Uploading..." : previewSrc ? "Change" : "Upload"}
+          </div>
+        </button>
+
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept="image/*"
+          className="hidden"
+          onChange={handleFilePicked}
+        />
+
+        <div className="flex flex-col gap-1 pt-0.5 flex-1 min-w-0">
+          <div className="text-sm font-semibold text-foreground">
+            Hero Card Background Image (Inside Hero Box)
+          </div>
+          <div className="text-xs text-muted-foreground">
+            Displayed as a subtle 20%-opacity background inside the Hero card and on event directory cards.
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2.5 mt-1.5">
+            <button
+              type="button"
+              disabled={uploading}
+              onClick={() => fileInputRef.current?.click()}
+              className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-card px-3 py-1.5 text-xs font-semibold text-foreground hover:bg-muted transition cursor-pointer"
+            >
+              <Upload size={12} />
+              <span>{uploading ? "Uploading..." : cleanUrl ? "Upload Custom Image" : "Upload Image"}</span>
+            </button>
+
+            {cleanUrl !== "/assets/img/The Mission.jpg" && (
+              <button
+                type="button"
+                onClick={() => {
+                  onChange("/assets/img/The Mission.jpg")
+                  toast.success("Restored default Hero background (click Save to apply)")
+                }}
+                className="text-xs font-semibold text-primary hover:underline cursor-pointer"
+              >
+                Use Default (The Mission.jpg)
+              </button>
+            )}
+
+            {cleanUrl && (
+              <button
+                type="button"
+                onClick={() => {
+                  onChange(null)
+                  toast.success("Hero background removed (click Save to apply)")
+                }}
+                className="text-xs font-semibold text-destructive hover:underline flex items-center gap-1 cursor-pointer"
+              >
+                <Trash2 size={12} />
+                <span>Remove Background</span>
+              </button>
+            )}
+          </div>
+
+          <div className="mt-2">
+            <input
+              type="text"
+              value={cleanUrl || ""}
+              onChange={(e) => onChange(e.target.value || null)}
+              placeholder="/assets/img/The Mission.jpg or uploaded image URL"
+              className={cn(inputCls, "h-8 text-xs")}
+            />
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 export function emptyEventDraft(defaults?: Partial<WebsiteEventInput>): WebsiteEventInput {
   return {
     slug: "",
@@ -161,6 +452,7 @@ export function emptyEventDraft(defaults?: Partial<WebsiteEventInput>): WebsiteE
     subtitle: "",
     tagline: "",
     banner_url: "/assets/img/The Mission.jpg",
+    top_banner_url: null,
     host_org_name: "",
     date_label: "",
     location: "",
@@ -217,29 +509,17 @@ export function EventEditorModal({
   saving: boolean
 }) {
   const toast = useToast()
-  const [form, setForm] = useState<WebsiteEventInput>(initial)
+  const [form, setForm] = useState<WebsiteEventInput>({
+    ...initial,
+  })
   const [sectionTab, setSectionTab] = useState<
     "hero" | "about" | "eligibility" | "journey" | "deliverables" | "registration" | "faqs" | "partners"
   >("hero")
-  const [uploadingBanner, setUploadingBanner] = useState(false)
 
   if (!open) return null
 
   const set = <K extends keyof WebsiteEventInput>(key: K, val: WebsiteEventInput[K]) =>
     setForm((prev) => ({ ...prev, [key]: val }))
-
-  const handleBannerUpload = async (file: File) => {
-    setUploadingBanner(true)
-    try {
-      const res = await uploadWebsiteAsset(file)
-      set("banner_url", res.url)
-      toast.success("Banner uploaded")
-    } catch (err) {
-      toast.error(getErrorMessage(err, "Upload failed"))
-    } finally {
-      setUploadingBanner(false)
-    }
-  }
 
   const SECTION_TABS = [
     { id: "hero", label: "1. Hero & Routing" },
@@ -491,44 +771,27 @@ export function EventEditorModal({
               </label>
             </div>
 
-            <div className="grid grid-cols-1 gap-5 md:grid-cols-2">
-              <div className="flex flex-col gap-1.5">
-                <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                  Hero Banner Image
-                </span>
-                <div className="flex gap-2">
-                  <input
-                    type="text"
-                    value={form.banner_url || ""}
-                    onChange={(e) => set("banner_url", e.target.value)}
-                    placeholder="/assets/img/The Mission.jpg"
-                    className={inputCls}
-                  />
-                  <label className="cursor-pointer shrink-0 inline-flex items-center gap-1.5 rounded-xl border border-border bg-muted px-4 py-2 text-xs font-semibold text-foreground hover:opacity-90">
-                    <Upload className="h-3.5 w-3.5" />
-                    {uploadingBanner ? "..." : "Upload"}
-                    <input
-                      type="file"
-                      accept="image/*"
-                      className="hidden"
-                      onChange={(e) => {
-                        const f = e.target.files?.[0]
-                        if (f) void handleBannerUpload(f)
-                      }}
-                    />
-                  </label>
-                </div>
-              </div>
-
-              {form.mega_event_id && (
-                <InputField
-                  label="Official World Space Week / Campaign Listing URL (Optional)"
-                  value={form.wsw_official_url || ""}
-                  onChange={(v) => set("wsw_official_url", v)}
-                  placeholder="https://www.worldspaceweek.org/events/..."
-                />
-              )}
+            <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
+              <EventBannerUploader
+                bannerUrl={form.top_banner_url}
+                onChange={(url) => set("top_banner_url", url)}
+                eventTitle={form.title || "Event Title"}
+                breadcrumb={`EVENTS / ${(form.country || "UAE").toUpperCase()} / ${(form.title || "EVENT").toUpperCase()}`}
+              />
+              <HeroBackgroundUploader
+                imageUrl={form.banner_url}
+                onChange={(url) => set("banner_url", url)}
+              />
             </div>
+
+            {form.mega_event_id && (
+              <InputField
+                label="Official World Space Week / Campaign Listing URL (Optional)"
+                value={form.wsw_official_url || ""}
+                onChange={(v) => set("wsw_official_url", v)}
+                placeholder="https://www.worldspaceweek.org/events/..."
+              />
+            )}
 
             {isAdmin && (
               <div className="flex items-center justify-between rounded-xl border border-border bg-background p-4">
@@ -1642,6 +1905,18 @@ export function WebsiteEventsPanel() {
               placeholder="https://www.worldspaceweek.org"
             />
           </div>
+          <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
+            <EventBannerUploader
+              bannerUrl={megaDraft.top_banner_url}
+              onChange={(url) => setMegaDraft((p) => ({ ...p, top_banner_url: url }))}
+              eventTitle={megaDraft.title || "Featured Event"}
+              breadcrumb={`EVENTS / ${(megaDraft.country || "UAE").toUpperCase()} / ${(megaDraft.title || "FEATURED EVENT").toUpperCase()}`}
+            />
+            <HeroBackgroundUploader
+              imageUrl={megaDraft.banner_url}
+              onChange={(url) => setMegaDraft((p) => ({ ...p, banner_url: url }))}
+            />
+          </div>
           <TextAreaField
             label="Hero / Overview Description"
             rows={4}
@@ -2197,6 +2472,8 @@ export function WebsiteEventsPanel() {
                           country: m.country,
                           subtitle: m.subtitle,
                           tagline: m.tagline,
+                          banner_url: m.banner_url,
+                          top_banner_url: getUploadedBannerUrl(m.top_banner_url),
                           date_label: m.date_label,
                           about_text: m.about_text,
                           official_note: m.official_note,

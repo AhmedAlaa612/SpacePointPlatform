@@ -75,6 +75,7 @@ export interface MegaEvent {
   subtitle: string | null
   tagline: string | null
   banner_url: string | null
+  top_banner_url?: string | null
   date_label: string | null
   about_text: string | null
   official_note: string | null
@@ -119,6 +120,7 @@ export interface WebsiteEvent {
   subtitle: string | null
   tagline: string | null
   banner_url: string | null
+  top_banner_url?: string | null
   host_org_name: string | null
   date_label: string | null
   location: string | null

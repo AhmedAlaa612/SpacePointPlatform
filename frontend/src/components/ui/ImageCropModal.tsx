@@ -15,6 +15,8 @@ export interface ImageCropModalProps {
   circularCrop?: boolean
   /** Show the LMS-style preview tab (default: true). Pass false for non-LMS contexts. */
   showPreview?: boolean
+  previewMode?: "lms" | "event"
+  previewBreadcrumb?: string
   programName?: string
   onCropComplete: (file: File) => Promise<void> | void
   isUploading?: boolean
@@ -95,6 +97,8 @@ export function ImageCropModal({
   aspect,
   circularCrop = false,
   showPreview = true,
+  previewMode = "lms",
+  previewBreadcrumb,
   programName = "Program Checklist",
   onCropComplete,
   isUploading = false,
@@ -396,9 +400,21 @@ export function ImageCropModal({
             </div>
           </div>
 
-          {/* ── AUTHENTIC CHECKLIST PREVIEW TAB (LMS only) ──────────── */}
+          {/* ── AUTHENTIC CHECKLIST / EVENT PREVIEW TAB ──────────── */}
           {showPreview && (
             <div className={activeTab === "preview" ? "bg-background flex flex-col min-h-[300px]" : "hidden"}>
+              {previewMode === "event" && (
+                <div className="h-12 px-5 flex items-center justify-between bg-[#05030A] border-b border-white/10 text-white shrink-0">
+                  <span className="font-extrabold tracking-widest text-sm text-[#A77DFF]">SPACE.</span>
+                  <div className="flex items-center gap-5 text-xs text-white/75">
+                    <span>Home</span>
+                    <span>About</span>
+                    <span>Programs</span>
+                    <span className="text-white font-semibold">Events</span>
+                  </div>
+                </div>
+              )}
+
               {/* Banner Area (Identical to RoadmapBoard.tsx line 64-73) */}
               <div className="relative w-full overflow-hidden bg-neutral-950">
                 {previewDataUrl ? (
@@ -416,48 +432,64 @@ export function ImageCropModal({
                 <div className="pointer-events-none absolute inset-x-0 bottom-0 h-2.5 sm:h-4 bg-[linear-gradient(to_top,hsl(var(--background)/0.7)_0%,hsl(var(--background)/0.3)_35%,hsl(var(--primary)/0.28)_65%,transparent_100%)]" />
               </div>
 
-              {/* Checklist Board Header (Matches RoadmapBoard.tsx and user's screenshot) */}
-              <div className="px-4 sm:px-6 py-4 sm:py-6 flex flex-col gap-4 max-w-[1180px] mx-auto w-full">
-                <div className="flex flex-col gap-1">
-                  <h1 className="font-display text-lg sm:text-xl font-extrabold tracking-tight leading-tight text-foreground">
-                    {programName}
-                  </h1>
-                  <p className="text-xs text-muted-foreground">L1 COMP 1</p>
-                  <div className="inline-flex w-fit items-center gap-1 rounded-full border border-primary/30 bg-primary/10 px-2.5 py-0.5 text-xs font-semibold text-primary">
-                    Team FALCON
+              {previewMode === "event" ? (
+                <div className="px-5 sm:px-8 py-5 sm:py-6 flex flex-col gap-4 bg-[#05030A] text-white">
+                  <div className="flex flex-wrap items-center gap-2 text-[11px] font-semibold uppercase tracking-wider text-white/60">
+                    <span>{previewBreadcrumb || `EVENTS / UAE / ${(programName || "EVENT").toUpperCase()}`}</span>
+                  </div>
+                  <div className="rounded-2xl border border-[#A77DFF]/30 bg-gradient-to-br from-[#160b24] via-[#0b0512] to-[#1f0e33] p-5 space-y-2">
+                    <span className="inline-block rounded-full bg-[#A77DFF]/20 border border-[#A77DFF]/40 px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-widest text-[#A77DFF]">
+                      Event Landing Page
+                    </span>
+                    <h1 className="text-lg sm:text-2xl font-extrabold text-white leading-tight">
+                      {programName}
+                    </h1>
                   </div>
                 </div>
-
-                {/* Steps done indicator */}
-                <div className="flex items-center gap-3">
-                  <div className="flex items-baseline gap-1 shrink-0">
-                    <span className="font-display text-xl sm:text-2xl font-extrabold text-foreground">3</span>
-                    <span className="text-sm font-semibold text-muted-foreground">/10</span>
-                    <span className="ml-1 whitespace-nowrap text-xs text-muted-foreground">steps done</span>
-                  </div>
-                  <div className="h-px flex-1 bg-border relative">
-                    <div className="absolute inset-y-0 left-0 bg-primary h-full" style={{ width: "30%" }} />
-                  </div>
-                </div>
-
-                {/* Your Next Task Card (Matches user screenshot) */}
-                <div className="flex items-center justify-between p-3.5 rounded-xl border border-primary/40 bg-card shadow-xs">
-                  <div className="flex items-center gap-2.5">
-                    <div className="w-7 h-7 rounded-lg bg-primary/15 flex items-center justify-center text-primary text-xs font-bold">
-                      ◎
-                    </div>
-                    <div className="flex flex-col">
-                      <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
-                        YOUR NEXT TASK
-                      </span>
-                      <span className="text-xs sm:text-sm font-bold text-foreground">tinker</span>
+              ) : (
+                /* Checklist Board Header (Matches RoadmapBoard.tsx and user's screenshot) */
+                <div className="px-4 sm:px-6 py-4 sm:py-6 flex flex-col gap-4 max-w-[1180px] mx-auto w-full">
+                  <div className="flex flex-col gap-1">
+                    <h1 className="font-display text-lg sm:text-xl font-extrabold tracking-tight leading-tight text-foreground">
+                      {programName}
+                    </h1>
+                    <p className="text-xs text-muted-foreground">L1 COMP 1</p>
+                    <div className="inline-flex w-fit items-center gap-1 rounded-full border border-primary/30 bg-primary/10 px-2.5 py-0.5 text-xs font-semibold text-primary">
+                      Team FALCON
                     </div>
                   </div>
-                  <div className="px-2.5 py-1 text-xs font-semibold rounded-lg bg-primary text-primary-foreground">
-                    Start task →
+
+                  {/* Steps done indicator */}
+                  <div className="flex items-center gap-3">
+                    <div className="flex items-baseline gap-1 shrink-0">
+                      <span className="font-display text-xl sm:text-2xl font-extrabold text-foreground">3</span>
+                      <span className="text-sm font-semibold text-muted-foreground">/10</span>
+                      <span className="ml-1 whitespace-nowrap text-xs text-muted-foreground">steps done</span>
+                    </div>
+                    <div className="h-px flex-1 bg-border relative">
+                      <div className="absolute inset-y-0 left-0 bg-primary h-full" style={{ width: "30%" }} />
+                    </div>
+                  </div>
+
+                  {/* Your Next Task Card (Matches user screenshot) */}
+                  <div className="flex items-center justify-between p-3.5 rounded-xl border border-primary/40 bg-card shadow-xs">
+                    <div className="flex items-center gap-2.5">
+                      <div className="w-7 h-7 rounded-lg bg-primary/15 flex items-center justify-center text-primary text-xs font-bold">
+                        ◎
+                      </div>
+                      <div className="flex flex-col">
+                        <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
+                          YOUR NEXT TASK
+                        </span>
+                        <span className="text-xs sm:text-sm font-bold text-foreground">tinker</span>
+                      </div>
+                    </div>
+                    <div className="px-2.5 py-1 text-xs font-semibold rounded-lg bg-primary text-primary-foreground">
+                      Start task →
+                    </div>
                   </div>
                 </div>
-              </div>
+              )}
             </div>
           )}
         </div>
