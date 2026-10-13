@@ -36,6 +36,7 @@ def _sanitize_quiz(content: dict, order: list[int] | None = None) -> dict:
         "questions": [
             {
                 "prompt": q.get("prompt"),
+                "image_url": q.get("image_url"),
                 "options": [{"text": o.get("text")} for o in (q.get("options") or [])],
             }
             for q in questions

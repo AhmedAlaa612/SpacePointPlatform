@@ -10,6 +10,7 @@ validate through the `AdminContent*` models before ever writing to the column.
 This is also the API LM1-9's bulk-import script drives.
 """
 
+import re
 import uuid
 from pathlib import Path
 from typing import Literal
@@ -1775,6 +1776,29 @@ async def get_admin_attachment_url(
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="No file uploaded for this attachment yet")
     url = await storage.get_signed_url(bucket, path)
     return AttachmentUrlOut(url=url, filename=item.content.get("filename"))
+
+
+QUIZ_IMAGE_BUCKET = "lms-quiz-images"
+MAX_QUIZ_IMAGE_BYTES = 10 * 1024 * 1024  # 10 MB
+
+
+@router.post("/quiz-images")
+async def upload_quiz_image(
+    file: UploadFile,
+    current: User = Depends(require_lms_content),
+) -> dict:
+    """Upload a diagram/image to be embedded in a course quiz question."""
+    data = await file.read()
+    if not data:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="Empty upload")
+    if len(data) > MAX_QUIZ_IMAGE_BYTES:
+        raise HTTPException(status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, detail="Image exceeds the 10MB limit")
+
+    filename = Path(file.filename or "image.png").name
+    clean_name = re.sub(r"[^\w\.-]", "_", filename)
+    path = f"{uuid.uuid4().hex[:8]}_{clean_name}"
+    await storage.upload_to_path(QUIZ_IMAGE_BUCKET, path, data, file.content_type or "image/png")
+    return {"url": f"/files/{QUIZ_IMAGE_BUCKET}/{path}", "path": path}
 
 
 @router.get("/items/{item_id}/video/playback")

@@ -820,6 +820,16 @@ function QuizItemModal({ moduleId, item, onClose, onSuccess }: {
                 className="w-full h-10 px-3 border border-border bg-card text-foreground rounded-xl text-sm focus:outline-none focus:border-primary transition-colors"
               />
               <input
+                value={q.image_url ?? ""} placeholder="Image / diagram URL (optional)"
+                onChange={(e) => updateQuestion(qi, { image_url: e.target.value.trim() || undefined })}
+                className="w-full h-10 px-3 border border-border bg-card text-foreground rounded-xl text-sm focus:outline-none focus:border-primary transition-colors"
+              />
+              {q.image_url && (
+                <div className="max-h-36 overflow-hidden rounded-lg border border-border bg-muted/20 flex justify-center p-1">
+                  <img src={q.image_url} alt="Question preview" className="max-h-32 object-contain rounded" />
+                </div>
+              )}
+              <input
                 value={q.explanation ?? ""} placeholder="Explanation shown after a wrong answer (optional)"
                 onChange={(e) => updateQuestion(qi, { explanation: e.target.value })}
                 className="w-full h-10 px-3 border border-border bg-card text-foreground rounded-xl text-sm focus:outline-none focus:border-primary transition-colors"

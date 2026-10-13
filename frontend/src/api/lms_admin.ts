@@ -186,6 +186,7 @@ export interface AdminQuizOption {
 export interface AdminQuizQuestion {
   prompt: string;
   explanation: string | null;
+  image_url?: string | null;
   options: AdminQuizOption[];
 }
 

@@ -73,6 +73,7 @@ export interface QuizOption {
 
 export interface QuizQuestion {
   prompt: string;
+  image_url?: string | null;
   options: QuizOption[];
 }
 
@@ -112,6 +113,7 @@ export interface ModuleDetail {
 
 export interface QuizReviewQuestion {
   prompt: string | null;
+  image_url?: string | null;
   selected: number;
   correct: boolean;
   explanation: string | null;

@@ -634,3 +634,12 @@ async def test_student_view_leaks_no_answers_for_any_kind(db):
 
     text = student_view(items[0])
     assert text["content"] == {"body": "Ten minus four is six."}
+
+    # Quiz questions with image_url retain image_url in student_view
+    img_quiz_item = await _item(
+        db, m, position=5, kind="quiz",
+        content=_quiz_content(70, [_q("Look at the image", [{"text": "A", "is_correct": True}], explanation="Exp")])
+    )
+    img_quiz_item.content["questions"][0]["image_url"] = "https://portal.spacepoint.ae/files/lms-quiz-images/Q03.png"
+    img_quiz_view = student_view(img_quiz_item)
+    assert img_quiz_view["content"]["questions"][0]["image_url"] == "https://portal.spacepoint.ae/files/lms-quiz-images/Q03.png"

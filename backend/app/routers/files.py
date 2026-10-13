@@ -23,6 +23,9 @@ from app.services import storage_local
 router = APIRouter(prefix="/files", tags=["files"])
 
 
+PUBLIC_BUCKETS: set[str] = {"website-assets", "lms-quiz-images"}
+
+
 @router.options("/{bucket}/{path:path}")
 async def serve_file_options(bucket: str, path: str):
     return Response(
@@ -41,11 +44,12 @@ async def serve_file(
     bucket: str,
     path: str,
     request: Request,
-    exp: int = Query(...),
-    sig: str = Query(...),
+    exp: int | None = Query(None),
+    sig: str | None = Query(None),
 ):
-    if not storage_local.verify_signature(bucket, path, exp, sig):
-        raise HTTPException(status_code=403, detail="Invalid or expired signature")
+    if bucket not in PUBLIC_BUCKETS:
+        if exp is None or sig is None or not storage_local.verify_signature(bucket, path, exp, sig):
+            raise HTTPException(status_code=403, detail="Invalid or expired signature")
 
     try:
         data = await storage_local.download_file(bucket, path)

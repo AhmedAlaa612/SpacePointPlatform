@@ -32,3 +32,17 @@ async def test_serve_file_with_unicode_filename_in_path(client):
     disposition = resp.headers["content-disposition"]
     assert "filename*=UTF-8''" in disposition
     assert "Ru" in disposition and "ya Space Race" in disposition
+
+
+@pytest.mark.asyncio
+async def test_serve_file_public_bucket_without_signatures(client):
+    bucket = "lms-quiz-images"
+    filename = "Q03.png"
+    await storage_local.upload_to_path(bucket, filename, b"\x89PNG\r\n\x1a\nfake png bytes", "image/png")
+
+    # Public buckets do not require exp and sig
+    resp = await client.get(f"/files/{bucket}/{filename}")
+    assert resp.status_code == 200, resp.text
+    assert resp.content == b"\x89PNG\r\n\x1a\nfake png bytes"
+    assert resp.headers["content-type"] == "image/png"
+

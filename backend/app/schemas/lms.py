@@ -30,6 +30,7 @@ class QuizOptionOut(BaseModel):
 class QuizQuestionOut(BaseModel):
     model_config = ConfigDict(extra="forbid")
     prompt: str
+    image_url: str | None = None
     options: list[QuizOptionOut]
 
 
@@ -309,6 +310,7 @@ class AttachmentUrlOut(BaseModel):
 class QuizReviewItemOut(BaseModel):
     model_config = ConfigDict(extra="forbid")
     prompt: str | None = None
+    image_url: str | None = None
     selected: int
     correct: bool
     explanation: str | None = None

@@ -247,6 +247,7 @@ class AdminQuizOptionIn(BaseModel):
 class AdminQuizQuestionIn(BaseModel):
     prompt: str
     explanation: str | None = None
+    image_url: str | None = None
     options: list[AdminQuizOptionIn] = Field(min_length=2)
 
     @model_validator(mode="after")

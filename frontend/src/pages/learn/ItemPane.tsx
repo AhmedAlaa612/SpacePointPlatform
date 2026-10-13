@@ -347,6 +347,16 @@ function QuizBlock({ item, onPassed }: { item: ModuleItem; onPassed: () => void 
           const reviewQ = review.questions[qi];
           return (
             <div key={qi} className="p-5 rounded-2xl ring-1 ring-border bg-card/60">
+              {q.image_url && (
+                <div className="mb-4 overflow-hidden rounded-xl border border-border/50 bg-black/20 flex justify-center p-2">
+                  <img
+                    src={q.image_url}
+                    alt="Question diagram"
+                    className="max-h-64 w-auto object-contain rounded-lg"
+                    loading="lazy"
+                  />
+                </div>
+              )}
               <p className="font-medium text-base mb-3">{q.prompt}</p>
               <div className="flex flex-col gap-2">
                 {q.options.map((opt, oi) => {
@@ -412,6 +422,16 @@ function QuizBlock({ item, onPassed }: { item: ModuleItem; onPassed: () => void 
       </div>
 
       <div className="p-5 rounded-2xl ring-1 ring-border bg-card/60">
+        {q.image_url && (
+          <div className="mb-4 overflow-hidden rounded-xl border border-border/50 bg-black/20 flex justify-center p-2">
+            <img
+              src={q.image_url}
+              alt="Question diagram"
+              className="max-h-80 w-auto object-contain rounded-lg shadow-sm"
+              loading="eager"
+            />
+          </div>
+        )}
         <p className="font-medium text-base mb-3">{q.prompt}</p>
         <div className="flex flex-col gap-2">
           {q.options.map((opt, oi) => {

@@ -207,6 +207,7 @@ def grade_quiz(*, questions: list[dict], answers: list[int], pass_threshold: int
     review = [
         {
             "prompt": questions[idx].get("prompt"),
+            **({"image_url": questions[idx]["image_url"]} if questions[idx].get("image_url") else {}),
             "selected": answers[idx],
             "correct": bool((questions[idx].get("options") or [])[answers[idx]].get("is_correct")),
             "explanation": questions[idx].get("explanation"),
