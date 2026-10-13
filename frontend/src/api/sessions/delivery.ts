@@ -38,5 +38,5 @@ export const uploadSessionReportApi = (cohortId: string, data: { file: File; ses
 export const listCohortReportsApi = (cohortId: string) =>
   api.get<SessionReport[]>(`/sessions/cohorts/${cohortId}/reports`).then((r) => r.data)
 
-export const completeCohortApi = (cohortId: string) =>
-  api.post<CompleteCohortResult>(`/sessions/cohorts/${cohortId}/complete`).then((r) => r.data)
+export const completeCohortApi = (cohortId: string, sendCertificates = false) =>
+  api.post<CompleteCohortResult>(`/sessions/cohorts/${cohortId}/complete`, { send_certificates: sendCertificates }).then((r) => r.data)

@@ -262,3 +262,16 @@ async def test_complete_cohort_sets_status(db, client, operations_headers):
     # Wrapped in {cohort, warnings} since S5-2 added the zero-reports warning
     # (tests/routers/sessions/test_reports_router.py covers the warning itself).
     assert resp.json()["cohort"]["status"] == "completed"
+
+
+@pytest.mark.asyncio
+async def test_complete_cohort_accepts_send_certificates_body(db, client, operations_headers):
+    cohort, _ = await _make_cohort_with_session(db)
+    resp = await client.post(
+        f"/sessions/cohorts/{cohort.id}/complete",
+        json={"send_certificates": True},
+        headers=operations_headers,
+    )
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["cohort"]["status"] == "completed"
+

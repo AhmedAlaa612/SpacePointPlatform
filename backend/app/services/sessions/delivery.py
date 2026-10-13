@@ -190,8 +190,44 @@ def _meets_completion_rule(program: Program, present: int, total: int) -> bool:
     return rate >= (float(program.completion_rule_value) / 100)
 
 
+async def _send_certificate_email(
+    db: AsyncSession, contact: Contact, cohort: Cohort, program: Program, dates: str, location_name: str | None,
+) -> None:
+    if not contact.email:
+        return
+    template = (await db.execute(
+        select(DocumentTemplate).where(DocumentTemplate.key == "student_completion")
+    )).scalars().first()
+    template_body = template.body_text if template else "For successfully completing<br/>{program_name}<br/>{dates}"
+    cohort_title = cohort.name if cohort and cohort.name else ""
+    body_text = (
+        template_body
+        .replace("{program_name}", escape(program.name))
+        .replace("{cohort_name}", escape(cohort_title))
+        .replace("{cohort}", escape(cohort_title))
+        .replace("{dates}", escape(dates))
+        .replace("{location}", escape(location_name or ""))
+    )
+    cert_bytes = await asyncio.to_thread(generate_completion_certificate_pdf, contact.full_name, body_text)
+    filename = f"SpacePoint_Certificate_{program.name.replace(' ', '_')}.pdf"
+    await try_send_email(
+        contact.email,
+        f"Your SpacePoint certificate — {program.name}",
+        _cert_email_body(contact.full_name, program.name, dates),
+        html=True,
+        attachments=[(filename, cert_bytes, "pdf")],
+    )
+
+
 async def _issue_student_certificate(
-    db: AsyncSession, registration: Registration, contact: Contact, cohort: Cohort, program: Program, actor_user_id: UUID,
+    db: AsyncSession,
+    registration: Registration,
+    contact: Contact,
+    cohort: Cohort,
+    program: Program,
+    actor_user_id: UUID,
+    *,
+    send_email: bool = False,
 ) -> Certificate:
     """Idempotent — returns the existing certificate if one was already
     issued (auto on complete_cohort, or by manual override) rather than
@@ -212,6 +248,10 @@ async def _issue_student_certificate(
     """
     existing = await db.scalar(select(Certificate).where(Certificate.registration_id == registration.id))
     if existing is not None:
+        if send_email:
+            dates = format_cohort_dates(cohort)
+            location = await resolve_session_location_display(db, None, cohort)
+            await _send_certificate_email(db, contact, cohort, program, dates, location["name"])
         return existing
 
     dates = format_cohort_dates(cohort)
@@ -219,20 +259,6 @@ async def _issue_student_certificate(
     # the canonical resolver (cohort-only, tickets/certs have no session) so
     # the printed line matches every other surface.
     location = await resolve_session_location_display(db, None, cohort)
-    template = (await db.execute(
-        select(DocumentTemplate).where(DocumentTemplate.key == "student_completion")
-    )).scalars().first()
-    template_body = template.body_text if template else "For successfully completing<br/>{program_name}<br/>{dates}"
-    cohort_title = cohort.name if cohort and cohort.name else ""
-    body_text = (
-        template_body
-        .replace("{program_name}", escape(program.name))
-        .replace("{cohort_name}", escape(cohort_title))
-        .replace("{cohort}", escape(cohort_title))
-        .replace("{dates}", escape(dates))
-        .replace("{location}", escape(location["name"] or ""))
-    )
-    cert_bytes = await asyncio.to_thread(generate_completion_certificate_pdf, contact.full_name, body_text)
 
     certificate = Certificate(
         id=uuid4(), contact_id=contact.id, registration_id=registration.id,
@@ -243,21 +269,15 @@ async def _issue_student_certificate(
     db.add(certificate)
     await db.flush()
 
-    # Email the cert as a PDF attachment — best-effort, never blocks completion.
-    if contact.email:
-        filename = f"SpacePoint_Certificate_{program.name.replace(' ', '_')}.pdf"
-        await try_send_email(
-            contact.email,
-            f"Your SpacePoint certificate — {program.name}",
-            _cert_email_body(contact.full_name, program.name, dates),
-            html=True,
-            attachments=[(filename, cert_bytes, "pdf")],
-        )
+    if send_email:
+        await _send_certificate_email(db, contact, cohort, program, dates, location["name"])
 
     return certificate
 
 
-async def complete_cohort(db: AsyncSession, cohort_id: UUID, actor_user_id: UUID) -> Cohort:
+async def complete_cohort(
+    db: AsyncSession, cohort_id: UUID, actor_user_id: UUID, *, send_certificates: bool = False,
+) -> Cohort:
     """Ops/admin only (enforced by the router dependency, not here — unlike
     the instructor actions above, there's no per-user assignment concept for
     a whole cohort). Per registration: meets the program's completion rule
@@ -308,7 +328,9 @@ async def complete_cohort(db: AsyncSession, cohort_id: UUID, actor_user_id: UUID
         if _meets_completion_rule(program, present, total) and gate_ok:
             registration.status = "completed"
             contact = await db.get(Contact, registration.contact_id)
-            await _issue_student_certificate(db, registration, contact, cohort, program, actor_user_id)
+            await _issue_student_certificate(
+                db, registration, contact, cohort, program, actor_user_id, send_email=send_certificates,
+            )
         else:
             registration.status = "attended"
 
@@ -326,7 +348,9 @@ async def complete_cohort(db: AsyncSession, cohort_id: UUID, actor_user_id: UUID
     return cohort
 
 
-async def issue_certificate_override(db: AsyncSession, registration_id: UUID, actor_user_id: UUID) -> Certificate:
+async def issue_certificate_override(
+    db: AsyncSession, registration_id: UUID, actor_user_id: UUID, *, send_email: bool = True,
+) -> Certificate:
     """Ops/admin manual override (operator request 2026-07-25): a student
     who didn't meet the program's completion rule can still be given a
     certificate by hand — it's just not auto-issued. Marks the registration
@@ -340,7 +364,9 @@ async def issue_certificate_override(db: AsyncSession, registration_id: UUID, ac
     program = await db.get(Program, cohort.program_id)
     contact = await db.get(Contact, registration.contact_id)
 
-    certificate = await _issue_student_certificate(db, registration, contact, cohort, program, actor_user_id)
+    certificate = await _issue_student_certificate(
+        db, registration, contact, cohort, program, actor_user_id, send_email=send_email,
+    )
     registration.status = "completed"
     await db.flush()
     return certificate

@@ -413,3 +413,61 @@ async def test_cascade_is_idempotent_across_two_completions(db):
 
     await db.refresh(sessions[0])
     assert sessions[0].completed_at == first_stamp
+
+
+@pytest.mark.asyncio
+async def test_complete_cohort_defaults_to_no_email_sent(db, monkeypatch):
+    sent_emails = []
+    async def _capture_email(*args, **kwargs):
+        sent_emails.append((args, kwargs))
+        return True
+    monkeypatch.setattr(delivery, "try_send_email", _capture_email)
+
+    cohort, program, sessions = await _make_cohort_with_sessions(db, 1)
+    reg = await _make_registration(db, cohort, name="No Email Student")
+    contact = await db.get(Contact, reg.contact_id)
+    contact.email = "student@example.com"
+    await db.flush()
+
+    actor = (await _make_actor(db)).id
+    await _mark(db, sessions[0], reg, "present", actor)
+
+    # Complete cohort without send_certificates flag (default False)
+    await delivery.complete_cohort(db, cohort.id, actor)
+
+    await db.refresh(reg)
+    assert reg.status == "completed"
+    cert = await db.scalar(select(Certificate).where(Certificate.registration_id == reg.id))
+    assert cert is not None
+    # No email should have been sent!
+    assert len(sent_emails) == 0
+
+
+@pytest.mark.asyncio
+async def test_complete_cohort_with_send_certificates_true_sends_email(db, monkeypatch):
+    sent_emails = []
+    async def _capture_email(*args, **kwargs):
+        sent_emails.append((args, kwargs))
+        return True
+    monkeypatch.setattr(delivery, "try_send_email", _capture_email)
+
+    cohort, program, sessions = await _make_cohort_with_sessions(db, 1)
+    reg = await _make_registration(db, cohort, name="Email Student")
+    contact = await db.get(Contact, reg.contact_id)
+    contact.email = "student@example.com"
+    await db.flush()
+
+    actor = (await _make_actor(db)).id
+    await _mark(db, sessions[0], reg, "present", actor)
+
+    # Complete cohort with send_certificates=True
+    await delivery.complete_cohort(db, cohort.id, actor, send_certificates=True)
+
+    await db.refresh(reg)
+    assert reg.status == "completed"
+    cert = await db.scalar(select(Certificate).where(Certificate.registration_id == reg.id))
+    assert cert is not None
+    # Email should have been sent!
+    assert len(sent_emails) == 1
+    assert sent_emails[0][0][0] == "student@example.com"
+

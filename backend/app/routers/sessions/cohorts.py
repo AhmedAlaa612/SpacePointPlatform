@@ -76,6 +76,7 @@ from app.schemas.sessions.cohorts import (
     CohortCreate,
     CohortOut,
     CohortUpdate,
+    CompleteCohortRequest,
     CompleteCohortResponse,
     GenerateSessionsRequest,
     GenerateSessionsResponse,
@@ -622,6 +623,7 @@ async def clone_cohort(
 @router.post("/cohorts/{cohort_id}/complete", response_model=CompleteCohortResponse)
 async def complete_cohort(
     cohort_id: uuid.UUID,
+    body: CompleteCohortRequest | None = None,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_operations),
     rt: redis.Redis | None = Depends(get_realtime_redis_dep),
@@ -664,7 +666,10 @@ async def complete_cohort(
             "they have been completed now."
         )
 
-    cohort = await delivery.complete_cohort(db, cohort_id, current_user.id)
+    send_certificates = body.send_certificates if body else False
+    cohort = await delivery.complete_cohort(
+        db, cohort_id, current_user.id, send_certificates=send_certificates,
+    )
     # A session that just went from Scheduled to Completed can still have a
     # quiz sitting in a lobby, and nobody is going back to press End on a
     # class that went home weeks ago — same reasoning as the instructor's

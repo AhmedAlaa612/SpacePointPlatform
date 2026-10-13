@@ -152,6 +152,7 @@ function CohortDetailView({ cohort }: { cohort: Cohort }) {
   const [bulkAssignOpen, setBulkAssignOpen] = useState(false)
   const [bulkOpenCallOpen, setBulkOpenCallOpen] = useState(false)
   const [completeConfirmOpen, setCompleteConfirmOpen] = useState(false)
+  const [sendCertificates, setSendCertificates] = useState(false)
   const [tab, setTab] = useState<CohortTab>("sessions")
 
   const { data: programs = [] } = useQuery<Program[]>({ queryKey: ["sessions-programs"], queryFn: getProgramsApi })
@@ -347,7 +348,7 @@ function CohortDetailView({ cohort }: { cohort: Cohort }) {
   const [attendanceTarget, setAttendanceTarget] = useState<Registration | null>(null)
   const [completeWarnings, setCompleteWarnings] = useState<string[] | null>(null)
   const completeCohortMutation = useMutation({
-    mutationFn: () => completeCohortApi(cohort.id),
+    mutationFn: (sendCerts: boolean) => completeCohortApi(cohort.id, sendCerts),
     onSuccess: (result) => {
       toast.success("Cohort marked completed")
       setCompleteWarnings(result.warnings)
@@ -405,7 +406,7 @@ function CohortDetailView({ cohort }: { cohort: Cohort }) {
             </select>
             {cohort.status !== "completed" && cohort.status !== "cancelled" && (
               <button
-                onClick={() => setCompleteConfirmOpen(true)}
+                onClick={() => { setSendCertificates(false); setCompleteConfirmOpen(true) }}
                 disabled={completeCohortMutation.isPending}
                 className="flex items-center gap-1.5 h-9 px-3 border border-border rounded-xl text-sm font-medium text-foreground hover:bg-muted transition-colors shrink-0 disabled:opacity-50"
               >
@@ -1051,14 +1052,34 @@ function CohortDetailView({ cohort }: { cohort: Cohort }) {
           title={`Mark "${cohort.name}" as completed?`}
           description={
             unfinishedSessionCount > 0
-              ? `This settles every registration, issues the student certificates, and marks the ${unfinishedSessionCount} session(s) nobody completed as done.`
-              : "This settles every registration and issues the student certificates."
+              ? `This settles every registration and marks the ${unfinishedSessionCount} session(s) nobody completed as done.`
+              : "This settles every registration for this cohort."
           }
           confirmLabel="Complete cohort"
           pending={completeCohortMutation.isPending}
-          onCancel={() => setCompleteConfirmOpen(false)}
-          onConfirm={() => { completeCohortMutation.mutate(); setCompleteConfirmOpen(false) }}
-        />
+          onCancel={() => {
+            setCompleteConfirmOpen(false)
+            setSendCertificates(false)
+          }}
+          onConfirm={() => {
+            completeCohortMutation.mutate(sendCertificates)
+            setCompleteConfirmOpen(false)
+          }}
+        >
+          <label className="flex items-start gap-2 cursor-pointer select-none p-3 border border-border rounded-xl">
+            <input
+              type="checkbox"
+              checked={sendCertificates}
+              onChange={(e) => setSendCertificates(e.target.checked)}
+              className="rounded text-primary focus:ring-primary border-border bg-background shrink-0 mt-0.5"
+            />
+            <span className="text-xs text-muted-foreground leading-snug">
+              <span className="text-foreground font-medium">Send certificates to students via email</span>
+              <br />
+              When enabled, a completion certificate will be automatically emailed to each eligible student.
+            </span>
+          </label>
+        </ConfirmDialog>
       )}
       {cancelTarget && (
         <ConfirmDialog

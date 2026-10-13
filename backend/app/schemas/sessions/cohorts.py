@@ -241,6 +241,10 @@ class BulkActionResult(BaseModel):
     failed: list[BulkActionError] = []
 
 
+class CompleteCohortRequest(BaseModel):
+    send_certificates: bool = False
+
+
 class CompleteCohortResponse(BaseModel):
     """W5 S5-2 — "completing a cohort with zero reports -> warning (not a
     block)": still 200 OK, the warning just rides along in the response
