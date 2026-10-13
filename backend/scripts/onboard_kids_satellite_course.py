@@ -156,6 +156,13 @@ class LmsAdminClient:
         resp.raise_for_status()
         return resp.json()["url"]
 
+    def reorder_items(self, module_id: str, item_ids: list[str]) -> None:
+        resp = self.session.post(
+            f"{self.base_url}/lms/admin/modules/{module_id}/items/reorder",
+            json={"item_ids": item_ids},
+        )
+        resp.raise_for_status()
+
 
 class Manifest:
     def __init__(self, path: Path):
@@ -356,6 +363,11 @@ def run_onboarding(
                     "quiz_ref": "M1-CH1",
                 },
                 {
+                    "kind": "video",
+                    "title": "Chapter 2: Satellite Orbits & TV Satellites",
+                    "video_filename": "Copy of Module 1 chapter 2.mp4",
+                },
+                {
                     "kind": "quiz",
                     "title": "Chapter 2: Satellite Orbits & TV Satellites — Quiz",
                     "quiz_ref": "M1-CH2",
@@ -476,6 +488,7 @@ def run_onboarding(
             module_id = f"<dry-run-mod-{m_pos}>"
             print(f"\n[dry-run module] {m_title!r} (position {m_pos})")
 
+        module_item_ids: list[str] = []
         for item_data in mod_data["items"]:
             kind = item_data["kind"]
             title = item_data["title"]
@@ -491,6 +504,7 @@ def run_onboarding(
 
                 if item_id:
                     print(f"  [skip video item] {title!r} already imported ({item_id})")
+                    module_item_ids.append(item_id)
                     continue
 
                 print(f"  [new video item] {title!r} -> uploading {v_name} ({v_path.stat().st_size / (1024*1024):.1f} MB)...")
@@ -499,12 +513,14 @@ def run_onboarding(
                     manifest.set(item_key, item_id)
                     client.upload_video(item_id, v_path)
                     print(f"    Uploaded and queued for transcoding: {item_id}")
+                    module_item_ids.append(item_id)
 
             elif kind == "quiz":
                 ref = item_data["quiz_ref"]
                 questions = quiz_by_ref.get(ref, [])
                 if item_id:
                     print(f"  [skip quiz item] {title!r} already imported ({item_id})")
+                    module_item_ids.append(item_id)
                     continue
 
                 print(f"  [new quiz item] {title!r} ({len(questions)} questions)...")
@@ -516,6 +532,14 @@ def run_onboarding(
                     item_id = client.create_item(module_id, kind="quiz", title=title, content=content)
                     manifest.set(item_key, item_id)
                     print(f"    Created quiz item: {item_id}")
+                    module_item_ids.append(item_id)
+
+        if not dry_run and client and len(module_item_ids) == len(mod_data["items"]):
+            try:
+                client.reorder_items(module_id, module_item_ids)
+                print(f"  [reordered] items in {m_title!r}")
+            except Exception as exc:
+                print(f"  [WARN] Failed to reorder items in module {m_pos}: {exc}")
 
     print("\n========================================================")
     if dry_run:
