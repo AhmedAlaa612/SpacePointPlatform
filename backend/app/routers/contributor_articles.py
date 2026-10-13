@@ -30,7 +30,7 @@ _EDITABLE_BY_AUTHOR = ("draft", "changes_requested", "archived")
 
 
 def _is_admin(user: User) -> bool:
-    return "admin" in user.role_values
+    return any(r in user.role_values for r in ("admin", "operations"))
 
 
 def _author_initials(full_name: str) -> str | None:

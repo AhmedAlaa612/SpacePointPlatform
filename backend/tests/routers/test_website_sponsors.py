@@ -171,6 +171,16 @@ async def test_admin_sponsors_require_admin(db, client):
         )
     ).status_code == 403
 
+    ops = await _make_user(db, ["operations"])
+    assert (await client.get("/admin/website/sponsors", headers=_headers(ops))).status_code == 200
+    assert (
+        await client.post(
+            "/admin/website/sponsors",
+            json={"name": "Ops Partner", "logo_url": "/ops.png"},
+            headers=_headers(ops),
+        )
+    ).status_code == 201
+
 
 @pytest.mark.asyncio
 async def test_admin_post_put_delete_flow_reflects_on_public(db, client):

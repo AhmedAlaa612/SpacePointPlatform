@@ -144,6 +144,9 @@ async def test_admin_crud_with_guards(db, client, key):
     assert (await client.delete(f"{domain['admin']}/{seed.id}")).status_code in (401, 403)
     assert (await client.get(domain["admin"], headers=_headers(student))).status_code == 403
 
+    ops = await _make_user(db, ["operations"])
+    assert (await client.get(domain["admin"], headers=_headers(ops))).status_code == 200
+
     # Unknown id → 404, not 500
     assert (
         await client.put(

@@ -218,3 +218,27 @@ async def test_newsletter_crud_and_subscribe_dedup(db, client):
         await client.delete(f"/admin/website/newsletters/{issue['id']}", headers=_headers(admin))
     ).status_code == 204
     assert (await client.get("/public/newsletters")).json() == []
+
+
+@pytest.mark.asyncio
+async def test_operations_role_has_full_website_content_access(db, client):
+    await _ensure_tables(db)
+    await _clear(db)
+    ops = await _make_user(db, ["operations"])
+
+    # FAQs
+    resp = await client.post(
+        "/admin/website/faqs",
+        json={"question": "Ops FAQ?", "answer": "Ops Answer."},
+        headers=_headers(ops),
+    )
+    assert resp.status_code == 201, resp.text
+    faq_id = resp.json()["id"]
+
+    assert (await client.get("/admin/website/faqs", headers=_headers(ops))).status_code == 200
+    assert (
+        await client.delete(f"/admin/website/faqs/{faq_id}", headers=_headers(ops))
+    ).status_code == 204
+
+    # Leads
+    assert (await client.get("/admin/website/leads", headers=_headers(ops))).status_code == 200

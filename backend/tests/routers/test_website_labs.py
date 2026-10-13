@@ -90,6 +90,9 @@ async def test_labs_admin_guards_and_crud(db, client):
     ).status_code in (401, 403)
     assert (await client.get("/admin/website/labs", headers=_headers(student))).status_code == 403
 
+    ops = await _make_user(db, ["operations"])
+    assert (await client.get("/admin/website/labs", headers=_headers(ops))).status_code == 200
+
     created = (
         await client.post(
             "/admin/website/labs",

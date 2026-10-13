@@ -5,7 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.dependencies import require_admin
+from app.core.dependencies import require_website_admin
 from app.db.session import get_db
 from app.models.user import User
 from app.models.website_faq import WebsiteFaq
@@ -33,7 +33,7 @@ async def _ordered_list(db: AsyncSession, model):
 
 @router.get("/faqs", response_model=list[FaqOut])
 async def list_website_faqs(
-    db: AsyncSession = Depends(get_db), current_user: User = Depends(require_admin)
+    db: AsyncSession = Depends(get_db), current_user: User = Depends(require_website_admin)
 ):
     return await _ordered_list(db, WebsiteFaq)
 
@@ -42,7 +42,7 @@ async def list_website_faqs(
 async def create_website_faq(
     body: FaqCreate,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_admin),
+    current_user: User = Depends(require_website_admin),
 ):
     row = WebsiteFaq(**body.model_dump())
     db.add(row)
@@ -56,7 +56,7 @@ async def update_website_faq(
     faq_id: UUID,
     body: FaqUpdate,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_admin),
+    current_user: User = Depends(require_website_admin),
 ):
     row = (await db.execute(select(WebsiteFaq).where(WebsiteFaq.id == faq_id))).scalars().first()
     if row is None:
@@ -73,7 +73,7 @@ async def update_website_faq(
 async def delete_website_faq(
     faq_id: UUID,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_admin),
+    current_user: User = Depends(require_website_admin),
 ):
     row = (await db.execute(select(WebsiteFaq).where(WebsiteFaq.id == faq_id))).scalars().first()
     if row is None:
@@ -88,7 +88,7 @@ async def delete_website_faq(
 
 @router.get("/media", response_model=list[MediaClippingOut])
 async def list_website_media(
-    db: AsyncSession = Depends(get_db), current_user: User = Depends(require_admin)
+    db: AsyncSession = Depends(get_db), current_user: User = Depends(require_website_admin)
 ):
     return await _ordered_list(db, MediaClipping)
 
@@ -97,7 +97,7 @@ async def list_website_media(
 async def create_website_media(
     body: MediaClippingCreate,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_admin),
+    current_user: User = Depends(require_website_admin),
 ):
     row = MediaClipping(**body.model_dump())
     db.add(row)
@@ -111,7 +111,7 @@ async def update_website_media(
     media_id: UUID,
     body: MediaClippingUpdate,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_admin),
+    current_user: User = Depends(require_website_admin),
 ):
     row = (await db.execute(select(MediaClipping).where(MediaClipping.id == media_id))).scalars().first()
     if row is None:
@@ -128,7 +128,7 @@ async def update_website_media(
 async def delete_website_media(
     media_id: UUID,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_admin),
+    current_user: User = Depends(require_website_admin),
 ):
     row = (await db.execute(select(MediaClipping).where(MediaClipping.id == media_id))).scalars().first()
     if row is None:
@@ -143,7 +143,7 @@ async def delete_website_media(
 
 @router.get("/newsletters", response_model=list[NewsletterOut])
 async def list_website_newsletters(
-    db: AsyncSession = Depends(get_db), current_user: User = Depends(require_admin)
+    db: AsyncSession = Depends(get_db), current_user: User = Depends(require_website_admin)
 ):
     return await _ordered_list(db, Newsletter)
 
@@ -152,7 +152,7 @@ async def list_website_newsletters(
 async def create_website_newsletter(
     body: NewsletterCreate,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_admin),
+    current_user: User = Depends(require_website_admin),
 ):
     row = Newsletter(**body.model_dump())
     db.add(row)
@@ -166,7 +166,7 @@ async def update_website_newsletter(
     newsletter_id: UUID,
     body: NewsletterUpdate,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_admin),
+    current_user: User = Depends(require_website_admin),
 ):
     row = (await db.execute(select(Newsletter).where(Newsletter.id == newsletter_id))).scalars().first()
     if row is None:
@@ -183,7 +183,7 @@ async def update_website_newsletter(
 async def delete_website_newsletter(
     newsletter_id: UUID,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_admin),
+    current_user: User = Depends(require_website_admin),
 ):
     row = (await db.execute(select(Newsletter).where(Newsletter.id == newsletter_id))).scalars().first()
     if row is None:
@@ -200,7 +200,7 @@ async def delete_website_newsletter(
 async def list_website_leads(
     type: str = Query(default="newsletter"),
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_admin),
+    current_user: User = Depends(require_website_admin),
 ):
     rows = (
         await db.execute(

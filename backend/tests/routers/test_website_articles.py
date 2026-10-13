@@ -180,6 +180,19 @@ async def test_article_guards(db, client):
     # Admin queue lists everything; delete removes it
     queue = (await client.get("/admin/website/articles", headers=_headers(admin))).json()
     assert len(queue) == 2
+
+    # Operations role also has full access to the editorial queue and review
+    ops = await _make_user(db, ["operations"])
+    ops_queue = (await client.get("/admin/website/articles", headers=_headers(ops))).json()
+    assert len(ops_queue) == 2
+    assert (
+        await client.post(
+            f"/admin/website/articles/{article_id}/review",
+            json={"action": "approve"},
+            headers=_headers(ops),
+        )
+    ).status_code == 200
+
     assert (
         await client.delete(f"/admin/website/articles/{article_id}", headers=_headers(admin))
     ).status_code == 204

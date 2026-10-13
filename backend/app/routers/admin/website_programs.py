@@ -5,7 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.dependencies import require_admin
+from app.core.dependencies import require_website_admin
 from app.db.session import get_db
 from app.models.user import User
 from app.models.website_program import WebsiteProgram
@@ -16,7 +16,7 @@ router = APIRouter(prefix="/website", tags=["admin-website-programs"])
 
 @router.get("/programs", response_model=list[WebsiteProgramOut])
 async def list_website_programs(
-    db: AsyncSession = Depends(get_db), current_user: User = Depends(require_admin)
+    db: AsyncSession = Depends(get_db), current_user: User = Depends(require_website_admin)
 ):
     """All flagship programs, including unpublished (admin view)."""
     rows = (
@@ -32,7 +32,7 @@ async def update_website_program(
     program_id: UUID,
     body: WebsiteProgramUpdate,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_admin),
+    current_user: User = Depends(require_website_admin),
 ):
     row = (await db.execute(select(WebsiteProgram).where(WebsiteProgram.id == program_id))).scalars().first()
     if row is None:

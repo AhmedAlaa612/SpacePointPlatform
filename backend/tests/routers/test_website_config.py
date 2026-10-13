@@ -48,9 +48,9 @@ async def test_public_config_returns_defaults_unauthenticated(db, client):
     resp = await client.get("/public/website/config")
     assert resp.status_code == 200, resp.text
     body = resp.json()
-    assert body["students_count"] == "2,500+"
-    assert body["workshops_count"] == "120+"
-    assert body["partners_count"] == "35+"
+    assert body["students_count"] == "2,700+"
+    assert body["workshops_count"] == "40+"
+    assert body["partners_count"] == "25"
     assert body["satellites_flown_count"] == "50+"
     assert body["instructor_invite_code"] == "UOWD26"
     assert body["intern_invite_code"] == "UOWD26"
@@ -58,7 +58,7 @@ async def test_public_config_returns_defaults_unauthenticated(db, client):
 
 
 @pytest.mark.asyncio
-async def test_admin_config_requires_admin(db, client):
+async def test_admin_config_requires_admin_or_operations(db, client):
     await _ensure_table(db)
     await db.execute(delete(WebsiteConfig))
     await db.flush()
@@ -67,12 +67,20 @@ async def test_admin_config_requires_admin(db, client):
     assert (await client.get("/admin/website/config")).status_code in (401, 403)
     assert (await client.put("/admin/website/config", json={"students_count": "9"})).status_code in (401, 403)
 
-    # Non-admin token is forbidden
+    # Non-admin/ops token is forbidden
     student = await _make_user(db, ["student"])
     resp = await client.get("/admin/website/config", headers=_headers(student))
     assert resp.status_code == 403
     resp = await client.put("/admin/website/config", json={"students_count": "9"}, headers=_headers(student))
     assert resp.status_code == 403
+
+    # Operations role can read and update
+    ops = await _make_user(db, ["operations"])
+    resp = await client.get("/admin/website/config", headers=_headers(ops))
+    assert resp.status_code == 200, resp.text
+    resp = await client.put("/admin/website/config", json={"students_count": "3,000+"}, headers=_headers(ops))
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["students_count"] == "3,000+"
 
 
 @pytest.mark.asyncio

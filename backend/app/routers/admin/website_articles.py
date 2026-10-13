@@ -5,7 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.dependencies import require_admin
+from app.core.dependencies import require_website_admin
 from app.db.session import get_db
 from app.models.user import User
 from app.models.website_article import WebsiteArticle
@@ -16,7 +16,7 @@ router = APIRouter(prefix="/website", tags=["admin-website-articles"])
 
 @router.get("/articles", response_model=list[ArticleContributorOut])
 async def list_website_articles(
-    db: AsyncSession = Depends(get_db), current_user: User = Depends(require_admin)
+    db: AsyncSession = Depends(get_db), current_user: User = Depends(require_website_admin)
 ):
     """Every article across all statuses (editorial queue view)."""
     rows = (
@@ -30,7 +30,7 @@ async def review_website_article(
     article_id: UUID,
     body: ArticleReviewIn,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_admin),
+    current_user: User = Depends(require_website_admin),
 ):
     row = (
         await db.execute(select(WebsiteArticle).where(WebsiteArticle.id == article_id))
@@ -64,7 +64,7 @@ async def review_website_article(
 async def unpublish_website_article(
     article_id: UUID,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_admin),
+    current_user: User = Depends(require_website_admin),
 ):
     row = (
         await db.execute(select(WebsiteArticle).where(WebsiteArticle.id == article_id))
@@ -85,7 +85,7 @@ async def unpublish_website_article(
 async def delete_website_article(
     article_id: UUID,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_admin),
+    current_user: User = Depends(require_website_admin),
 ):
     row = (
         await db.execute(select(WebsiteArticle).where(WebsiteArticle.id == article_id))

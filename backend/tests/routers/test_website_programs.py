@@ -168,6 +168,16 @@ async def test_admin_programs_require_admin(db, client):
         )
     ).status_code == 403
 
+    ops = await _make_user(db, ["operations"])
+    assert (await client.get("/admin/website/programs", headers=_headers(ops))).status_code == 200
+    assert (
+        await client.put(
+            f"/admin/website/programs/{programs[0]['id']}",
+            json={"price_aed": 999},
+            headers=_headers(ops),
+        )
+    ).status_code == 200
+
 
 @pytest.mark.asyncio
 async def test_admin_update_price_and_title_reflects_immediately_on_public(db, client):

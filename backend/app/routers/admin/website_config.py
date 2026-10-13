@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.dependencies import require_admin
+from app.core.dependencies import require_website_admin
 from app.db.session import get_db
 from app.models.user import User
 from app.models.website_config import WebsiteConfig
@@ -38,7 +38,7 @@ async def _get_or_seed(db: AsyncSession) -> WebsiteConfig:
 
 @router.get("/config", response_model=WebsiteConfigOut)
 async def get_website_config(
-    db: AsyncSession = Depends(get_db), current_user: User = Depends(require_admin)
+    db: AsyncSession = Depends(get_db), current_user: User = Depends(require_website_admin)
 ):
     return await _get_or_seed(db)
 
@@ -47,7 +47,7 @@ async def get_website_config(
 async def update_website_config(
     body: WebsiteConfigUpdate,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_admin),
+    current_user: User = Depends(require_website_admin),
 ):
     row = await _get_or_seed(db)
     for field, value in body.model_dump(exclude_unset=True).items():

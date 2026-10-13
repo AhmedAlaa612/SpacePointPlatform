@@ -5,7 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.dependencies import require_admin
+from app.core.dependencies import require_website_admin
 from app.db.session import get_db
 from app.models.user import User
 from app.models.website_labs import WebsiteLabProject
@@ -31,7 +31,7 @@ async def _unique_slug(db: AsyncSession, title: str, ignore_id: UUID | None = No
 
 @router.get("/labs", response_model=list[LabProjectOut])
 async def list_lab_projects(
-    db: AsyncSession = Depends(get_db), current_user: User = Depends(require_admin)
+    db: AsyncSession = Depends(get_db), current_user: User = Depends(require_website_admin)
 ):
     rows = (
         await db.execute(
@@ -47,7 +47,7 @@ async def list_lab_projects(
 async def create_lab_project(
     body: LabProjectCreate,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_admin),
+    current_user: User = Depends(require_website_admin),
 ):
     data = body.model_dump()
     data["slug"] = (data.get("slug") or "").strip() or await _unique_slug(db, data["title"])
@@ -63,7 +63,7 @@ async def update_lab_project(
     project_id: UUID,
     body: LabProjectUpdate,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_admin),
+    current_user: User = Depends(require_website_admin),
 ):
     row = (
         await db.execute(select(WebsiteLabProject).where(WebsiteLabProject.id == project_id))
@@ -85,7 +85,7 @@ async def update_lab_project(
 async def delete_lab_project(
     project_id: UUID,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_admin),
+    current_user: User = Depends(require_website_admin),
 ):
     row = (
         await db.execute(select(WebsiteLabProject).where(WebsiteLabProject.id == project_id))
