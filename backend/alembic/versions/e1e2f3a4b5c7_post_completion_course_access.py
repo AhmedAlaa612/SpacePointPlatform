@@ -1,13 +1,13 @@
 """add keep_course_access_after_completion to programs and cohorts (2026-10)
 
-Revision ID: d1e2f3a4b5c6
+Revision ID: e1e2f3a4b5c7
 Revises: c9d4e5f60011
 """
 
 import sqlalchemy as sa
 from alembic import op
 
-revision = "d1e2f3a4b5c6"
+revision = "e1e2f3a4b5c7"
 down_revision = "c9d4e5f60011"
 branch_labels = None
 depends_on = None
