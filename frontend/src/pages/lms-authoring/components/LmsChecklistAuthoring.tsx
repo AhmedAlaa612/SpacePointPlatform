@@ -11,6 +11,7 @@ import { ensureAbsoluteUrl } from "@/lib/utils"
 import { getSessionsApi, getCohortApi, updateCohortApi } from "@/api/sessions/cohorts"
 import { listCoursesApi } from "@/api/lms_admin"
 import { listMissionsAdminFullApi } from "@/api/missions_admin"
+import { instructorStepSelectionApi } from "@/api/missionsInstructor"
 import { listCohortQuizTemplatesApi } from "@/api/cohort_quiz"
 import { MediaPreviewModal } from "@/components/media/MediaPreviewModal"
 import {
@@ -1222,6 +1223,33 @@ export function ItemForm({
     ? selectedMission.kind === "design"
     : initial?.mission_id === missionId && initial?.mission_kind === "design")
 
+  // Cohort-scoped step selection: when authoring on a concrete cohort,
+  // only offer the steps actually included in that cohort's run for this
+  // mission (e.g. cost_budget shows iff included). `setup`/`report` have
+  // no selection row — completion is inferred — so they're always
+  // offered. Without cohort context (program template) the full
+  // vocabulary is offered.
+  const { data: stepSelection } = useQuery({
+    queryKey: ["instructor-step-selection", cohortId, missionId],
+    queryFn: () => instructorStepSelectionApi(cohortId as string, missionId),
+    enabled: isDesignMission && !!cohortId && !!missionId,
+  })
+  const phaseOptions = (() => {
+    if (!stepSelection) return PHASE_PICKER_KEYS
+    const included = new Set(stepSelection.steps.filter((s) => s.included).map((s) => s.step_key))
+    const filtered = PHASE_PICKER_KEYS.filter((s) =>
+      s.value === "setup" || s.value === "report" || included.has(s.value),
+    )
+    // Never strand an existing value: if the item already points at a
+    // step that's since been excluded, keep it visible so saving doesn't
+    // silently wipe it.
+    if (missionStepKey && !filtered.some((s) => s.value === missionStepKey)) {
+      const existing = PHASE_PICKER_KEYS.find((s) => s.value === missionStepKey)
+      if (existing) return [...filtered, existing]
+    }
+    return filtered
+  })()
+
   const save = async () => {
     setError("")
     if (!title.trim()) { setError("Title is required"); return }
@@ -1336,7 +1364,7 @@ export function ItemForm({
               <label className="text-[11px] font-medium text-muted-foreground">Which part of the mission?</label>
               <select value={missionStepKey} onChange={(e) => setMissionStepKey(e.target.value)} className={`${inputCls} cursor-pointer`}>
                 <option value="">Whole mission</option>
-                {PHASE_PICKER_KEYS.map((s) => <option key={s.value} value={s.value}>{s.label}</option>)}
+                {phaseOptions.map((s) => <option key={s.value} value={s.value}>{s.label}</option>)}
               </select>
               <span className="text-[11px] text-muted-foreground">
                 A specific phase deep-links straight into that step of Madar and clears once it's valid there — you

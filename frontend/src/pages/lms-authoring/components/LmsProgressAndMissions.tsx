@@ -78,12 +78,12 @@ function groupByMission(items: LmsProgramItem[]): MissionGroup[] {
 // add/edit them and is where a cohort's gates/step selection for each one
 // lives, so authoring a mission run never requires the flat item list.
 
-function AddMissionRunButton({ onSave }: { onSave: (data: LmsProgramItemInput) => Promise<void> }) {
+function AddMissionRunButton({ onSave, cohortId }: { onSave: (data: LmsProgramItemInput) => Promise<void>; cohortId?: string }) {
   const [addingScope, setAddingScope] = useState<"individual" | "team" | null>(null)
   if (addingScope) {
     return (
       <ItemForm
-        itemType="mission_run" initialScope={addingScope}
+        itemType="mission_run" initialScope={addingScope} cohortId={cohortId}
         onCancel={() => setAddingScope(null)}
         onSave={async (data) => { await onSave(data); setAddingScope(null) }}
       />
@@ -218,7 +218,7 @@ export function CohortMissionsPanel({ cohortId, isStaff }: { cohortId: string; i
           if (editingId === item.id) {
             return (
               <ItemForm
-                key={item.id} itemType="mission_run" initial={item}
+                key={item.id} itemType="mission_run" initial={item} cohortId={cohortId}
                 onCancel={() => setEditingId(null)}
                 onSave={async (data) => { await updateItem(cohortId, item.id, data).then(invalidate); setEditingId(null) }}
               />
@@ -294,7 +294,7 @@ export function CohortMissionsPanel({ cohortId, isStaff }: { cohortId: string; i
                 {group.items.map((item) =>
                   editingId === item.id ? (
                     <ItemForm
-                      key={item.id} itemType="mission_run" initial={item}
+                      key={item.id} itemType="mission_run" initial={item} cohortId={cohortId}
                       onCancel={() => setEditingId(null)}
                       onSave={async (data) => { await updateItem(cohortId, item.id, data).then(invalidate); setEditingId(null) }}
                     />
@@ -340,7 +340,7 @@ export function CohortMissionsPanel({ cohortId, isStaff }: { cohortId: string; i
           </div>
         )
       })}
-      <AddMissionRunButton onSave={(data) => addItem(cohortId, data).then(invalidate)} />
+      <AddMissionRunButton cohortId={cohortId} onSave={(data) => addItem(cohortId, data).then(invalidate)} />
     </div>
   )
 }

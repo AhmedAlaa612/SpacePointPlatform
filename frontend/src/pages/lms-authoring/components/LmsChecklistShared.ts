@@ -66,8 +66,10 @@ export const ITEM_TYPE_META: Record<LmsProgramItemType, { label: string; icon: t
   ITEM_TYPES.map((t) => [t.value, { label: t.label, icon: t.icon }]),
 ) as Record<LmsProgramItemType, { label: string; icon: typeof BookOpen }>
 
-// The Roadmap board tile a design mission's phase picker offers — the
-// client's own instruction: "data, link, and cost will not be used for
-// this competition." MISSION_STEP_KEYS (api/lms_admin.ts) keeps the full
-// backend vocabulary; this is just what the picker shows.
-export const PHASE_PICKER_KEYS = MISSION_STEP_KEYS.filter((s) => !["data_budget", "link_budget", "cost_budget"].includes(s.value))
+// The Roadmap board tile a design mission's phase picker offers —
+// filtered dynamically in ItemForm against the cohort's included steps
+// (instructor step selection). When no cohort context exists (program
+// template) the full MISSION_STEP_KEYS vocabulary is shown, so e.g.
+// cost_budget is available whenever the mission itself includes it.
+// Kept as a named export for existing imports.
+export const PHASE_PICKER_KEYS = MISSION_STEP_KEYS
