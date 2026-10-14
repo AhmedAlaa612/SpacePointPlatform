@@ -182,27 +182,67 @@ async def resolve_checklist(
     item not backed by a `delivery_checklist_items` row would 500 the
     instant an instructor tried to check it off.
     """
-    for kwargs in (
-        {"session_id": session.id},
-        {"cohort_id": session.cohort_id},
-    ):
-        items = await _items_at_level(db, **kwargs)
-        if not items:
-            continue
+    # 1. Session level
+    items = await _items_at_level(db, session_id=session.id)
+    if items:
         role_items = [i for i in items if i.role_id == role_id] if role_id is not None else []
         if role_items:
             return role_items
         general = [i for i in items if i.role_id is None]
         if general:
             return general
+
+    # 2. Template session fallback
     cohort = await db.get(Cohort, session.cohort_id)
-    if cohort is None:
-        return []
-    items = await _items_at_level(db, program_id=cohort.program_id)
-    role_items = [i for i in items if i.role_id == role_id] if role_id is not None else []
-    if role_items:
-        return role_items
-    return [i for i in items if i.role_id is None]
+    if cohort is not None:
+        template_cohort = await db.scalar(
+            select(Cohort).where(
+                Cohort.program_id == cohort.program_id,
+                Cohort.name.ilike("%template%"),
+                Cohort.id != cohort.id,
+            ).order_by(Cohort.created_at.asc())
+        )
+        if template_cohort is not None:
+            all_sessions = (await db.execute(
+                select(Session.id).where(Session.cohort_id == cohort.id)
+                .order_by(Session.meeting_date, Session.starts_at)
+            )).scalars().all()
+            try:
+                s_idx = all_sessions.index(session.id)
+                t_sessions = (await db.execute(
+                    select(Session.id).where(Session.cohort_id == template_cohort.id)
+                    .order_by(Session.meeting_date, Session.starts_at)
+                )).scalars().all()
+                if s_idx < len(t_sessions):
+                    t_items = await _items_at_level(db, session_id=t_sessions[s_idx])
+                    if t_items:
+                        role_items = [i for i in t_items if i.role_id == role_id] if role_id is not None else []
+                        if role_items:
+                            return role_items
+                        general = [i for i in t_items if i.role_id is None]
+                        if general:
+                            return general
+            except ValueError:
+                pass
+
+        # 3. Cohort level
+        cohort_items = await _items_at_level(db, cohort_id=cohort.id)
+        if cohort_items:
+            role_items = [i for i in cohort_items if i.role_id == role_id] if role_id is not None else []
+            if role_items:
+                return role_items
+            general = [i for i in cohort_items if i.role_id is None]
+            if general:
+                return general
+
+        # 4. Program level
+        program_items = await _items_at_level(db, program_id=cohort.program_id)
+        role_items = [i for i in program_items if i.role_id == role_id] if role_id is not None else []
+        if role_items:
+            return role_items
+        return [i for i in program_items if i.role_id is None]
+
+    return []
 
 
 # ── the instructor's day ────────────────────────────────────────────────────

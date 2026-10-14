@@ -14,6 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.dependencies import require_operations
 from app.db.session import get_db
 from app.models.instructor_assessment.config import AssessmentConfig
+from app.models.sessions.checklist import DeliveryChecklistItem
 from app.models.sessions.cohort import Cohort
 from app.models.sessions.material import Material
 from app.models.sessions.program import Program
@@ -282,6 +283,28 @@ async def clone_program(
                 db.add(copy)
             if source_items:
                 await db.flush()
+
+        # ── Delivery checklist (program-level pre-program/pre-workshop items) ──
+        source_delivery_items = (await db.execute(
+            select(DeliveryChecklistItem).where(DeliveryChecklistItem.program_id == source.id)
+            .order_by(DeliveryChecklistItem.sort_order, DeliveryChecklistItem.created_at)
+        )).scalars().all()
+        for ci in source_delivery_items:
+            db.add(DeliveryChecklistItem(
+                id=uuid.uuid4(),
+                program_id=new_program.id,
+                cohort_id=None,
+                session_id=None,
+                role_id=ci.role_id,
+                title=ci.title,
+                description=ci.description,
+                requires_proof=ci.requires_proof,
+                is_required=ci.is_required,
+                sort_order=ci.sort_order,
+                created_by=current_user.id,
+            ))
+        if source_delivery_items:
+            await db.flush()
 
     if "rubric" in body.carry and source.is_competition:
         source_rubric = await db.scalar(

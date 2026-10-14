@@ -48,6 +48,7 @@ from app.services.sessions.staffing import resolve_session_location_display
 from app.models.inventory.location import Location
 from app.models.inventory.warehouse import Warehouse
 from app.models.sessions.attendance import AttendanceRecord
+from app.models.sessions.checklist import DeliveryChecklistItem
 from app.models.sessions.cohort import Cohort
 from app.models.sessions.cohort_opening import CohortOpening
 from app.models.sessions.material import Material
@@ -561,6 +562,28 @@ async def clone_cohort(
                         cohort_quiz_template_id=item.cohort_quiz_template_id,
                     ))
                 await db.flush()
+
+        # ── Delivery checklist (cohort-level pre-workshop items) ──
+        source_checklist_items = (await db.execute(
+            select(DeliveryChecklistItem).where(DeliveryChecklistItem.cohort_id == source.id)
+            .order_by(DeliveryChecklistItem.sort_order, DeliveryChecklistItem.created_at)
+        )).scalars().all()
+        for ci in source_checklist_items:
+            db.add(DeliveryChecklistItem(
+                id=uuid.uuid4(),
+                program_id=None,
+                cohort_id=new_cohort.id,
+                session_id=None,
+                role_id=ci.role_id,
+                title=ci.title,
+                description=ci.description,
+                requires_proof=ci.requires_proof,
+                is_required=ci.is_required,
+                sort_order=ci.sort_order,
+                created_by=current_user.id,
+            ))
+        if source_checklist_items:
+            await db.flush()
     # Else: no override — the new cohort naturally inherits the target
     # program's default checklist.
 
@@ -738,6 +761,74 @@ async def _session_out(db: AsyncSession, session: Session, cohort: Cohort | None
     return out
 
 
+async def seed_cohort_sessions_from_template(
+    db: AsyncSession, cohort: Cohort, new_sessions: list[Session], actor_user_id: uuid.UUID,
+) -> None:
+    """When sessions are added or generated for a cohort, inherit day config
+    (titles, duration, and delivery checklists) from the program's template cohort sessions."""
+    template_cohort = await db.scalar(
+        select(Cohort).where(
+            Cohort.program_id == cohort.program_id,
+            Cohort.name.ilike("%template%"),
+            Cohort.id != cohort.id,
+        ).order_by(Cohort.created_at.asc())
+    )
+    if template_cohort is None:
+        template_cohort = await db.scalar(
+            select(Cohort).join(Session, Session.cohort_id == Cohort.id)
+            .join(DeliveryChecklistItem, DeliveryChecklistItem.session_id == Session.id)
+            .where(Cohort.program_id == cohort.program_id, Cohort.id != cohort.id)
+            .order_by(Cohort.created_at.asc())
+        )
+    if template_cohort is None:
+        return
+
+    template_sessions = (await db.execute(
+        select(Session).where(Session.cohort_id == template_cohort.id)
+        .order_by(Session.meeting_date, Session.starts_at)
+    )).scalars().all()
+    if not template_sessions:
+        return
+
+    all_sessions = (await db.execute(
+        select(Session).where(Session.cohort_id == cohort.id)
+        .order_by(Session.meeting_date, Session.starts_at)
+    )).scalars().all()
+
+    for idx, s in enumerate(all_sessions):
+        if idx >= len(template_sessions):
+            break
+        t_sess = template_sessions[idx]
+        if not s.title and t_sess.title:
+            s.title = t_sess.title
+        if s.duration_hours is None and t_sess.duration_hours is not None:
+            s.duration_hours = t_sess.duration_hours
+
+        existing_count = await db.scalar(
+            select(func.count(DeliveryChecklistItem.id)).where(DeliveryChecklistItem.session_id == s.id)
+        )
+        if existing_count == 0:
+            t_items = (await db.execute(
+                select(DeliveryChecklistItem).where(DeliveryChecklistItem.session_id == t_sess.id)
+                .order_by(DeliveryChecklistItem.sort_order, DeliveryChecklistItem.created_at)
+            )).scalars().all()
+            for ti in t_items:
+                db.add(DeliveryChecklistItem(
+                    id=uuid.uuid4(),
+                    program_id=None,
+                    cohort_id=None,
+                    session_id=s.id,
+                    role_id=ti.role_id,
+                    title=ti.title,
+                    description=ti.description,
+                    requires_proof=ti.requires_proof,
+                    is_required=ti.is_required,
+                    sort_order=ti.sort_order,
+                    created_by=actor_user_id,
+                ))
+    await db.flush()
+
+
 @router.post("/cohorts/{cohort_id}/sessions:generate", response_model=GenerateSessionsResponse)
 async def generate_sessions(
     cohort_id: uuid.UUID,
@@ -791,6 +882,9 @@ async def generate_sessions(
                 continue
             created.append(session)
 
+    if created:
+        await seed_cohort_sessions_from_template(db, cohort, created, current_user.id)
+
     await db.commit()
     return GenerateSessionsResponse(
         created=[await _session_out(db, s) for s in created], skipped=skipped,
@@ -836,6 +930,7 @@ async def add_session(
             await db.flush()
     except IntegrityError:
         raise HTTPException(status.HTTP_409_CONFLICT, detail="A session already exists at this date and time")
+    await seed_cohort_sessions_from_template(db, cohort, [session], current_user.id)
     await db.commit()
     await db.refresh(session)
     return await _session_out(db, session, cohort)
