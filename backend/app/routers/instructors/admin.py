@@ -13,7 +13,7 @@ from app.core.dependencies import require_admin
 from app.core.security import get_password_hash
 from app.db.session import get_db
 from app.models.enums import ApplicationStatus, ModuleSubmissionStatus, UserRole
-from sqlalchemy import func
+from sqlalchemy import func, or_
 
 from app.models.certificate import Certificate
 from app.models.document_template import DocumentTemplate
@@ -131,11 +131,14 @@ async def overview(db: AsyncSession = Depends(get_db), current_user: User = Depe
 
 @router.get("/applicants")
 async def list_applicants(db: AsyncSession = Depends(get_db), current_user: User = Depends(require_admin)):
+    # Everyone with an application review — including promoted instructors.
+    # Final approval swaps the `applicant` role for `instructor`, so
+    # filtering on the role would hide all approved applications from
+    # this list (and make the "Approved" filter show nothing).
     rows = (await db.execute(
         select(User, ApplicationReview, ApplicantProfile)
         .join(ApplicationReview, ApplicationReview.user_id == User.id)
         .outerjoin(ApplicantProfile, ApplicantProfile.user_id == User.id)
-        .where(User.roles.any("applicant"))
         .order_by(User.created_at.desc())
     )).all()
 
@@ -181,7 +184,10 @@ async def list_applicants(db: AsyncSession = Depends(get_db), current_user: User
 async def applicant_detail(
     user_id: uuid.UUID, db: AsyncSession = Depends(get_db), current_user: User = Depends(require_admin)
 ):
-    user = (await db.execute(select(User).where(User.id == user_id, User.roles.any("applicant")))).scalars().first()
+    # Approved applicants are promoted to `instructor`, so accept both roles here.
+    user = (await db.execute(
+        select(User).where(User.id == user_id, or_(User.roles.any("applicant"), User.roles.any("instructor")))
+    )).scalars().first()
     if not user:
         raise HTTPException(status_code=404, detail="Applicant not found")
     profile = (await db.execute(select(ApplicantProfile).where(ApplicantProfile.user_id == user_id))).scalars().first()
@@ -325,7 +331,11 @@ async def review_applicant(
 ):
     """The applicant pipeline state machine (instructors/HANDOFF.md §4).
     Admin may only move an application out of `under_review`."""
-    user = (await db.execute(select(User).where(User.id == user_id, User.roles.any("applicant")))).scalars().first()
+    # Accept promoted instructors too so their (finalized) applications stay viewable;
+    # the finalized guard below still blocks any re-review of approved/rejected.
+    user = (await db.execute(
+        select(User).where(User.id == user_id, or_(User.roles.any("applicant"), User.roles.any("instructor")))
+    )).scalars().first()
     if not user:
         raise HTTPException(status_code=404, detail="Applicant not found")
 
@@ -539,7 +549,9 @@ async def export_applicant_dossier(
 ):
     """Consolidated PDF: cover + one divider per module + each module's uploaded
     PDF merged in (the source's "Export Consolidated PDF")."""
-    user = (await db.execute(select(User).where(User.id == user_id, User.roles.any("applicant")))).scalars().first()
+    user = (await db.execute(
+        select(User).where(User.id == user_id, or_(User.roles.any("applicant"), User.roles.any("instructor")))
+    )).scalars().first()
     if not user:
         raise HTTPException(status_code=404, detail="Applicant not found")
     review = (await db.execute(select(ApplicationReview).where(ApplicationReview.user_id == user_id))).scalars().first()
