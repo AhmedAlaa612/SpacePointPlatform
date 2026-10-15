@@ -220,87 +220,95 @@ function ReorderableChecklistList({
             dropOnto(line.key)
           }}
           onDragEnd={() => setDragKey(null)}
-          className={`flex items-center gap-2 p-2 bg-card border rounded-xl transition-all ${
+          className={`flex flex-col sm:flex-row sm:items-center gap-2 p-2.5 sm:p-2 bg-card border rounded-xl transition-all ${
             dragKey === line.key
               ? "opacity-40 border-primary ring-1 ring-primary/40"
               : "border-border hover:border-border/80"
           }`}
         >
-          <div className="flex items-center gap-1 shrink-0 text-muted-foreground" title="Drag to reorder">
-            <GripVertical
-              size={15}
-              className="cursor-grab active:cursor-grabbing hover:text-foreground shrink-0"
-            />
-            <OrderNumberInput
-              value={i + 1}
-              totalCount={rows.length}
-              onCommit={(pos) => moveToPosition(line.key, pos)}
+          {/* Top / Left section: reordering controls & title input */}
+          <div className="flex items-center gap-1.5 flex-1 min-w-0 w-full">
+            <div className="flex items-center gap-1 shrink-0 text-muted-foreground" title="Drag to reorder">
+              <GripVertical
+                size={15}
+                className="cursor-grab active:cursor-grabbing hover:text-foreground shrink-0"
+              />
+              <OrderNumberInput
+                value={i + 1}
+                totalCount={rows.length}
+                onCommit={(pos) => moveToPosition(line.key, pos)}
+              />
+            </div>
+
+            <div className="flex items-center gap-0.5 shrink-0">
+              <button
+                type="button"
+                onClick={() => moveUp(i)}
+                disabled={i === 0}
+                title="Move up"
+                className="p-1 text-muted-foreground hover:text-foreground disabled:opacity-20 transition-colors cursor-pointer"
+              >
+                <ChevronUp size={13} />
+              </button>
+              <button
+                type="button"
+                onClick={() => moveDown(i)}
+                disabled={i === rows.length - 1}
+                title="Move down"
+                className="p-1 text-muted-foreground hover:text-foreground disabled:opacity-20 transition-colors cursor-pointer"
+              >
+                <ChevronDown size={13} />
+              </button>
+            </div>
+
+            <input
+              value={line.title}
+              placeholder="Checklist item description…"
+              onChange={(e) =>
+                onChange(rows.map((r, j) => (j === i ? { ...r, title: e.target.value } : r)))
+              }
+              className="flex-1 min-w-0 h-8 px-2.5 border border-border bg-background text-foreground rounded-lg text-xs sm:text-sm focus:outline-none focus:border-primary transition-colors"
             />
           </div>
 
-          <div className="flex items-center gap-0.5 shrink-0">
+          {/* Bottom / Right section: Required, Photo, and Delete */}
+          <div className="flex items-center justify-between sm:justify-end gap-1.5 shrink-0 pl-7 sm:pl-0 pt-1 sm:pt-0 border-t sm:border-t-0 border-border/40">
+            <div className="flex items-center gap-1 sm:gap-1.5">
+              <label className="flex items-center gap-1.5 text-xs text-muted-foreground cursor-pointer whitespace-nowrap select-none px-1.5 py-1 rounded-md hover:bg-muted/50">
+                <input
+                  type="checkbox"
+                  checked={line.is_required}
+                  onChange={(e) =>
+                    onChange(rows.map((r, j) => (j === i ? { ...r, is_required: e.target.checked } : r)))
+                  }
+                  className="rounded border-border text-primary focus:ring-primary"
+                />
+                <span>Required</span>
+              </label>
+
+              <label className="flex items-center gap-1.5 text-xs text-muted-foreground cursor-pointer whitespace-nowrap select-none px-1.5 py-1 rounded-md hover:bg-muted/50">
+                <input
+                  type="checkbox"
+                  checked={line.requires_proof}
+                  onChange={(e) =>
+                    onChange(rows.map((r, j) => (j === i ? { ...r, requires_proof: e.target.checked } : r)))
+                  }
+                  className="rounded border-border text-primary focus:ring-primary"
+                />
+                <ImageIcon size={13} />
+                <span>Photo</span>
+              </label>
+            </div>
+
             <button
               type="button"
-              onClick={() => moveUp(i)}
-              disabled={i === 0}
-              title="Move up"
-              className="p-1 text-muted-foreground hover:text-foreground disabled:opacity-20 transition-colors"
+              onClick={() => onChange(rows.filter((_, j) => j !== i))}
+              className="p-1.5 text-muted-foreground hover:text-red-500 hover:bg-red-500/10 rounded-lg transition-colors shrink-0 cursor-pointer"
+              aria-label="Remove item"
             >
-              <ChevronUp size={13} />
-            </button>
-            <button
-              type="button"
-              onClick={() => moveDown(i)}
-              disabled={i === rows.length - 1}
-              title="Move down"
-              className="p-1 text-muted-foreground hover:text-foreground disabled:opacity-20 transition-colors"
-            >
-              <ChevronDown size={13} />
+              <Trash2 size={14} />
             </button>
           </div>
-
-          <input
-            value={line.title}
-            placeholder="Checklist item description…"
-            onChange={(e) =>
-              onChange(rows.map((r, j) => (j === i ? { ...r, title: e.target.value } : r)))
-            }
-            className="flex-1 min-w-[10rem] h-8 px-2.5 border border-border bg-background text-foreground rounded-lg text-xs sm:text-sm focus:outline-none focus:border-primary transition-colors"
-          />
-
-          <label className="flex items-center gap-1.5 text-xs text-muted-foreground cursor-pointer whitespace-nowrap select-none px-1.5 py-1 rounded-md hover:bg-muted/50">
-            <input
-              type="checkbox"
-              checked={line.is_required}
-              onChange={(e) =>
-                onChange(rows.map((r, j) => (j === i ? { ...r, is_required: e.target.checked } : r)))
-              }
-              className="rounded border-border text-primary focus:ring-primary"
-            />
-            <span>Required</span>
-          </label>
-
-          <label className="flex items-center gap-1.5 text-xs text-muted-foreground cursor-pointer whitespace-nowrap select-none px-1.5 py-1 rounded-md hover:bg-muted/50">
-            <input
-              type="checkbox"
-              checked={line.requires_proof}
-              onChange={(e) =>
-                onChange(rows.map((r, j) => (j === i ? { ...r, requires_proof: e.target.checked } : r)))
-              }
-              className="rounded border-border text-primary focus:ring-primary"
-            />
-            <ImageIcon size={13} />
-            <span>Photo</span>
-          </label>
-
-          <button
-            type="button"
-            onClick={() => onChange(rows.filter((_, j) => j !== i))}
-            className="p-1.5 text-muted-foreground hover:text-red-500 hover:bg-red-500/10 rounded-lg transition-colors shrink-0"
-            aria-label="Remove item"
-          >
-            <Trash2 size={14} />
-          </button>
         </div>
       ))}
     </div>
