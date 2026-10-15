@@ -61,7 +61,7 @@ const TABS: { key: CohortTab; label: string }[] = [
   // Roles moved out of Staffing (2026-08-28): rate, responsibilities and the
   // checklist are all "what does this role mean here", one thing ops sets up
   // before opening a call — separate from running the call itself.
-  { key: "roles", label: "Roles" },
+  { key: "roles", label: "Checklists & Roles" },
   // Staffing moved out of the Sessions tab (2026-08-24): opening a call,
   // reading the applicant table and seeing who ended up staffed are one job,
   // and they were buried under a table that had grown to own the whole tab.
@@ -583,7 +583,7 @@ function CohortDetailView({ cohort }: { cohort: Cohort }) {
       {tab === "roles" && (
       <div className="space-y-5">
         <Card className="px-4">
-          <CohortRolesPanel cohort={cohort} />
+          <CohortRolesPanel cohort={cohort} sessions={sessions} />
         </Card>
       </div>
       )}

@@ -50,3 +50,39 @@ export const cloneProgramApi = (sourceId: string, data: {
   code: string
   carry: string[]
 }) => api.post<Program>(`/sessions/programs/${sourceId}/clone`, data).then(r => r.data)
+
+export interface TemplateDay {
+  id: string
+  cohort_id: string
+  day_number: number
+  title?: string | null
+  duration_hours?: number | null
+  meeting_date?: string | null
+}
+
+export interface ProgramTemplate {
+  program_id: string
+  template_cohort_id: string
+  days_count: number
+  sessions: TemplateDay[]
+}
+
+export const getProgramTemplateApi = (programId: string) =>
+  api.get<ProgramTemplate>(`/sessions/programs/${programId}/template`).then((r) => r.data)
+
+export const addProgramTemplateDayApi = (
+  programId: string,
+  data?: { title?: string; duration_hours?: number },
+) =>
+  api.post<TemplateDay>(`/sessions/programs/${programId}/template-days`, data ?? {}).then((r) => r.data)
+
+export const updateProgramTemplateDayApi = (
+  programId: string,
+  sessionId: string,
+  data: { title?: string; duration_hours?: number },
+) =>
+  api.patch<TemplateDay>(`/sessions/programs/${programId}/template-days/${sessionId}`, data).then((r) => r.data)
+
+export const deleteProgramTemplateDayApi = (programId: string, sessionId: string) =>
+  api.delete<void>(`/sessions/programs/${programId}/template-days/${sessionId}`).then((r) => r.data)
+

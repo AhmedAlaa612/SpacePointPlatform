@@ -273,6 +273,73 @@ async def create_cohort(
             id=uuid.uuid4(), cohort_id=cohort.id, config_id=program.default_assessment_config_id,
             assigned_by=current_user.id,
         ))
+
+    # Seed cohort sessions and delivery checklists from the program template cohort
+    template_cohort = await db.scalar(
+        select(Cohort).where(
+            Cohort.program_id == program.id,
+            Cohort.name.ilike("%template%"),
+            Cohort.id != cohort.id,
+        ).order_by(Cohort.created_at.asc())
+    )
+    if template_cohort:
+        template_sessions = (await db.execute(
+            select(Session).where(Session.cohort_id == template_cohort.id)
+            .order_by(Session.meeting_date, Session.starts_at, Session.created_at)
+        )).scalars().all()
+
+        start_date = cohort.starts_on or date.today()
+        for idx, t_sess in enumerate(template_sessions):
+            sess_date = start_date + timedelta(days=idx)
+            new_s = Session(
+                id=uuid.uuid4(),
+                cohort_id=cohort.id,
+                meeting_date=sess_date,
+                starts_at=t_sess.starts_at,
+                title=t_sess.title or f"Day {idx + 1}",
+                duration_hours=t_sess.duration_hours or program.duration_hours,
+            )
+            db.add(new_s)
+            await db.flush()
+
+            t_items = (await db.execute(
+                select(DeliveryChecklistItem).where(DeliveryChecklistItem.session_id == t_sess.id)
+                .order_by(DeliveryChecklistItem.sort_order, DeliveryChecklistItem.created_at)
+            )).scalars().all()
+            for ci in t_items:
+                db.add(DeliveryChecklistItem(
+                    id=uuid.uuid4(),
+                    session_id=new_s.id,
+                    role_id=ci.role_id,
+                    title=ci.title,
+                    description=ci.description,
+                    requires_proof=ci.requires_proof,
+                    is_required=ci.is_required,
+                    sort_order=ci.sort_order,
+                    created_by=current_user.id,
+                ))
+            if t_items:
+                await db.flush()
+
+        template_cohort_items = (await db.execute(
+            select(DeliveryChecklistItem).where(DeliveryChecklistItem.cohort_id == template_cohort.id)
+            .order_by(DeliveryChecklistItem.sort_order, DeliveryChecklistItem.created_at)
+        )).scalars().all()
+        for ci in template_cohort_items:
+            db.add(DeliveryChecklistItem(
+                id=uuid.uuid4(),
+                cohort_id=cohort.id,
+                role_id=ci.role_id,
+                title=ci.title,
+                description=ci.description,
+                requires_proof=ci.requires_proof,
+                is_required=ci.is_required,
+                sort_order=ci.sort_order,
+                created_by=current_user.id,
+            ))
+        if template_cohort_items:
+            await db.flush()
+
     await db.commit()
     await db.refresh(cohort)
     return await _cohort_out(db, cohort, program.name, program.code, location, program_is_competition=program.is_competition)

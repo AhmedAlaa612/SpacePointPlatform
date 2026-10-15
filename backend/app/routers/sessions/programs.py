@@ -5,10 +5,12 @@ invitation-code endpoints). Every route is gated by require_operations
 (admin passes automatically — see core/dependencies.py's RequireRole).
 """
 
+from datetime import date, timedelta
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy import func, select
+from pydantic import BaseModel
+from sqlalchemy import delete as sa_delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.dependencies import require_operations
@@ -19,12 +21,38 @@ from app.models.sessions.cohort import Cohort
 from app.models.sessions.material import Material
 from app.models.sessions.program import Program
 from app.models.sessions.program_opening import ProgramOpening
+from app.models.sessions.session import Session
 from app.models.competitions.judging import CompetitionRubric, CompetitionRubricCriterion
 from app.models.lms.program import LmsProgram, LmsProgramItem
 from app.models.user import User
 from app.schemas.sessions.programs import ProgramCloneRequest, ProgramCreate, ProgramOut, ProgramUpdate
 from app.services import storage
 from app.services.lms.program import PROGRAM_ITEM_PDF_BUCKET
+
+class TemplateDayOut(BaseModel):
+    id: uuid.UUID
+    cohort_id: uuid.UUID
+    day_number: int
+    title: str | None = None
+    duration_hours: float | None = None
+    meeting_date: str | None = None
+
+    class Config:
+        from_attributes = True
+
+class ProgramTemplateOut(BaseModel):
+    program_id: uuid.UUID
+    template_cohort_id: uuid.UUID
+    days_count: int
+    sessions: list[TemplateDayOut]
+
+class TemplateDayCreate(BaseModel):
+    title: str | None = None
+    duration_hours: float | None = None
+
+class TemplateDayUpdate(BaseModel):
+    title: str | None = None
+    duration_hours: float | None = None
 
 router = APIRouter(prefix="/sessions", tags=["sessions-programs"])
 
@@ -306,6 +334,61 @@ async def clone_program(
         if source_delivery_items:
             await db.flush()
 
+        # ── Clone program's template cohort, days and checklists ──
+        source_template_cohort = await db.scalar(
+            select(Cohort).where(
+                Cohort.program_id == source.id,
+                Cohort.name.ilike("%template%"),
+            ).order_by(Cohort.created_at.asc())
+        )
+        if source_template_cohort:
+            new_template_cohort = Cohort(
+                id=uuid.uuid4(),
+                program_id=new_program.id,
+                name=f"[Template] {new_program.name}",
+                status="draft",
+                visibility="private",
+                duration_hours=source_template_cohort.duration_hours,
+            )
+            db.add(new_template_cohort)
+            await db.flush()
+
+            source_template_sessions = (await db.execute(
+                select(Session).where(Session.cohort_id == source_template_cohort.id)
+                .order_by(Session.meeting_date, Session.starts_at, Session.created_at)
+            )).scalars().all()
+
+            for s in source_template_sessions:
+                new_session = Session(
+                    id=uuid.uuid4(),
+                    cohort_id=new_template_cohort.id,
+                    meeting_date=s.meeting_date,
+                    starts_at=s.starts_at,
+                    title=s.title,
+                    duration_hours=s.duration_hours,
+                )
+                db.add(new_session)
+                await db.flush()
+
+                items = (await db.execute(
+                    select(DeliveryChecklistItem).where(DeliveryChecklistItem.session_id == s.id)
+                    .order_by(DeliveryChecklistItem.sort_order, DeliveryChecklistItem.created_at)
+                )).scalars().all()
+                for item in items:
+                    db.add(DeliveryChecklistItem(
+                        id=uuid.uuid4(),
+                        session_id=new_session.id,
+                        role_id=item.role_id,
+                        title=item.title,
+                        description=item.description,
+                        requires_proof=item.requires_proof,
+                        is_required=item.is_required,
+                        sort_order=item.sort_order,
+                        created_by=current_user.id,
+                    ))
+            if source_template_sessions:
+                await db.flush()
+
     if "rubric" in body.carry and source.is_competition:
         source_rubric = await db.scalar(
             select(CompetitionRubric).where(
@@ -344,3 +427,157 @@ async def clone_program(
     await db.commit()
     await db.refresh(new_program)
     return new_program
+
+
+async def _get_or_create_template_cohort(db: AsyncSession, program: Program) -> Cohort:
+    """Finds or auto-creates the draft template cohort where a program defines its default days & checklists."""
+    template_cohort = await db.scalar(
+        select(Cohort).where(
+            Cohort.program_id == program.id,
+            Cohort.name.ilike("%template%"),
+        ).order_by(Cohort.created_at.asc())
+    )
+    if template_cohort is None:
+        template_cohort = Cohort(
+            id=uuid.uuid4(),
+            name=f"[Template] {program.name}",
+            program_id=program.id,
+            status="draft",
+            visibility="private",
+            duration_hours=program.duration_hours or 4.0,
+        )
+        db.add(template_cohort)
+        await db.flush()
+    return template_cohort
+
+
+@router.get("/programs/{program_id}/template", response_model=ProgramTemplateOut)
+async def get_program_template(
+    program_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_operations),
+):
+    """Returns the program's template cohort, default days, and session IDs."""
+    program = await db.get(Program, program_id)
+    if program is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Program not found")
+
+    template_cohort = await _get_or_create_template_cohort(db, program)
+    sessions = (await db.execute(
+        select(Session).where(Session.cohort_id == template_cohort.id)
+        .order_by(Session.meeting_date, Session.starts_at, Session.created_at)
+    )).scalars().all()
+
+    return ProgramTemplateOut(
+        program_id=program.id,
+        template_cohort_id=template_cohort.id,
+        days_count=len(sessions),
+        sessions=[
+            TemplateDayOut(
+                id=s.id,
+                cohort_id=s.cohort_id,
+                day_number=idx + 1,
+                title=s.title or f"Day {idx + 1}",
+                duration_hours=float(s.duration_hours) if s.duration_hours is not None else None,
+                meeting_date=str(s.meeting_date) if s.meeting_date else None,
+            )
+            for idx, s in enumerate(sessions)
+        ],
+    )
+
+
+@router.post("/programs/{program_id}/template-days", response_model=TemplateDayOut, status_code=status.HTTP_201_CREATED)
+async def add_program_template_day(
+    program_id: uuid.UUID,
+    body: TemplateDayCreate,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_operations),
+):
+    """Adds a new default day to the program template."""
+    program = await db.get(Program, program_id)
+    if program is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Program not found")
+
+    template_cohort = await _get_or_create_template_cohort(db, program)
+    existing_sessions = (await db.execute(
+        select(Session).where(Session.cohort_id == template_cohort.id)
+        .order_by(Session.meeting_date, Session.starts_at, Session.created_at)
+    )).scalars().all()
+
+    next_idx = len(existing_sessions) + 1
+    new_day = Session(
+        id=uuid.uuid4(),
+        cohort_id=template_cohort.id,
+        meeting_date=date.today() + timedelta(days=next_idx),
+        title=body.title or f"Day {next_idx}",
+        duration_hours=body.duration_hours or program.duration_hours or 4.0,
+    )
+    db.add(new_day)
+    await db.commit()
+    await db.refresh(new_day)
+
+    return TemplateDayOut(
+        id=new_day.id,
+        cohort_id=new_day.cohort_id,
+        day_number=next_idx,
+        title=new_day.title,
+        duration_hours=float(new_day.duration_hours) if new_day.duration_hours is not None else None,
+        meeting_date=str(new_day.meeting_date),
+    )
+
+
+@router.patch("/programs/{program_id}/template-days/{session_id}", response_model=TemplateDayOut)
+async def update_program_template_day(
+    program_id: uuid.UUID,
+    session_id: uuid.UUID,
+    body: TemplateDayUpdate,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_operations),
+):
+    """Updates a program template day's title or duration."""
+    session = await db.get(Session, session_id)
+    if session is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Template day not found")
+
+    if body.title is not None:
+        session.title = body.title.strip()
+    if body.duration_hours is not None:
+        session.duration_hours = body.duration_hours
+
+    await db.commit()
+    await db.refresh(session)
+
+    all_sessions = (await db.execute(
+        select(Session).where(Session.cohort_id == session.cohort_id)
+        .order_by(Session.meeting_date, Session.starts_at, Session.created_at)
+    )).scalars().all()
+    day_idx = next((i + 1 for i, s in enumerate(all_sessions) if s.id == session.id), 1)
+
+    return TemplateDayOut(
+        id=session.id,
+        cohort_id=session.cohort_id,
+        day_number=day_idx,
+        title=session.title,
+        duration_hours=float(session.duration_hours) if session.duration_hours is not None else None,
+        meeting_date=str(session.meeting_date),
+    )
+
+
+@router.delete("/programs/{program_id}/template-days/{session_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_program_template_day(
+    program_id: uuid.UUID,
+    session_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_operations),
+):
+    """Deletes a template day from the program template."""
+    session = await db.get(Session, session_id)
+    if session is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Template day not found")
+
+    await db.execute(
+        sa_delete(DeliveryChecklistItem).where(DeliveryChecklistItem.session_id == session_id)
+    )
+    await db.delete(session)
+    await db.commit()
+
