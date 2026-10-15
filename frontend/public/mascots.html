@@ -1,0 +1,578 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>SpacePoint Mascot Showcase</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;600;700;800&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg: #090d16;
+      --card-bg: rgba(18, 25, 41, 0.75);
+      --card-border: rgba(168, 85, 247, 0.2);
+      --text: #f1f5f9;
+      --muted: #94a3b8;
+      --accent: #9333ea;
+      --accent-glow: rgba(147, 51, 234, 0.35);
+    }
+    body.light-theme {
+      --bg: #f8fafc;
+      --card-bg: #ffffff;
+      --card-border: #e2e8f0;
+      --text: #0f172a;
+      --muted: #64748b;
+      --accent: #581c87;
+      --accent-glow: rgba(88, 28, 135, 0.2);
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: 'Inter', sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      transition: background 0.3s ease, color 0.3s ease;
+      overflow-x: hidden;
+    }
+
+    header {
+      padding: 2.5rem 1.5rem 1.5rem;
+      text-align: center;
+      position: relative;
+    }
+    h1 {
+      font-family: 'Outfit', sans-serif;
+      font-size: 2.5rem;
+      font-weight: 800;
+      letter-spacing: -0.02em;
+      margin-bottom: 0.5rem;
+      color: #ffffff;
+    }
+    body.light-theme h1 {
+      color: #000000;
+    }
+    p.subtitle {
+      color: var(--muted);
+      font-size: 1.05rem;
+      max-width: 600px;
+      margin: 0 auto;
+    }
+
+    .top-controls {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 1rem;
+      margin-top: 1.25rem;
+      flex-wrap: wrap;
+    }
+    button.btn {
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      color: var(--text);
+      padding: 0.5rem 1rem;
+      border-radius: 9999px;
+      font-size: 0.875rem;
+      font-weight: 500;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 0.5rem;
+      transition: all 0.2s ease;
+    }
+    button.btn:hover {
+      border-color: var(--accent);
+      box-shadow: 0 0 12px var(--accent-glow);
+    }
+    .slider-control {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      font-size: 0.85rem;
+      color: var(--muted);
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      padding: 0.35rem 0.85rem;
+      border-radius: 9999px;
+    }
+    .slider-control input[type="range"] {
+      cursor: pointer;
+      accent-color: var(--accent);
+      width: 100px;
+    }
+
+    main {
+      flex: 1;
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 1.5rem;
+      width: 100%;
+    }
+
+    .gallery-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+      gap: 2rem;
+      margin-top: 1rem;
+    }
+
+    .mascot-card {
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      border-radius: 1.5rem;
+      padding: 2rem 1.5rem;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      position: relative;
+      box-shadow: 0 8px 30px rgba(0, 0, 0, 0.25);
+      backdrop-filter: blur(12px);
+      transition: transform 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease;
+    }
+    .mascot-card:hover {
+      transform: translateY(-4px);
+      border-color: var(--accent);
+      box-shadow: 0 12px 35px var(--accent-glow);
+    }
+
+    .stage {
+      width: 100%;
+      height: 240px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      position: relative;
+    }
+
+    /* Transparent checkerboard background option on hover/inspect to verify alpha */
+    .show-checkerboard .stage {
+      background-image: linear-gradient(45deg, #1e293b 25%, transparent 25%), 
+                        linear-gradient(-45deg, #1e293b 25%, transparent 25%), 
+                        linear-gradient(45deg, transparent 75%, #1e293b 75%), 
+                        linear-gradient(-45deg, transparent 75%, #1e293b 75%);
+      background-size: 16px 16px;
+      background-position: 0 0, 0 8px, 8px -8px, -8px 0px;
+      border-radius: 1rem;
+    }
+    body.light-theme .show-checkerboard .stage {
+      background-image: linear-gradient(45deg, #e2e8f0 25%, transparent 25%), 
+                        linear-gradient(-45deg, #e2e8f0 25%, transparent 25%), 
+                        linear-gradient(45deg, transparent 75%, #e2e8f0 75%), 
+                        linear-gradient(-45deg, transparent 75%, #e2e8f0 75%);
+    }
+
+    .mascot-info {
+      text-align: center;
+      margin-top: 1rem;
+      width: 100%;
+    }
+    .mascot-title {
+      font-family: 'Outfit', sans-serif;
+      font-size: 1.35rem;
+      font-weight: 700;
+      color: var(--text);
+    }
+    .mascot-desc {
+      font-size: 0.875rem;
+      color: var(--muted);
+      margin-top: 0.25rem;
+    }
+
+    .reaction-bar {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: center;
+      gap: 0.35rem;
+      margin-top: 1rem;
+      padding-top: 1rem;
+      border-top: 1px solid var(--card-border);
+      width: 100%;
+    }
+    .react-pill {
+      font-size: 0.72rem;
+      background: rgba(255, 255, 255, 0.05);
+      border: 1px solid var(--card-border);
+      color: var(--muted);
+      padding: 0.25rem 0.55rem;
+      border-radius: 9999px;
+      cursor: pointer;
+      transition: all 0.15s ease;
+    }
+    .react-pill:hover {
+      background: var(--accent);
+      color: #fff;
+      border-color: var(--accent);
+    }
+
+    /* The Mascot Component Styling */
+    .mascot-btn {
+      position: relative;
+      display: block;
+      border: none;
+      background: transparent;
+      padding: 0;
+      cursor: pointer;
+      user-select: none;
+      outline: none;
+    }
+    .mascot-squash {
+      position: relative;
+      display: block;
+      width: 100%;
+      height: 100%;
+      transform-origin: 50% 78%;
+    }
+    .mascot-layer {
+      position: absolute;
+      inset: 0;
+      background-size: 300% 300%;
+      background-repeat: no-repeat;
+      pointer-events: none;
+      transition: opacity 0.08s ease;
+    }
+
+    footer {
+      padding: 2.5rem 1rem;
+      text-align: center;
+      color: var(--muted);
+      font-size: 0.85rem;
+      border-top: 1px solid var(--card-border);
+      margin-top: 3rem;
+    }
+    footer a {
+      color: var(--accent);
+      text-decoration: none;
+    }
+  </style>
+</head>
+<body class="light-theme">
+
+  <header>
+    <h1>SpacePoint Mascot Showcase</h1>
+
+    <div class="top-controls">
+      <button class="btn" id="theme-toggle">Toggle Theme</button>
+      <button class="btn" id="checker-toggle">Alpha Checkerboard</button>
+      <div class="slider-control">
+        <span>Size:</span>
+        <input type="range" id="size-slider" min="90" max="220" value="140" />
+        <span id="size-display">140px</span>
+      </div>
+    </div>
+  </header>
+
+  <main>
+    <div class="gallery-grid" id="mascot-gallery">
+      <!-- Mascot cards will be dynamically mounted here -->
+    </div>
+  </main>
+
+
+  <script>
+    // =========================================================================
+    // 1. MASCOT REGISTRY
+    // To add a new mascot, simply append an entry to this array!
+    // =========================================================================
+    const MASCOTS = [
+      {
+        id: "emirati-kid",
+        name: "Emirati Space Cadet",
+        role: "SpacePoint Student Astronaut (Spacesuit)",
+        directions: "/mascots/emirati-kid-directions.webp",
+        reactions: "/mascots/emirati-kid-reactions.webp"
+      },
+      {
+        id: "emirati-ghutra-kid",
+        name: "Emirati Explorer (Ghutra & Agal)",
+        role: "Traditional Emirati Dress (Ghutra, Agal & Kandura)",
+        directions: "/mascots/emirati-ghutra-kid-directions.webp",
+        reactions: "/mascots/emirati-ghutra-kid-reactions.webp"
+      },
+      {
+        id: "emirati-ghutra-cadet",
+        name: "Emirati Ghutra Cadet",
+        role: "Traditional Ghutra & Agal with Space Cadet Suit",
+        directions: "/mascots/emirati-ghutra-cadet-directions.webp",
+        reactions: "/mascots/emirati-ghutra-cadet-reactions.webp"
+      },
+      {
+        id: "emirati-fullbody-astronaut",
+        name: "Emirati Spaceman Kid (Full Body)",
+        role: "Full-Body Chibi Astronaut with Space Helmet & Suit",
+        directions: "/mascots/emirati-astronaut-directions.webp",
+        reactions: "/mascots/emirati-astronaut-reactions.webp"
+      },
+      {
+        id: "emirati-ghutra-astronaut",
+        name: "Emirati Ghutra Spaceman (Full Body)",
+        role: "Full-Body Ghutra Edition Astronaut with Space Suit",
+        directions: "/mascots/emirati-ghutra-astronaut-directions.webp",
+        reactions: "/mascots/emirati-ghutra-astronaut-reactions.webp"
+      }
+    ];
+
+    // Detect if served from file:// or http:// to adjust asset paths if needed
+    const isFileProtocol = window.location.protocol === 'file:';
+    MASCOTS.forEach(m => {
+      if (isFileProtocol) {
+        m.directions = '.' + m.directions;
+        m.reactions = '.' + m.reactions;
+      }
+    });
+
+    // =========================================================================
+    // 2. DIRECTION & REACTION CONSTANTS
+    // =========================================================================
+    const DIRECTIONS = [
+      'up-left', 'up', 'up-right',
+      'left', 'center', 'right',
+      'down-left', 'down', 'down-right'
+    ];
+
+    const REACTIONS = [
+      'blink', 'heart', 'sparkle',
+      'surprised', 'wink', 'bashful',
+      'sleepy', 'dizzy', 'delighted'
+    ];
+
+    const CLOCKWISE = [
+      'right', 'down-right', 'down', 'down-left',
+      'left', 'up-left', 'up', 'up-right'
+    ];
+
+    const SECTOR = (Math.PI * 2) / CLOCKWISE.length;
+    const HYSTERESIS = 0.12;
+    const DEAD_ZONE = 70;
+
+    const PAYOFFS = ['heart', 'sparkle', 'delighted'];
+    const BOOP_PAYOFF = 120;
+    const BOOP_END = 560;
+    const SQUASH_MS = 420;
+    const DIZZY_AFTER = 4;
+    const DIZZY_WINDOW = 1600;
+    const DIZZY_END = 1100;
+
+    const SQUASH = [
+      { transform: 'scale(1, 1)', easing: 'ease-in' },
+      { transform: 'scale(1.10, 0.86)', offset: 0.18, easing: 'ease-out' },
+      { transform: 'scale(0.95, 1.08)', offset: 0.45, easing: 'ease-in-out' },
+      { transform: 'scale(1.03, 0.97)', offset: 0.72, easing: 'ease-in-out' },
+      { transform: 'scale(1, 1)' }
+    ];
+
+    function cellPos(index) {
+      const x = (index % 3) * 50;
+      const y = Math.floor(index / 3) * 50;
+      return `${x}% ${y}%`;
+    }
+
+    function wrap(angle) {
+      return Math.atan2(Math.sin(angle), Math.cos(angle));
+    }
+
+    // =========================================================================
+    // 3. MASCOT COMPONENT CONTROLLER
+    // =========================================================================
+    class MascotController {
+      constructor(container, config, initialSize = 140) {
+        this.config = config;
+        this.size = initialSize;
+        this.currentDirection = 'center';
+        this.currentReaction = null;
+        this.sector = -1;
+        this.timers = [];
+        this.boopCount = 0;
+        this.lastBoopAt = 0;
+
+        this.render(container);
+      }
+
+      render(container) {
+        this.btn = document.createElement('button');
+        this.btn.className = 'mascot-btn';
+        this.btn.style.width = `${this.size}px`;
+        this.btn.style.height = `${this.size}px`;
+        this.btn.setAttribute('aria-label', `Interact with ${this.config.name}`);
+
+        this.squash = document.createElement('span');
+        this.squash.className = 'mascot-squash';
+
+        // Layer 1: Directions
+        this.dirLayer = document.createElement('span');
+        this.dirLayer.className = 'mascot-layer';
+        this.dirLayer.style.backgroundImage = `url("${this.config.directions}")`;
+        this.dirLayer.style.backgroundPosition = cellPos(DIRECTIONS.indexOf('center'));
+        this.dirLayer.style.opacity = '1';
+
+        // Layer 2: Reactions
+        this.reactLayer = document.createElement('span');
+        this.reactLayer.className = 'mascot-layer';
+        this.reactLayer.style.backgroundImage = `url("${this.config.reactions}")`;
+        this.reactLayer.style.backgroundPosition = cellPos(REACTIONS.indexOf('blink'));
+        this.reactLayer.style.opacity = '0';
+
+        this.squash.appendChild(this.dirLayer);
+        this.squash.appendChild(this.reactLayer);
+        this.btn.appendChild(this.squash);
+        container.appendChild(this.btn);
+
+        this.btn.addEventListener('click', () => this.boop());
+      }
+
+      setSize(newSize) {
+        this.size = newSize;
+        this.btn.style.width = `${newSize}px`;
+        this.btn.style.height = `${newSize}px`;
+      }
+
+      aim(pointerX, pointerY) {
+        const box = this.btn.getBoundingClientRect();
+        const dx = pointerX - (box.left + box.width / 2);
+        const dy = pointerY - (box.top + box.height / 2);
+
+        if (Math.hypot(dx, dy) < DEAD_ZONE) {
+          this.sector = -1;
+          this.setDirection('center');
+          return;
+        }
+
+        const angle = Math.atan2(dy, dx);
+        if (this.sector !== -1 && Math.abs(wrap(angle - this.sector * SECTOR)) < SECTOR / 2 + HYSTERESIS) {
+          return;
+        }
+
+        this.sector = (Math.round(angle / SECTOR) + CLOCKWISE.length) % CLOCKWISE.length;
+        this.setDirection(CLOCKWISE[this.sector]);
+      }
+
+      setDirection(dir) {
+        if (this.currentDirection === dir) return;
+        this.currentDirection = dir;
+        this.dirLayer.style.backgroundPosition = cellPos(DIRECTIONS.indexOf(dir));
+      }
+
+      setReaction(react) {
+        this.currentReaction = react;
+        if (react) {
+          this.reactLayer.style.backgroundPosition = cellPos(REACTIONS.indexOf(react));
+          this.dirLayer.style.opacity = '0';
+          this.reactLayer.style.opacity = '1';
+        } else {
+          this.dirLayer.style.opacity = '1';
+          this.reactLayer.style.opacity = '0';
+        }
+      }
+
+      boop(forcedReaction = null) {
+        this.clearTimers();
+
+        if (forcedReaction) {
+          this.setReaction(forcedReaction);
+          this.timers.push(setTimeout(() => this.setReaction(null), 1200));
+        } else {
+          const now = Date.now();
+          this.boopCount = now - this.lastBoopAt < DIZZY_WINDOW ? this.boopCount + 1 : 1;
+          this.lastBoopAt = now;
+
+          if (this.boopCount >= DIZZY_AFTER) {
+            this.boopCount = 0;
+            this.setReaction('dizzy');
+            this.timers.push(setTimeout(() => this.setReaction(null), DIZZY_END));
+          } else {
+            this.setReaction('blink');
+            this.timers.push(setTimeout(() => {
+              const payoff = PAYOFFS[(this.boopCount - 1) % PAYOFFS.length];
+              this.setReaction(payoff);
+            }, BOOP_PAYOFF));
+            this.timers.push(setTimeout(() => this.setReaction(null), BOOP_END));
+          }
+        }
+
+        this.squash.animate(SQUASH, { duration: SQUASH_MS, easing: 'linear' });
+      }
+
+      clearTimers() {
+        this.timers.forEach(clearTimeout);
+        this.timers = [];
+      }
+    }
+
+    // =========================================================================
+    // 4. MOUNT GALLERY
+    // =========================================================================
+    const galleryEl = document.getElementById('mascot-gallery');
+    const controllers = [];
+
+    MASCOTS.forEach(mascot => {
+      const card = document.createElement('div');
+      card.className = 'mascot-card';
+
+      const stage = document.createElement('div');
+      stage.className = 'stage';
+
+      const controller = new MascotController(stage, mascot, 140);
+      controllers.push(controller);
+
+      const info = document.createElement('div');
+      info.className = 'mascot-info';
+      info.innerHTML = `
+        <div class="mascot-title">${mascot.name}</div>
+        <div class="mascot-desc">${mascot.role}</div>
+      `;
+
+      const reactionBar = document.createElement('div');
+      reactionBar.className = 'reaction-bar';
+      REACTIONS.forEach(r => {
+        const pill = document.createElement('button');
+        pill.className = 'react-pill';
+        pill.textContent = r;
+        pill.addEventListener('click', (e) => {
+          e.stopPropagation();
+          controller.boop(r);
+        });
+        reactionBar.appendChild(pill);
+      });
+
+      card.appendChild(stage);
+      card.appendChild(info);
+      card.appendChild(reactionBar);
+      galleryEl.appendChild(card);
+    });
+
+    // Global Pointer Tracking
+    let pointer = { x: window.innerWidth / 2, y: window.innerHeight / 2 };
+    window.addEventListener('pointermove', (e) => {
+      pointer.x = e.clientX;
+      pointer.y = e.clientY;
+      controllers.forEach(c => c.aim(pointer.x, pointer.y));
+    }, { passive: true });
+
+    window.addEventListener('scroll', () => {
+      controllers.forEach(c => c.aim(pointer.x, pointer.y));
+    }, { passive: true });
+
+    // Size Slider
+    const sizeSlider = document.getElementById('size-slider');
+    const sizeDisplay = document.getElementById('size-display');
+    sizeSlider.addEventListener('input', (e) => {
+      const size = parseInt(e.target.value, 10);
+      sizeDisplay.textContent = `${size}px`;
+      controllers.forEach(c => c.setSize(size));
+    });
+
+    // Theme Toggle
+    document.getElementById('theme-toggle').addEventListener('click', () => {
+      document.body.classList.toggle('light-theme');
+    });
+
+    // Checkerboard Toggle
+    document.getElementById('checker-toggle').addEventListener('click', () => {
+      document.body.classList.toggle('show-checkerboard');
+    });
+  </script>
+</body>
+</html>
