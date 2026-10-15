@@ -91,22 +91,22 @@ function ApplicationsTab() {
 
   return (
     <div className="flex flex-col gap-4">
-      {/* Filters */}
-      <div className="flex flex-wrap gap-2">
-        <div className="flex gap-1 bg-muted rounded-xl p-1">
+      {/* Filters — wrap on narrow screens so no pill is cut off */}
+      <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
+        <div className="flex flex-wrap gap-1 bg-muted rounded-xl p-1 max-w-full">
           {["all", ...ROLE_OPTIONS.map((r) => r.value)].map((r) => (
             <button key={r} onClick={() => setRoleFilter(r)}
-              className={`px-3 py-1 rounded-lg text-xs font-semibold transition-colors capitalize ${
+              className={`px-3 py-1 rounded-lg text-xs font-semibold transition-colors capitalize whitespace-nowrap shrink-0 ${
                 roleFilter === r ? "bg-background text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"
               }`}>
               {r === "all" ? "All roles" : r}
             </button>
           ))}
         </div>
-        <div className="flex gap-1 bg-muted rounded-xl p-1">
+        <div className="flex flex-wrap gap-1 bg-muted rounded-xl p-1 max-w-full">
           {["all", "pending", "onboarding", "approved", "rejected"].map((s) => (
             <button key={s} onClick={() => setStatusFilter(s)}
-              className={`px-3 py-1 rounded-lg text-xs font-semibold transition-colors capitalize ${
+              className={`px-3 py-1 rounded-lg text-xs font-semibold transition-colors capitalize whitespace-nowrap shrink-0 ${
                 statusFilter === s ? "bg-background text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"
               }`}>
               {s === "all" ? "All statuses" : s}
