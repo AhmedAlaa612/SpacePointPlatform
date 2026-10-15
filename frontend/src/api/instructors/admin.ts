@@ -35,6 +35,8 @@ export interface ApplicantListItem {
   created_at: string
   submitted_at: string | null
   also_grant_role: string | null
+  rejected_modules_count?: number
+  has_rejected_modules?: boolean
 }
 
 export interface InvitationCode {

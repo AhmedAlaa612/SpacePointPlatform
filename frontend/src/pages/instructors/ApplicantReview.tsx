@@ -101,6 +101,14 @@ export default function ApplicantReviewPage() {
   }
 
   const reviewStatus = detail.review?.status ?? "in_progress"
+  // Applicants stuck in `under_review` with at least one rejected module
+  // get a distinct "Under Review — Rejected Items" pill instead of plain
+  // "Under Review" (matches the admin Applicants list).
+  const hasRejectedModules = Array.isArray(detail.modules)
+    && (detail.modules as any[]).some((m) => m?.submission?.status === "rejected")
+  const headerStatus = reviewStatus === "under_review" && hasRejectedModules
+    ? "under_review_rejected"
+    : reviewStatus
   // The Decision dropdown's earliest option is "under_review" (matching the
   // reference app) — "in_progress" (this app's own pre-review default,
   // which the reference doesn't distinguish) has no matching <option>, so it
@@ -167,7 +175,7 @@ export default function ApplicantReviewPage() {
           </div>
           <div className="flex items-center gap-3">
             <span className="text-xs text-muted-foreground font-semibold uppercase tracking-wider">Status:</span>
-            <StatusPill status={reviewStatus} />
+            <StatusPill status={headerStatus} />
           </div>
         </div>
       </div>

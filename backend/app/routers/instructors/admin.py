@@ -128,6 +128,22 @@ async def list_applicants(db: AsyncSession = Depends(get_db), current_user: User
     if city_ids:
         cities_by_id = {c.id: c.name for c in (await db.execute(select(City).where(City.id.in_(city_ids)))).scalars().all()}
 
+    # Flag applicants stuck in `under_review` with at least one rejected module
+    # so the admin list can label them "Under Review – Rejected Items" instead
+    # of plain "Under Review".
+    rejected_counts: dict = {}
+    user_ids = [u.id for u, _, _ in rows]
+    if user_ids:
+        rejected_rows = (await db.execute(
+            select(ModuleSubmission.user_id, func.count())
+            .where(
+                ModuleSubmission.user_id.in_(user_ids),
+                ModuleSubmission.status == ModuleSubmissionStatus.rejected,
+            )
+            .group_by(ModuleSubmission.user_id)
+        )).all()
+        rejected_counts = {uid: count for uid, count in rejected_rows}
+
     return [
         {
             "id": str(u.id), "full_name": u.full_name, "email": u.email,
@@ -138,6 +154,8 @@ async def list_applicants(db: AsyncSession = Depends(get_db), current_user: User
             "created_at": u.created_at,
             "submitted_at": review.submitted_at,
             "also_grant_role": profile.also_grant_role if profile else None,
+            "rejected_modules_count": rejected_counts.get(u.id, 0),
+            "has_rejected_modules": rejected_counts.get(u.id, 0) > 0,
         }
         for u, review, profile in rows
     ]

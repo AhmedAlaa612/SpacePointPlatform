@@ -12,11 +12,16 @@ const STATUS_FILTERS: { value: string; label: string }[] = [
   { value: "all", label: "All Statuses" },
   { value: "in_progress", label: "In Progress" },
   { value: "under_review", label: "Under Review" },
+  { value: "under_review_rejected", label: "Under Review — Rejected Items" },
   { value: "research_approved", label: "Research Approved" },
   { value: "phase_1_approved", label: "Phase 1 Approved" },
   { value: "approved", label: "Approved" },
   { value: "rejected", label: "Rejected" },
 ]
+
+export function applicantDisplayStatus(a: { status: string; has_rejected_modules?: boolean }) {
+  return a.status === "under_review" && a.has_rejected_modules ? "under_review_rejected" : a.status
+}
 
 export default function InstructorsAdminApplicants() {
   const navigate = useNavigate()
@@ -28,7 +33,8 @@ export default function InstructorsAdminApplicants() {
 
   const filtered = useMemo(() => {
     let rows = applicants ?? []
-    if (statusFilter !== "all") rows = rows.filter((a) => a.status === statusFilter)
+    if (statusFilter === "under_review_rejected") rows = rows.filter((a) => a.status === "under_review" && a.has_rejected_modules)
+    else if (statusFilter !== "all") rows = rows.filter((a) => a.status === statusFilter)
     const q = search.trim().toLowerCase()
     if (q) rows = rows.filter((a) => a.full_name.toLowerCase().includes(q) || a.email.toLowerCase().includes(q))
     return rows
@@ -115,7 +121,7 @@ export default function InstructorsAdminApplicants() {
                       <p className="text-xs text-muted-foreground mt-0.5 truncate max-w-[240px]">{a.email}</p>
                     </td>
                     <td className="py-3.5 px-4 text-muted-foreground">{a.city_of_residence || "—"}</td>
-                    <td className="py-3.5 px-4"><StatusPill status={a.status} /></td>
+                    <td className="py-3.5 px-4"><StatusPill status={applicantDisplayStatus(a)} /></td>
                     <td className="py-3.5 px-4 text-muted-foreground whitespace-nowrap">
                       {a.created_at ? new Date(a.created_at).toLocaleDateString() : "—"}
                     </td>
