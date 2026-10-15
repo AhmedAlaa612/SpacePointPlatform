@@ -56,9 +56,12 @@ export default function InstructorsAdminOverview() {
   if (loadingApplicants || loadingInvitations || loadingOverview) return <Spinner />
 
   const all = applicants ?? []
-  const totalStarted = all.length
-  const totalApproved = all.filter((a) => a.status === "approved").length
-  const totalRejected = all.filter((a) => a.status === "rejected").length
+  // Approved applicants are promoted to `instructor` (applicant role
+  // removed), so they vanish from the applicants list — prefer the
+  // role-independent backend counts, fall back to list filtering.
+  const totalStarted = overview?.total_applications ?? all.length
+  const totalApproved = overview?.approved_applications ?? all.filter((a) => a.status === "approved").length
+  const totalRejected = overview?.rejected_applications ?? all.filter((a) => a.status === "rejected").length
   const totalDraft = all.filter((a) => a.status === "in_progress").length
 
   type Invitation = NonNullable<typeof invitations>[number]

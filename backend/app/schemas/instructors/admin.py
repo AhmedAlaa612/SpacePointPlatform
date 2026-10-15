@@ -50,6 +50,13 @@ class AdminOverviewOut(BaseModel):
     total_applicants: int
     total_facilitators: int = 0
     active_users_30d: int = 0
+    # Pipeline counts from application_reviews (role-independent). The
+    # applicants list only contains users still holding the `applicant`
+    # role — final approval swaps it for `instructor`, so counting
+    # "approved" from that list always yields ~0.
+    total_applications: int = 0
+    approved_applications: int = 0
+    rejected_applications: int = 0
     university_distribution: List[DistributionEntry] = []
     city_distribution: List[DistributionEntry] = []
     signup_trend: List[SignupTrendEntry] = []

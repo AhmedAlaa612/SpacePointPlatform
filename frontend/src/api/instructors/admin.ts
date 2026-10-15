@@ -18,6 +18,9 @@ export interface AdminOverview {
   total_applicants: number
   total_facilitators: number
   active_users_30d: number
+  total_applications?: number
+  approved_applications?: number
+  rejected_applications?: number
   university_distribution: DistributionEntry[]
   city_distribution: DistributionEntry[]
   signup_trend: SignupTrendEntry[]

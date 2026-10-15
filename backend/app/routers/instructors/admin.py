@@ -104,10 +104,26 @@ async def overview(db: AsyncSession = Depends(get_db), current_user: User = Depe
     )).all()
     signup_trend = [{"month": month, "count": count} for month, count in trend_rows]
 
+    # Role-independent pipeline counts: approved applicants are promoted
+    # to `instructor` (applicant role removed), so they no longer appear
+    # in the applicants list — count from application_reviews instead.
+    total_applications = (await db.execute(
+        select(func.count()).select_from(ApplicationReview)
+    )).scalar_one()
+    approved_applications = (await db.execute(
+        select(func.count()).select_from(ApplicationReview).where(ApplicationReview.status == ApplicationStatus.approved)
+    )).scalar_one()
+    rejected_applications = (await db.execute(
+        select(func.count()).select_from(ApplicationReview).where(ApplicationReview.status == ApplicationStatus.rejected)
+    )).scalar_one()
+
     return AdminOverviewOut(
         pending_applications=pending_applications, pending_payment_signatures=pending_payment_signatures,
         total_instructors=total_instructors, total_applicants=total_applicants,
         total_facilitators=total_facilitators, active_users_30d=active_users_30d,
+        total_applications=total_applications,
+        approved_applications=approved_applications,
+        rejected_applications=rejected_applications,
         university_distribution=university_distribution, city_distribution=city_distribution,
         signup_trend=signup_trend,
     )
