@@ -331,3 +331,22 @@ async def test_7_delete_student_with_invite_code_and_media_consent(db, client):
     assert (await db.get(User, student_id)) is None
     assert (await db.get(Contact, contact_id)) is None
 
+
+@pytest.mark.asyncio
+async def test_8_admin_delete_normal_user_and_test_user(db, client):
+    """Case 8: Admin DELETE /admin/users/{id} works for both normal users and test users."""
+    admin_user = await _make_user(db, "admin.test@spacepoint.local", [UserRole.admin])
+    headers = _headers(admin_user)
+
+    # 1. Normal non-test user deletion via /admin/users/{id}
+    normal_user = await _make_user(db, "standard.applicant@example.com", [UserRole.student])
+    res_del_norm = await client.delete(f"/admin/users/{normal_user.id}", headers=headers)
+    assert res_del_norm.status_code == 200, res_del_norm.text
+
+    # 2. Test user deletion via /admin/users/{id} (delegates to cascade cleanup)
+    test_student = await _make_user(db, "cascade.target@spacepoint.local", [UserRole.student])
+    with patch("app.services.test_account_cleanup.purge_mailpit_messages", new_callable=AsyncMock):
+        res_del_test = await client.delete(f"/admin/users/{test_student.id}", headers=headers)
+        assert res_del_test.status_code == 200, res_del_test.text
+
+

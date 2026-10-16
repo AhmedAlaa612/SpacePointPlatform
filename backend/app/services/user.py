@@ -299,12 +299,14 @@ async def delete_user(db: AsyncSession, user_id: UUID):
     await db.execute(text("DELETE FROM team_members WHERE user_id = :uid"), {"uid": user_id})
     # Remove from task_assignees
     await db.execute(text("DELETE FROM task_assignees WHERE user_id = :uid"), {"uid": user_id})
-    # Unlink website_events created_by_user_id
-    await db.execute(text("UPDATE website_events SET created_by_user_id = NULL WHERE created_by_user_id = :uid"), {"uid": user_id})
+    has_website_events = (await db.execute(text("SELECT to_regclass('public.website_events')"))).scalar() is not None
+    if has_website_events:
+        await db.execute(text("UPDATE website_events SET created_by_user_id = NULL WHERE created_by_user_id = :uid"), {"uid": user_id})
     # Unlink or delete owned organizations if no cohorts reference them
     owned_orgs = (await db.execute(text("SELECT id FROM organizations WHERE owner_user_id = :uid"), {"uid": user_id})).all()
     for (oid,) in owned_orgs:
-        await db.execute(text("UPDATE website_events SET organization_id = NULL WHERE organization_id = :oid"), {"oid": oid})
+        if has_website_events:
+            await db.execute(text("UPDATE website_events SET organization_id = NULL WHERE organization_id = :oid"), {"oid": oid})
         await db.execute(text("UPDATE contacts SET organization_id = NULL WHERE organization_id = :oid"), {"oid": oid})
         cohort_cnt = (await db.execute(text("SELECT COUNT(*) FROM cohorts WHERE organization_id = :oid"), {"oid": oid})).scalar_one()
         if cohort_cnt == 0:
