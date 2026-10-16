@@ -306,7 +306,6 @@ function getNavItems(pathname: string, activeRole: Role | null): NavItem[] {
       mk("Learn", "/learn"),
       mk("Settings", "/admin/settings"),
       mk("Operations", "/operations/dashboard"),
-      MENTORS_GROUP,
     ];
   }
   if (pathname.startsWith("/ambassadors")) {
