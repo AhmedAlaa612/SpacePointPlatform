@@ -62,6 +62,21 @@ services:
       timeout: 3s
       retries: 10
 
+  # ── Mailpit (Local catch-all SMTP & Web UI for @spacepoint.local) ─────────
+  mailpit:
+    image: axllent/mailpit:latest
+    ports:
+      - "1025:1025"
+      - "8025:8025"
+    environment:
+      MP_MAX_MESSAGES: 500
+      MP_UI_AUTH: "spacepoint:spacepoint"
+    healthcheck:
+      test: ["CMD", "/mailpit", "readyz"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
   # ── API ────────────────────────────────────────────────────────────────────
   api:
     build:
@@ -81,6 +96,11 @@ services:
       CORS_ORIGINS: http://localhost:5173
       FRONTEND_URL: http://localhost:5173
       BASE_URL: http://localhost:8000
+      TEST_EMAIL_DOMAIN: spacepoint.local
+      LOCAL_SMTP_HOST: mailpit
+      LOCAL_SMTP_PORT: 1025
+      MAILPIT_API_URL: http://mailpit:8025
+      MP_UI_AUTH: spacepoint:spacepoint
     ports:
       - "8000:8000"
     volumes:
@@ -116,6 +136,11 @@ services:
       REDIS_URL: redis://redis:6379/0
       STORAGE_BACKEND: local
       STORAGE_ROOT: /data/storage
+      TEST_EMAIL_DOMAIN: spacepoint.local
+      LOCAL_SMTP_HOST: mailpit
+      LOCAL_SMTP_PORT: 1025
+      MAILPIT_API_URL: http://mailpit:8025
+      MP_UI_AUTH: spacepoint:spacepoint
     volumes:
       - ./backend:/app
       - api-storage:/data/storage

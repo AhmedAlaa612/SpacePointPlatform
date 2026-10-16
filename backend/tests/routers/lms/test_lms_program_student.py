@@ -157,7 +157,7 @@ async def test_list_and_detail_report_progress(db, client):
     detail = await client.get(f"/lms/programs/{assignment.id}", headers=_headers(student))
     assert detail.status_code == 200
     body = detail.json()
-    assert body["name"] == "Endpoint Test Checklist"
+    assert body["name"] == "Checklist Student Program — Checklist Student Cohort"
     assert len(body["items"]) == 2
     assert body["items"][0]["item_type"] == "course" and body["items"][0]["status"] == "pending"
     assert body["items"][1]["item_type"] == "manual" and body["items"][1]["status"] == "pending"

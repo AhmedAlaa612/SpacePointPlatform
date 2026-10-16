@@ -34,14 +34,26 @@ async def send_email(
     used for CID-embedded images in HTML email, e.g.
     {"ticket": (png_bytes, "image", "png")}.
     """
-    if not settings.SMTP_USER or not settings.SMTP_PASSWORD:
+    is_local_test = settings.is_test_email(to)
+
+    if not is_local_test and (not settings.SMTP_USER or not settings.SMTP_PASSWORD):
         raise RuntimeError("SMTP_USER and SMTP_PASSWORD must be set")
 
     message = _build_message(to, subject, body, html, attachments, inline_images)
 
-    message["From"] = settings.SMTP_FROM or settings.SMTP_USER
+    message["From"] = settings.SMTP_FROM or settings.SMTP_USER or f"SpacePoint <noreply@{settings.TEST_EMAIL_DOMAIN}>"
     message["To"] = to
     message["Subject"] = subject
+
+    if is_local_test:
+        await aiosmtplib.send(
+            message,
+            hostname=settings.LOCAL_SMTP_HOST,
+            port=settings.LOCAL_SMTP_PORT,
+            use_tls=False,
+            start_tls=False,
+        )
+        return
 
     use_tls = settings.SMTP_PORT == 465
     start_tls = settings.SMTP_PORT == 587 or (not use_tls and settings.SMTP_PORT != 25)

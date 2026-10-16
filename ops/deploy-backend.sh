@@ -161,6 +161,20 @@ else
 fi
 [ "$CHECK_ONLY" -eq 1 ] && { echo "==> --check only; nothing changed."; exit 0; }
 
+# ── Ensure spacepoint-mailpit is running ────────────────────────────────────
+if ! docker ps --filter name=spacepoint-mailpit --filter status=running | grep -q spacepoint-mailpit; then
+  echo "==> Starting spacepoint-mailpit..."
+  docker start spacepoint-mailpit 2>/dev/null || \
+    docker run -d --name spacepoint-mailpit \
+      --restart unless-stopped \
+      -p 127.0.0.1:1025:1025 \
+      -p 127.0.0.1:8025:8025 \
+      --env-file "$ENV_FILE" \
+      -e MP_DATABASE=/data/mailpit.db \
+      -v /var/lib/spacepoint/mailpit:/data \
+      axllent/mailpit:latest
+fi
+
 # ── Pull ────────────────────────────────────────────────────────────────────
 echo "==> Pulling $IMAGE ..."
 docker pull "$IMAGE"

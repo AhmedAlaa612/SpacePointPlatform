@@ -138,6 +138,10 @@ async def update_user(id: UUID, user_in: UserUpdate, db: AsyncSession = Depends(
 
 @router.delete("/{id}")
 async def delete_user(id: UUID, db: AsyncSession = Depends(get_db), current_user: User = Depends(require_admin)):
+    target = await user_service.get_user_by_id(db, id)
+    if settings.is_test_email(target.email) and "admin" not in target.role_values:
+        from app.services.test_account_cleanup import cascade_delete_test_account
+        return await cascade_delete_test_account(db, user_id=id)
     return await user_service.delete_user(db, id)
 
 

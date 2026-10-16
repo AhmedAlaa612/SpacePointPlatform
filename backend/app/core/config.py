@@ -1,4 +1,10 @@
+import email_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+# Allow @spacepoint.local (and any *.local test address) through Pydantic's
+# EmailStr validator across all signup, login, and public registration schemas.
+if "local" in email_validator.SPECIAL_USE_DOMAIN_NAMES:
+    email_validator.SPECIAL_USE_DOMAIN_NAMES.remove("local")
 
 
 class Settings(BaseSettings):
@@ -88,6 +94,19 @@ class Settings(BaseSettings):
     SMTP_USER: str = ""
     SMTP_PASSWORD: str = ""
     SMTP_FROM: str = ""  # e.g. "SpacePoint <noreply@spacepoint.ae>"
+
+    # Local Catch-All Test Email Routing (@spacepoint.local -> Mailpit)
+    TEST_EMAIL_DOMAIN: str = "spacepoint.local"
+    LOCAL_SMTP_HOST: str = "127.0.0.1"
+    LOCAL_SMTP_PORT: int = 1025
+    MAILPIT_API_URL: str = "http://127.0.0.1:8025"
+    MP_UI_AUTH: str = ""
+
+    def is_test_email(self, email: str | None) -> bool:
+        if not email:
+            return False
+        domain = self.TEST_EMAIL_DOMAIN.strip().lower().lstrip("@")
+        return email.strip().lower().endswith(f"@{domain}")
 
     # App
     BASE_URL: str = "http://localhost:8000"
