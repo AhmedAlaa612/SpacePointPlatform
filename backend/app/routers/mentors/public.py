@@ -30,6 +30,10 @@ from app.schemas.mentors import (
 )
 from app.schemas.user import UserCreate
 from app.services import user as user_service
+from app.services.email import (
+    send_mentee_booking_confirmation_email,
+    send_mentor_booking_notification_email,
+)
 from app.services.spine.identity import normalize_user_email, user_email_matches
 from app.routers.mentors.operations import _generate_unique_mentor_slug
 
@@ -331,6 +335,7 @@ async def book_mentor_session(
         mentor_id=mentor.id,
         mentee_name=body.mentee_name.strip(),
         mentee_email=body.mentee_email.strip().lower(),
+        affiliation=body.affiliation.strip() if body.affiliation and body.affiliation.strip() else None,
         topics=body.topics.strip(),
         booking_type=body.booking_type,
         scheduled_start=body.scheduled_start,
@@ -345,11 +350,39 @@ async def book_mentor_session(
     await db.commit()
     await db.refresh(booking)
 
+    # Best-effort notifications — the booking itself already succeeded, so an
+    # SMTP failure must never turn this into a 500 (mentors rarely log in
+    # unprompted; the email is what actually brings them to the request).
+    mentor_name = mentor.user.full_name if mentor.user else "Space Mentor"
+    mentor_recipient = (mentor.contact_email or (mentor.user.email if mentor.user else None) or "").strip()
+    when_label = booking.scheduled_start.strftime("%a, %b %d, %Y at %I:%M %p UTC") if booking.scheduled_start else None
+    if mentor_recipient:
+        await send_mentor_booking_notification_email(
+            to_email=mentor_recipient,
+            mentor_name=mentor_name,
+            mentee_name=booking.mentee_name,
+            mentee_email=booking.mentee_email,
+            affiliation=booking.affiliation,
+            topics=booking.topics,
+            booking_type=booking.booking_type,
+            scheduled_start=when_label,
+        )
+    await send_mentee_booking_confirmation_email(
+        to_email=booking.mentee_email,
+        mentee_name=booking.mentee_name,
+        mentor_name=mentor_name,
+        topics=booking.topics,
+        booking_type=booking.booking_type,
+        scheduled_start=when_label,
+        meet_url=booking.google_meet_url,
+    )
+
     return MentorBookingOut(
         id=booking.id,
         mentor_id=booking.mentor_id,
         mentee_name=booking.mentee_name,
         mentee_email=booking.mentee_email,
+        affiliation=booking.affiliation,
         topics=booking.topics,
         booking_type=booking.booking_type,
         scheduled_start=booking.scheduled_start,

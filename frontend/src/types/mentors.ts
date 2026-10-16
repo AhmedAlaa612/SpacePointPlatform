@@ -60,6 +60,7 @@ export interface MentorBooking {
   mentor_id: string;
   mentee_name: string;
   mentee_email: string;
+  affiliation?: string | null;
   topics: string;
   booking_type: "session" | "inquiry";
   scheduled_start?: string | null;

@@ -174,6 +174,7 @@ class MentorBooking(Base):
     )
     mentee_name = Column(String(150), nullable=False)
     mentee_email = Column(String(255), nullable=False)
+    affiliation = Column(String(255), nullable=True)
     topics = Column(Text, nullable=False)
 
     # "session" (Calendar booking) or "inquiry" (Email contact)

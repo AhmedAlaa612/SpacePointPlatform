@@ -30,6 +30,7 @@ export default function PublicDirectory() {
   const [contactingMentor, setContactingMentor] = useState<MentorProfile | null>(null)
   const [senderName, setSenderName] = useState<string>("")
   const [senderEmail, setSenderEmail] = useState<string>("")
+  const [senderAffiliation, setSenderAffiliation] = useState<string>("")
   const [messageTopic, setMessageTopic] = useState<string>("")
   const [sendingInquiry, setSendingInquiry] = useState<boolean>(false)
   const [inquirySuccess, setInquirySuccess] = useState<boolean>(false)
@@ -84,6 +85,7 @@ export default function PublicDirectory() {
       await bookMentorSession(contactingMentor.slug, {
         mentee_name: senderName,
         mentee_email: senderEmail,
+        affiliation: senderAffiliation.trim() || null,
         topics: messageTopic,
         booking_type: "inquiry",
       })
@@ -99,6 +101,7 @@ export default function PublicDirectory() {
     setContactingMentor(null)
     setSenderName("")
     setSenderEmail("")
+    setSenderAffiliation("")
     setMessageTopic("")
     setInquirySuccess(false)
     setInquiryError(null)
@@ -448,6 +451,17 @@ export default function PublicDirectory() {
                     placeholder="sarah@spaceorg.ae"
                     value={senderEmail}
                     onChange={(e) => setSenderEmail(e.target.value)}
+                    className="w-full h-10 px-3.5 rounded-xl border border-border bg-background text-foreground text-xs focus:outline-none focus:border-primary transition-colors"
+                  />
+                </div>
+
+                <div className="space-y-1.5">
+                  <label className="text-xs font-semibold text-foreground">Affiliation / Organization</label>
+                  <input
+                    type="text"
+                    placeholder="e.g. Khalifa University, Startup, Space Agency"
+                    value={senderAffiliation}
+                    onChange={(e) => setSenderAffiliation(e.target.value)}
                     className="w-full h-10 px-3.5 rounded-xl border border-border bg-background text-foreground text-xs focus:outline-none focus:border-primary transition-colors"
                   />
                 </div>

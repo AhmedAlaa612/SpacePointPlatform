@@ -341,6 +341,7 @@ async def get_my_bookings(
             mentor_id=b.mentor_id,
             mentee_name=b.mentee_name,
             mentee_email=b.mentee_email,
+            affiliation=b.affiliation,
             topics=b.topics,
             booking_type=b.booking_type,
             scheduled_start=b.scheduled_start,

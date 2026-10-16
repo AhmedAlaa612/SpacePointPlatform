@@ -1210,6 +1210,9 @@ export default function MentorSettings({ initialTab = "profile" }: MentorSetting
 
                     <p className="text-xs text-muted-foreground">
                       Contact: <span className="text-foreground/90 font-medium">{booking.mentee_email}</span>
+                      {booking.affiliation && (
+                        <> · <span className="text-foreground/90 font-medium">{booking.affiliation}</span></>
+                      )}
                       {booking.scheduled_start && (
                         <> · Scheduled: <span className="text-foreground/90 font-medium">{new Date(booking.scheduled_start).toLocaleString()}</span></>
                       )}

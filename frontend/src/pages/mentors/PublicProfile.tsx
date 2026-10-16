@@ -73,6 +73,7 @@ export default function PublicProfile() {
   const [bookingModalOpen, setBookingModalOpen] = useState<boolean>(false)
   const [menteeName, setMenteeName] = useState<string>("")
   const [menteeEmail, setMenteeEmail] = useState<string>("")
+  const [menteeAffiliation, setMenteeAffiliation] = useState<string>("")
   const [topics, setTopics] = useState<string>("")
   const [bookingSuccess, setBookingSuccess] = useState<MentorBooking | null>(null)
   const [submitting, setSubmitting] = useState<boolean>(false)
@@ -82,6 +83,7 @@ export default function PublicProfile() {
   const [contactModalOpen, setContactModalOpen] = useState<boolean>(false)
   const [inquiryName, setInquiryName] = useState<string>("")
   const [inquiryEmail, setInquiryEmail] = useState<string>("")
+  const [inquiryAffiliation, setInquiryAffiliation] = useState<string>("")
   const [inquiryMessage, setInquiryMessage] = useState<string>("")
   const [inquirySending, setInquirySending] = useState<boolean>(false)
   const [inquirySuccess, setInquirySuccess] = useState<boolean>(false)
@@ -165,6 +167,7 @@ export default function PublicProfile() {
       const res = await bookMentorSession(slug, {
         mentee_name: menteeName,
         mentee_email: menteeEmail,
+        affiliation: menteeAffiliation.trim() || null,
         topics: topics,
         booking_type: mentor?.contact_mode === "calendar" ? "session" : "inquiry",
         scheduled_start: selectedSlot ? selectedSlot.start : null,
@@ -189,6 +192,7 @@ export default function PublicProfile() {
       await bookMentorSession(slug, {
         mentee_name: inquiryName,
         mentee_email: inquiryEmail,
+        affiliation: inquiryAffiliation.trim() || null,
         topics: inquiryMessage,
         booking_type: "inquiry",
         scheduled_start: null,
@@ -717,6 +721,19 @@ export default function PublicProfile() {
 
                 <div className="space-y-1.5">
                   <label className="text-xs font-semibold text-foreground">
+                    Affiliation / Organization
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="e.g. Khalifa University, Startup, Space Agency"
+                    value={menteeAffiliation}
+                    onChange={(e) => setMenteeAffiliation(e.target.value)}
+                    className="w-full h-10 px-3.5 rounded-xl border border-border bg-background text-foreground text-xs focus:outline-none focus:border-primary transition-colors"
+                  />
+                </div>
+
+                <div className="space-y-1.5">
+                  <label className="text-xs font-semibold text-foreground">
                     Discussion Scope / Technical Questions <span className="text-destructive">*</span>
                   </label>
                   <textarea
@@ -825,6 +842,17 @@ export default function PublicProfile() {
                     placeholder="sarah@spaceorg.ae"
                     value={inquiryEmail}
                     onChange={(e) => setInquiryEmail(e.target.value)}
+                    className="w-full h-10 px-3.5 rounded-xl border border-border bg-background text-foreground text-xs focus:outline-none focus:border-primary transition-colors"
+                  />
+                </div>
+
+                <div className="space-y-1.5">
+                  <label className="text-xs font-semibold text-foreground">Affiliation / Organization</label>
+                  <input
+                    type="text"
+                    placeholder="e.g. Khalifa University, Startup, Space Agency"
+                    value={inquiryAffiliation}
+                    onChange={(e) => setInquiryAffiliation(e.target.value)}
                     className="w-full h-10 px-3.5 rounded-xl border border-border bg-background text-foreground text-xs focus:outline-none focus:border-primary transition-colors"
                   />
                 </div>

@@ -430,6 +430,98 @@ async def send_recommendation_letter_email(to_email: str, name: str) -> bool:
     return await try_send_email(to_email, "Your SpacePoint Recommendation Letter", body)
 
 
+async def send_mentor_booking_notification_email(
+    *,
+    to_email: str,
+    mentor_name: str,
+    mentee_name: str,
+    mentee_email: str,
+    affiliation: str | None,
+    topics: str,
+    booking_type: str,
+    scheduled_start: str | None = None,
+) -> bool:
+    """Notify a mentor that someone booked a session or sent an inquiry.
+
+    Mentors rarely log into the portal unprompted, so an in-app bookings row
+    alone goes unseen — this is the nudge that actually brings them in.
+    Best-effort: returns False (never raises) when SMTP is down/unconfigured.
+    """
+    is_session = booking_type == "session"
+    kind_label = "New 1-on-1 session booking" if is_session else "New mentorship inquiry"
+    lines = [
+        f"Hi {mentor_name},",
+        "",
+        f"You have a {kind_label} on SpacePoint:",
+        "",
+        f"From: {mentee_name} ({mentee_email})",
+        f"Affiliation: {affiliation or '—'}",
+    ]
+    if scheduled_start:
+        lines.append(f"Scheduled: {scheduled_start}")
+    lines += [
+        "",
+        "Discussion scope:" if is_session else "Message:",
+        topics or "—",
+        "",
+        f"Review and manage it here: {settings.FRONTEND_URL}/mentor/sessions",
+        "",
+        "— SpacePoint",
+    ]
+    return await try_send_email(to_email, f"SpacePoint Mentorship — {kind_label}", "\n".join(lines))
+
+
+async def send_mentee_booking_confirmation_email(
+    *,
+    to_email: str,
+    mentee_name: str,
+    mentor_name: str,
+    topics: str,
+    booking_type: str,
+    scheduled_start: str | None = None,
+    meet_url: str | None = None,
+) -> bool:
+    """Confirm receipt to the person who booked / sent the inquiry.
+
+    Makes the booking modal's "join instructions have been emailed" copy true
+    for sessions: the Meet link is included when the mentor has one configured.
+    Best-effort — never raises.
+    """
+    is_session = booking_type == "session"
+    if is_session:
+        lines = [
+            f"Hi {mentee_name},",
+            "",
+            f"Your 1-on-1 mentorship session with {mentor_name} is confirmed.",
+            "",
+        ]
+        if scheduled_start:
+            lines.append(f"When: {scheduled_start}")
+        if meet_url:
+            lines += ["", f"Join via Google Meet: {meet_url}"]
+        lines += [
+            "",
+            "Your discussion scope:",
+            topics or "—",
+            "",
+            f"The mentor will confirm details if needed. — SpacePoint",
+        ]
+        subject = f"Session confirmed with {mentor_name} — SpacePoint Mentorship"
+    else:
+        lines = [
+            f"Hi {mentee_name},",
+            "",
+            f"Your inquiry to {mentor_name} has been received — they will reply to this email address shortly.",
+            "",
+            "Your message:",
+            topics or "—",
+            "",
+            "— SpacePoint",
+        ]
+        subject = f"Inquiry sent to {mentor_name} — SpacePoint Mentorship"
+    return await try_send_email(to_email, subject, "\n".join(lines))
+
+
 def _get_first_name(full_name: str) -> str:
     if not full_name:
         return "there"

@@ -160,6 +160,7 @@ class AvailableSlotOut(BaseModel):
 class MentorBookIn(BaseModel):
     mentee_name: str
     mentee_email: EmailStr
+    affiliation: str | None = None
     topics: str
     scheduled_start: datetime | None = None  # Required if booking_type == 'session'
     booking_type: Literal["session", "inquiry"] = "session"
@@ -172,6 +173,7 @@ class MentorBookingOut(BaseModel):
     mentor_id: UUID
     mentee_name: str
     mentee_email: str
+    affiliation: str | None = None
     topics: str
     booking_type: str
     scheduled_start: datetime | None = None

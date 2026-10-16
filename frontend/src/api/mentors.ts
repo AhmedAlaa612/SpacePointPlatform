@@ -46,6 +46,7 @@ export async function getMentorAvailableSlots(slug: string, date: string, tz?: s
 export interface BookMentorInput {
   mentee_name: string;
   mentee_email: string;
+  affiliation?: string | null;
   topics: string;
   scheduled_start?: string | null;
   booking_type?: "session" | "inquiry";
