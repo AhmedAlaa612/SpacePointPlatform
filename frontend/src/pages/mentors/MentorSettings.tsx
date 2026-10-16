@@ -20,7 +20,7 @@ import { Spinner, EmptyState } from "@/components/ui/primitives"
 import { Button } from "@/components/ui/button"
 import { ImageCropModal } from "@/components/ui/ImageCropModal"
 import { cn } from "@/lib/utils"
-import { Plus, Trash2, Clock, CheckCircle2, AlertCircle, Eye, ArrowLeft, Camera, Upload, Mail } from "lucide-react"
+import { Trash2, CheckCircle2, AlertCircle, Eye, ArrowLeft, Camera, Mail } from "lucide-react"
 import { LinkedInIcon } from "@/components/icons/LinkedInIcon"
 
 function getCountryFlag(countryCode?: string | null) {
@@ -32,7 +32,6 @@ function getCountryFlag(countryCode?: string | null) {
   return String.fromCodePoint(...codePoints)
 }
 
-const DAYS_OF_WEEK = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
 const DAYS_SHORT = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
 
 const CLIENT_TIMEZONE = (() => {
@@ -144,7 +143,6 @@ interface MentorSettingsProps {
 export default function MentorSettings({ initialTab = "profile" }: MentorSettingsProps) {
   const [profile, setProfile] = useState<MentorProfile | null>(null)
   const [domains, setDomains] = useState<MentorDomain[]>([])
-  const [availabilities, setAvailabilities] = useState<MentorAvailability[]>([])
   const [bookings, setBookings] = useState<MentorBooking[]>([])
 
   const [loading, setLoading] = useState<boolean>(true)
@@ -290,7 +288,6 @@ export default function MentorSettings({ initialTab = "profile" }: MentorSetting
           getMyAvailability(),
           getMyMentorBookings(),
         ])
-        setAvailabilities(myAvails)
         const parsedGrid = parseAvailabilitiesToGrid(myAvails)
         setSelectedGridSlots(parsedGrid)
         setInitialGridSlots(new Set(parsedGrid))
@@ -319,13 +316,6 @@ export default function MentorSettings({ initialTab = "profile" }: MentorSetting
     }
     reader.readAsDataURL(file)
     e.target.value = ""
-  }
-
-  const handleOpenCropCurrent = () => {
-    if (photoUrl) {
-      setRawImageSrc(photoUrl)
-      setCropModalOpen(true)
-    }
   }
 
   const handleCropComplete = async (croppedFile: File) => {
@@ -543,7 +533,6 @@ export default function MentorSettings({ initialTab = "profile" }: MentorSetting
       setMsg(null)
       const intervals = convertGridToAvailabilities(selectedGridSlots)
       const saved = await setMyAvailability(intervals)
-      setAvailabilities(saved)
       const newGrid = parseAvailabilitiesToGrid(saved)
       setSelectedGridSlots(newGrid)
       setInitialGridSlots(new Set(newGrid))

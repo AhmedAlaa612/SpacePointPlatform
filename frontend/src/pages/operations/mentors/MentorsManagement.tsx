@@ -276,10 +276,8 @@ export default function MentorsManagement({ initialTab = "roster" }: MentorsMana
             />
           ) : (
             <div className="flex flex-col gap-5">
-              {roster.map((mentor) => {
-                const initial = mentor.user_full_name?.charAt(0).toUpperCase() || "M"
-                return (
-                  <div
+              {roster.map((mentor) => (
+                <div
                     key={mentor.id}
                     className="rounded-2xl border border-border bg-card p-5 sm:p-6 shadow-sm hover:border-primary/50 transition-all duration-300 flex flex-col lg:flex-row gap-6 justify-between items-start"
                   >
@@ -454,8 +452,7 @@ export default function MentorsManagement({ initialTab = "roster" }: MentorsMana
                       </div>
                     </div>
                   </div>
-                )
-              })}
+                ))}
             </div>
           )}
         </div>
@@ -487,10 +484,8 @@ export default function MentorsManagement({ initialTab = "roster" }: MentorsMana
             />
           ) : (
             <div className="flex flex-col gap-5">
-              {applications.map((app) => {
-                const initial = app.user_full_name?.charAt(0).toUpperCase() || "M"
-                return (
-                  <div
+              {applications.map((app) => (
+                <div
                     key={app.id}
                     className="rounded-2xl border border-border bg-card p-5 sm:p-6 shadow-sm hover:border-primary/50 transition-all duration-300 flex flex-col lg:flex-row gap-6 justify-between items-start"
                   >
@@ -605,8 +600,7 @@ export default function MentorsManagement({ initialTab = "roster" }: MentorsMana
                       </div>
                     </div>
                   </div>
-                )
-              })}
+                ))}
             </div>
           )}
         </div>
