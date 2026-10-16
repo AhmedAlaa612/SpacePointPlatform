@@ -41,11 +41,13 @@ from app.models.instructors.instructor_profile import InstructorProfile
 from app.models.instructors.video_submission import VideoSubmission
 from app.models.instructors.application_review import ApplicationReview
 from app.services.instructors.application_videos import get_configured_videos
+from app.models.instructors.invitation_code import InvitationCode
+from app.models.lms.invite_grant import UserInvitationCode
 from app.schemas.user import InstructorApply
 from app.services.documents.card_id import format_card_id
 from app.services.documents.id_card import ensure_card_number
 from app.services.invitations import resolve_invite_code
-from app.services.lms.invite_grants import apply_invite_code_grants_to_new_user
+from app.services.lms.invite_grants import apply_invite_code_grants_to_new_user, redeem_invite_code
 from app.services.lms.ops_integration import send_set_password_email
 from app.services.nicknames import assign_nickname, reroll_nickname
 from app.services.notification import create_notification as notify
@@ -121,8 +123,43 @@ async def _user_out(db: AsyncSession, user: User, profile: ApplicantProfile | No
             select(Organization).where(Organization.owner_user_id == user.id)
         )
     ).scalars().first()
-    if org is None and contact and contact.organization_id:
-        org = await db.get(Organization, contact.organization_id)
+    code_rows = (
+        await db.execute(
+            select(
+                UserInvitationCode.code,
+                InvitationCode.label,
+                InvitationCode.kind,
+                UserInvitationCode.redeemed_at,
+            )
+            .outerjoin(
+                InvitationCode,
+                InvitationCode.id == UserInvitationCode.invitation_code_id,
+            )
+            .where(UserInvitationCode.user_id == user.id)
+            .order_by(UserInvitationCode.redeemed_at.desc())
+        )
+    ).all()
+    invitation_codes_used = [
+        {
+            "code": r.code,
+            "label": r.label,
+            "kind": r.kind or "student",
+            "redeemed_at": r.redeemed_at,
+        }
+        for r in code_rows
+    ]
+    if not invitation_codes_used and user.invitation_code_used:
+        ic = (await db.execute(
+            select(InvitationCode).where(InvitationCode.code == user.invitation_code_used)
+        )).scalars().first()
+        invitation_codes_used = [
+            {
+                "code": user.invitation_code_used,
+                "label": ic.label if ic else None,
+                "kind": ic.kind if ic else "student",
+                "redeemed_at": user.created_at or datetime.now(timezone.utc),
+            }
+        ]
 
     return {
         "id": str(user.id),
@@ -139,6 +176,7 @@ async def _user_out(db: AsyncSession, user: User, profile: ApplicantProfile | No
         "nickname": user.nickname,
         "avatar": user.avatar,
         "invitation_code_used": user.invitation_code_used,
+        "invitation_codes_used": invitation_codes_used,
         "created_at": user.created_at,
         # SP-0000 identity number, shared across every role this person holds
         # (services/documents/id_card.py). Was entirely missing from this
@@ -338,13 +376,8 @@ async def student_signup(data: StudentSignupRequest, request: Request, db: Async
     await assign_nickname(db, user)
     await ensure_card_number(db, user)
 
-    if invitation:
-        invitation.used_count += 1
-        # Invite-code course/path grants (2026-08-21) — a school/cohort batch
-        # code can carry a standing "free access" list; a brand-new signup
-        # gets it immediately, same as an existing holder does the moment
-        # ops attaches the grant (services/lms/invite_grants.py).
-        await apply_invite_code_grants_to_new_user(db, user_id=user.id, invitation_code_id=invitation.id)
+    if code:
+        await redeem_invite_code(db, user=user, code_str=code, allow_ambassador=True)
     if referred_by_ambassador_id:
         await notify(db, referred_by_ambassador_id, "New Student Signup",
                      f"{data.full_name} signed up as a student with your invite code.", type="student")

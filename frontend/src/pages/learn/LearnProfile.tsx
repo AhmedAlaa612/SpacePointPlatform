@@ -2,7 +2,7 @@ import { useRef, useState } from "react";
 import { useNavigate } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { isAxiosError } from "axios";
-import { Award, CheckCircle2, Download, LogOut, Pencil, RefreshCw, Upload, Users } from "lucide-react";
+import { Award, CheckCircle2, Download, LogOut, Pencil, Plus, RefreshCw, Upload, Users } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
 import { changePassword, fetchMe, rerollNicknameApi, updateMeApi, updatePhotoApi } from "@/api/auth";
 import { fetchMyActivity, fetchMyCertificates, fetchMyCourses } from "@/api/lms";
@@ -17,7 +17,9 @@ import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "
 import { StatTile } from "@/components/ProfileStatsCards";
 import { EmptyState } from "@/components/ui/primitives";
 import { ImageCropModal } from "@/components/ui/ImageCropModal";
+import { cn } from "@/lib/utils";
 import { CourseProgress } from "./CourseProgress";
+import { RedeemInviteModal } from "./components/RedeemInviteModal";
 
 function errorDetail(err: unknown, fallback: string): string {
   if (isAxiosError(err) && typeof err.response?.data?.detail === "string") return err.response.data.detail;
@@ -37,6 +39,7 @@ export default function LearnProfile() {
   const queryClient = useQueryClient();
   const [editOpen, setEditOpen] = useState(false);
   const [pwOpen, setPwOpen] = useState(false);
+  const [redeemOpen, setRedeemOpen] = useState(false);
   const [rerollError, setRerollError] = useState<string | null>(null);
 
   const { data: me } = useQuery({ queryKey: ["me"], queryFn: fetchMe, initialData: currentUser ?? undefined });
@@ -76,7 +79,16 @@ export default function LearnProfile() {
         <div className="flex-1 min-w-0 flex flex-col gap-1.5">
           <div className="flex items-center gap-2.5 flex-wrap">
             <div className="font-display text-2xl font-bold tracking-tight">{me.full_name}</div>
-            <span className="text-[11px] font-semibold px-2.5 py-1 rounded-full bg-primary/10 text-primary">Student</span>
+            <span
+              className={cn(
+                "text-[11px] font-semibold px-2.5 py-1 rounded-full",
+                me.roles?.includes("observer")
+                  ? "bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border border-indigo-500/20"
+                  : "bg-primary/10 text-primary",
+              )}
+            >
+              {me.roles?.includes("observer") ? "Observer" : "Student"}
+            </span>
           </div>
           <div className="text-sm text-muted-foreground">{me.email}</div>
           {me.nickname && (
@@ -253,6 +265,41 @@ export default function LearnProfile() {
             {memberSince && <AccountField label="Member since" value={memberSince} />}
           </div>
           <div className="h-px bg-border" />
+          <div className="flex flex-col gap-2">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Invite codes</span>
+              <button
+                type="button"
+                onClick={() => setRedeemOpen(true)}
+                className="text-xs font-medium text-primary hover:opacity-80 inline-flex items-center gap-1 cursor-pointer"
+              >
+                <Plus className="size-3" /> Redeem code
+              </button>
+            </div>
+            {(() => {
+              const codes = (me.invitation_codes_used && me.invitation_codes_used.length > 0)
+                ? me.invitation_codes_used.map((c) => c.code)
+                : me.invitation_code_used
+                ? [me.invitation_code_used]
+                : [];
+              if (codes.length === 0) {
+                return <span className="text-xs text-muted-foreground italic">None redeemed yet</span>;
+              }
+              return (
+                <div className="flex flex-wrap gap-1.5 pt-0.5">
+                  {codes.map((code) => (
+                    <span
+                      key={code}
+                      className="font-mono text-xs font-semibold px-2 py-0.5 rounded-md bg-primary/10 text-primary border border-primary/20"
+                    >
+                      {code}
+                    </span>
+                  ))}
+                </div>
+              );
+            })()}
+          </div>
+          <div className="h-px bg-border" />
           <div className="flex items-center justify-between">
             <button onClick={() => setPwOpen(true)} className="text-sm font-medium text-primary hover:opacity-80 cursor-pointer text-left">
               Change password
@@ -266,6 +313,15 @@ export default function LearnProfile() {
 
       <EditProfileDialog open={editOpen} onOpenChange={setEditOpen} />
       <ChangePasswordDialog open={pwOpen} onOpenChange={setPwOpen} />
+      <RedeemInviteModal
+        open={redeemOpen}
+        onOpenChange={setRedeemOpen}
+        onSuccess={() => {
+          void queryClient.invalidateQueries({ queryKey: ["me"] });
+          void queryClient.invalidateQueries({ queryKey: ["lms-my-checklists"] });
+          void queryClient.invalidateQueries({ queryKey: ["lms-my-courses"] });
+        }}
+      />
     </div>
   );
 }

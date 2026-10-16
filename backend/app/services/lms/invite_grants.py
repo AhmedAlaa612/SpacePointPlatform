@@ -13,14 +13,17 @@ import uuid
 from datetime import datetime, timezone
 
 from fastapi import HTTPException
-from sqlalchemy import select
+from sqlalchemy import or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.models.enums import UserRole
 from app.models.instructors.invitation_code import InvitationCode
-from app.models.lms.invite_grant import InvitationCodeGrant
+from app.models.lms.invite_grant import InvitationCodeGrant, UserInvitationCode
 from app.models.lms.learning_path import LearningPathStep
+from app.models.lms.program import LmsProgramAssignment
 from app.models.sessions.cohort import Cohort
 from app.models.user import User
+from app.services.invitations import resolve_invite_code
 from app.services.lms.enrollment import enroll
 from app.services.lms.ops_integration import sync_registration_lms
 from app.services.sessions.registration import register
@@ -98,6 +101,84 @@ async def apply_invite_code_grants_to_new_user(db: AsyncSession, *, user_id: uui
         await _apply_grant(db, user_id=user_id, grant=grant)
 
 
+async def redeem_invite_code(
+    db: AsyncSession,
+    *,
+    user: User,
+    code_str: str,
+    allow_ambassador: bool = False,
+) -> tuple[InvitationCode | None, User | None, bool]:
+    """Validates and redeems `code_str` for `user`.
+    Returns `(invitation, ambassador, already_redeemed)`.
+    - If `invitation.kind == 'observer'`, transitions the learner from
+      `student` to `observer` (`user.roles` replaces `student` with
+      `observer`, and any existing `LmsProgramAssignment` rows for `user`
+      flip to `mode='observer'`).
+    - Inserts `UserInvitationCode` inside a SAVEPOINT so concurrent requests
+      are idempotent. Only increments `invitation.used_count` on a fresh
+      redemption.
+    - Always runs `apply_invite_code_grants_to_new_user` (which is idempotent)
+      so any attached courses, learning paths, or cohort programs are granted.
+    """
+    invitation, ambassador = await resolve_invite_code(db, code_str, kind="student")
+    if invitation is None:
+        if not allow_ambassador:
+            raise HTTPException(
+                status_code=400, detail="Invalid or inactive invite code"
+            )
+        # Ambassador referral (only used at initial signup)
+        user.invitation_code_used = code_str.strip().upper()
+        user.invited_by_id = ambassador.id if ambassador else None
+        return None, ambassador, False
+
+    # 1. Observer role transition rule: redeeming an observer code turns a
+    # student account into an observer (not a student anymore).
+    if invitation.kind == "observer":
+        current_roles = [r for r in (user.role_values or []) if r != "student"]
+        if "observer" not in current_roles:
+            current_roles.append("observer")
+        user.roles = [UserRole(r) for r in current_roles]
+        await db.execute(
+            update(LmsProgramAssignment)
+            .where(LmsProgramAssignment.user_id == user.id)
+            .values(mode="observer")
+        )
+
+    # 2. Check / insert UserInvitationCode redemption record
+    existing = (
+        await db.execute(
+            select(UserInvitationCode).where(
+                UserInvitationCode.user_id == user.id,
+                UserInvitationCode.invitation_code_id == invitation.id,
+            )
+        )
+    ).scalars().first()
+
+    already_redeemed = existing is not None
+    if not already_redeemed:
+        async with db.begin_nested():
+            db.add(
+                UserInvitationCode(
+                    id=uuid.uuid4(),
+                    user_id=user.id,
+                    invitation_code_id=invitation.id,
+                    code=invitation.code,
+                    redeemed_at=datetime.now(timezone.utc),
+                )
+            )
+            await db.flush()
+        invitation.used_count += 1
+
+    # Keep legacy scalar column updated with the latest redeemed code
+    user.invitation_code_used = invitation.code
+
+    # 3. Apply all course / path / cohort-program grants on this code
+    await apply_invite_code_grants_to_new_user(
+        db, user_id=user.id, invitation_code_id=invitation.id
+    )
+    return invitation, None, already_redeemed
+
+
 async def grant_invite_code_access(
     db: AsyncSession, *, invitation_code: InvitationCode,
     course_id: uuid.UUID | None = None, learning_path_id: uuid.UUID | None = None,
@@ -120,9 +201,25 @@ async def grant_invite_code_access(
     db.add(grant)
     await db.flush()
 
-    user_ids = list((await db.execute(
-        select(User.id).where(User.invitation_code_used == invitation_code.code)
-    )).scalars().all())
+    user_ids = list(
+        set(
+            (
+                await db.execute(
+                    select(User.id)
+                    .outerjoin(
+                        UserInvitationCode,
+                        UserInvitationCode.user_id == User.id,
+                    )
+                    .where(
+                        or_(
+                            UserInvitationCode.invitation_code_id == invitation_code.id,
+                            User.invitation_code_used == invitation_code.code,
+                        )
+                    )
+                )
+            ).scalars().all()
+        )
+    )
     for user_id in user_ids:
         await _apply_grant(db, user_id=user_id, grant=grant)
 

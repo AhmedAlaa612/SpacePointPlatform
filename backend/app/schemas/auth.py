@@ -63,6 +63,13 @@ class SetPasswordRequest(BaseModel):
     new_password: str
 
 
+class RedeemedInviteCodeOut(BaseModel):
+    code: str
+    label: str | None = None
+    kind: str = "student"
+    redeemed_at: datetime
+
+
 class UserOut(BaseModel):
     """`email` isn't re-validated as `EmailStr` on the way out — same
     production incident as `app.schemas.user.UserReadBase` (2026-08-28):
@@ -86,6 +93,7 @@ class UserOut(BaseModel):
     nickname: str | None = None  # students only — the public identity leaderboards/games show
     avatar: str | None = None  # the account's default game avatar (AVATAR_PRESETS key)
     invitation_code_used: str | None = None  # the code this person typed at signup
+    invitation_codes_used: list[RedeemedInviteCodeOut] = []
     created_at: datetime | None = None
     # SP-0000 identity number (services/documents/id_card.py) — shared across
     # every role this person holds. Null until ensure_card_number() has run

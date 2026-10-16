@@ -87,6 +87,8 @@ export interface User {
   avatar?: string | null;
   /** The code this person typed at signup. */
   invitation_code_used?: string | null;
+  /** All invitation codes redeemed by this user. */
+  invitation_codes_used?: { code: string; label: string | null; kind: string; redeemed_at: string }[];
   /** Resolved from the linked Contact — absent for accounts without one. */
   school_name?: string | null;
   phone?: string | null;

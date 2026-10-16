@@ -64,3 +64,33 @@ class InvitationCodeGrant(Base):
     # cohort, not an lms_program_id.
     cohort_id = Column(UUID(as_uuid=True), ForeignKey("cohorts.id", ondelete="CASCADE"), nullable=True)
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+
+
+class UserInvitationCode(Base):
+    """Tracks every admin-issued InvitationCode a user has redeemed (at signup
+    or post-signup). Replaces the single-code limitation of
+    `users.invitation_code_used` while keeping that column updated with the
+    latest redeemed code for legacy read surfaces."""
+
+    __tablename__ = "user_invitation_codes"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    invitation_code_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("invitation_codes.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    code = Column(String(100), nullable=False, index=True)
+    redeemed_at = Column(
+        DateTime(timezone=True),
+        nullable=False,
+        default=lambda: datetime.now(timezone.utc),
+    )
+

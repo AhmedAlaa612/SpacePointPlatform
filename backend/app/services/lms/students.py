@@ -8,13 +8,15 @@ inline version; only the call site moved.
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
 import uuid
 from typing import Literal
 
-from sqlalchemy import and_, func, or_, select
+from sqlalchemy import and_, exists, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.instructors.invitation_code import InvitationCode
+from app.models.lms.invite_grant import UserInvitationCode
 from app.models.lms.program import LmsProgramAssignment
 from app.models.sessions.registration import Registration
 from app.models.spine.contact import Contact
@@ -23,7 +25,7 @@ from app.models.team import Team, TeamMember
 from app.models.user import User
 from app.services.spine.identity import normalize_user_email
 from app.schemas.competitions import CompetitionAssignableStudentOut
-from app.schemas.lms_admin import StudentSummaryOut
+from app.schemas.lms_admin import StudentInviteBadgeOut, StudentSummaryOut
 
 
 async def _summarize_users(db: AsyncSession, users: list[User]) -> list[StudentSummaryOut]:
@@ -31,9 +33,40 @@ async def _summarize_users(db: AsyncSession, users: list[User]) -> list[StudentS
     `search_cohort_assignable_students` — school/grade live on the linked
     spine Contact, not on `users`, resolved in two batched queries rather
     than one pair per row."""
+    if not users:
+        return []
+
     labels = dict((await db.execute(
         select(InvitationCode.code, InvitationCode.label).where(InvitationCode.kind.in_(["student", "observer"]))
     )).all())
+
+    user_ids = [u.id for u in users]
+    user_codes_map: dict[uuid.UUID, list[StudentInviteBadgeOut]] = {}
+    if user_ids:
+        code_rows = (await db.execute(
+            select(
+                UserInvitationCode.user_id,
+                UserInvitationCode.code,
+                InvitationCode.label,
+                InvitationCode.kind,
+                UserInvitationCode.redeemed_at,
+            )
+            .outerjoin(
+                InvitationCode,
+                InvitationCode.id == UserInvitationCode.invitation_code_id,
+            )
+            .where(UserInvitationCode.user_id.in_(user_ids))
+            .order_by(UserInvitationCode.redeemed_at.desc())
+        )).all()
+        for r in code_rows:
+            user_codes_map.setdefault(r.user_id, []).append(
+                StudentInviteBadgeOut(
+                    code=r.code,
+                    label=r.label,
+                    kind=r.kind or "student",
+                    redeemed_at=r.redeemed_at,
+                )
+            )
 
     contact_ids = [u.contact_id for u in users if u.contact_id]
     contacts = {
@@ -54,10 +87,22 @@ async def _summarize_users(db: AsyncSession, users: list[User]) -> list[StudentS
     for u in users:
         contact = contacts.get(u.contact_id) if u.contact_id else None
         org = orgs.get(contact.organization_id) if contact and contact.organization_id else None
+        badges = user_codes_map.get(u.id, [])
+        if not badges and u.invitation_code_used:
+            badges = [
+                StudentInviteBadgeOut(
+                    code=u.invitation_code_used,
+                    label=labels.get(u.invitation_code_used),
+                    kind="student",
+                    redeemed_at=u.created_at or datetime.now(timezone.utc),
+                )
+            ]
+        newest = badges[0] if badges else None
         out.append(StudentSummaryOut(
             id=u.id, full_name=u.full_name, nickname=u.nickname, email=u.email,
-            invite_code=u.invitation_code_used,
-            invite_label=labels.get(u.invitation_code_used) if u.invitation_code_used else None,
+            invite_code=newest.code if newest else u.invitation_code_used,
+            invite_label=newest.label if newest else (labels.get(u.invitation_code_used) if u.invitation_code_used else None),
+            invite_codes=badges,
             school_name=org.name_latin if org else None,
             grade=contact.grade if contact else None,
             status=u.status,
@@ -99,9 +144,23 @@ async def search_students(
         stmt = stmt.where(or_(User.full_name.ilike(like), User.email.ilike(like)))
     if invite_code:
         if invite_code.strip().lower() == "none":
-            stmt = stmt.where(User.invitation_code_used.is_(None))
+            stmt = stmt.where(
+                User.invitation_code_used.is_(None),
+                ~exists(select(1).where(UserInvitationCode.user_id == User.id)),
+            )
         else:
-            stmt = stmt.where(User.invitation_code_used == invite_code.strip().upper())
+            code = invite_code.strip().upper()
+            stmt = stmt.where(
+                or_(
+                    exists(
+                        select(1).where(
+                            UserInvitationCode.user_id == User.id,
+                            UserInvitationCode.code == code,
+                        )
+                    ),
+                    User.invitation_code_used == code,
+                )
+            )
     if login_status == "never":
         stmt = stmt.where(User.last_login_at.is_(None))
     elif login_status == "has_logged_in":
@@ -167,11 +226,21 @@ async def _registered_cohort_users(
         users = [u for u in users if like in (u.full_name or "").lower() or like in (u.email or "").lower()
                  or (want_card and u.card_number == int(q.strip()))]
     if invite_code:
+        uids = [u.id for u in users]
         if invite_code.strip().lower() == "none":
-            users = [u for u in users if u.invitation_code_used is None]
+            users_with_codes = set((await db.execute(
+                select(UserInvitationCode.user_id).where(UserInvitationCode.user_id.in_(uids))
+            )).scalars().all()) if uids else set()
+            users = [u for u in users if u.invitation_code_used is None and u.id not in users_with_codes]
         else:
             code = invite_code.strip().upper()
-            users = [u for u in users if u.invitation_code_used == code]
+            matching_uids = set((await db.execute(
+                select(UserInvitationCode.user_id).where(
+                    UserInvitationCode.user_id.in_(uids),
+                    UserInvitationCode.code == code,
+                )
+            )).scalars().all()) if uids else set()
+            users = [u for u in users if u.invitation_code_used == code or u.id in matching_uids]
 
     users.sort(key=lambda u: u.full_name)
     return users
@@ -293,9 +362,23 @@ async def search_cohort_assignable_students(
             stmt = stmt.where(or_(*conds))
         if invite_code:
             if invite_code.strip().lower() == "none":
-                stmt = stmt.where(User.invitation_code_used.is_(None))
+                stmt = stmt.where(
+                    User.invitation_code_used.is_(None),
+                    ~exists(select(1).where(UserInvitationCode.user_id == User.id)),
+                )
             else:
-                stmt = stmt.where(User.invitation_code_used == invite_code.strip().upper())
+                code = invite_code.strip().upper()
+                stmt = stmt.where(
+                    or_(
+                        exists(
+                            select(1).where(
+                                UserInvitationCode.user_id == User.id,
+                                UserInvitationCode.code == code,
+                            )
+                        ),
+                        User.invitation_code_used == code,
+                    )
+                )
         if login_status == "never":
             stmt = stmt.where(User.last_login_at.is_(None))
         elif login_status == "has_logged_in":

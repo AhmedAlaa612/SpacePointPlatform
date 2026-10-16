@@ -145,6 +145,7 @@ import MentorApply from "@/pages/mentors/apply/MentorApply";
 import { LearnShell } from "@/pages/learn/LearnShell";
 import LearnLogin from "@/pages/learn/LearnLogin";
 import LearnSignup from "@/pages/learn/LearnSignup";
+import LearnInviteLink from "@/pages/learn/LearnInviteLink";
 import LearnSetPassword from "@/pages/learn/LearnSetPassword";
 import ForgotPassword from "@/pages/learn/ForgotPassword";
 import LearnLanding from "@/pages/learn/LearnLanding";
@@ -1096,6 +1097,12 @@ const learnSignupRoute = createRoute({
   component: LearnSignup,
 });
 
+const learnInviteRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/learn/invite/$code",
+  component: LearnInviteLink,
+});
+
 const learnSetPasswordRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/learn/set-password",
@@ -1377,6 +1384,7 @@ const routeTree = rootRoute.addChildren([
   forgotPasswordRoute,
   learnLoginRoute,
   learnSignupRoute,
+  learnInviteRoute,
   learnSetPasswordRoute,
   learnForgotPasswordRoute,
   learnLayoutRoute.addChildren([

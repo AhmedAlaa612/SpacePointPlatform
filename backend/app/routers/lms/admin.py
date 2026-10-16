@@ -26,7 +26,7 @@ from app.db.session import get_db
 from app.models.enums import UserRole
 from app.models.lms import Course, CourseModule, Enrollment, ModuleItem, VideoCheckpoint
 from app.models.videos import Video
-from app.models.lms.invite_grant import InvitationCodeGrant
+from app.models.lms.invite_grant import InvitationCodeGrant, UserInvitationCode
 from app.models.lms.program import LmsProgram, LmsProgramItem
 from app.models.missions.mission import Mission
 from app.models.lms.learning_path import LearningPath, LearningPathStep
@@ -328,7 +328,10 @@ async def search_students(
 
 async def _invite_code_out(db: AsyncSession, row: InvitationCode) -> InviteCodeOut:
     signups = await db.scalar(
-        select(func.count()).select_from(User).where(User.invitation_code_used == row.code)
+        select(func.count(func.distinct(User.id)))
+        .select_from(User)
+        .outerjoin(UserInvitationCode, UserInvitationCode.user_id == User.id)
+        .where(or_(UserInvitationCode.invitation_code_id == row.id, User.invitation_code_used == row.code))
     )
     return InviteCodeOut(
         id=row.id, code=row.code, kind=row.kind, label=row.label, is_active=row.is_active,
@@ -407,9 +410,13 @@ async def update_invite_code(
             # string (users.invitation_code_used is a historical record of what
             # was typed, not a live FK) — so they'd drop out of this batch's
             # filter. Relabel instead of renaming once a code is in use.
-            if await db.scalar(
-                select(func.count()).select_from(User).where(User.invitation_code_used == row.code)
-            ):
+            signups = await db.scalar(
+                select(func.count(func.distinct(User.id)))
+                .select_from(User)
+                .outerjoin(UserInvitationCode, UserInvitationCode.user_id == User.id)
+                .where(or_(UserInvitationCode.invitation_code_id == row.id, User.invitation_code_used == row.code))
+            )
+            if signups:
                 raise HTTPException(
                     status.HTTP_409_CONFLICT,
                     detail="This code has already been used to sign up — change its label instead of its code.",
@@ -438,7 +445,10 @@ async def delete_invite_code(
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Invite code not found")
     await check_invite_code_access(db, current_user, row)
     signups = await db.scalar(
-        select(func.count()).select_from(User).where(User.invitation_code_used == row.code)
+        select(func.count(func.distinct(User.id)))
+        .select_from(User)
+        .outerjoin(UserInvitationCode, UserInvitationCode.user_id == User.id)
+        .where(or_(UserInvitationCode.invitation_code_id == row.id, User.invitation_code_used == row.code))
     )
     if signups:
         raise HTTPException(

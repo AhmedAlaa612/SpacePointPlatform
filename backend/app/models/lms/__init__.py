@@ -36,7 +36,7 @@ from app.models.lms.cohort_quiz import (
 )
 from app.models.lms.course import Course, CourseModule, ModuleItem, VideoCheckpoint
 from app.models.lms.enrollment import Enrollment, ItemProgress
-from app.models.lms.invite_grant import InvitationCodeGrant
+from app.models.lms.invite_grant import InvitationCodeGrant, UserInvitationCode
 from app.models.lms.learning_path import LearningPath, LearningPathStep
 from app.models.lms.points import PointEvent
 from app.models.lms.program import (
@@ -59,6 +59,7 @@ __all__ = [
     "Enrollment",
     "ItemProgress",
     "InvitationCodeGrant",
+    "UserInvitationCode",
     "LearningPath",
     "LearningPathStep",
     "PointEvent",

@@ -295,6 +295,7 @@ export interface CompetitionAssignableStudent {
   email: string
   invite_code: string | null
   invite_label: string | null
+  invite_codes?: { code: string; label: string | null; kind: string; redeemed_at: string }[]
   school_name: string | null
   grade: string | null
   status: string | null

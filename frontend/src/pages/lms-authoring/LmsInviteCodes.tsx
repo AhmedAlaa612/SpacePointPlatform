@@ -2,7 +2,7 @@ import { useState } from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useNavigate } from "@tanstack/react-router"
 import { isAxiosError } from "axios"
-import { ChevronDown, ChevronUp, Gift, Plus, Users, X } from "lucide-react"
+import { Check, ChevronDown, ChevronUp, Gift, Link2, Plus, Users, X } from "lucide-react"
 import { PageHeader, EmptyState, Spinner } from "@/components/ui/primitives"
 import { Modal, Field, ModalActions, ConfirmDialog } from "@/pages/admin/components/common"
 import {
@@ -31,6 +31,17 @@ export default function LmsInviteCodes() {
   const [deleteTarget, setDeleteTarget] = useState<InviteCode | null>(null)
   const [actionError, setActionError] = useState("")
   const [grantsOpenId, setGrantsOpenId] = useState<string | null>(null)
+  const [copiedCode, setCopiedCode] = useState<string | null>(null)
+
+  const handleCopyLink = (code: string) => {
+    const url = `${window.location.origin}/learn/invite/${code}`
+    void navigator.clipboard.writeText(url).then(() => {
+      setCopiedCode(code)
+      setTimeout(() => {
+        setCopiedCode((current) => (current === code ? null : current))
+      }, 2000)
+    })
+  }
 
   const { data: codes = [], isLoading } = useQuery({
     queryKey: ["lms-admin-invite-codes"],
@@ -103,6 +114,22 @@ export default function LmsInviteCodes() {
                   </div>
                 </div>
                 <div className="flex items-center gap-1 flex-wrap sm:flex-nowrap sm:shrink-0">
+                  <button
+                    onClick={() => handleCopyLink(c.code)}
+                    className="flex items-center gap-1.5 h-8 px-3 rounded-lg text-xs font-medium text-muted-foreground hover:bg-muted transition-colors"
+                    title="Copy shareable link"
+                  >
+                    {copiedCode === c.code ? (
+                      <>
+                        <Check size={13} className="text-green-600 dark:text-green-400" />
+                        <span className="text-green-600 dark:text-green-400 font-medium">Copied!</span>
+                      </>
+                    ) : (
+                      <>
+                        <Link2 size={13} /> Copy link
+                      </>
+                    )}
+                  </button>
                   {c.signups > 0 && (
                     <button
                       onClick={() => void navigate({

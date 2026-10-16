@@ -149,8 +149,24 @@ export default function LmsStudents() {
                     </button>
                     <span className="block text-xs text-muted-foreground">{s.email}</span>
                   </td>
-                  <td className="px-4 py-3 whitespace-nowrap">
-                    {s.invite_code ? (
+                  <td className="px-4 py-3">
+                    {s.invite_codes && s.invite_codes.length > 0 ? (
+                      <div className="flex flex-wrap gap-1 max-w-[220px]">
+                        {s.invite_codes.map((inv) => (
+                          <span
+                            key={inv.code}
+                            className={`text-[11px] font-mono font-medium px-2 py-0.5 rounded-full border ${
+                              inv.kind === "observer"
+                                ? "bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border-indigo-500/20"
+                                : "bg-primary/10 text-primary border-primary/20"
+                            }`}
+                            title={inv.label ?? undefined}
+                          >
+                            {inv.label ? `${inv.code} (${inv.label})` : inv.code}
+                          </span>
+                        ))}
+                      </div>
+                    ) : s.invite_code ? (
                       <span className="text-xs font-semibold text-primary" title={s.invite_label ?? undefined}>
                         {s.invite_label ?? s.invite_code}
                       </span>

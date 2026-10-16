@@ -29,21 +29,22 @@ from html import escape
 from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, status
+from pydantic import BaseModel
 from sqlalchemy import delete, func, or_, select
-
-# from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.dependencies import get_current_active_user, require_lms_student
 from app.db.session import get_db
 from app.models.lms import Course, CourseModule, Enrollment, ItemProgress, ModuleItem, VideoCheckpoint
 from app.models.lms.cohort_quiz import CohortQuizAttempt
+from app.models.lms.invite_grant import InvitationCodeGrant
 from app.models.team import TeamMember
 from app.models.lms.learning_path import LearningPath, LearningPathStep
 from app.models.team import Team
 from app.models.lms.program import (
     LmsProgramAssignment, LmsProgramItem, LmsProgramItemProgress, LmsProgramTeamItemProgress,
 )
+from app.services.lms.invite_grants import redeem_invite_code
 from app.models.competitions.judging import CompetitionScore
 from app.models.missions.mission import Mission, MissionAttempt, MissionVariant
 from app.models.user import User
@@ -1904,3 +1905,99 @@ async def submit_progress(
         best_score=float(row.best_score) if row.best_score is not None else None,
         completed_at=row.completed_at,
     )
+
+
+class RedeemInviteIn(BaseModel):
+    code: str
+
+
+class RedeemInviteOut(BaseModel):
+    code: str
+    label: str | None = None
+    kind: str
+    already_redeemed: bool
+    roles: list[str]
+    redirect_to: str
+
+
+@router.post("/redeem-invite", response_model=RedeemInviteOut)
+async def redeem_invite(
+    body: RedeemInviteIn,
+    db: AsyncSession = Depends(get_db),
+    current: User = Depends(get_current_active_user),
+):
+    code = body.code.strip().upper()
+    if not code:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="Code can't be blank")
+
+    invitation, _, already_redeemed = await redeem_invite_code(
+        db, user=current, code_str=code, allow_ambassador=False
+    )
+    if invitation is None:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="Invalid or inactive invite code")
+
+    await db.commit()
+    await db.refresh(current)
+
+    # Determine redirect_to based on attached grants:
+    # 1. Check if invitation has a cohort_id grant (product_type == "lms_program")
+    program_grant = (await db.execute(
+        select(InvitationCodeGrant).where(
+            InvitationCodeGrant.invitation_code_id == invitation.id,
+            InvitationCodeGrant.product_type == "lms_program",
+            InvitationCodeGrant.cohort_id.is_not(None),
+        )
+    )).scalars().first()
+
+    redirect_to: str | None = None
+    if program_grant and program_grant.cohort_id:
+        assignment = (await db.execute(
+            select(LmsProgramAssignment).where(
+                LmsProgramAssignment.user_id == current.id,
+                LmsProgramAssignment.cohort_id == program_grant.cohort_id,
+            ).order_by(LmsProgramAssignment.assigned_at.desc())
+        )).scalars().first()
+        if assignment:
+            redirect_to = f"/learn/checklists/{assignment.id}"
+
+    if redirect_to is None:
+        path_grant = (await db.execute(
+            select(InvitationCodeGrant).where(
+                InvitationCodeGrant.invitation_code_id == invitation.id,
+                InvitationCodeGrant.product_type == "learning_path",
+                InvitationCodeGrant.learning_path_id.is_not(None),
+            )
+        )).scalars().first()
+        if path_grant and path_grant.learning_path_id:
+            redirect_to = f"/learn/paths/{path_grant.learning_path_id}"
+
+    if redirect_to is None:
+        course_grant = (await db.execute(
+            select(InvitationCodeGrant).where(
+                InvitationCodeGrant.invitation_code_id == invitation.id,
+                InvitationCodeGrant.product_type == "course",
+                InvitationCodeGrant.course_id.is_not(None),
+            )
+        )).scalars().first()
+        if course_grant and course_grant.course_id:
+            redirect_to = f"/learn/courses/{course_grant.course_id}"
+
+    if redirect_to is None:
+        latest = (await db.execute(
+            select(LmsProgramAssignment).where(
+                LmsProgramAssignment.user_id == current.id
+            ).order_by(LmsProgramAssignment.assigned_at.desc())
+        )).scalars().first()
+        if latest:
+            redirect_to = f"/learn/checklists/{latest.id}"
+        else:
+            redirect_to = "/learn/checklists"
+
+    return RedeemInviteOut(
+        code=invitation.code,
+        label=invitation.label,
+        kind=invitation.kind,
+        already_redeemed=already_redeemed,
+        roles=current.role_values,
+        redirect_to=redirect_to,
+    )

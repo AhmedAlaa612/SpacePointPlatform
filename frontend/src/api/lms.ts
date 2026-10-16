@@ -874,3 +874,16 @@ export async function fetchSupportConfig(): Promise<SupportConfig> {
   const { data } = await api.get<SupportConfig>("/lms/support/config");
   return data;
 }
+
+export interface RedeemInviteResult {
+  code: string;
+  label: string | null;
+  kind: "student" | "observer";
+  already_redeemed: boolean;
+  roles: string[];
+  redirect_to: string;
+}
+
+export const redeemInviteCodeApi = (code: string) =>
+  api.post<RedeemInviteResult>("/lms/redeem-invite", { code }).then((r) => r.data);
+

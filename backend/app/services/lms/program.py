@@ -1642,7 +1642,7 @@ async def checklist_item_write_target(
         return individual
     team = await team_for_cohort_member(db, cohort_id=assignment.cohort_id, user_id=user_id)
     if team is None:
-        raise HTTPException(status.HTTP_403_FORBIDDEN, detail="This is a team task — join a team first to work on it")
+        raise HTTPException(status.HTTP_403_FORBIDDEN, detail="This is a team task — you're not on a team, join a team first to work on it")
     return await _get_or_create_team_progress(db, item_id=item.id, team_id=team.id)
 
 

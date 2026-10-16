@@ -132,6 +132,13 @@ class InviteCodeGrantCreateOut(BaseModel):
 
 # ── student management (2026-08-12) ─────────────────────────────────────────
 
+class StudentInviteBadgeOut(BaseModel):
+    code: str
+    label: str | None = None
+    kind: str = "student"
+    redeemed_at: datetime
+
+
 class StudentSummaryOut(BaseModel):
     """One row for the student search/list.
 
@@ -148,6 +155,7 @@ class StudentSummaryOut(BaseModel):
     # ops-issued one (2026-08-13). None for students who predate the gate.
     invite_code: str | None = None
     invite_label: str | None = None
+    invite_codes: list[StudentInviteBadgeOut] = []
     # From the linked spine Contact — absent for accounts without one.
     school_name: str | None = None
     grade: str | None = None

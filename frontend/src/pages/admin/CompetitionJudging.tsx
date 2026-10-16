@@ -767,8 +767,24 @@ function AssignTab({ cohortId }: { cohortId: string }) {
                   <td className="py-1.5 pr-2 align-top pt-3 text-muted-foreground whitespace-nowrap font-mono text-xs">
                     {s.card_id ?? "—"}
                   </td>
-                  <td className="py-1.5 pr-2 align-top pt-3 text-muted-foreground whitespace-nowrap">
-                    {s.invite_code ? (s.invite_label ?? s.invite_code) : "—"}
+                  <td className="py-1.5 pr-2 align-top pt-3 text-muted-foreground">
+                    {s.invite_codes && s.invite_codes.length > 0 ? (
+                      <div className="flex flex-wrap gap-1 max-w-[200px]">
+                        {s.invite_codes.map((inv) => (
+                          <span
+                            key={inv.code}
+                            className="text-[11px] font-mono font-medium px-1.5 py-0.5 rounded bg-muted text-foreground border border-border"
+                            title={inv.label ?? undefined}
+                          >
+                            {inv.label ? `${inv.code} (${inv.label})` : inv.code}
+                          </span>
+                        ))}
+                      </div>
+                    ) : s.invite_code ? (
+                      <span className="whitespace-nowrap">{s.invite_label ?? s.invite_code}</span>
+                    ) : (
+                      "—"
+                    )}
                   </td>
                   <td className="py-1.5 pr-2 align-top pt-3 whitespace-nowrap">
                     {/* "In program" is interchangeable: a Registration, this

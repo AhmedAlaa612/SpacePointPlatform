@@ -1,6 +1,10 @@
 import { useCallback, useState } from "react";
-import { useNavigate, Link } from "@tanstack/react-router";
+import { useNavigate, Link, useSearch } from "@tanstack/react-router";
+import { useQueryClient } from "@tanstack/react-query";
+import { Ticket } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
+import { fetchMe } from "@/api/auth";
+import { redeemInviteCodeApi } from "@/api/lms";
 import { FinWidget } from "@/components/FinWidget";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -18,8 +22,12 @@ import { resolveLearnLanding } from "./resolveLearnLanding";
  * `/learn/signup` — the friendly-409 message from the plan (LM1-4).
  */
 export default function LearnLogin() {
-  const { login } = useAuth();
+  const { login, setCurrentUser } = useAuth();
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
+  const search = useSearch({ strict: false }) as { invite?: string; code?: string };
+  const inviteParam = (search.invite ?? search.code ?? "").trim().toUpperCase();
+
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
@@ -32,6 +40,20 @@ export default function LearnLogin() {
       setLoading(true);
       try {
         await login(email, password);
+        if (inviteParam) {
+          try {
+            const res = await redeemInviteCodeApi(inviteParam);
+            await queryClient.invalidateQueries({ queryKey: ["lms-my-checklists"] });
+            await queryClient.invalidateQueries({ queryKey: ["lms-my-courses"] });
+            await queryClient.invalidateQueries({ queryKey: ["me"] });
+            const updated = await fetchMe();
+            setCurrentUser(updated);
+            void navigate({ to: (res.redirect_to || "/learn/checklists") as never });
+            return;
+          } catch {
+            // If redemption fails, proceed to normal landing
+          }
+        }
         void navigate({ to: await resolveLearnLanding() });
       } catch (err) {
         setError(getErrorMessage(err, "Invalid email or password."));
@@ -39,7 +61,7 @@ export default function LearnLogin() {
         setLoading(false);
       }
     },
-    [email, password, login, navigate],
+    [email, password, login, inviteParam, queryClient, setCurrentUser, navigate],
   );
 
   return (
@@ -51,6 +73,15 @@ export default function LearnLogin() {
 
         <Card className="p-6 sm:p-7">
           <h1 className="text-center font-display text-xl font-bold mb-6">Log in</h1>
+
+          {inviteParam && (
+            <div className="mb-4 p-3 rounded-xl bg-primary/10 text-primary text-xs font-medium flex items-center justify-center gap-1.5 text-center">
+              <Ticket className="size-3.5 shrink-0" />
+              <span>
+                Log in to redeem invite code <span className="font-mono font-bold">{inviteParam}</span>
+              </span>
+            </div>
+          )}
 
           {error && (
             <div className="mb-4 p-3 rounded-xl bg-destructive/10 text-destructive text-sm text-center">
@@ -87,7 +118,11 @@ export default function LearnLogin() {
 
         <p className="mt-5 text-center text-sm text-muted-foreground">
           Don't have an account?{" "}
-          <Link to="/learn/signup" className="text-primary font-medium">
+          <Link
+            to="/learn/signup"
+            search={inviteParam ? { invite: inviteParam } : undefined}
+            className="text-primary font-medium"
+          >
             Sign up
           </Link>
         </p>

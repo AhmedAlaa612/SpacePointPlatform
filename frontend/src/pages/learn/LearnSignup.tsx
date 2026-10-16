@@ -1,6 +1,6 @@
 import { useCallback, useState } from "react";
-import { Link, useNavigate } from "@tanstack/react-router";
-import { ChevronDown } from "lucide-react";
+import { Link, useNavigate, useSearch } from "@tanstack/react-router";
+import { ChevronDown, Ticket } from "lucide-react";
 import { isAxiosError } from "axios";
 import { signup } from "@/api/auth";
 import { tokens } from "@/api/client";
@@ -24,6 +24,8 @@ import { resolveLearnLanding } from "./resolveLearnLanding";
  */
 export default function LearnSignup() {
   const navigate = useNavigate();
+  const search = useSearch({ strict: false }) as { invite?: string; code?: string };
+  const urlInvite = (search.invite ?? search.code ?? "").trim().toUpperCase();
   const { setCurrentUser } = useAuth();
   const [fullName, setFullName] = useState("");
   const [email, setEmail] = useState("");
@@ -33,7 +35,7 @@ export default function LearnSignup() {
   const [country, setCountry] = useState("");
   const [cityId, setCityId] = useState("");
   const [cityOther, setCityOther] = useState("");
-  const [inviteCode, setInviteCode] = useState("");
+  const [inviteCode, setInviteCode] = useState(urlInvite);
   const [parentOpen, setParentOpen] = useState(false);
   const [parentName, setParentName] = useState("");
   const [parentPhone, setParentPhone] = useState("");
@@ -157,6 +159,12 @@ export default function LearnSignup() {
               ) : null}
             </div>
             <div className="flex flex-col gap-1">
+              {urlInvite && inviteCode === urlInvite && (
+                <div className="flex items-center gap-1.5 text-xs font-medium text-emerald-600 dark:text-emerald-400 bg-emerald-500/10 px-2.5 py-1 rounded-lg w-fit mb-0.5">
+                  <Ticket className="size-3.5" />
+                  Invite code {urlInvite} applied
+                </div>
+              )}
               <input
                 type="text"
                 placeholder="Invite code"
@@ -211,7 +219,11 @@ export default function LearnSignup() {
 
         <p className="mt-5 text-center text-sm text-muted-foreground">
           Already have an account?{" "}
-          <Link to="/learn/login" className="text-primary font-medium">
+          <Link
+            to="/learn/login"
+            search={inviteCode.trim() ? { invite: inviteCode.trim().toUpperCase() } : undefined}
+            className="text-primary font-medium"
+          >
             Log in
           </Link>
         </p>

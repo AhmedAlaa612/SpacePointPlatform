@@ -82,6 +82,13 @@ class UserSelfUpdate(BaseModel):
     birthdate: date | None = None
 
 
+class RedeemedInviteCodeOut(BaseModel):
+    code: str
+    label: str | None = None
+    kind: str = "student"
+    redeemed_at: datetime
+
+
 class UserOut(UserReadBase):
     id: UUID
     roles: list[UserRole] = []
@@ -97,6 +104,7 @@ class UserOut(UserReadBase):
     # The code this person typed at signup — the column the students table
     # groups by, and the answer to "which cohort did this account come from".
     invitation_code_used: str | None = None
+    invitation_codes_used: list[RedeemedInviteCodeOut] = []
     # Resolved from the linked Contact rather than stored on `users`. Absent
     # for accounts without one; enriched by the admin list route in one
     # batched query rather than per row.
