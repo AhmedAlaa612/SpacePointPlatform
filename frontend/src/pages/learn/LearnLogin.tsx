@@ -1,6 +1,7 @@
 import { useCallback, useState } from "react";
 import { useNavigate, Link } from "@tanstack/react-router";
 import { useAuth } from "@/context/AuthContext";
+import { FinWidget } from "@/components/FinWidget";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { DomainIcon } from "@/components/ui/DomainIcon";
@@ -91,6 +92,7 @@ export default function LearnLogin() {
           </Link>
         </p>
       </div>
+      <FinWidget />
     </div>
   );
 }

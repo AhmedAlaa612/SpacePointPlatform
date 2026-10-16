@@ -63,26 +63,57 @@ export function FinWidget() {
   // refreshes via `update()` (conversation preserved) instead of `boot()`.
   const bootedRef = useRef(false);
   const lastFetchedAtRef = useRef(0);
+  const prevUserIdRef = useRef<string | null>(userId);
+
+  // Only tear down the session when a previously logged-in user logs out or
+  // switches to a different account — NEVER on the initial `null -> userId`
+  // transition when `AuthContext` finishes resolving `/auth/me` on page load.
+  useEffect(() => {
+    const prevUserId = prevUserIdRef.current;
+    prevUserIdRef.current = userId;
+    if (prevUserId !== null && prevUserId !== userId) {
+      bootedRef.current = false;
+      shutdown();
+    }
+  }, [userId]);
 
   useEffect(() => {
     if (!isFinEnabled()) return;
-    // Don't boot until we know whether anyone is signed in.
-    if (loading) return;
 
     let cancelled = false;
+    let loadingFallbackTimer: number | undefined;
+
+    // If `AuthContext` is still resolving `/auth/me`, wait briefly so we don't
+    // double-boot unnecessarily; but if `/auth/me` takes >2s on a slow
+    // connection, boot anonymously right away so the launcher is never hidden.
+    if (loading) {
+      loadingFallbackTimer = window.setTimeout(() => {
+        if (!cancelled && !bootedRef.current) {
+          boot();
+          bootedRef.current = true;
+        }
+      }, 2000);
+      return () => {
+        cancelled = true;
+        if (loadingFallbackTimer !== undefined) {
+          window.clearTimeout(loadingFallbackTimer);
+        }
+      };
+    }
 
     async function syncIdentity() {
+      const [configResult, identityResult] = await Promise.allSettled([
+        fetchSupportConfig(),
+        userId ? fetchChatIdentity(effectiveAssignmentId) : Promise.resolve(null),
+      ]);
+
+      if (cancelled) return;
+
       // Check admin toggle before booting Fin for students
-      try {
-        const config = await fetchSupportConfig();
-        if (cancelled) return;
-        if (!config.fin_enabled) {
-          shutdown();
-          bootedRef.current = false;
-          return;
-        }
-      } catch {
-        // If config endpoint blips, proceed to attempt boot
+      if (configResult.status === "fulfilled" && !configResult.value.fin_enabled) {
+        shutdown();
+        bootedRef.current = false;
+        return;
       }
 
       if (!userId) {
@@ -95,15 +126,12 @@ export function FinWidget() {
         lastFetchedAtRef.current = Date.now();
         return;
       }
-      try {
-        const identity = await fetchChatIdentity(effectiveAssignmentId);
-        // The user navigated away (or we unmounted) while the request was
-        // in flight — applying now would tag the wrong board.
-        if (cancelled) return;
+
+      if (identityResult.status === "fulfilled" && identityResult.value?.intercom_user_jwt) {
         // Only the token. The rest of the payload is already inside it as
         // signed claims, and sending unsigned copies alongside gets the
         // whole boot rejected — see `FinBootPayload`.
-        const payload = { intercom_user_jwt: identity.intercom_user_jwt };
+        const payload = { intercom_user_jwt: identityResult.value.intercom_user_jwt };
         if (bootedRef.current) {
           update(payload);
         } else {
@@ -111,8 +139,9 @@ export function FinWidget() {
           bootedRef.current = true;
         }
         lastFetchedAtRef.current = Date.now();
-      } catch {
-        if (cancelled) return;
+      } else {
+        // Degrade gracefully to anonymous boot if `/lms/support/chat-identity`
+        // fails (503, network blip, expired token) so Fin stays visible.
         if (!bootedRef.current) {
           boot();
           bootedRef.current = true;
@@ -141,20 +170,22 @@ export function FinWidget() {
 
     return () => {
       cancelled = true;
+      if (loadingFallbackTimer !== undefined) window.clearTimeout(loadingFallbackTimer);
       if (intervalId !== undefined) window.clearInterval(intervalId);
       document.removeEventListener("visibilitychange", handleVisibilityChange);
     };
   }, [userId, loading, effectiveAssignmentId]);
 
-  // Full teardown on unmount / account switch only — not on board-to-board
-  // navigation (that path uses `update()` above and must keep the chat).
-  // `userId` in the deps remounts this cleanup when the account changes.
+  // Full teardown when leaving the `/learn/*` surface entirely. Navigating to
+  // `/learn/login` or `/learn/signup` keeps the launcher alive.
   useEffect(() => {
     return () => {
-      bootedRef.current = false;
-      shutdown();
+      if (!window.location.pathname.startsWith("/learn")) {
+        bootedRef.current = false;
+        shutdown();
+      }
     };
-  }, [userId]);
+  }, []);
 
   return null;
 }

@@ -412,3 +412,24 @@ async def test_chat_identity_disabled_when_fin_turned_off(db, client):
     resp = await client.get(URL, headers=_headers(user))
     assert resp.status_code == http_status.HTTP_403_FORBIDDEN
     assert "disabled" in resp.json()["detail"].lower()
+
+
+async def test_non_active_user_still_receives_chat_identity(db, client):
+    """Permissive auth on `/lms/support/chat-identity`: even if an account's
+    status is pending or inactive, Fin still receives a signed identity rather
+    than failing with a 400."""
+    user = User(
+        id=uuid.uuid4(),
+        full_name="Pending Student",
+        email=f"pending-{uuid.uuid4().hex[:8]}@example.com",
+        password_hash="not-a-real-hash",
+        roles=["student"],
+        status="pending",
+    )
+    db.add(user)
+    await db.flush()
+
+    resp = await client.get(URL, headers=_headers(user))
+    assert resp.status_code == http_status.HTTP_200_OK
+    assert resp.json()["user_id"] == str(user.id)
+

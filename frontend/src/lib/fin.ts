@@ -49,6 +49,7 @@ interface IntercomFn {
 declare global {
   interface Window {
     Intercom?: IntercomFn;
+    intercomSettings?: Record<string, unknown>;
   }
 }
 
@@ -71,17 +72,54 @@ export interface FinBootPayload {
   intercom_user_jwt?: string;
 }
 
+const API_BASE = "https://api-iam.intercom.io";
+
+let currentMode: "none" | "anonymous" | "authenticated" = "none";
+let lastBootPayload: FinBootPayload = {};
+let watchdogTimer: number | undefined;
+
 /** Whether an App ID was baked into this build. Callers check this rather
  * than guessing from `window.Intercom`, which is also set by our own stub. */
 export function isFinEnabled(): boolean {
   return APP_ID.length > 0;
 }
 
+function isLauncherInDom(): boolean {
+  return Boolean(
+    document.getElementById("intercom-container") ||
+      document.querySelector(".intercom-lightweight-app") ||
+      document.querySelector(".intercom-launcher-frame"),
+  );
+}
+
+function clearWatchdog(): void {
+  if (watchdogTimer !== undefined) {
+    window.clearTimeout(watchdogTimer);
+    watchdogTimer = undefined;
+  }
+}
+
+function removeIntercomDom(): void {
+  const selectors = [
+    `#${SCRIPT_ID}`,
+    "#intercom-frame",
+    "#intercom-container",
+    "#intercom-css-container",
+    "#intercom-lightweight-app-style",
+    ".intercom-lightweight-app",
+  ];
+  for (const selector of selectors) {
+    document.querySelectorAll(selector).forEach((el) => el.remove());
+  }
+}
+
 /** Inject the widget script once. Idempotent: safe to call on every boot,
  * which matters because React re-runs effects (twice per mount under
  * StrictMode in dev) and the student shell mounts on every `/learn/*` route. */
-function ensureLoaded(): void {
-  if (document.getElementById(SCRIPT_ID)) return;
+function ensureLoaded(settings?: Record<string, unknown>): void {
+  if (settings) {
+    window.intercomSettings = settings;
+  }
 
   // Queue stub — commands issued before the script finishes downloading are
   // pushed onto `q` and replayed by Intercom once it takes over the global.
@@ -94,6 +132,8 @@ function ensureLoaded(): void {
     window.Intercom = stub;
   }
 
+  if (document.getElementById(SCRIPT_ID)) return;
+
   const script = document.createElement("script");
   script.id = SCRIPT_ID;
   script.async = true;
@@ -101,24 +141,51 @@ function ensureLoaded(): void {
   document.head.appendChild(script);
 }
 
-const API_BASE = "https://api-iam.intercom.io";
+function scheduleWatchdog(): void {
+  clearWatchdog();
+  watchdogTimer = window.setTimeout(() => {
+    watchdogTimer = undefined;
+    if (!isFinEnabled() || currentMode === "none") return;
+    if (!isLauncherInDom()) {
+      const retryPayload = { ...lastBootPayload };
+      shutdown();
+      boot(retryPayload);
+    }
+  }, 4500);
+}
 
 /** Show the messenger. */
 export function boot(payload: FinBootPayload = {}): void {
   if (!isFinEnabled()) return;
-  ensureLoaded();
 
-  // Do NOT call `Intercom("shutdown")` synchronously before `Intercom("boot")`
-  // here: when the widget script is already loaded in memory, Intercom's
-  // teardown runs asynchronously and can wipe out the launcher frame created by
-  // an immediate `boot()`. Session cleanup on logout/account switch is handled
-  // by `FinWidget`'s unmount cleanup effect instead.
-  window.Intercom?.("boot", {
+  const nextMode = payload.intercom_user_jwt ? "authenticated" : "anonymous";
+  lastBootPayload = { ...payload };
+
+  // Intercom's internal `App.prototype.boot` delegates to `update()` once
+  // `this.bootCalled` is true on `#intercom-frame`. When switching between
+  // anonymous and authenticated sessions (or recovering after a teardown where
+  // `#intercom-container` was removed), reusing the old `#intercom-frame` can
+  // hit Intercom's `destroySession` / `shouldSkipPing` race and leave
+  // `this.renderApp` undefined. Tearing down the stale frame first guarantees
+  // a fresh `bootCalled = false` boot.
+  if (
+    (currentMode !== "none" && currentMode !== nextMode) ||
+    (currentMode !== "none" && !isLauncherInDom() && !document.getElementById(SCRIPT_ID))
+  ) {
+    shutdown();
+  }
+
+  const settings: Record<string, unknown> = {
     api_base: API_BASE,
     app_id: APP_ID,
     hide_default_launcher: false,
     ...payload,
-  });
+  };
+
+  currentMode = nextMode;
+  ensureLoaded(settings);
+
+  window.Intercom?.("boot", settings);
 
   // Track chat open/close state on body so mobile styles can deactivate transforms while chatting
   window.Intercom?.("onShow", () => {
@@ -127,24 +194,40 @@ export function boot(payload: FinBootPayload = {}): void {
   window.Intercom?.("onHide", () => {
     document.body.classList.remove("intercom-chat-open");
   });
+
+  scheduleWatchdog();
 }
 
 /** Refresh identity/attributes on an already-booted messenger.
-
+ *
  * Used when the student navigates between cohort boards (`assignmentId`
  * changes) — carries a fresh signed JWT so `program`/`cohort`/`team` track
  * the board being viewed. Unlike `boot()` this preserves the open
  * conversation; only signed payloads go through it, never unsigned
- * attribute copies (see `FinBootPayload`). No-op before the first boot. */
+ * attribute copies (see `FinBootPayload`). */
 export function update(payload: FinBootPayload = {}): void {
   if (!isFinEnabled()) return;
-  ensureLoaded();
-  window.Intercom?.("update", {
+
+  const nextMode = payload.intercom_user_jwt ? "authenticated" : "anonymous";
+  lastBootPayload = { ...payload };
+
+  // If not yet booted, or if transitioning between anonymous and authenticated
+  // modes, or if the launcher DOM was lost, perform a full `boot()` instead.
+  if (currentMode === "none" || currentMode !== nextMode || !isLauncherInDom()) {
+    boot(payload);
+    return;
+  }
+
+  const settings: Record<string, unknown> = {
     api_base: API_BASE,
     app_id: APP_ID,
     hide_default_launcher: false,
     ...payload,
-  });
+  };
+
+  ensureLoaded(settings);
+  window.Intercom?.("update", settings);
+  scheduleWatchdog();
 }
 
 /** Hide the messenger and **clear the local conversation**.
@@ -153,9 +236,24 @@ export function update(payload: FinBootPayload = {}): void {
  * and forgetting: Intercom keeps an anonymous visitor's conversation in a
  * cookie, so without a shutdown on logout the next person to sign in on the
  * same browser inherits the previous student's chat history. These run on
- * shared school and lab machines — that is a real leak, not a hypothetical. */
+ * shared school and lab machines — that is a real leak, not a hypothetical.
+ *
+ * IMPORTANT: Intercom's `App.prototype.destroySession` inside `#intercom-frame`
+ * removes `#intercom-container` and sets `this.renderApp = undefined`, but
+ * never resets `this.bootCalled = false`. We must also remove `#intercom-frame`
+ * and `#intercom-widget` and delete `window.Intercom` (matching Intercom's own
+ * loader reset `R()`) so the next `boot()` creates a clean frame. */
 export function shutdown(): void {
   if (!isFinEnabled()) return;
+  clearWatchdog();
+  currentMode = "none";
   document.body.classList.remove("intercom-chat-open");
-  window.Intercom?.("shutdown");
+  try {
+    window.Intercom?.("shutdown", false as unknown as Record<string, unknown>);
+  } catch {
+    // Ignore errors from half-initialized iframe
+  }
+  delete window.Intercom;
+  delete window.intercomSettings;
+  removeIntercomDom();
 }

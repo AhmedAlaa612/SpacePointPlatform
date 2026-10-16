@@ -4,6 +4,7 @@ import { ChevronDown } from "lucide-react";
 import { isAxiosError } from "axios";
 import { signup } from "@/api/auth";
 import { tokens } from "@/api/client";
+import { FinWidget } from "@/components/FinWidget";
 import { useAuth } from "@/context/AuthContext";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -215,6 +216,7 @@ export default function LearnSignup() {
           </Link>
         </p>
       </div>
+      <FinWidget />
     </div>
   );
 }

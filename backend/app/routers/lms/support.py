@@ -20,7 +20,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
-from app.core.dependencies import get_current_active_user
+from app.core.dependencies import get_current_user
 from app.db.session import get_db
 from app.models.user import User
 from app.schemas.lms import ChatIdentityOut, SupportConfigOut
@@ -41,7 +41,7 @@ async def get_support_config(db: AsyncSession = Depends(get_db)):
 @router.get("/chat-identity", response_model=ChatIdentityOut)
 async def chat_identity_route(
     db: AsyncSession = Depends(get_db),
-    current: User = Depends(get_current_active_user),
+    current: User = Depends(get_current_user),
     assignment_id: uuid.UUID | None = Query(default=None),
 ):
     """The caller's own Fin messenger identity.
