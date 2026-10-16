@@ -59,7 +59,7 @@ export function LearnShell() {
           mission's Report tab) should print just that content, not the
           shell chrome around it, which a fixed-position "cover it on
           screen" trick doesn't reliably keep off the printed page. */}
-      <main className="flex-1 min-w-0 pb-28 md:pb-0 md:ml-64 print:ml-0 print:pb-0">
+      <main className="flex-1 min-w-0 overflow-x-clip pb-28 md:pb-0 md:ml-64 print:ml-0 print:pb-0">
         <Outlet />
       </main>
       {/* Renders nothing; the messenger injects its own launcher into <body>.

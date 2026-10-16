@@ -219,7 +219,7 @@ export default function RoadmapBoard() {
           />
         </div>
 
-        <div className="px-5 sm:px-8 lg:px-14 py-6 sm:py-8 flex flex-col gap-6 sm:gap-8 max-w-[1180px] mx-auto w-full">
+        <div className="px-5 sm:px-8 lg:px-8 xl:px-14 py-6 sm:py-8 flex flex-col gap-6 sm:gap-8 max-w-[1180px] mx-auto w-full">
           <div className="flex flex-col gap-1.5">
             <h1 className="font-display text-[19px] sm:text-2xl font-extrabold tracking-tight leading-none">
               {checklist.name}

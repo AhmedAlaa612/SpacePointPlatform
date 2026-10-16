@@ -1,11 +1,9 @@
-import { useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useMediaQuery } from "@/lib/useMediaQuery";
 import { cn } from "@/lib/utils";
 import { TaskTile } from "./TaskTile";
 import { TraceLayer } from "./TraceLayer";
 import type { BoardTile } from "./roadmap";
-
-const DESKTOP_ROW_SIZE = 4;
 
 function chunk<T>(items: T[], size: number): T[][] {
   const out: T[][] = [];
@@ -13,13 +11,11 @@ function chunk<T>(items: T[], size: number): T[][] {
   return out;
 }
 
-/** The tile field — desktop: three-plus rows of four, serpentine (row 2
- * reversed, row 3 forward, ...), even visual columns offset `mt-4`. Mobile:
- * a single alternating left/right column. One `TraceLayer` behind either
- * layout, measuring whichever is actually rendered (only one DOM shape
- * exists at a time — see `useMediaQuery`, not a single reflowing flex
- * container, since the two layouts are structurally different per the
- * design spec). */
+/** The tile field — desktop: rows of four, serpentine (row 2 reversed, row 3
+ * forward, ...); tablet/iPad: rows of two, serpentine; mobile: a single
+ * alternating left/right column. Even visual columns offset `mt-4`. One
+ * `TraceLayer` behind whichever layout is rendered, measuring measured DOM
+ * geometry via ResizeObserver. */
 export function TileField({
   items, liveTaskId, onOpenItem,
 }: {
@@ -27,9 +23,35 @@ export function TileField({
   liveTaskId: string | null;
   onOpenItem: (item: BoardTile) => void;
 }) {
-  const isDesktop = useMediaQuery("(min-width: 768px)");
   const containerRef = useRef<HTMLDivElement>(null);
   const tileRefs = useRef<Map<string, HTMLDivElement>>(new Map());
+
+  // Initial media query matches for SSR/first paint before ResizeObserver measures container
+  const isDesktopQuery = useMediaQuery("(min-width: 1080px)");
+  const isTabletQuery = useMediaQuery("(min-width: 768px)");
+
+  const [containerWidth, setContainerWidth] = useState<number | null>(null);
+
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+    const ro = new ResizeObserver((entries) => {
+      for (const entry of entries) {
+        setContainerWidth(entry.contentRect.width);
+      }
+    });
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+
+  // 4 tiles of 158px + 3 gaps of 16px require >= 680px.
+  // 2 tiles of 158px + 1 gap of 16px require >= 332px (comfortably at >= 400px).
+  // Narrower screens (< 400px) use the mobile single alternating column.
+  const columns = containerWidth !== null
+    ? (containerWidth >= 680 ? 4 : containerWidth >= 400 ? 2 : 1)
+    : (isDesktopQuery ? 4 : isTabletQuery ? 2 : 1);
+
+  const isMobile = columns === 1;
 
   const registerRef = (id: string) => (el: HTMLDivElement | null) => {
     if (el) tileRefs.current.set(id, el);
@@ -43,11 +65,11 @@ export function TileField({
     // ancestor DOES establish a stacking context and paints behind the
     // whole page instead of just behind these tiles.
     <div ref={containerRef} className="relative isolate">
-      <TraceLayer containerRef={containerRef} tileRefs={tileRefs} items={items} isMobile={!isDesktop} />
+      <TraceLayer containerRef={containerRef} tileRefs={tileRefs} items={items} isMobile={isMobile} />
 
-      {isDesktop ? (
+      {!isMobile ? (
         <div className="flex flex-col gap-[46px]">
-          {chunk(items, DESKTOP_ROW_SIZE).map((row, rowIndex) => {
+          {chunk(items, columns).map((row, rowIndex) => {
             const reversed = rowIndex % 2 === 1;
             return (
               <div
@@ -55,7 +77,7 @@ export function TileField({
                 className={cn("flex items-start justify-between gap-4", reversed && "flex-row-reverse")}
               >
                 {row.map((item, domIndex) => {
-                  const visualCol = reversed ? row.length - 1 - domIndex : domIndex;
+                  const visualCol = reversed ? columns - 1 - domIndex : domIndex;
                   return (
                     <div key={item.id} className={cn(visualCol % 2 === 1 && "mt-4")}>
                       <TaskTile
