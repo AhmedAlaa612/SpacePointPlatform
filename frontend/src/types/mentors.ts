@@ -68,3 +68,53 @@ export interface MentorBooking {
   created_at: string;
   mentor_name?: string | null;
 }
+
+export interface MentorCreateIn {
+  full_name: string;
+  email: string;
+  phone?: string;
+  country?: string;
+  password?: string;
+  headline: string;
+  company?: string;
+  bio?: string;
+  missions_history?: string;
+  what_i_can_help_with?: string;
+  contact_mode?: "email" | "calendar";
+  google_meet_url?: string;
+  contact_email?: string;
+  show_contact_button?: boolean;
+  linkedin_url?: string;
+  session_duration_minutes?: number;
+  domain_ids?: string[];
+  is_active?: boolean;
+  is_published?: boolean;
+}
+
+export interface MentorPublicApplyIn {
+  full_name: string;
+  email: string;
+  password: string;
+  phone?: string;
+  country?: string;
+  headline: string;
+  company?: string;
+  bio?: string;
+  missions_history?: string;
+  what_i_can_help_with?: string;
+  contact_mode?: "email" | "calendar";
+  google_meet_url?: string;
+  contact_email?: string;
+  show_contact_button?: boolean;
+  linkedin_url?: string;
+  session_duration_minutes?: number;
+  domain_ids?: string[];
+}
+
+export interface MentorPublicApplyOut {
+  ok: boolean;
+  message: string;
+  mentor_id: string;
+  slug: string;
+}
+

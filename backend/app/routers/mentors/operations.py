@@ -12,6 +12,7 @@ from app.models.enums import UserRole
 from app.models.mentors import MentorDomain, MentorProfile
 from app.models.user import User
 from app.schemas.mentors import (
+    MentorCreateIn,
     MentorDomainCreateIn,
     MentorDomainOut,
     MentorDomainUpdateIn,
@@ -19,6 +20,9 @@ from app.schemas.mentors import (
     MentorReviewIn,
     MentorStatusUpdateIn,
 )
+from app.schemas.user import UserCreate
+from app.services import user as user_service
+from app.services.spine.identity import normalize_user_email, user_email_matches
 
 router = APIRouter(prefix="/operations", tags=["Operations - Mentors"])
 
@@ -27,6 +31,18 @@ def _slugify(text: str) -> str:
     text = text.lower().strip()
     text = re.sub(r"[^\w\s-]", "", text)
     return re.sub(r"[-\s]+", "-", text).strip("-")
+
+
+async def _generate_unique_mentor_slug(db: AsyncSession, base_name: str) -> str:
+    base = _slugify(base_name) or "mentor"
+    slug = base
+    counter = 1
+    while True:
+        exists = await db.execute(select(MentorProfile.id).where(MentorProfile.slug == slug))
+        if not exists.scalars().first():
+            return slug
+        slug = f"{base}-{counter}"
+        counter += 1
 
 
 # ── Domain Tags Management ────────────────────────────────────────────────────
@@ -262,3 +278,93 @@ async def update_mentor_status(
     await db.commit()
     await db.refresh(mentor)
     return _serialize_mentor_profile(mentor)
+
+
+@router.post("/mentors", response_model=MentorProfileOut, status_code=status.HTTP_201_CREATED)
+async def create_mentor_directly(
+    body: MentorCreateIn,
+    db: AsyncSession = Depends(get_db),
+    _user: User = Depends(require_operations),
+):
+    """Directly create an approved mentor profile (and their user account if it doesn't exist).
+    Used by Operations/Admin to onboard mentors without requiring a manual application review.
+    """
+    normalized_email = normalize_user_email(body.email)
+    existing_user_result = await db.execute(
+        select(User).where(user_email_matches(normalized_email))
+    )
+    user = existing_user_result.scalars().first()
+
+    if user:
+        existing_profile_result = await db.execute(
+            select(MentorProfile).where(MentorProfile.user_id == user.id)
+        )
+        if existing_profile_result.scalars().first():
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=f"A mentor profile already exists for {body.email}",
+            )
+        current_roles = list(user.roles or [])
+        if UserRole.mentor not in current_roles:
+            user.roles = current_roles + [UserRole.mentor]
+        if body.phone and not user.phone:
+            user.phone = body.phone
+        if body.country and not user.country:
+            user.country = body.country
+        target_user = user
+    else:
+        temp_pwd = body.password or "SpacePoint2026!"
+        target_user = await user_service.create_user(
+            db,
+            UserCreate(
+                full_name=body.full_name.strip(),
+                email=normalized_email,
+                password=temp_pwd,
+                roles=[UserRole.mentor],
+                phone=body.phone,
+            ),
+        )
+        if body.country:
+            target_user.country = body.country
+        if not body.password:
+            target_user.must_change_password = True
+
+    slug = await _generate_unique_mentor_slug(db, body.full_name)
+    mentor = MentorProfile(
+        user_id=target_user.id,
+        slug=slug,
+        headline=body.headline.strip(),
+        company=body.company.strip() if body.company else None,
+        bio=body.bio.strip() if body.bio else None,
+        missions_history=body.missions_history.strip() if body.missions_history else None,
+        what_i_can_help_with=body.what_i_can_help_with.strip() if body.what_i_can_help_with else None,
+        contact_mode=body.contact_mode,
+        google_meet_url=body.google_meet_url.strip() if body.google_meet_url else None,
+        contact_email=str(body.contact_email).strip().lower() if body.contact_email else None,
+        show_contact_button=body.show_contact_button,
+        linkedin_url=body.linkedin_url.strip() if body.linkedin_url else None,
+        session_duration_minutes=body.session_duration_minutes or 30,
+        status="approved",
+        is_active=body.is_active,
+        is_published=body.is_published,
+    )
+
+    if body.domain_ids:
+        d_res = await db.execute(
+            select(MentorDomain).where(MentorDomain.id.in_(body.domain_ids))
+        )
+        mentor.domains = list(d_res.scalars().all())
+
+    db.add(mentor)
+    await db.commit()
+
+    full_mentor = (
+        await db.execute(
+            select(MentorProfile)
+            .where(MentorProfile.id == mentor.id)
+            .options(selectinload(MentorProfile.domains), selectinload(MentorProfile.user))
+        )
+    ).scalars().first()
+
+    return _serialize_mentor_profile(full_mentor or mentor)
+

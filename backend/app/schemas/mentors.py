@@ -179,3 +179,55 @@ class MentorBookingOut(BaseModel):
     status: str
     created_at: datetime
     mentor_name: str | None = None
+
+
+# ── Operations Direct Creation & Public Application ───────────────────────────
+
+class MentorCreateIn(BaseModel):
+    full_name: str
+    email: EmailStr
+    phone: str | None = None
+    country: str | None = None
+    password: str | None = None
+    headline: str
+    company: str | None = None
+    bio: str | None = None
+    missions_history: str | None = None
+    what_i_can_help_with: str | None = None
+    domain_ids: list[UUID] = []
+    contact_mode: Literal["email", "calendar"] = "calendar"
+    google_meet_url: str | None = None
+    contact_email: EmailStr | None = None
+    show_contact_button: bool = True
+    linkedin_url: str | None = None
+    session_duration_minutes: int | None = 30
+    is_active: bool = True
+    is_published: bool = True
+
+
+class MentorPublicApplyIn(BaseModel):
+    full_name: str
+    email: EmailStr
+    password: str
+    phone: str | None = None
+    country: str | None = None
+    headline: str
+    company: str | None = None
+    bio: str | None = None
+    missions_history: str | None = None
+    what_i_can_help_with: str | None = None
+    domain_ids: list[UUID] = []
+    contact_mode: Literal["email", "calendar"] = "calendar"
+    google_meet_url: str | None = None
+    contact_email: EmailStr | None = None
+    show_contact_button: bool = True
+    linkedin_url: str | None = None
+    session_duration_minutes: int | None = 30
+
+
+class MentorPublicApplyOut(BaseModel):
+    ok: bool = True
+    message: str
+    mentor_id: UUID
+    slug: str
+

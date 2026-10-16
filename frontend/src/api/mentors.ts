@@ -3,8 +3,11 @@ import type {
   AvailableSlot,
   MentorAvailability,
   MentorBooking,
+  MentorCreateIn,
   MentorDomain,
   MentorProfile,
+  MentorPublicApplyIn,
+  MentorPublicApplyOut,
 } from "@/types/mentors";
 
 // ── Public APIs ──────────────────────────────────────────────────────────────
@@ -178,3 +181,14 @@ export async function getMyMentorBookings(): Promise<MentorBooking[]> {
   const { data } = await api.get<MentorBooking[]>("/mentor/bookings");
   return data;
 }
+
+export async function createMentorDirectlyApi(payload: MentorCreateIn): Promise<MentorProfile> {
+  const { data } = await api.post<MentorProfile>("/operations/mentors", payload);
+  return data;
+}
+
+export async function applyPublicMentorApi(payload: MentorPublicApplyIn): Promise<MentorPublicApplyOut> {
+  const { data } = await api.post<MentorPublicApplyOut>("/mentors/apply-public", payload);
+  return data;
+}
+

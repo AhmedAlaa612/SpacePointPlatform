@@ -138,6 +138,7 @@ import PublicDirectory from "@/pages/mentors/PublicDirectory";
 import PublicProfile from "@/pages/mentors/PublicProfile";
 import MentorsManagement from "@/pages/operations/mentors/MentorsManagement";
 import MentorSettings from "@/pages/mentors/MentorSettings";
+import MentorApply from "@/pages/mentors/apply/MentorApply";
 
 // LMS student surface (LMS D1) — a separate surface in the same app: own shell,
 // own login/signup, no portal chrome. See pages/learn/LearnShell.tsx.
@@ -1064,6 +1065,12 @@ const applyInstructorWithCodeRoute = createRoute({
   component: InstructorApply,
 });
 
+const applyMentorRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/apply/mentor",
+  component: MentorApply,
+});
+
 // ── Learn layout (LMS D1) — sibling of authLayoutRoute, not a child ─────────
 // Students are a separate surface: own beforeLoad, own shell, no portal chrome.
 // `/learn/login` and `/learn/signup` are NOT children of this route — they sit
@@ -1391,6 +1398,7 @@ const routeTree = rootRoute.addChildren([
   applyFacilitatorCodeRoute,
   applyInstructorRoute,
   applyInstructorWithCodeRoute,
+  applyMentorRoute,
   authLayoutRoute.addChildren([
     indexRoute,
     documentsRoute,

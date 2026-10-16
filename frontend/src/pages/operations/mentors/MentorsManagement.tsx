@@ -1,5 +1,6 @@
 import { type FormEvent, useEffect, useState } from "react"
 import {
+  createMentorDirectlyApi,
   createMentorDomain,
   deleteMentorDomain,
   getAllMentors,
@@ -12,6 +13,14 @@ import {
 import type { MentorDomain, MentorProfile } from "@/types/mentors"
 import { Spinner, EmptyState } from "@/components/ui/primitives"
 import { Button } from "@/components/ui/button"
+import { CountrySelect } from "@/components/ui/CountrySelect"
+import { PasswordInput } from "@/components/ui/PasswordInput"
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
 import { cn } from "@/lib/utils"
 import {
   Briefcase,
@@ -23,6 +32,9 @@ import {
   Pencil,
   ExternalLink,
   Tag,
+  AlertCircle,
+  CheckCircle2,
+  UserPlus,
 } from "lucide-react"
 import { LinkedInIcon } from "@/components/icons/LinkedInIcon"
 
@@ -248,12 +260,95 @@ export default function MentorsManagement({ initialTab = "roster" }: MentorsMana
     }
   }
 
+  // Add Mentor Modal State
+  const [showAddMentorModal, setShowAddMentorModal] = useState<boolean>(false)
+  const [addFullName, setAddFullName] = useState<string>("")
+  const [addEmail, setAddEmail] = useState<string>("")
+  const [addPhone, setAddPhone] = useState<string>("")
+  const [addCountry, setAddCountry] = useState<string>("AE")
+  const [addPassword, setAddPassword] = useState<string>("")
+  const [addHeadline, setAddHeadline] = useState<string>("")
+  const [addCompany, setAddCompany] = useState<string>("")
+  const [addBio, setAddBio] = useState<string>("")
+  const [addMissionsHistory, setAddMissionsHistory] = useState<string>("")
+  const [addLinkedinUrl, setAddLinkedinUrl] = useState<string>("")
+  const [addContactMode, setAddContactMode] = useState<"calendar" | "email">("calendar")
+  const [addContactEmail, setAddContactEmail] = useState<string>("")
+  const [addSelectedDomainIds, setAddSelectedDomainIds] = useState<string[]>([])
+  const [addingMentor, setAddingMentor] = useState<boolean>(false)
+  const [addMentorError, setAddMentorError] = useState<string | null>(null)
+  const [addMentorSuccess, setAddMentorSuccess] = useState<string | null>(null)
+
+  const handleToggleAddDomain = (id: string) => {
+    setAddSelectedDomainIds((prev) =>
+      prev.includes(id) ? prev.filter((d) => d !== id) : [...prev, id]
+    )
+  }
+
+  const handleResetAddMentor = () => {
+    setAddFullName("")
+    setAddEmail("")
+    setAddPhone("")
+    setAddCountry("AE")
+    setAddPassword("")
+    setAddHeadline("")
+    setAddCompany("")
+    setAddBio("")
+    setAddMissionsHistory("")
+    setAddLinkedinUrl("")
+    setAddContactMode("calendar")
+    setAddContactEmail("")
+    setAddSelectedDomainIds([])
+    setAddMentorError(null)
+  }
+
+  const handleCreateMentorDirectly = async (e: FormEvent) => {
+    e.preventDefault()
+    setAddMentorError(null)
+    if (!addFullName.trim() || !addEmail.trim() || !addHeadline.trim()) {
+      setAddMentorError("Full name, email, and professional headline are required.")
+      return
+    }
+
+    try {
+      setAddingMentor(true)
+      await createMentorDirectlyApi({
+        full_name: addFullName.trim(),
+        email: addEmail.trim().toLowerCase(),
+        phone: addPhone.trim() || undefined,
+        country: addCountry || undefined,
+        password: addPassword.trim() || undefined,
+        headline: addHeadline.trim(),
+        company: addCompany.trim() || undefined,
+        bio: addBio.trim() || undefined,
+        missions_history: addMissionsHistory.trim() || undefined,
+        linkedin_url: addLinkedinUrl.trim() || undefined,
+        contact_mode: addContactMode,
+        contact_email: addContactEmail.trim().toLowerCase() || undefined,
+        domain_ids: addSelectedDomainIds,
+        is_active: true,
+        is_published: true,
+      })
+      await loadRoster()
+      setShowAddMentorModal(false)
+      handleResetAddMentor()
+      setAddMentorSuccess("Mentor created successfully and added to the roster!")
+      setTimeout(() => setAddMentorSuccess(null), 4000)
+    } catch (err: any) {
+      console.error("Failed to create mentor", err)
+      const detail = err.response?.data?.detail
+      setAddMentorError(typeof detail === "string" ? detail : "Failed to create mentor.")
+    } finally {
+      setAddingMentor(false)
+    }
+  }
+
   return (
     <div className="flex flex-col gap-6 max-w-6xl mx-auto w-full pt-2">
       {/* Tab 1: Mentors List (Exact Directory Card Look with Deactivate button) */}
       {tab === "roster" && (
         <div className="flex flex-col gap-6">
-          <div className="flex items-center justify-between gap-4">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
             <div>
               <h2 className="font-display text-2xl sm:text-3xl font-extrabold text-foreground tracking-tight">
                 Mentors Roster
@@ -262,10 +357,29 @@ export default function MentorsManagement({ initialTab = "roster" }: MentorsMana
                 Active and registered mentors in the SpacePoint directory.
               </p>
             </div>
-            <span className="text-xs font-semibold px-3 py-1 rounded-full bg-primary/10 text-primary border border-primary/20">
-              {roster.length} {roster.length === 1 ? "Mentor" : "Mentors"}
-            </span>
+            <div className="flex items-center gap-3">
+              <span className="text-xs font-semibold px-3 py-1 rounded-full bg-primary/10 text-primary border border-primary/20">
+                {roster.length} {roster.length === 1 ? "Mentor" : "Mentors"}
+              </span>
+              <Button
+                onClick={() => {
+                  handleResetAddMentor()
+                  setShowAddMentorModal(true)
+                }}
+                className="rounded-xl font-semibold text-xs h-10 px-4 gap-2 shadow-sm"
+              >
+                <Plus size={15} />
+                <span>Add Mentor</span>
+              </Button>
+            </div>
           </div>
+
+          {addMentorSuccess && (
+            <div className="rounded-xl border border-emerald-500/30 bg-emerald-500/10 p-3.5 text-xs sm:text-sm text-emerald-700 dark:text-emerald-400 flex items-center gap-2.5 animate-in fade-in">
+              <CheckCircle2 size={16} className="shrink-0" />
+              <span>{addMentorSuccess}</span>
+            </div>
+          )}
 
           {loadingRoster ? (
             <Spinner />
@@ -764,6 +878,269 @@ export default function MentorsManagement({ initialTab = "roster" }: MentorsMana
           )}
         </div>
       )}
+      {/* Add Mentor Modal */}
+      <Dialog open={showAddMentorModal} onOpenChange={setShowAddMentorModal}>
+        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto rounded-3xl p-6 sm:p-8">
+          <DialogHeader>
+            <DialogTitle className="font-display text-2xl font-bold flex items-center gap-2.5">
+              <UserPlus className="text-primary w-6 h-6" />
+              <span>Add New Mentor</span>
+            </DialogTitle>
+            <p className="text-xs text-muted-foreground mt-1">
+              Create an approved mentor profile directly. If the user account doesn't exist, it will be automatically created with the Mentor role.
+            </p>
+          </DialogHeader>
+
+          {addMentorError && (
+            <div className="rounded-xl border border-destructive/30 bg-destructive/10 p-3 text-xs sm:text-sm text-destructive flex items-center gap-2">
+              <AlertCircle size={16} className="shrink-0" />
+              <span>{addMentorError}</span>
+            </div>
+          )}
+
+          <form onSubmit={handleCreateMentorDirectly} className="flex flex-col gap-6 pt-2">
+            {/* User Account Details */}
+            <div className="rounded-2xl border border-border/80 bg-muted/20 p-4 sm:p-5 flex flex-col gap-4">
+              <span className="text-xs font-bold uppercase tracking-wider text-primary">
+                1. User Account Credentials
+              </span>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div className="flex flex-col gap-1.5">
+                  <label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
+                    Full Name *
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="e.g. Dr. Alex Mercer"
+                    value={addFullName}
+                    onChange={(e) => setAddFullName(e.target.value)}
+                    className="h-10 px-3.5 border border-border bg-background text-foreground rounded-xl text-sm focus:outline-none focus:border-primary transition-colors shadow-sm"
+                    required
+                  />
+                </div>
+
+                <div className="flex flex-col gap-1.5">
+                  <label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
+                    Email Address *
+                  </label>
+                  <input
+                    type="email"
+                    placeholder="alex.mercer@example.com"
+                    value={addEmail}
+                    onChange={(e) => setAddEmail(e.target.value)}
+                    className="h-10 px-3.5 border border-border bg-background text-foreground rounded-xl text-sm focus:outline-none focus:border-primary transition-colors shadow-sm"
+                    required
+                  />
+                </div>
+
+                <div className="flex flex-col gap-1.5">
+                  <label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
+                    Temporary Password
+                  </label>
+                  <PasswordInput
+                    placeholder="Leave blank for SpacePoint2026!"
+                    value={addPassword}
+                    onChange={(e) => setAddPassword(e.target.value)}
+                    className="h-10 px-3.5 border border-border bg-background text-foreground rounded-xl text-sm focus:outline-none focus:border-primary transition-colors shadow-sm"
+                  />
+                  <span className="text-[10px] text-muted-foreground">
+                    Auto-prompts user to change password on first login if blank.
+                  </span>
+                </div>
+
+                <div className="flex flex-col gap-1.5">
+                  <label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
+                    Phone (Optional)
+                  </label>
+                  <input
+                    type="tel"
+                    placeholder="+971 50 000 0000"
+                    value={addPhone}
+                    onChange={(e) => setAddPhone(e.target.value)}
+                    className="h-10 px-3.5 border border-border bg-background text-foreground rounded-xl text-sm focus:outline-none focus:border-primary transition-colors shadow-sm"
+                  />
+                </div>
+
+                <div className="flex flex-col gap-1.5 sm:col-span-2">
+                  <label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
+                    Country of Residence
+                  </label>
+                  <CountrySelect
+                    value={addCountry}
+                    onChange={setAddCountry}
+                    valueType="code"
+                    className="h-10 px-3.5 border border-border bg-background text-foreground rounded-xl text-sm focus:outline-none focus:border-primary transition-colors shadow-sm"
+                  />
+                </div>
+              </div>
+            </div>
+
+            {/* Mentor Advisory Info */}
+            <div className="rounded-2xl border border-border/80 bg-muted/20 p-4 sm:p-5 flex flex-col gap-4">
+              <span className="text-xs font-bold uppercase tracking-wider text-primary">
+                2. Advisory Profile &amp; Specialties
+              </span>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div className="flex flex-col gap-1.5 sm:col-span-2">
+                  <label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
+                    Professional Headline *
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="e.g. Lead Systems Engineer · Optical Payloads"
+                    value={addHeadline}
+                    onChange={(e) => setAddHeadline(e.target.value)}
+                    className="h-10 px-3.5 border border-border bg-background text-foreground rounded-xl text-sm focus:outline-none focus:border-primary transition-colors shadow-sm"
+                    required
+                  />
+                </div>
+
+                <div className="flex flex-col gap-1.5">
+                  <label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
+                    Company / Organization
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="e.g. MBRSC, NASA JPL, or Independent"
+                    value={addCompany}
+                    onChange={(e) => setAddCompany(e.target.value)}
+                    className="h-10 px-3.5 border border-border bg-background text-foreground rounded-xl text-sm focus:outline-none focus:border-primary transition-colors shadow-sm"
+                  />
+                </div>
+
+                <div className="flex flex-col gap-1.5">
+                  <label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
+                    LinkedIn Profile URL
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="https://linkedin.com/in/username"
+                    value={addLinkedinUrl}
+                    onChange={(e) => setAddLinkedinUrl(e.target.value)}
+                    className="h-10 px-3.5 border border-border bg-background text-foreground rounded-xl text-sm focus:outline-none focus:border-primary transition-colors shadow-sm"
+                  />
+                </div>
+
+                <div className="flex flex-col gap-2 sm:col-span-2">
+                  <label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
+                    Areas of Support / Space Topics
+                  </label>
+                  <div className="flex flex-wrap gap-1.5 pt-1">
+                    {domains.filter((d) => d.is_active).map((d) => {
+                      const isSelected = addSelectedDomainIds.includes(d.id)
+                      return (
+                        <button
+                          key={d.id}
+                          type="button"
+                          onClick={() => handleToggleAddDomain(d.id)}
+                          className={cn(
+                            "text-xs px-2.5 py-1 rounded-lg border font-medium cursor-pointer transition-all",
+                            isSelected
+                              ? "bg-primary text-primary-foreground border-primary shadow-xs"
+                              : "bg-background text-muted-foreground border-border hover:border-primary/40"
+                          )}
+                        >
+                          {d.name}
+                        </button>
+                      )
+                    })}
+                  </div>
+                </div>
+
+                <div className="flex flex-col gap-1.5 sm:col-span-2">
+                  <label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
+                    Biography
+                  </label>
+                  <textarea
+                    rows={2}
+                    placeholder="Brief mentor bio and background summary..."
+                    value={addBio}
+                    onChange={(e) => setAddBio(e.target.value)}
+                    className="p-3 border border-border bg-background text-foreground rounded-xl text-sm focus:outline-none focus:border-primary transition-colors shadow-sm resize-y"
+                  />
+                </div>
+
+                <div className="flex flex-col gap-1.5 sm:col-span-2">
+                  <label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
+                    Mission / Technical Experience
+                  </label>
+                  <textarea
+                    rows={2}
+                    placeholder="e.g. 6U CubeSat launch, thermal vacuum testing, optical payload integration..."
+                    value={addMissionsHistory}
+                    onChange={(e) => setAddMissionsHistory(e.target.value)}
+                    className="p-3 border border-border bg-background text-foreground rounded-xl text-sm focus:outline-none focus:border-primary transition-colors shadow-sm resize-y"
+                  />
+                </div>
+
+                <div className="flex flex-col gap-1.5 sm:col-span-2">
+                  <label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
+                    Preferred Contact Mode
+                  </label>
+                  <div className="grid grid-cols-2 gap-3">
+                    <button
+                      type="button"
+                      onClick={() => setAddContactMode("calendar")}
+                      className={cn(
+                        "rounded-xl border p-3 text-left transition-all cursor-pointer",
+                        addContactMode === "calendar"
+                          ? "border-primary bg-primary/10 text-foreground ring-1 ring-primary/30"
+                          : "border-border bg-background text-muted-foreground hover:bg-muted/40"
+                      )}
+                    >
+                      <p className="text-xs font-bold">30-Min Calendar Session</p>
+                      <p className="text-[10px] text-muted-foreground mt-0.5">Video calls via schedule</p>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setAddContactMode("email")}
+                      className={cn(
+                        "rounded-xl border p-3 text-left transition-all cursor-pointer",
+                        addContactMode === "email"
+                          ? "border-primary bg-primary/10 text-foreground ring-1 ring-primary/30"
+                          : "border-border bg-background text-muted-foreground hover:bg-muted/40"
+                      )}
+                    >
+                      <p className="text-xs font-bold">Written Inquiries Only</p>
+                      <p className="text-[10px] text-muted-foreground mt-0.5">Direct email messages</p>
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Modal Actions */}
+            <div className="flex items-center justify-end gap-3 pt-2">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => setShowAddMentorModal(false)}
+                className="rounded-xl px-5 h-10 font-semibold"
+              >
+                Cancel
+              </Button>
+              <Button
+                type="submit"
+                disabled={addingMentor}
+                className="rounded-xl px-6 h-10 font-bold gap-2 shadow-sm"
+              >
+                {addingMentor ? (
+                  <>
+                    <Spinner />
+                    <span>Creating Mentor...</span>
+                  </>
+                ) : (
+                  <>
+                    <Plus size={16} />
+                    <span>Create &amp; Publish Mentor</span>
+                  </>
+                )}
+              </Button>
+            </div>
+          </form>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }
+

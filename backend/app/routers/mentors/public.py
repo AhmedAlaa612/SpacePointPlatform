@@ -24,7 +24,13 @@ from app.schemas.mentors import (
     MentorBookIn,
     MentorBookingOut,
     MentorProfileOut,
+    MentorPublicApplyIn,
+    MentorPublicApplyOut,
 )
+from app.schemas.user import UserCreate
+from app.services import user as user_service
+from app.services.spine.identity import normalize_user_email, user_email_matches
+from app.routers.mentors.operations import _generate_unique_mentor_slug
 
 router = APIRouter(tags=["Public Mentors & Booking"])
 
@@ -471,3 +477,85 @@ async def attendance_gateway(
 
     # Instant redirect to Google Meet
     return RedirectResponse(url=target_meet_url, status_code=status.HTTP_302_FOUND)
+
+
+# ── Public Mentor Application ─────────────────────────────────────────────────
+
+@router.post("/mentors/apply-public", response_model=MentorPublicApplyOut, status_code=status.HTTP_201_CREATED)
+async def apply_as_mentor_public(
+    body: MentorPublicApplyIn,
+    db: AsyncSession = Depends(get_db),
+):
+    """Public submission form for external aerospace mentors.
+    Creates a user account and an applied mentor profile awaiting Operations review.
+    """
+    normalized_email = normalize_user_email(body.email)
+    existing_user_result = await db.execute(
+        select(User).where(user_email_matches(normalized_email))
+    )
+    user = existing_user_result.scalars().first()
+
+    if user:
+        existing_profile = (
+            await db.execute(select(MentorProfile).where(MentorProfile.user_id == user.id))
+        ).scalars().first()
+        if existing_profile:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="A mentor application or profile already exists for this email address. Please log in.",
+            )
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="An account with this email address already exists. Please log in to your account and submit your mentor application from your dashboard.",
+        )
+
+    # Create new user account with initial credentials
+    db_user = await user_service.create_user(
+        db,
+        UserCreate(
+            full_name=body.full_name.strip(),
+            email=normalized_email,
+            password=body.password,
+            roles=[],  # Will be granted UserRole.mentor upon Operations approval
+            phone=body.phone,
+        ),
+    )
+    if body.country:
+        db_user.country = body.country
+
+    slug = await _generate_unique_mentor_slug(db, body.full_name)
+    mentor = MentorProfile(
+        user_id=db_user.id,
+        slug=slug,
+        headline=body.headline.strip(),
+        company=body.company.strip() if body.company else None,
+        bio=body.bio.strip() if body.bio else None,
+        missions_history=body.missions_history.strip() if body.missions_history else None,
+        what_i_can_help_with=body.what_i_can_help_with.strip() if body.what_i_can_help_with else None,
+        contact_mode=body.contact_mode,
+        google_meet_url=body.google_meet_url.strip() if body.google_meet_url else None,
+        contact_email=str(body.contact_email).strip().lower() if body.contact_email else None,
+        show_contact_button=body.show_contact_button,
+        linkedin_url=body.linkedin_url.strip() if body.linkedin_url else None,
+        session_duration_minutes=body.session_duration_minutes or 30,
+        status="applied",
+        is_active=False,
+        is_published=False,
+    )
+
+    if body.domain_ids:
+        d_res = await db.execute(
+            select(MentorDomain).where(MentorDomain.id.in_(body.domain_ids))
+        )
+        mentor.domains = list(d_res.scalars().all())
+
+    db.add(mentor)
+    await db.commit()
+
+    return MentorPublicApplyOut(
+        ok=True,
+        message="Thank you! Your mentor application has been submitted and is currently being reviewed by SpacePoint Operations.",
+        mentor_id=mentor.id,
+        slug=mentor.slug,
+    )
+
