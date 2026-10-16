@@ -51,6 +51,7 @@ from app.routers.spine import router as spine_router
 from app.routers.teams import router as teams_router
 from app.routers.video import router as video_router
 from app.routers.mentors import router as mentors_router
+from app.routers.operations_test_accounts import router as operations_test_accounts_router
 from app.workers.heartbeat import HEARTBEAT_KEY
 from app.workers.settings import redis_settings
 
@@ -247,6 +248,9 @@ app.include_router(video_router)
 
 # Mentorship platform: /operations/mentor-domains, /operations/mentors/*, /mentors/*
 app.include_router(mentors_router)
+
+# Operations test accounts management (@spacepoint.local & cascade delete): /operations/test-accounts/*
+app.include_router(operations_test_accounts_router)
 
 
 @app.get("/health", tags=["health"])

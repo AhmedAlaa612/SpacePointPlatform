@@ -76,6 +76,7 @@ const ICONS: Record<string, LucideIcon> = {
   Applications: ClipboardList,
   Settings: SettingsIcon,
   "Profile & Settings": UserCog,
+  "Test Accounts": UserCog,
   "Instructor ID Card": CreditCard,
   "ID Card": CreditCard,
   Leads: Target,
@@ -291,6 +292,7 @@ function getNavItems(pathname: string, activeRole: Role | null): NavItem[] {
       mk("Learn", "/learn"),
       mk("Sessions Calendar", "/operations/calendar"),
       mk("Ground Station Devices", "/operations/ground-station-devices"),
+      mk("Test Accounts", "/operations/test-accounts"),
       mk("My Articles", "/articles"),
     ];
   }
@@ -514,6 +516,7 @@ function getNavItems(pathname: string, activeRole: Role | null): NavItem[] {
       mk("Learn", "/learn"),
       mk("Sessions Calendar", "/operations/calendar"),
       mk("Ground Station Devices", "/operations/ground-station-devices"),
+      mk("Test Accounts", "/operations/test-accounts"),
       mk("My Articles", "/articles"),
     ];
   }
