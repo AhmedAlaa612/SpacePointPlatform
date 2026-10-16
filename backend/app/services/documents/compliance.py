@@ -56,7 +56,7 @@ CHECKLIST_SPECS = [
     {
         "key": "clearance_1",
         "label": "Clearance Document 1",
-        "desc": "Security clearance form 1 (PDF) — download template, fill, and upload.",
+        "desc": "Security clearance form 1 — download ONE template (Arabic or English), fill, and upload.",
         "always_mandatory": True,
     },
     {

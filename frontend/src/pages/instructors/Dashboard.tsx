@@ -266,17 +266,35 @@ export default function InstructorDashboard() {
             <p className="text-muted-foreground leading-relaxed">
               SpacePoint instructors must submit a completed security clearance document. Download the official templates below, fill in your details, and upload the signed copies to your documents vault.
             </p>
+            <p className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-[11px] leading-relaxed text-amber-700 dark:text-amber-300">
+              Note for Form 1: download <strong>one</strong> of them — either the Arabic or the English version — fill it out, and upload it.
+            </p>
 
             <div className="flex flex-col gap-2 rounded-xl border border-border p-3 bg-muted/20">
               <div className="flex items-center justify-between gap-3 p-2.5 rounded-lg bg-background border border-border/60">
                 <div className="flex items-center gap-2.5 min-w-0">
                   <FileText size={16} className="text-primary shrink-0" />
                   <div className="min-w-0">
-                    <p className="font-semibold text-foreground truncate">Clearance Form 1 (PDF)</p>
+                    <p className="font-semibold text-foreground truncate">Clearance Form 1 — Arabic (PDF)</p>
                     <p className="text-[11px] text-muted-foreground">Official UAE Security Clearance form (وثيقة تعارف)</p>
                   </div>
                 </div>
-                <a href="/templates/clearance/Clearance_Form_1.pdf" download="Clearance_Form_1.pdf">
+                <a href="/templates/clearance/Clearance_Form_1_AR.pdf" download="Clearance_Form_1_AR.pdf">
+                  <Button size="sm" variant="outline" className="h-7 text-xs px-2.5 shrink-0">
+                    <Download size={12} className="mr-1" /> PDF
+                  </Button>
+                </a>
+              </div>
+
+              <div className="flex items-center justify-between gap-3 p-2.5 rounded-lg bg-background border border-border/60">
+                <div className="flex items-center gap-2.5 min-w-0">
+                  <FileText size={16} className="text-primary shrink-0" />
+                  <div className="min-w-0">
+                    <p className="font-semibold text-foreground truncate">Clearance Form 1 — English (PDF)</p>
+                    <p className="text-[11px] text-muted-foreground">Introductory Statement (English version)</p>
+                  </div>
+                </div>
+                <a href="/templates/clearance/Clearance_Form_1_EN.pdf" download="Clearance_Form_1_EN.pdf">
                   <Button size="sm" variant="outline" className="h-7 text-xs px-2.5 shrink-0">
                     <Download size={12} className="mr-1" /> PDF
                   </Button>
