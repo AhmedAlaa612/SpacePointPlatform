@@ -42,6 +42,7 @@ function InstructorDocumentsDialog({ userId, name, onClose }: { userId: string; 
                     </span>
                   )}
                   {data.is_uae_resident ? " · UAE Resident" : " · Non-UAE (Visa Exempt)"}
+                  {data.is_uae_national ? " · UAE National (Visa Exempt)" : ""}
                 </p>
               )}
             </div>
@@ -115,8 +116,13 @@ function InstructorDocumentsDialog({ userId, name, onClose }: { userId: string; 
                         <div className="flex items-center gap-1.5 flex-wrap">
                           <span className="text-xs font-semibold text-foreground">{item.label}</span>
                           {item.exempt ? (
-                            <span className="text-[10px] uppercase font-bold text-muted-foreground px-1.5 py-0.5 rounded bg-muted/60">
-                              Exempt (Non-UAE)
+                            <span
+                              className="text-[10px] uppercase font-bold text-muted-foreground px-1.5 py-0.5 rounded bg-muted/60"
+                              title={item.exemption_reason ?? undefined}
+                            >
+                              {item.key === "visa" && item.exemption_reason?.includes("nationals")
+                                ? "Exempt (UAE National)"
+                                : "Exempt"}
                             </span>
                           ) : item.mandatory ? (
                             <span className={`text-[10px] uppercase font-bold px-1.5 py-0.5 rounded ${
@@ -146,9 +152,14 @@ function InstructorDocumentsDialog({ userId, name, onClose }: { userId: string; 
                       ) : item.key === "clearance_1" ? (
                         <div className="flex items-center gap-1.5">
                           <span className="text-[11px] text-amber-600 dark:text-amber-400 font-medium px-1">Required</span>
-                          <a href="/templates/clearance/Clearance_Form_1.pdf" download="Clearance_Form_1.pdf">
+                          <a href="/templates/clearance/Clearance_Form_1_AR.pdf" download="Clearance_Form_1_AR.pdf">
                             <Button size="sm" variant="outline" className="h-6 text-[11px] px-2">
-                              <Download size={11} className="mr-1" /> Template
+                              <Download size={11} className="mr-1" /> AR
+                            </Button>
+                          </a>
+                          <a href="/templates/clearance/Clearance_Form_1_EN.pdf" download="Clearance_Form_1_EN.pdf">
+                            <Button size="sm" variant="outline" className="h-6 text-[11px] px-2">
+                              <Download size={11} className="mr-1" /> EN
                             </Button>
                           </a>
                         </div>

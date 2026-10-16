@@ -68,7 +68,7 @@ CHECKLIST_SPECS = [
     {
         "key": "visa",
         "label": "Residence Visa",
-        "desc": "UAE Residency Visa copy (mandatory for UAE expats; exempt for international instructors and citizens).",
+        "desc": "UAE Residency Visa copy (mandatory for UAE expats; exempt for UAE nationals and international instructors).",
         "always_mandatory": False,  # Country-dependent
     },
 ]
@@ -120,6 +120,25 @@ def is_user_uae_resident(user: User, city_country: str | None = None) -> bool:
     return False
 
 
+UAE_NATIONAL_VALUES = {
+    "AE", "ARE", "UAE", "U.A.E.", "UNITED ARAB EMIRATES",
+    "EMIRATI", "EMIRATI (UAE)", "UAE NATIONAL", "UAE CITIZEN",
+    "EMIRATES", "U A E",
+}
+
+
+def is_uae_national(nationality: str | None) -> bool:
+    """True when the instructor's nationality is Emirati/UAE.
+
+    Nationality is free-text (CountrySelect display names, e.g.
+    "United Arab Emirates"), so normalize aggressively.
+    """
+    if not nationality:
+        return False
+    norm = " ".join(nationality.strip().upper().split())
+    return norm in UAE_NATIONAL_VALUES
+
+
 @dataclass
 class ChecklistItem:
     key: str
@@ -139,9 +158,11 @@ def evaluate_instructor_compliance(
     user: User,
     documents: Sequence[InstructorDocument],
     city_country: str | None = None,
+    nationality: str | None = None,
 ) -> dict[str, Any]:
     """Calculate compliance metrics and structured checklist for an instructor."""
     uae_resident = is_user_uae_resident(user, city_country)
+    uae_national = is_uae_national(nationality)
 
     matched_by_key: dict[str, InstructorDocument] = {}
     other_docs: list[dict[str, Any]] = []
@@ -180,7 +201,11 @@ def evaluate_instructor_compliance(
         exempt = False
         exemption_reason = None
         if key == "visa":
-            if not uae_resident:
+            if uae_national:
+                is_mandatory = False
+                exempt = True
+                exemption_reason = "Exempt — UAE nationals do not require a residence visa."
+            elif not uae_resident:
                 is_mandatory = False
                 exempt = True
                 exemption_reason = "Exempt — instructor is not residing in the UAE."
@@ -217,6 +242,7 @@ def evaluate_instructor_compliance(
     return {
         "is_complete": is_complete,
         "is_uae_resident": uae_resident,
+        "is_uae_national": uae_national,
         "total_required": total_required,
         "uploaded_count": uploaded_count,
         "missing_docs": missing_docs,

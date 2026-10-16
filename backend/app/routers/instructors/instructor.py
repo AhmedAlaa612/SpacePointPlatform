@@ -469,6 +469,8 @@ async def get_my_documents_compliance(
 ):
     """Compliance status for the logged-in user's mandatory documents."""
     profile = (await db.execute(select(ApplicantProfile).where(ApplicantProfile.user_id == current_user.id))).scalars().first()
+    inst_profile = (await db.execute(select(InstructorProfile).where(InstructorProfile.user_id == current_user.id))).scalars().first()
+    nationality = (inst_profile.nationality if inst_profile and inst_profile.nationality else None) or (profile.nationality if profile and profile.nationality else None)
     city_id = current_user.city_id or (profile.city_of_residence_id if profile else None)
     city_country = None
     if city_id:
@@ -483,7 +485,7 @@ async def get_my_documents_compliance(
     for doc in rows:
         doc.file_url = await storage.resolve_url(doc.bucket, doc.file_path, doc.file_url)
 
-    return evaluate_instructor_compliance(current_user, rows, city_country=city_country)
+    return evaluate_instructor_compliance(current_user, rows, city_country=city_country, nationality=nationality)
 
 
 @router.post("/documents", response_model=InstructorDocumentOut, status_code=201)

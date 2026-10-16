@@ -55,6 +55,7 @@ export interface InvitationCode {
 export interface InstructorDocumentsComplianceSummary {
   is_complete: boolean
   is_uae_resident: boolean
+  is_uae_national?: boolean
   uploaded_count: number
   total_required: number
   missing_docs: string[]

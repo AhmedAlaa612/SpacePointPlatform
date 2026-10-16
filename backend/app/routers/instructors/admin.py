@@ -771,6 +771,18 @@ async def list_instructors(db: AsyncSession = Depends(get_db), current_user: Use
         for doc in doc_rows:
             docs_by_user.setdefault(doc.user_id, []).append(doc)
 
+    # Batch lookup for nationalities (InstructorProfile takes precedence,
+    # ApplicantProfile is the fallback) — UAE nationals are exempt from the
+    # Residence Visa requirement.
+    nationality_by_user: dict[uuid.UUID, str | None] = {}
+    if user_ids:
+        inst_profiles = (await db.execute(
+            select(InstructorProfile).where(InstructorProfile.user_id.in_(user_ids))
+        )).scalars().all()
+        for ip in inst_profiles:
+            if ip.nationality:
+                nationality_by_user[ip.user_id] = ip.nationality
+
     out = []
     for u, p in rows:
         deliver_ids = list(p.deliver_city_ids or []) if p else []
@@ -779,7 +791,8 @@ async def list_instructors(db: AsyncSession = Depends(get_db), current_user: Use
         # filtered on (the filter's options are built from ids).
         city_id = u.city_id or (p.city_of_residence_id if p else None)
         residence_country = city_countries.get(city_id) if city_id else None
-        compliance = evaluate_instructor_compliance(u, docs_by_user.get(u.id, []), city_country=residence_country)
+        nationality = nationality_by_user.get(u.id) or (p.nationality if p and p.nationality else None)
+        compliance = evaluate_instructor_compliance(u, docs_by_user.get(u.id, []), city_country=residence_country, nationality=nationality)
 
         out.append({
             "id": str(u.id), "full_name": u.full_name, "email": u.email, "status": u.status,
@@ -792,6 +805,7 @@ async def list_instructors(db: AsyncSession = Depends(get_db), current_user: Use
             "docs_compliance": {
                 "is_complete": compliance["is_complete"],
                 "is_uae_resident": compliance["is_uae_resident"],
+                "is_uae_national": compliance["is_uae_national"],
                 "uploaded_count": compliance["uploaded_count"],
                 "total_required": compliance["total_required"],
                 "missing_docs": compliance["missing_docs"],
@@ -840,6 +854,8 @@ async def get_instructor_documents_compliance(
         raise HTTPException(status_code=404, detail="Instructor not found")
 
     profile = (await db.execute(select(ApplicantProfile).where(ApplicantProfile.user_id == user_id))).scalars().first()
+    inst_profile = (await db.execute(select(InstructorProfile).where(InstructorProfile.user_id == user_id))).scalars().first()
+    nationality = (inst_profile.nationality if inst_profile and inst_profile.nationality else None) or (profile.nationality if profile and profile.nationality else None)
     city_id = user.city_id or (profile.city_of_residence_id if profile else None)
     city_country = None
     if city_id:
@@ -854,7 +870,7 @@ async def get_instructor_documents_compliance(
     for doc in docs:
         doc.file_url = await storage.resolve_url(doc.bucket, doc.file_path, doc.file_url)
 
-    return evaluate_instructor_compliance(user, docs, city_country=city_country)
+    return evaluate_instructor_compliance(user, docs, city_country=city_country, nationality=nationality)
 
 
 @router.get("/instructors/{user_id}/documents/zip")

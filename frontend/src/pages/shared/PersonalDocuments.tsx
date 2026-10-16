@@ -53,7 +53,7 @@ const CHECKLIST: { type: string; desc: string; badge?: string }[] = [
   { type: "Personal Picture", desc: "Professional high-resolution passport-style headshot.", badge: "Mandatory" },
   { type: "Clearance Document 1", desc: "Security clearance form 1 — download ONE template (Arabic or English), fill out, and upload.", badge: "Mandatory" },
   { type: "Clearance Document 2", desc: "Security clearance form 2 (Word) — download template, fill out, and upload.", badge: "Mandatory" },
-  { type: "Residence Visa", desc: "UAE Residency Visa copy (mandatory for UAE expats; exempt for international instructors, who may still upload if held).", badge: "UAE Residents" },
+  { type: "Residence Visa", desc: "UAE Residency Visa copy (mandatory for UAE expats; exempt for UAE nationals and international instructors, who may still upload if held).", badge: "UAE Expats" },
   { type: "Contract", desc: "Signed copy of your SpacePoint Instructor contract." },
   { type: "CV", desc: "Your latest professional CV or resume." },
 ]
@@ -482,8 +482,13 @@ export default function PersonalDocuments() {
                                   Uploaded
                                 </span>
                               ) : isExempt ? (
-                                <span className="text-[10px] uppercase font-semibold text-muted-foreground px-1.5 py-0.5 rounded bg-muted/60">
-                                  Exempt (Non-UAE)
+                                <span
+                                  className="text-[10px] uppercase font-semibold text-muted-foreground px-1.5 py-0.5 rounded bg-muted/60"
+                                  title={itemStatus?.exemption_reason ?? undefined}
+                                >
+                                  {c.type === "Residence Visa" && itemStatus?.exemption_reason?.includes("nationals")
+                                    ? "Exempt (UAE National)"
+                                    : "Exempt"}
                                 </span>
                               ) : c.badge ? (
                                 <span className="text-[10px] uppercase font-semibold text-amber-600 dark:text-amber-400">
