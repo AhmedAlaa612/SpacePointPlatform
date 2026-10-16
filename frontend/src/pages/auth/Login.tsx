@@ -153,6 +153,9 @@ export function Login() {
             <Link to="/apply/ambassador" className="text-[#a880ff] hover:text-[#a880ff]/80 transition-colors">
               Apply as Ambassador
             </Link>
+            <Link to="/apply/mentor" className="text-[#a880ff] hover:text-[#a880ff]/80 transition-colors">
+              Apply as Mentor
+            </Link>
           </div>
           {/* 2026-09-14 — a safety net, not an intended path: students are
               never meant to land here at all (they sign up at /learn/signup
