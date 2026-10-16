@@ -22,6 +22,8 @@ from app.models.enums import UserRole
 from app.models.games.game import Game
 from app.models.games.run import GameParticipant, GameRun
 from app.models.missions.mission import MissionAttempt
+from app.models.instructors.invitation_code import InvitationCode
+from app.models.lms.invite_grant import UserInvitationCode
 from app.models.spine.contact import Contact, ContactRelationship
 from app.models.team import Team as LearnerTeam, TeamMember as LearnerTeamMember
 from app.models.user import User
@@ -266,3 +268,66 @@ async def test_6_re_signup_after_cascade_delete(db, client):
     )
     assert res2.status_code == 201
     assert res2.json()["email"] == target_email
+
+
+@pytest.mark.asyncio
+async def test_7_delete_student_with_invite_code_and_media_consent(db, client):
+    """Case 7: Can delete a student who redeemed an invite code and has matched media consents."""
+    ops_user = await _make_user(db, "ops.invites@spacepoint.local", [UserRole.operations])
+    headers = _headers(ops_user)
+
+    contact = Contact(
+        id=uuid.uuid4(),
+        full_name="Invited Student",
+        email="invited.student@spacepoint.local",
+        contact_roles=["student"],
+    )
+    db.add(contact)
+    await db.flush()
+
+    student = User(
+        id=uuid.uuid4(),
+        full_name="Invited Student",
+        email="invited.student@spacepoint.local",
+        password_hash=get_password_hash("Password123!"),
+        roles=[UserRole.student],
+        contact_id=contact.id,
+        status="active",
+        invitation_code_used="SUMMER26",
+    )
+    db.add(student)
+    await db.flush()
+
+    # Create dummy invite code and user redemption
+    code_row = InvitationCode(
+        id=uuid.uuid4(),
+        code="SUMMER26",
+        kind="student",
+        is_active=True,
+    )
+    db.add(code_row)
+    await db.flush()
+
+    db.add(
+        UserInvitationCode(
+            id=uuid.uuid4(),
+            user_id=student.id,
+            invitation_code_id=code_row.id,
+            code="SUMMER26",
+        )
+    )
+
+    # If cohort_media_consents table exists in this DB, add a record
+    res = await db.execute(select(Contact.id).where(Contact.id == contact.id))
+    assert res.scalar_one_or_none() is not None
+
+    student_id = student.id
+    contact_id = contact.id
+
+    with patch("app.services.test_account_cleanup.purge_mailpit_messages", new_callable=AsyncMock):
+        del_res = await client.delete(f"/operations/test-accounts/users/{student_id}", headers=headers)
+        assert del_res.status_code == 200, del_res.text
+
+    assert (await db.get(User, student_id)) is None
+    assert (await db.get(Contact, contact_id)) is None
+

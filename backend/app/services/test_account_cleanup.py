@@ -319,12 +319,22 @@ async def cascade_delete_test_account(
                     {"oid": oid},
                 )
 
+        # Nullify referrals pointing to this user
+        await db.execute(text("UPDATE users SET invited_by_id = NULL WHERE invited_by_id = :uid"), {"uid": uid})
+        if await _table_exists(db, "user_invitation_codes"):
+            await db.execute(text("DELETE FROM user_invitation_codes WHERE user_id = :uid"), {"uid": uid})
+
         # 7. Delete User row (cascades 35+ dependent tables)
         await db.delete(user)
         await db.flush()
 
     # 8. Delete Applications matching target_email
     await db.execute(text("DELETE FROM applications WHERE LOWER(email) = :email"), {"email": target_email})
+    if await _table_exists(db, "cohort_media_consents"):
+        await db.execute(
+            text("DELETE FROM cohort_media_consents WHERE LOWER(student_email_raw) = :email OR LOWER(parent_email) = :email"),
+            {"email": target_email},
+        )
 
     # 9. Delete Spine Contacts + Orphan Guardian Contacts
     orphan_guardian_ids: set[UUID] = set()
@@ -374,7 +384,7 @@ async def cascade_delete_test_account(
             {"cid": cid},
         )
         if await _table_exists(db, "cohort_media_consents"):
-            await db.execute(text("DELETE FROM cohort_media_consents WHERE contact_id = :cid"), {"cid": cid})
+            await db.execute(text("DELETE FROM cohort_media_consents WHERE matched_contact_id = :cid"), {"cid": cid})
         await db.execute(text("DELETE FROM touchpoints WHERE contact_id = :cid"), {"cid": cid})
         await db.execute(text("DELETE FROM contacts WHERE id = :cid"), {"cid": cid})
 
