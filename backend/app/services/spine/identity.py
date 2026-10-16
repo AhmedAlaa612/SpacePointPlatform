@@ -90,7 +90,7 @@ def normalize_phone(raw: str | None, default_region: str = "AE") -> str | None:
             return phonenumbers.format_number(parsed, phonenumbers.PhoneNumberFormat.E164)
     except Exception:
         pass
-    return cleaned
+    return cleaned[:20]
 
 
 def normalize_email(email: str | None) -> str | None:

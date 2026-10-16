@@ -1,7 +1,7 @@
 from datetime import date, datetime
 from uuid import UUID
 
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel, EmailStr, field_validator
 
 
 class LoginRequest(BaseModel):
@@ -38,6 +38,24 @@ class StudentSignupRequest(BaseModel):
     # Free-text fallback (2026-08-08) — "Other" city for countries the
     # pickers have no SpacePoint city for; stored on users.city_other.
     city_other: str | None = None
+
+    @field_validator("phone")
+    @classmethod
+    def validate_phone(cls, v: str) -> str:
+        s = v.strip()
+        if len(s) > 20:
+            raise ValueError("Phone number must not exceed 20 characters")
+        return s
+
+    @field_validator("parent_phone")
+    @classmethod
+    def validate_parent_phone(cls, v: str | None) -> str | None:
+        if v is not None:
+            s = v.strip()
+            if len(s) > 20:
+                raise ValueError("Parent phone number must not exceed 20 characters")
+            return s
+        return v
 
 
 class ForgotPasswordRequest(BaseModel):

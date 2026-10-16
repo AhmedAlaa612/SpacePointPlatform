@@ -66,11 +66,25 @@ export default function LearnSignup() {
         setCurrentUser(user);
         void navigate({ to: await resolveLearnLanding() });
       } catch (err) {
-        if (isAxiosError(err) && err.response?.status === 409) {
-          setError("An account with this email already exists — log in instead.");
-        } else if (isAxiosError(err) && err.response?.status === 400) {
-          const detail = err.response.data?.detail;
-          setError(typeof detail === "string" ? detail : "Something went wrong. Please try again.");
+        if (isAxiosError(err)) {
+          if (err.response?.status === 409) {
+            setError("An account with this email already exists — log in instead.");
+          } else if (err.response?.status === 400 || err.response?.status === 422) {
+            const detail = err.response.data?.detail;
+            if (typeof detail === "string") {
+              setError(detail);
+            } else if (Array.isArray(detail) && detail.length > 0) {
+              const first = detail[0];
+              const field = first?.loc?.[first.loc.length - 1];
+              const msg = first?.msg || "Invalid input";
+              setError(field && field !== "body" ? `${field}: ${msg}` : msg);
+            } else {
+              setError("Please check your input and try again.");
+            }
+          } else {
+            const detail = err.response?.data?.detail;
+            setError(typeof detail === "string" ? detail : "Something went wrong. Please try again.");
+          }
         } else {
           setError("Something went wrong. Please try again.");
         }
@@ -119,6 +133,7 @@ export default function LearnSignup() {
               type="tel"
               placeholder="Phone"
               required
+              maxLength={20}
               value={phone}
               onChange={(e) => setPhone(e.target.value)}
               className="h-11 px-4 rounded-xl text-sm bg-background ring-1 ring-border focus:outline-none focus:ring-primary/50 transition-shadow"
@@ -200,6 +215,7 @@ export default function LearnSignup() {
                 />
                 <input
                   type="tel" placeholder="Parent/guardian phone"
+                  maxLength={20}
                   value={parentPhone} onChange={(e) => setParentPhone(e.target.value)}
                   className="h-10 px-3.5 rounded-xl text-sm bg-background ring-1 ring-border focus:outline-none focus:ring-primary/50 transition-shadow"
                 />
