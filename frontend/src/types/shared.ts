@@ -30,7 +30,8 @@ export type Role =
   // AuthContext.resolveActiveRole + RoleSwitcher filtering); listed here
   // so multi-role accounts carrying it type-check and label correctly.
   | "observer"
-  | "organization";
+  | "organization"
+  | "mentor";
 
 /**
  * There is deliberately no `ROLE_DOMAIN` map. One existed until I0-1
@@ -61,6 +62,7 @@ export const ROLE_LABEL: Record<Role, string> = {
   lms_author: "LMS Author",
   observer: "Observer",
   organization: "Organization",
+  mentor: "Mentor",
 };
 
 export interface User {

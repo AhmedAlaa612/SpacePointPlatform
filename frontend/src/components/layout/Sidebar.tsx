@@ -12,6 +12,7 @@ import {
   CalendarDays,
   ChevronDown,
   ClipboardList,
+  Clock,
   CreditCard,
   FileText,
   FolderOpen,
@@ -30,6 +31,7 @@ import {
   Settings as SettingsIcon,
   Share2,
   ShoppingCart,
+  Tag,
   Target,
   Ticket,
   Trophy,
@@ -104,6 +106,14 @@ const ICONS: Record<string, LucideIcon> = {
   Applicants: ClipboardList,
   "Invitation Codes": Ticket,
   Instructors: Users,
+  "Space Mentors": Users,
+  Mentors: Users,
+  "Mentors List": Users,
+  Topics: Tag,
+  Directory: Globe,
+  Availability: Clock,
+  "Mentor Portal": UserCog,
+  "Public Directory": Globe,
   LMS: BookOpen,
   Facilitators: Users,
   Certificates: Award,
@@ -197,6 +207,12 @@ const WEBSITE_GROUP = mkGroup("Website", undefined, [
   mk("Labs R&D", "/operations/website/labs"),
 ]);
 
+const MENTORS_GROUP = mkGroup("Mentors", undefined, [
+  mk("Mentors List", "/operations/mentors/roster"),
+  mk("Applications", "/operations/mentors/applications"),
+  mk("Topics", "/operations/mentors/topics"),
+]);
+
 const DOMAIN_TITLE: Record<string, string> = {
   interns: "Interns",
   ambassadors: "Ambassadors",
@@ -216,6 +232,7 @@ function getNavItems(pathname: string, activeRole: Role | null): NavItem[] {
   if (activeRole === "organization" || pathname.startsWith("/organization")) {
     return [
       mk("My Events", "/organization/events"),
+      mk("Mentors", "/mentors"),
       mk("Profile & Settings", "/organization/profile"),
     ];
   }
@@ -268,6 +285,7 @@ function getNavItems(pathname: string, activeRole: Role | null): NavItem[] {
       LMS_GROUP,
       INVENTORY_GROUP,
       WEBSITE_GROUP,
+      MENTORS_GROUP,
       mk("Learn", "/learn"),
       mk("Sessions Calendar", "/operations/calendar"),
       mk("Ground Station Devices", "/operations/ground-station-devices"),
@@ -285,10 +303,8 @@ function getNavItems(pathname: string, activeRole: Role | null): NavItem[] {
       mk("My Articles", "/articles"),
       mk("Learn", "/learn"),
       mk("Settings", "/admin/settings"),
-      // I0-1: admin previously had NO navigational path into the registration/
-      // sessions system at all — S6-2 stripped these pages from the admin
-      // sidebar but never linked the domain that replaced them.
       mk("Operations", "/operations/dashboard"),
+      MENTORS_GROUP,
     ];
   }
   if (pathname.startsWith("/ambassadors")) {
@@ -493,10 +509,20 @@ function getNavItems(pathname: string, activeRole: Role | null): NavItem[] {
       LMS_GROUP,
       INVENTORY_GROUP,
       WEBSITE_GROUP,
+      MENTORS_GROUP,
       mk("Learn", "/learn"),
       mk("Sessions Calendar", "/operations/calendar"),
       mk("Ground Station Devices", "/operations/ground-station-devices"),
       mk("My Articles", "/articles"),
+    ];
+  }
+  if (activeRole === "mentor") {
+    return [
+      mk("Settings", "/mentor/settings"),
+      mk("Availability", "/mentor/availability"),
+      mk("Sessions", "/mentor/sessions"),
+      mk("Directory", "/mentors"),
+      mk("Learn", "/learn"),
     ];
   }
   if (activeRole === "storekeeper") {

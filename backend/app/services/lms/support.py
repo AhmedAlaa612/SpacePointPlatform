@@ -35,10 +35,10 @@ from app.services.documents.card_id import format_card_id
 from app.services.teams import teams_for_user
 
 
-# How long a minted token stays valid. The Messenger only needs it at boot,
-# and the widget refetches on every mount, so this is short on purpose — a
-# token lifted from a shared machine's devtools stops working the same hour.
-JWT_TTL = timedelta(hours=1)
+# How long a minted token stays valid. Kept to a single study day so a student
+# leaving a tab open (or waking a sleeping laptop) doesn't hit a mid-session
+# 401 from Intercom Messenger Security before the frontend refreshes it.
+JWT_TTL = timedelta(hours=12)
 
 
 def identity_jwt(*, secret: str, claims: dict) -> str:
@@ -204,9 +204,20 @@ async def chat_identity(
         ),
     }
 
+    # Ensure the signed JWT `roles` claim always includes `student` so Intercom's
+    # `roles contains student` audience filter never hides Fin for observers,
+    # instructors, facilitators, or ops/admin accounts using `/learn/*`.
+    # The flat HTTP debug response (`fields["roles"]`) still reports the exact
+    # DB roles unchanged.
+    jwt_roles = (
+        fields["roles"]
+        if "student" in user.role_values
+        else ",".join([*user.role_values, "student"])
+    )
     custom_attrs = {
         k: v for k, v in fields.items() if k not in ("user_id", "name", "email")
     }
+    custom_attrs["roles"] = jwt_roles
 
     # Intercom Messenger Security (JWT) reads custom attributes directly as
     # top-level claims in the token. We provide both the normalized snake_case

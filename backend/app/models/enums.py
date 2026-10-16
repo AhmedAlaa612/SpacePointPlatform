@@ -33,6 +33,8 @@ class UserRole(str, enum.Enum):
     # External partner/organization account that can create & edit its own
     # website events while admin controls publishing.
     organization = "organization"
+    # Satellite & space mentor role (public profile, 1:1 sessions & inquiries)
+    mentor = "mentor"
 
 
 # ── Interns domain ───────────────────────────────────────────────────────────

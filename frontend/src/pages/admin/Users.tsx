@@ -16,7 +16,7 @@ import { PasswordInput } from "@/components/ui/PasswordInput"
 import { CountrySelect } from "@/components/ui/CountrySelect"
 import { CityNameSelect } from "@/components/ui/CitySelect"
 
-const ALL_ROLES: Role[] = ["admin", "intern", "leader", "applicant", "instructor", "facilitator", "ambassador", "teacher", "operations", "coo", "storekeeper", "student", "judge", "lms_author", "observer", "organization"]
+const ALL_ROLES: Role[] = ["admin", "intern", "leader", "applicant", "instructor", "facilitator", "ambassador", "teacher", "operations", "coo", "storekeeper", "student", "judge", "lms_author", "observer", "organization", "mentor"]
 
 const roleBadgeColor: Record<Role, string> = {
   admin: "bg-foreground text-background",
@@ -35,6 +35,7 @@ const roleBadgeColor: Record<Role, string> = {
   lms_author: "bg-violet-100 text-violet-700 dark:bg-violet-500/15 dark:text-violet-400",
   observer: "bg-indigo-100 text-indigo-700 dark:bg-indigo-500/15 dark:text-indigo-400",
   organization: "bg-[#643f83]/20 text-[#a880ff]",
+  mentor: "bg-purple-100 text-purple-700 dark:bg-purple-500/15 dark:text-purple-400",
 }
 
 /* ================================================================== */

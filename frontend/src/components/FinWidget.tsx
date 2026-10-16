@@ -1,10 +1,16 @@
 import { useEffect, useRef } from "react";
 
-import { useParams } from "@tanstack/react-router";
+import { useParams, useSearch } from "@tanstack/react-router";
 
 import { fetchChatIdentity, fetchSupportConfig } from "@/api/lms";
 import { useAuth } from "@/context/AuthContext";
 import { boot, isFinEnabled, shutdown, update } from "@/lib/fin";
+
+// Refresh the signed Intercom JWT every 45 minutes (and on tab wakeup after
+// 15+ minutes) so long study sessions or sleeping laptops never hit an
+// expired token on Intercom re-pings.
+const JWT_REFRESH_INTERVAL_MS = 45 * 60 * 1000;
+const VISIBILITY_REFRESH_THRESHOLD_MS = 15 * 60 * 1000;
 
 /**
  * Mounts the Fin (Intercom) support messenger. Renders nothing — the widget
@@ -30,11 +36,13 @@ import { boot, isFinEnabled, shutdown, update } from "@/lib/fin";
  *   exactly the pre-identity behaviour rather than costing the student their
  *   support channel.
  * - **Cohort-page awareness.** On `/learn/checklists/$assignmentId` (and its
- *   `quiz/$itemId` child) the identity is fetched with that assignment, so
- *   `program`/`cohort`/`team` describe the board being viewed. Navigating
- *   between boards re-fetches and `update()`s — preserving the open
- *   conversation — while landing/catalog pages fall back to the latest
- *   assignment. An unknown or foreign assignment id is ignored server-side.
+ *   `quiz/$itemId` child), or when following a board tile into a course or
+ *   design mission (`?program=<assignmentId>`), the identity is fetched with
+ *   that assignment, so `program`/`cohort`/`team` describe the board being
+ *   viewed. Navigating between boards re-fetches and `update()`s — preserving
+ *   the open conversation — while landing/catalog pages fall back to the
+ *   latest assignment. An unknown or foreign assignment id is ignored
+ *   server-side.
  * - **`shutdown()` on cleanup.** Intercom keeps a conversation in a cookie,
  *   so without this the next person to sign in on a shared school machine
  *   inherits the previous student's chat history. See `lib/fin.ts::shutdown`.
@@ -45,12 +53,16 @@ import { boot, isFinEnabled, shutdown, update } from "@/lib/fin";
 export function FinWidget() {
   const { user, loading } = useAuth();
   const userId = user?.id ?? null;
-  // Present only on the checklist board + quiz routes; undefined everywhere
-  // else (landing, catalog, courses, missions, …) — that is the fallback.
+  // Present on the checklist board + quiz routes, or carried via `?program=`
+  // when a student opens a course or design mission from their board.
   const { assignmentId } = useParams({ strict: false }) as { assignmentId?: string };
+  const { program: searchProgram } = useSearch({ strict: false }) as { program?: string };
+  const effectiveAssignmentId = assignmentId || searchProgram || undefined;
+
   // Tracks whether this mount already booted, so board-to-board navigation
   // refreshes via `update()` (conversation preserved) instead of `boot()`.
   const bootedRef = useRef(false);
+  const lastFetchedAtRef = useRef(0);
 
   useEffect(() => {
     if (!isFinEnabled()) return;
@@ -59,7 +71,7 @@ export function FinWidget() {
 
     let cancelled = false;
 
-    async function start() {
+    async function syncIdentity() {
       // Check admin toggle before booting Fin for students
       try {
         const config = await fetchSupportConfig();
@@ -74,12 +86,17 @@ export function FinWidget() {
       }
 
       if (!userId) {
-        boot();
-        bootedRef.current = true;
+        if (bootedRef.current) {
+          update();
+        } else {
+          boot();
+          bootedRef.current = true;
+        }
+        lastFetchedAtRef.current = Date.now();
         return;
       }
       try {
-        const identity = await fetchChatIdentity(assignmentId);
+        const identity = await fetchChatIdentity(effectiveAssignmentId);
         // The user navigated away (or we unmounted) while the request was
         // in flight — applying now would tag the wrong board.
         if (cancelled) return;
@@ -93,6 +110,7 @@ export function FinWidget() {
           boot(payload);
           bootedRef.current = true;
         }
+        lastFetchedAtRef.current = Date.now();
       } catch {
         if (cancelled) return;
         if (!bootedRef.current) {
@@ -102,12 +120,31 @@ export function FinWidget() {
       }
     }
 
-    void start();
+    void syncIdentity();
+
+    const intervalId = userId
+      ? window.setInterval(() => {
+          void syncIdentity();
+        }, JWT_REFRESH_INTERVAL_MS)
+      : undefined;
+
+    function handleVisibilityChange() {
+      if (
+        document.visibilityState === "visible" &&
+        Date.now() - lastFetchedAtRef.current >= VISIBILITY_REFRESH_THRESHOLD_MS
+      ) {
+        void syncIdentity();
+      }
+    }
+
+    document.addEventListener("visibilitychange", handleVisibilityChange);
 
     return () => {
       cancelled = true;
+      if (intervalId !== undefined) window.clearInterval(intervalId);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
     };
-  }, [userId, loading, assignmentId]);
+  }, [userId, loading, effectiveAssignmentId]);
 
   // Full teardown on unmount / account switch only — not on board-to-board
   // navigation (that path uses `update()` above and must keep the chat).

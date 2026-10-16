@@ -101,16 +101,24 @@ function ensureLoaded(): void {
   document.head.appendChild(script);
 }
 
+const API_BASE = "https://api-iam.intercom.io";
+
 /** Show the messenger. */
 export function boot(payload: FinBootPayload = {}): void {
   if (!isFinEnabled()) return;
   ensureLoaded();
 
-  // Shutdown before every boot so Intercom starts from a clean state
-  // rather than restoring a stale cached session from its cookie.
-  window.Intercom?.("shutdown");
-
-  window.Intercom?.("boot", { app_id: APP_ID, ...payload });
+  // Do NOT call `Intercom("shutdown")` synchronously before `Intercom("boot")`
+  // here: when the widget script is already loaded in memory, Intercom's
+  // teardown runs asynchronously and can wipe out the launcher frame created by
+  // an immediate `boot()`. Session cleanup on logout/account switch is handled
+  // by `FinWidget`'s unmount cleanup effect instead.
+  window.Intercom?.("boot", {
+    api_base: API_BASE,
+    app_id: APP_ID,
+    hide_default_launcher: false,
+    ...payload,
+  });
 
   // Track chat open/close state on body so mobile styles can deactivate transforms while chatting
   window.Intercom?.("onShow", () => {
@@ -131,7 +139,12 @@ export function boot(payload: FinBootPayload = {}): void {
 export function update(payload: FinBootPayload = {}): void {
   if (!isFinEnabled()) return;
   ensureLoaded();
-  window.Intercom?.("update", { app_id: APP_ID, ...payload });
+  window.Intercom?.("update", {
+    api_base: API_BASE,
+    app_id: APP_ID,
+    hide_default_launcher: false,
+    ...payload,
+  });
 }
 
 /** Hide the messenger and **clear the local conversation**.

@@ -115,6 +115,7 @@ require_facilitator = RequireRole(["facilitator"])
 require_instructor_or_facilitator = RequireRole(["instructor", "facilitator"])
 require_ambassador = RequireRole(["ambassador"])
 require_teacher = RequireRole(["teacher"])
+require_mentor = RequireRole(["mentor"])
 require_operations = RequireRole(["operations"])  # V2 sessions/spine domains (R2-3+)
 
 # ── Inventory phase (I0-2) ──────────────────────────────────────────────────

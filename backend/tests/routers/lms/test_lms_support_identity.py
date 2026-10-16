@@ -359,6 +359,19 @@ async def test_roles_lists_every_role_a_multi_role_account_holds(db, client):
     assert body["roles"] == "student,instructor"
 
 
+async def test_jwt_roles_includes_student_for_observer_and_staff_accounts(db, client):
+    """Observers and staff browsing `/learn/*` must still match Intercom's
+    `roles contains student` audience rule inside the signed JWT while the
+    debug HTTP response reports their actual DB roles."""
+    observer = await _user(db, roles=["observer"])
+    body = (await client.get(URL, headers=_headers(observer))).json()
+    assert body["roles"] == "observer"
+    claims = jwt.decode(body["intercom_user_jwt"], SECRET, algorithms=["HS256"])
+    assert "student" in claims["roles"]
+    assert "student" in claims["Roles"]
+    assert "student" in claims["custom_attributes"]["roles"]
+
+
 async def test_card_id_uses_the_student_prefix(db, client):
     """`format_card_id` branches on roles, and the roles column hydrates as
     either enums or strings depending on the driver — this is what proves the

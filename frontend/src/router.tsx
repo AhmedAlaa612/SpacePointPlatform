@@ -133,6 +133,12 @@ import InternsLanding from "@/pages/public/InternsLanding";
 import Ticket from "@/pages/public/Ticket";
 import KitScan from "@/pages/public/KitScan";
 
+// Space Mentors domain
+import PublicDirectory from "@/pages/mentors/PublicDirectory";
+import PublicProfile from "@/pages/mentors/PublicProfile";
+import MentorsManagement from "@/pages/operations/mentors/MentorsManagement";
+import MentorSettings from "@/pages/mentors/MentorSettings";
+
 // LMS student surface (LMS D1) — a separate surface in the same app: own shell,
 // own login/signup, no portal chrome. See pages/learn/LearnShell.tsx.
 import { LearnShell } from "@/pages/learn/LearnShell";
@@ -228,6 +234,8 @@ const kitScanRoute = createRoute({
   component: KitScan,
 });
 
+
+
 import { useAuth } from "@/context/AuthContext";
 
 /** Bare /instructors and /interns are the only public routes nested in this
@@ -308,6 +316,51 @@ const articlesRoute = createRoute({
   getParentRoute: () => authLayoutRoute,
   path: "/articles",
   component: MyArticles,
+});
+
+const requireMentorsAccess = () => {
+  const role = localStorage.getItem("active_role");
+  if (role !== "organization" && role !== "mentor" && role !== "operations" && role !== "admin" && role !== "coo") {
+    throw redirect({ to: "/" });
+  }
+};
+
+const mentorsDirectoryRoute = createRoute({
+  getParentRoute: () => authLayoutRoute,
+  path: "/mentors",
+  beforeLoad: requireMentorsAccess,
+  component: PublicDirectory,
+});
+
+const mentorDetailRoute = createRoute({
+  getParentRoute: () => authLayoutRoute,
+  path: "/mentors/$slug",
+  beforeLoad: requireMentorsAccess,
+  component: PublicProfile,
+});
+
+const mentorProfileRoute = createRoute({
+  getParentRoute: () => authLayoutRoute,
+  path: "/mentor/profile",
+  component: () => <MentorSettings initialTab="profile" />,
+});
+
+const mentorSettingsRoute = createRoute({
+  getParentRoute: () => authLayoutRoute,
+  path: "/mentor/settings",
+  component: () => <MentorSettings initialTab="profile" />,
+});
+
+const mentorAvailabilityRoute = createRoute({
+  getParentRoute: () => authLayoutRoute,
+  path: "/mentor/availability",
+  component: () => <MentorSettings initialTab="slots" />,
+});
+
+const mentorSessionsRoute = createRoute({
+  getParentRoute: () => authLayoutRoute,
+  path: "/mentor/sessions",
+  component: () => <MentorSettings initialTab="bookings" />,
 });
 
 const internsLayoutRoute = createRoute({
@@ -801,6 +854,11 @@ const operationsRoutes = [
       throw redirect({ to: "/admin/birthdays" });
     },
   }),
+  createRoute({ getParentRoute: po, path: "/mentors", component: () => <MentorsManagement initialTab="roster" /> }),
+  createRoute({ getParentRoute: po, path: "/mentors/roster", component: () => <MentorsManagement initialTab="roster" /> }),
+  createRoute({ getParentRoute: po, path: "/mentors/list", component: () => <MentorsManagement initialTab="roster" /> }),
+  createRoute({ getParentRoute: po, path: "/mentors/applications", component: () => <MentorsManagement initialTab="applications" /> }),
+  createRoute({ getParentRoute: po, path: "/mentors/topics", component: () => <MentorsManagement initialTab="topics" /> }),
 ];
 
 const organizationSignupRoute = createRoute({
@@ -831,6 +889,8 @@ const organizationRoutes = [
     },
   }),
   createRoute({ getParentRoute: porg, path: "/events", component: OrganizationEvents }),
+  createRoute({ getParentRoute: porg, path: "/mentors", component: PublicDirectory }),
+  createRoute({ getParentRoute: porg, path: "/mentors/$slug", component: PublicProfile }),
   createRoute({ getParentRoute: porg, path: "/profile", component: SharedProfile }),
 ];
 
@@ -1320,6 +1380,12 @@ const routeTree = rootRoute.addChildren([
     indexRoute,
     documentsRoute,
     articlesRoute,
+    mentorProfileRoute,
+    mentorSettingsRoute,
+    mentorAvailabilityRoute,
+    mentorSessionsRoute,
+    mentorsDirectoryRoute,
+    mentorDetailRoute,
     adminHubRoute,
     adminUsersRoute,
     adminDocumentsRoute,
