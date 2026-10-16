@@ -350,26 +350,28 @@ async def test_roles_is_a_single_value_for_a_single_role_account(db, client):
     assert body["roles"] == "student"
 
 
-async def test_roles_lists_every_role_a_multi_role_account_holds(db, client):
-    """The reason this is a joined list and not one value: an Intercom rule
-    reading `roles contains student` has to still match someone who also
-    teaches. A single `role` string would drop one of them."""
-    user = await _user(db, roles=["student", "instructor"])
+async def test_roles_is_always_student_for_multi_role_account_on_lms(db, client):
+    """On the LMS (`/learn/*`), Fin must see only `student` rather than all
+    portal roles a multi-role account holds."""
+    user = await _user(db, roles=["student", "instructor", "admin"])
     body = (await client.get(URL, headers=_headers(user))).json()
-    assert body["roles"] == "student,instructor"
+    assert body["roles"] == "student"
+    claims = jwt.decode(body["intercom_user_jwt"], SECRET, algorithms=["HS256"])
+    assert claims["roles"] == "student"
+    assert claims["Roles"] == "student"
+    assert claims["custom_attributes"]["roles"] == "student"
 
 
-async def test_jwt_roles_includes_student_for_observer_and_staff_accounts(db, client):
-    """Observers and staff browsing `/learn/*` must still match Intercom's
-    `roles contains student` audience rule inside the signed JWT while the
-    debug HTTP response reports their actual DB roles."""
+async def test_roles_is_always_student_for_observer_and_staff_accounts(db, client):
+    """Even if the caller is an `observer` (or staff without `student` in DB),
+    messaging from the LMS always passes `roles == "student"`."""
     observer = await _user(db, roles=["observer"])
     body = (await client.get(URL, headers=_headers(observer))).json()
-    assert body["roles"] == "observer"
+    assert body["roles"] == "student"
     claims = jwt.decode(body["intercom_user_jwt"], SECRET, algorithms=["HS256"])
-    assert "student" in claims["roles"]
-    assert "student" in claims["Roles"]
-    assert "student" in claims["custom_attributes"]["roles"]
+    assert claims["roles"] == "student"
+    assert claims["Roles"] == "student"
+    assert claims["custom_attributes"]["roles"] == "student"
 
 
 async def test_card_id_uses_the_student_prefix(db, client):

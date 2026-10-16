@@ -185,15 +185,11 @@ async def chat_identity(
         "user_id": str(user.id),
         "name": user.full_name,
         "email": user.email,
-        # Comma-joined rather than a single role: `users.roles` is an array
-        # and a person can hold `student` and `instructor` at once, so one
-        # value would mean picking arbitrarily and having an Intercom rule
-        # silently miss the people who hold two. The rule reads
-        # `roles contains student`. Unsorted on purpose — `role_values`
-        # keeps the DB array order, and `roles[0]` carries a weak "primary
-        # role" meaning the frontend already leans on
-        # (AuthContext::resolveActiveRole).
-        "roles": ",".join(user.role_values),
+        # Every message originating from the LMS (`/learn/*`) passes `"student"`
+        # as the sole role — regardless of whether the account is an observer,
+        # instructor, or multi-role staff member — so Fin on the LMS always
+        # treats the caller strictly as a student.
+        "roles": "student",
         "team": team.name if team is not None else None,
         "program": program_name,
         "cohort": cohort_name,
@@ -204,20 +200,9 @@ async def chat_identity(
         ),
     }
 
-    # Ensure the signed JWT `roles` claim always includes `student` so Intercom's
-    # `roles contains student` audience filter never hides Fin for observers,
-    # instructors, facilitators, or ops/admin accounts using `/learn/*`.
-    # The flat HTTP debug response (`fields["roles"]`) still reports the exact
-    # DB roles unchanged.
-    jwt_roles = (
-        fields["roles"]
-        if "student" in user.role_values
-        else ",".join([*user.role_values, "student"])
-    )
     custom_attrs = {
         k: v for k, v in fields.items() if k not in ("user_id", "name", "email")
     }
-    custom_attrs["roles"] = jwt_roles
 
     # Intercom Messenger Security (JWT) reads custom attributes directly as
     # top-level claims in the token. We provide both the normalized snake_case
