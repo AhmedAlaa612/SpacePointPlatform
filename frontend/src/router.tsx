@@ -342,7 +342,22 @@ const mentorDetailRoute = createRoute({
 const mentorProfileRoute = createRoute({
   getParentRoute: () => authLayoutRoute,
   path: "/mentor/profile",
-  component: () => <MentorSettings initialTab="profile" />,
+  component: SharedProfile,
+});
+
+const profileRedirectRoute = createRoute({
+  getParentRoute: () => authLayoutRoute,
+  path: "/profile",
+  beforeLoad: () => {
+    const role = localStorage.getItem("active_role");
+    if (role === "admin") throw redirect({ to: "/admin/profile" });
+    if (role === "operations" || role === "coo" || role === "storekeeper") throw redirect({ to: "/operations/profile" });
+    if (role === "ambassador" || role === "teacher") throw redirect({ to: "/ambassadors/profile" });
+    if (role === "instructor" || role === "facilitator") throw redirect({ to: "/instructors/profile" });
+    if (role === "organization") throw redirect({ to: "/organization/profile" });
+    if (role === "mentor") throw redirect({ to: "/mentor/profile" });
+    throw redirect({ to: "/interns/profile" });
+  },
 });
 
 const mentorSettingsRoute = createRoute({
@@ -1381,6 +1396,7 @@ const routeTree = rootRoute.addChildren([
     documentsRoute,
     articlesRoute,
     mentorProfileRoute,
+    profileRedirectRoute,
     mentorSettingsRoute,
     mentorAvailabilityRoute,
     mentorSessionsRoute,

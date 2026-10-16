@@ -591,6 +591,15 @@ export default function MentorSettings({ initialTab = "profile" }: MentorSetting
                     ? "Set up your public aerospace advisory profile, background, and booking preferences."
                     : "Share your satellite, CubeSat, and aerospace engineering experience with partner organizations."}
                 </p>
+                {profile && (
+                  <p className="text-xs text-muted-foreground pt-1">
+                    Looking to change your name or password? Visit{" "}
+                    <Link to="/mentor/profile" className="text-primary hover:underline font-semibold">
+                      Profile &amp; Settings
+                    </Link>
+                    .
+                  </p>
+                )}
               </div>
 
               {isDirty && (

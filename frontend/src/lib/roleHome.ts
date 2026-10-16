@@ -23,7 +23,7 @@ export function roleHomePath(role: Role | null): string {
     case "judge": return "/judge";
     case "lms_author": return "/lms-authoring/courses";
     case "organization": return "/organization/events";
-    case "mentor": return "/mentor/profile";
+    case "mentor": return "/mentor/settings";
     // Safety net only — activeRole should never be observer (see
     // resolveActiveRole + RoleSwitcher filtering). Observers run the
     // student engine, so /learn is the sane landing if it ever happens.

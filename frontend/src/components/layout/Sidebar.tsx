@@ -113,6 +113,8 @@ const ICONS: Record<string, LucideIcon> = {
   Directory: Globe,
   Availability: Clock,
   "Mentor Portal": UserCog,
+  "Mentor Settings": SettingsIcon,
+  "Mentor Profile": UserCog,
   "Public Directory": Globe,
   LMS: BookOpen,
   Facilitators: Users,
@@ -518,11 +520,12 @@ function getNavItems(pathname: string, activeRole: Role | null): NavItem[] {
   }
   if (activeRole === "mentor") {
     return [
-      mk("Settings", "/mentor/settings"),
-      mk("Availability", "/mentor/availability"),
       mk("Sessions", "/mentor/sessions"),
+      mk("Availability", "/mentor/availability"),
+      mk("Mentor Settings", "/mentor/settings"),
       mk("Directory", "/mentors"),
       mk("Learn", "/learn"),
+      mk("Profile & Settings", "/mentor/profile"),
     ];
   }
   if (activeRole === "storekeeper") {
@@ -888,6 +891,8 @@ export function AppShell({ children }: { children: ReactNode }) {
       ? "/instructors/status"
       : activeRole === "instructor" || activeRole === "facilitator"
       ? "/instructors/profile"
+      : activeRole === "mentor"
+      ? "/mentor/profile"
       : activeRole === "judge"
       ? "/judge"
       // unreachable while the switcher hides observer, kept so a stored
