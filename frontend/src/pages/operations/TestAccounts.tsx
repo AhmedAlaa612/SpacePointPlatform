@@ -10,14 +10,13 @@ import {
   Shield,
   Search,
   Check,
-  Copy,
   AlertTriangle,
   RefreshCw,
   Edit,
   UserCheck,
   FileText,
 } from "lucide-react";
-import { PageHeader, Spinner, EmptyState } from "@/components/ui/primitives";
+import { Spinner, EmptyState } from "@/components/ui/primitives";
 import { Modal, Field } from "@/pages/admin/components/common";
 import {
   getTestUsersApi,
@@ -29,7 +28,6 @@ import {
   cascadeDeleteTestEmailApi,
   type CreateTestUserPayload,
   type UpdateTestUserPayload,
-  type TestApplicationItem,
 } from "@/api/operations/testAccounts";
 import type { Role, User } from "@/types/shared";
 
@@ -408,9 +406,8 @@ export default function TestAccounts() {
           ) : filteredUsers.length === 0 ? (
             <div className="py-12">
               <EmptyState
-                icon={UserCheck}
                 title="No test accounts found"
-                description={
+                hint={
                   search || roleFilter !== "all"
                     ? "Try adjusting your search query or role filter."
                     : `No @${TEST_DOMAIN} test accounts have been created yet.`
@@ -522,9 +519,8 @@ export default function TestAccounts() {
           ) : filteredApps.length === 0 ? (
             <div className="py-12">
               <EmptyState
-                icon={FileText}
                 title="No test applications found"
-                description={`No pending applications submitted with @${TEST_DOMAIN}.`}
+                hint={`No pending applications submitted with @${TEST_DOMAIN}.`}
               />
             </div>
           ) : (

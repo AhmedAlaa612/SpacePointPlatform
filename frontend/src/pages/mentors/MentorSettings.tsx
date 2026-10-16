@@ -48,7 +48,10 @@ function parseAvailabilitiesToGrid(rules: MentorAvailability[], tz: string = CLI
     if (r.day_of_week === null || r.day_of_week === undefined || !r.is_active) continue
     const startHour = parseInt(r.start_time.split(":")[0], 10)
     let endHour = parseInt(r.end_time.split(":")[0], 10)
-    if (endHour === 0 && startHour > 0) {
+    // An end of 00:00 always means midnight at the end of the range — a full
+    // day (00:00–00:00) or an evening block (e.g. 22:00–00:00). This matches
+    // the backend slot engine, which treats end <= start as +1 day.
+    if (endHour === 0) {
       endHour = 24
     }
 
@@ -284,14 +287,27 @@ export default function MentorSettings({ initialTab = "profile" }: MentorSetting
           photoUrl: effectivePhoto,
         })
 
-        const [myAvails, myBookings] = await Promise.all([
+        // Availability and bookings load independently: if one request fails
+        // (e.g. bookings 500s), the other must still populate. A single
+        // Promise.all here once blanked the whole slots grid whenever
+        // bookings failed — and saving that empty grid then wiped the
+        // schedule server-side.
+        const [availsResult, bookingsResult] = await Promise.allSettled([
           getMyAvailability(),
           getMyMentorBookings(),
         ])
-        const parsedGrid = parseAvailabilitiesToGrid(myAvails)
-        setSelectedGridSlots(parsedGrid)
-        setInitialGridSlots(new Set(parsedGrid))
-        setBookings(myBookings)
+        if (availsResult.status === "fulfilled") {
+          const parsedGrid = parseAvailabilitiesToGrid(availsResult.value)
+          setSelectedGridSlots(parsedGrid)
+          setInitialGridSlots(new Set(parsedGrid))
+        } else {
+          console.error("Failed to load availability", availsResult.reason)
+        }
+        if (bookingsResult.status === "fulfilled") {
+          setBookings(bookingsResult.value)
+        } else {
+          console.error("Failed to load bookings", bookingsResult.reason)
+        }
       } catch (err: any) {
         if (err.response?.status === 404) {
           setProfile(null)
@@ -532,6 +548,16 @@ export default function MentorSettings({ initialTab = "profile" }: MentorSetting
       setSavingSlots(true)
       setMsg(null)
       const intervals = convertGridToAvailabilities(selectedGridSlots)
+      // Saving an empty grid irreversibly deletes every rule server-side
+      // (the endpoint replaces the whole schedule), so require an explicit
+      // confirm when there were slots before — "Clear All" is one misclick
+      // away from "Save Schedule".
+      if (intervals.length === 0 && initialGridSlots.size > 0) {
+        const confirmed = window.confirm(
+          "This will delete your entire availability schedule and mentors will no longer be bookable. Are you sure?"
+        )
+        if (!confirmed) return
+      }
       const saved = await setMyAvailability(intervals)
       const newGrid = parseAvailabilitiesToGrid(saved)
       setSelectedGridSlots(newGrid)
