@@ -1,6 +1,6 @@
 import { type FormEvent, useEffect, useState } from "react"
 import { Link } from "@tanstack/react-router"
-import { PLAIN_LOGO } from "@/lib/logos"
+import { DomainIcon } from "@/components/ui/DomainIcon"
 import { ThemeToggle } from "@/components/layout/ThemeToggle"
 import { SiteFooter } from "@/components/layout/SiteFooter"
 import { CountrySelect } from "@/components/ui/CountrySelect"
@@ -8,7 +8,7 @@ import { PasswordInput } from "@/components/ui/PasswordInput"
 import { LinkedInIcon } from "@/components/icons/LinkedInIcon"
 import { Button } from "@/components/ui/button"
 import { Spinner } from "@/components/ui/primitives"
-import { applyPublicMentorApi, getMentorDomains } from "@/api/mentors"
+import { applyPublicMentorApi, getPublicMentorDomains } from "@/api/mentors"
 import type { MentorDomain } from "@/types/mentors"
 import { cn } from "@/lib/utils"
 import {
@@ -17,7 +17,6 @@ import {
   CheckCircle2,
   AlertCircle,
   Mail,
-  Sparkles,
   ArrowRight,
   ShieldCheck,
 } from "lucide-react"
@@ -47,7 +46,7 @@ export default function MentorApply() {
   const [submitted, setSubmitted] = useState(false)
 
   useEffect(() => {
-    getMentorDomains()
+    getPublicMentorDomains()
       .then((data) => {
         setDomains(data.filter((d) => d.is_active))
       })
@@ -116,10 +115,7 @@ export default function MentorApply() {
       <header className="border-b border-border/60 bg-background/80 backdrop-blur-md sticky top-0 z-40">
         <div className="max-w-6xl mx-auto px-4 sm:px-6 h-16 flex items-center justify-between">
           <Link to="/" className="flex items-center gap-2.5">
-            <img src={PLAIN_LOGO} alt="SpacePoint" className="h-8 w-auto" />
-            <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-primary/10 text-primary border border-primary/20 hidden sm:inline-block">
-              Mentorship Network
-            </span>
+            <DomainIcon label="Mentors" className="h-10 w-auto" />
           </Link>
           <div className="flex items-center gap-3">
             <ThemeToggle />
@@ -190,12 +186,8 @@ export default function MentorApply() {
           <div className="flex flex-col gap-10">
             {/* Header Hero */}
             <div className="space-y-3 text-center sm:text-left">
-              <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-primary/10 border border-primary/20 text-primary text-xs font-semibold">
-                <Sparkles size={13} />
-                <span>SpacePoint Mentorship Network</span>
-              </div>
               <h1 className="font-display text-3xl sm:text-4xl font-extrabold text-foreground tracking-tight">
-                Apply as an Aerospace Mentor
+                Apply as a Space &amp; Satellite Mentor
               </h1>
               <p className="text-sm sm:text-base text-muted-foreground max-w-2xl leading-relaxed">
                 Share your satellite engineering, payload design, and mission operations expertise with universities,

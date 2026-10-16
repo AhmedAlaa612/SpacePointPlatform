@@ -23,6 +23,7 @@ from app.schemas.mentors import (
     AvailableSlotOut,
     MentorBookIn,
     MentorBookingOut,
+    MentorDomainOut,
     MentorProfileOut,
     MentorPublicApplyIn,
     MentorPublicApplyOut,
@@ -33,6 +34,23 @@ from app.services.spine.identity import normalize_user_email, user_email_matches
 from app.routers.mentors.operations import _generate_unique_mentor_slug
 
 router = APIRouter(tags=["Public Mentors & Booking"])
+
+
+# ── Public Domains / Topics ───────────────────────────────────────────────────
+
+@router.get("/mentors/topics", response_model=list[MentorDomainOut])
+@router.get("/mentors/domains", response_model=list[MentorDomainOut])
+async def list_public_mentor_topics(
+    db: AsyncSession = Depends(get_db),
+):
+    """Retrieve active mentor domains and topics for public filtering and registration without requiring authentication."""
+    result = await db.execute(
+        select(MentorDomain)
+        .where(MentorDomain.is_active.is_(True))
+        .order_by(MentorDomain.display_order.asc(), MentorDomain.name.asc())
+    )
+    return result.scalars().all()
+
 
 
 def _serialize_public_mentor(mentor: MentorProfile) -> MentorProfileOut:

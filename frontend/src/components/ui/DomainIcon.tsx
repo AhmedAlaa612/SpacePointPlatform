@@ -11,6 +11,8 @@ const DOMAIN_LABELS: Record<string, string> = {
   learn: "Explorers",
   judge: "Competitions",
   organization: "Partners",
+  mentor: "Mentors",
+  mentors: "Mentors",
 };
 
 const ROLE_DOMAINS: Record<string, string> = {
@@ -27,14 +29,15 @@ const ROLE_DOMAINS: Record<string, string> = {
   admin: "Admin",
   judge: "Competitions",
   organization: "Partners",
+  mentor: "Mentors",
 };
 
-export function DomainIcon({ className }: { className?: string }) {
+export function DomainIcon({ className, label: labelProp }: { className?: string; label?: string }) {
   const { pathname } = useLocation();
   const { activeRole } = useAuth();
   const domain = pathname.split("/")[1];
 
-  let label = DOMAIN_LABELS[domain];
+  let label = labelProp ?? DOMAIN_LABELS[domain];
   if (!label && activeRole) {
     label = ROLE_DOMAINS[activeRole];
   }

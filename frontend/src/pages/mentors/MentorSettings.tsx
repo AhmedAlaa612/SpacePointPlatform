@@ -2,10 +2,10 @@ import { type FormEvent, useEffect, useState, useMemo } from "react"
 import { Link } from "@tanstack/react-router"
 import {
   applyToBecomeMentor,
-  getMentorDomains,
   getMyAvailability,
   getMyMentorBookings,
   getMyMentorProfile,
+  getPublicMentorDomains,
   setMyAvailability,
   updateMyMentorProfile,
   uploadMyMentorPhoto,
@@ -244,7 +244,7 @@ export default function MentorSettings({ initialTab = "profile" }: MentorSetting
   const loadAll = async () => {
     try {
       setLoading(true)
-      const allDomains = await getMentorDomains(true)
+      const allDomains = await getPublicMentorDomains()
       setDomains(allDomains)
 
       try {

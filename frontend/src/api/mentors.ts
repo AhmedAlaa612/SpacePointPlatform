@@ -21,6 +21,11 @@ export interface PublicMentorFilterParams {
   offset?: number;
 }
 
+export async function getPublicMentorDomains(): Promise<MentorDomain[]> {
+  const { data } = await api.get<MentorDomain[]>("/mentors/topics");
+  return data;
+}
+
 export async function getPublicMentors(params?: PublicMentorFilterParams): Promise<MentorProfile[]> {
   const { data } = await api.get<MentorProfile[]>("/mentors", { params });
   return data;

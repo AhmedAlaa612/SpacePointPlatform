@@ -1,6 +1,6 @@
 import { type FormEvent, useEffect, useState } from "react"
 import { Link } from "@tanstack/react-router"
-import { bookMentorSession, getMentorDomains, getPublicMentors } from "@/api/mentors"
+import { bookMentorSession, getPublicMentorDomains, getPublicMentors } from "@/api/mentors"
 import type { MentorDomain, MentorProfile } from "@/types/mentors"
 import { Spinner, EmptyState } from "@/components/ui/primitives"
 import { Button } from "@/components/ui/button"
@@ -41,7 +41,7 @@ export default function PublicDirectory() {
         setLoading(true)
         const [mentorsData, domainsData] = await Promise.all([
           getPublicMentors(),
-          getMentorDomains(true),
+          getPublicMentorDomains(),
         ])
         setMentors(mentorsData)
         setDomains(domainsData)
