@@ -130,6 +130,11 @@ async def lifespan(app: FastAPI):
             await db.execute(text("UPDATE cohorts SET checklist_title_override = 'testcohortname', name = 'Cohort Test' WHERE name = 'testcohortname';"))
             await db.commit()
             await ensure_default_events_seeded(db)
+            try:
+                from app.services.lms.arcade import ensure_arcade_games_seeded
+                await ensure_arcade_games_seeded(db)
+            except Exception:
+                logger.warning("Could not auto-seed arcade games at startup", exc_info=True)
     except Exception:
         logger.warning("Could not auto-add schema updates or seed events at startup", exc_info=True)
 

@@ -12,15 +12,43 @@ from app.models.lms.program import LmsProgramAssignment, LmsProgramItem, LmsProg
 from app.schemas.lms_arcade import (
     ArcadeAttemptOut, ArcadeAttemptSubmitIn, ArcadeGameCatalogOut, ArcadeModeBestOut,
 )
+from app.services.lms.arcade_data import ARCADE_GAMES
 from app.services.lms.points import award_points
 
 ARCADE_POINTS_SOURCE = "arcade"
+
+
+async def ensure_arcade_games_seeded(db: AsyncSession, *, force: bool = False) -> int:
+    """Ensure all 51 SpacePoint Mission Arcade games exist in the database."""
+    count = await db.scalar(select(func.count(ArcadeGame.id)))
+    if count and count >= len(ARCADE_GAMES) and not force:
+        return 0
+
+    seeded = 0
+    for spec in ARCADE_GAMES:
+        existing = await db.scalar(select(ArcadeGame).where(ArcadeGame.game_key == spec["game_key"]))
+        if existing is None:
+            db.add(ArcadeGame(id=uuid.uuid4(), is_active=True, **spec))
+            seeded += 1
+        elif force:
+            for k, v in spec.items():
+                setattr(existing, k, v)
+            seeded += 1
+
+    if seeded > 0:
+        await db.commit()
+    return seeded
 
 
 async def list_games_for_user(db: AsyncSession, *, user_id: uuid.UUID) -> list[ArcadeGameCatalogOut]:
     games = (await db.execute(
         select(ArcadeGame).where(ArcadeGame.is_active.is_(True)).order_by(ArcadeGame.position, ArcadeGame.title)
     )).scalars().all()
+    if not games:
+        await ensure_arcade_games_seeded(db)
+        games = (await db.execute(
+            select(ArcadeGame).where(ArcadeGame.is_active.is_(True)).order_by(ArcadeGame.position, ArcadeGame.title)
+        )).scalars().all()
     if not games:
         return []
 
@@ -64,6 +92,11 @@ async def record_arcade_attempt(
     game = await db.scalar(
         select(ArcadeGame).where(ArcadeGame.game_key == game_key, ArcadeGame.is_active.is_(True))
     )
+    if game is None:
+        await ensure_arcade_games_seeded(db)
+        game = await db.scalar(
+            select(ArcadeGame).where(ArcadeGame.game_key == game_key, ArcadeGame.is_active.is_(True))
+        )
     if game is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Arcade game not found")
 
