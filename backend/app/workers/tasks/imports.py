@@ -135,9 +135,8 @@ async def run_competition_registration_import_job(ctx, batch_id: str) -> dict:
             ]
 
             # Mark committed right after DB rows land so the UI can show
-            # completion immediately while throttled emails finish in background,
-            # or after emails finish. Keeping status="running" until emails
-            # finish ensures full completion before reporting done.
+            # completion immediately while throttled emails finish in background.
+            batch.status = "committed"
             batch.counts = {
                 **(batch.counts or {}),
                 "summary": summary,
