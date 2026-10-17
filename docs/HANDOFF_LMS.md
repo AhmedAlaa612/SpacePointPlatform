@@ -1006,9 +1006,8 @@ Identity is secured using Intercom Messenger Security (HMAC-SHA256 JWT):
 - All verified user attributes are embedded as JWT claims inside the token by `services/lms/support.py`: `user_id`, `name`, `email`, `roles` (space-delimited string for Intercom audience filter compatibility), `program` (real Sessions program name via the cohort — never the LMS checklist label, same convention as the checklist title), `cohort` (Sessions cohort name), `team`, `card_id`, and casing variations.
 
 ### Launcher Positioning
-- Launcher positioning is controlled natively by Intercom (configured via the Intercom Dashboard under Settings > Messenger > Launcher Position).
-- Intercom applies the dashboard horizontal and vertical padding (e.g. `bottom_padding`) on computers and tablets.
-- On mobile web, Intercom natively docks the launcher at the bottom right. No custom CSS transforms or positioning overrides are injected from the frontend, ensuring positioning behavior comes strictly from Intercom.
+- **Desktop & Tablets**: Launcher positioning is controlled natively by Intercom (configured via the Intercom Dashboard under Settings > Messenger > Launcher Position, e.g. Side spacing: 20px, Bottom spacing: 150px).
+- **Mobile Web**: Intercom's widget script ignores dashboard vertical spacing on mobile web and hardcodes the launcher to `bottom: 20px; right: 20px`. Because the student surface on `/learn/*` has a fixed bottom navigation bar (`LearnMobileTabBar.tsx`, ~115px tall + safe area), `frontend/src/index.css` applies a scoped media query (`max-width: 767px`) lifting the launcher frames and notification bubble (`bottom: calc(125px + env(safe-area-inset-bottom, 0px)) !important`) so it does not obstruct the "Sign up" / "Log in" controls. Chat messenger windows (`.intercom-messenger`) remain untouched so they open full-screen.
 
 ### Network / Corporate Firewall Restrictions
 - Intercom relies on real-time WebSocket and HTTP connections to `*.intercom.io` and `*.intercomcdn.com`.

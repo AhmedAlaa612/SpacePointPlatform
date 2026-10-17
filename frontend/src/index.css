@@ -351,7 +351,30 @@ select option {
   -ms-overflow-style: none;  /* IE and Edge */
   scrollbar-width: none;  /* Firefox */
 }
+/* Intercom Fin launcher & notification position on mobile.
+   Intercom's native widget script hardcodes `bottom: 20px; right: 20px` on mobile web
+   and ignores vertical spacing from the Intercom dashboard (which only applies to desktop/tablets).
+   On mobile (/learn/*), this places the launcher directly over the bottom navigation ("Sign up" button).
+   We raise the launcher and notification bubble above the LearnMobileTabBar (~115px + safe-area).
+   Chat windows (.intercom-messenger) are strictly excluded so the messenger opens full screen. */
+@media (max-width: 767px) {
+  html body .intercom-lightweight-app-launcher,
+  html body .intercom-launcher-frame,
+  html body iframe[name="intercom-launcher-frame"],
+  html body .intercom-launcher-badge-frame,
+  html body iframe[name="intercom-launcher-badge-frame"],
+  html body [class*="intercom-lightweight-app-launcher"],
+  #intercom-container .intercom-launcher-frame,
+  #intercom-container .intercom-launcher-badge-frame {
+    bottom: calc(125px + env(safe-area-inset-bottom, 0px)) !important;
+  }
 
+  html body .intercom-notifications-frame,
+  html body iframe[name="intercom-notifications-frame"],
+  #intercom-container .intercom-notifications-frame {
+    bottom: calc(190px + env(safe-area-inset-bottom, 0px)) !important;
+  }
+}
 
 /* Rich Markdown preview typography (Tailwind Preflight resets h1-h6, ul/ol, blockquote to plain text) */
 .markdown-preview h1 {
