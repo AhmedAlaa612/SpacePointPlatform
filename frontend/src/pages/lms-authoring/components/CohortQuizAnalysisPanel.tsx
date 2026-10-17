@@ -81,19 +81,23 @@ export function CohortQuizAnalysisPanel({ cohortId }: { cohortId: string }) {
           if (b.incorrect_count !== a.incorrect_count) {
             return b.incorrect_count - a.incorrect_count
           }
-          return a.accuracy_pct - b.accuracy_pct
+          return (a.accuracy_pct ?? 0) - (b.accuracy_pct ?? 0)
         case "most_right":
           if (b.correct_count !== a.correct_count) {
             return b.correct_count - a.correct_count
           }
-          return b.accuracy_pct - a.accuracy_pct
+          return (b.accuracy_pct ?? 0) - (a.accuracy_pct ?? 0)
         case "lowest_accuracy":
           if (a.accuracy_pct !== b.accuracy_pct) {
+            if (a.accuracy_pct === null) return 1
+            if (b.accuracy_pct === null) return -1
             return a.accuracy_pct - b.accuracy_pct
           }
           return b.incorrect_count - a.incorrect_count
         case "highest_accuracy":
           if (b.accuracy_pct !== a.accuracy_pct) {
+            if (a.accuracy_pct === null) return 1
+            if (b.accuracy_pct === null) return -1
             return b.accuracy_pct - a.accuracy_pct
           }
           return b.correct_count - a.correct_count
@@ -440,42 +444,61 @@ export function CohortQuizAnalysisPanel({ cohortId }: { cohortId: string }) {
 
                   {/* Breakdown Bars & Counters */}
                   <div className="pt-2 border-t border-border/60 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
-                    <div className="flex items-center gap-3">
-                      {/* Right Count */}
-                      <span className="inline-flex items-center gap-1 font-semibold text-emerald-500 bg-emerald-500/10 px-2.5 py-1 rounded-lg">
-                        <CheckCircle2 size={13} />
-                        {q.correct_count} Right ({q.accuracy_pct}%)
-                      </span>
+                    {q.accuracy_pct === null ? (
+                      <div className="flex items-center gap-3">
+                        <span className="inline-flex items-center gap-1 font-semibold text-primary bg-primary/10 px-2.5 py-1 rounded-lg">
+                          Opinion / Open-ended
+                        </span>
+                        <span className="text-muted-foreground text-[11px] font-mono">
+                          {q.total_answers} total {q.total_answers === 1 ? "response" : "responses"}
+                        </span>
+                      </div>
+                    ) : (
+                      <div className="flex items-center gap-3">
+                        {/* Right Count */}
+                        <span className="inline-flex items-center gap-1 font-semibold text-emerald-500 bg-emerald-500/10 px-2.5 py-1 rounded-lg">
+                          <CheckCircle2 size={13} />
+                          {q.correct_count} Right ({q.accuracy_pct}%)
+                        </span>
 
-                      {/* Wrong Count */}
-                      <span className="inline-flex items-center gap-1 font-semibold text-rose-500 bg-rose-500/10 px-2.5 py-1 rounded-lg">
-                        <XCircle size={13} />
-                        {q.incorrect_count} Wrong ({wrongPct}%)
-                      </span>
+                        {/* Wrong Count */}
+                        <span className="inline-flex items-center gap-1 font-semibold text-rose-500 bg-rose-500/10 px-2.5 py-1 rounded-lg">
+                          <XCircle size={13} />
+                          {q.incorrect_count} Wrong ({wrongPct}%)
+                        </span>
 
-                      <span className="text-muted-foreground text-[11px] font-mono">
-                        {q.total_answers} total takes
-                      </span>
-                    </div>
+                        <span className="text-muted-foreground text-[11px] font-mono">
+                          {q.total_answers} total {q.total_answers === 1 ? "take" : "takes"}
+                        </span>
+                      </div>
+                    )}
 
                     {/* Visual Segmented Progress Bar */}
-                    <div className="flex items-center gap-2 w-full sm:w-48 shrink-0">
-                      <div className="h-2 w-full rounded-full bg-muted overflow-hidden flex">
-                        <div
-                          className="h-full bg-emerald-500 transition-all"
-                          style={{ width: `${q.accuracy_pct}%` }}
-                          title={`${q.correct_count} Correct (${q.accuracy_pct}%)`}
-                        />
-                        <div
-                          className="h-full bg-rose-500 transition-all"
-                          style={{ width: `${wrongPct}%` }}
-                          title={`${q.incorrect_count} Incorrect (${wrongPct}%)`}
-                        />
+                    {q.accuracy_pct === null ? (
+                      <div className="flex items-center gap-2 w-full sm:w-48 shrink-0 justify-end">
+                        <span className="text-[11px] font-medium text-muted-foreground italic">
+                          Ungraded
+                        </span>
                       </div>
-                      <span className="text-[11px] font-mono font-semibold text-muted-foreground shrink-0 w-8 text-right">
-                        {q.accuracy_pct}%
-                      </span>
-                    </div>
+                    ) : (
+                      <div className="flex items-center gap-2 w-full sm:w-48 shrink-0">
+                        <div className="h-2 w-full rounded-full bg-muted overflow-hidden flex">
+                          <div
+                            className="h-full bg-emerald-500 transition-all"
+                            style={{ width: `${q.accuracy_pct}%` }}
+                            title={`${q.correct_count} Correct (${q.accuracy_pct}%)`}
+                          />
+                          <div
+                            className="h-full bg-rose-500 transition-all"
+                            style={{ width: `${wrongPct}%` }}
+                            title={`${q.incorrect_count} Incorrect (${wrongPct}%)`}
+                          />
+                        </div>
+                        <span className="text-[11px] font-mono font-semibold text-muted-foreground shrink-0 w-8 text-right">
+                          {q.accuracy_pct}%
+                        </span>
+                      </div>
+                    )}
                   </div>
                 </div>
               )

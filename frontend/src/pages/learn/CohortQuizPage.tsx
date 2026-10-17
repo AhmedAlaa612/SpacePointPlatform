@@ -90,6 +90,9 @@ export default function CohortQuizPage() {
   const [index, setIndex] = useState(0)
   const [answers, setAnswers] = useState<CohortQuizAnswerInput[]>([])
   const [selected, setSelected] = useState<number | null>(null)
+  const [textAnswer, setTextAnswer] = useState("")
+  const textAnswerRef = useRef("")
+  textAnswerRef.current = textAnswer
   const [locked, setLocked] = useState(false)
   const questionStartRef = useRef<number>(Date.now())
 
@@ -138,19 +141,30 @@ export default function CohortQuizPage() {
 
   useEffect(() => {
     setSelected(null)
+    setTextAnswer("")
+    textAnswerRef.current = ""
     setLocked(false)
     lockedRef.current = false
     questionStartRef.current = Date.now()
   }, [index])
 
-  const recordAnswer = (selectedIndex: number | null, timedOut: boolean) => {
+  const recordAnswer = (selectedIndex: number | null, timedOut: boolean, textVal?: string | null) => {
     if (lockedRef.current || !attempt) return
     lockedRef.current = true
     const question = attempt.questions[index]
     const elapsed = Math.round((Date.now() - questionStartRef.current) / 1000)
+    const isTextarea = question.question_type === "textarea"
+    const rawText = textVal !== undefined ? textVal : textAnswerRef.current
+    const finalTrimmedText = isTextarea ? (rawText?.trim() || null) : null
     const updated: CohortQuizAnswerInput[] = [
       ...answers,
-      { question_id: question.question_id, selected_option_index: selectedIndex, time_taken_seconds: elapsed, timed_out: timedOut },
+      {
+        question_id: question.question_id,
+        selected_option_index: selectedIndex,
+        text_answer: finalTrimmedText,
+        time_taken_seconds: elapsed,
+        timed_out: timedOut,
+      },
     ]
     setAnswers(updated)
     setSelected(selectedIndex)
@@ -204,9 +218,15 @@ export default function CohortQuizPage() {
             <Trophy className="size-8 text-primary" />
           </div>
           <h1 className="font-display text-3xl sm:text-4xl font-extrabold tracking-tight">Quiz complete!</h1>
-          <p className="font-display text-5xl sm:text-6xl font-black text-primary">
-            {resultData.score} / {resultData.total}
-          </p>
+          {resultData.total > 0 && resultData.score !== null ? (
+            <p className="font-display text-5xl sm:text-6xl font-black text-primary">
+              {resultData.score} / {resultData.total}
+            </p>
+          ) : (
+            <p className="text-base sm:text-lg text-muted-foreground font-medium">
+              All responses recorded successfully.
+            </p>
+          )}
         </div>
 
         {resultData.topic_breakdown && (
@@ -222,95 +242,140 @@ export default function CohortQuizPage() {
           <h2 className="text-xs font-bold uppercase tracking-wider text-muted-foreground px-1">
             Question breakdown ({resultData.questions.length} questions)
           </h2>
-          {resultData.questions.map((q, i) => (
-            <div
-              key={q.question_id}
-              className={`rounded-2xl border-2 p-5 sm:p-6 flex flex-col gap-4 text-left shadow-xl shadow-black/20 transition-all ${
-                q.is_correct
-                  ? "border-emerald-500/40 bg-card hover:border-emerald-500/60"
-                  : "border-red-500/40 bg-card hover:border-red-500/60"
-              }`}
-            >
-              <div className="flex items-center justify-between gap-2 flex-wrap">
-                <div className="flex items-center gap-2 flex-wrap">
-                  <span className="text-xs font-mono font-bold px-2 py-0.5 rounded-lg bg-muted text-foreground border border-border/50">
-                    Q{i + 1}
-                  </span>
-                  <span className="text-xs font-semibold uppercase tracking-wider px-2.5 py-1 rounded-full border border-border bg-muted/50 text-muted-foreground">
-                    {q.topic}
-                  </span>
+          {resultData.questions.map((q, i) => {
+            const isTextarea = q.question_type === "textarea"
+            const isOpinion = !isTextarea && q.is_correct === null
+            const cardBorder = isTextarea
+              ? "border-purple-500/40 bg-card hover:border-purple-500/60"
+              : isOpinion
+              ? "border-blue-500/40 bg-card hover:border-blue-500/60"
+              : q.is_correct
+              ? "border-emerald-500/40 bg-card hover:border-emerald-500/60"
+              : "border-red-500/40 bg-card hover:border-red-500/60"
+
+            return (
+              <div
+                key={q.question_id}
+                className={`rounded-2xl border-2 p-5 sm:p-6 flex flex-col gap-4 text-left shadow-xl shadow-black/20 transition-all ${cardBorder}`}
+              >
+                <div className="flex items-center justify-between gap-2 flex-wrap">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="text-xs font-mono font-bold px-2 py-0.5 rounded-lg bg-muted text-foreground border border-border/50">
+                      Q{i + 1}
+                    </span>
+                    <span className="text-xs font-semibold uppercase tracking-wider px-2.5 py-1 rounded-full border border-border bg-muted/50 text-muted-foreground">
+                      {q.topic}
+                    </span>
+                  </div>
+                  {isTextarea ? (
+                    <span className="flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider px-3 py-1 rounded-full bg-purple-500/15 text-purple-400 border-2 border-purple-500/30">
+                      Open Response
+                    </span>
+                  ) : isOpinion ? (
+                    <span className="flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider px-3 py-1 rounded-full bg-blue-500/15 text-blue-400 border-2 border-blue-500/30">
+                      Opinion
+                    </span>
+                  ) : q.is_correct ? (
+                    <span className="flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider px-3 py-1 rounded-full bg-emerald-500/15 text-emerald-400 border-2 border-emerald-500/30">
+                      <CheckCircle2 size={13} /> Correct
+                    </span>
+                  ) : (
+                    <span className="flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider px-3 py-1 rounded-full bg-red-500/15 text-red-400 border-2 border-red-500/30">
+                      <XCircle size={13} /> Incorrect
+                    </span>
+                  )}
                 </div>
-                {q.is_correct ? (
-                  <span className="flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider px-3 py-1 rounded-full bg-emerald-500/15 text-emerald-400 border-2 border-emerald-500/30">
-                    <CheckCircle2 size={13} /> Correct
-                  </span>
+
+                <p className="text-base sm:text-lg font-semibold leading-relaxed text-foreground">{q.prompt}</p>
+
+                {isTextarea ? (
+                  <div className="flex flex-col gap-2 p-4 rounded-xl bg-muted/40 border border-border/70">
+                    <span className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Your Response:</span>
+                    {q.text_answer ? (
+                      <p className="text-sm sm:text-base text-foreground whitespace-pre-wrap leading-relaxed">
+                        {q.text_answer}
+                      </p>
+                    ) : (
+                      <p className="text-sm text-muted-foreground italic flex items-center gap-1.5">
+                        <AlertCircle size={14} /> Left unanswered.
+                      </p>
+                    )}
+                  </div>
                 ) : (
-                  <span className="flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider px-3 py-1 rounded-full bg-red-500/15 text-red-400 border-2 border-red-500/30">
-                    <XCircle size={13} /> Incorrect
-                  </span>
+                  <>
+                    {q.selected_index === null && (
+                      <p className="text-sm text-amber-500/90 font-medium italic flex items-center gap-1.5">
+                        <AlertCircle size={14} /> Left unanswered.
+                      </p>
+                    )}
+
+                    <div className="flex flex-col gap-2.5 pt-1">
+                      {q.options.map((text, oi) => {
+                        const isSelected = q.selected_index === oi
+                        const isCorrectOption = q.correct_index === oi
+
+                        let optionStyle = "bg-muted/40 text-muted-foreground border border-border/40"
+                        let badgeStyle = "bg-muted text-muted-foreground"
+
+                        if (isOpinion) {
+                          if (isSelected) {
+                            optionStyle = "bg-blue-500/15 text-blue-400 dark:text-blue-300 font-medium border-2 border-blue-500/40"
+                            badgeStyle = "bg-blue-500/25 text-blue-300 border border-blue-500/30"
+                          }
+                        } else {
+                          if (isCorrectOption) {
+                            optionStyle = "bg-emerald-500/15 text-emerald-400 dark:text-emerald-300 font-medium border-2 border-emerald-500/40"
+                            badgeStyle = "bg-emerald-500/25 text-emerald-300 border border-emerald-500/30"
+                          } else if (isSelected) {
+                            optionStyle = "bg-red-500/15 text-red-400 dark:text-red-300 font-medium border-2 border-red-500/40"
+                            badgeStyle = "bg-red-500/25 text-red-300 border border-red-500/30"
+                          }
+                        }
+
+                        return (
+                          <div
+                            key={oi}
+                            className={`px-4 py-3.5 rounded-xl text-sm sm:text-base flex items-center gap-3.5 transition-all ${optionStyle}`}
+                          >
+                            <span
+                              className={`w-7 h-7 rounded-lg text-xs font-bold flex items-center justify-center shrink-0 ${badgeStyle}`}
+                            >
+                              {String.fromCharCode(65 + oi)}
+                            </span>
+                            <span className="flex-1 leading-snug">{text}</span>
+                            {isOpinion && isSelected && (
+                              <span className="text-xs font-bold shrink-0 px-2.5 py-1 rounded-lg bg-blue-500/20 text-blue-300 border border-blue-500/30">
+                                Your choice
+                              </span>
+                            )}
+                            {!isOpinion && isCorrectOption && (
+                              <span className="text-xs font-bold shrink-0 px-2.5 py-1 rounded-lg bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+                                Correct answer
+                              </span>
+                            )}
+                            {!isOpinion && isSelected && !isCorrectOption && (
+                              <span className="text-xs font-bold shrink-0 px-2.5 py-1 rounded-lg bg-red-500/20 text-red-300 border border-red-500/30">
+                                Your answer
+                              </span>
+                            )}
+                          </div>
+                        )
+                      })}
+                    </div>
+                  </>
+                )}
+
+                {q.explanation && (
+                  <div className="mt-1 p-4 rounded-xl bg-muted/50 border border-border/60 flex flex-col gap-1.5">
+                    <p className="text-xs font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
+                      <Lightbulb size={14} className="text-amber-400 shrink-0" /> Explanation
+                    </p>
+                    <p className="text-xs sm:text-sm text-foreground/90 leading-relaxed font-medium">{q.explanation}</p>
+                  </div>
                 )}
               </div>
-
-              <p className="text-base sm:text-lg font-semibold leading-relaxed text-foreground">{q.prompt}</p>
-
-              {q.selected_index === null && (
-                <p className="text-sm text-amber-500/90 font-medium italic flex items-center gap-1.5">
-                  <AlertCircle size={14} /> Left unanswered.
-                </p>
-              )}
-
-              <div className="flex flex-col gap-2.5 pt-1">
-                {q.options.map((text, oi) => {
-                  const isSelected = q.selected_index === oi
-                  const isCorrectOption = q.correct_index === oi
-                  return (
-                    <div
-                      key={oi}
-                      className={`px-4 py-3.5 rounded-xl text-sm sm:text-base flex items-center gap-3.5 transition-all ${
-                        isCorrectOption
-                          ? "bg-emerald-500/15 text-emerald-400 dark:text-emerald-300 font-medium border-2 border-emerald-500/40"
-                          : isSelected
-                          ? "bg-red-500/15 text-red-400 dark:text-red-300 font-medium border-2 border-red-500/40"
-                          : "bg-muted/40 text-muted-foreground border border-border/40"
-                      }`}
-                    >
-                      <span
-                        className={`w-7 h-7 rounded-lg text-xs font-bold flex items-center justify-center shrink-0 ${
-                          isCorrectOption
-                            ? "bg-emerald-500/25 text-emerald-300 border border-emerald-500/30"
-                            : isSelected
-                            ? "bg-red-500/25 text-red-300 border border-red-500/30"
-                            : "bg-muted text-muted-foreground"
-                        }`}
-                      >
-                        {String.fromCharCode(65 + oi)}
-                      </span>
-                      <span className="flex-1 leading-snug">{text}</span>
-                      {isCorrectOption && (
-                        <span className="text-xs font-bold shrink-0 px-2.5 py-1 rounded-lg bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
-                          Correct answer
-                        </span>
-                      )}
-                      {isSelected && !isCorrectOption && (
-                        <span className="text-xs font-bold shrink-0 px-2.5 py-1 rounded-lg bg-red-500/20 text-red-300 border border-red-500/30">
-                          Your answer
-                        </span>
-                      )}
-                    </div>
-                  )
-                })}
-              </div>
-
-              {q.explanation && (
-                <div className="mt-1 p-4 rounded-xl bg-muted/50 border border-border/60 flex flex-col gap-1.5">
-                  <p className="text-xs font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
-                    <Lightbulb size={14} className="text-amber-400 shrink-0" /> Explanation
-                  </p>
-                  <p className="text-xs sm:text-sm text-foreground/90 leading-relaxed font-medium">{q.explanation}</p>
-                </div>
-              )}
-            </div>
-          ))}
+            )
+          })}
         </div>
 
         <div className="flex flex-col sm:flex-row gap-3 pt-2">
@@ -354,37 +419,73 @@ export default function CohortQuizPage() {
             })}
           </div>
         </div>
-        {!locked && (
+        {!locked && question.time_limit_seconds > 0 && (
           <Countdown
             seconds={question.time_limit_seconds} questionKey={question.question_id}
             onExpire={() => recordAnswer(null, true)}
           />
         )}
+        {!locked && question.time_limit_seconds <= 0 && (
+          <div className="flex items-center gap-1.5 text-xs font-semibold uppercase text-muted-foreground bg-muted/40 border border-border px-3 py-1.5 rounded-xl">
+            <Clock size={13} className="text-primary" /> Untimed
+          </div>
+        )}
       </div>
       <h1 className="font-display text-2xl sm:text-3xl lg:text-4xl font-semibold leading-tight tracking-normal text-foreground">{question.prompt}</h1>
-      <div className="grid grid-cols-1 gap-3">
-        {question.options.map((text, i) => {
-          const isMine = selected === i
-          return (
-            <button
-              key={i}
-              onClick={() => recordAnswer(i, false)}
+      {question.question_type === "textarea" ? (
+        <div className="flex flex-col gap-4">
+          <div className="flex flex-col gap-2">
+            <textarea
+              value={textAnswer}
+              onChange={(e) => setTextAnswer(e.target.value)}
               disabled={locked}
-              className={`min-h-[64px] py-3.5 px-5 rounded-2xl border-2 text-left text-base font-medium text-foreground transition-all flex items-center gap-4 ${
-                isMine ? "border-primary bg-primary/10" : "border-border bg-card"
-              } ${!locked ? "hover:border-primary/50 active:scale-[0.98]" : "disabled:opacity-60"}`}
+              placeholder="Write your response here..."
+              rows={6}
+              maxLength={2000}
+              className="w-full p-4 rounded-2xl border-2 border-border bg-card text-foreground text-base focus:outline-none focus:border-primary transition-all resize-y disabled:opacity-60 placeholder:text-muted-foreground/60 leading-relaxed font-sans"
+              autoFocus
+            />
+            <div className="flex items-center justify-between text-xs text-muted-foreground px-1">
+              <span>{textAnswer.length} / 2000 characters</span>
+              <span className="italic">Open-ended question (unscored)</span>
+            </div>
+          </div>
+
+          <div className="flex justify-end">
+            <Button
+              onClick={() => recordAnswer(null, false, textAnswer)}
+              disabled={locked}
+              className="h-11 px-6 rounded-xl font-semibold text-sm"
             >
-              <span className="w-8 h-8 flex-none flex items-center justify-center rounded-xl border-2 border-current text-sm font-bold">
-                {String.fromCharCode(65 + i)}
-              </span>
-              <span className="flex-1 text-base leading-snug">{text}</span>
-            </button>
-          )
-        })}
-      </div>
+              {textAnswer.trim() ? "Submit Answer & Next" : "Skip & Next"}
+            </Button>
+          </div>
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 gap-3">
+          {question.options.map((text, i) => {
+            const isMine = selected === i
+            return (
+              <button
+                key={i}
+                onClick={() => recordAnswer(i, false)}
+                disabled={locked}
+                className={`min-h-[64px] py-3.5 px-5 rounded-2xl border-2 text-left text-base font-medium text-foreground transition-all flex items-center gap-4 ${
+                  isMine ? "border-primary bg-primary/10" : "border-border bg-card"
+                } ${!locked ? "hover:border-primary/50 active:scale-[0.98]" : "disabled:opacity-60"}`}
+              >
+                <span className="w-8 h-8 flex-none flex items-center justify-center rounded-xl border-2 border-current text-sm font-bold">
+                  {String.fromCharCode(65 + i)}
+                </span>
+                <span className="flex-1 text-base leading-snug">{text}</span>
+              </button>
+            )
+          })}
+        </div>
+      )}
       {locked && (
         <p className="text-xs text-muted-foreground flex items-center gap-1.5">
-          <Clock size={12} /> {selected === null ? "Time's up" : "Locked in"} — next question…
+          <Clock size={12} /> {selected === null && !textAnswer.trim() ? "Time's up" : "Submitted"} — next question…
         </p>
       )}
       {submitMutation.isPending && (

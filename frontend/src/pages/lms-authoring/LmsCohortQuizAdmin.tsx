@@ -1,4 +1,4 @@
-import { useRef, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { isAxiosError } from "axios"
 import { ArrowDown, ArrowUp, CheckCircle2, ChevronDown, ChevronUp, Clock, Download, Pencil, Plus, RefreshCw, Trash2, Upload, X } from "lucide-react"
@@ -148,7 +148,16 @@ function QuestionBankTab() {
                 <div className="flex items-center gap-1.5 flex-wrap mb-1">
                   <span className="text-[10px] font-semibold uppercase tracking-wide px-2 py-0.5 rounded-full border border-border text-muted-foreground">{q.topic}</span>
                   <span className="text-[10px] font-semibold uppercase tracking-wide px-2 py-0.5 rounded-full border border-border text-muted-foreground">{q.difficulty}</span>
-                  <span className="text-[10px] text-muted-foreground">{q.time_limit_seconds}s</span>
+                  <span className="text-[10px] text-muted-foreground">{q.time_limit_seconds > 0 ? `${q.time_limit_seconds}s` : "Untimed"}</span>
+                  {q.question_type === "textarea" ? (
+                    <span className="text-[10px] font-semibold uppercase tracking-wide px-2 py-0.5 rounded-full border border-purple-500/30 bg-purple-500/10 text-purple-600 dark:text-purple-400">
+                      Text Area
+                    </span>
+                  ) : q.options.length > 0 && q.options.every((o) => !o.is_correct) ? (
+                    <span className="text-[10px] font-semibold uppercase tracking-wide px-2 py-0.5 rounded-full border border-blue-500/30 bg-blue-500/10 text-blue-600 dark:text-blue-400">
+                      Opinion
+                    </span>
+                  ) : null}
                   {!q.is_active && <span className="text-[10px] font-semibold uppercase text-amber-600">retired</span>}
                 </div>
                 <p className="text-sm text-foreground">{q.prompt}</p>
@@ -206,6 +215,9 @@ function QuestionForm({
     new Set(bankQuestions.map((q) => q.topic).filter((t): t is string => Boolean(t && t.trim()))),
   ).sort()
 
+  const [questionType, setQuestionType] = useState<"mcq" | "textarea">(
+    initial?.question_type === "textarea" ? "textarea" : "mcq",
+  )
   const [topic, setTopic] = useState(initial?.topic ?? "")
   const [isCustomTopic, setIsCustomTopic] = useState(() => {
     if (!initial?.topic) return false
@@ -216,28 +228,57 @@ function QuestionForm({
   const [timeLimitSeconds, setTimeLimitSeconds] = useState(initial?.time_limit_seconds ?? 15)
   const [prompt, setPrompt] = useState(initial?.prompt ?? "")
   const [options, setOptions] = useState(
-    initial?.options.map((o) => ({ text: o.text, is_correct: o.is_correct }))
-    ?? [{ text: "", is_correct: true }, { text: "", is_correct: false }],
+    initial?.options && initial.options.length > 0
+      ? initial.options.map((o) => ({ text: o.text, is_correct: o.is_correct }))
+      : [{ text: "", is_correct: true }, { text: "", is_correct: false }],
   )
+  const [isOpinion, setIsOpinion] = useState<boolean>(() => {
+    if (!initial) return false
+    if (initial.question_type === "textarea") return false
+    return initial.options.length > 0 && initial.options.every((o) => !o.is_correct)
+  })
   const [explanation, setExplanation] = useState(initial?.explanation ?? "")
   const [error, setError] = useState("")
   const [saving, setSaving] = useState(false)
 
+  const handleToggleOpinion = (checked: boolean) => {
+    setIsOpinion(checked)
+    if (checked) {
+      setOptions((prev) => prev.map((o) => ({ ...o, is_correct: false })))
+    } else {
+      setOptions((prev) => prev.map((o, idx) => ({ ...o, is_correct: idx === 0 })))
+    }
+  }
+
   const setOptionText = (i: number, text: string) =>
     setOptions((prev) => prev.map((o, idx) => (idx === i ? { ...o, text } : o)))
-  const setCorrect = (i: number) =>
+  const setCorrect = (i: number) => {
+    setIsOpinion(false)
     setOptions((prev) => prev.map((o, idx) => ({ ...o, is_correct: idx === i })))
+  }
 
   const save = async () => {
     setError("")
     if (!topic.trim()) { setError("Topic is required"); return }
     if (!prompt.trim()) { setError("Prompt is required"); return }
-    if (options.some((o) => !o.text.trim())) { setError("Every option needs text"); return }
+    if (questionType === "mcq") {
+      if (options.length < 2) { setError("Multiple choice requires at least 2 options"); return }
+      if (options.some((o) => !o.text.trim())) { setError("Every option needs text"); return }
+      if (!isOpinion && !options.some((o) => o.is_correct)) {
+        setError("Please select a correct answer, or mark this question as opinion-based")
+        return
+      }
+    }
     setSaving(true)
     try {
       const body: CohortQuizQuestionInput = {
-        topic: topic.trim(), subtopic: subtopic.trim() || null, difficulty, time_limit_seconds: timeLimitSeconds,
-        prompt: prompt.trim(), options: options.map((o) => ({ text: o.text.trim(), is_correct: o.is_correct })),
+        topic: topic.trim(),
+        subtopic: subtopic.trim() || null,
+        difficulty,
+        time_limit_seconds: timeLimitSeconds,
+        prompt: prompt.trim(),
+        question_type: questionType,
+        options: questionType === "textarea" ? [] : options.map((o) => ({ text: o.text.trim(), is_correct: isOpinion ? false : o.is_correct })),
         explanation: explanation.trim() || null,
       }
       if (initial) {
@@ -263,6 +304,35 @@ function QuestionForm({
       maxWidth="sm:max-w-xl max-w-xl"
     >
       <div className="flex flex-col gap-3.5 pt-1">
+        {/* Question Format Toggle */}
+        <div className="flex flex-col gap-1.5">
+          <label className="text-xs font-semibold text-foreground">Question Format</label>
+          <div className="grid grid-cols-2 gap-2 p-1 rounded-xl bg-muted/40 border border-border">
+            <button
+              type="button"
+              onClick={() => setQuestionType("mcq")}
+              className={`py-2 px-3 text-xs font-semibold rounded-lg transition-colors cursor-pointer flex items-center justify-center gap-1.5 ${
+                questionType === "mcq"
+                  ? "bg-primary text-primary-foreground shadow-xs"
+                  : "text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              Multiple Choice (Options)
+            </button>
+            <button
+              type="button"
+              onClick={() => setQuestionType("textarea")}
+              className={`py-2 px-3 text-xs font-semibold rounded-lg transition-colors cursor-pointer flex items-center justify-center gap-1.5 ${
+                questionType === "textarea"
+                  ? "bg-primary text-primary-foreground shadow-xs"
+                  : "text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              Open-ended (Text Area)
+            </button>
+          </div>
+        </div>
+
         <div className="flex gap-2.5">
           <div className="flex-1 flex flex-col gap-1">
             <div className="flex items-center justify-between">
@@ -326,11 +396,30 @@ function QuestionForm({
             </select>
           </div>
           <div className="flex-1 flex flex-col gap-1">
-            <label className="text-xs font-semibold text-foreground">Time limit (seconds)</label>
-            <input
-              type="number" min={1} value={timeLimitSeconds} onChange={(e) => setTimeLimitSeconds(Number(e.target.value) || 15)}
-              placeholder="15" className={inputCls}
-            />
+            <div className="flex items-center justify-between">
+              <label className="text-xs font-semibold text-foreground">Time limit</label>
+              <label className="flex items-center gap-1.5 cursor-pointer select-none">
+                <input
+                  type="checkbox"
+                  checked={timeLimitSeconds === 0}
+                  onChange={(e) => setTimeLimitSeconds(e.target.checked ? 0 : 15)}
+                  className="w-3.5 h-3.5 rounded text-primary border-border focus:ring-primary cursor-pointer"
+                />
+                <span className="text-[11px] font-medium text-muted-foreground hover:text-foreground">
+                  Untimed
+                </span>
+              </label>
+            </div>
+            {timeLimitSeconds === 0 ? (
+              <div className={`${inputCls} flex items-center text-muted-foreground text-xs italic bg-muted/40`}>
+                Untimed (no countdown)
+              </div>
+            ) : (
+              <input
+                type="number" min={1} value={timeLimitSeconds} onChange={(e) => setTimeLimitSeconds(Math.max(0, Number(e.target.value) || 0))}
+                placeholder="15" className={inputCls}
+              />
+            )}
           </div>
         </div>
 
@@ -339,32 +428,68 @@ function QuestionForm({
           <textarea value={prompt} onChange={(e) => setPrompt(e.target.value)} placeholder="Type the question prompt here…" rows={3} className={`${inputCls} h-auto py-2.5 resize-none`} />
         </div>
 
-        <div className="flex flex-col gap-2">
-          <label className="text-xs font-semibold text-foreground">Options (select radio for correct answer)</label>
-          {options.map((o, i) => (
-            <div key={i} className="flex items-center gap-2">
-              <input
-                type="radio" name="correct-option" checked={o.is_correct} onChange={() => setCorrect(i)}
-                className="w-4 h-4 text-primary cursor-pointer shrink-0" title="Mark as correct answer"
-              />
-              <span className="text-xs font-bold text-muted-foreground w-4 shrink-0">{String.fromCharCode(65 + i)}</span>
-              <input value={o.text} onChange={(e) => setOptionText(i, e.target.value)} placeholder={`Option ${String.fromCharCode(65 + i)} text`} className={inputCls} />
-              {options.length > 2 && (
-                <button onClick={() => setOptions((prev) => prev.filter((_, idx) => idx !== i))} className="p-2 text-muted-foreground hover:text-red-600 rounded-lg hover:bg-muted transition-colors shrink-0">
-                  <X size={15} />
-                </button>
-              )}
+        {questionType === "textarea" ? (
+          <div className="p-3.5 rounded-xl border border-dashed border-border bg-muted/20 flex flex-col gap-1">
+            <span className="text-xs font-semibold text-foreground">Open-Ended Written Response (Unscored)</span>
+            <p className="text-xs text-muted-foreground leading-relaxed">
+              Students will be provided an open text box to write their response or thoughts. This question does not count towards the numerical quiz score.
+            </p>
+          </div>
+        ) : (
+          <div className="flex flex-col gap-2.5">
+            <div className="flex items-center justify-between flex-wrap gap-2">
+              <label className="text-xs font-semibold text-foreground">
+                {isOpinion ? "Options (No correct answer required)" : "Options (select radio for correct answer)"}
+              </label>
+              <label className="flex items-center gap-2 cursor-pointer select-none">
+                <input
+                  type="checkbox"
+                  checked={isOpinion}
+                  onChange={(e) => handleToggleOpinion(e.target.checked)}
+                  className="w-4 h-4 rounded text-primary border-border focus:ring-primary cursor-pointer"
+                />
+                <span className="text-xs font-medium text-muted-foreground hover:text-foreground">
+                  Opinion-based (no correct answer)
+                </span>
+              </label>
             </div>
-          ))}
-          {options.length < 4 && (
-            <button
-              onClick={() => setOptions((prev) => [...prev, { text: "", is_correct: false }])}
-              className="text-xs font-semibold text-primary hover:underline w-fit mt-0.5"
-            >
-              + Add option
-            </button>
-          )}
-        </div>
+
+            {isOpinion && (
+              <p className="text-[11px] text-blue-500 bg-blue-500/10 border border-blue-500/20 px-2.5 py-1.5 rounded-lg">
+                Opinion question: Students can choose any option without scoring penalty.
+              </p>
+            )}
+
+            {options.map((o, i) => (
+              <div key={i} className="flex items-center gap-2">
+                {!isOpinion ? (
+                  <input
+                    type="radio" name="correct-option" checked={o.is_correct} onChange={() => setCorrect(i)}
+                    className="w-4 h-4 text-primary cursor-pointer shrink-0" title="Mark as correct answer"
+                  />
+                ) : (
+                  <span className="w-4 h-4 rounded-full border border-border bg-muted/50 shrink-0" title="Ungraded option" />
+                )}
+                <span className="text-xs font-bold text-muted-foreground w-4 shrink-0">{String.fromCharCode(65 + i)}</span>
+                <input value={o.text} onChange={(e) => setOptionText(i, e.target.value)} placeholder={`Option ${String.fromCharCode(65 + i)} text`} className={inputCls} />
+                {options.length > 2 && (
+                  <button type="button" onClick={() => setOptions((prev) => prev.filter((_, idx) => idx !== i))} className="p-2 text-muted-foreground hover:text-red-600 rounded-lg hover:bg-muted transition-colors shrink-0">
+                    <X size={15} />
+                  </button>
+                )}
+              </div>
+            ))}
+            {options.length < 4 && (
+              <button
+                type="button"
+                onClick={() => setOptions((prev) => [...prev, { text: "", is_correct: false }])}
+                className="text-xs font-semibold text-primary hover:underline w-fit mt-0.5 cursor-pointer"
+              >
+                + Add option
+              </button>
+            )}
+          </div>
+        )}
 
         <div className="flex flex-col gap-1">
           <label className="text-xs font-semibold text-foreground">Explanation (optional)</label>
@@ -608,6 +733,45 @@ function TemplatesTab() {
   )
 }
 
+function OrderNumberInput({
+  value, totalCount, disabled, onCommit,
+}: {
+  value: number
+  totalCount: number
+  disabled?: boolean
+  onCommit: (pos: number) => void
+}) {
+  const [text, setText] = useState(String(value))
+  useEffect(() => { setText(String(value)) }, [value])
+  const commit = () => {
+    const parsed = Number.parseInt(text, 10)
+    if (!Number.isFinite(parsed)) { setText(String(value)); return }
+    if (parsed === value) { setText(String(value)); return }
+    onCommit(parsed)
+    setText(String(value))
+  }
+  return (
+    <input
+      type="number"
+      aria-label="Question order number"
+      title={`Question order (1–${totalCount}) — type a number to move this question`}
+      value={text}
+      min={1}
+      max={totalCount}
+      inputMode="numeric"
+      disabled={disabled}
+      onChange={(e) => setText(e.target.value)}
+      onBlur={commit}
+      onKeyDown={(e) => {
+        if (e.key === "Enter") (e.target as HTMLInputElement).blur()
+        if (e.key === "Escape") { setText(String(value)); (e.target as HTMLInputElement).blur() }
+      }}
+      onClick={(e) => e.stopPropagation()}
+      className="w-11 h-7 px-1 border border-border bg-background text-foreground rounded-lg text-xs font-mono font-bold text-center focus:outline-none focus:border-primary transition-colors disabled:opacity-50 shrink-0 cursor-pointer"
+    />
+  )
+}
+
 function TemplateDetail({ templateId }: { templateId: string }) {
   const queryClient = useQueryClient()
   const [topicFilter, setTopicFilter] = useState("")
@@ -669,13 +833,25 @@ function TemplateDetail({ templateId }: { templateId: string }) {
     ;[ids[index], ids[target]] = [ids[target], ids[index]]
     reorderMutation.mutate(ids)
   }
+
+  const moveToPosition = (fromIndex: number, targetPos: number) => {
+    if (!template || !Number.isFinite(targetPos)) return
+    const ids = template.questions.map((tq) => tq.id)
+    const clamped = Math.min(Math.max(Math.round(targetPos), 1), ids.length)
+    if (clamped - 1 === fromIndex) return
+    ids.splice(clamped - 1, 0, ids.splice(fromIndex, 1)[0])
+    reorderMutation.mutate(ids)
+  }
+
   const toggleGenerateTopic = (topic: string) =>
     setGenerateTopics((prev) => (prev.includes(topic) ? prev.filter((t) => t !== topic) : [...prev, topic]))
 
   if (isLoading || !template) return <Spinner />
 
   const activeQuestions = template.questions.filter((tq) => tq.question.is_active)
-  const totalSeconds = activeQuestions.reduce((sum, tq) => sum + tq.question.time_limit_seconds, 0)
+  const timedQuestions = activeQuestions.filter((tq) => tq.question.time_limit_seconds > 0)
+  const totalSeconds = timedQuestions.reduce((sum, tq) => sum + tq.question.time_limit_seconds, 0)
+  const untimedCount = activeQuestions.length - timedQuestions.length
   const countBy = <K extends string>(pick: (tq: (typeof activeQuestions)[number]) => K) => {
     const counts = new Map<K, number>()
     for (const tq of activeQuestions) counts.set(pick(tq), (counts.get(pick(tq)) ?? 0) + 1)
@@ -734,8 +910,11 @@ function TemplateDetail({ templateId }: { templateId: string }) {
             </div>
             <div className="flex flex-col gap-0.5">
               <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Est. Duration</span>
-              <div className="flex items-baseline gap-1.5">
+              <div className="flex items-baseline gap-1.5 flex-wrap">
                 <span className="text-3xl font-extrabold font-display text-primary">~{formatDurationMinSec(totalSeconds)}</span>
+                {untimedCount > 0 && (
+                  <span className="text-xs text-muted-foreground font-medium">({untimedCount} untimed)</span>
+                )}
               </div>
             </div>
             <div className="flex flex-col gap-1.5 col-span-2 sm:col-span-2">
@@ -852,11 +1031,14 @@ function TemplateDetail({ templateId }: { templateId: string }) {
             className="h-11 px-3.5 border border-border bg-background text-foreground rounded-xl text-sm font-medium focus:outline-none focus:border-primary transition-colors cursor-pointer truncate"
           >
             <option value="">Add from bank ({pickable.length} available)…</option>
-            {pickable.map((q) => (
-              <option key={q.id} value={q.id}>
-                [{q.topic} - {q.difficulty}] {q.prompt.length > 60 ? q.prompt.slice(0, 60) + "…" : q.prompt}
-              </option>
-            ))}
+            {pickable.map((q) => {
+              const typeLabel = q.question_type === "textarea" ? " - Text" : q.options.length > 0 && q.options.every((o) => !o.is_correct) ? " - Opinion" : ""
+              return (
+                <option key={q.id} value={q.id}>
+                  [{q.topic} - {q.difficulty}{typeLabel}] {q.prompt.length > 60 ? q.prompt.slice(0, 60) + "…" : q.prompt}
+                </option>
+              )
+            })}
           </select>
         </div>
 
@@ -930,18 +1112,33 @@ function TemplateDetail({ templateId }: { templateId: string }) {
                 {/* Header Bar */}
                 <div className="flex items-center justify-between gap-3">
                   <div className="flex items-center gap-2 flex-wrap min-w-0">
-                    <div className="flex flex-col shrink-0">
-                      <button onClick={() => move(i, -1)} disabled={i === 0} className="text-muted-foreground hover:text-foreground disabled:opacity-20 p-0.5" title="Move up">
-                        <ArrowUp size={13} />
-                      </button>
-                      <button onClick={() => move(i, 1)} disabled={i === template.questions.length - 1} className="text-muted-foreground hover:text-foreground disabled:opacity-20 p-0.5" title="Move down">
-                        <ArrowDown size={13} />
-                      </button>
-                    </div>
+                    <div className="flex items-center gap-1 shrink-0">
+                      <div className="flex flex-col shrink-0">
+                        <button
+                          onClick={() => move(i, -1)}
+                          disabled={i === 0 || reorderMutation.isPending}
+                          className="text-muted-foreground hover:text-foreground disabled:opacity-20 p-0.5 cursor-pointer disabled:cursor-not-allowed"
+                          title="Move up"
+                        >
+                          <ArrowUp size={12} />
+                        </button>
+                        <button
+                          onClick={() => move(i, 1)}
+                          disabled={i === template.questions.length - 1 || reorderMutation.isPending}
+                          className="text-muted-foreground hover:text-foreground disabled:opacity-20 p-0.5 cursor-pointer disabled:cursor-not-allowed"
+                          title="Move down"
+                        >
+                          <ArrowDown size={12} />
+                        </button>
+                      </div>
 
-                    <span className="text-xs font-mono font-bold text-muted-foreground shrink-0">
-                      #{String(i + 1).padStart(2, "0")}
-                    </span>
+                      <OrderNumberInput
+                        value={i + 1}
+                        totalCount={template.questions.length}
+                        disabled={reorderMutation.isPending}
+                        onCommit={(pos) => moveToPosition(i, pos)}
+                      />
+                    </div>
 
                     <span className="text-[11px] font-semibold uppercase tracking-wide px-2.5 py-0.5 rounded-full border border-border bg-muted/40 text-foreground">
                       {q.topic}
@@ -957,8 +1154,18 @@ function TemplateDetail({ templateId }: { templateId: string }) {
                       {q.difficulty}
                     </span>
 
+                    {q.question_type === "textarea" ? (
+                      <span className="text-[11px] font-semibold uppercase tracking-wide px-2.5 py-0.5 rounded-full border border-purple-500/30 bg-purple-500/15 text-purple-600 dark:text-purple-400">
+                        Text Area
+                      </span>
+                    ) : q.options.length > 0 && q.options.every((o) => !o.is_correct) ? (
+                      <span className="text-[11px] font-semibold uppercase tracking-wide px-2.5 py-0.5 rounded-full border border-blue-500/30 bg-blue-500/15 text-blue-600 dark:text-blue-400">
+                        Opinion
+                      </span>
+                    ) : null}
+
                     <span className="inline-flex items-center gap-1 text-xs font-medium text-muted-foreground px-2 py-0.5 rounded-md bg-muted/30">
-                      <Clock size={12} /> {q.time_limit_seconds}s
+                      <Clock size={12} /> {q.time_limit_seconds > 0 ? `${q.time_limit_seconds}s` : "Untimed"}
                     </span>
 
                     {!q.is_active && (
@@ -1001,35 +1208,63 @@ function TemplateDetail({ templateId }: { templateId: string }) {
                 {/* Options & Answer key */}
                 {!isCollapsed && (
                   <div className="flex flex-col gap-2 pt-1 border-t border-border/50 mt-1">
-                    <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Options & Answer Key</span>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                      {q.options.map((opt, optIdx) => (
-                        <div
-                          key={optIdx}
-                          className={`flex items-start gap-2.5 p-2.5 rounded-xl border text-xs leading-relaxed transition-all ${
-                            opt.is_correct
-                              ? "border-emerald-500/50 bg-emerald-500/10 text-emerald-950 dark:text-emerald-200 font-medium"
-                              : "border-border bg-background/60 text-foreground/80"
-                          }`}
-                        >
-                          <span
-                            className={`w-5 h-5 rounded-md flex items-center justify-center text-[10px] font-bold shrink-0 mt-0.5 ${
-                              opt.is_correct
-                                ? "bg-emerald-500 text-white"
-                                : "bg-muted text-muted-foreground"
-                            }`}
-                          >
-                            {String.fromCharCode(65 + optIdx)}
-                          </span>
-                          <span className="flex-1 min-w-0">{opt.text}</span>
-                          {opt.is_correct && (
-                            <span className="inline-flex items-center gap-1 text-[10px] font-bold text-emerald-600 dark:text-emerald-400 shrink-0">
-                              <CheckCircle2 size={12} /> Correct
-                            </span>
-                          )}
+                    {q.question_type === "textarea" ? (
+                      <>
+                        <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Open-Ended Written Response</span>
+                        <div className="p-3 rounded-xl border border-dashed border-border bg-muted/20 text-xs text-muted-foreground">
+                          <span className="italic">Students type a free-text response. This question is unscored.</span>
                         </div>
-                      ))}
-                    </div>
+                      </>
+                    ) : q.options.length > 0 && q.options.every((o) => !o.is_correct) ? (
+                      <>
+                        <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Options (Opinion / Ungraded)</span>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                          {q.options.map((opt, optIdx) => (
+                            <div
+                              key={optIdx}
+                              className="flex items-start gap-2.5 p-2.5 rounded-xl border text-xs leading-relaxed transition-all border-border bg-background/60 text-foreground/80"
+                            >
+                              <span className="w-5 h-5 rounded-md flex items-center justify-center text-[10px] font-bold shrink-0 mt-0.5 bg-muted text-muted-foreground">
+                                {String.fromCharCode(65 + optIdx)}
+                              </span>
+                              <span className="flex-1 min-w-0">{opt.text}</span>
+                            </div>
+                          ))}
+                        </div>
+                      </>
+                    ) : (
+                      <>
+                        <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Options & Answer Key</span>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                          {q.options.map((opt, optIdx) => (
+                            <div
+                              key={optIdx}
+                              className={`flex items-start gap-2.5 p-2.5 rounded-xl border text-xs leading-relaxed transition-all ${
+                                opt.is_correct
+                                  ? "border-emerald-500/50 bg-emerald-500/10 text-emerald-950 dark:text-emerald-200 font-medium"
+                                  : "border-border bg-background/60 text-foreground/80"
+                              }`}
+                            >
+                              <span
+                                className={`w-5 h-5 rounded-md flex items-center justify-center text-[10px] font-bold shrink-0 mt-0.5 ${
+                                  opt.is_correct
+                                    ? "bg-emerald-500 text-white"
+                                    : "bg-muted text-muted-foreground"
+                                }`}
+                              >
+                                {String.fromCharCode(65 + optIdx)}
+                              </span>
+                              <span className="flex-1 min-w-0">{opt.text}</span>
+                              {opt.is_correct && (
+                                <span className="inline-flex items-center gap-1 text-[10px] font-bold text-emerald-600 dark:text-emerald-400 shrink-0">
+                                  <CheckCircle2 size={12} /> Correct
+                                </span>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                      </>
+                    )}
 
                     {q.explanation && (
                       <div className="p-2.5 rounded-xl bg-muted/40 border border-border text-xs text-muted-foreground mt-1">

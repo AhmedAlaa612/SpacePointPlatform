@@ -98,12 +98,37 @@ def parse_cohort_quiz_question_import(file_bytes: bytes) -> tuple[list[CohortQui
             continue
 
         time_raw = cell(row, time_col)
-        try:
-            time_limit_seconds = int(time_raw)
-            if time_limit_seconds <= 0:
-                raise ValueError
-        except (TypeError, ValueError):
-            errors.append(f"Row {row_idx}: Time (sec) must be a positive whole number")
+        time_str = str(time_raw).strip().lower() if time_raw is not None else ""
+        if not time_str or time_str in ("0", "none", "untimed", "no", "n/a"):
+            time_limit_seconds = 0
+        else:
+            try:
+                time_limit_seconds = int(float(time_raw))
+                if time_limit_seconds < 0:
+                    raise ValueError
+            except (TypeError, ValueError):
+                errors.append(f"Row {row_idx}: Time (sec) must be a whole number (>= 0)")
+                continue
+
+        qtype_raw = text_or_none(row, qtype_col)
+        is_textarea = bool(qtype_raw and qtype_raw.lower() in ("textarea", "text", "open", "open-ended"))
+
+        if is_textarea:
+            try:
+                questions.append(CohortQuizQuestionIn(
+                    topic=topic,
+                    subtopic=text_or_none(row, subtopic_col),
+                    difficulty=difficulty,
+                    time_limit_seconds=time_limit_seconds,
+                    bloom_level=text_or_none(row, bloom_col),
+                    question_type="textarea",
+                    prompt=prompt,
+                    options=[],
+                    explanation=text_or_none(row, explanation_col),
+                    source_url=text_or_none(row, source_col),
+                ))
+            except ValidationError as e:
+                errors.append(f"Row {row_idx}: {e.errors()[0]['msg']}")
             continue
 
         options = []
@@ -120,8 +145,9 @@ def parse_cohort_quiz_question_import(file_bytes: bytes) -> tuple[list[CohortQui
 
         correct_raw = cell(row, correct_col)
         correct_letter = str(correct_raw).strip().upper() if correct_raw is not None else ""
-        if correct_letter not in OPTION_LETTERS:
-            errors.append(f"Row {row_idx}: Correct Answer must be one of A, B, C, D")
+        is_opinion = correct_letter in ("", "NONE", "N/A", "OPINION")
+        if not is_opinion and correct_letter not in OPTION_LETTERS:
+            errors.append(f"Row {row_idx}: Correct Answer must be one of A, B, C, D (or None/blank for opinion-based)")
             continue
 
         try:
@@ -131,10 +157,10 @@ def parse_cohort_quiz_question_import(file_bytes: bytes) -> tuple[list[CohortQui
                 difficulty=difficulty,
                 time_limit_seconds=time_limit_seconds,
                 bloom_level=text_or_none(row, bloom_col),
-                question_type=text_or_none(row, qtype_col),
+                question_type=text_or_none(row, qtype_col) or "mcq",
                 prompt=prompt,
                 options=[
-                    CohortQuizQuestionOptionIn(text=text, is_correct=letter == correct_letter)
+                    CohortQuizQuestionOptionIn(text=text, is_correct=False if is_opinion else (letter == correct_letter))
                     for letter, text in options
                 ],
                 explanation=text_or_none(row, explanation_col),

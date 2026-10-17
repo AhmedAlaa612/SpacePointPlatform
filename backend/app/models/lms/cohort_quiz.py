@@ -176,7 +176,8 @@ class CohortQuizAnswer(Base):
     # change an already-submitted attempt's topic_breakdown.
     topic = Column(String(128), nullable=False)
     selected_option_index = Column(Integer, nullable=True)
-    is_correct = Column(Boolean, nullable=False, default=False)
+    text_answer = Column(Text, nullable=True)
+    is_correct = Column(Boolean, nullable=True, default=None)
     timed_out = Column(Boolean, nullable=False, default=False, server_default="false")
     time_taken_seconds = Column(Integer, nullable=True)
     answered_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))

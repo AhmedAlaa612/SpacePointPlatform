@@ -35,7 +35,7 @@ async def create_question(
     question = CohortQuizQuestion(
         id=uuid.uuid4(), topic=body.topic, subtopic=body.subtopic, difficulty=body.difficulty,
         time_limit_seconds=body.time_limit_seconds, bloom_level=body.bloom_level,
-        question_type=body.question_type, prompt=body.prompt,
+        question_type=body.question_type or "mcq", prompt=body.prompt,
         options=[o.model_dump() for o in body.options], explanation=body.explanation,
         source_url=body.source_url, created_by=created_by,
     )
@@ -342,7 +342,7 @@ def _build_question_order(questions: list[CohortQuizQuestion]) -> list[dict]:
     random.shuffle(shuffled)
     order = []
     for q in shuffled:
-        idxs = list(range(len(q.options)))
+        idxs = list(range(len(q.options))) if q.options else []
         random.shuffle(idxs)
         order.append({"question_id": str(q.id), "option_order": idxs})
     return order
@@ -409,8 +409,11 @@ async def _resolve_question_order(
     resolved = []
     for entry in attempt.question_order:
         q = by_id.get(uuid.UUID(entry["question_id"]))
-        option_order: list[int] = entry["option_order"]
-        if q is None or max(option_order, default=-1) >= len(q.options):
+        if q is None:
+            continue
+        option_order: list[int] = entry.get("option_order", [])
+        q_options = q.options or []
+        if len(q_options) > 0 and max(option_order, default=-1) >= len(q_options):
             continue
         resolved.append((entry, q))
     return resolved
@@ -422,11 +425,13 @@ async def get_attempt_questions(db: AsyncSession, attempt: CohortQuizAttempt) ->
     resolved = await _resolve_question_order(db, attempt)
     out = []
     for entry, q in resolved:
-        option_order: list[int] = entry["option_order"]
+        option_order: list[int] = entry.get("option_order", [])
+        q_options = q.options or []
         out.append({
             "question_id": q.id, "topic": q.topic, "difficulty": q.difficulty,
             "time_limit_seconds": q.time_limit_seconds, "prompt": q.prompt,
-            "options": [q.options[i]["text"] for i in option_order],
+            "options": [q_options[i]["text"] for i in option_order] if q_options else [],
+            "question_type": q.question_type or "mcq",
         })
     return out
 
@@ -444,36 +449,57 @@ async def submit_attempt(db: AsyncSession, attempt: CohortQuizAttempt, answers: 
     answers_by_qid = {str(a.question_id): a for a in answers}
 
     score = 0
+    scorable_total = 0
     topic_breakdown: dict[str, dict[str, int]] = {}
 
-    # The question was removed, or edited down to fewer options, between
-    # start and submit — shrink `total` to match so the result screen's
-    # "score / total" never counts a question that was never actually
-    # served (see `_resolve_question_order`'s own docstring).
-    skipped = len(attempt.question_order) - len(resolved)
     new_answers = []
     for entry, q in resolved:
         qid = q.id
-        option_order: list[int] = entry["option_order"]
+        q_type = q.question_type or "mcq"
+        option_order: list[int] = entry.get("option_order", [])
         answer = answers_by_qid.get(str(qid))
-        selected_position = answer.selected_option_index if answer else None
-        selected_original_index = (
-            option_order[selected_position]
-            if selected_position is not None and 0 <= selected_position < len(option_order)
-            else None
-        )
-        is_correct = selected_original_index is not None and bool(q.options[selected_original_index].get("is_correct"))
+        q_options = q.options or []
 
-        if is_correct:
-            score += 1
-        bucket = topic_breakdown.setdefault(q.topic, {"correct": 0, "total": 0})
-        bucket["total"] += 1
-        if is_correct:
-            bucket["correct"] += 1
+        is_textarea = (q_type == "textarea")
+        has_correct_option = any(o.get("is_correct") for o in q_options)
+
+        text_ans = None
+        selected_original_index = None
+        is_correct = None
+
+        if is_textarea:
+            text_ans = answer.text_answer.strip() if (answer and answer.text_answer) else None
+            is_correct = None
+        elif not has_correct_option:
+            selected_position = answer.selected_option_index if answer else None
+            selected_original_index = (
+                option_order[selected_position]
+                if selected_position is not None and 0 <= selected_position < len(option_order)
+                else None
+            )
+            is_correct = None
+        else:
+            scorable_total += 1
+            selected_position = answer.selected_option_index if answer else None
+            selected_original_index = (
+                option_order[selected_position]
+                if selected_position is not None and 0 <= selected_position < len(option_order)
+                else None
+            )
+            is_correct = selected_original_index is not None and bool(q_options[selected_original_index].get("is_correct"))
+
+            if is_correct:
+                score += 1
+            bucket = topic_breakdown.setdefault(q.topic, {"correct": 0, "total": 0})
+            bucket["total"] += 1
+            if is_correct:
+                bucket["correct"] += 1
 
         new_answers.append(CohortQuizAnswer(
             id=uuid.uuid4(), attempt_id=attempt.id, question_id=qid, topic=q.topic,
-            selected_option_index=selected_original_index, is_correct=is_correct,
+            selected_option_index=selected_original_index,
+            text_answer=text_ans,
+            is_correct=is_correct,
             timed_out=bool(answer.timed_out) if answer else True,
             time_taken_seconds=answer.time_taken_seconds if answer else None,
         ))
@@ -489,8 +515,8 @@ async def submit_attempt(db: AsyncSession, attempt: CohortQuizAttempt, answers: 
         async with db.begin_nested():
             db.add_all(new_answers)
             attempt.status = "submitted"
-            attempt.score = score
-            attempt.total -= skipped
+            attempt.score = score if scorable_total > 0 else None
+            attempt.total = scorable_total
             attempt.topic_breakdown = topic_breakdown
             attempt.submitted_at = datetime.now(timezone.utc)
             await db.flush()
@@ -524,18 +550,30 @@ async def get_attempt_review(db: AsyncSession, attempt: CohortQuizAttempt) -> li
             # it must stay excluded here too, or the review list would grow
             # past what `total`/`score` at the top of the result screen say.
             continue
-        option_order: list[int] = entry["option_order"]
-        correct_original_index = next(i for i, o in enumerate(q.options) if o.get("is_correct"))
+        option_order: list[int] = entry.get("option_order", [])
+        q_options = q.options or []
+        correct_original_index = next((i for i, o in enumerate(q_options) if o.get("is_correct")), None)
+        correct_idx = (
+            option_order.index(correct_original_index)
+            if (correct_original_index is not None and correct_original_index in option_order)
+            else None
+        )
+        selected_idx = (
+            option_order.index(answer.selected_option_index)
+            if (answer.selected_option_index is not None and answer.selected_option_index in option_order)
+            else None
+        )
         out.append({
             "question_id": q.id, "topic": q.topic, "prompt": q.prompt,
-            "options": [q.options[i]["text"] for i in option_order],
-            "selected_index": option_order.index(answer.selected_option_index)
-            if answer.selected_option_index is not None else None,
-            "correct_index": option_order.index(correct_original_index),
+            "options": [q_options[i]["text"] for i in option_order] if q_options else [],
+            "selected_index": selected_idx,
+            "correct_index": correct_idx,
             "is_correct": answer.is_correct,
             "explanation": q.explanation,
             "time_taken_seconds": answer.time_taken_seconds,
             "timed_out": answer.timed_out,
+            "question_type": q.question_type or "mcq",
+            "text_answer": answer.text_answer,
         })
     return out
 
@@ -729,19 +767,22 @@ async def get_cohort_quiz_analysis(
 
         q_stat = questions_map[key]
         q_stat["total_answers"] += 1
-        if is_correct:
+        if is_correct is True:
             q_stat["correct_count"] += 1
-        else:
+        elif is_correct is False:
             q_stat["incorrect_count"] += 1
 
     for q_stat in questions_map.values():
-        if q_stat["total_answers"] > 0:
-            q_stat["accuracy_pct"] = round((q_stat["correct_count"] / q_stat["total_answers"]) * 100)
+        scorable = q_stat["correct_count"] + q_stat["incorrect_count"]
+        if scorable > 0:
+            q_stat["accuracy_pct"] = round((q_stat["correct_count"] / scorable) * 100)
+        else:
+            q_stat["accuracy_pct"] = None
 
     # Sort questions by most wrong by default
     questions_list = sorted(
         questions_map.values(),
-        key=lambda x: (x["incorrect_count"], -x["accuracy_pct"]),
+        key=lambda x: (x["incorrect_count"], -(x["accuracy_pct"] if x["accuracy_pct"] is not None else -1)),
         reverse=True,
     )
 

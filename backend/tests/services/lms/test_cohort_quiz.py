@@ -613,3 +613,129 @@ async def test_get_student_topic_breakdown_sums_across_submitted_attempts(db):
     breakdown = await svc.get_student_topic_breakdown(db, student.id)
     assert breakdown["EPS"] == {"correct": 1, "total": 2}
     assert breakdown["ADCS"] == {"correct": 0, "total": 1}
+
+
+@pytest.mark.asyncio
+async def test_create_textarea_question_and_opinion_question():
+    # 1. Textarea question (options can be empty)
+    q_text = CohortQuizQuestionIn(
+        topic="Reflections", difficulty="Easy", time_limit_seconds=60,
+        question_type="textarea", prompt="Describe what you learned today",
+        options=[],
+    )
+    assert q_text.question_type == "textarea"
+    assert q_text.options == []
+
+    # 2. Opinion-based MCQ (no correct answer marked)
+    q_opinion = CohortQuizQuestionIn(
+        topic="Survey", difficulty="Easy", time_limit_seconds=30,
+        question_type="mcq", prompt="Which track interests you most?",
+        options=[
+            CohortQuizQuestionOptionIn(text="Hardware", is_correct=False),
+            CohortQuizQuestionOptionIn(text="Software", is_correct=False),
+        ],
+    )
+    assert q_opinion.question_type == "mcq"
+    assert all(not o.is_correct for o in q_opinion.options)
+
+    # 3. Reject more than one correct option
+    with pytest.raises(ValueError):
+        CohortQuizQuestionIn(
+            topic="Test", difficulty="Easy", time_limit_seconds=15, prompt="Bad",
+            options=[
+                CohortQuizQuestionOptionIn(text="A", is_correct=True),
+                CohortQuizQuestionOptionIn(text="B", is_correct=True),
+            ],
+        )
+
+
+@pytest.mark.asyncio
+async def test_submit_attempt_with_textarea_and_opinion_questions(db):
+    user = await _make_user(db)
+    cohort = await _make_cohort(db)
+    lms_program = LmsProgram(id=uuid.uuid4(), program_id=cohort.program_id, name="Quiz Program Mixed")
+    db.add(lms_program)
+    await db.flush()
+
+    template = await svc.create_template(db, body=CohortQuizTemplateCreate(name="Mixed Template"), created_by=user.id)
+
+    # 1. Graded MCQ
+    q_graded = await svc.create_question(db, body=_question_body("GradedTopic", correct_letter="A"), created_by=user.id)
+    await svc.add_template_question(db, template_id=template.id, question_id=q_graded.id)
+
+    # 2. Opinion MCQ
+    q_opinion = await svc.create_question(db, body=CohortQuizQuestionIn(
+        topic="OpinionTopic", difficulty="Easy", time_limit_seconds=20,
+        question_type="mcq", prompt="Which subsystem is coolest?",
+        options=[
+            CohortQuizQuestionOptionIn(text="Payload", is_correct=False),
+            CohortQuizQuestionOptionIn(text="Power", is_correct=False),
+        ],
+    ), created_by=user.id)
+    await svc.add_template_question(db, template_id=template.id, question_id=q_opinion.id)
+
+    # 3. Textarea Question
+    q_textarea = await svc.create_question(db, body=CohortQuizQuestionIn(
+        topic="ReflectionTopic", difficulty="Medium", time_limit_seconds=45,
+        question_type="textarea", prompt="Write your thoughts on orbital mechanics",
+        options=[],
+    ), created_by=user.id)
+    await svc.add_template_question(db, template_id=template.id, question_id=q_textarea.id)
+
+    item = await _quiz_item(db, lms_program=lms_program, template_id=template.id)
+    student = await _make_user(db, roles=["student"])
+
+    attempt = await svc.start_attempt(db, item=item, user_id=student.id, cohort_id=cohort.id)
+    questions = await svc.get_attempt_questions(db, attempt)
+    assert len(questions) == 3
+
+    text_q = next(q for q in questions if q["question_id"] == q_textarea.id)
+    assert text_q["question_type"] == "textarea"
+    assert text_q["options"] == []
+
+    # Student submits answers
+    class _AnswerInput:
+        def __init__(self, qid, selected=None, text=None, timed_out=False):
+            self.question_id = qid
+            self.selected_option_index = selected
+            self.text_answer = text
+            self.timed_out = timed_out
+            self.time_taken_seconds = 5
+
+    # Find position of correct option for graded question
+    order_graded = next(e for e in attempt.question_order if e["question_id"] == str(q_graded.id))
+    correct_pos = order_graded["option_order"].index(0)
+
+    sub_answers = [
+        _AnswerInput(q_graded.id, selected=correct_pos),
+        _AnswerInput(q_opinion.id, selected=0),
+        _AnswerInput(q_textarea.id, text="Orbital mechanics requires careful delta-v planning."),
+    ]
+    submitted_attempt = await svc.submit_attempt(db, attempt, sub_answers)
+
+    # Only graded question counts toward score and total
+    assert submitted_attempt.score == 1
+    assert submitted_attempt.total == 1
+    assert "GradedTopic" in submitted_attempt.topic_breakdown
+    assert submitted_attempt.topic_breakdown["GradedTopic"] == {"correct": 1, "total": 1}
+    assert "OpinionTopic" not in submitted_attempt.topic_breakdown
+    assert "ReflectionTopic" not in submitted_attempt.topic_breakdown
+
+    # Review checks
+    review = await svc.get_attempt_review(db, submitted_attempt)
+    assert len(review) == 3
+
+    rev_graded = next(r for r in review if r["question_id"] == q_graded.id)
+    assert rev_graded["is_correct"] is True
+    assert rev_graded["correct_index"] is not None
+
+    rev_opinion = next(r for r in review if r["question_id"] == q_opinion.id)
+    assert rev_opinion["is_correct"] is None
+    assert rev_opinion["correct_index"] is None
+    assert rev_opinion["selected_index"] is not None
+
+    rev_text = next(r for r in review if r["question_id"] == q_textarea.id)
+    assert rev_text["is_correct"] is None
+    assert rev_text["question_type"] == "textarea"
+    assert rev_text["text_answer"] == "Orbital mechanics requires careful delta-v planning."
+

@@ -27,9 +27,9 @@ export interface CohortQuizQuestionInput {
   difficulty: CohortQuizDifficulty;
   time_limit_seconds: number;
   bloom_level?: string | null;
-  question_type?: string | null;
+  question_type?: "mcq" | "textarea" | string | null;
   prompt: string;
-  options: { text: string; is_correct: boolean }[];
+  options?: { text: string; is_correct: boolean }[];
   explanation?: string | null;
   source_url?: string | null;
 }

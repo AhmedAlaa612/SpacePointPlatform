@@ -22,19 +22,24 @@ class CohortQuizQuestionIn(BaseModel):
     topic: str
     subtopic: str | None = None
     difficulty: Literal["Easy", "Medium", "Hard"]
-    time_limit_seconds: int = Field(gt=0)
+    time_limit_seconds: int = Field(default=15, ge=0)
     bloom_level: str | None = None
-    question_type: str | None = None
+    question_type: str | None = "mcq"
     prompt: str
-    options: list[CohortQuizQuestionOptionIn] = Field(min_length=2)
+    options: list[CohortQuizQuestionOptionIn] = Field(default_factory=list)
     explanation: str | None = None
     source_url: str | None = None
 
     @model_validator(mode="after")
     def _validate_correct_option(self) -> "CohortQuizQuestionIn":
+        q_type = self.question_type or "mcq"
+        if q_type == "textarea":
+            return self
+        if len(self.options) < 2:
+            raise ValueError("a selection question needs at least 2 options")
         correct = sum(1 for o in self.options if o.is_correct)
-        if correct != 1:
-            raise ValueError(f"a question needs exactly one correct option, got {correct}")
+        if correct > 1:
+            raise ValueError(f"a question cannot have more than one correct option, got {correct}")
         return self
 
 
@@ -42,21 +47,26 @@ class CohortQuizQuestionUpdate(BaseModel):
     topic: str | None = None
     subtopic: str | None = None
     difficulty: Literal["Easy", "Medium", "Hard"] | None = None
-    time_limit_seconds: int | None = Field(default=None, gt=0)
+    time_limit_seconds: int | None = Field(default=None, ge=0)
     bloom_level: str | None = None
     question_type: str | None = None
     prompt: str | None = None
-    options: list[CohortQuizQuestionOptionIn] | None = Field(default=None, min_length=2)
+    options: list[CohortQuizQuestionOptionIn] | None = None
     explanation: str | None = None
     source_url: str | None = None
     is_active: bool | None = None
 
     @model_validator(mode="after")
     def _validate_correct_option(self) -> "CohortQuizQuestionUpdate":
+        q_type = self.question_type or "mcq"
         if self.options is not None:
+            if q_type == "textarea":
+                return self
+            if len(self.options) < 2:
+                raise ValueError("a selection question needs at least 2 options")
             correct = sum(1 for o in self.options if o.is_correct)
-            if correct != 1:
-                raise ValueError(f"a question needs exactly one correct option, got {correct}")
+            if correct > 1:
+                raise ValueError(f"a question cannot have more than one correct option, got {correct}")
         return self
 
 
@@ -67,9 +77,9 @@ class CohortQuizQuestionOut(BaseModel):
     difficulty: str
     time_limit_seconds: int
     bloom_level: str | None
-    question_type: str | None
+    question_type: str | None = "mcq"
     prompt: str
-    options: list[CohortQuizQuestionOptionIn]
+    options: list[CohortQuizQuestionOptionIn] = Field(default_factory=list)
     explanation: str | None
     source_url: str | None
     is_active: bool
@@ -146,7 +156,8 @@ class CohortQuizAttemptQuestionOut(BaseModel):
     difficulty: str
     time_limit_seconds: int
     prompt: str
-    options: list[str]
+    options: list[str] = Field(default_factory=list)
+    question_type: str = "mcq"
 
 
 class CohortQuizAttemptOut(BaseModel):
@@ -160,8 +171,9 @@ class CohortQuizAttemptOut(BaseModel):
 class CohortQuizAnswerIn(BaseModel):
     question_id: UUID
     # The DISPLAYED option position the student picked (0-based), or None
-    # if left blank/timed out.
+    # if left blank/timed out/textarea question.
     selected_option_index: int | None = None
+    text_answer: str | None = None
     time_taken_seconds: int | None = None
     timed_out: bool = False
 
@@ -178,18 +190,18 @@ class CohortQuizQuestionReviewOut(BaseModel):
     question_id: UUID
     topic: str
     prompt: str
-    options: list[str]
-    selected_index: int | None
-    correct_index: int
-    is_correct: bool
-    explanation: str | None
+    options: list[str] = Field(default_factory=list)
+    selected_index: int | None = None
+    correct_index: int | None = None
+    is_correct: bool | None = None
+    explanation: str | None = None
     # How long the student took (client-tracked, never server-validated —
     # same trust posture the rest of this domain's timing already has) and
     # whether it was a timeout auto-submit rather than an explicit pick.
-    # `selected_index is None` alone already means "left unanswered"; this
-    # just distinguishes *why* for the ops/instructor review.
     time_taken_seconds: int | None = None
     timed_out: bool = False
+    question_type: str = "mcq"
+    text_answer: str | None = None
 
 
 class CohortQuizResultOut(BaseModel):

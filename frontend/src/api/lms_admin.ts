@@ -961,7 +961,7 @@ export interface CohortQuizQuestionAnalysis {
   correct_count: number;
   incorrect_count: number;
   total_answers: number;
-  accuracy_pct: number;
+  accuracy_pct: number | null;
 }
 
 export interface CohortQuizAnalysisOut {
