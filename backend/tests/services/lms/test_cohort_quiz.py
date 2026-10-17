@@ -330,6 +330,7 @@ async def test_start_attempt_is_get_or_create(db):
 
     assert first.id == second.id
     assert first.question_order == second.question_order
+    assert [uuid.UUID(e["question_id"]) for e in first.question_order] == [q.id for q in questions]
     assert first.total == len(questions)
 
     count = await db.scalar(

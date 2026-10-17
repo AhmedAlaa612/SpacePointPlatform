@@ -333,17 +333,11 @@ async def get_own_attempt(
 
 
 def _build_question_order(questions: list[CohortQuizQuestion]) -> list[dict]:
-    """Shuffled presentation order, each question's own independently
-    shuffled option order — `option_order[i]` is which original `options`
-    index is shown at displayed position `i`. The question *set* stays the
-    template's fixed list; only order and option positions are randomized
-    per student, so the answer key can't be read off a shared position."""
-    shuffled = list(questions)
-    random.shuffle(shuffled)
+    """Preserves the template's configured question order.
+    Option order is preserved as authored."""
     order = []
-    for q in shuffled:
+    for q in questions:
         idxs = list(range(len(q.options))) if q.options else []
-        random.shuffle(idxs)
         order.append({"question_id": str(q.id), "option_order": idxs})
     return order
 
@@ -367,6 +361,7 @@ async def start_attempt(
             CohortQuizTemplateQuestion.template_id == item.cohort_quiz_template_id,
             CohortQuizQuestion.is_active.is_(True),
         )
+        .order_by(CohortQuizTemplateQuestion.position.asc())
     )).scalars().all()
     if not rows:
         raise HTTPException(status.HTTP_409_CONFLICT, detail="This quiz has no active questions configured")
