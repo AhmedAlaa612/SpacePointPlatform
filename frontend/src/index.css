@@ -352,39 +352,6 @@ select option {
   scrollbar-width: none;  /* Firefox */
 }
 
-/* Intercom Fin launcher & notification badge position on mobile.
-   Intercom's mobile messenger defaults to fixed bottom: 20px, which sits directly
-   on top of the LearnMobileTabBar (~112px tall for staff + iOS safe area).
-   
-   Intercom creates three separate sibling elements inside #intercom-container:
-   1. The launcher button: .intercom-launcher-frame / .intercom-lightweight-app-launcher
-   2. The notification pop / unread badge: .intercom-notifications
-   3. The chat window: .intercom-messenger / .intercom-messenger-frame
-   
-   We target ONLY (1) and (2) so:
-   - Both the launcher icon and notification badge move up together by exactly 130px.
-   - Because they are sibling elements and neither is nested inside the other, neither is double-translated.
-   - The chat window (.intercom-messenger) is completely untouched so it opens at full viewport height without clipping.
-   - When the chat is open (.intercom-chat-open or Intercom's own .intercom-messenger-active), the launcher/pop transform is disabled so it doesn't obstruct the chat. */
-@media (max-width: 767px) {
-  /* Pin Intercom's root container to the screen viewport so it never scrolls with document content */
-  #intercom-container {
-    position: fixed !important;
-    bottom: 0 !important;
-    right: 0 !important;
-    pointer-events: none !important;
-    z-index: 2147483000 !important;
-  }
-
-  #intercom-container > * {
-    pointer-events: auto !important;
-  }
-
-  /* Lift launcher button and docked badge together above the mobile tab bar */
-  body:not(.intercom-chat-open):not(.intercom-messenger-active) #intercom-container > *:not([class*="messenger"]):not([name*="messenger"]):not([class*="modal"]):not([class*="sheet"]) {
-    transform: translateY(-130px) !important;
-  }
-}
 
 /* Rich Markdown preview typography (Tailwind Preflight resets h1-h6, ul/ol, blockquote to plain text) */
 .markdown-preview h1 {

@@ -1005,14 +1005,10 @@ Identity is secured using Intercom Messenger Security (HMAC-SHA256 JWT):
 - Frontend passes **only** `intercom_user_jwt` to Intercom `boot()` — passing unsigned attributes (`user_id`, `email`) alongside a signed token causes Intercom Messenger Security to reject the boot with a 403.
 - All verified user attributes are embedded as JWT claims inside the token by `services/lms/support.py`: `user_id`, `name`, `email`, `roles` (space-delimited string for Intercom audience filter compatibility), `program` (real Sessions program name via the cohort — never the LMS checklist label, same convention as the checklist title), `cohort` (Sessions cohort name), `team`, `card_id`, and casing variations.
 
-### Mobile View Positioning (`frontend/src/index.css`)
-- **Problem**: Intercom's mobile web messenger defaults to `bottom: 20px` and ignores vertical padding configured in the dashboard or passed to `boot()` on mobile viewports. On `/learn/*`, this places the launcher icon right on top of the fixed mobile bottom bar (`LearnMobileTabBar.tsx`, ~112px tall + up to 34px iOS safe area).
-- **Solution**: Handled in `frontend/src/index.css` under `@media (max-width: 767px)`:
-  - Pins `#intercom-container` to the screen viewport (`position: fixed !important; bottom: 0; right: 0; pointer-events: none !important;`) so it never scrolls with document content on long pages.
-  - Targets direct children (`#intercom-container > *:not([class*="messenger"]):not([name*="messenger"]):not([class*="modal"]):not([class*="sheet"])`) with `transform: translateY(-130px) !important;`.
-  - Both the launcher button and notification badge move up together in exact lockstep by -130px, so the red badge docks seamlessly into the circular cutout of the launcher icon without double-translation.
-  - The chat window (`.intercom-messenger`) is strictly excluded, and `fin.ts` listens to `onShow`/`onHide` to disable transforms while chatting so the conversation window opens at full viewport height without top/bottom clipping or obstructions.
-  - Desktop view (`>= 768px`) is completely unaffected and adheres to the Intercom dashboard layout settings.
+### Launcher Positioning
+- Launcher positioning is controlled natively by Intercom (configured via the Intercom Dashboard under Settings > Messenger > Launcher Position).
+- Intercom applies the dashboard horizontal and vertical padding (e.g. `bottom_padding`) on computers and tablets.
+- On mobile web, Intercom natively docks the launcher at the bottom right. No custom CSS transforms or positioning overrides are injected from the frontend, ensuring positioning behavior comes strictly from Intercom.
 
 ### Network / Corporate Firewall Restrictions
 - Intercom relies on real-time WebSocket and HTTP connections to `*.intercom.io` and `*.intercomcdn.com`.

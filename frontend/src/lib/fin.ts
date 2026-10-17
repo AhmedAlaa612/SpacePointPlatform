@@ -16,15 +16,7 @@
  * server — same constraint `VITE_API_URL` already has, see the README.
  *
  * This is the first third-party script in this frontend (there is no Stripe
- * JS, no analytics), so it sets the pattern rather than following one.
- *
- * LAUNCHER POSITION ON MOBILE
- * Intercom's mobile messenger defaults to `bottom: 20px` and ignores vertical
- * padding configured in the Intercom dashboard on mobile web. To clear the
- * fixed mobile tab bar (~112px tall + safe area), the launcher and notification
- * badge frames are shifted up via CSS in `frontend/src/index.css`
- * (`@media (max-width: 767px) { transform: translateY(-130px) !important }`).
- * Desktop uses the dashboard vertical padding setting untouched. */
+ * JS, no analytics), so it sets the pattern rather than following one. */
 
 const APP_ID: string = import.meta.env.VITE_INTERCOM_APP_ID ?? "";
 
@@ -187,14 +179,6 @@ export function boot(payload: FinBootPayload = {}): void {
 
   window.Intercom?.("boot", settings);
 
-  // Track chat open/close state on body so mobile styles can deactivate transforms while chatting
-  window.Intercom?.("onShow", () => {
-    document.body.classList.add("intercom-chat-open");
-  });
-  window.Intercom?.("onHide", () => {
-    document.body.classList.remove("intercom-chat-open");
-  });
-
   scheduleWatchdog();
 }
 
@@ -247,7 +231,6 @@ export function shutdown(): void {
   if (!isFinEnabled()) return;
   clearWatchdog();
   currentMode = "none";
-  document.body.classList.remove("intercom-chat-open");
   try {
     window.Intercom?.("shutdown", false as unknown as Record<string, unknown>);
   } catch {
