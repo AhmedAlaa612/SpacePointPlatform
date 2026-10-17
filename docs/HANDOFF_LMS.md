@@ -1084,3 +1084,57 @@ An `InvitationCode` can carry standing course, learning path, or cohort grants (
 ### Trap 3: Email Updates Without Contact & Alias Sync
 - **Symptom**: Changing a user's email leaves the underlying `Contact` with the old email, or breaks alias matching.
 - **Rule**: **Never update `user.email` alone.** Always use `replace_user_email(db, user, new_email)` from `services/spine/identity.py`. It updates `users.email`, rewrites matching `contacts.email`, deletes old alias records, and registers the new alias on the linked contact.
+
+---
+
+## 25. SpacePoint Mission Arcade (`/learn/arcade`) (October 2026)
+
+### Purpose & Architecture
+SpacePoint Mission Arcade is an interactive simulation environment delivering 51 hands-on space and satellite engineering challenges spanning 8 critical spacecraft subsystems:
+1. **Orbital Mechanics & Astrodynamics** (`orbit`)
+2. **Thermal & Environmental Control** (`thermal`)
+3. **Power Systems & Energy Management** (`power`)
+4. **Telemetry, Tracking & Command (TT&C) / Communications** (`comms`)
+5. **Attitude Determination & Control Systems (ADCS)** (`adcs`)
+6. **Propulsion & Orbital Maneuvers** (`propulsion`)
+7. **Scientific Payloads & Earth Observation** (`payload`)
+8. **Structures, Mechanisms & Deployment** (`structures`)
+
+Each mission features dual gameplay tracks:
+- **`Explorer` Mode**: Foundational, guided principles focused on conceptual mastery and intuitive physics.
+- **`Engineer` Mode**: Rigorous telemetry, tight thermal/power margins, sensor noise, latency delays, and strict mass/budget constraints.
+
+### Core Files & Layout
+- **Frontend Catalog**: [`frontend/src/pages/learn/LearnArcade.tsx`](file:///c:/Users/ahmed/Downloads/spaceportal/spacepoint-stripe-test/frontend/src/pages/learn/LearnArcade.tsx)
+  - Hero header with clean background (frameless), track switcher (`Explorer` vs `Engineer`), enlarged subsystem tabs, and responsive search bar.
+  - Secondary filter buttons removed for clarity; cards link directly into the mission player.
+- **Frontend Mission Runner**: [`frontend/src/pages/learn/LearnArcadeGame.tsx`](file:///c:/Users/ahmed/Downloads/spaceportal/spacepoint-stripe-test/frontend/src/pages/learn/LearnArcadeGame.tsx)
+  - Full-screen mission workspace under the SpacePoint Learn navigation.
+  - **Mission Guidelines & Briefing**: Displays scenario background, core objectives, controls guide, and passing thresholds before starting simulation. Features a prominent purple **"Start Mission"** button that mounts the interactive canvas/3D viewport.
+- **Simulator Bundle**: `frontend/public/arcade/index.html` + `frontend/public/arcade/three.min.js`
+  - Integrated directly via `iframe` messaging (`postMessage`).
+  - **Design System Conformance**: Strictly aligned to SpacePoint platform tokens:
+    - Primary accents: SpacePoint Heliotrope Purple (`#a880ff`, `#c7aaff`), deep space darks (`#05030A`, `#1A0F26`, `#231534`, `#2E1B48`), emerald (`#34d399`), amber (`#fbbf24`), and subtle border strokes (`rgba(255,255,255,0.08)`).
+    - **Zero light blue / cyan (`#6cc4ff`, `#38bdf8`) permitted anywhere** in UI, cards, telemetry readouts, or canvas graphics.
+    - Typography uses platform standard fonts: **`Outfit`** for display headings and **`Inter`** for all body text, labels, telemetry tables, and canvas fonts.
+    - Includes Chrome extension unhandled message channel close error suppression.
+- **API Client**: [`frontend/src/api/arcade.ts`](file:///c:/Users/ahmed/Downloads/spaceportal/spacepoint-stripe-test/frontend/src/api/arcade.ts)
+  - `listArcadeGames`, `getArcadeGame`, `submitArcadeAttempt`, `getArcadeSubsystemSummaries`.
+
+### Backend Schema & Service Architecture
+- **Models** (`backend/app/models/lms/arcade_game.py`):
+  - `ArcadeGame`: `id` (UUID), `game_key` (slug), `position`, `module_key`, `subsystem`, `title`, `description`, `mode` (`explorer` | `engineer`), `tier` (1–3), `passing_score` (default 70), `time_limit_sec`, `points_reward`, `config_json`, `is_published`.
+  - `ArcadeGameAttempt`: `id`, `arcade_game_id`, `user_id`, `score`, `passed`, `duration_seconds`, `telemetry_data`, `created_at`.
+- **Migration**: `backend/alembic/versions/a8c4e2f91b05_add_arcade_games_and_program_item_link.py`.
+- **Router**: `backend/app/routers/lms/arcade.py` mounted at `/lms/arcade/*` (`GET /`, `GET /{key}`, `POST /{key}/attempt`, `GET /subsystems/summary`).
+- **Service**: `backend/app/services/lms/arcade.py`.
+- **Seed Script**: `backend/scripts/lms_seed_arcade_games.py` (seeds all 51 missions with subsystems, descriptions, tiers, and passing criteria).
+
+### Program Checklist Integration & Auto-Pass Loop
+- `LmsProgramItem` gained `arcade_game_id` (`UUID`, nullable FK → `arcade_games.id`) and `arcade_passing_score` (`Integer`, nullable, defaults to 70).
+- Program authoring UI ([`LmsChecklistAuthoring.tsx`](file:///c:/Users/ahmed/Downloads/spaceportal/spacepoint-stripe-test/frontend/src/pages/lms-authoring/components/LmsChecklistAuthoring.tsx)) allows selecting `Arcade Game` as an item type, choosing from available missions, and configuring passing score requirements.
+- When an attempt is submitted via `record_arcade_attempt`:
+  1. The attempt row is saved with score and pass status.
+  2. `services/lms/program.py::check_arcade_game_item_completion` scans all active program assignments for the user containing this `arcade_game_id`.
+  3. If `attempt.passed` and `score >= (item.arcade_passing_score or game.passing_score)`, the learner's `LmsProgramItemProgress` record is automatically marked as `completed` with `completed_at = now()`.
+  4. Students viewing their checklist in [`TaskDrawer.tsx`](file:///c:/Users/ahmed/Downloads/spaceportal/spacepoint-stripe-test/frontend/src/pages/learn/board/TaskDrawer.tsx) see the linked mission, current best score, and a direct launch button into the arcade simulation.
