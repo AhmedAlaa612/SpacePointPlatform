@@ -1012,6 +1012,81 @@ async def test_registration_import_confirm_still_refuses_a_row_missing_a_require
 
 
 @pytest.mark.asyncio
+async def test_registration_import_confirm_async_mode_enqueues_arq_batch_and_polls_status(
+    db, arq_client, arq_redis, monkeypatch,
+):
+    """When `async_mode=True` (used by the Roster UI), confirm creates an
+    `ImportBatch`, enqueues `run_competition_registration_import_job` on ARQ,
+    and `/registration-import/batches/{batch_id}` returns live progress and
+    final results once the worker runs the job."""
+    from contextlib import asynccontextmanager
+    from app.workers.tasks.imports import run_competition_registration_import_job
+
+    @asynccontextmanager
+    async def _test_session():
+        yield db
+
+    monkeypatch.setattr("app.workers.tasks.imports.AsyncSessionLocal", _test_session)
+
+    ops = await _ops(db)
+    _program, cohort = await _program_and_cohort(db)
+    await db.commit()
+
+    email_a = f"async-a-{uuid.uuid4().hex[:6]}@example.com"
+    email_b = f"async-b-{uuid.uuid4().hex[:6]}@example.com"
+    wb = openpyxl.Workbook()
+    sheet = wb.active
+    sheet.append(["Team ID", "Team Name", "Student Name", "Email", "University", "Major", "Year of Study"])
+    sheet.append(["T-01", "Falcon Eye", "Amir Salem", email_a, "Khalifa University", "Aerospace", "4th year"])
+    sheet.append(["T-01", "Falcon Eye", "Lina Nasser", email_b, "Khalifa University", "Mechanical", "3rd year"])
+    buf = io.BytesIO()
+    wb.save(buf)
+
+    preview_resp = await arq_client.post(
+        f"/competitions/admin/cohorts/{cohort.id}/registration-import/preview",
+        files={"file": ("roster.xlsx", buf.getvalue(), "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")},
+        headers=_headers(ops),
+    )
+    assert preview_resp.status_code == 200, preview_resp.text
+    preview_rows = preview_resp.json()["rows"]
+
+    confirm_resp = await arq_client.post(
+        f"/competitions/admin/cohorts/{cohort.id}/registration-import/confirm",
+        json={
+            "rows": [{k: v for k, v in r.items() if k != "issues"} for r in preview_rows],
+            "send_ticket_email": False,
+            "send_welcome_email": False,
+            "async_mode": True,
+        },
+        headers=_headers(ops),
+    )
+    assert confirm_resp.status_code == 200, confirm_resp.text
+    confirm_body = confirm_resp.json()
+    batch_id = confirm_body["batch_id"]
+    assert batch_id is not None
+    assert confirm_body["status"] == "queued"
+
+    queued_jobs = await arq_redis.zrange("arq:queue", 0, -1)
+    assert len(queued_jobs) == 1
+
+    # Execute the ARQ worker function directly to simulate worker consumption
+    job_res = await run_competition_registration_import_job({"redis": None}, batch_id)
+    assert job_res["status"] == "committed"
+    assert job_res["summary"] == {"total": 2, "created": 2, "matched": 0, "error": 0}
+
+    poll_resp = await arq_client.get(
+        f"/competitions/admin/cohorts/{cohort.id}/registration-import/batches/{batch_id}",
+        headers=_headers(ops),
+    )
+    assert poll_resp.status_code == 200, poll_resp.text
+    poll_body = poll_resp.json()
+    assert poll_body["status"] == "committed"
+    assert poll_body["summary"] == {"total": 2, "created": 2, "matched": 0, "error": 0}
+    assert len(poll_body["rows"]) == 2
+
+
+
+@pytest.mark.asyncio
 async def test_advance_teams_via_http_moves_a_team_to_the_target_cohort(db, client):
     ops = await _ops(db)
     program, qualifier = await _program_and_cohort(db)

@@ -641,11 +641,10 @@ async def test_assign_flags_a_team_name_collision_without_failing_the_batch(db):
 
 
 @pytest.mark.asyncio
-async def test_assign_does_not_touch_a_student_with_no_contact(db):
-    """Structurally shouldn't happen for a self-registered account (signup
-    always sets contact_id), but a User with no contact_id must still error
-    cleanly rather than blow up on `resolve_or_create_contact`-free logic
-    downstream that assumes one."""
+async def test_assign_auto_creates_contact_for_student_with_no_contact(db):
+    """Per the 2026-10 rebuild in `_assign_row`, a User with `contact_id=None`
+    has a Contact auto-created via `resolve_or_create_contact` so `register()`
+    can attach cleanly."""
     from app.core.security import get_password_hash
 
     cohort = await _make_cohort(db)
@@ -658,6 +657,183 @@ async def test_assign_does_not_touch_a_student_with_no_contact(db):
 
     results = await assign_existing_students(
         db, cohort_id=cohort.id, rows=[{"row_number": 1, "user_id": orphan.id, "team_id": "T1"}],
+        send_welcome_email=False,
     )
     await db.commit()
-    assert summarize_assign_results(results) == {"total": 1, "created": 0, "matched": 0, "error": 1}
+    assert summarize_assign_results(results) == {"total": 1, "created": 1, "matched": 0, "error": 0}
+    await db.refresh(orphan)
+    assert orphan.contact_id is not None
+
+
+@pytest.mark.asyncio
+async def test_import_loads_core_university_competition_sheet_columns_and_ignores_extra_fields(db):
+    """Only the core portal fields (Student Name, Email, Phone, University ->
+    Organization, Nationality, Team Name, Team ID) are loaded from the
+    university competition registration sheet; extra columns (Student ID,
+    University Supervisor Name/Email, Major, Year of Study, Age, University
+    Campus) are safely ignored."""
+    from app.models.spine.organization import Organization
+    from app.services.competitions.registration_import import preview_registration_sheet
+
+    cohort = await _make_cohort(db)
+    await db.commit()
+
+    email = f"student-{uuid.uuid4().hex[:6]}@ku.ac.ae"
+    wb = openpyxl.Workbook()
+    sheet = wb.active
+    sheet.append(["Title Row"])
+    sheet.append([
+        "Student ID",
+        "Student Name",
+        "Email",
+        "Phone",
+        "University",
+        "University Supervisor Name",
+        "University Supervisor Email\n",
+        "Major",
+        "Year of Study",
+        "Age",
+        "Nationality",
+        "University Campus",
+        "Team Name",
+        "Team ID",
+    ])
+    sheet.append([
+        100062666.0,
+        "Saeed Alshehhi",
+        email,
+        564459097.0,
+        "Khalifa University",
+        "Dr.oon",
+        "boon.oi@ku.ac.ae",
+        "Aerospace Engineering",
+        "4th year",
+        21.0,
+        "United Arab Emirates",
+        "Main Campus",
+        "KUS06",
+        1.0,
+    ])
+    buf = io.BytesIO()
+    wb.save(buf)
+    file_bytes = buf.getvalue()
+
+    preview = preview_registration_sheet(file_bytes)
+    assert len(preview) == 1
+    p = preview[0]
+    assert p.member_name == "Saeed Alshehhi"
+    assert p.email == email
+    assert p.phone == "564459097"
+    assert p.school == "Khalifa University"
+    assert p.nationality == "United Arab Emirates"
+    assert p.team_name == "KUS06"
+    assert p.team_id == "1"
+    assert p.issues == []
+
+    rows = parse_registration_sheet(file_bytes)
+    results = await import_registrations(db, cohort_id=cohort.id, rows=rows, send_welcome_email=False)
+    await db.commit()
+    assert summarize(results) == {"total": 1, "created": 1, "matched": 0, "error": 0}
+
+    contact = (await db.execute(select(Contact).where(Contact.email == email))).scalar_one()
+    assert contact.full_name == "Saeed Alshehhi"
+    assert contact.nationality == "United Arab Emirates"
+    assert contact.primary_phone_e164 == "+971564459097"
+    assert contact.organization_id is not None
+    org = await db.get(Organization, contact.organization_id)
+    assert org.name_latin == "Khalifa University"
+    assert contact.grade is None
+    assert contact.city is None
+    assert contact.notes is None
+
+    user = (await db.execute(select(User).where(User.contact_id == contact.id))).scalar_one()
+    assert user.phone == "+971564459097"
+
+
+@pytest.mark.asyncio
+async def test_placeholder_team_is_renamed_when_subsequent_row_or_reimport_provides_team_name(db):
+    """Regression test for the indentation bug where `rename_team` only ran
+    inside `for other_id in other_team_ids:` — a team created with `name ==
+    roster_team_id` (blank `team_name` on row 1) must be renamed when row 2 or
+    a re-import supplies `team_name`, even when no member is leaving another team."""
+    cohort = await _make_cohort(db)
+    await db.commit()
+
+    email_a = f"a-{uuid.uuid4().hex[:6]}@example.com"
+    email_b = f"b-{uuid.uuid4().hex[:6]}@example.com"
+    file_bytes = _workbook([
+        {"team_id": "T-99", "team_name": None, "member_name": "Student A", "email": email_a},
+        {"team_id": "T-99", "team_name": "OrbitX", "member_name": "Student B", "email": email_b},
+    ])
+    results = await import_registrations(
+        db, cohort_id=cohort.id, rows=parse_registration_sheet(file_bytes), send_welcome_email=False,
+    )
+    await db.commit()
+    assert summarize(results) == {"total": 2, "created": 2, "matched": 0, "error": 0}
+
+    team = (await db.execute(select(Team).where(Team.cohort_id == cohort.id))).scalar_one()
+    assert team.roster_team_id == "T-99"
+    assert team.name == "OrbitX"
+
+
+@pytest.mark.asyncio
+async def test_teammates_sharing_phone_do_not_create_unlinked_duplicate_contacts_on_reimport(db):
+    """When two teammates share a phone number, `evaluate()` returns `REVIEW`
+    for the second teammate. Re-importing the sheet must still match the second
+    teammate by email rather than minting a third unlinked Contact."""
+    cohort = await _make_cohort(db)
+    await db.commit()
+
+    email_1 = f"tm1-{uuid.uuid4().hex[:6]}@example.com"
+    email_2 = f"tm2-{uuid.uuid4().hex[:6]}@example.com"
+    shared_phone = "0509998877"
+    file_bytes = _workbook([
+        {"team_id": "T1", "team_name": "SharedPhoneTeam", "member_name": "Teammate One", "email": email_1, "phone": shared_phone},
+        {"team_id": "T1", "team_name": "SharedPhoneTeam", "member_name": "Teammate Two", "email": email_2, "phone": shared_phone},
+    ])
+    first = await import_registrations(
+        db, cohort_id=cohort.id, rows=parse_registration_sheet(file_bytes), send_welcome_email=False,
+    )
+    await db.commit()
+    assert summarize(first) == {"total": 2, "created": 2, "matched": 0, "error": 0}
+
+    second = await import_registrations(
+        db, cohort_id=cohort.id, rows=parse_registration_sheet(file_bytes), send_welcome_email=False,
+    )
+    await db.commit()
+    assert summarize(second) == {"total": 2, "created": 0, "matched": 2, "error": 0}
+
+    contacts_2 = (await db.execute(select(Contact).where(Contact.email == email_2))).scalars().all()
+    assert len(contacts_2) == 1
+    user_2 = (await db.execute(select(User).where(User.email == email_2))).scalar_one()
+    reg_2 = (await db.execute(
+        select(Registration).where(Registration.cohort_id == cohort.id, Registration.contact_id == contacts_2[0].id)
+    )).scalar_one()
+    assert user_2.contact_id == reg_2.contact_id
+
+
+@pytest.mark.asyncio
+async def test_preview_reports_cross_row_and_cohort_team_collisions(db):
+    from app.core.security import get_password_hash
+    from app.services.competitions.registration_import import preview_registration_sheet_for_cohort
+
+    cohort = await _make_cohort(db)
+    creator = User(
+        id=uuid.uuid4(), full_name="Creator", email=f"creator-{uuid.uuid4().hex[:6]}@example.com",
+        password_hash=get_password_hash("dummy"), roles=["student"], status="active",
+    )
+    db.add(creator)
+    await db.flush()
+    await create_team(db, name="ExistingTeam", created_by=creator.id, cohort_id=cohort.id, roster_team_id="OLD-1")
+    await db.commit()
+
+    file_bytes = _workbook([
+        {"team_id": "T1", "team_name": "SameName", "member_name": "A", "email": "a@example.com"},
+        {"team_id": "T2", "team_name": "SameName", "member_name": "B", "email": "b@example.com"},
+        {"team_id": "T3", "team_name": "ExistingTeam", "member_name": "C", "email": "c@example.com"},
+    ])
+    preview = await preview_registration_sheet_for_cohort(db, cohort_id=cohort.id, file_bytes=file_bytes)
+    assert preview[0].issues == []
+    assert any("already exists in this sheet" in i for i in preview[1].issues)
+    assert any("already exists in this cohort" in i for i in preview[2].issues)
+

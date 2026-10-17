@@ -253,6 +253,10 @@ export interface CompetitionImportRow {
 export interface CompetitionImportResult {
   summary: { total: number; created: number; matched: number; error: number }
   rows: CompetitionImportRow[]
+  batch_id?: string | null
+  status?: "queued" | "running" | "committed" | "failed" | null
+  progress?: { processed: number; total: number } | null
+  error?: string | null
 }
 
 /** A parsed sheet row, before anything is written — `issues` is empty for a
@@ -507,10 +511,18 @@ export const previewCohortRegistrationImportApi = (cohortId: string, file: File)
 export const confirmCohortRegistrationImportApi = (
   cohortId: string,
   rows: Omit<CompetitionImportPreviewRow, "issues">[],
-  options?: { send_ticket_email?: boolean; send_welcome_email?: boolean },
+  options?: { send_ticket_email?: boolean; send_welcome_email?: boolean; async_mode?: boolean },
 ) =>
   api.post<CompetitionImportResult>(
     `/competitions/admin/cohorts/${cohortId}/registration-import/confirm`, { rows, ...options },
+  ).then((r) => r.data)
+
+export const getCohortRegistrationImportBatchStatusApi = (
+  cohortId: string,
+  batchId: string,
+) =>
+  api.get<CompetitionImportResult>(
+    `/competitions/admin/cohorts/${cohortId}/registration-import/batches/${batchId}`,
   ).then((r) => r.data)
 
 /** Assign tab's own cohort-scoped search — same name/email +

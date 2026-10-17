@@ -394,6 +394,10 @@ async def resolve_or_create_contact(
         # Gap-fill only — never overwrite what the contact already has,
         # matching merge_contacts' existing gap-fill convention for scalar
         # fields elsewhere in this module.
+        if contact.country is None and country is not None:
+            contact.country = country
+        if contact.city is None and city is not None:
+            contact.city = city
         if contact.date_of_birth is None and date_of_birth is not None:
             contact.date_of_birth = date_of_birth
         if contact.grade is None and grade is not None:

@@ -327,7 +327,9 @@ async def post_cohort_registration_import_preview(
     file while ops is still fixing things."""
     await _get_cohort_or_404(db, cohort_id)
     file_bytes = await file.read()
-    rows = import_service.preview_registration_sheet(file_bytes, filename=file.filename)
+    rows = await import_service.preview_registration_sheet_for_cohort(
+        db, cohort_id=cohort_id, file_bytes=file_bytes, filename=file.filename,
+    )
     return CompetitionImportPreviewOut(
         rows=[CompetitionImportPreviewRowOut(**r) for r in import_service.preview_rows_as_dicts(rows)],
     )
@@ -336,6 +338,7 @@ async def post_cohort_registration_import_preview(
 @router.post("/cohorts/{cohort_id}/registration-import/confirm", response_model=CompetitionImportResultOut)
 async def post_cohort_registration_import_confirm(
     cohort_id: uuid.UUID, body: CompetitionImportConfirmIn, db: AsyncSession = Depends(get_db),
+    current: User = Depends(get_current_active_user),
     arq_redis: ArqRedis | None = Depends(get_arq_redis),
 ):
     """Actually commits. Re-checks required fields (team/member/email
@@ -343,24 +346,51 @@ async def post_cohort_registration_import_confirm(
     email is only ever a warning, so a row ops leaves flagged (a bad email
     is fine to keep, fix later) still gets written.
 
-    One `send_ticket_email` job per newly-created row, enqueued after commit
-    — same idempotent-on-`ticket_sent_at` job the desk and the general bulk
-    importer use, just fired per-row rather than batched: a competition
-    roster is small enough that per-row throttling isn't needed. Only
-    `disposition == "created"` rows get a job — a `matched` row's contact
-    already had a registration for this cohort (from an earlier import, a
-    duplicate email in this same sheet, or a manual add) and, per
-    issue_ticket's own idempotency, most likely already has a ticket; firing
-    a job for every matched row on every re-confirm of the same sheet would
-    just be wasted enqueues, and two same-email rows in one sheet would
-    otherwise both fire before either's `ticket_sent_at` commit lands.
-    `send_ticket_email`/`send_welcome_email` on the request apply to the
-    whole batch, same as the desk registration toggles apply per-registration."""
+    When `body.async_mode` is True (used by the Roster UI for large sheets),
+    persists an `ImportBatch` row and enqueues
+    `run_competition_registration_import_job` on ARQ so DB creation and
+    throttled onboarding/ticket emails execute asynchronously in the worker
+    while the UI polls `/registration-import/batches/{batch_id}`."""
+    from app.models.sessions.import_batch import ImportBatch
+
     await _get_cohort_or_404(db, cohort_id)
     rows = [
         {"row_number": r.row_number, "raw": r.model_dump(exclude={"row_number"})}
         for r in body.rows
     ]
+    if body.async_mode:
+        initial_summary = {"total": len(rows), "created": 0, "matched": 0, "error": 0}
+        batch = ImportBatch(
+            id=uuid.uuid4(),
+            uploaded_by=current.id,
+            source="competition",
+            cohort_id=cohort_id,
+            filename="competition_roster",
+            status="queued",
+            counts={
+                "rows_in": rows,
+                "options": {
+                    "send_ticket_email": body.send_ticket_email,
+                    "send_welcome_email": body.send_welcome_email,
+                },
+                "progress": {"processed": 0, "total": len(rows)},
+                "summary": initial_summary,
+                "rows": [],
+            },
+        )
+        db.add(batch)
+        await db.commit()
+        dispatch_status = await safe_enqueue(
+            arq_redis, "run_competition_registration_import_job", str(batch.id),
+        )
+        return CompetitionImportResultOut(
+            batch_id=batch.id,
+            status="queued" if dispatch_status == "queued" else "running",
+            progress={"processed": 0, "total": len(rows)},
+            summary=initial_summary,
+            rows=[],
+        )
+
     results = await import_service.import_registrations(
         db, cohort_id=cohort_id, rows=rows, send_welcome_email=body.send_welcome_email,
     )
@@ -370,11 +400,34 @@ async def post_cohort_registration_import_confirm(
             if r.disposition == "created" and r.registration_id is not None:
                 await safe_enqueue(arq_redis, "send_ticket_email", str(r.registration_id))
     return CompetitionImportResultOut(
+        status="committed",
         summary=import_service.summarize(results),
         rows=[
             CompetitionImportRowOut(**{k: v for k, v in r.items() if k != "registration_id"})
             for r in import_service.results_as_dicts(results)
         ],
+    )
+
+
+@router.get("/cohorts/{cohort_id}/registration-import/batches/{batch_id}", response_model=CompetitionImportResultOut)
+async def get_cohort_registration_import_batch_status(
+    cohort_id: uuid.UUID, batch_id: uuid.UUID, db: AsyncSession = Depends(get_db),
+):
+    """Polls the status and results of an async ARQ competition roster import batch."""
+    from app.models.sessions.import_batch import ImportBatch
+
+    await _get_cohort_or_404(db, cohort_id)
+    batch = await db.get(ImportBatch, batch_id)
+    if batch is None or batch.cohort_id != cohort_id or batch.source != "competition":
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Import batch not found")
+    counts = batch.counts or {}
+    return CompetitionImportResultOut(
+        batch_id=batch.id,
+        status=batch.status,
+        progress=counts.get("progress"),
+        error=counts.get("error"),
+        summary=counts.get("summary", {"total": 0, "created": 0, "matched": 0, "error": 0}),
+        rows=[CompetitionImportRowOut(**r) for r in counts.get("rows", [])],
     )
 
 

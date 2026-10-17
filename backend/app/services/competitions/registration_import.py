@@ -77,11 +77,25 @@ from app.models.user import User, UserRole
 from app.services.competitions.team_management import rename_team
 from app.services.lms.ops_integration import sync_registration_lms
 from app.services.sessions.registration import register
-from app.services.spine.identity import normalize_email, resolve_or_create_contact, user_email_matches
+from app.services.spine.identity import (
+    ARABIC_INDIC_DIGITS,
+    ensure_alias,
+    normalize_email,
+    normalize_phone,
+    resolve_or_create_contact,
+    resolve_or_create_organization,
+    user_email_matches,
+)
 from app.services.teams import create_team, join_team, leave_team, team_member_ids
 
 REQUIRED_COLUMNS = ["team_id", "member_name", "email"]
-OPTIONAL_COLUMNS = ["phone", "gender", "nationality", "team_name", "school"]
+OPTIONAL_COLUMNS = [
+    "phone",
+    "gender",
+    "nationality",
+    "team_name",
+    "school",
+]
 
 # Deliberately loose — this only needs to catch "a column shifted and this
 # clearly isn't an email" (a bare number, a name, empty), not reject every
@@ -99,9 +113,23 @@ _EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 # `team_name` natively and needs no alias.
 _HEADER_ALIASES = {
     "student_name": "member_name",
+    "full_name": "member_name",
+    "name": "member_name",
+    "student_email": "email",
+    "email_address": "email",
+    "phone_number": "phone",
+    "mobile": "phone",
+    "student_phone": "phone",
     "school_/_university": "school",
+    "school/university": "school",
     "school_university": "school",  # in case a re-save strips the slash
+    "university": "school",
+    "institution": "school",
+    "organization": "school",
     "student_gender": "gender",
+    "student_nationality": "nationality",
+    "roster_team_id": "team_id",
+    "team_code": "team_id",
 }
 
 
@@ -137,7 +165,7 @@ class ImportPreviewRow:
 
 
 def _normalize_header(raw: object) -> str:
-    slug = str(raw or "").strip().lower().replace(" ", "_").replace("-", "_")
+    slug = re.sub(r"[\s\-]+", "_", str(raw or "").strip().lower()).strip("_")
     return _HEADER_ALIASES.get(slug, slug)
 
 
@@ -182,6 +210,14 @@ def _find_header_row(rows: list[list]) -> tuple[int, dict[str, int]]:
         col_index = {name: i for i, name in enumerate(header) if name}
         if all(c in col_index for c in REQUIRED_COLUMNS):
             return row_idx, col_index
+    # Fallback: if a sheet has member_name + email + team_name but is missing
+    # the team_id column, allow parsing so preview can surface "Team ID is
+    # required" per row and let ops fill or inspect the sheet in the browser.
+    for row_idx, cells in enumerate(rows[:_MAX_HEADER_SCAN_ROWS]):
+        header = [_normalize_header(c) for c in cells]
+        col_index = {name: i for i, name in enumerate(header) if name}
+        if all(c in col_index for c in ("member_name", "email", "team_name")):
+            return row_idx, col_index
     raise HTTPException(
         status.HTTP_422_UNPROCESSABLE_ENTITY,
         detail=f"Couldn't find a header row with all required columns ({', '.join(REQUIRED_COLUMNS)}) "
@@ -215,7 +251,9 @@ def parse_registration_sheet(file_bytes: bytes, filename: str | None = None) -> 
 def _clean_str(value: object) -> str | None:
     if value is None:
         return None
-    s = str(value).strip()
+    if isinstance(value, float) and value.is_integer():
+        value = int(value)
+    s = str(value).translate(ARABIC_INDIC_DIGITS).strip()
     return s or None
 
 
@@ -278,55 +316,193 @@ def _row_issues(row: CleanedRow) -> list[str]:
     return issues
 
 
-def preview_registration_sheet(file_bytes: bytes, filename: str | None = None) -> list[ImportPreviewRow]:
-    """Parse the sheet and report every row's issues — no database access at
+def preview_registration_sheet(
+    file_bytes: bytes,
+    filename: str | None = None,
+    *,
+    existing_teams: list[tuple[str, str | None]] | None = None,
+    remaining_capacity: int | None = None,
+    existing_registered_emails: set[str] | None = None,
+) -> list[ImportPreviewRow]:
+    """Parse the sheet and report every row's issues — no database writes at
     all, so calling this as many times as ops needs while fixing flagged
     cells in the browser is always safe. `import_registrations` (further
-    down) is the only function that actually writes anything."""
+    down) is the only function that actually writes anything.
+
+    When `existing_teams` (`[(team_name, roster_team_id), ...]`),
+    `remaining_capacity`, or `existing_registered_emails` are supplied by the
+    router, preview also flags cohort-level conflicts (team-name collisions
+    against existing DB teams and cohort capacity limits) before confirm."""
     parsed = parse_registration_sheet(file_bytes, filename)
     cleaned = [_clean_row(entry["row_number"], entry["raw"]) for entry in parsed]
+
     # Same email under two Team IDs: the import keeps only the last team
     # (single-team rule moves the student). Warning-only — preview must
     # never refuse a legitimate correction move, but ops should see it.
     teams_by_email: dict[str, set[str]] = {}
+    email_team_counts: dict[tuple[str, str], int] = {}
+    # Track canonical team name per team_id in the sheet to catch both
+    # intra-team name mismatches and cross-team name collisions.
+    team_names_by_id: dict[str, list[str]] = {}
+    first_team_for_id: dict[str, str] = {}
+
     for row in cleaned:
         norm = normalize_email(row.email)
-        if norm and row.team_id:
-            teams_by_email.setdefault(norm, set()).add(row.team_id.strip())
+        tid = row.team_id.strip() if row.team_id else None
+        if norm and tid:
+            teams_by_email.setdefault(norm, set()).add(tid)
+            email_team_counts[(norm, tid)] = email_team_counts.get((norm, tid), 0) + 1
+        if tid:
+            if row.team_name:
+                names = team_names_by_id.setdefault(tid, [])
+                if row.team_name not in names:
+                    names.append(row.team_name)
+            if tid not in first_team_for_id:
+                first_team_for_id[tid] = row.team_name or tid
+            elif first_team_for_id[tid] == tid and row.team_name:
+                first_team_for_id[tid] = row.team_name
+
+    # Map lowercased effective team name -> first team_id claiming it in the sheet
+    owner_tid_by_lower_name: dict[str, str] = {}
+    for tid, eff_name in first_team_for_id.items():
+        key = eff_name.strip().lower()
+        if key not in owner_tid_by_lower_name:
+            owner_tid_by_lower_name[key] = tid
+
+    # Map lowercased existing DB team name -> (display_name, roster_team_id)
+    db_team_by_lower_name: dict[str, tuple[str, str | None]] = {}
+    db_team_by_roster_id: dict[str, str] = {}
+    for db_name, db_roster_id in (existing_teams or []):
+        db_team_by_lower_name[db_name.strip().lower()] = (db_name, db_roster_id)
+        if db_roster_id:
+            db_team_by_roster_id[db_roster_id] = db_name
+
+    known_emails = set(existing_registered_emails or set())
+    new_emails_seen: set[str] = set()
+
     out = []
     for row in cleaned:
         issues = _row_issues(row)
         norm = normalize_email(row.email)
-        if norm and row.team_id and len(teams_by_email.get(norm, set())) > 1:
-            issues.append("Same email appears under multiple Team IDs — import keeps only the last team")
+        tid = row.team_id.strip() if row.team_id else None
+
+        if norm and tid:
+            if len(teams_by_email.get(norm, set())) > 1:
+                issues.append("Same email appears under multiple Team IDs — import keeps only the last team")
+            elif email_team_counts.get((norm, tid), 0) > 1:
+                issues.append("Duplicate email in the same team — duplicate row will be matched")
+
+        if tid:
+            distinct_names = team_names_by_id.get(tid, [])
+            if len(distinct_names) > 1:
+                issues.append(
+                    f"Team ID '{tid}' has conflicting team names in this sheet ({', '.join(distinct_names)})"
+                )
+            eff_name = first_team_for_id.get(tid, row.team_name or tid)
+            owner_tid = owner_tid_by_lower_name.get(eff_name.strip().lower())
+            if owner_tid and owner_tid != tid:
+                issues.append(
+                    f"Team name '{eff_name}' already exists in this sheet under Team ID '{owner_tid}'"
+                )
+            # Check against existing teams in DB for this cohort
+            if tid not in db_team_by_roster_id:
+                db_hit = db_team_by_lower_name.get(eff_name.strip().lower())
+                if db_hit is not None and db_hit[1] != tid:
+                    issues.append(
+                        f"A team named '{db_hit[0]}' already exists in this cohort"
+                    )
+
+        if remaining_capacity is not None and norm and norm not in known_emails:
+            new_emails_seen.add(norm)
+            if len(new_emails_seen) > remaining_capacity:
+                issues.append("Cohort is at full capacity")
+
         out.append(ImportPreviewRow(
-            row_number=row.row_number, team_id=row.team_id, team_name=row.team_name, member_name=row.member_name,
-            email=row.email, phone=row.phone, gender=row.gender, nationality=row.nationality, school=row.school,
+            row_number=row.row_number,
+            team_id=row.team_id,
+            team_name=row.team_name,
+            member_name=row.member_name,
+            email=row.email,
+            phone=row.phone,
+            gender=row.gender,
+            nationality=row.nationality,
+            school=row.school,
             issues=issues,
         ))
     return out
 
 
+async def preview_registration_sheet_for_cohort(
+    db: AsyncSession, *, cohort_id: uuid.UUID, file_bytes: bytes, filename: str | None = None,
+) -> list[ImportPreviewRow]:
+    """Cohort-aware wrapper around `preview_registration_sheet` used by the
+    preview endpoint: queries existing cohort teams and capacity read-only
+    so DB-level conflicts are surfaced in the preview before confirm."""
+    cohort = await db.get(Cohort, cohort_id)
+    existing_teams_rows = (await db.execute(
+        select(Team.name, Team.roster_team_id).where(Team.cohort_id == cohort_id)
+    )).all()
+    existing_teams = [(r[0], r[1]) for r in existing_teams_rows]
+
+    remaining_capacity: int | None = None
+    existing_registered_emails: set[str] = set()
+    if cohort is not None and cohort.capacity is not None:
+        reg_emails = (await db.execute(
+            select(func.lower(Contact.email))
+            .join(Registration, Registration.contact_id == Contact.id)
+            .where(Registration.cohort_id == cohort_id, Registration.status != "cancelled")
+        )).scalars().all()
+        existing_registered_emails = {e for e in reg_emails if e}
+        active_count = (await db.execute(
+            select(func.count(Registration.id))
+            .where(Registration.cohort_id == cohort_id, Registration.status != "cancelled")
+        )).scalar_one()
+        remaining_capacity = max(0, cohort.capacity - active_count)
+
+    return preview_registration_sheet(
+        file_bytes,
+        filename=filename,
+        existing_teams=existing_teams,
+        remaining_capacity=remaining_capacity,
+        existing_registered_emails=existing_registered_emails,
+    )
+
+
 async def _find_existing_contact_by_email(db: AsyncSession, *, email: str | None, cohort_id: uuid.UUID) -> uuid.UUID | None:
     """A re-uploaded row's email is the one signal ops actually cares about
-    (identity theory aside) — checked directly against contacts already
-    registered in *this* cohort, before `_import_row` touches
-    `resolve_or_create_contact`'s alias-matching at all. Belt-and-suspenders
-    against that path somehow minting a second Contact for an email that
-    already has a Registration here (seen in production, 2026-09-15 — full
-    root cause still open): reusing the earliest-registered contact for
-    that email means `_register_and_assign_team`'s own
-    already-registered/already-on-team check (right below) is what actually
-    runs for a repeat upload, instead of a fresh Contact slipping past it
-    and creating a duplicate Registration."""
+    (identity theory aside) — checked directly against:
+      1. Contacts already registered in *this* cohort,
+      2. Existing User accounts matching `email` that already have a `contact_id`,
+      3. Existing non-merged Contacts matching `email`.
+    This prevents `resolve_or_create_contact` from minting an unlinked second
+    Contact when a teammate shares a phone number (REVIEW outcome) or when an
+    older Contact lacks an IdentityAlias row."""
     norm = normalize_email(email)
     if norm is None:
         return None
-    return (await db.execute(
+    reg_contact_id = (await db.execute(
         select(Registration.contact_id)
         .join(Contact, Contact.id == Registration.contact_id)
         .where(func.lower(Contact.email) == norm, Registration.cohort_id == cohort_id)
         .order_by(Registration.created_at.asc())
+        .limit(1)
+    )).scalars().first()
+    if reg_contact_id is not None:
+        return reg_contact_id
+
+    user_contact_id = (await db.execute(
+        select(User.contact_id)
+        .where(user_email_matches(email), User.contact_id.is_not(None))
+        .order_by(User.created_at.asc())
+        .limit(1)
+    )).scalars().first()
+    if user_contact_id is not None:
+        return user_contact_id
+
+    return (await db.execute(
+        select(Contact.id)
+        .where(func.lower(Contact.email) == norm, Contact.merged_into_id.is_(None))
+        .order_by(Contact.created_at.asc())
         .limit(1)
     )).scalars().first()
 
@@ -353,8 +529,8 @@ async def _register_and_assign_team(
     existing_reg = (await db.execute(
         select(Registration).where(Registration.contact_id == contact_id, Registration.cohort_id == cohort.id)
     )).scalars().first()
-    is_new_registration = existing_reg is None
-    if existing_reg is None:
+    is_new_registration = existing_reg is None or existing_reg.status == "cancelled"
+    if existing_reg is None or existing_reg.status == "cancelled":
         registration = await register(
             db, contact_id=contact_id, cohort_id=cohort.id, registered_via="import", payment_status="waived",
         )
@@ -384,6 +560,10 @@ async def _register_and_assign_team(
                 status.HTTP_422_UNPROCESSABLE_ENTITY,
                 detail="Registered, but couldn't create a student account (email may already belong to a different account)",
             )
+
+    contact_obj = await db.get(Contact, contact_id)
+    if contact_obj is not None and not user.phone and contact_obj.primary_phone_e164:
+        user.phone = contact_obj.primary_phone_e164
 
     is_obs = "observer" in user.role_values
 
@@ -422,11 +602,12 @@ async def _register_and_assign_team(
     )).scalars().all()
     for other_id in other_team_ids:
         await leave_team(db, team_id=other_id, user_id=user.id)
-        # Only apply a given name while the team is still at its own
-        # placeholder — never clobber a name a team already set for real
-        # (their own rename, or an ops fix), even on a re-import/re-assign.
-        if team_name and team.name == team.roster_team_id:
-            await rename_team(db, team_id=team.id, name=team_name)
+
+    # Only apply a given name while the team is still at its own
+    # placeholder — never clobber a name a team already set for real
+    # (their own rename, or an ops fix), even on a re-import/re-assign.
+    if team_name and team.name == team.roster_team_id and team.name != team_name:
+        await rename_team(db, team_id=team.id, name=team_name)
 
     return team, registration, is_new_registration
 
@@ -441,18 +622,37 @@ async def _import_row(
     team_id, team_name, member_name, email, phone, gender, nationality, school = (
         row.team_id, row.team_name, row.member_name, row.email, row.phone, row.gender, row.nationality, row.school,
     )
+    gender_trunc = gender[:32] if gender else None
+    nationality_trunc = nationality[:64] if nationality else None
 
     existing_contact_id = await _find_existing_contact_by_email(db, email=email, cohort_id=cohort.id)
     if existing_contact_id is not None:
         contact = await db.get(Contact, existing_contact_id)
-        if gender and contact and not contact.gender:
-            contact.gender = gender
-        if nationality and contact and not contact.nationality:
-            contact.nationality = nationality
+        if contact is not None:
+            if "student" not in (contact.contact_roles or []):
+                contact.contact_roles = [*(contact.contact_roles or []), "student"]
+            if gender_trunc and not contact.gender:
+                contact.gender = gender_trunc
+            if nationality_trunc and not contact.nationality:
+                contact.nationality = nationality_trunc
+            norm_phone = normalize_phone(phone)
+            if norm_phone:
+                await ensure_alias(db, contact.id, "phone", norm_phone)
+                if not contact.primary_phone_e164:
+                    contact.primary_phone_e164 = norm_phone
+            norm_email = normalize_email(email)
+            if norm_email:
+                await ensure_alias(db, contact.id, "email", norm_email)
+                if not contact.email:
+                    contact.email = norm_email
+            if school and not contact.organization_id:
+                org = await resolve_or_create_organization(db, school)
+                contact.organization_id = org.id
     else:
         contact, _evaluation = await resolve_or_create_contact(
             db, full_name=member_name, phone=phone, email=email, contact_roles=["student"],
-            role_event_source="import", organization_name=school, gender=gender, nationality=nationality,
+            role_event_source="import", organization_name=school, gender=gender_trunc,
+            nationality=nationality_trunc,
         )
 
     try:

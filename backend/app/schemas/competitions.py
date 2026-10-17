@@ -427,6 +427,10 @@ class CompetitionImportRowOut(BaseModel):
 class CompetitionImportResultOut(BaseModel):
     summary: dict[str, int]
     rows: list[CompetitionImportRowOut]
+    batch_id: UUID | None = None
+    status: str | None = None
+    progress: dict[str, int] | None = None
+    error: str | None = None
 
 
 class CompetitionImportPreviewRowOut(BaseModel):
@@ -475,6 +479,7 @@ class CompetitionImportConfirmIn(BaseModel):
     # single member-add path and the rest of the app's registration flows.
     send_ticket_email: bool = True
     send_welcome_email: bool = True
+    async_mode: bool = False
 
 
 class CompetitionAssignableStudentOut(StudentSummaryOut):

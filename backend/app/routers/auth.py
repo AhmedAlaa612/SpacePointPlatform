@@ -189,7 +189,7 @@ async def _user_out(db: AsyncSession, user: User, profile: ApplicantProfile | No
         "grade": contact.grade if contact else None,
         "city_id": user.city_id,
         "city_name": city.name if city else None,
-        "city_other": user.city_other,
+        "city_other": user.city_other or (contact.city if contact else None),
         "author_can_publish": author_can_publish,
         "author_scope_all": author_scope_all,
         "organization_id": org.id if org else None,
@@ -205,7 +205,11 @@ async def _user_out(db: AsyncSession, user: User, profile: ApplicantProfile | No
         "deliver_city_ids": profile.deliver_city_ids if profile else None,
         "deliver_city_names": deliver_names or None,
         "has_own_transportation": profile.has_own_transportation if profile else None,
-        "nationality": (instructor_prof.nationality if instructor_prof else None) or (profile.nationality if profile else None),
+        "nationality": (
+            (instructor_prof.nationality if instructor_prof else None)
+            or (profile.nationality if profile else None)
+            or (contact.nationality if contact else None)
+        ),
         "work_status": (instructor_prof.work_status if instructor_prof else None) or (profile.work_status if profile else None),
         "fluent_languages": (instructor_prof.fluent_languages if instructor_prof else None) or (profile.fluent_languages if profile else None),
         "graduated_university": (instructor_prof.graduated_university if instructor_prof else None) or (profile.graduated_university if profile else None),

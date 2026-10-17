@@ -19,6 +19,7 @@ import {
   downloadCompetitionCertificatesApi,
   getCohortExportTop20Api,
   confirmCohortRegistrationImportApi,
+  getCohortRegistrationImportBatchStatusApi,
   getCohortJudgesApi, getCohortLeaderboardApi, getCohortPublicationApi, getCohortTeamsApi, getCohortRubricApi,
   previewCohortRegistrationImportApi, searchAssignableStudentsApi,
   inviteCohortJudgeApi, putCohortRubricApi, registerAndAddTeamMemberApi, addExistingTeamMemberApi,
@@ -151,80 +152,210 @@ export default function CompetitionJudging() {
 /* ================================================================== */
 const IMPORT_EMAIL_RE = /^[^@\s]+@[^@\s]+\.[^@\s]+$/
 
-// A missing required field is the only thing that stops a row from being
-// written — mirrors registration_import.py's `_blocking_issues`. A
-// malformed-but-present email is a *warning*: ops can still confirm and
-// keep it (fix the address for that student later) rather than being
-// forced to invent one just to get past this screen.
+// Missing required fields and team-name / capacity collisions stop a row from
+// being written — mirrors registration_import.py's blocking checks. A
+// malformed-but-present email or duplicate-email note is a warning: ops can
+// still confirm and keep it (fix the address for that student later).
 const BLOCKING_ISSUES = new Set(["Team ID is required", "Member name is required", "Email is required"])
-const isBlockingIssue = (issue: string) => BLOCKING_ISSUES.has(issue)
+const isBlockingIssue = (issue: string) =>
+  BLOCKING_ISSUES.has(issue) ||
+  issue.includes("already exists in this sheet") ||
+  issue.includes("already exists in this cohort") ||
+  issue.includes("Cohort is at full capacity")
 
-// Mirrors registration_import.py's `_row_issues` — for instant feedback as
-// ops edits a cell, before the real re-check happens server-side on confirm.
-// team_name is NOT checked here — it's optional (see CompetitionImportPreviewRow's
-// own comment); team_id is the required grouping key now.
-function rowIssues(row: CompetitionImportPreviewRow): string[] {
-  const issues: string[] = []
-  if (!row.team_id?.trim()) issues.push("Team ID is required")
-  if (!row.member_name?.trim()) issues.push("Member name is required")
-  if (!row.email?.trim()) issues.push("Email is required")
-  else if (!IMPORT_EMAIL_RE.test(row.email.trim())) issues.push("Email is not valid")
-  return issues
+const PREVIEW_FIELDS: { key: keyof Omit<CompetitionImportPreviewRow, "row_number" | "issues">; label: string; minWidth: string }[] = [
+  { key: "team_id", label: "Team ID", minWidth: "min-w-[90px]" },
+  { key: "team_name", label: "Team name", minWidth: "min-w-[140px]" },
+  { key: "member_name", label: "Member", minWidth: "min-w-[160px]" },
+  { key: "email", label: "Email", minWidth: "min-w-[200px]" },
+  { key: "phone", label: "Phone", minWidth: "min-w-[120px]" },
+  { key: "school", label: "University / Organization", minWidth: "min-w-[180px]" },
+  { key: "nationality", label: "Nationality", minWidth: "min-w-[130px]" },
+  { key: "gender", label: "Gender", minWidth: "min-w-[90px]" },
+]
+
+function recomputePreviewIssues(rows: CompetitionImportPreviewRow[]): CompetitionImportPreviewRow[] {
+  const teamsByEmail = new Map<string, Set<string>>()
+  const emailTeamCounts = new Map<string, number>()
+  const teamNamesById = new Map<string, string[]>()
+  const firstTeamForId = new Map<string, string>()
+
+  for (const r of rows) {
+    const norm = r.email?.trim().toLowerCase() || ""
+    const tid = r.team_id?.trim() || ""
+    const tname = r.team_name?.trim() || ""
+    if (norm && tid) {
+      if (!teamsByEmail.has(norm)) teamsByEmail.set(norm, new Set())
+      teamsByEmail.get(norm)!.add(tid)
+      const k = `${norm}::${tid}`
+      emailTeamCounts.set(k, (emailTeamCounts.get(k) ?? 0) + 1)
+    }
+    if (tid) {
+      if (tname) {
+        const list = teamNamesById.get(tid) ?? []
+        if (!list.includes(tname)) list.push(tname)
+        teamNamesById.set(tid, list)
+      }
+      if (!firstTeamForId.has(tid)) {
+        firstTeamForId.set(tid, tname || tid)
+      } else if (firstTeamForId.get(tid) === tid && tname) {
+        firstTeamForId.set(tid, tname)
+      }
+    }
+  }
+
+  const ownerTidByLowerName = new Map<string, string>()
+  for (const [tid, effName] of firstTeamForId.entries()) {
+    const k = effName.trim().toLowerCase()
+    if (!ownerTidByLowerName.has(k)) ownerTidByLowerName.set(k, tid)
+  }
+
+  return rows.map((row) => {
+    const issues: string[] = []
+    const tid = row.team_id?.trim() || ""
+    const member = row.member_name?.trim() || ""
+    const email = row.email?.trim() || ""
+    const norm = email.toLowerCase()
+
+    if (!tid) issues.push("Team ID is required")
+    if (!member) issues.push("Member name is required")
+    if (!email) issues.push("Email is required")
+    else if (!IMPORT_EMAIL_RE.test(email)) issues.push("Email is not valid")
+
+    if (norm && tid) {
+      if ((teamsByEmail.get(norm)?.size ?? 0) > 1) {
+        issues.push("Same email appears under multiple Team IDs — import keeps only the last team")
+      } else if ((emailTeamCounts.get(`${norm}::${tid}`) ?? 0) > 1) {
+        issues.push("Duplicate email in the same team — duplicate row will be matched")
+      }
+    }
+
+    if (tid) {
+      const distinctNames = teamNamesById.get(tid) ?? []
+      if (distinctNames.length > 1) {
+        issues.push(`Team ID '${tid}' has conflicting team names in this sheet (${distinctNames.join(", ")})`)
+      }
+      const effName = firstTeamForId.get(tid) ?? (row.team_name?.trim() || tid)
+      const ownerTid = ownerTidByLowerName.get(effName.trim().toLowerCase())
+      if (ownerTid && ownerTid !== tid) {
+        issues.push(`Team name '${effName}' already exists in this sheet under Team ID '${ownerTid}'`)
+      }
+    }
+
+    // Preserve server-detected DB cohort issues if still applicable
+    for (const prevIssue of row.issues) {
+      if (
+        (prevIssue.includes("already exists in this cohort") || prevIssue.includes("Cohort is at full capacity")) &&
+        !issues.includes(prevIssue)
+      ) {
+        issues.push(prevIssue)
+      }
+    }
+
+    return { ...row, issues }
+  })
 }
 
 function RosterTab({ cohortId }: { cohortId: string }) {
   const toast = useToast()
+  const queryClient = useQueryClient()
   const fileInputRef = useRef<HTMLInputElement>(null)
   const [previewRows, setPreviewRows] = useState<CompetitionImportPreviewRow[] | null>(null)
   const [result, setResult] = useState<CompetitionImportResult | null>(null)
+  const [activeBatchId, setActiveBatchId] = useState<string | null>(null)
   const [sendWelcomeEmail, setSendWelcomeEmail] = useState(true)
   const [sendTicketEmail, setSendTicketEmail] = useState(true)
 
   const previewMutation = useMutation({
     mutationFn: (file: File) => previewCohortRegistrationImportApi(cohortId, file),
-    onSuccess: (res) => { setResult(null); setPreviewRows(res.rows) },
+    onSuccess: (res) => { setResult(null); setActiveBatchId(null); setPreviewRows(res.rows) },
     onError: (e: any) => toast.error(getErrorMessage(e, "Failed to read this file")),
   })
+
+  const invalidateCohortRoster = () => {
+    void queryClient.invalidateQueries({ queryKey: ["competitions-teams", cohortId] })
+    void queryClient.invalidateQueries({ queryKey: ["competitions-cohort-teams", cohortId] })
+    void queryClient.invalidateQueries({ queryKey: ["competitions-assignable-students", cohortId] })
+    void queryClient.invalidateQueries({ queryKey: ["competitions-analytics", cohortId] })
+  }
 
   const confirmMutation = useMutation({
     mutationFn: (rows: CompetitionImportPreviewRow[]) =>
       confirmCohortRegistrationImportApi(cohortId, rows.map(({ issues, ...rest }) => rest), {
-        send_welcome_email: sendWelcomeEmail, send_ticket_email: sendTicketEmail,
+        send_welcome_email: sendWelcomeEmail,
+        send_ticket_email: sendTicketEmail,
+        async_mode: true,
       }),
     onSuccess: (res) => {
-      setResult(res)
       setPreviewRows(null)
-      setSendWelcomeEmail(true); setSendTicketEmail(true)
-      toast.success(`Imported: ${res.summary.created} created, ${res.summary.matched} matched, ${res.summary.error} errors`)
+      setSendWelcomeEmail(true)
+      setSendTicketEmail(true)
+      if (res.batch_id && (res.status === "queued" || res.status === "running")) {
+        setActiveBatchId(res.batch_id)
+        setResult(res)
+      } else {
+        setResult(res)
+        invalidateCohortRoster()
+        toast.success(`Imported: ${res.summary.created} created, ${res.summary.matched} matched, ${res.summary.error} errors`)
+      }
     },
     onError: (e: any) => toast.error(getErrorMessage(e, "Failed to import roster")),
   })
 
+  const { data: batchPoll } = useQuery({
+    queryKey: ["competition-import-batch", cohortId, activeBatchId],
+    queryFn: () => getCohortRegistrationImportBatchStatusApi(cohortId, activeBatchId!),
+    enabled: !!activeBatchId,
+    refetchInterval: 1000,
+  })
+
+  useEffect(() => {
+    if (!batchPoll || !activeBatchId) return
+    setResult(batchPoll)
+    if (batchPoll.status === "committed") {
+      setActiveBatchId(null)
+      invalidateCohortRoster()
+      toast.success(
+        `Imported: ${batchPoll.summary.created} created, ${batchPoll.summary.matched} matched, ${batchPoll.summary.error} errors`,
+      )
+    } else if (batchPoll.status === "failed") {
+      setActiveBatchId(null)
+      toast.error(batchPoll.error || "Background roster import failed")
+    }
+  }, [batchPoll, activeBatchId])
+
   const updateRow = (rowNumber: number, field: keyof CompetitionImportPreviewRow, value: string) => {
-    setPreviewRows((rows) =>
-      (rows ?? []).map((r) => {
+    setPreviewRows((rows) => {
+      const next = (rows ?? []).map((r) => {
         if (r.row_number !== rowNumber) return r
-        const updated = { ...r, [field]: value || null }
-        return { ...updated, issues: rowIssues(updated) }
-      }),
-    )
+        const trimmed = value || null
+        const filteredPrevIssues = (r.issues ?? []).filter(
+          (iss) => !(field === "team_name" || field === "team_id" ? iss.includes("already exists in this cohort") : false),
+        )
+        return { ...r, [field]: trimmed, issues: filteredPrevIssues }
+      })
+      return recomputePreviewIssues(next)
+    })
   }
 
   const issueCount = previewRows?.filter((r) => r.issues.length > 0).length ?? 0
   const blockingCount = previewRows?.filter((r) => r.issues.some(isBlockingIssue)).length ?? 0
+  const uniqueTeamsCount = new Set(
+    (previewRows ?? []).map((r) => r.team_id?.trim()).filter(Boolean),
+  ).size
+  const isBackgroundRunning = !!activeBatchId && (result?.status === "queued" || result?.status === "running")
 
   return (
-    <div className="flex flex-col gap-4 max-w-4xl">
-      {!previewRows && (
-        <>
+    <div className="flex flex-col gap-4 w-full">
+      {!previewRows && !isBackgroundRunning && (
+        <div className="flex flex-col gap-4 max-w-4xl">
           <p className="text-sm text-muted-foreground">
-            Upload the final roster exported from the registration form — columns <code>team_id</code>,{" "}
-            <code>member_name</code>, <code>email</code>, and optionally <code>team_name</code>/<code>phone</code>/
-            <code>gender</code>/<code>nationality</code>/<code>school</code>. A team with no <code>team_name</code> yet gets its{" "}
-            <code>team_id</code> as a placeholder — students set the real one themselves later. You'll get a
-            preview to review before anything is created — a missing field blocks that row, a malformed email is
-            just flagged (fix it or leave it, your call). Re-uploading the same sheet later just matches instead of
-            duplicating, and never overwrites a name a team already set for real.
+            Upload the final roster exported from the registration form — columns <code>Team ID</code>,{" "}
+            <code>Student Name</code>, <code>Email</code>, and optional fields (<code>Team Name</code>,{" "}
+            <code>Phone</code>, <code>University</code>, <code>Nationality</code>, <code>Gender</code>). A team
+            with no <code>Team Name</code> yet gets its <code>Team ID</code> as a placeholder — students set the
+            real one themselves later. You'll get a preview to review before anything is created, and the upload
+            runs asynchronously in the background.
           </p>
           <input
             ref={fileInputRef} type="file" accept=".xlsx,.xls,.csv" className="hidden"
@@ -233,48 +364,58 @@ function RosterTab({ cohortId }: { cohortId: string }) {
           <button
             onClick={() => fileInputRef.current?.click()}
             disabled={previewMutation.isPending}
-            className="self-start flex items-center gap-1.5 h-10 px-4 bg-primary text-primary-foreground rounded-xl text-sm font-medium hover:opacity-90 transition-colors disabled:opacity-50"
+            className="self-start flex items-center gap-1.5 h-10 px-4 bg-primary text-primary-foreground rounded-xl text-sm font-medium hover:opacity-90 transition-colors disabled:opacity-50 cursor-pointer"
           >
             <Upload size={14} /> {previewMutation.isPending ? "Reading…" : "Upload roster"}
           </button>
-        </>
+        </div>
       )}
 
       {previewRows && (
         <div className="flex flex-col gap-3">
-          <div className="flex items-center justify-between">
+          <div className="flex items-center justify-between flex-wrap gap-2">
             <p className="text-sm font-medium text-foreground">
-              {previewRows.length} rows parsed
+              {previewRows.length} student rows · {uniqueTeamsCount} team(s) detected
               {blockingCount > 0 && (
-                <span className="text-red-600 dark:text-red-400"> · {blockingCount} won't import until fixed</span>
+                <span className="text-red-600 dark:text-red-400"> · {blockingCount} row(s) blocked until fixed</span>
               )}
               {issueCount > blockingCount && (
                 <span className="text-amber-600 dark:text-amber-400">
-                  {" "}· {issueCount - blockingCount} flagged (email looks wrong) — importable as-is, or fix first
+                  {" "}· {issueCount - blockingCount} warning(s) flagged — importable as-is, or fix first
                 </span>
               )}
             </p>
             <button
               onClick={() => setPreviewRows(null)}
-              className="text-sm text-muted-foreground hover:text-foreground transition-colors"
+              className="text-sm text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
             >
               Start over
             </button>
           </div>
+
+          {previewRows.some((r) => r.issues.length > 0) && (
+            <div className="p-3 rounded-xl border border-border bg-card flex flex-col gap-1 max-h-48 overflow-y-auto">
+              <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                Preview Diagnostics ({issueCount} row{issueCount === 1 ? "" : "s"} with issues)
+              </p>
+              <ul className="text-xs flex flex-col gap-0.5">
+                {previewRows.filter((r) => r.issues.length > 0).map((r) => (
+                  <li key={r.row_number} className={r.issues.some(isBlockingIssue) ? "text-red-600 dark:text-red-400 font-medium" : "text-amber-600 dark:text-amber-400"}>
+                    Row {r.row_number} ({r.member_name || "Unnamed"} — {r.team_name || r.team_id || "No team"}): {r.issues.join("; ")}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
 
           <div className="overflow-x-auto border border-border rounded-xl">
             <table className="w-full text-sm">
               <thead>
                 <tr className="text-left text-xs text-muted-foreground uppercase tracking-wider border-b border-border">
                   <th className="py-2 pl-3 pr-2">Row</th>
-                  <th className="py-2 pr-2">Team ID</th>
-                  <th className="py-2 pr-2">Team name</th>
-                  <th className="py-2 pr-2">Member</th>
-                  <th className="py-2 pr-2">Email</th>
-                  <th className="py-2 pr-2">Phone</th>
-                  <th className="py-2 pr-2">Gender</th>
-                  <th className="py-2 pr-2">Nationality</th>
-                  <th className="py-2 pr-3">School</th>
+                  {PREVIEW_FIELDS.map((col) => (
+                    <th key={col.key} className={`py-2 pr-2 whitespace-nowrap ${col.minWidth}`}>{col.label}</th>
+                  ))}
                 </tr>
               </thead>
               <tbody>
@@ -285,35 +426,32 @@ function RosterTab({ cohortId }: { cohortId: string }) {
                       blocked ? "bg-red-50 dark:bg-red-950/20" : r.issues.length > 0 ? "bg-amber-50 dark:bg-amber-950/20" : ""
                     }`}>
                       <td className="py-1.5 pl-3 pr-2 text-muted-foreground align-top pt-3">{r.row_number}</td>
-                      {(["team_id", "team_name", "member_name", "email", "phone", "gender", "nationality", "school"] as const).map((field) => (
-                        <td key={field} className="py-1.5 pr-2">
-                          <input
-                            value={r[field] ?? ""}
-                            onChange={(e) => updateRow(r.row_number, field, e.target.value)}
-                            className={`w-full h-8 px-2 rounded-lg border bg-background text-sm ${
-                              (field === "team_id" || field === "member_name" || field === "email") &&
-                              r.issues.some((i) => i.toLowerCase().startsWith(field === "team_id" ? "team id" : field === "member_name" ? "member name" : "email"))
-                                ? (r.issues.some(isBlockingIssue) ? "border-red-400 dark:border-red-700" : "border-amber-400 dark:border-amber-700")
-                                : "border-border"
-                            }`}
-                          />
-                        </td>
-                      ))}
+                      {PREVIEW_FIELDS.map(({ key: field, minWidth }) => {
+                        const hasFieldIssue =
+                          (field === "team_id" && r.issues.some((i) => i.toLowerCase().includes("team id"))) ||
+                          (field === "team_name" && r.issues.some((i) => i.toLowerCase().includes("team name"))) ||
+                          (field === "member_name" && r.issues.some((i) => i.toLowerCase().includes("member name"))) ||
+                          (field === "email" && r.issues.some((i) => i.toLowerCase().includes("email")))
+                        return (
+                          <td key={field} className={`py-1.5 pr-2 ${minWidth}`}>
+                            <input
+                              value={r[field] ?? ""}
+                              onChange={(e) => updateRow(r.row_number, field, e.target.value)}
+                              className={`w-full h-8 px-2 rounded-lg border bg-background text-sm ${
+                                hasFieldIssue
+                                  ? (blocked ? "border-red-400 dark:border-red-700" : "border-amber-400 dark:border-amber-700")
+                                  : "border-border"
+                              }`}
+                            />
+                          </td>
+                        )
+                      })}
                     </tr>
                   )
                 })}
               </tbody>
             </table>
           </div>
-          {previewRows.some((r) => r.issues.length > 0) && (
-            <ul className="text-xs flex flex-col gap-0.5">
-              {previewRows.filter((r) => r.issues.length > 0).map((r) => (
-                <li key={r.row_number} className={r.issues.some(isBlockingIssue) ? "text-red-600 dark:text-red-400" : "text-amber-600 dark:text-amber-400"}>
-                  Row {r.row_number}: {r.issues.join("; ")}
-                </li>
-              ))}
-            </ul>
-          )}
 
           <div className="flex items-center gap-4">
             <label className="flex items-center gap-2 text-sm text-foreground cursor-pointer select-none">
@@ -335,15 +473,40 @@ function RosterTab({ cohortId }: { cohortId: string }) {
           <button
             onClick={() => confirmMutation.mutate(previewRows)}
             disabled={confirmMutation.isPending}
-            className="self-start flex items-center gap-1.5 h-10 px-4 bg-primary text-primary-foreground rounded-xl text-sm font-medium hover:opacity-90 transition-colors disabled:opacity-50"
+            className="self-start flex items-center gap-1.5 h-10 px-4 bg-primary text-primary-foreground rounded-xl text-sm font-medium hover:opacity-90 transition-colors disabled:opacity-50 cursor-pointer"
           >
-            <Check size={14} /> {confirmMutation.isPending ? "Importing…" : "Confirm import"}
+            <Check size={14} /> {confirmMutation.isPending ? "Queueing import…" : "Confirm import"}
           </button>
         </div>
       )}
 
-      {result && (
-        <div className="flex flex-col gap-2">
+      {isBackgroundRunning && result && (
+        <div className="p-4 rounded-xl border border-border bg-card flex flex-col gap-2 max-w-xl">
+          <div className="flex items-center gap-2 text-sm font-medium text-foreground">
+            <RefreshCw size={15} className="animate-spin text-primary" />
+            <span>
+              Importing roster in background…{" "}
+              {result.progress
+                ? `${result.progress.processed} / ${result.progress.total} rows processed`
+                : "Starting worker job…"}
+            </span>
+          </div>
+          {result.progress && result.progress.total > 0 && (
+            <div className="w-full h-2 bg-muted rounded-full overflow-hidden">
+              <div
+                className="h-full bg-primary transition-all duration-300"
+                style={{ width: `${Math.min(100, Math.round((result.progress.processed / result.progress.total) * 100))}%` }}
+              />
+            </div>
+          )}
+          <p className="text-xs text-muted-foreground">
+            Creating student accounts, assigning LMS checklists, forming teams, and dispatching emails via ARQ.
+          </p>
+        </div>
+      )}
+
+      {result && !isBackgroundRunning && (
+        <div className="flex flex-col gap-2 max-w-4xl">
           <div className="flex items-center justify-between">
             <p className="text-sm font-medium text-foreground">
               {result.summary.total} rows · {result.summary.created} created · {result.summary.matched} matched ·{" "}
@@ -351,11 +514,14 @@ function RosterTab({ cohortId }: { cohortId: string }) {
             </p>
             <button
               onClick={() => setResult(null)}
-              className="text-sm text-muted-foreground hover:text-foreground transition-colors"
+              className="text-sm text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
             >
               Import another file
             </button>
           </div>
+          {result.error && (
+            <p className="text-xs text-red-600 dark:text-red-400">{result.error}</p>
+          )}
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>

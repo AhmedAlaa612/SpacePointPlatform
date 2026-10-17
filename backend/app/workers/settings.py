@@ -87,6 +87,13 @@ async def safe_enqueue(
         )
         return "inline"
 
+    if function == "run_competition_registration_import_job" and args:
+        from app.workers.tasks.imports import run_competition_registration_import_job
+        asyncio.create_task(
+            run_competition_registration_import_job(None, *args, **kwargs)
+        )
+        return "inline"
+
     logger.warning(
         "Task %r could not be queued and has no in-process fallback — skipped", function
     )

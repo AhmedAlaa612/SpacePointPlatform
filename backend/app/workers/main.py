@@ -22,7 +22,10 @@ from app.workers.settings import redis_settings
 from app.workers.tasks.birthdays import send_daily_birthday_emails
 from app.workers.tasks.certificates import send_cohort_certificates_job
 from app.workers.tasks.cohort_interest import send_cohort_interest_notifications
-from app.workers.tasks.imports import send_import_batch_emails
+from app.workers.tasks.imports import (
+    run_competition_registration_import_job,
+    send_import_batch_emails,
+)
 from app.workers.tasks.inventory import send_inventory_reminders
 from app.workers.tasks.lms import sync_import_batch_lms_accounts, sync_registration_lms_job
 from app.workers.tasks.staffing import (
@@ -49,6 +52,7 @@ class WorkerSettings:
     functions = [
         send_ticket_email,
         send_import_batch_emails,
+        func(run_competition_registration_import_job, timeout=600),
         send_assignment_email,
         send_call_invite_emails,
         send_cohort_call_invite_emails,
