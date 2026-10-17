@@ -1,6 +1,6 @@
 import {
   BatteryCharging, BookOpen, Calendar, Cpu, FileText, Flag, HelpCircle, Image, Layout, Link2, Lock, Rocket, Scale, Target, Upload,
-  ClipboardCheck, ClipboardList, Users, type LucideIcon,
+  ClipboardCheck, ClipboardList, Users, Gamepad2, type LucideIcon,
 } from "lucide-react";
 import type { LmsProgramChecklistItem } from "@/api/lms";
 
@@ -99,7 +99,7 @@ export const STEP_ICON: Record<MissionStepKey, LucideIcon> = {
 const ITEM_TYPE_ICON: Record<LmsProgramChecklistItem["item_type"], LucideIcon> = {
   course: BookOpen, mission_run: Rocket, external_link: Link2, submission: Upload,
   pdf: FileText, manual: ClipboardCheck, session: Calendar, quiz: HelpCircle, team_setup: Users,
-  checkpoint: Flag,
+  checkpoint: Flag, arcade_game: Gamepad2,
 };
 
 /** Locked tiles always render `lock` regardless of type (README: "locked
@@ -274,6 +274,7 @@ export type NavTarget =
   | { kind: "mission"; missionId: string }
   | { kind: "external"; url: string }
   | { kind: "quiz"; itemId: string }
+  | { kind: "arcade_game"; gameKey: string; mode: string; itemId: string }
   | { kind: "drawer" } // submission / pdf / manual / session / poster — open the task drawer, no direct nav
   | { kind: "none" };
 
@@ -285,6 +286,14 @@ export function navTargetFor(item: LmsProgramChecklistItem): NavTarget {
     return { kind: "drawer" };
   }
   if (item.item_type === "course" && item.course_id) return { kind: "course", courseId: item.course_id };
+  if (item.item_type === "arcade_game" && item.arcade_game_key) {
+    return {
+      kind: "arcade_game",
+      gameKey: item.arcade_game_key,
+      mode: item.arcade_game_mode === "engineer" ? "engineer" : "explorer",
+      itemId: item.id,
+    };
+  }
   if (item.item_type === "mission_run" && item.mission_attempt_id) {
     if (item.mission_kind === "design") {
       return {

@@ -87,6 +87,10 @@ class LmsAssignmentItemDetailOut(BaseModel):
     # DesignRunDetail replica to show) from a Ground Station run (which
     # doesn't — there's no Design row to read, just a live console).
     mission_kind: str | None = None
+    arcade_game_id: UUID | None = None
+    arcade_game_key: str | None = None
+    arcade_game_mode: str | None = None
+    arcade_best_score: int | None = None
 
 
 class LmsProgramRosterRowOut(BaseModel):

@@ -529,7 +529,7 @@ class ItemReorderIn(BaseModel):
 
 LmsProgramItemType = Literal[
     "course", "mission_run", "external_link", "submission", "pdf", "manual", "session", "quiz", "team_setup",
-    "checkpoint",
+    "checkpoint", "arcade_game",
 ]
 # individual (default) tracks per-student, exactly as every item did before
 # this existed. team means the whole `Team` shares one progress row — a
@@ -577,6 +577,8 @@ class LmsProgramItemIn(BaseModel):
     # A `quiz` item's fixed question set — see LmsProgramItem's own field
     # comment and app/models/lms/cohort_quiz.py.
     cohort_quiz_template_id: UUID | None = None
+    arcade_game_id: UUID | None = None
+    arcade_game_mode: Literal["explorer", "engineer", "either"] | None = "explorer"
     position: int | None = None
     # ── Roadmap board (2026-09) — see LmsProgramItem's own field comments.
     mission_step_key: str | None = None
@@ -623,6 +625,10 @@ class LmsProgramItemOut(BaseModel):
     session_location: str | None = None
     session_meeting_url: str | None = None
     cohort_quiz_template_id: UUID | None = None
+    arcade_game_id: UUID | None = None
+    arcade_game_key: str | None = None
+    arcade_game_title: str | None = None
+    arcade_game_mode: str | None = None
     # Populated only for a `quiz` item — the authoring UI's "N questions"
     # badge. None for every other item type.
     cohort_quiz_question_count: int | None = None

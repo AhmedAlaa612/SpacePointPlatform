@@ -3,12 +3,13 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useNavigate } from "@tanstack/react-router"
 import {
   Plus, X, BookOpen, Rocket, ChevronDown, ChevronRight, RotateCcw, Clock, CheckCircle2, XCircle,
-  Award, Circle, ExternalLink, Eye, Play, Search, Users, Trash2,
+  Award, Circle, ExternalLink, Eye, Play, Search, Users, Trash2, Gamepad2,
 } from "lucide-react"
 import { EmptyState, Spinner } from "@/components/ui/primitives"
 import { Button } from "@/components/ui/button"
 import { ConfirmDialog } from "@/pages/admin/components/common"
 import { observerResetProgressApi, observerResetTeamApi, observerUnassignApi } from "@/api/lms"
+import { getStudentArcadeBestAttemptApi } from "@/api/arcade"
 import { ensureAbsoluteUrl } from "@/lib/utils"
 import { DesignRunDetail } from "./DesignRunDetail"
 import { fetchMissionCatalog } from "@/api/missions"
@@ -865,6 +866,7 @@ export function AssignmentItemRow({
   const navigate = useNavigate()
   const [showRun, setShowRun] = useState(false)
   const [showQuizReview, setShowQuizReview] = useState(false)
+  const [showArcadeRun, setShowArcadeRun] = useState(false)
   const [confirmReset, setConfirmReset] = useState(false)
   const isMissionRun = item.item_type === "mission_run" && !!item.mission_attempt_id
   // DesignRunDetail replicates the Design wizard off a `Design` row that
@@ -875,6 +877,7 @@ export function AssignmentItemRow({
   const canViewRun = isMissionRun && item.mission_kind === "design"
   const canOpenConsole = isMissionRun && item.mission_kind === "ground_station"
   const isQuiz = item.item_type === "quiz"
+  const isArcadeGame = item.item_type === "arcade_game"
 
   const confirmMutation = useMutation({
     mutationFn: () => confirmChecklistItemApi(cohortId as string, assignmentId, item.item_id),
@@ -899,7 +902,7 @@ export function AssignmentItemRow({
   const isPoster = item.mission_step_key === "poster"
   const hasActions = Boolean(
     item.submitted_url || item.submitted_text || (item.submission_multi_link && item.submitted_links?.length)
-    || canViewRun || canOpenConsole || (isQuiz && (isDone || cohortId)) || isPoster || (isAwaiting && cohortId),
+    || canViewRun || canOpenConsole || (isQuiz && (isDone || cohortId)) || (isArcadeGame && isDone && cohortId) || isPoster || (isAwaiting && cohortId),
   )
 
   return (
@@ -1033,6 +1036,18 @@ export function AssignmentItemRow({
                 </Button>
               )}
 
+              {isArcadeGame && isDone && cohortId && (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => setShowArcadeRun((v) => !v)}
+                  className="h-8 text-xs font-semibold gap-1.5 shrink-0"
+                >
+                  <Eye size={13} className="text-primary" />
+                  {showArcadeRun ? "Hide run" : "View run"}
+                </Button>
+              )}
+
               {isQuiz && cohortId && (
                 <Button
                   size="sm"
@@ -1077,6 +1092,12 @@ export function AssignmentItemRow({
       {isQuiz && showQuizReview && cohortId && (
         <div className="mt-1 border-2 border-border rounded-xl bg-card p-3 shadow-lg">
           <QuizAnswersReview cohortId={cohortId} assignmentId={assignmentId} itemId={item.item_id} />
+        </div>
+      )}
+
+      {isArcadeGame && showArcadeRun && cohortId && (
+        <div className="mt-1 border-2 border-border rounded-xl bg-card p-3 shadow-lg">
+          <ArcadeRunReview cohortId={cohortId} assignmentId={assignmentId} itemId={item.item_id} />
         </div>
       )}
 
@@ -1172,6 +1193,84 @@ export function QuizAnswersReview({ cohortId, assignmentId, itemId }: { cohortId
       </div>
     </div>
   )
+}
+
+export function ArcadeRunReview({
+  cohortId,
+  assignmentId,
+  itemId,
+}: {
+  cohortId: string;
+  assignmentId: string;
+  itemId: string;
+}) {
+  const { data: attempt, isLoading, isError, error } = useQuery({
+    queryKey: ["arcade-student-attempt", cohortId, assignmentId, itemId],
+    queryFn: () => getStudentArcadeBestAttemptApi(cohortId, assignmentId, itemId),
+  });
+
+  if (isLoading) return <div className="p-3"><Spinner /></div>;
+  if (isError) {
+    return <p className="p-3 text-xs text-destructive">{errorDetail(error, "Couldn't load this run's detail")}</p>;
+  }
+  if (!attempt) return null;
+
+  return (
+    <div className="border border-border rounded-lg bg-card p-3 flex flex-col gap-3">
+      <div className="flex items-center justify-between flex-wrap gap-2 text-xs font-semibold text-foreground border-b border-border/40 pb-2">
+        <div className="flex items-center gap-2">
+          <Gamepad2 size={15} className="text-primary" />
+          <span className="font-bold">{attempt.game_title}</span>
+          <span className="capitalize px-1.5 py-0.5 rounded text-[10px] bg-primary/10 text-primary border border-primary/20">
+            {attempt.mode} mode
+          </span>
+          {attempt.passed ? (
+            <span className="text-[10px] font-semibold text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-1.5 py-0.5 rounded">
+              Passed
+            </span>
+          ) : (
+            <span className="text-[10px] font-semibold text-amber-400 bg-amber-500/10 border border-amber-500/20 px-1.5 py-0.5 rounded">
+              Attempt {attempt.attempt_no}
+            </span>
+          )}
+        </div>
+        <div className="flex items-center gap-3 text-muted-foreground">
+          <span>Score: <strong className="text-foreground">{attempt.score}/100</strong></span>
+          <span>Accuracy: <strong className="text-foreground">{attempt.accuracy}%</strong></span>
+          <span>Time: <strong className="text-foreground">{attempt.elapsed_seconds}s</strong></span>
+          {attempt.points_awarded > 0 && (
+            <span className="text-amber-400">+{attempt.points_awarded} pts</span>
+          )}
+        </div>
+      </div>
+      {attempt.notes && attempt.notes.length > 0 && (
+        <div className="flex flex-col gap-1.5">
+          <span className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide">
+            Debrief Checklist
+          </span>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
+            {attempt.notes.map((note, idx) => (
+              <div
+                key={idx}
+                className={`flex items-start gap-2 p-2 rounded-md text-xs border ${
+                  note.ok
+                    ? "bg-emerald-500/5 border-emerald-500/20 text-emerald-400"
+                    : "bg-red-500/5 border-red-500/20 text-red-400"
+                }`}
+              >
+                {note.ok ? (
+                  <CheckCircle2 size={13} className="shrink-0 text-emerald-400 mt-0.5" />
+                ) : (
+                  <X size={13} className="shrink-0 text-red-400 mt-0.5" />
+                )}
+                <span>{note.t}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
 }
 
 // ── Review ───────────────────────────────────────────────────────────────

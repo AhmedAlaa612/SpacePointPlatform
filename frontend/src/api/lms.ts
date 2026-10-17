@@ -550,7 +550,7 @@ export async function submitCheckpointAnswer(
 // /learn/checklists to keep well clear of that existing route.
 
 export type LmsProgramItemType =
-  | "course" | "mission_run" | "external_link" | "submission" | "pdf" | "manual" | "session" | "quiz" | "team_setup" | "checkpoint";
+  | "course" | "mission_run" | "external_link" | "submission" | "pdf" | "manual" | "session" | "quiz" | "team_setup" | "checkpoint" | "arcade_game";
 export type LmsProgramItemStatus = "pending" | "done" | "awaiting_confirmation";
 
 export type LmsProgramItemScope = "individual" | "team";
@@ -589,6 +589,10 @@ export interface LmsProgramChecklistItem {
   mission_id: string | null;
   mission_kind: string | null;
   external_url: string | null;
+  arcade_game_id?: string | null;
+  arcade_game_key?: string | null;
+  arcade_game_title?: string | null;
+  arcade_game_mode?: "explorer" | "engineer" | "either" | null;
   submission_prompt: string | null;
   /** True once a `pdf` item has a file uploaded — fetch the actual URL
    * on demand via `getChecklistItemPdfUrlApi`, never baked in here. */

@@ -13,6 +13,7 @@ import { listCoursesApi } from "@/api/lms_admin"
 import { listMissionsAdminFullApi } from "@/api/missions_admin"
 import { instructorStepSelectionApi } from "@/api/missionsInstructor"
 import { listCohortQuizTemplatesApi } from "@/api/cohort_quiz"
+import { fetchArcadeGamesApi } from "@/api/arcade"
 import { MediaPreviewModal } from "@/components/media/MediaPreviewModal"
 import {
   updateLmsProgramApi, uploadLmsProgramImageApi, updateCohortPosterTemplateApi,
@@ -1187,12 +1188,21 @@ export function ItemForm({
   )
   const [checkpointLabel, setCheckpointLabel] = useState(initial?.checkpoint_label ?? "")
   const [cohortQuizTemplateId, setCohortQuizTemplateId] = useState(initial?.cohort_quiz_template_id ?? "")
+  const [arcadeGameId, setArcadeGameId] = useState(initial?.arcade_game_id ?? "")
+  const [arcadeGameMode, setArcadeGameMode] = useState<"explorer" | "engineer" | "either">(
+    (initial?.arcade_game_mode as "explorer" | "engineer" | "either") ?? "explorer"
+  )
   const [maxTeamSize, setMaxTeamSize] = useState(initial?.max_team_size != null ? String(initial.max_team_size) : "")
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState("")
 
   const { data: courses = [] } = useQuery({ queryKey: ["lms-admin-courses"], queryFn: listCoursesApi, enabled: itemType === "course" })
   const { data: missions = [] } = useQuery({ queryKey: ["missions-admin-full"], queryFn: listMissionsAdminFullApi, enabled: itemType === "mission_run" })
+  const { data: arcadeGames = [] } = useQuery({
+    queryKey: ["arcade-games"],
+    queryFn: fetchArcadeGamesApi,
+    enabled: itemType === "arcade_game",
+  })
   const { data: quizTemplates = [] } = useQuery({
     queryKey: ["cohort-quiz-templates"], queryFn: listCohortQuizTemplatesApi, enabled: itemType === "quiz",
   })
@@ -1265,6 +1275,7 @@ export function ItemForm({
       if (new Set(trimmedLabels).size !== trimmedLabels.length) { setError("Labels must be unique"); return }
     }
     if (itemType === "quiz" && !cohortQuizTemplateId) { setError("Pick a quiz template"); return }
+    if (itemType === "arcade_game" && !arcadeGameId) { setError("Pick an arcade game"); return }
     if (guidelineKind === "link" && !guidelineUrl.trim()) { setError("A link guideline needs a URL"); return }
     if (guidelineKind === "video" && videoMode === "embed" && !guidelineUrl.trim()) {
       setError("Add an embed link, or switch to Upload"); return
@@ -1286,6 +1297,8 @@ export function ItemForm({
         course_id: itemType === "course" ? courseId : null,
         mission_id: itemType === "mission_run" ? missionId : null,
         variant_id: itemType === "mission_run" ? (variantId || null) : null,
+        arcade_game_id: itemType === "arcade_game" ? (arcadeGameId || null) : null,
+        arcade_game_mode: itemType === "arcade_game" ? arcadeGameMode : null,
         external_url: (itemType === "external_link" || itemType === "submission") ? (externalUrl.trim() || null) : null,
         submission_prompt: itemType === "submission" ? (submissionPrompt.trim() || null) : null,
         submission_field_type: itemType === "submission" ? submissionFieldType : "link",
@@ -1342,6 +1355,47 @@ export function ItemForm({
           <option value="">Select a course…</option>
           {courses.map((c) => <option key={c.id} value={c.id}>{c.title}</option>)}
         </select>
+      )}
+
+      {itemType === "arcade_game" && (
+        <>
+          <select
+            value={arcadeGameId}
+            onChange={(e) => {
+              setArcadeGameId(e.target.value)
+              if (!title.trim() && e.target.value) {
+                const g = arcadeGames.find((x) => x.id === e.target.value)
+                if (g) setTitle(g.title)
+              }
+            }}
+            className={`${inputCls} cursor-pointer`}
+          >
+            <option value="">Select an arcade game…</option>
+            {Array.from(new Set(arcadeGames.map((g) => `${g.module_no} · ${g.module_name}`))).map((mod) => (
+              <optgroup key={mod} label={`Module ${mod}`}>
+                {arcadeGames
+                  .filter((g) => `${g.module_no} · ${g.module_name}` === mod)
+                  .map((g) => (
+                    <option key={g.id} value={g.id}>
+                      {g.title} ({g.kind}{g.is_3d ? " · 3D" : ""})
+                    </option>
+                  ))}
+              </optgroup>
+            ))}
+          </select>
+          <div className="flex flex-col gap-1">
+            <label className="text-[11px] font-medium text-muted-foreground">Difficulty / Track</label>
+            <select
+              value={arcadeGameMode}
+              onChange={(e) => setArcadeGameMode(e.target.value as "explorer" | "engineer" | "either")}
+              className={`${inputCls} cursor-pointer`}
+            >
+              <option value="explorer">Explorer · Middle school</option>
+              <option value="engineer">Engineer · University / Pro</option>
+              <option value="either">Either mode</option>
+            </select>
+          </div>
+        </>
       )}
 
       {itemType === "mission_run" && (

@@ -1070,7 +1070,12 @@ export function TaskDrawer({
     } else if (target.kind === "operate") void navigate({ to: `/learn/missions/operate/${target.attemptId}` });
     else if (target.kind === "mission") void navigate({ to: `/learn/missions/${target.missionId}` });
     else if (target.kind === "quiz") void navigate({ to: `/learn/checklists/${assignmentId}/quiz/${target.itemId}` });
-    else if (target.kind === "external") window.open(ensureAbsoluteUrl(target.url), "_blank", "noreferrer");
+    else if (target.kind === "arcade_game") {
+      void navigate({
+        to: `/learn/arcade/${target.gameKey}`,
+        search: { mode: target.mode, program: assignmentId, itemId: target.itemId } as never,
+      });
+    } else if (target.kind === "external") window.open(ensureAbsoluteUrl(target.url), "_blank", "noreferrer");
   };
   // A submission item's own `external_url` is an optional reference link
   // (e.g. a Tinkercad template) — a genuine "do the work" destination
@@ -1078,7 +1083,7 @@ export function TaskDrawer({
   const submissionReference = item.item_type === "submission" && item.external_url ? item.external_url : null;
 
   const hasGuideline = !!effectiveGuidelineKind;
-  const isAutoTracked = (item.item_type === "course" || item.item_type === "mission_run" || item.item_type === "quiz") && !isPoster;
+  const isAutoTracked = (item.item_type === "course" || item.item_type === "mission_run" || item.item_type === "quiz" || item.item_type === "arcade_game") && !isPoster;
   const isSubmission = item.item_type === "submission" || isPoster;
   const isMultiLink = item.item_type === "submission" && item.submission_multi_link;
   const isTeamSetup = item.item_type === "team_setup";
@@ -1104,6 +1109,7 @@ export function TaskDrawer({
     target.kind === "operate" ? "Open the mission" :
     target.kind === "mission" ? "Open the mission" :
     target.kind === "quiz" ? (done ? "View results" : "Start the quiz") :
+    target.kind === "arcade_game" ? (done ? "Replay game" : "Play game") :
     target.kind === "external" ? "Open the link" : "Open";
 
   const canSubmit = !hasGuideline || guidelineOpened;

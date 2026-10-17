@@ -107,7 +107,7 @@ class LmsProgramItem(Base):
     owner_type = Column(String(16), nullable=False)
     owner_id = Column(UUID(as_uuid=True), nullable=False)
     position = Column(Integer, nullable=False)
-    # course|mission_run|external_link|submission|pdf|manual|session|quiz|team_setup|checkpoint
+    # course|mission_run|external_link|submission|pdf|manual|session|quiz|team_setup|checkpoint|arcade_game
     item_type = Column(String(16), nullable=False)
     title = Column(String(255), nullable=False)
     description = Column(Text, nullable=True)
@@ -238,6 +238,12 @@ class LmsProgramItem(Base):
     cohort_quiz_template_id = Column(
         UUID(as_uuid=True), ForeignKey("cohort_quiz_templates.id", ondelete="RESTRICT"), nullable=True,
     )
+    # An `arcade_game` item's target game and required difficulty mode.
+    # `arcade_game_mode` is 'explorer' | 'engineer' | 'either' (default 'explorer').
+    arcade_game_id = Column(
+        UUID(as_uuid=True), ForeignKey("arcade_games.id", ondelete="RESTRICT"), nullable=True,
+    )
+    arcade_game_mode = Column(String(16), nullable=True, default="explorer", server_default="explorer")
 
 
 class LmsProgramAssignment(Base):

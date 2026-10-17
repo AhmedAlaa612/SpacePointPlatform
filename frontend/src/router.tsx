@@ -173,6 +173,8 @@ import OperateMissionPage from "@/pages/learn/OperateMissionPage";
 import OperateBriefingPage from "@/pages/learn/OperateBriefingPage";
 import DesignBriefingPage from "@/pages/learn/DesignBriefingPage";
 import GroundStationAttemptPage from "@/pages/learn/GroundStationAttemptPage";
+import LearnArcade from "@/pages/learn/LearnArcade";
+import LearnArcadeGame from "@/pages/learn/LearnArcadeGame";
 
 // LMS authoring surface (LM1-13) — shared by operations + facilitator
 // (backend's require_lms_content), own top-level path so one URL space works
@@ -1377,6 +1379,23 @@ const learnGamePlayRoute = createRoute({
   component: GamePlay,
 });
 
+const learnArcadeRoute = createRoute({
+  getParentRoute: () => learnLayoutRoute,
+  path: "/arcade",
+  component: LearnArcade,
+});
+
+const learnArcadeGameRoute = createRoute({
+  getParentRoute: () => learnLayoutRoute,
+  path: "/arcade/$gameKey",
+  component: LearnArcadeGame,
+  validateSearch: (search: Record<string, unknown>): { mode?: "explorer" | "engineer"; program?: string; itemId?: string } => ({
+    mode: search.mode === "engineer" ? "engineer" : search.mode === "explorer" ? "explorer" : undefined,
+    program: typeof search.program === "string" ? search.program : undefined,
+    itemId: typeof search.itemId === "string" ? search.itemId : undefined,
+  }),
+});
+
 const routeTree = rootRoute.addChildren([
   ticketRoute,
   kitScanRoute,
@@ -1395,6 +1414,7 @@ const routeTree = rootRoute.addChildren([
     learnPathsRoute, learnPathRoute, learnChecklistsRoute, learnChecklistRoute, learnCohortQuizRoute,
     learnProfileRoute, learnProgramRoute, learnLeaderboardRoute,
     learnGamesRoute, learnGamePlayRoute,
+    learnArcadeRoute, learnArcadeGameRoute,
     learnMissionsRoute, learnDesignBriefingRoute, learnDesignMissionRoute, learnOperateBriefingRoute,
     learnOperateMissionRoute, learnMissionRoute, learnGroundStationAttemptRoute,
   ]),

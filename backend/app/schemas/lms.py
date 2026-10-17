@@ -490,6 +490,10 @@ class LmsProgramChecklistItemOut(BaseModel):
     mission_id: UUID | None = None
     mission_kind: str | None = None
     external_url: str | None = None
+    arcade_game_id: UUID | None = None
+    arcade_game_key: str | None = None
+    arcade_game_title: str | None = None
+    arcade_game_mode: str | None = None
     submission_prompt: str | None = None
     # True once a `pdf` item has a file uploaded — the student calls the
     # separate resolve-url endpoint to actually view it (never baked in

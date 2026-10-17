@@ -36,6 +36,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.dependencies import get_current_active_user, require_lms_student
 from app.db.session import get_db
 from app.models.lms import Course, CourseModule, Enrollment, ItemProgress, ModuleItem, VideoCheckpoint
+from app.models.lms.arcade_game import ArcadeGameAttempt
 from app.models.lms.cohort_quiz import CohortQuizAttempt
 from app.models.lms.invite_grant import InvitationCodeGrant
 from app.models.team import TeamMember
@@ -709,7 +710,7 @@ async def complete_program_item(
     A `scope="team"` item writes to the shared team row (any teammate can
     call this), not the caller's own individual row."""
     assignment, item, individual = await _own_progress_row(db, assignment_id=assignment_id, item_id=item_id, user=current)
-    if item.item_type in ("course", "mission_run", "quiz"):
+    if item.item_type in ("course", "mission_run", "quiz", "arcade_game"):
         raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="This item is tracked automatically")
     if item.item_type == "checkpoint":
         raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="A checkpoint locks via its lock action, not self-check")
@@ -1266,11 +1267,20 @@ async def observer_reset_progress(
         )
 
     course_ids: list = []
+    arcade_game_ids: list = []
     if item_ids:
         program_items = (await db.execute(
             select(LmsProgramItem).where(LmsProgramItem.id.in_(item_ids))
         )).scalars().all()
         course_ids = list({i.course_id for i in program_items if i.course_id})
+        arcade_game_ids = list({i.arcade_game_id for i in program_items if i.arcade_game_id})
+    if arcade_game_ids:
+        await db.execute(
+            delete(ArcadeGameAttempt).where(
+                ArcadeGameAttempt.user_id == target_user_id,
+                ArcadeGameAttempt.game_id.in_(arcade_game_ids),
+            )
+        )
     if course_ids:
         module_ids = (await db.execute(
             select(CourseModule.id).where(CourseModule.course_id.in_(course_ids))
@@ -1363,6 +1373,17 @@ async def observer_unassign(
                 CohortQuizAttempt.program_item_id.in_(item_ids), CohortQuizAttempt.user_id == owner_id,
             )
         )
+        program_items = (await db.execute(
+            select(LmsProgramItem).where(LmsProgramItem.id.in_(item_ids))
+        )).scalars().all()
+        arcade_game_ids = list({i.arcade_game_id for i in program_items if i.arcade_game_id})
+        if arcade_game_ids:
+            await db.execute(
+                delete(ArcadeGameAttempt).where(
+                    ArcadeGameAttempt.user_id == owner_id,
+                    ArcadeGameAttempt.game_id.in_(arcade_game_ids),
+                )
+            )
 
     team = await team_for_cohort_member(db, cohort_id=assignment.cohort_id, user_id=owner_id)
     if team is not None and getattr(team, "is_observer", False):

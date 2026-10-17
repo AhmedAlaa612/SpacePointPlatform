@@ -31,6 +31,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.certificate import Certificate
+from app.models.lms.arcade_game import ArcadeGame, ArcadeGameAttempt
 from app.models.lms.cohort_quiz import CohortQuizAttempt, CohortQuizTemplate
 from app.models.lms.course import Course
 from app.models.lms.program import (
@@ -59,7 +60,7 @@ from app.services.video_service import get_video_for_owner
 # no reason for a second bucket.
 PROGRAM_ITEM_PDF_BUCKET = "lms-attachments"
 
-AUTO_TRACKED_TYPES = {"course", "mission_run", "quiz"}
+AUTO_TRACKED_TYPES = {"course", "mission_run", "quiz", "arcade_game"}
 
 # Roadmap board (2026-09) — the vocabulary a `mission_run` item's
 # `mission_step_key` can name. Eight of these mirror
@@ -100,6 +101,11 @@ async def item_out(db: AsyncSession, item: LmsProgramItem) -> LmsProgramItemOut:
     if item.mission_id is not None:
         mission = await db.get(Mission, item.mission_id)
         out.mission_kind = mission.kind if mission is not None else None
+    if item.arcade_game_id is not None:
+        ag = await db.get(ArcadeGame, item.arcade_game_id)
+        if ag is not None:
+            out.arcade_game_key = ag.game_key
+            out.arcade_game_title = ag.title
     if item.cohort_quiz_template_id is not None:
         # Active questions only — matches what `cohort_quiz.start_attempt`
         # will actually draw, so this badge never overstates a quiz that's
@@ -124,6 +130,11 @@ async def items_out(db: AsyncSession, items: list[LmsProgramItem]) -> list[LmsPr
     if mission_ids:
         rows = (await db.execute(select(Mission.id, Mission.kind).where(Mission.id.in_(mission_ids)))).all()
         kinds = dict(rows)
+    arcade_game_ids = {i.arcade_game_id for i in items if i.arcade_game_id is not None}
+    arcade_games_by_id: dict[uuid.UUID, ArcadeGame] = {}
+    if arcade_game_ids:
+        ag_rows = (await db.execute(select(ArcadeGame).where(ArcadeGame.id.in_(arcade_game_ids)))).scalars().all()
+        arcade_games_by_id = {g.id: g for g in ag_rows}
     quiz_template_ids = {i.cohort_quiz_template_id for i in items if i.cohort_quiz_template_id is not None}
     quiz_counts = await cohort_quiz_service.question_counts_for_templates(db, list(quiz_template_ids))
     video_item_ids = [i.id for i in items if i.guideline_kind == "video"]
@@ -139,6 +150,10 @@ async def items_out(db: AsyncSession, items: list[LmsProgramItem]) -> list[LmsPr
         o.has_pdf = item.pdf_path is not None
         if item.mission_id is not None:
             o.mission_kind = kinds.get(item.mission_id)
+        if item.arcade_game_id is not None and item.arcade_game_id in arcade_games_by_id:
+            ag = arcade_games_by_id[item.arcade_game_id]
+            o.arcade_game_key = ag.game_key
+            o.arcade_game_title = ag.title
         if item.cohort_quiz_template_id is not None:
             o.cohort_quiz_question_count = quiz_counts.get(item.cohort_quiz_template_id, 0)
         _apply_guideline_video(o, videos_by_owner.get(item.id))
@@ -166,6 +181,7 @@ def validate_item_payload(body: LmsProgramItemIn) -> None:
         # blank and just have a titled placeholder, same posture as manual.
         "session": True,
         "quiz": body.cohort_quiz_template_id is not None,
+        "arcade_game": body.arcade_game_id is not None,
         # No required field at creation — same reasoning as manual/pdf.
         # Always team-scoped (checked below), so there's no individual
         # variant to require anything of either.
@@ -179,6 +195,8 @@ def validate_item_payload(body: LmsProgramItemIn) -> None:
             status.HTTP_400_BAD_REQUEST,
             detail=f"A '{body.item_type}' item is missing its required field",
         )
+    if body.item_type == "arcade_game" and body.arcade_game_mode not in ("explorer", "engineer", "either", None):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="arcade_game_mode must be explorer, engineer, or either")
     # Competition domain (2026-08-24) — team scope is for the link-only
     # deliverables a team submits once together. Learning content
     # (course/pdf) stays individual on purpose: each teammate's own course
@@ -336,6 +354,10 @@ async def validate_item_refs(db: AsyncSession, body: LmsProgramItemIn, *, requir
             raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Quiz template not found")
         if require_active_quiz and not template.is_active:
             raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="This quiz template has been retired")
+    if body.arcade_game_id is not None:
+        ag = await db.get(ArcadeGame, body.arcade_game_id)
+        if ag is None:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Arcade game not found")
     if body.mission_id is not None:
         mission = await db.get(Mission, body.mission_id)
         if mission is None:
@@ -759,6 +781,8 @@ async def fork_cohort_override(
             guideline_kind=item.guideline_kind, guideline_url=item.guideline_url,
             checkpoint_label=item.checkpoint_label,
             cohort_quiz_template_id=item.cohort_quiz_template_id,
+            arcade_game_id=item.arcade_game_id,
+            arcade_game_mode=item.arcade_game_mode,
         )
         db.add(copy)
         id_map[item.id] = copy.id
@@ -1282,6 +1306,26 @@ async def _cohort_quiz_item_done(db: AsyncSession, *, program_item_id: uuid.UUID
     ))
 
 
+async def _arcade_game_item_done(
+    db: AsyncSession, *, arcade_game_id: uuid.UUID | None, arcade_game_mode: str | None, user_id: uuid.UUID,
+) -> bool:
+    """Autopass rule: a checklist `arcade_game` item is done as soon as the
+    student has ANY passing attempt on `arcade_game_id` matching the
+    configured difficulty (`explorer`, `engineer`, or `either`), whether they
+    passed it inside the standalone Arcade earlier or launched it from the
+    checklist drawer."""
+    if arcade_game_id is None:
+        return False
+    stmt = select(ArcadeGameAttempt.id).where(
+        ArcadeGameAttempt.game_id == arcade_game_id,
+        ArcadeGameAttempt.user_id == user_id,
+        ArcadeGameAttempt.passed.is_(True),
+    )
+    if arcade_game_mode in ("explorer", "engineer"):
+        stmt = stmt.where(ArcadeGameAttempt.mode == arcade_game_mode)
+    return bool(await db.scalar(stmt.limit(1)))
+
+
 async def refresh_item_progress(
     db: AsyncSession, *, progress: LmsProgramItemProgress | LmsProgramTeamItemProgress, item: LmsProgramItem,
     user_id: uuid.UUID, dashboard_cache: dict[uuid.UUID, dict | None] | None = None,
@@ -1318,6 +1362,10 @@ async def refresh_item_progress(
         done = await _mission_run_item_done(
             db, mission_attempt_id=progress.mission_attempt_id, mission_step_key=item.mission_step_key,
             dashboard_cache=dashboard_cache if dashboard_cache is not None else {},
+        )
+    elif item.item_type == "arcade_game":
+        done = await _arcade_game_item_done(
+            db, arcade_game_id=item.arcade_game_id, arcade_game_mode=item.arcade_game_mode, user_id=user_id,
         )
     else:  # "quiz"
         done = await _cohort_quiz_item_done(db, program_item_id=item.id, user_id=user_id)
@@ -1897,6 +1945,11 @@ async def get_student_checklist(db: AsyncSession, *, assignment_id: uuid.UUID, u
     mission_kinds = dict((await db.execute(
         select(Mission.id, Mission.kind).where(Mission.id.in_(mission_ids))
     )).all()) if mission_ids else {}
+    arcade_game_ids = {item.arcade_game_id for item, _ in pairs if item.arcade_game_id}
+    arcade_games: dict[uuid.UUID, ArcadeGame] = {}
+    if arcade_game_ids:
+        ag_rows = (await db.execute(select(ArcadeGame).where(ArcadeGame.id.in_(arcade_game_ids)))).scalars().all()
+        arcade_games = {g.id: g for g in ag_rows}
     video_item_ids = [item.id for item, _ in pairs if item.guideline_kind == "video"]
     guideline_videos: dict[uuid.UUID, Video] = {}
     if video_item_ids:
@@ -1994,6 +2047,10 @@ async def get_student_checklist(db: AsyncSession, *, assignment_id: uuid.UUID, u
             "mission_attempt_id": attempt_id,
             "mission_id": item.mission_id, "mission_kind": mission_kinds.get(item.mission_id),
             "external_url": item.external_url, "submission_prompt": item.submission_prompt,
+            "arcade_game_id": item.arcade_game_id,
+            "arcade_game_key": arcade_games[item.arcade_game_id].game_key if item.arcade_game_id and item.arcade_game_id in arcade_games else None,
+            "arcade_game_title": arcade_games[item.arcade_game_id].title if item.arcade_game_id and item.arcade_game_id in arcade_games else None,
+            "arcade_game_mode": item.arcade_game_mode,
             "has_pdf": item.pdf_path is not None,
             "submitted_url": submitted_url,
             "submission_field_type": item.submission_field_type,
@@ -2451,6 +2508,21 @@ async def assignment_item_detail(db: AsyncSession, *, assignment_id: uuid.UUID) 
     mission_kinds = dict((await db.execute(
         select(Mission.id, Mission.kind).where(Mission.id.in_(mission_ids))
     )).all()) if mission_ids else {}
+    arcade_game_ids = {item.arcade_game_id for item, _ in pairs if item.arcade_game_id}
+    arcade_games: dict[uuid.UUID, ArcadeGame] = {}
+    best_scores: dict[uuid.UUID, int] = {}
+    if arcade_game_ids:
+        ag_rows = (await db.execute(select(ArcadeGame).where(ArcadeGame.id.in_(arcade_game_ids)))).scalars().all()
+        arcade_games = {g.id: g for g in ag_rows}
+        score_rows = (await db.execute(
+            select(ArcadeGameAttempt.game_id, func.max(ArcadeGameAttempt.score))
+            .where(
+                ArcadeGameAttempt.user_id == assignment.user_id,
+                ArcadeGameAttempt.game_id.in_(arcade_game_ids),
+            )
+            .group_by(ArcadeGameAttempt.game_id)
+        )).all()
+        best_scores = {r[0]: int(r[1] or 0) for r in score_rows}
 
     out = []
     dashboard_cache: dict[uuid.UUID, dict | None] = {}
@@ -2484,6 +2556,10 @@ async def assignment_item_detail(db: AsyncSession, *, assignment_id: uuid.UUID) 
             "confirmed_by_user_id": confirmed_by_user_id,
             "mission_step_key": item.mission_step_key,
             "mission_kind": mission_kinds.get(item.mission_id) if item.mission_id else None,
+            "arcade_game_id": item.arcade_game_id,
+            "arcade_game_key": arcade_games[item.arcade_game_id].game_key if item.arcade_game_id and item.arcade_game_id in arcade_games else None,
+            "arcade_game_mode": item.arcade_game_mode,
+            "arcade_best_score": best_scores.get(item.arcade_game_id) if item.arcade_game_id else None,
         })
     return out
 

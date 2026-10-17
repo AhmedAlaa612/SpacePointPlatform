@@ -1,5 +1,5 @@
 import { isAxiosError } from "axios"
-import { BookOpen, Rocket, Link2, Upload, FileText, ClipboardCheck, Calendar, HelpCircle, Users, Flag } from "lucide-react"
+import { BookOpen, Rocket, Link2, Upload, FileText, ClipboardCheck, Calendar, HelpCircle, Users, Flag, Gamepad2 } from "lucide-react"
 import { MISSION_STEP_KEYS, type LmsProgramItem, type LmsProgramItemInput, type LmsProgramItemType } from "@/api/lms_admin"
 
 export function errorDetail(err: unknown, fallback: string): string {
@@ -39,12 +39,14 @@ export function itemToInput(item: LmsProgramItem): LmsProgramItemInput {
     mission_step_key: item.mission_step_key, gated: item.gated, guideline_kind: item.guideline_kind,
     guideline_url: item.guideline_url, checkpoint_label: item.checkpoint_label,
     max_team_size: item.max_team_size,
+    arcade_game_id: item.arcade_game_id, arcade_game_mode: item.arcade_game_mode,
   }
 }
 
 export const ITEM_TYPES: { value: LmsProgramItemType; label: string; icon: typeof BookOpen }[] = [
   { value: "course", label: "Course", icon: BookOpen },
   { value: "mission_run", label: "Mission run", icon: Rocket },
+  { value: "arcade_game", label: "Arcade game", icon: Gamepad2 },
   { value: "external_link", label: "Link", icon: Link2 },
   { value: "submission", label: "Submission", icon: Upload },
   { value: "pdf", label: "PDF", icon: FileText },

@@ -376,7 +376,7 @@ export const deleteCheckpointApi = (id: string) => api.delete<void>(`/lms/admin/
 // see backend/app/models/lms/program.py's module docstring for the full shape.
 
 export type LmsProgramItemType =
-  | "course" | "mission_run" | "external_link" | "submission" | "pdf" | "manual" | "session" | "quiz" | "team_setup" | "checkpoint";
+  | "course" | "mission_run" | "external_link" | "submission" | "pdf" | "manual" | "session" | "quiz" | "team_setup" | "checkpoint" | "arcade_game";
 /** individual (default): per-student progress. team: the whole Team shares
  * one progress row — only valid for submission/external_link/manual/
  * mission_run/team_setup items (enforced server-side in
@@ -411,6 +411,10 @@ export interface LmsProgramItem {
   mission_kind: string | null;
   variant_id: string | null;
   external_url: string | null;
+  arcade_game_id?: string | null;
+  arcade_game_key?: string | null;
+  arcade_game_title?: string | null;
+  arcade_game_mode?: "explorer" | "engineer" | "either" | null;
   submission_prompt: string | null;
   /** The plain (non-multi) submission's own type — link (default) or text.
    * Only meaningful when submission_multi_link is false. */
@@ -498,6 +502,8 @@ export interface LmsProgramItemInput {
   session_location?: string | null;
   session_meeting_url?: string | null;
   cohort_quiz_template_id?: string | null;
+  arcade_game_id?: string | null;
+  arcade_game_mode?: "explorer" | "engineer" | "either" | null;
   position?: number | null;
   mission_step_key?: string | null;
   gated?: boolean;
