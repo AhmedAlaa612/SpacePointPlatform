@@ -153,11 +153,20 @@ function QuestionBankTab() {
                     <span className="text-[10px] font-semibold uppercase tracking-wide px-2 py-0.5 rounded-full border border-purple-500/30 bg-purple-500/10 text-purple-600 dark:text-purple-400">
                       Text Area
                     </span>
+                  ) : (q.question_type === "multiselect" || q.question_type === "multiple_choice") ? (
+                    <span className="text-[10px] font-semibold uppercase tracking-wide px-2 py-0.5 rounded-full border border-indigo-500/30 bg-indigo-500/10 text-indigo-600 dark:text-indigo-400">
+                      Multiple Choice{q.options.length > 0 && q.options.every((o) => !o.is_correct) ? " (Opinion)" : ""}
+                    </span>
                   ) : q.options.length > 0 && q.options.every((o) => !o.is_correct) ? (
                     <span className="text-[10px] font-semibold uppercase tracking-wide px-2 py-0.5 rounded-full border border-blue-500/30 bg-blue-500/10 text-blue-600 dark:text-blue-400">
                       Opinion
                     </span>
                   ) : null}
+                  {q.is_optional && (
+                    <span className="text-[10px] font-semibold uppercase tracking-wide px-2 py-0.5 rounded-full border border-amber-500/30 bg-amber-500/10 text-amber-600 dark:text-amber-400">
+                      Optional
+                    </span>
+                  )}
                   {!q.is_active && <span className="text-[10px] font-semibold uppercase text-amber-600">retired</span>}
                 </div>
                 <p className="text-sm text-foreground">{q.prompt}</p>
@@ -215,9 +224,12 @@ function QuestionForm({
     new Set(bankQuestions.map((q) => q.topic).filter((t): t is string => Boolean(t && t.trim()))),
   ).sort()
 
-  const [questionType, setQuestionType] = useState<"mcq" | "textarea">(
-    initial?.question_type === "textarea" ? "textarea" : "mcq",
-  )
+  const [questionType, setQuestionType] = useState<"mcq" | "multiselect" | "textarea">(() => {
+    if (initial?.question_type === "textarea") return "textarea"
+    if (initial?.question_type === "multiselect" || initial?.question_type === "multiple_choice") return "multiselect"
+    return "mcq"
+  })
+  const [isOptional, setIsOptional] = useState<boolean>(initial?.is_optional ?? false)
   const [topic, setTopic] = useState(initial?.topic ?? "")
   const [isCustomTopic, setIsCustomTopic] = useState(() => {
     if (!initial?.topic) return false
@@ -252,20 +264,30 @@ function QuestionForm({
 
   const setOptionText = (i: number, text: string) =>
     setOptions((prev) => prev.map((o, idx) => (idx === i ? { ...o, text } : o)))
-  const setCorrect = (i: number) => {
+
+  const setCorrectSingle = (i: number) => {
     setIsOpinion(false)
     setOptions((prev) => prev.map((o, idx) => ({ ...o, is_correct: idx === i })))
+  }
+
+  const toggleCorrectMulti = (i: number) => {
+    setIsOpinion(false)
+    setOptions((prev) => prev.map((o, idx) => (idx === i ? { ...o, is_correct: !o.is_correct } : o)))
   }
 
   const save = async () => {
     setError("")
     if (!topic.trim()) { setError("Topic is required"); return }
     if (!prompt.trim()) { setError("Prompt is required"); return }
-    if (questionType === "mcq") {
-      if (options.length < 2) { setError("Multiple choice requires at least 2 options"); return }
+    if (questionType === "mcq" || questionType === "multiselect") {
+      if (options.length < 2) { setError("Question requires at least 2 options"); return }
       if (options.some((o) => !o.text.trim())) { setError("Every option needs text"); return }
       if (!isOpinion && !options.some((o) => o.is_correct)) {
-        setError("Please select a correct answer, or mark this question as opinion-based")
+        setError("Please select at least one correct answer, or mark this question as opinion-based")
+        return
+      }
+      if (questionType === "mcq" && !isOpinion && options.filter((o) => o.is_correct).length > 1) {
+        setError("Single choice questions can only have one correct answer")
         return
       }
     }
@@ -278,6 +300,7 @@ function QuestionForm({
         time_limit_seconds: timeLimitSeconds,
         prompt: prompt.trim(),
         question_type: questionType,
+        is_optional: isOptional,
         options: questionType === "textarea" ? [] : options.map((o) => ({ text: o.text.trim(), is_correct: isOpinion ? false : o.is_correct })),
         explanation: explanation.trim() || null,
       }
@@ -307,28 +330,53 @@ function QuestionForm({
         {/* Question Format Toggle */}
         <div className="flex flex-col gap-1.5">
           <label className="text-xs font-semibold text-foreground">Question Format</label>
-          <div className="grid grid-cols-2 gap-2 p-1 rounded-xl bg-muted/40 border border-border">
+          <div className="grid grid-cols-3 gap-2 p-1 rounded-xl bg-muted/40 border border-border">
             <button
               type="button"
-              onClick={() => setQuestionType("mcq")}
-              className={`py-2 px-3 text-xs font-semibold rounded-lg transition-colors cursor-pointer flex items-center justify-center gap-1.5 ${
+              onClick={() => {
+                setQuestionType("mcq")
+                if (options.filter((o) => o.is_correct).length > 1) {
+                  let found = false
+                  setOptions((prev) =>
+                    prev.map((o) => {
+                      if (o.is_correct && !found) {
+                        found = true
+                        return o
+                      }
+                      return { ...o, is_correct: false }
+                    }),
+                  )
+                }
+              }}
+              className={`py-2 px-2 text-xs font-semibold rounded-lg transition-colors cursor-pointer flex items-center justify-center text-center ${
                 questionType === "mcq"
                   ? "bg-primary text-primary-foreground shadow-xs"
                   : "text-muted-foreground hover:text-foreground"
               }`}
             >
-              Multiple Choice (Options)
+              Single Choice
+            </button>
+            <button
+              type="button"
+              onClick={() => setQuestionType("multiselect")}
+              className={`py-2 px-2 text-xs font-semibold rounded-lg transition-colors cursor-pointer flex items-center justify-center text-center ${
+                questionType === "multiselect"
+                  ? "bg-primary text-primary-foreground shadow-xs"
+                  : "text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              Multiple Choice
             </button>
             <button
               type="button"
               onClick={() => setQuestionType("textarea")}
-              className={`py-2 px-3 text-xs font-semibold rounded-lg transition-colors cursor-pointer flex items-center justify-center gap-1.5 ${
+              className={`py-2 px-2 text-xs font-semibold rounded-lg transition-colors cursor-pointer flex items-center justify-center text-center ${
                 questionType === "textarea"
                   ? "bg-primary text-primary-foreground shadow-xs"
                   : "text-muted-foreground hover:text-foreground"
               }`}
             >
-              Open-ended (Text Area)
+              Text Area
             </button>
           </div>
         </div>
@@ -428,6 +476,33 @@ function QuestionForm({
           <textarea value={prompt} onChange={(e) => setPrompt(e.target.value)} placeholder="Type the question prompt here…" rows={3} className={`${inputCls} h-auto py-2.5 resize-none`} />
         </div>
 
+        {/* Optional / Required Toggle */}
+        <div className="p-3 rounded-xl border border-border bg-muted/20 flex items-center justify-between gap-3">
+          <div className="flex flex-col gap-0.5">
+            <span className="text-xs font-semibold text-foreground">Question Requirement</span>
+            <span className="text-[11px] text-muted-foreground leading-normal">
+              {questionType === "textarea"
+                ? isOptional
+                  ? "Optional: Students can skip without writing an answer."
+                  : "Required: Students must write an answer before proceeding (no skip allowed)."
+                : isOptional
+                  ? "Optional: Students can proceed without making a selection."
+                  : "Required: Students must answer this question to proceed."}
+            </span>
+          </div>
+          <label className="flex items-center gap-2 cursor-pointer select-none shrink-0">
+            <input
+              type="checkbox"
+              checked={isOptional}
+              onChange={(e) => setIsOptional(e.target.checked)}
+              className="w-4 h-4 rounded text-primary border-border focus:ring-primary cursor-pointer"
+            />
+            <span className="text-xs font-semibold text-foreground">
+              {isOptional ? "Optional (Skip allowed)" : "Required"}
+            </span>
+          </label>
+        </div>
+
         {questionType === "textarea" ? (
           <div className="p-3.5 rounded-xl border border-dashed border-border bg-muted/20 flex flex-col gap-1">
             <span className="text-xs font-semibold text-foreground">Open-Ended Written Response (Unscored)</span>
@@ -439,7 +514,11 @@ function QuestionForm({
           <div className="flex flex-col gap-2.5">
             <div className="flex items-center justify-between flex-wrap gap-2">
               <label className="text-xs font-semibold text-foreground">
-                {isOpinion ? "Options (No correct answer required)" : "Options (select radio for correct answer)"}
+                {isOpinion
+                  ? "Options (No correct answer required)"
+                  : questionType === "multiselect"
+                  ? "Options (Check all correct answers)"
+                  : "Options (Select radio for the correct answer)"}
               </label>
               <label className="flex items-center gap-2 cursor-pointer select-none">
                 <input
@@ -463,10 +542,24 @@ function QuestionForm({
             {options.map((o, i) => (
               <div key={i} className="flex items-center gap-2">
                 {!isOpinion ? (
-                  <input
-                    type="radio" name="correct-option" checked={o.is_correct} onChange={() => setCorrect(i)}
-                    className="w-4 h-4 text-primary cursor-pointer shrink-0" title="Mark as correct answer"
-                  />
+                  questionType === "multiselect" ? (
+                    <input
+                      type="checkbox"
+                      checked={o.is_correct}
+                      onChange={() => toggleCorrectMulti(i)}
+                      className="w-4 h-4 rounded text-primary border-border focus:ring-primary cursor-pointer shrink-0"
+                      title="Mark as correct answer (multiple allowed)"
+                    />
+                  ) : (
+                    <input
+                      type="radio"
+                      name="correct-option"
+                      checked={o.is_correct}
+                      onChange={() => setCorrectSingle(i)}
+                      className="w-4 h-4 text-primary cursor-pointer shrink-0"
+                      title="Mark as correct answer"
+                    />
+                  )
                 ) : (
                   <span className="w-4 h-4 rounded-full border border-border bg-muted/50 shrink-0" title="Ungraded option" />
                 )}
@@ -1032,10 +1125,21 @@ function TemplateDetail({ templateId }: { templateId: string }) {
           >
             <option value="">Add from bank ({pickable.length} available)…</option>
             {pickable.map((q) => {
-              const typeLabel = q.question_type === "textarea" ? " - Text" : q.options.length > 0 && q.options.every((o) => !o.is_correct) ? " - Opinion" : ""
+              const isTextarea = q.question_type === "textarea"
+              const isMultiselect = q.question_type === "multiselect" || q.question_type === "multiple_choice"
+              const isOpinion = !isTextarea && q.options.length > 0 && q.options.every((o) => !o.is_correct)
+              const typeLabel = isTextarea
+                ? " - Text"
+                : isMultiselect
+                ? isOpinion
+                  ? " - Multi-select (Opinion)"
+                  : " - Multi-select"
+                : isOpinion
+                ? " - Opinion"
+                : ""
               return (
                 <option key={q.id} value={q.id}>
-                  [{q.topic} - {q.difficulty}{typeLabel}] {q.prompt.length > 60 ? q.prompt.slice(0, 60) + "…" : q.prompt}
+                  [{q.topic} - {q.difficulty}{typeLabel}{q.is_optional ? " - Optional" : ""}] {q.prompt.length > 60 ? q.prompt.slice(0, 60) + "…" : q.prompt}
                 </option>
               )
             })}
@@ -1158,11 +1262,21 @@ function TemplateDetail({ templateId }: { templateId: string }) {
                       <span className="text-[11px] font-semibold uppercase tracking-wide px-2.5 py-0.5 rounded-full border border-purple-500/30 bg-purple-500/15 text-purple-600 dark:text-purple-400">
                         Text Area
                       </span>
+                    ) : (q.question_type === "multiselect" || q.question_type === "multiple_choice") ? (
+                      <span className="text-[11px] font-semibold uppercase tracking-wide px-2.5 py-0.5 rounded-full border border-indigo-500/30 bg-indigo-500/15 text-indigo-600 dark:text-indigo-400">
+                        Multiple Choice{q.options.length > 0 && q.options.every((o) => !o.is_correct) ? " (Opinion)" : ""}
+                      </span>
                     ) : q.options.length > 0 && q.options.every((o) => !o.is_correct) ? (
                       <span className="text-[11px] font-semibold uppercase tracking-wide px-2.5 py-0.5 rounded-full border border-blue-500/30 bg-blue-500/15 text-blue-600 dark:text-blue-400">
                         Opinion
                       </span>
                     ) : null}
+
+                    {q.is_optional && (
+                      <span className="text-[11px] font-semibold uppercase tracking-wide px-2.5 py-0.5 rounded-full border border-amber-500/30 bg-amber-500/15 text-amber-600 dark:text-amber-400">
+                        Optional
+                      </span>
+                    )}
 
                     <span className="inline-flex items-center gap-1 text-xs font-medium text-muted-foreground px-2 py-0.5 rounded-md bg-muted/30">
                       <Clock size={12} /> {q.time_limit_seconds > 0 ? `${q.time_limit_seconds}s` : "Untimed"}
@@ -1234,7 +1348,11 @@ function TemplateDetail({ templateId }: { templateId: string }) {
                       </>
                     ) : (
                       <>
-                        <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Options & Answer Key</span>
+                        <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+                          {q.question_type === "multiselect" || q.question_type === "multiple_choice"
+                            ? "Options & Answer Key (Multiple Choice — select all that apply)"
+                            : "Options & Answer Key"}
+                        </span>
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                           {q.options.map((opt, optIdx) => (
                             <div

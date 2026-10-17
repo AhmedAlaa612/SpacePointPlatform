@@ -48,6 +48,7 @@ class CohortQuizQuestion(Base):
     time_limit_seconds = Column(Integer, nullable=False)
     bloom_level = Column(String(32), nullable=True)
     question_type = Column(String(32), nullable=True)
+    is_optional = Column(Boolean, nullable=False, default=False, server_default="false")
     prompt = Column(Text, nullable=False)
     options = Column(JSONB, nullable=False)  # [{"text": str, "is_correct": bool}, ...]
     explanation = Column(Text, nullable=True)
@@ -176,6 +177,7 @@ class CohortQuizAnswer(Base):
     # change an already-submitted attempt's topic_breakdown.
     topic = Column(String(128), nullable=False)
     selected_option_index = Column(Integer, nullable=True)
+    selected_option_indices = Column(JSONB, nullable=True)
     text_answer = Column(Text, nullable=True)
     is_correct = Column(Boolean, nullable=True, default=None)
     timed_out = Column(Boolean, nullable=False, default=False, server_default="false")

@@ -35,7 +35,7 @@ async def create_question(
     question = CohortQuizQuestion(
         id=uuid.uuid4(), topic=body.topic, subtopic=body.subtopic, difficulty=body.difficulty,
         time_limit_seconds=body.time_limit_seconds, bloom_level=body.bloom_level,
-        question_type=body.question_type or "mcq", prompt=body.prompt,
+        question_type=body.question_type or "mcq", is_optional=bool(body.is_optional), prompt=body.prompt,
         options=[o.model_dump() for o in body.options], explanation=body.explanation,
         source_url=body.source_url, created_by=created_by,
     )
@@ -427,6 +427,7 @@ async def get_attempt_questions(db: AsyncSession, attempt: CohortQuizAttempt) ->
             "time_limit_seconds": q.time_limit_seconds, "prompt": q.prompt,
             "options": [q_options[i]["text"] for i in option_order] if q_options else [],
             "question_type": q.question_type or "mcq",
+            "is_optional": getattr(q, "is_optional", False),
         })
     return out
 
@@ -456,15 +457,42 @@ async def submit_attempt(db: AsyncSession, attempt: CohortQuizAttempt, answers: 
         q_options = q.options or []
 
         is_textarea = (q_type == "textarea")
+        is_multiselect = (q_type in ("multiselect", "multiple_choice"))
         has_correct_option = any(o.get("is_correct") for o in q_options)
 
         text_ans = None
         selected_original_index = None
+        selected_original_indices = None
         is_correct = None
 
         if is_textarea:
             text_ans = answer.text_answer.strip() if (answer and answer.text_answer) else None
             is_correct = None
+        elif is_multiselect:
+            sel_pos = []
+            if answer:
+                if answer.selected_option_indices is not None:
+                    sel_pos = answer.selected_option_indices
+                elif answer.selected_option_index is not None:
+                    sel_pos = [answer.selected_option_index]
+            selected_original_indices = [
+                option_order[p] for p in sel_pos
+                if 0 <= p < len(option_order)
+            ]
+            selected_original_index = selected_original_indices[0] if selected_original_indices else None
+
+            if not has_correct_option:
+                is_correct = None
+            else:
+                scorable_total += 1
+                correct_orig = {i for i, o in enumerate(q_options) if o.get("is_correct")}
+                is_correct = bool(set(selected_original_indices) == correct_orig)
+                if is_correct:
+                    score += 1
+                bucket = topic_breakdown.setdefault(q.topic, {"correct": 0, "total": 0})
+                bucket["total"] += 1
+                if is_correct:
+                    bucket["correct"] += 1
         elif not has_correct_option:
             selected_position = answer.selected_option_index if answer else None
             selected_original_index = (
@@ -472,6 +500,7 @@ async def submit_attempt(db: AsyncSession, attempt: CohortQuizAttempt, answers: 
                 if selected_position is not None and 0 <= selected_position < len(option_order)
                 else None
             )
+            selected_original_indices = [selected_original_index] if selected_original_index is not None else []
             is_correct = None
         else:
             scorable_total += 1
@@ -481,6 +510,7 @@ async def submit_attempt(db: AsyncSession, attempt: CohortQuizAttempt, answers: 
                 if selected_position is not None and 0 <= selected_position < len(option_order)
                 else None
             )
+            selected_original_indices = [selected_original_index] if selected_original_index is not None else []
             is_correct = selected_original_index is not None and bool(q_options[selected_original_index].get("is_correct"))
 
             if is_correct:
@@ -493,19 +523,13 @@ async def submit_attempt(db: AsyncSession, attempt: CohortQuizAttempt, answers: 
         new_answers.append(CohortQuizAnswer(
             id=uuid.uuid4(), attempt_id=attempt.id, question_id=qid, topic=q.topic,
             selected_option_index=selected_original_index,
+            selected_option_indices=selected_original_indices,
             text_answer=text_ans,
             is_correct=is_correct,
             timed_out=bool(answer.timed_out) if answer else True,
             time_taken_seconds=answer.time_taken_seconds if answer else None,
         ))
 
-    # Two concurrent submits for the same attempt (double-click, or a retry
-    # racing a slow first response) can both pass the `status == "submitted"`
-    # check above before either flushes — the real guard is
-    # `uq_cohort_quiz_answer_attempt_question`; same SAVEPOINT idiom
-    # `add_template_question`/`generate_template_questions`/`start_attempt`
-    # use for their own races, so a lost race gets the same clean 409
-    # instead of an unhandled IntegrityError.
     try:
         async with db.begin_nested():
             db.add_all(new_answers)
@@ -538,37 +562,46 @@ async def get_attempt_review(db: AsyncSession, attempt: CohortQuizAttempt) -> li
     for entry, q in resolved:
         answer = answers_by_qid.get(q.id)
         if answer is None:
-            # No persisted CohortQuizAnswer means this question was skipped
-            # at submit time (invalid then — see `_resolve_question_order`)
-            # and `attempt.total`/`score` were adjusted accordingly. Even
-            # if the question was since edited back into a valid shape,
-            # it must stay excluded here too, or the review list would grow
-            # past what `total`/`score` at the top of the result screen say.
             continue
         option_order: list[int] = entry.get("option_order", [])
         q_options = q.options or []
-        correct_original_index = next((i for i, o in enumerate(q_options) if o.get("is_correct")), None)
-        correct_idx = (
-            option_order.index(correct_original_index)
-            if (correct_original_index is not None and correct_original_index in option_order)
-            else None
+        correct_original_indices = [i for i, o in enumerate(q_options) if o.get("is_correct")]
+        correct_indices = [
+            option_order.index(i)
+            for i in correct_original_indices
+            if i in option_order
+        ]
+        correct_idx = correct_indices[0] if correct_indices else None
+
+        sel_orig_indices = (
+            answer.selected_option_indices
+            if answer.selected_option_indices is not None
+            else ([answer.selected_option_index] if answer.selected_option_index is not None else [])
         )
+        selected_indices = [
+            option_order.index(i)
+            for i in sel_orig_indices
+            if i in option_order
+        ]
         selected_idx = (
             option_order.index(answer.selected_option_index)
             if (answer.selected_option_index is not None and answer.selected_option_index in option_order)
-            else None
+            else (selected_indices[0] if selected_indices else None)
         )
         out.append({
             "question_id": q.id, "topic": q.topic, "prompt": q.prompt,
             "options": [q_options[i]["text"] for i in option_order] if q_options else [],
             "selected_index": selected_idx,
+            "selected_indices": selected_indices,
             "correct_index": correct_idx,
+            "correct_indices": correct_indices,
             "is_correct": answer.is_correct,
             "explanation": q.explanation,
             "time_taken_seconds": answer.time_taken_seconds,
             "timed_out": answer.timed_out,
             "question_type": q.question_type or "mcq",
             "text_answer": answer.text_answer,
+            "is_optional": getattr(q, "is_optional", False),
         })
     return out
 

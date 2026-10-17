@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useNavigate, useParams } from "@tanstack/react-router"
 import { isAxiosError } from "axios"
-import { AlertCircle, CheckCircle2, Clock, Lightbulb, Sparkles, Trophy, XCircle } from "lucide-react"
+import { AlertCircle, Check, CheckCircle2, Clock, Lightbulb, Sparkles, Trophy, XCircle } from "lucide-react"
 import { getCohortQuizResultApi, startCohortQuizApi, submitCohortQuizApi } from "@/api/cohort_quiz"
 import type { CohortQuizAnswerInput } from "@/types/cohort_quiz"
 import { Spinner } from "@/components/ui/primitives"
@@ -90,6 +90,7 @@ export default function CohortQuizPage() {
   const [index, setIndex] = useState(0)
   const [answers, setAnswers] = useState<CohortQuizAnswerInput[]>([])
   const [selected, setSelected] = useState<number | null>(null)
+  const [selectedIndices, setSelectedIndices] = useState<number[]>([])
   const [textAnswer, setTextAnswer] = useState("")
   const textAnswerRef = useRef("")
   textAnswerRef.current = textAnswer
@@ -141,6 +142,7 @@ export default function CohortQuizPage() {
 
   useEffect(() => {
     setSelected(null)
+    setSelectedIndices([])
     setTextAnswer("")
     textAnswerRef.current = ""
     setLocked(false)
@@ -148,19 +150,31 @@ export default function CohortQuizPage() {
     questionStartRef.current = Date.now()
   }, [index])
 
-  const recordAnswer = (selectedIndex: number | null, timedOut: boolean, textVal?: string | null) => {
+  const recordAnswer = (
+    selectedIndex: number | null,
+    timedOut: boolean,
+    textVal?: string | null,
+    multiIndices?: number[] | null,
+  ) => {
     if (lockedRef.current || !attempt) return
     lockedRef.current = true
     const question = attempt.questions[index]
     const elapsed = Math.round((Date.now() - questionStartRef.current) / 1000)
     const isTextarea = question.question_type === "textarea"
+    const isMultiselect = question.question_type === "multiselect" || question.question_type === "multiple_choice"
     const rawText = textVal !== undefined ? textVal : textAnswerRef.current
     const finalTrimmedText = isTextarea ? (rawText?.trim() || null) : null
+
+    const finalMultiIndices = isMultiselect
+      ? (multiIndices !== undefined ? multiIndices : selectedIndices)
+      : (selectedIndex !== null ? [selectedIndex] : null)
+
     const updated: CohortQuizAnswerInput[] = [
       ...answers,
       {
         question_id: question.question_id,
         selected_option_index: selectedIndex,
+        selected_option_indices: finalMultiIndices,
         text_answer: finalTrimmedText,
         time_taken_seconds: elapsed,
         timed_out: timedOut,
@@ -244,6 +258,7 @@ export default function CohortQuizPage() {
           </h2>
           {resultData.questions.map((q, i) => {
             const isTextarea = q.question_type === "textarea"
+            const isMultiselect = q.question_type === "multiselect" || q.question_type === "multiple_choice"
             const isOpinion = !isTextarea && q.is_correct === null
             const cardBorder = isTextarea
               ? "border-purple-500/40 bg-card hover:border-purple-500/60"
@@ -266,6 +281,11 @@ export default function CohortQuizPage() {
                     <span className="text-xs font-semibold uppercase tracking-wider px-2.5 py-1 rounded-full border border-border bg-muted/50 text-muted-foreground">
                       {q.topic}
                     </span>
+                    {q.is_optional && (
+                      <span className="text-xs font-semibold uppercase tracking-wider px-2 py-0.5 rounded-full border border-amber-500/30 bg-amber-500/10 text-amber-500">
+                        Optional
+                      </span>
+                    )}
                   </div>
                   {isTextarea ? (
                     <span className="flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider px-3 py-1 rounded-full bg-purple-500/15 text-purple-400 border-2 border-purple-500/30">
@@ -273,7 +293,7 @@ export default function CohortQuizPage() {
                     </span>
                   ) : isOpinion ? (
                     <span className="flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider px-3 py-1 rounded-full bg-blue-500/15 text-blue-400 border-2 border-blue-500/30">
-                      Opinion
+                      {isMultiselect ? "Multiple Choice (Opinion)" : "Opinion"}
                     </span>
                   ) : q.is_correct ? (
                     <span className="flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider px-3 py-1 rounded-full bg-emerald-500/15 text-emerald-400 border-2 border-emerald-500/30">
@@ -303,7 +323,7 @@ export default function CohortQuizPage() {
                   </div>
                 ) : (
                   <>
-                    {q.selected_index === null && (
+                    {q.selected_index === null && (!q.selected_indices || q.selected_indices.length === 0) && (
                       <p className="text-sm text-amber-500/90 font-medium italic flex items-center gap-1.5">
                         <AlertCircle size={14} /> Left unanswered.
                       </p>
@@ -311,8 +331,12 @@ export default function CohortQuizPage() {
 
                     <div className="flex flex-col gap-2.5 pt-1">
                       {q.options.map((text, oi) => {
-                        const isSelected = q.selected_index === oi
-                        const isCorrectOption = q.correct_index === oi
+                        const isSelected = q.selected_indices && q.selected_indices.length > 0
+                          ? q.selected_indices.includes(oi)
+                          : q.selected_index === oi
+                        const isCorrectOption = q.correct_indices && q.correct_indices.length > 0
+                          ? q.correct_indices.includes(oi)
+                          : q.correct_index === oi
 
                         let optionStyle = "bg-muted/40 text-muted-foreground border border-border/40"
                         let badgeStyle = "bg-muted text-muted-foreground"
@@ -348,9 +372,14 @@ export default function CohortQuizPage() {
                                 Your choice
                               </span>
                             )}
-                            {!isOpinion && isCorrectOption && (
+                            {!isOpinion && isCorrectOption && isSelected && (
                               <span className="text-xs font-bold shrink-0 px-2.5 py-1 rounded-lg bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
                                 Correct answer
+                              </span>
+                            )}
+                            {!isOpinion && isCorrectOption && !isSelected && (
+                              <span className="text-xs font-bold shrink-0 px-2.5 py-1 rounded-lg bg-emerald-500/10 text-emerald-400/80 border border-emerald-500/20 italic">
+                                Missed
                               </span>
                             )}
                             {!isOpinion && isSelected && !isCorrectOption && (
@@ -422,7 +451,15 @@ export default function CohortQuizPage() {
         {!locked && question.time_limit_seconds > 0 && (
           <Countdown
             seconds={question.time_limit_seconds} questionKey={question.question_id}
-            onExpire={() => recordAnswer(null, true)}
+            onExpire={() => {
+              if (question.question_type === "textarea") {
+                recordAnswer(null, true, textAnswerRef.current)
+              } else if (question.question_type === "multiselect" || question.question_type === "multiple_choice") {
+                recordAnswer(null, true, null, selectedIndices)
+              } else {
+                recordAnswer(null, true)
+              }
+            }}
           />
         )}
         {!locked && question.time_limit_seconds <= 0 && (
@@ -447,17 +484,84 @@ export default function CohortQuizPage() {
             />
             <div className="flex items-center justify-between text-xs text-muted-foreground px-1">
               <span>{textAnswer.length} / 2000 characters</span>
-              <span className="italic">Open-ended question (unscored)</span>
+              <span className="italic">
+                {question.is_optional ? "Open-ended question (Optional)" : "Open-ended question (Required)"}
+              </span>
             </div>
           </div>
 
           <div className="flex justify-end">
             <Button
               onClick={() => recordAnswer(null, false, textAnswer)}
-              disabled={locked}
+              disabled={locked || (!question.is_optional && !textAnswer.trim())}
               className="h-11 px-6 rounded-xl font-semibold text-sm"
             >
-              {textAnswer.trim() ? "Submit Answer & Next" : "Skip & Next"}
+              {textAnswer.trim()
+                ? "Submit Answer & Next"
+                : question.is_optional
+                ? "Skip & Next"
+                : "Submit Answer & Next"}
+            </Button>
+          </div>
+        </div>
+      ) : (question.question_type === "multiselect" || question.question_type === "multiple_choice") ? (
+        <div className="flex flex-col gap-4">
+          <div className="flex items-center justify-between px-1 text-xs text-muted-foreground">
+            <span className="font-semibold uppercase tracking-wider text-primary">
+              Multiple Choice — Select all that apply
+            </span>
+            <span>
+              {question.is_optional ? "(Optional)" : "(Required)"}
+            </span>
+          </div>
+
+          <div className="grid grid-cols-1 gap-3">
+            {question.options.map((text, i) => {
+              const isChecked = selectedIndices.includes(i)
+              return (
+                <button
+                  key={i}
+                  type="button"
+                  onClick={() => {
+                    if (locked) return
+                    setSelectedIndices((prev) =>
+                      prev.includes(i) ? prev.filter((idx) => idx !== i) : [...prev, i].sort((a, b) => a - b)
+                    )
+                  }}
+                  disabled={locked}
+                  className={`min-h-[64px] py-3.5 px-5 rounded-2xl border-2 text-left text-base font-medium text-foreground transition-all flex items-center gap-4 cursor-pointer ${
+                    isChecked ? "border-primary bg-primary/10" : "border-border bg-card"
+                  } ${!locked ? "hover:border-primary/50 active:scale-[0.98]" : "disabled:opacity-60"}`}
+                >
+                  <span
+                    className={`w-7 h-7 flex-none flex items-center justify-center rounded-lg border-2 transition-colors ${
+                      isChecked
+                        ? "border-primary bg-primary text-primary-foreground"
+                        : "border-muted-foreground/40 bg-background"
+                    }`}
+                  >
+                    {isChecked && <Check size={16} className="stroke-[3]" />}
+                  </span>
+                  <span className="w-8 h-8 flex-none flex items-center justify-center rounded-xl border border-border bg-muted/30 text-xs font-bold text-muted-foreground">
+                    {String.fromCharCode(65 + i)}
+                  </span>
+                  <span className="flex-1 text-base leading-snug">{text}</span>
+                </button>
+              )
+            })}
+          </div>
+
+          <div className="flex justify-end pt-2">
+            <Button
+              onClick={() => recordAnswer(null, false, null, selectedIndices)}
+              disabled={locked || (!question.is_optional && selectedIndices.length === 0)}
+              className="h-11 px-6 rounded-xl font-semibold text-sm"
+            >
+              {selectedIndices.length > 0
+                ? "Submit Answer & Next"
+                : question.is_optional
+                ? "Skip & Next"
+                : "Submit Answer & Next"}
             </Button>
           </div>
         </div>

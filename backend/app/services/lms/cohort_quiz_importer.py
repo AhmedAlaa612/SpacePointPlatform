@@ -8,6 +8,7 @@ targeting this domain's own column shape — matches the boss-provided
 from __future__ import annotations
 
 import io
+import re
 
 from pydantic import ValidationError
 
@@ -144,12 +145,22 @@ def parse_cohort_quiz_question_import(file_bytes: bytes) -> tuple[list[CohortQui
             continue
 
         correct_raw = cell(row, correct_col)
-        correct_letter = str(correct_raw).strip().upper() if correct_raw is not None else ""
-        is_opinion = correct_letter in ("", "NONE", "N/A", "OPINION")
-        if not is_opinion and correct_letter not in OPTION_LETTERS:
-            errors.append(f"Row {row_idx}: Correct Answer must be one of A, B, C, D (or None/blank for opinion-based)")
-            continue
+        correct_str = str(correct_raw).strip().upper() if correct_raw is not None else ""
+        is_opinion = correct_str in ("", "NONE", "N/A", "OPINION")
 
+        parts = [p.strip() for p in re.split(r"[,; /]+", correct_str) if p.strip()] if not is_opinion else []
+        is_multiselect = bool(
+            (qtype_raw and qtype_raw.lower() in ("multiselect", "multi", "multiple_choice", "multiple-choice"))
+            or len(parts) > 1
+        )
+
+        if not is_opinion:
+            invalid = [p for p in parts if p not in OPTION_LETTERS]
+            if invalid or not parts:
+                errors.append(f"Row {row_idx}: Correct Answer must be one or more of A, B, C, D (or None/blank for opinion-based)")
+                continue
+
+        final_qtype = "multiselect" if is_multiselect else "mcq"
         try:
             questions.append(CohortQuizQuestionIn(
                 topic=topic,
@@ -157,10 +168,10 @@ def parse_cohort_quiz_question_import(file_bytes: bytes) -> tuple[list[CohortQui
                 difficulty=difficulty,
                 time_limit_seconds=time_limit_seconds,
                 bloom_level=text_or_none(row, bloom_col),
-                question_type=text_or_none(row, qtype_col) or "mcq",
+                question_type=final_qtype,
                 prompt=prompt,
                 options=[
-                    CohortQuizQuestionOptionIn(text=text, is_correct=False if is_opinion else (letter == correct_letter))
+                    CohortQuizQuestionOptionIn(text=text, is_correct=False if is_opinion else (letter in parts))
                     for letter, text in options
                 ],
                 explanation=text_or_none(row, explanation_col),

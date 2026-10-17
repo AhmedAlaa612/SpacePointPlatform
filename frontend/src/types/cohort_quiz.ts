@@ -20,7 +20,8 @@ export interface CohortQuizQuestion {
   difficulty: CohortQuizDifficulty;
   time_limit_seconds: number;
   bloom_level?: string | null;
-  question_type?: string | null;
+  question_type?: "mcq" | "multiselect" | "textarea" | string | null;
+  is_optional?: boolean;
   prompt: string;
   options: CohortQuizQuestionOption[];
   explanation?: string | null;
@@ -65,7 +66,8 @@ export interface CohortQuizAttemptQuestion {
   time_limit_seconds: number;
   prompt: string;
   options: string[];
-  question_type?: "mcq" | "textarea" | string | null;
+  question_type?: "mcq" | "multiselect" | "textarea" | string | null;
+  is_optional?: boolean;
 }
 
 export interface CohortQuizAttempt {
@@ -79,6 +81,7 @@ export interface CohortQuizAttempt {
 export interface CohortQuizAnswerInput {
   question_id: string;
   selected_option_index: number | null;
+  selected_option_indices?: number[] | null;
   text_answer?: string | null;
   time_taken_seconds?: number | null;
   timed_out?: boolean;
@@ -90,13 +93,16 @@ export interface CohortQuizQuestionReview {
   prompt: string;
   options: string[];
   selected_index: number | null;
+  selected_indices?: number[] | null;
   correct_index: number | null;
+  correct_indices?: number[] | null;
   is_correct: boolean | null;
   explanation?: string | null;
   time_taken_seconds?: number | null;
   timed_out?: boolean;
-  question_type?: "mcq" | "textarea" | string | null;
+  question_type?: "mcq" | "multiselect" | "textarea" | string | null;
   text_answer?: string | null;
+  is_optional?: boolean;
 }
 
 export interface CohortQuizResult {

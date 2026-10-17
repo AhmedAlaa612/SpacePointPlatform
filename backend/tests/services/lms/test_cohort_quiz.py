@@ -740,3 +740,79 @@ async def test_submit_attempt_with_textarea_and_opinion_questions(db):
     assert rev_text["question_type"] == "textarea"
     assert rev_text["text_answer"] == "Orbital mechanics requires careful delta-v planning."
 
+
+async def test_cohort_quiz_multiselect_and_optional(db):
+    """Test multiselect questions with multiple correct options and is_optional support."""
+    # 1. Validation: mcq cannot have >1 correct, but multiselect can
+    with pytest.raises(ValueError, match="single choice question cannot have more than one correct option"):
+        CohortQuizQuestionIn(
+            topic="Test", difficulty="Easy", prompt="Pick one", question_type="mcq",
+            options=[
+                CohortQuizQuestionOptionIn(text="A", is_correct=True),
+                CohortQuizQuestionOptionIn(text="B", is_correct=True),
+            ],
+        )
+
+    q_multi_in = CohortQuizQuestionIn(
+        topic="MultiTopic", difficulty="Medium", prompt="Pick all prime numbers",
+        question_type="multiselect", is_optional=True,
+        options=[
+            CohortQuizQuestionOptionIn(text="2", is_correct=True),
+            CohortQuizQuestionOptionIn(text="3", is_correct=True),
+            CohortQuizQuestionOptionIn(text="4", is_correct=False),
+        ],
+    )
+    assert q_multi_in.is_optional is True
+    q_multi = await svc.create_question(db, body=q_multi_in, created_by=None)
+    assert q_multi.question_type == "multiselect"
+    assert q_multi.is_optional is True
+
+    # 2. Template and attempt with multiselect
+    user = await _make_user(db)
+    cohort = await _make_cohort(db)
+    lms_program = LmsProgram(id=uuid.uuid4(), program_id=cohort.program_id, name="Quiz Program MultiSelect")
+    db.add(lms_program)
+    await db.flush()
+
+    template = await svc.create_template(db, body=CohortQuizTemplateCreate(name="Multi Template"), created_by=user.id)
+    await svc.add_template_question(db, template_id=template.id, question_id=q_multi.id)
+
+    item = await _quiz_item(db, lms_program=lms_program, template_id=template.id)
+    student = await _make_user(db, roles=["student"])
+    attempt = await svc.start_attempt(db, item=item, user_id=student.id, cohort_id=cohort.id)
+
+    questions = await svc.get_attempt_questions(db, attempt)
+    assert len(questions) == 1
+    assert questions[0]["question_type"] == "multiselect"
+    assert questions[0]["is_optional"] is True
+
+    # 3. Test submitting multiselect: partial selection (incorrect)
+    class _AnswerInput:
+        def __init__(self, qid, selected_indices=None, timed_out=False):
+            self.question_id = qid
+            self.selected_option_index = None
+            self.selected_option_indices = selected_indices
+            self.text_answer = None
+            self.timed_out = timed_out
+            self.time_taken_seconds = 8
+
+    # Option order for the attempt
+    order_entry = attempt.question_order[0]
+    # Options 0 ("2") and 1 ("3") are correct in original order
+    pos_2 = order_entry["option_order"].index(0)
+    pos_3 = order_entry["option_order"].index(1)
+    pos_4 = order_entry["option_order"].index(2)
+
+    # Submit only one correct option (should be incorrect because it's all-or-nothing)
+    submitted = await svc.submit_attempt(db, attempt, [_AnswerInput(q_multi.id, selected_indices=[pos_2])])
+    assert submitted.score == 0
+    assert submitted.total == 1
+
+    review = await svc.get_attempt_review(db, submitted)
+    rev_q = review[0]
+    assert rev_q["is_correct"] is False
+    assert rev_q["is_optional"] is True
+    assert set(rev_q["correct_indices"]) == {pos_2, pos_3}
+    assert rev_q["selected_indices"] == [pos_2]
+
+

@@ -40,6 +40,7 @@ def _question_out(q: CohortQuizQuestion) -> CohortQuizQuestionOut:
     return CohortQuizQuestionOut(
         id=q.id, topic=q.topic, subtopic=q.subtopic, difficulty=q.difficulty,
         time_limit_seconds=q.time_limit_seconds, bloom_level=q.bloom_level, question_type=q.question_type,
+        is_optional=getattr(q, "is_optional", False),
         prompt=q.prompt, options=q.options, explanation=q.explanation, source_url=q.source_url,
         is_active=q.is_active,
     )

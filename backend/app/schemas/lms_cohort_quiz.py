@@ -25,6 +25,7 @@ class CohortQuizQuestionIn(BaseModel):
     time_limit_seconds: int = Field(default=15, ge=0)
     bloom_level: str | None = None
     question_type: str | None = "mcq"
+    is_optional: bool = False
     prompt: str
     options: list[CohortQuizQuestionOptionIn] = Field(default_factory=list)
     explanation: str | None = None
@@ -38,8 +39,8 @@ class CohortQuizQuestionIn(BaseModel):
         if len(self.options) < 2:
             raise ValueError("a selection question needs at least 2 options")
         correct = sum(1 for o in self.options if o.is_correct)
-        if correct > 1:
-            raise ValueError(f"a question cannot have more than one correct option, got {correct}")
+        if q_type == "mcq" and correct > 1:
+            raise ValueError(f"a single choice question cannot have more than one correct option, got {correct}")
         return self
 
 
@@ -50,6 +51,7 @@ class CohortQuizQuestionUpdate(BaseModel):
     time_limit_seconds: int | None = Field(default=None, ge=0)
     bloom_level: str | None = None
     question_type: str | None = None
+    is_optional: bool | None = None
     prompt: str | None = None
     options: list[CohortQuizQuestionOptionIn] | None = None
     explanation: str | None = None
@@ -65,8 +67,8 @@ class CohortQuizQuestionUpdate(BaseModel):
             if len(self.options) < 2:
                 raise ValueError("a selection question needs at least 2 options")
             correct = sum(1 for o in self.options if o.is_correct)
-            if correct > 1:
-                raise ValueError(f"a question cannot have more than one correct option, got {correct}")
+            if q_type == "mcq" and correct > 1:
+                raise ValueError(f"a single choice question cannot have more than one correct option, got {correct}")
         return self
 
 
@@ -78,6 +80,7 @@ class CohortQuizQuestionOut(BaseModel):
     time_limit_seconds: int
     bloom_level: str | None
     question_type: str | None = "mcq"
+    is_optional: bool = False
     prompt: str
     options: list[CohortQuizQuestionOptionIn] = Field(default_factory=list)
     explanation: str | None
@@ -158,6 +161,7 @@ class CohortQuizAttemptQuestionOut(BaseModel):
     prompt: str
     options: list[str] = Field(default_factory=list)
     question_type: str = "mcq"
+    is_optional: bool = False
 
 
 class CohortQuizAttemptOut(BaseModel):
@@ -170,9 +174,11 @@ class CohortQuizAttemptOut(BaseModel):
 
 class CohortQuizAnswerIn(BaseModel):
     question_id: UUID
-    # The DISPLAYED option position the student picked (0-based), or None
-    # if left blank/timed out/textarea question.
+    # The DISPLAYED option position the student picked (0-based) for single-choice,
+    # or None if left blank/timed out/textarea question.
     selected_option_index: int | None = None
+    # For multiple-choice (multiselect): the list of displayed positions picked.
+    selected_option_indices: list[int] | None = None
     text_answer: str | None = None
     time_taken_seconds: int | None = None
     timed_out: bool = False
@@ -192,7 +198,9 @@ class CohortQuizQuestionReviewOut(BaseModel):
     prompt: str
     options: list[str] = Field(default_factory=list)
     selected_index: int | None = None
+    selected_indices: list[int] = Field(default_factory=list)
     correct_index: int | None = None
+    correct_indices: list[int] = Field(default_factory=list)
     is_correct: bool | None = None
     explanation: str | None = None
     # How long the student took (client-tracked, never server-validated —
@@ -202,6 +210,7 @@ class CohortQuizQuestionReviewOut(BaseModel):
     timed_out: bool = False
     question_type: str = "mcq"
     text_answer: str | None = None
+    is_optional: bool = False
 
 
 class CohortQuizResultOut(BaseModel):
