@@ -1,6 +1,5 @@
-import { Home, GraduationCap, Trophy, ClipboardCheck, Rocket } from "lucide-react";
-// import { Gamepad2 } from "lucide-react"; // Live Quiz icon — restore alongside the NAV_ITEMS entry below
-// import { Rocket } from "lucide-react"; // Missions icon — restore alongside the NAV_ITEMS entry below
+import { Home, GraduationCap, Trophy, ClipboardCheck } from "lucide-react";
+// import { Gamepad2, Rocket } from "lucide-react"; // Live Quiz / Missions / Arcade icons — restore alongside their NAV_ITEMS entries below
 
 /** `catalog`, `paths` and `profile` are still reachable pages — they just
  * aren't nav entries any more (2026-08-12): discovery moved onto the landing
@@ -20,12 +19,14 @@ export const NAV_ITEMS: { key: LearnNavActive; label: string; to: string; icon: 
   // { key: "missions", label: "Missions", to: "/learn/missions", icon: Rocket },
   // Live Quiz tab hidden from students per management request; re-enable by uncommenting.
   // { key: "games", label: "Live Quiz", to: "/learn/games", icon: Gamepad2 },
-  { key: "arcade", label: "Arcade", to: "/learn/arcade", icon: Rocket },
+  // Arcade tab hidden from students per management request; re-enable by uncommenting.
+  // { key: "arcade", label: "Arcade", to: "/learn/arcade", icon: Rocket },
   { key: "leaderboard", label: "Leaderboard", to: "/learn/leaderboard", icon: Trophy },
 ];
 
-/** One row of 5 on mobile — Home lives in the profile row instead (see
+/** One row on mobile — Home lives in the profile row instead (see
  * LearnMobileTabBar). Unchanged by the sidebar redesign (2026-09). */
 // Missions tab hidden temporarily per management request; re-enable by uncommenting NAV_ITEMS
 // above and restoring "missions" here in its original slot: ["my-courses", "checklists", "missions", "games", "leaderboard"].
-export const MOBILE_TAB_ITEMS: LearnNavActive[] = ["my-courses", "checklists", "arcade", "leaderboard"];
+// Also restore "games" and "arcade" here to match the NAV_ITEMS entries above.
+export const MOBILE_TAB_ITEMS: LearnNavActive[] = ["my-courses", "checklists", "leaderboard"];
