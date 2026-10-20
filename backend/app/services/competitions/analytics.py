@@ -418,7 +418,10 @@ async def cohort_team_analytics(db: AsyncSession, *, cohort_id: uuid.UUID, mode:
             total = len(teams)
             done = sum(
                 1 for t in teams
-                if (p := progress_by_team_item.get((t.id, item.id))) is not None and p.status == "done"
+                if (
+                    ((p := progress_by_team_item.get((t.id, item.id))) is not None and p.status == "done")
+                    or (item.item_type == "team_setup" and bool(t.name) and (t.roster_team_id is None or t.name != t.roster_team_id))
+                )
             )
             awaiting = sum(
                 1 for t in teams
@@ -457,6 +460,8 @@ async def cohort_team_analytics(db: AsyncSession, *, cohort_id: uuid.UUID, mode:
         for item in required_team_items:
             progress = progress_by_team_item.get((team.id, item.id))
             status = progress.status if progress is not None else "pending"
+            if item.item_type == "team_setup" and status == "pending" and team.name and (team.roster_team_id is None or team.name != team.roster_team_id):
+                status = "done"
             if status == "done":
                 done += 1
             elif status == "awaiting_confirmation":
@@ -472,6 +477,8 @@ async def cohort_team_analytics(db: AsyncSession, *, cohort_id: uuid.UUID, mode:
         for item in team_items:
             progress = progress_by_team_item.get((team.id, item.id))
             status = progress.status if progress is not None else "pending"
+            if item.item_type == "team_setup" and status == "pending" and team.name and (team.roster_team_id is None or team.name != team.roster_team_id):
+                status = "done"
             deliverables.append({
                 "item_id": item.id,
                 "title": item.title,

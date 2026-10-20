@@ -2526,6 +2526,7 @@ async def assignment_item_detail(db: AsyncSession, *, assignment_id: uuid.UUID) 
 
     out = []
     dashboard_cache: dict[uuid.UUID, dict | None] = {}
+    team = await team_for_cohort_member(db, cohort_id=assignment.cohort_id, user_id=assignment.user_id)
     for item, progress in pairs:
         team_progress = team_progress_by_item.get(item.id) if item.scope == "team" else None
         # Whichever row actually holds this item's state — the shared team
@@ -2535,8 +2536,12 @@ async def assignment_item_detail(db: AsyncSession, *, assignment_id: uuid.UUID) 
         status = await refresh_item_progress(
             db, progress=target, item=item, user_id=assignment.user_id, dashboard_cache=dashboard_cache,
         )
+        # Team formation: done = in a team (see get_student_checklist / _assignment_summary) —
+        # ops-created or roster-imported teams without a stored progress row still complete the step.
+        if item.item_type == "team_setup" and team is not None and status == "pending":
+            status = "done"
         submitted_url = target.submitted_url
-        completed_at = target.completed_at
+        completed_at = target.completed_at or (team.created_at if item.item_type == "team_setup" and team is not None and status == "done" else None)
         confirmed_by_user_id = target.confirmed_by_user_id
         attempt_id = target.mission_attempt_id
 

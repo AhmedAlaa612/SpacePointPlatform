@@ -609,6 +609,12 @@ async def _register_and_assign_team(
     if team_name and team.name == team.roster_team_id and team.name != team_name:
         await rename_team(db, team_id=team.id, name=team_name)
 
+    # When a team has a real display name (not sitting at a placeholder),
+    # mark every team_setup checklist item done so the shared progress row exists.
+    if team.name and (team.roster_team_id is None or team.name != team.roster_team_id):
+        from app.services.lms.program import _mark_team_setup_done
+        await _mark_team_setup_done(db, team_id=team.id, user_id=user.id)
+
     return team, registration, is_new_registration
 
 
