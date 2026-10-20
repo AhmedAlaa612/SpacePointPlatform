@@ -299,14 +299,14 @@ async def export_teams_workbook(db: AsyncSession, *, cohort_id: uuid.UUID) -> by
     if cohort and cohort.organization_id:
         cohort_org = await db.get(Organization, cohort.organization_id)
         if cohort_org:
-            default_org_name = cohort_org.name_latin or cohort_org.name_native or ""
+            default_org_name = cohort_org.name_latin or cohort_org.name_arabic or ""
 
     reg_stmt = (
         select(
             Contact.email,
             Contact.primary_phone_e164,
             Organization.name_latin.label("org_latin"),
-            Organization.name_native.label("org_native"),
+            Organization.name_arabic.label("org_arabic"),
         )
         .select_from(Registration)
         .join(Contact, Contact.id == Registration.contact_id)
@@ -317,7 +317,7 @@ async def export_teams_workbook(db: AsyncSession, *, cohort_id: uuid.UUID) -> by
     contact_info_by_email: dict[str, dict[str, str]] = {}
     for r in reg_rows:
         if r.email:
-            org = r.org_latin or r.org_native or default_org_name
+            org = r.org_latin or r.org_arabic or default_org_name
             contact_info_by_email[r.email.strip().lower()] = {
                 "phone": r.primary_phone_e164 or "",
                 "organization": org or "",
@@ -331,7 +331,7 @@ async def export_teams_workbook(db: AsyncSession, *, cohort_id: uuid.UUID) -> by
                 Contact.email,
                 Contact.primary_phone_e164,
                 Organization.name_latin.label("org_latin"),
-                Organization.name_native.label("org_native"),
+                Organization.name_arabic.label("org_arabic"),
             )
             .select_from(Contact)
             .outerjoin(Organization, Organization.id == Contact.organization_id)
@@ -339,7 +339,7 @@ async def export_teams_workbook(db: AsyncSession, *, cohort_id: uuid.UUID) -> by
         )
         for r in (await db.execute(c_stmt)).all():
             if r.email:
-                org = r.org_latin or r.org_native or default_org_name
+                org = r.org_latin or r.org_arabic or default_org_name
                 contact_info_by_email[r.email.strip().lower()] = {
                     "phone": r.primary_phone_e164 or "",
                     "organization": org or "",
