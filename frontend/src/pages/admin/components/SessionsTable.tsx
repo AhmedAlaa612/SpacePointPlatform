@@ -1,9 +1,10 @@
 import { useMemo, useState } from "react"
 import { useNavigate } from "@tanstack/react-router"
 import { useMutation, useQueryClient } from "@tanstack/react-query"
-import { ArrowDown, ArrowUp, CheckCircle2, Pencil } from "lucide-react"
+import { ArrowDown, ArrowUp, CheckCircle2, Pencil, Trash2 } from "lucide-react"
 import type { Session, StaffingStatus } from "@/types/sessions"
 import { markSessionDoneApi } from "@/api/sessions/delivery"
+import { deleteSessionApi } from "@/api/sessions/cohorts"
 import { ConfirmDialog, EmptyState } from "@/pages/admin/components/common"
 import { EditSessionModal } from "@/pages/admin/components/EditSessionModal"
 import { useToast } from "@/components/ui/toast"
@@ -77,6 +78,7 @@ export function SessionsTable({
   const [sortKey, setSortKey] = useState<SortKey>("date")
   const [sortDir, setSortDir] = useState<SortDir>("asc")
   const [editingSession, setEditingSession] = useState<Session | null>(null)
+  const [deletingSession, setDeletingSession] = useState<Session | null>(null)
   // Ops-side "this day happened" (2026-08-31). The same endpoint the
   // instructor's own Mark done button calls — ops passes its assignment check
   // — so a session nobody closed out doesn't need the instructor to come back
@@ -90,6 +92,17 @@ export function SessionsTable({
       setCompletingSession(null)
     },
     onError: (e: unknown) => toast.error(getErrorMessage(e, "Could not complete this session")),
+  })
+
+  const deleteSessionMutation = useMutation({
+    mutationFn: (sessionId: string) => deleteSessionApi(cohortId, sessionId),
+    onSuccess: () => {
+      toast.success("Session deleted")
+      queryClient.invalidateQueries({ queryKey: ["sessions-sessions", cohortId] })
+      queryClient.invalidateQueries({ queryKey: ["cohort-sessions", cohortId] })
+      setDeletingSession(null)
+    },
+    onError: (e: unknown) => toast.error(getErrorMessage(e, "Could not delete this session")),
   })
 
   const toggleSort = (key: SortKey) => {
@@ -144,7 +157,7 @@ export function SessionsTable({
               Kits
             </th>
             <SortHeader label="Location / warehouse" k="location" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
-            <th className="w-16 px-2 py-2" />
+            <th className="w-24 px-2 py-2" />
           </tr>
         </thead>
         <tbody>
@@ -228,24 +241,34 @@ export function SessionsTable({
                   ) : null}
                 </td>
                 <td className="px-2 py-2 text-right whitespace-nowrap" onClick={(e) => e.stopPropagation()}>
-                  {!s.completed_at && (
+                  <div className="flex items-center justify-end gap-1">
+                    {!s.completed_at && (
+                      <button
+                        type="button"
+                        onClick={() => setCompletingSession(s)}
+                        className="p-1.5 rounded-lg text-muted-foreground hover:text-emerald-600 dark:hover:text-emerald-400 hover:bg-muted transition-colors"
+                        title="Mark this session completed"
+                      >
+                        <CheckCircle2 size={14} />
+                      </button>
+                    )}
                     <button
                       type="button"
-                      onClick={() => setCompletingSession(s)}
-                      className="p-1.5 rounded-lg text-muted-foreground hover:text-emerald-600 dark:hover:text-emerald-400 hover:bg-muted transition-colors"
-                      title="Mark this session completed"
+                      onClick={() => setEditingSession(s)}
+                      className="p-1.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+                      title="Edit session details & title"
                     >
-                      <CheckCircle2 size={14} />
+                      <Pencil size={14} />
                     </button>
-                  )}
-                  <button
-                    type="button"
-                    onClick={() => setEditingSession(s)}
-                    className="p-1.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
-                    title="Edit session details & title"
-                  >
-                    <Pencil size={14} />
-                  </button>
+                    <button
+                      type="button"
+                      onClick={() => setDeletingSession(s)}
+                      className="p-1.5 rounded-lg text-muted-foreground hover:text-red-600 dark:hover:text-red-400 hover:bg-muted transition-colors"
+                      title="Delete session"
+                    >
+                      <Trash2 size={14} />
+                    </button>
+                  </div>
                 </td>
               </tr>
             )
@@ -269,6 +292,18 @@ export function SessionsTable({
           pending={markDoneMutation.isPending}
           onCancel={() => setCompletingSession(null)}
           onConfirm={() => markDoneMutation.mutate(completingSession.id)}
+        />
+      )}
+
+      {deletingSession && (
+        <ConfirmDialog
+          title="Delete session?"
+          description={`Are you sure you want to delete the session on ${deletingSession.meeting_date}${deletingSession.title ? ` · ${deletingSession.title}` : ""}? This action cannot be undone.`}
+          confirmLabel="Delete session"
+          destructive
+          pending={deleteSessionMutation.isPending}
+          onCancel={() => setDeletingSession(null)}
+          onConfirm={() => deleteSessionMutation.mutate(deletingSession.id)}
         />
       )}
     </div>
