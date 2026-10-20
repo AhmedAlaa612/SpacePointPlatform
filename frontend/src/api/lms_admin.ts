@@ -1010,3 +1010,11 @@ export const addLearningPathStepApi = (pathId: string, data: { course_id: string
   api.post<LearningPathStepEntry>(`/lms/admin/learning-paths/${pathId}/steps`, data).then((r) => r.data);
 export const removeLearningPathStepApi = (pathId: string, courseId: string) =>
   api.delete<void>(`/lms/admin/learning-paths/${pathId}/steps/${courseId}`).then((r) => r.data);
+
+export const uploadQuizImageApi = (file: File) => {
+  const form = new FormData();
+  form.append("file", file);
+  return api.post<{ url: string; path: string }>("/lms/admin/quiz-images", form, {
+    headers: { "Content-Type": "multipart/form-data" },
+  }).then((r) => r.data);
+};

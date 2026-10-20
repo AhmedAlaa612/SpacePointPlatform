@@ -8,6 +8,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { PdfViewer } from "@/components/documents/PdfViewer";
 import {
   checkQuizAnswer, fetchQuizQuestions, getAttachmentUrl, recordProgress, submitQuiz,
+  resolveQuizImageUrl,
   type ModuleItem, type QuizAnswerCheck, type QuizReview,
 } from "@/api/lms";
 import { VideoPlayer } from "./VideoPlayer";
@@ -350,7 +351,7 @@ function QuizBlock({ item, onPassed }: { item: ModuleItem; onPassed: () => void 
               {q.image_url && (
                 <div className="mb-4 overflow-hidden rounded-xl border border-border/50 bg-black/20 flex justify-center p-2">
                   <img
-                    src={q.image_url}
+                    src={resolveQuizImageUrl(q.image_url)}
                     alt="Question diagram"
                     className="max-h-64 w-auto object-contain rounded-lg"
                     loading="lazy"
@@ -425,7 +426,7 @@ function QuizBlock({ item, onPassed }: { item: ModuleItem; onPassed: () => void 
         {q.image_url && (
           <div className="mb-4 overflow-hidden rounded-xl border border-border/50 bg-black/20 flex justify-center p-2">
             <img
-              src={q.image_url}
+              src={resolveQuizImageUrl(q.image_url)}
               alt="Question diagram"
               className="max-h-80 w-auto object-contain rounded-lg shadow-sm"
               loading="eager"

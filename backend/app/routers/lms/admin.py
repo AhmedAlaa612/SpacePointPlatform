@@ -1807,8 +1807,8 @@ async def upload_quiz_image(
     filename = Path(file.filename or "image.png").name
     clean_name = re.sub(r"[^\w\.-]", "_", filename)
     path = f"{uuid.uuid4().hex[:8]}_{clean_name}"
-    await storage.upload_to_path(QUIZ_IMAGE_BUCKET, path, data, file.content_type or "image/png")
-    return {"url": f"/files/{QUIZ_IMAGE_BUCKET}/{path}", "path": path}
+    url = await storage.upload_file(QUIZ_IMAGE_BUCKET, path, data, file.content_type or "image/png")
+    return {"url": url, "path": path}
 
 
 @router.get("/items/{item_id}/video/playback")

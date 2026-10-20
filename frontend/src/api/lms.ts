@@ -512,6 +512,23 @@ export function videoPlaylistUrl(videoId: string, token: string): string {
   return `${base}/videos/${videoId}/playlist?token=${encodeURIComponent(token)}`;
 }
 
+/** Resolves any image URL/path for quiz questions so it renders properly in browser without path errors. */
+export function resolveQuizImageUrl(url: string | null | undefined): string {
+  if (!url) return "";
+  const trimmed = url.trim();
+  if (!trimmed) return "";
+  if (/^(https?:|data:|blob:)/i.test(trimmed)) return trimmed;
+
+  let path = trimmed.replace(/\\/g, "/");
+  if (!path.startsWith("/")) path = `/${path}`;
+  if (path.startsWith("/lms-quiz-images/")) {
+    path = `/files${path}`;
+  }
+
+  const base = (api.defaults.baseURL ?? "").replace(/\/$/, "");
+  return `${base}${path}`;
+}
+
 // Leaderboard (P2-4, linked into the frontend in Live Games Phase 2C 8-2 —
 // display_name is the student's nickname, never a real name).
 export interface LeaderboardEntry {

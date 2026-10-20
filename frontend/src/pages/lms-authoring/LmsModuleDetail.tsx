@@ -1,20 +1,21 @@
-import { useRef, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
 import { useParams } from "@tanstack/react-router"
 import {
   Plus, Pencil, ArrowLeft, ArrowUp, ArrowDown, FileText, HelpCircle, Layers, Video as VideoIcon, Loader2,
-  StickyNote, MessageCircleQuestion, Paperclip,
+  StickyNote, MessageCircleQuestion, Paperclip, Upload, Image as ImageIcon,
 } from "lucide-react"
 import { EmptyState, Spinner } from "@/components/ui/primitives"
 import { Modal, Field, ModalActions, ConfirmDialog } from "@/pages/admin/components/common"
 import {
   listItemsApi, createItemApi, updateItemApi, deleteItemApi, uploadVideoApi, reorderItemsApi,
   listCheckpointsApi, createCheckpointApi, updateCheckpointApi, deleteCheckpointApi,
-  getModuleApi, updateModuleApi, uploadAttachmentApi, getAdminAttachmentUrlApi,
+  getModuleApi, updateModuleApi, uploadAttachmentApi, getAdminAttachmentUrlApi, uploadQuizImageApi,
   type AdminItem, type ModuleItemKind, type AdminQuizQuestion, type VideoTranscodeStatus,
   type AdminCheckpoint, type CheckpointKind, type CheckpointQuestionType, type AdminQuizOption,
   type AdminModule,
 } from "@/api/lms_admin"
+import { resolveQuizImageUrl } from "@/api/lms"
 import { MediaPreviewModal } from "@/components/media/MediaPreviewModal"
 
 const KIND_ICON: Record<ModuleItemKind, React.ComponentType<{ size?: number; className?: string }>> = {
@@ -735,6 +736,45 @@ function FlashcardsItemModal({ moduleId, item, onClose, onSuccess }: {
   )
 }
 
+function OrderNumberInput({
+  value, totalCount, disabled, onCommit,
+}: {
+  value: number
+  totalCount: number
+  disabled?: boolean
+  onCommit: (pos: number) => void
+}) {
+  const [text, setText] = useState(String(value))
+  useEffect(() => { setText(String(value)) }, [value])
+  const commit = () => {
+    const parsed = Number.parseInt(text, 10)
+    if (!Number.isFinite(parsed)) { setText(String(value)); return }
+    if (parsed === value) { setText(String(value)); return }
+    onCommit(parsed)
+    setText(String(value))
+  }
+  return (
+    <input
+      type="number"
+      aria-label="Question order number"
+      title={`Question order (1–${totalCount}) — type a number to move this question`}
+      value={text}
+      min={1}
+      max={totalCount}
+      inputMode="numeric"
+      disabled={disabled}
+      onChange={(e) => setText(e.target.value)}
+      onBlur={commit}
+      onKeyDown={(e) => {
+        if (e.key === "Enter") (e.target as HTMLInputElement).blur()
+        if (e.key === "Escape") { setText(String(value)); (e.target as HTMLInputElement).blur() }
+      }}
+      onClick={(e) => e.stopPropagation()}
+      className="w-11 h-7 px-1 border border-border bg-background text-foreground rounded-lg text-xs font-mono font-bold text-center focus:outline-none focus:border-primary transition-colors disabled:opacity-50 shrink-0 cursor-pointer"
+    />
+  )
+}
+
 function QuizItemModal({ moduleId, item, onClose, onSuccess }: {
   moduleId: string; item?: AdminItem; onClose: () => void; onSuccess: () => void
 }) {
@@ -749,6 +789,8 @@ function QuizItemModal({ moduleId, item, onClose, onSuccess }: {
       : [{ prompt: "", explanation: "", options: [{ text: "", is_correct: true }, { text: "", is_correct: false }] }],
   )
   const [error, setError] = useState("")
+  const [uploadingIndex, setUploadingIndex] = useState<number | null>(null)
+  const [uploadError, setUploadError] = useState<{ index: number; message: string } | null>(null)
 
   const updateQuestion = (qi: number, patch: Partial<AdminQuizQuestion>) =>
     setQuestions((prev) => prev.map((q, idx) => (idx === qi ? { ...q, ...patch } : q)))
@@ -757,6 +799,42 @@ function QuizItemModal({ moduleId, item, onClose, onSuccess }: {
     setQuestions((prev) =>
       prev.map((q, idx) => idx !== qi ? q : { ...q, options: q.options.map((o, oidx) => (oidx === oi ? { ...o, ...patch } : o)) }),
     )
+
+  const moveQuestion = (fromIndex: number, direction: -1 | 1) => {
+    const target = fromIndex + direction
+    if (target < 0 || target >= questions.length) return
+    setQuestions((prev) => {
+      const next = [...prev]
+      ;[next[fromIndex], next[target]] = [next[target], next[fromIndex]]
+      return next
+    })
+  }
+
+  const moveToPosition = (fromIndex: number, targetPos: number) => {
+    if (!Number.isFinite(targetPos)) return
+    const clamped = Math.min(Math.max(Math.round(targetPos), 1), questions.length)
+    if (clamped - 1 === fromIndex) return
+    setQuestions((prev) => {
+      const next = [...prev]
+      const [itemToMove] = next.splice(fromIndex, 1)
+      next.splice(clamped - 1, 0, itemToMove)
+      return next
+    })
+  }
+
+  const handleImageUpload = async (qi: number, file: File) => {
+    setUploadingIndex(qi)
+    setUploadError(null)
+    try {
+      const res = await uploadQuizImageApi(file)
+      updateQuestion(qi, { image_url: res.url })
+    } catch (err: any) {
+      const msg = err?.response?.data?.detail || err?.message || "Failed to upload image"
+      setUploadError({ index: qi, message: typeof msg === "string" ? msg : "Upload failed" })
+    } finally {
+      setUploadingIndex(null)
+    }
+  }
 
   const valid = questions.every((q) => q.prompt.trim() && q.options.filter((o) => o.text.trim()).length >= 2 && q.options.some((o) => o.is_correct))
     && (randomCount == null || (randomCount >= 1 && randomCount <= questions.length))
@@ -803,32 +881,159 @@ function QuizItemModal({ moduleId, item, onClose, onSuccess }: {
 
         <div className="flex flex-col gap-3">
           {questions.map((q, qi) => (
-            <div key={qi} className="p-3 border border-border rounded-xl flex flex-col gap-2">
-              <div className="flex items-center justify-between">
-                <span className="text-xs font-medium text-muted-foreground">Question {qi + 1}</span>
+            <div key={qi} className="p-3.5 border border-border rounded-2xl flex flex-col gap-2.5 bg-card/40">
+              <div className="flex items-center justify-between gap-2">
+                <div className="flex items-center gap-2">
+                  <div className="flex flex-col shrink-0">
+                    <button
+                      type="button"
+                      onClick={() => moveQuestion(qi, -1)}
+                      disabled={qi === 0}
+                      className="text-muted-foreground hover:text-foreground disabled:opacity-20 p-0.5 transition-colors cursor-pointer"
+                      title="Move question up"
+                    >
+                      <ArrowUp size={12} />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => moveQuestion(qi, 1)}
+                      disabled={qi === questions.length - 1}
+                      className="text-muted-foreground hover:text-foreground disabled:opacity-20 p-0.5 transition-colors cursor-pointer"
+                      title="Move question down"
+                    >
+                      <ArrowDown size={12} />
+                    </button>
+                  </div>
+                  <OrderNumberInput
+                    value={qi + 1}
+                    totalCount={questions.length}
+                    onCommit={(pos) => moveToPosition(qi, pos)}
+                  />
+                  <span className="text-xs font-semibold text-foreground">Question {qi + 1}</span>
+                </div>
                 <button
+                  type="button"
                   onClick={() => setQuestions((prev) => prev.filter((_, idx) => idx !== qi))}
                   disabled={questions.length === 1}
-                  className="text-xs text-red-600 hover:bg-red-500/10 rounded px-2 py-0.5 transition-colors disabled:opacity-30"
+                  className="text-xs text-red-600 hover:bg-red-500/10 rounded px-2 py-0.5 transition-colors disabled:opacity-30 cursor-pointer"
                 >
                   Remove
                 </button>
               </div>
+
               <input
                 value={q.prompt} placeholder="Question prompt"
                 onChange={(e) => updateQuestion(qi, { prompt: e.target.value })}
                 className="w-full h-10 px-3 border border-border bg-card text-foreground rounded-xl text-sm focus:outline-none focus:border-primary transition-colors"
               />
-              <input
-                value={q.image_url ?? ""} placeholder="Image / diagram URL (optional)"
-                onChange={(e) => updateQuestion(qi, { image_url: e.target.value.trim() || undefined })}
-                className="w-full h-10 px-3 border border-border bg-card text-foreground rounded-xl text-sm focus:outline-none focus:border-primary transition-colors"
-              />
-              {q.image_url && (
-                <div className="max-h-36 overflow-hidden rounded-lg border border-border bg-muted/20 flex justify-center p-1">
-                  <img src={q.image_url} alt="Question preview" className="max-h-32 object-contain rounded" />
+
+              {/* Question Image Section */}
+              <div className="flex flex-col gap-2 p-2.5 rounded-xl bg-muted/20 border border-border/70">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-medium text-foreground flex items-center gap-1.5">
+                    <ImageIcon size={13} className="text-muted-foreground" /> Image / Diagram (optional)
+                  </span>
+                  {q.image_url && (
+                    <button
+                      type="button"
+                      onClick={() => updateQuestion(qi, { image_url: undefined })}
+                      className="text-[11px] text-destructive hover:underline cursor-pointer"
+                    >
+                      Remove image
+                    </button>
+                  )}
                 </div>
-              )}
+
+                {q.image_url ? (
+                  <div className="flex flex-col gap-2">
+                    <div className="max-h-40 overflow-hidden rounded-lg border border-border bg-card/60 flex items-center justify-center p-2 relative">
+                      <img
+                        src={resolveQuizImageUrl(q.image_url)}
+                        alt={`Question ${qi + 1} diagram`}
+                        className="max-h-36 max-w-full object-contain rounded"
+                        onError={(e) => {
+                          (e.target as HTMLElement).classList.add("opacity-40")
+                        }}
+                      />
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <label className="inline-flex items-center gap-1.5 h-8 px-3 rounded-lg border border-border bg-card hover:bg-muted text-xs font-medium text-foreground cursor-pointer transition-colors shrink-0">
+                        {uploadingIndex === qi ? (
+                          <>
+                            <Loader2 size={12} className="animate-spin text-primary" />
+                            <span>Uploading…</span>
+                          </>
+                        ) : (
+                          <>
+                            <Upload size={12} />
+                            <span>Replace image</span>
+                          </>
+                        )}
+                        <input
+                          type="file"
+                          accept="image/*"
+                          disabled={uploadingIndex === qi}
+                          className="hidden"
+                          onChange={(e) => {
+                            const f = e.target.files?.[0]
+                            if (f) {
+                              void handleImageUpload(qi, f)
+                              e.target.value = ""
+                            }
+                          }}
+                        />
+                      </label>
+                      <input
+                        value={q.image_url}
+                        placeholder="Image path or URL"
+                        onChange={(e) => updateQuestion(qi, { image_url: e.target.value.trim() || undefined })}
+                        className="flex-1 h-8 px-2.5 border border-border bg-card text-foreground rounded-lg text-xs font-mono focus:outline-none focus:border-primary transition-colors"
+                      />
+                    </div>
+                  </div>
+                ) : (
+                  <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
+                    <label className="inline-flex items-center justify-center gap-1.5 h-9 px-3 rounded-xl border border-primary/40 bg-primary/5 hover:bg-primary/10 text-xs font-semibold text-primary cursor-pointer transition-colors shrink-0">
+                      {uploadingIndex === qi ? (
+                        <>
+                          <Loader2 size={13} className="animate-spin" />
+                          <span>Uploading image…</span>
+                        </>
+                      ) : (
+                        <>
+                          <Upload size={13} />
+                          <span>Upload image</span>
+                        </>
+                      )}
+                      <input
+                        type="file"
+                        accept="image/*"
+                        disabled={uploadingIndex === qi}
+                        className="hidden"
+                        onChange={(e) => {
+                          const f = e.target.files?.[0]
+                          if (f) {
+                            void handleImageUpload(qi, f)
+                            e.target.value = ""
+                          }
+                        }}
+                      />
+                    </label>
+                    <span className="text-xs text-muted-foreground text-center sm:text-left">or link:</span>
+                    <input
+                      value={q.image_url ?? ""}
+                      placeholder="Paste URL or /files/... path"
+                      onChange={(e) => updateQuestion(qi, { image_url: e.target.value.trim() || undefined })}
+                      className="flex-1 h-9 px-3 border border-border bg-card text-foreground rounded-xl text-xs focus:outline-none focus:border-primary transition-colors"
+                    />
+                  </div>
+                )}
+
+                {uploadError?.index === qi && (
+                  <p className="text-[11px] text-destructive">{uploadError.message}</p>
+                )}
+              </div>
+
               <input
                 value={q.explanation ?? ""} placeholder="Explanation shown after a wrong answer (optional)"
                 onChange={(e) => updateQuestion(qi, { explanation: e.target.value })}
@@ -847,17 +1052,19 @@ function QuizItemModal({ moduleId, item, onClose, onSuccess }: {
                       className="flex-1 h-9 px-3 border border-border bg-card text-foreground rounded-xl text-sm focus:outline-none focus:border-primary transition-colors"
                     />
                     <button
+                      type="button"
                       onClick={() => updateQuestion(qi, { options: q.options.filter((_, idx) => idx !== oi) })}
                       disabled={q.options.length <= 2}
-                      className="text-xs text-red-600 hover:bg-red-500/10 rounded px-2 py-1 transition-colors disabled:opacity-30"
+                      className="text-xs text-red-600 hover:bg-red-500/10 rounded px-2 py-1 transition-colors disabled:opacity-30 cursor-pointer"
                     >
                       Remove
                     </button>
                   </div>
                 ))}
                 <button
+                  type="button"
                   onClick={() => updateQuestion(qi, { options: [...q.options, { text: "", is_correct: false }] })}
-                  className="h-8 px-3 border border-dashed border-border rounded-xl text-xs font-medium text-muted-foreground hover:bg-muted transition-colors w-fit"
+                  className="h-8 px-3 border border-dashed border-border rounded-xl text-xs font-medium text-muted-foreground hover:bg-muted transition-colors w-fit cursor-pointer"
                 >
                   + Add option
                 </button>
@@ -865,8 +1072,9 @@ function QuizItemModal({ moduleId, item, onClose, onSuccess }: {
             </div>
           ))}
           <button
+            type="button"
             onClick={() => setQuestions((prev) => [...prev, { prompt: "", explanation: "", options: [{ text: "", is_correct: true }, { text: "", is_correct: false }] }])}
-            className="h-9 px-3 border border-dashed border-border rounded-xl text-xs font-medium text-muted-foreground hover:bg-muted transition-colors w-fit"
+            className="h-9 px-3 border border-dashed border-border rounded-xl text-xs font-medium text-muted-foreground hover:bg-muted transition-colors w-fit cursor-pointer"
           >
             + Add question
           </button>
