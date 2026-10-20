@@ -350,6 +350,7 @@ async def export_teams_workbook(db: AsyncSession, *, cohort_id: uuid.UUID) -> by
     sheet.title = "Teams & Students"
     sheet.append([
         "Team ID",
+        "Team Code",
         "Team Name",
         "Student Name",
         "Student Email",
@@ -358,10 +359,13 @@ async def export_teams_workbook(db: AsyncSession, *, cohort_id: uuid.UUID) -> by
     ])
 
     for team in teams:
+        team_id_val = team.roster_team_id or team.join_code or ""
+        join_code_val = team.join_code or ""
         uids = members_by_team.get(team.id, [])
         if not uids:
             sheet.append([
-                str(team.id),
+                team_id_val,
+                join_code_val,
                 team.name,
                 "(No members)",
                 "",
@@ -377,7 +381,8 @@ async def export_teams_workbook(db: AsyncSession, *, cohort_id: uuid.UUID) -> by
                 phone = c_info.get("phone") or u.phone or ""
                 org = c_info.get("organization") or default_org_name
                 sheet.append([
-                    str(team.id),
+                    team_id_val,
+                    join_code_val,
                     team.name,
                     u.full_name or "",
                     u.email or "",
