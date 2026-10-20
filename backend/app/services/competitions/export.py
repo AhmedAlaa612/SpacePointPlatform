@@ -12,10 +12,14 @@ import uuid
 
 import openpyxl
 from openpyxl.worksheet.worksheet import Worksheet
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.lms.cohort_quiz import CohortQuizAnswer, CohortQuizAttempt, CohortQuizQuestion
+from app.models.sessions.cohort import Cohort
+from app.models.sessions.registration import Registration
+from app.models.spine.contact import Contact
+from app.models.spine.organization import Organization
 from app.models.team import Team, TeamMember
 from app.models.user import User
 from app.services.competitions.judging import leaderboard
@@ -258,3 +262,133 @@ async def export_quiz_answers_workbook(db: AsyncSession, *, cohort_id: uuid.UUID
     buf = io.BytesIO()
     wb.save(buf)
     return buf.getvalue()
+
+
+async def export_teams_workbook(db: AsyncSession, *, cohort_id: uuid.UUID) -> bytes:
+    """Exports all teams and their students for a cohort:
+    - Team ID
+    - Team Name
+    - Student Name
+    - Student Email
+    - Phone Number
+    - Organization
+    Grouped with members of the same team listed under each other.
+    """
+    teams = list((await db.execute(
+        select(Team).where(Team.cohort_id == cohort_id).order_by(Team.name)
+    )).scalars().all())
+    team_ids = [t.id for t in teams]
+
+    if team_ids:
+        tm_rows = (await db.execute(
+            select(TeamMember.team_id, TeamMember.user_id).where(TeamMember.team_id.in_(team_ids))
+        )).all()
+        members_by_team: dict[uuid.UUID, list[uuid.UUID]] = {tid: [] for tid in team_ids}
+        all_user_ids: set[uuid.UUID] = set()
+        for tid, uid in tm_rows:
+            members_by_team[tid].append(uid)
+            all_user_ids.add(uid)
+        users = (await db.execute(select(User).where(User.id.in_(all_user_ids)))).scalars().all() if all_user_ids else []
+        users_by_id = {u.id: u for u in users}
+    else:
+        members_by_team = {}
+        users_by_id = {}
+
+    cohort = await db.get(Cohort, cohort_id)
+    default_org_name = ""
+    if cohort and cohort.organization_id:
+        cohort_org = await db.get(Organization, cohort.organization_id)
+        if cohort_org:
+            default_org_name = cohort_org.name_latin or cohort_org.name_native or ""
+
+    reg_stmt = (
+        select(
+            Contact.email,
+            Contact.primary_phone_e164,
+            Organization.name_latin.label("org_latin"),
+            Organization.name_native.label("org_native"),
+        )
+        .select_from(Registration)
+        .join(Contact, Contact.id == Registration.contact_id)
+        .outerjoin(Organization, Organization.id == Contact.organization_id)
+        .where(Registration.cohort_id == cohort_id)
+    )
+    reg_rows = (await db.execute(reg_stmt)).all()
+    contact_info_by_email: dict[str, dict[str, str]] = {}
+    for r in reg_rows:
+        if r.email:
+            org = r.org_latin or r.org_native or default_org_name
+            contact_info_by_email[r.email.strip().lower()] = {
+                "phone": r.primary_phone_e164 or "",
+                "organization": org or "",
+            }
+
+    user_emails = [u.email.strip().lower() for u in users_by_id.values() if u.email]
+    missing_emails = [e for e in user_emails if e not in contact_info_by_email]
+    if missing_emails:
+        c_stmt = (
+            select(
+                Contact.email,
+                Contact.primary_phone_e164,
+                Organization.name_latin.label("org_latin"),
+                Organization.name_native.label("org_native"),
+            )
+            .select_from(Contact)
+            .outerjoin(Organization, Organization.id == Contact.organization_id)
+            .where(func.lower(Contact.email).in_(missing_emails))
+        )
+        for r in (await db.execute(c_stmt)).all():
+            if r.email:
+                org = r.org_latin or r.org_native or default_org_name
+                contact_info_by_email[r.email.strip().lower()] = {
+                    "phone": r.primary_phone_e164 or "",
+                    "organization": org or "",
+                }
+
+    wb = openpyxl.Workbook()
+    sheet = wb.active
+    sheet.title = "Teams & Students"
+    sheet.append([
+        "Team ID",
+        "Team Name",
+        "Student Name",
+        "Student Email",
+        "Phone Number",
+        "Organization",
+    ])
+
+    for team in teams:
+        uids = members_by_team.get(team.id, [])
+        if not uids:
+            sheet.append([
+                str(team.id),
+                team.name,
+                "(No members)",
+                "",
+                "",
+                default_org_name,
+            ])
+        else:
+            team_users = [users_by_id[uid] for uid in uids if uid in users_by_id]
+            team_users.sort(key=lambda u: (u.full_name or "").lower())
+            for u in team_users:
+                em_key = (u.email or "").strip().lower()
+                c_info = contact_info_by_email.get(em_key, {})
+                phone = c_info.get("phone") or u.phone or ""
+                org = c_info.get("organization") or default_org_name
+                sheet.append([
+                    str(team.id),
+                    team.name,
+                    u.full_name or "",
+                    u.email or "",
+                    phone,
+                    org,
+                ])
+
+    _style_header(sheet)
+    _autosize(sheet)
+
+    buf = io.BytesIO()
+    wb.save(buf)
+    return buf.getvalue()
+

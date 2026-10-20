@@ -15,7 +15,8 @@ import { TimingOverrideModal } from "@/components/competitions/TimingOverrideMod
 import { SubmissionWindowsModal } from "@/components/competitions/SubmissionWindowsModal"
 import { listProgramCertificateTemplatesApi } from "@/api/sessions/programCertificateTemplates"
 import {
-  advanceCohortTeamsApi, createCohortTeamApi, deleteTeamApi, downloadCohortResultsWorkbookApi, registerUsersToCohortApi,
+  advanceCohortTeamsApi, assignExistingStudentsApi, createCohortTeamApi, deleteTeamApi, downloadCohortResultsWorkbookApi,
+  downloadCohortTeamsWorkbookApi, registerUsersToCohortApi,
   downloadCompetitionCertificatesApi,
   getCohortExportTop20Api,
   confirmCohortRegistrationImportApi,
@@ -123,7 +124,7 @@ export default function CompetitionJudging() {
 
       {tab === "roster" && <RosterTab cohortId={cohort.id} />}
       {tab === "assign" && <AssignTab cohortId={cohort.id} />}
-      {tab === "teams" && <TeamsTab cohortId={cohort.id} />}
+      {tab === "teams" && <TeamsTab cohortId={cohort.id} cohortName={cohort.name} />}
       {tab === "analysis" && <CompetitionAnalysisTab cohortId={cohort.id} />}
       {tab === "rubric" && <RubricTab cohortId={cohort.id} />}
       {tab === "judges" && <JudgesTab cohortId={cohort.id} />}
@@ -1117,7 +1118,7 @@ function TeamStatChip({ label, value, tone = "default" }: {
   )
 }
 
-function TeamsTab({ cohortId }: { cohortId: string }) {
+function TeamsTab({ cohortId, cohortName }: { cohortId: string; cohortName?: string }) {
   const toast = useToast()
   const queryClient = useQueryClient()
   const invalidate = () => queryClient.invalidateQueries({ queryKey: ["competitions-teams", cohortId] })
@@ -1130,6 +1131,18 @@ function TeamsTab({ cohortId }: { cohortId: string }) {
   const [newTeamName, setNewTeamName] = useState("")
   const [isObserverTeam, setIsObserverTeam] = useState(false)
   const [teamFilter, setTeamFilter] = useState<"all" | "student" | "observer">("student")
+  const [exporting, setExporting] = useState(false)
+
+  const handleExportTeams = async () => {
+    setExporting(true)
+    try {
+      await downloadCohortTeamsWorkbookApi(cohortId, cohortName || "cohort")
+    } catch (e: any) {
+      toast.error(getErrorMessage(e, "Failed to export teams"))
+    } finally {
+      setExporting(false)
+    }
+  }
   const createMutation = useMutation({
     mutationFn: () => createCohortTeamApi(cohortId, newTeamName.trim(), isObserverTeam),
     onSuccess: () => { setNewTeamName(""); setIsObserverTeam(false); invalidate() },
@@ -1213,7 +1226,6 @@ function TeamsTab({ cohortId }: { cohortId: string }) {
             className="w-full h-10 pl-8 pr-3 border border-border bg-card text-foreground rounded-xl text-sm focus:outline-none focus:border-primary transition-colors"
           />
         </div>
-
         <div className="flex items-center p-1 bg-muted/60 border border-border/80 rounded-xl text-xs">
           <button
             type="button"
@@ -1243,6 +1255,15 @@ function TeamsTab({ cohortId }: { cohortId: string }) {
             Observers ({teams.filter((t) => t.is_observer).length})
           </button>
         </div>
+
+        <button
+          onClick={handleExportTeams}
+          disabled={exporting || teams.length === 0}
+          className="flex items-center gap-1.5 h-10 px-4 border border-border bg-card text-foreground rounded-xl text-sm font-medium hover:bg-muted transition-colors disabled:opacity-50 shrink-0"
+          title="Export all teams and students with contact info to Excel"
+        >
+          <Download size={14} /> {exporting ? "Exporting…" : "Export Excel"}
+        </button>
       </div>
 
       <div className="flex flex-col gap-3">
