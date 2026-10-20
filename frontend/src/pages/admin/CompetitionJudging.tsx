@@ -15,7 +15,7 @@ import { TimingOverrideModal } from "@/components/competitions/TimingOverrideMod
 import { SubmissionWindowsModal } from "@/components/competitions/SubmissionWindowsModal"
 import { listProgramCertificateTemplatesApi } from "@/api/sessions/programCertificateTemplates"
 import {
-  advanceCohortTeamsApi, assignExistingStudentsApi, createCohortTeamApi, deleteTeamApi, downloadCohortResultsWorkbookApi,
+  advanceCohortTeamsApi, createCohortTeamApi, deleteTeamApi, downloadCohortResultsWorkbookApi,
   downloadCohortTeamsWorkbookApi, registerUsersToCohortApi,
   downloadCompetitionCertificatesApi,
   getCohortExportTop20Api,
