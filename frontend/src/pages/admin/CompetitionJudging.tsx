@@ -13,6 +13,7 @@ import { SubmissionWindowsModal } from "@/components/competitions/SubmissionWind
 import { listProgramCertificateTemplatesApi } from "@/api/sessions/programCertificateTemplates"
 import {
   advanceCohortTeamsApi, assignExistingStudentsApi, createCohortTeamApi, deleteTeamApi, downloadCohortResultsWorkbookApi,
+  downloadCohortTeamsWorkbookApi,
   downloadCompetitionCertificatesApi,
   getCohortExportTop20Api,
   confirmCohortRegistrationImportApi,
@@ -118,7 +119,7 @@ export default function CompetitionJudging() {
 
       {tab === "roster" && <RosterTab cohortId={cohort.id} />}
       {tab === "assign" && <AssignTab cohortId={cohort.id} />}
-      {tab === "teams" && <TeamsTab cohortId={cohort.id} />}
+      {tab === "teams" && <TeamsTab cohortId={cohort.id} cohortName={cohort.name} />}
       {tab === "analysis" && <CompetitionAnalysisTab cohortId={cohort.id} />}
       {tab === "rubric" && <RubricTab programId={cohort.program_id} />}
       {tab === "judges" && <JudgesTab cohortId={cohort.id} />}
@@ -669,7 +670,7 @@ function TeamStatChip({ label, value, tone = "default" }: {
   )
 }
 
-function TeamsTab({ cohortId }: { cohortId: string }) {
+function TeamsTab({ cohortId, cohortName }: { cohortId: string; cohortName?: string }) {
   const toast = useToast()
   const queryClient = useQueryClient()
   const invalidate = () => queryClient.invalidateQueries({ queryKey: ["competitions-teams", cohortId] })
@@ -680,6 +681,19 @@ function TeamsTab({ cohortId }: { cohortId: string }) {
   })
 
   const [newTeamName, setNewTeamName] = useState("")
+  const [exporting, setExporting] = useState(false)
+
+  const handleExportTeams = async () => {
+    setExporting(true)
+    try {
+      await downloadCohortTeamsWorkbookApi(cohortId, cohortName || "cohort")
+    } catch (e: any) {
+      toast.error(getErrorMessage(e, "Failed to export teams"))
+    } finally {
+      setExporting(false)
+    }
+  }
+
   const createMutation = useMutation({
     mutationFn: () => createCohortTeamApi(cohortId, newTeamName.trim()),
     onSuccess: () => { setNewTeamName(""); invalidate() },
@@ -740,14 +754,24 @@ function TeamsTab({ cohortId }: { cohortId: string }) {
         </button>
       </div>
 
-      <div className="relative max-w-sm">
-        <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
-        <input
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          placeholder="Search by team or student name..."
-          className="w-full h-10 pl-8 pr-3 border border-border bg-card text-foreground rounded-xl text-sm focus:outline-none focus:border-primary transition-colors"
-        />
+      <div className="flex items-center justify-between gap-3 flex-wrap">
+        <div className="relative max-w-sm flex-1 min-w-[200px]">
+          <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
+          <input
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Search by team or student name..."
+            className="w-full h-10 pl-8 pr-3 border border-border bg-card text-foreground rounded-xl text-sm focus:outline-none focus:border-primary transition-colors"
+          />
+        </div>
+        <button
+          onClick={handleExportTeams}
+          disabled={exporting || teams.length === 0}
+          className="flex items-center gap-1.5 h-10 px-4 border border-border bg-card text-foreground rounded-xl text-sm font-medium hover:bg-muted transition-colors disabled:opacity-50 shrink-0"
+          title="Export all teams and students with contact info to Excel"
+        >
+          <Download size={14} /> {exporting ? "Exporting…" : "Export Excel"}
+        </button>
       </div>
 
       <div className="flex flex-col gap-3">

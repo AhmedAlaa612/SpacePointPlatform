@@ -365,6 +365,18 @@ export const downloadCohortQuizAnswersWorkbookApi = async (cohortId: string, coh
   URL.revokeObjectURL(url)
 }
 
+/** One .xlsx: all teams in the cohort with their student members listed
+ * under each other, including phone numbers and organizations. */
+export const downloadCohortTeamsWorkbookApi = async (cohortId: string, cohortName: string) => {
+  const res = await api.get(`/competitions/admin/cohorts/${cohortId}/teams.xlsx`, { responseType: "blob" })
+  const url = URL.createObjectURL(res.data as Blob)
+  const a = document.createElement("a")
+  a.href = url
+  a.download = `${cohortName.replace(/[^a-z0-9]+/gi, "_")}_teams.xlsx`
+  a.click()
+  URL.revokeObjectURL(url)
+}
+
 export const getCohortPublicationApi = (cohortId: string) =>
   api.get<CompetitionPublication>(`/competitions/admin/cohorts/${cohortId}/publication`).then((r) => r.data)
 
