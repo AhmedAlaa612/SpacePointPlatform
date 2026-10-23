@@ -837,10 +837,12 @@ export const listInviteCodesApi = () =>
 export const createInviteCodeApi = (data: {
   code: string; label?: string | null; max_uses?: number; is_active?: boolean;
   kind?: "student" | "observer";
+  expires_at?: string | null;
 }) => api.post<InviteCode>("/lms/admin/invite-codes", data).then((r) => r.data);
 
 export const updateInviteCodeApi = (id: string, data: Partial<{
   code: string; label: string | null; max_uses: number; is_active: boolean;
+  expires_at: string | null;
 }>) => api.patch<InviteCode>(`/lms/admin/invite-codes/${id}`, data).then((r) => r.data);
 
 export const deleteInviteCodeApi = (id: string) =>

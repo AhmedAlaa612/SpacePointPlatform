@@ -425,6 +425,9 @@ async def update_invite_code(
 
     for field, value in updates.items():
         setattr(row, field, value)
+    if "expires_at" in updates:
+        from app.services.lms.invite_grants import sync_invite_code_enrollments_expiry
+        await sync_invite_code_enrollments_expiry(db, invitation_code=row)
     await db.commit()
     await db.refresh(row)
     return await _invite_code_out(db, row)

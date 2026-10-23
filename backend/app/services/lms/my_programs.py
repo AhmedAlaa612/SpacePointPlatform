@@ -46,6 +46,11 @@ async def my_programs(db: AsyncSession, *, user: User) -> list[dict]:
 
     result = []
     for registration, cohort, program in rows:
+        if registration.registered_via == "invite_code":
+            from app.services.lms.invite_grants import is_user_cohort_grant_expired
+            if await is_user_cohort_grant_expired(db, user_id=user.id, cohort_id=cohort.id):
+                continue
+
         location = await resolve_session_location_display(db, cohort=cohort)
 
         instructor_name = None

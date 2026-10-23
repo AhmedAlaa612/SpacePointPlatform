@@ -319,6 +319,7 @@ async def send_registration_onboarding_email(
 async def sync_registration_lms(
     db: AsyncSession, *, registration: Registration, cohort: Cohort, create_account: bool,
     send_welcome_email: bool = True, mode: str = "participant",
+    expires_at: datetime | None = None,
 ) -> User | None:
     """The D4 flow for one registration: find-or-create the student account,
     assign the cohort's LMS Program checklist if it has one (2026-08-21 —
@@ -346,6 +347,7 @@ async def sync_registration_lms(
                 return None
             await assign_lms_program(
                 db, user_id=user.id, cohort_id=cohort.id, registration_id=registration.id, mode=mode,
+                expires_at=expires_at,
             )
         if send_welcome_email and user:
             await send_registration_onboarding_email(db, user=user, registration=registration, cohort=cohort)

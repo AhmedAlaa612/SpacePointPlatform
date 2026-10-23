@@ -589,6 +589,9 @@ async def _own_progress_row(
     assignment = await db.get(LmsProgramAssignment, assignment_id)
     if assignment is None or assignment.user_id != user.id:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Program assignment not found")
+    from app.services.lms.invite_grants import is_user_cohort_grant_expired
+    if await is_user_cohort_grant_expired(db, user_id=user.id, cohort_id=assignment.cohort_id):
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Program assignment not found")
     progress = await db.scalar(
         select(LmsProgramItemProgress).where(
             LmsProgramItemProgress.assignment_id == assignment_id, LmsProgramItemProgress.item_id == item_id,

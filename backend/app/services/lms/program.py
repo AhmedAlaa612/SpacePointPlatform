@@ -890,7 +890,7 @@ async def _sibling_individual_attempt(
 
 async def assign_lms_program(
     db: AsyncSession, *, user_id: uuid.UUID, cohort_id: uuid.UUID, registration_id: uuid.UUID | None = None,
-    mode: str = "participant",
+    mode: str = "participant", expires_at: datetime | None = None,
 ) -> LmsProgramAssignment | None:
     """The per-registration path — called once, at registration time, by
     `sync_registration_lms`, exactly where `enroll_in_cohort_curriculum`
@@ -916,6 +916,15 @@ async def assign_lms_program(
         )
     )
     if existing is not None:
+        if expires_at is not None:
+            cohort = await db.get(Cohort, cohort_id)
+            for item in items:
+                if item.item_type == "course" and item.course_id:
+                    await enroll(
+                        db, user_id=user_id, course_id=item.course_id, source="registration",
+                        program_id=cohort.program_id if cohort else None, registration_id=registration_id,
+                        expires_at=expires_at,
+                    )
         return existing
 
     cohort = await db.get(Cohort, cohort_id)
@@ -932,6 +941,7 @@ async def assign_lms_program(
             await enroll(
                 db, user_id=user_id, course_id=item.course_id, source="registration",
                 program_id=cohort.program_id if cohort else None, registration_id=registration_id,
+                expires_at=expires_at,
             )
         elif item.item_type == "mission_run" and item.mission_id:
             if item.scope == "team":
@@ -1925,6 +1935,9 @@ async def get_student_checklist(db: AsyncSession, *, assignment_id: uuid.UUID, u
     assignment = await db.get(LmsProgramAssignment, assignment_id)
     if assignment is None or assignment.user_id != user_id:
         return None
+    from app.services.lms.invite_grants import is_user_cohort_grant_expired
+    if await is_user_cohort_grant_expired(db, user_id=user_id, cohort_id=assignment.cohort_id):
+        return None
     program = await db.get(LmsProgram, assignment.lms_program_id)
     if program is None:
         return None
@@ -2287,6 +2300,9 @@ async def formation_leave(
 
 
 async def _assignment_summary(db: AsyncSession, assignment: LmsProgramAssignment) -> dict | None:
+    from app.services.lms.invite_grants import is_user_cohort_grant_expired
+    if await is_user_cohort_grant_expired(db, user_id=assignment.user_id, cohort_id=assignment.cohort_id):
+        return None
     program = await db.get(LmsProgram, assignment.lms_program_id)
     if program is None:
         return None

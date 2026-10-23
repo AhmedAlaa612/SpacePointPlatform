@@ -5,6 +5,7 @@ import { isAxiosError } from "axios";
 import { useAuth } from "@/context/AuthContext";
 import { fetchMe } from "@/api/auth";
 import { redeemInviteCodeApi } from "@/api/lms";
+import { api } from "@/api/client";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/primitives";
@@ -28,13 +29,31 @@ export default function LearnInviteLink() {
     }
 
     if (!user) {
-      // Logged out -> redirect to signup with pre-filled code
-      void navigate({
-        to: "/learn/signup",
-        search: { invite: code } as never,
-        replace: true,
-      });
-      return;
+      // Validate code first to ensure it's not expired before sending to signup
+      let cancelled = false;
+      async function validateAndRedirect() {
+        try {
+          await api.get(`/auth/invite/${code}?kind=student`);
+          if (cancelled) return;
+          void navigate({
+            to: "/learn/signup",
+            search: { invite: code } as never,
+            replace: true,
+          });
+        } catch (err) {
+          if (cancelled) return;
+          if (isAxiosError(err)) {
+            const detail = err.response?.data?.detail;
+            setError(typeof detail === "string" ? detail : "This invite link is invalid or has expired.");
+          } else {
+            setError("This invite link is invalid or has expired.");
+          }
+        }
+      }
+      void validateAndRedirect();
+      return () => {
+        cancelled = true;
+      };
     }
 
     // Logged in -> redeem code immediately
@@ -98,9 +117,9 @@ export default function LearnInviteLink() {
               <Button
                 variant="outline"
                 className="w-full mt-2"
-                onClick={() => void navigate({ to: "/learn/checklists", replace: true })}
+                onClick={() => void navigate({ to: (user ? "/learn/checklists" : "/learn/login") as never, replace: true })}
               >
-                Go to Programs
+                {user ? "Go to Programs" : "Go to Login"}
               </Button>
             </div>
           ) : (

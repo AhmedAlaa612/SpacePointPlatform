@@ -64,6 +64,7 @@ async def enroll(
     registration_id: UUID | None = None,
     granted_by: UUID | None = None,
     purchase_id: UUID | None = None,
+    expires_at: datetime | None = None,
 ) -> Enrollment:
     """Grant (or re-grant) a student access to a course.
 
@@ -71,13 +72,20 @@ async def enroll(
     unchanged — its provenance is never rewritten, because only the first
     path in is recorded (§2). An inactive OR expired one is (re)activated in
     place, with expires_at recomputed from the course's current
-    access_days — a fresh grant restarts the access window rather than
+    access_days (or bounded by `expires_at` if provided, e.g. from an invite code)
+    — a fresh grant restarts the access window rather than
     inheriting whatever was left of the old one. Returns the enrollment; the
     caller commits.
     """
     course = await db.get(Course, course_id)
     if course is None:
         raise HTTPException(404, detail="Course not found")
+
+    course_expiry = _resolve_expires_at(course)
+    if expires_at is not None:
+        effective_expires_at = min(course_expiry, expires_at) if course_expiry is not None else expires_at
+    else:
+        effective_expires_at = course_expiry
 
     existing = (await db.execute(
         select(Enrollment).where(
@@ -90,11 +98,15 @@ async def enroll(
         now_expired = existing.expires_at is not None and existing.expires_at <= datetime.now(timezone.utc)
         if existing.status == "inactive" or now_expired:
             existing.status = "active"
-            existing.expires_at = _resolve_expires_at(course)
+            existing.expires_at = effective_expires_at
             if granted_by is not None:
                 existing.granted_by = granted_by
             if purchase_id is not None:
                 existing.purchase_id = purchase_id
+            await db.flush()
+        elif expires_at is not None and existing.source in ("invite_code", "registration"):
+            # Update expiry on existing invite-code/registration grant
+            existing.expires_at = effective_expires_at
             await db.flush()
         return existing
 
@@ -107,7 +119,7 @@ async def enroll(
         registration_id=registration_id,
         granted_by=granted_by,
         purchase_id=purchase_id,
-        expires_at=_resolve_expires_at(course),
+        expires_at=effective_expires_at,
         status="active",
     )
     db.add(enrollment)

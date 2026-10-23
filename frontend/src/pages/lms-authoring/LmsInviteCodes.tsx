@@ -86,19 +86,27 @@ export default function LmsInviteCodes() {
         />
       ) : (
         <div className="flex flex-col gap-2">
-          {codes.map((c) => (
+          {codes.map((c) => {
+            const isExpired = !!c.expires_at && new Date(c.expires_at).getTime() < Date.now()
+            return (
             <div key={c.id} className="flex flex-col bg-card border border-border rounded-2xl overflow-hidden">
               <div className="flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-4 p-4">
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-2 flex-wrap">
                     <span className="font-mono text-sm font-semibold text-foreground">{c.code}</span>
-                    <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${
-                      c.is_active
-                        ? "bg-green-500/15 text-green-600 dark:text-green-400"
-                        : "bg-muted text-muted-foreground"
-                    }`}>
-                      {c.is_active ? "Active" : "Inactive"}
-                    </span>
+                    {isExpired ? (
+                      <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-red-500/15 text-red-600 dark:text-red-400 border border-red-500/30">
+                        Expired
+                      </span>
+                    ) : (
+                      <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${
+                        c.is_active
+                          ? "bg-green-500/15 text-green-600 dark:text-green-400"
+                          : "bg-muted text-muted-foreground"
+                      }`}>
+                        {c.is_active ? "Active" : "Inactive"}
+                      </span>
+                    )}
                     {c.kind === "observer" && (
                       <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-indigo-500/15 text-indigo-600 dark:text-indigo-400 border border-indigo-500/30">
                         Observer batch
@@ -106,10 +114,17 @@ export default function LmsInviteCodes() {
                     )}
                     {c.label && <span className="text-sm text-muted-foreground">{c.label}</span>}
                   </div>
-                  <div className="text-xs text-muted-foreground mt-1">
-                    {c.signups} signed up · {c.used_count}/{c.max_uses} uses
+                  <div className="text-xs text-muted-foreground mt-1 flex items-center gap-1.5 flex-wrap">
+                    <span>{c.signups} signed up · {c.used_count}/{c.max_uses} uses</span>
                     {c.used_count >= c.max_uses && (
-                      <span className="ml-2 text-amber-600 dark:text-amber-400">Limit reached</span>
+                      <span className="text-amber-600 dark:text-amber-400">· Limit reached</span>
+                    )}
+                    {c.expires_at && (
+                      <span className={isExpired ? "text-red-600 dark:text-red-400 font-medium" : "text-muted-foreground"}>
+                        · {isExpired ? "Expired on" : "Expires"} {new Date(c.expires_at).toLocaleDateString(undefined, {
+                          month: "short", day: "numeric", year: "numeric", hour: "2-digit", minute: "2-digit",
+                        })}
+                      </span>
                     )}
                   </div>
                 </div>
@@ -173,7 +188,8 @@ export default function LmsInviteCodes() {
               </div>
               {grantsOpenId === c.id && <GrantsPanel code={c} />}
             </div>
-          ))}
+            )
+          })}
         </div>
       )}
 
@@ -330,6 +346,14 @@ function GrantsPanel({ code }: { code: InviteCode }) {
   )
 }
 
+function toInputDatetime(isoStr?: string | null): string {
+  if (!isoStr) return ""
+  const d = new Date(isoStr)
+  if (isNaN(d.getTime())) return ""
+  const pad = (n: number) => String(n).padStart(2, "0")
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`
+}
+
 function InviteCodeModal({ existing, onClose, onSuccess }: {
   existing?: InviteCode; onClose: () => void; onSuccess: () => void
 }) {
@@ -337,6 +361,7 @@ function InviteCodeModal({ existing, onClose, onSuccess }: {
   const [label, setLabel] = useState(existing?.label ?? "")
   const [maxUses, setMaxUses] = useState(String(existing?.max_uses ?? 30))
   const [kind, setKind] = useState<"student" | "observer">(existing?.kind === "observer" ? "observer" : "student")
+  const [expiresAt, setExpiresAt] = useState(toInputDatetime(existing?.expires_at))
   const [error, setError] = useState("")
 
   // A code that's already been used can't be renamed (the server refuses —
@@ -349,6 +374,7 @@ function InviteCodeModal({ existing, onClose, onSuccess }: {
         label: label.trim() || null,
         max_uses: Number(maxUses) || 30,
         kind,
+        expires_at: expiresAt ? new Date(expiresAt).toISOString() : null,
       }
       return existing
         ? updateInviteCodeApi(existing.id, codeLocked ? payload : { ...payload, code: code.trim().toUpperCase() })
@@ -413,6 +439,29 @@ function InviteCodeModal({ existing, onClose, onSuccess }: {
             placeholder="Fall 2026 Batch"
             className="w-full h-10 px-3 border border-border bg-card text-foreground rounded-xl text-sm focus:outline-none focus:border-primary transition-colors"
           />
+        </Field>
+        <Field label="Expiry date & time (optional)">
+          <div className="flex gap-2 items-center">
+            <input
+              type="datetime-local"
+              value={expiresAt}
+              onChange={(e) => setExpiresAt(e.target.value)}
+              className="flex-1 h-10 px-3 border border-border bg-card text-foreground rounded-xl text-sm focus:outline-none focus:border-primary transition-colors cursor-pointer"
+            />
+            {expiresAt && (
+              <button
+                type="button"
+                onClick={() => setExpiresAt("")}
+                className="h-10 px-3 text-xs text-muted-foreground hover:text-foreground border border-border bg-card rounded-xl hover:bg-muted transition-colors"
+                title="Clear expiry (perpetual)"
+              >
+                Clear
+              </button>
+            )}
+          </div>
+          <p className="text-[11px] text-muted-foreground mt-1">
+            After this date, the invite link becomes invalid and students who used it lose access to granted courses and programs.
+          </p>
         </Field>
         <Field label="Max uses">
           <input
