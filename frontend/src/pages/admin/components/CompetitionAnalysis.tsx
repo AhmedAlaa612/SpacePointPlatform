@@ -567,10 +567,15 @@ function TeamQuizSubmissionRow({
             <span className="text-muted-foreground text-[11px] truncate">· {submission.quiz_title}</span>
           </div>
 
-          {isSubmitted && submission.score !== null && submission.total !== null && (
+          {isSubmitted && submission.score !== null && submission.total !== null && submission.total > 0 && (
             <span className="text-xs font-mono font-bold text-emerald-600 dark:text-emerald-400 shrink-0">
               {submission.score} / {submission.total} correct
-              {submission.total > 0 && ` (${Math.round((submission.score / submission.total) * 100)}%)`}
+              {` (${Math.round((submission.score / submission.total) * 100)}%)`}
+            </span>
+          )}
+          {isSubmitted && (submission.total === 0 || submission.total === null) && (
+            <span className="text-xs font-medium text-blue-600 dark:text-blue-400 shrink-0">
+              Completed (Opinion/Ungraded)
             </span>
           )}
 

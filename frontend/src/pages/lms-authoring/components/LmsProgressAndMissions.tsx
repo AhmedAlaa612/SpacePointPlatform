@@ -1170,60 +1170,126 @@ export function QuizAnswersReview({ cohortId, assignmentId, itemId }: { cohortId
   }
   if (!result) return null
 
+  const isAllOpinion = result.total === 0 || (result.score === null && result.questions.every((q) => q.is_correct === null))
+
   return (
     <div className="border border-border rounded-lg bg-card p-3 flex flex-col gap-3">
       <div className="flex items-center gap-3 text-xs font-semibold text-foreground">
-        <span>{result.score} / {result.total} correct</span>
-        {result.topic_breakdown && (
+        <span>
+          {isAllOpinion
+            ? "Completed (Opinion / Ungraded)"
+            : `${result.score ?? 0} / ${result.total} correct`}
+        </span>
+        {result.topic_breakdown && Object.keys(result.topic_breakdown).length > 0 && (
           <span className="text-muted-foreground font-normal">
             {Object.entries(result.topic_breakdown).map(([topic, { correct, total }]) => `${topic} ${correct}/${total}`).join(" · ")}
           </span>
         )}
       </div>
       <div className="flex flex-col gap-2">
-        {result.questions.map((q, i) => (
-          <div
-            key={q.question_id}
-            className={`rounded-lg border p-2.5 flex flex-col gap-1.5 ${
-              q.is_correct ? "border-border bg-background" : "border-red-500/30 bg-red-500/5"
-            }`}
-          >
-            <div className="flex items-center gap-2 flex-wrap text-[11px]">
-              <span className="font-mono text-muted-foreground">Q{i + 1}</span>
-              <span className="px-1.5 py-0.5 rounded-full border border-border text-muted-foreground uppercase tracking-wide">{q.topic}</span>
-              {q.is_correct ? (
-                <span className="flex items-center gap-1 text-emerald-600 dark:text-emerald-400 font-semibold"><CheckCircle2 size={11} /> Correct</span>
-              ) : (
-                <span className="flex items-center gap-1 text-red-600 dark:text-red-400 font-semibold"><XCircle size={11} /> Incorrect</span>
-              )}
-              {q.selected_index === null && (
-                <span className="text-muted-foreground italic">— left unanswered{q.timed_out ? " (timed out)" : ""}</span>
-              )}
-              {q.time_taken_seconds != null && (
-                <span className="flex items-center gap-1 text-muted-foreground ml-auto"><Clock size={11} /> {q.time_taken_seconds}s</span>
-              )}
-            </div>
-            <p className="text-xs font-medium text-foreground">{q.prompt}</p>
-            <div className="flex flex-col gap-0.5">
-              {q.options.map((text, oi) => (
-                <div
-                  key={oi}
-                  className={`px-2 py-1 rounded text-[11px] ${
-                    oi === q.correct_index
-                      ? "bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 font-medium"
-                      : oi === q.selected_index
-                      ? "bg-red-500/10 text-red-700 dark:text-red-400"
-                      : "text-muted-foreground"
-                  }`}
-                >
-                  {text}
-                  {oi === q.correct_index && <span className="ml-1.5 text-[10px]">(correct)</span>}
-                  {oi === q.selected_index && oi !== q.correct_index && <span className="ml-1.5 text-[10px]">(their answer)</span>}
+        {result.questions.map((q, i) => {
+          const isTextarea = q.question_type === "textarea"
+          const isOpinion = !isTextarea && (q.is_correct === null || (q.correct_index === null && (!q.correct_indices || q.correct_indices.length === 0)))
+
+          const cardBorder = isTextarea
+            ? "border-purple-500/30 bg-purple-500/5"
+            : isOpinion
+            ? "border-blue-500/30 bg-blue-500/5"
+            : q.is_correct
+            ? "border-border bg-background"
+            : "border-red-500/30 bg-red-500/5"
+
+          return (
+            <div
+              key={q.question_id}
+              className={`rounded-lg border p-2.5 flex flex-col gap-1.5 ${cardBorder}`}
+            >
+              <div className="flex items-center gap-2 flex-wrap text-[11px]">
+                <span className="font-mono text-muted-foreground">Q{i + 1}</span>
+                <span className="px-1.5 py-0.5 rounded-full border border-border text-muted-foreground uppercase tracking-wide">{q.topic}</span>
+                {isTextarea ? (
+                  <span className="px-2 py-0.5 rounded-full bg-purple-500/15 text-purple-600 dark:text-purple-400 font-semibold border border-purple-500/30">
+                    Open Response
+                  </span>
+                ) : isOpinion ? (
+                  <span className="px-2 py-0.5 rounded-full bg-blue-500/15 text-blue-600 dark:text-blue-400 font-semibold border border-blue-500/30">
+                    {isMultiselect ? "Multiple Choice (Opinion)" : "Opinion"}
+                  </span>
+                ) : q.is_correct ? (
+                  <span className="flex items-center gap-1 text-emerald-600 dark:text-emerald-400 font-semibold"><CheckCircle2 size={11} /> Correct</span>
+                ) : (
+                  <span className="flex items-center gap-1 text-red-600 dark:text-red-400 font-semibold"><XCircle size={11} /> Incorrect</span>
+                )}
+                {q.selected_index === null && (!q.selected_indices || q.selected_indices.length === 0) && !q.text_answer && (
+                  <span className="text-muted-foreground italic">— left unanswered{q.timed_out ? " (timed out)" : ""}</span>
+                )}
+                {q.time_taken_seconds != null && (
+                  <span className="flex items-center gap-1 text-muted-foreground ml-auto"><Clock size={11} /> {q.time_taken_seconds}s</span>
+                )}
+              </div>
+              <p className="text-xs font-medium text-foreground">{q.prompt}</p>
+
+              {isTextarea ? (
+                <div className="p-2.5 rounded-md bg-muted/40 border border-border/70 text-xs">
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground block mb-1">
+                    Student Response:
+                  </span>
+                  {q.text_answer ? (
+                    <p className="text-foreground whitespace-pre-wrap">{q.text_answer}</p>
+                  ) : (
+                    <p className="text-muted-foreground italic">Left unanswered.</p>
+                  )}
                 </div>
-              ))}
+              ) : (
+                <div className="flex flex-col gap-0.5">
+                  {q.options.map((text, oi) => {
+                    const isSelected = q.selected_indices && q.selected_indices.length > 0
+                      ? q.selected_indices.includes(oi)
+                      : q.selected_index === oi
+                    const isCorrectOption = q.correct_indices && q.correct_indices.length > 0
+                      ? q.correct_indices.includes(oi)
+                      : q.correct_index === oi
+
+                    let optionClass = "text-muted-foreground"
+                    let label = null
+
+                    if (isOpinion) {
+                      if (isSelected) {
+                        optionClass = "bg-blue-500/15 text-blue-700 dark:text-blue-300 font-medium border border-blue-500/30"
+                        label = <span className="ml-1.5 text-[10px] font-semibold text-blue-600 dark:text-blue-400">(selected answer)</span>
+                      }
+                    } else {
+                      if (isCorrectOption) {
+                        optionClass = "bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 font-medium"
+                        label = <span className="ml-1.5 text-[10px]">(correct)</span>
+                      } else if (isSelected) {
+                        optionClass = "bg-red-500/10 text-red-700 dark:text-red-400"
+                        label = <span className="ml-1.5 text-[10px]">(their answer)</span>
+                      }
+                    }
+
+                    return (
+                      <div
+                        key={oi}
+                        className={`px-2 py-1 rounded text-[11px] ${optionClass}`}
+                      >
+                        {text}
+                        {label}
+                      </div>
+                    )
+                  })}
+                </div>
+              )}
+
+              {q.explanation && (
+                <p className="text-[11px] text-muted-foreground border-t border-border/40 pt-1 mt-0.5">
+                  <span className="font-semibold text-foreground/80">Explanation: </span>
+                  {q.explanation}
+                </p>
+              )}
             </div>
-          </div>
-        ))}
+          )
+        })}
       </div>
     </div>
   )
