@@ -291,7 +291,7 @@ function MissionsProgressTab() {
               </tr>
             </thead>
             <tbody>
-              {sortedStudentRows.map((row) => (
+              {progress.rows.map((row) => (
                 <tr key={row.user_id} className="border-b border-border last:border-0">
                   <StudentNameCell userId={row.user_id} name={row.full_name} onOpen={setProfileUserId} />
                   <td className="px-4 py-2.5 text-muted-foreground whitespace-nowrap">
