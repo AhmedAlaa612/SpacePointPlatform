@@ -2,7 +2,7 @@ import { useState } from "react";
 import { useNavigate } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient, type UseMutationResult } from "@tanstack/react-query";
 import { isAxiosError } from "axios";
-import { Check, Copy, ExternalLink, Lock, LogOut, Pencil, Plus, Play, Trash2, Users, X, type LucideIcon } from "lucide-react";
+import { Check, Copy, ExternalLink, Loader2, Lock, LogOut, Pencil, Plus, Play, Trash2, Users, X, type LucideIcon } from "lucide-react";
 import {
   completeChecklistItem, createFormationTeam, getChecklistItemGuidelineVideoUrlApi, getChecklistItemPdfUrlApi,
   joinFormationTeam, leaveFormationTeam, previewFormationJoin, setTeamNameChecklistItem,
@@ -815,10 +815,25 @@ function DrawerBody({
             {isAutoTracked && (
               <Button
                 disabled={item.item_type === "quiz" && pastDeadline && !done}
-                onClick={doWork}
+                onClick={() => {
+                  if (item.item_type === "mission_run" && !item.mission_attempt_id) {
+                    onChanged();
+                    return;
+                  }
+                  doWork();
+                }}
                 className="h-[52px] text-base gap-2"
               >
-                {item.item_type === "quiz" && pastDeadline && !done ? "Deadline passed" : workLabel}
+                {item.item_type === "quiz" && pastDeadline && !done ? (
+                  "Deadline passed"
+                ) : item.item_type === "mission_run" && !item.mission_attempt_id ? (
+                  <>
+                    <Loader2 size={16} className="animate-spin" />
+                    Syncing mission… Click to refresh
+                  </>
+                ) : (
+                  workLabel
+                )}
               </Button>
             )}
             {isSubmission && !isMultiLink && !isTextSubmission && !pastDeadline && (
@@ -1076,6 +1091,13 @@ export function TaskDrawer({
         search: { mode: target.mode, program: assignmentId, itemId: target.itemId } as never,
       });
     } else if (target.kind === "external") window.open(ensureAbsoluteUrl(target.url), "_blank", "noreferrer");
+    else if (item.item_type === "mission_run") {
+      if (item.mission_id) {
+        void navigate({ to: `/learn/missions/${item.mission_id}` });
+      } else {
+        onChanged();
+      }
+    }
   };
   // A submission item's own `external_url` is an optional reference link
   // (e.g. a Tinkercad template) — a genuine "do the work" destination

@@ -294,14 +294,17 @@ export function navTargetFor(item: LmsProgramChecklistItem): NavTarget {
       itemId: item.id,
     };
   }
-  if (item.item_type === "mission_run" && item.mission_attempt_id) {
-    if (item.mission_kind === "design") {
-      return {
-        kind: "design", attemptId: item.mission_attempt_id,
-        phase: item.mission_step_key ? stepKeyToDesignTab(item.mission_step_key) : undefined,
-      };
+  if (item.item_type === "mission_run") {
+    if (item.mission_attempt_id) {
+      if (item.mission_kind === "design") {
+        return {
+          kind: "design", attemptId: item.mission_attempt_id,
+          phase: item.mission_step_key ? stepKeyToDesignTab(item.mission_step_key) : undefined,
+        };
+      }
+      if (item.mission_kind === "operate") return { kind: "operate", attemptId: item.mission_attempt_id };
+      if (item.mission_id) return { kind: "mission", missionId: item.mission_id };
     }
-    if (item.mission_kind === "operate") return { kind: "operate", attemptId: item.mission_attempt_id };
     if (item.mission_id) return { kind: "mission", missionId: item.mission_id };
   }
   if (item.item_type === "external_link" && item.external_url) return { kind: "external", url: item.external_url };

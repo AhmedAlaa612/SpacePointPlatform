@@ -48,6 +48,8 @@ export default function RoadmapBoard() {
     // 2026-09-14). This board's own data changes from *other* pages far
     // more than most queries do, so it always refetches on mount instead.
     refetchOnMount: "always",
+    refetchOnWindowFocus: "always",
+    staleTime: 5_000,
   });
 
   const invalidate = () => queryClient.invalidateQueries({ queryKey: ["lms-checklist", assignmentId] });
