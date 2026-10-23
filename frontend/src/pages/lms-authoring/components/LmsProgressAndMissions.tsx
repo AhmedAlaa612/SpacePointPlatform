@@ -527,6 +527,7 @@ export function ProgressPanel({
   cohortId, lmsProgramId, scopeLabel,
 }: { cohortId?: string; lmsProgramId?: string; scopeLabel: string }) {
   const [search, setSearch] = useState("")
+  const [sortBy, setSortBy] = useState<"progress_desc" | "progress_asc" | "name_asc" | "name_desc">("progress_desc")
   // Observer mode (2026-10) — `[Students | Observers]` toggle. The default
   // slice is real students; observers are inspected separately so staff
   // testing never mixes into official completion data.
@@ -546,12 +547,26 @@ export function ProgressPanel({
     onSuccess: () => void queryClient.invalidateQueries({ queryKey }),
   })
 
-  const filteredRows = useMemo(() => {
+  const sortedRows = useMemo(() => {
     if (!rows) return []
-    if (!search.trim()) return rows
-    const q = search.toLowerCase()
-    return rows.filter((r) => r.student_name.toLowerCase().includes(q) || (r.name && r.name.toLowerCase().includes(q)))
-  }, [rows, search])
+    let list = rows
+    if (search.trim()) {
+      const q = search.toLowerCase()
+      list = list.filter((r) => r.student_name.toLowerCase().includes(q) || (r.name && r.name.toLowerCase().includes(q)))
+    }
+    return [...list].sort((a, b) => {
+      if (sortBy === "progress_desc") {
+        return (b.pct ?? 0) - (a.pct ?? 0) || (b.items_done ?? 0) - (a.items_done ?? 0) || a.student_name.localeCompare(b.student_name)
+      }
+      if (sortBy === "progress_asc") {
+        return (a.pct ?? 0) - (b.pct ?? 0) || (a.items_done ?? 0) - (b.items_done ?? 0) || a.student_name.localeCompare(b.student_name)
+      }
+      if (sortBy === "name_desc") {
+        return b.student_name.localeCompare(a.student_name)
+      }
+      return a.student_name.localeCompare(b.student_name)
+    })
+  }, [rows, search, sortBy])
 
   if (isLoading) return <Spinner />
   if (!rows || rows.length === 0) {
@@ -571,25 +586,38 @@ export function ProgressPanel({
       <div className="flex items-center justify-between gap-3 flex-wrap">
         <RosterModeToggle mode={rosterMode} onChange={setRosterMode} />
         {rows.length > 0 && (
-          <div className="relative w-full sm:w-64">
-            <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none" />
-            <input
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              placeholder={rosterMode === "observer" ? "Search by observer name…" : "Search by student name…"}
-              className="h-8 w-full pl-8 pr-3 border border-border bg-background text-foreground rounded-lg text-xs focus:outline-none focus:border-primary transition-colors"
-            />
+          <div className="flex items-center gap-2 flex-wrap w-full sm:w-auto">
+            <div className="relative w-full sm:w-64">
+              <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none" />
+              <input
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder={rosterMode === "observer" ? "Search by observer name…" : "Search by student name…"}
+                className="h-8 w-full pl-8 pr-3 border border-border bg-background text-foreground rounded-lg text-xs focus:outline-none focus:border-primary transition-colors"
+              />
+            </div>
+            <select
+              value={sortBy}
+              onChange={(e) => setSortBy(e.target.value as any)}
+              className="h-8 px-2.5 border border-border bg-background text-foreground rounded-lg text-xs font-medium cursor-pointer focus:outline-none focus:border-primary"
+              aria-label="Sort individual progress"
+            >
+              <option value="progress_desc">Sort: Highest progress</option>
+              <option value="progress_asc">Sort: Lowest progress</option>
+              <option value="name_asc">Sort: Name (A-Z)</option>
+              <option value="name_desc">Sort: Name (Z-A)</option>
+            </select>
           </div>
         )}
       </div>
 
-      {filteredRows.length === 0 ? (
+      {sortedRows.length === 0 ? (
         <p className="text-xs text-muted-foreground text-center py-6">
           {rosterMode === "observer" ? `No observers match "${search}"` : `No students match "${search}"`}
         </p>
       ) : (
         <div className="flex flex-col gap-3">
-          {filteredRows.map((row) => (
+          {sortedRows.map((row) => (
             <ProgressRow
               key={row.assignment_id} row={row} cohortId={cohortId} lmsProgramId={lmsProgramId}
               onConfirm={(itemId) => cohortId && confirmMutation.mutate({ assignmentCohortId: cohortId, assignmentId: row.assignment_id, itemId })}
@@ -884,6 +912,9 @@ export function AssignmentItemRow({
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ["assignment-items", cohortId, assignmentId] })
       void queryClient.invalidateQueries({ queryKey: ["instructor-program-progress", cohortId] })
+      if (cohortId) {
+        void queryClient.invalidateQueries({ queryKey: ["competitions-team-analytics", cohortId] })
+      }
     },
   })
 
@@ -894,6 +925,9 @@ export function AssignmentItemRow({
       void queryClient.invalidateQueries({ queryKey: ["assignment-items", cohortId, assignmentId] })
       void queryClient.invalidateQueries({ queryKey: ["cohort-quiz-review", cohortId, assignmentId, item.item_id] })
       void queryClient.invalidateQueries({ queryKey: ["instructor-program-progress", cohortId] })
+      if (cohortId) {
+        void queryClient.invalidateQueries({ queryKey: ["competitions-team-analytics", cohortId] })
+      }
     },
   })
 

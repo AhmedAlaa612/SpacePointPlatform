@@ -646,8 +646,13 @@ class CompetitionAnalyticsDeliverableOut(BaseModel):
 
 
 class CompetitionAnalyticsTeamMemberOut(BaseModel):
+    user_id: UUID | None = None
+    assignment_id: UUID | None = None
     name: str
     last_login_at: datetime | None = None
+    items_total: int | None = None
+    items_done: int | None = None
+    pct: int | None = None
 
 
 class CompetitionTeamQuizSubmissionOut(BaseModel):

@@ -1,5 +1,6 @@
 import { useMemo, useState, useEffect } from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
+import { useNavigate } from "@tanstack/react-router"
 import * as XLSX from "xlsx"
 import {
   Area, AreaChart, Bar, BarChart, CartesianGrid, Cell, LabelList, ResponsiveContainer,
@@ -7,19 +8,22 @@ import {
 } from "recharts"
 import {
   AlertTriangle, CheckCircle2, ChevronDown, ChevronRight, Circle, Clock, ExternalLink, Eye, FileSpreadsheet, Loader2, Lock, Search,
-  Rocket, UserX, Users, UsersRound,
+  Rocket, UserX, Users, UsersRound, X, Maximize2,
 } from "lucide-react"
 import {
   getCohortTeamAnalyticsApi, downloadCohortQuizAnswersWorkbookApi, unlockTeamApi,
   type CompetitionAnalytics, type CompetitionAnalyticsItem, type CompetitionAnalyticsTeam,
   type CompetitionAnalyticsDeliverable, type CompetitionMissionRun, type CompetitionTeamQuizSubmission,
+  type CompetitionAnalyticsTeamMember,
 } from "@/api/competitions"
+import { getAssignmentItemsApi, type LmsAssignmentItemDetail } from "@/api/lms_admin"
 import { Spinner, EmptyState, StatCard } from "@/components/ui/primitives"
 import { Button } from "@/components/ui/button"
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog"
 import { useToast } from "@/components/ui/toast"
 import { ensureAbsoluteUrl, getErrorMessage } from "@/lib/utils"
 import { DesignRunDetail } from "@/pages/lms-authoring/components/DesignRunDetail"
-import { QuizAnswersReview } from "@/pages/lms-authoring/components/LmsProgressAndMissions"
+import { QuizAnswersReview, AssignmentItemRow } from "@/pages/lms-authoring/components/LmsProgressAndMissions"
 
 /* ================================================================== */
 /* Analysis tab (2026-09-16)                                           */
@@ -605,6 +609,169 @@ function TeamQuizSubmissionRow({
 
 type SortKey = "pct" | "name" | "members" | "activity"
 
+function MemberProgressDetail({
+  member,
+  cohortId,
+  teamName,
+  onOpenModal,
+}: {
+  member: CompetitionAnalyticsTeamMember
+  cohortId: string
+  teamName: string
+  onOpenModal?: () => void
+}) {
+  const navigate = useNavigate()
+  const assignmentId = member.assignment_id
+
+  const { data: items, isLoading } = useQuery<LmsAssignmentItemDetail[]>({
+    queryKey: ["assignment-items", cohortId, assignmentId],
+    queryFn: () => getAssignmentItemsApi(cohortId, assignmentId!),
+    enabled: !!assignmentId && !!cohortId,
+  })
+
+  const doneCount = items ? items.filter((i) => i.status === "done").length : (member.items_done ?? 0)
+  const totalCount = items ? items.length : (member.items_total ?? 0)
+  const pct = totalCount > 0 ? Math.round((doneCount / totalCount) * 100) : (member.pct ?? 0)
+
+  return (
+    <div className="flex flex-col gap-3">
+      {/* Overview header stats */}
+      <div className="flex items-center justify-between gap-3 p-3 rounded-xl bg-card border border-border/70 flex-wrap">
+        <div className="flex items-center gap-2.5 min-w-0">
+          <div className="w-8 h-8 rounded-lg bg-primary/10 border border-primary/20 text-primary font-bold flex items-center justify-center text-xs shrink-0">
+            {member.name.trim().slice(0, 2).toUpperCase()}
+          </div>
+          <div className="min-w-0">
+            <p className="font-semibold text-foreground text-xs sm:text-sm truncate">{member.name}</p>
+            <p className="text-[11px] text-muted-foreground truncate">
+              Team: <span className="text-foreground font-medium">{teamName}</span>
+              {member.last_login_at && (
+                <> · Active {relativeTime(member.last_login_at)}</>
+              )}
+            </p>
+          </div>
+        </div>
+
+        <div className="flex items-center gap-2 shrink-0">
+          {member.user_id && (
+            <button
+              type="button"
+              onClick={() => {
+                const from = typeof window !== "undefined" ? (window.location.pathname + window.location.search) : undefined
+                void navigate({
+                  to: `/lms-authoring/students/${member.user_id}`,
+                  search: (from ? { from } : {}) as never,
+                })
+              }}
+              className="inline-flex items-center gap-1.5 h-7 px-2.5 rounded-lg border border-border bg-background text-[11px] font-medium text-foreground hover:bg-muted transition-colors cursor-pointer"
+              title="Open student manage page"
+            >
+              <ExternalLink size={12} />
+              <span>Full Profile</span>
+            </button>
+          )}
+
+          {onOpenModal && (
+            <button
+              type="button"
+              onClick={onOpenModal}
+              className="inline-flex items-center gap-1.5 h-7 px-2.5 rounded-lg border border-border bg-background text-[11px] font-medium text-foreground hover:bg-muted transition-colors cursor-pointer"
+              title="Open in modal dialog"
+            >
+              <Maximize2 size={12} />
+              <span className="hidden sm:inline">Dialog view</span>
+            </button>
+          )}
+        </div>
+      </div>
+
+      {/* Completion bar */}
+      <div className="flex flex-col gap-1.5 px-0.5">
+        <div className="flex items-center justify-between text-xs font-mono font-bold">
+          <span className="text-muted-foreground">{doneCount} / {totalCount} completed</span>
+          <span className={pct === 100 ? "text-emerald-500 font-extrabold" : "text-foreground"}>{pct}%</span>
+        </div>
+        <div className="h-2 rounded-full bg-muted overflow-hidden">
+          <div
+            className={`h-full rounded-full transition-all duration-500 ${pct === 100 ? "bg-emerald-500" : "bg-primary"}`}
+            style={{ width: `${pct}%` }}
+          />
+        </div>
+      </div>
+
+      {/* Items list */}
+      {!assignmentId ? (
+        <div className="p-4 rounded-xl border border-dashed border-border/70 text-center">
+          <p className="text-xs text-muted-foreground italic">
+            No LMS checklist assigned for this student in this cohort yet.
+          </p>
+        </div>
+      ) : isLoading ? (
+        <div className="py-6 flex justify-center"><Spinner /></div>
+      ) : (items ?? []).length === 0 ? (
+        <div className="p-4 rounded-xl border border-dashed border-border/70 text-center">
+          <p className="text-xs text-muted-foreground italic">
+            No checklist items found on this assignment.
+          </p>
+        </div>
+      ) : (
+        <div className="flex flex-col gap-2 pt-1 max-h-[420px] overflow-y-auto pr-1">
+          {(items ?? []).map((item) => (
+            <AssignmentItemRow
+              key={item.item_id}
+              item={item}
+              cohortId={cohortId}
+              assignmentId={assignmentId}
+            />
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function MemberProgressDrilldown({
+  member,
+  cohortId,
+  teamName,
+  onClose,
+  onOpenModal,
+}: {
+  member: CompetitionAnalyticsTeamMember
+  cohortId: string
+  teamName: string
+  onClose: () => void
+  onOpenModal?: () => void
+}) {
+  return (
+    <div className="mt-3 p-3.5 sm:p-4 rounded-2xl border-2 border-primary/30 bg-primary/5 flex flex-col gap-3 shadow-xs animate-in fade-in-50 duration-200">
+      <div className="flex items-center justify-between gap-2 pb-2 border-b border-primary/15">
+        <div className="flex items-center gap-2">
+          <Eye size={14} className="text-primary" />
+          <span className="font-bold text-xs uppercase tracking-wider text-foreground">
+            Drill-down: {member.name}'s Individual Progress
+          </span>
+        </div>
+        <button
+          type="button"
+          onClick={onClose}
+          className="p-1 rounded-lg text-muted-foreground hover:text-foreground hover:bg-background/80 transition-colors cursor-pointer"
+          title="Close drill-down"
+        >
+          <X size={15} />
+        </button>
+      </div>
+
+      <MemberProgressDetail
+        member={member}
+        cohortId={cohortId}
+        teamName={teamName}
+        onOpenModal={onOpenModal}
+      />
+    </div>
+  )
+}
+
 export function TeamAnalysisCard({
   team,
   cohortId,
@@ -623,10 +790,21 @@ export function TeamAnalysisCard({
   const isDark = useIsDark()
   const c = isDark ? CHART.dark : CHART.light
   const [localExpanded, setLocalExpanded] = useState(false)
+  const [drilledMember, setDrilledMember] = useState<CompetitionAnalyticsTeamMember | null>(null)
+  const [modalMember, setModalMember] = useState<CompetitionAnalyticsTeamMember | null>(null)
   const expanded = isExpanded !== undefined ? isExpanded : localExpanded
   const handleToggle = onToggleExpand ?? (() => setLocalExpanded((v) => !v))
   const toast = useToast()
   const queryClient = useQueryClient()
+
+  const toggleDrillMember = (m: CompetitionAnalyticsTeamMember) => {
+    setDrilledMember((prev) => {
+      if (prev && prev.name === m.name && (prev.user_id === m.user_id || (!prev.user_id && !m.user_id))) {
+        return null
+      }
+      return m
+    })
+  }
   const unlockMutation = useMutation({
     mutationFn: (teamId: string) => unlockTeamApi(teamId),
     onSuccess: () => {
@@ -727,27 +905,82 @@ export function TeamAnalysisCard({
             {team.members.length === 0 ? (
               <p className="text-xs text-muted-foreground italic">No members yet</p>
             ) : (
-              <div className="flex flex-wrap gap-2">
-                {team.members.map((m, i) => (
-                  <div
-                    key={m.name + i}
-                    className="flex items-center gap-2 px-2.5 py-1.5 rounded-xl border border-border/60 bg-card/60 shadow-2xs max-w-full min-w-0"
-                  >
-                    <div className="w-6 h-6 rounded-lg bg-primary/10 border border-primary/20 text-primary font-bold flex items-center justify-center text-[10px] shrink-0">
-                      {m.name.trim().slice(0, 2).toUpperCase()}
-                    </div>
-                    <span className="font-semibold text-foreground text-xs truncate">{m.name}</span>
-                    {m.last_login_at ? (
-                      <span className="text-[11px] text-muted-foreground shrink-0">
-                        {relativeTime(m.last_login_at)}
-                      </span>
-                    ) : (
-                      <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-md bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/25 shrink-0">
-                        never logged in
-                      </span>
-                    )}
-                  </div>
-                ))}
+              <div className="flex flex-col gap-3">
+                <div className="flex flex-wrap gap-2">
+                  {team.members.map((m, i) => {
+                    const isDrilled = drilledMember !== null && drilledMember.name === m.name && (drilledMember.user_id === m.user_id || (!drilledMember.user_id && !m.user_id))
+                    return (
+                      <div
+                        key={m.name + i}
+                        className={`flex items-center gap-2 px-2.5 py-1.5 rounded-xl border transition-all max-w-full min-w-0 ${
+                          isDrilled
+                            ? "border-primary bg-primary/10 ring-1 ring-primary/40 shadow-xs"
+                            : "border-border/60 bg-card/60 shadow-2xs hover:border-border"
+                        }`}
+                      >
+                        <div className="w-6 h-6 rounded-lg bg-primary/10 border border-primary/20 text-primary font-bold flex items-center justify-center text-[10px] shrink-0">
+                          {m.name.trim().slice(0, 2).toUpperCase()}
+                        </div>
+
+                        <button
+                          type="button"
+                          onClick={() => toggleDrillMember(m)}
+                          className="font-semibold text-foreground text-xs truncate hover:text-primary transition-colors cursor-pointer text-left"
+                          title={`Click to ${isDrilled ? "hide" : "view"} ${m.name}'s individual progress`}
+                        >
+                          {m.name}
+                        </button>
+
+                        {m.pct !== undefined && m.pct !== null && (
+                          <span
+                            className={`text-[10px] font-mono font-bold px-1.5 py-0.5 rounded-md shrink-0 ${
+                              m.pct === 100
+                                ? "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30"
+                                : "bg-muted text-muted-foreground border border-border/50"
+                            }`}
+                            title={`${m.items_done ?? 0}/${m.items_total ?? 0} items completed (${m.pct}%)`}
+                          >
+                            {m.pct}%
+                          </span>
+                        )}
+
+                        {m.last_login_at ? (
+                          <span className="text-[11px] text-muted-foreground shrink-0 hidden md:inline">
+                            {relativeTime(m.last_login_at)}
+                          </span>
+                        ) : (
+                          <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-md bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/25 shrink-0 hidden md:inline">
+                            never logged in
+                          </span>
+                        )}
+
+                        <button
+                          type="button"
+                          onClick={() => toggleDrillMember(m)}
+                          className={`inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-lg border transition-colors cursor-pointer shrink-0 ${
+                            isDrilled
+                              ? "bg-primary text-primary-foreground border-primary shadow-xs"
+                              : "bg-primary/10 text-primary hover:bg-primary/20 border-primary/20"
+                          }`}
+                          title={isDrilled ? `Hide ${m.name}'s progress` : `View ${m.name}'s progress`}
+                        >
+                          <Eye size={11} />
+                          <span>{isDrilled ? "Hide progress" : "View progress"}</span>
+                        </button>
+                      </div>
+                    )
+                  })}
+                </div>
+
+                {drilledMember && (
+                  <MemberProgressDrilldown
+                    member={drilledMember}
+                    cohortId={cohortId}
+                    teamName={team.team_name}
+                    onClose={() => setDrilledMember(null)}
+                    onOpenModal={() => setModalMember(drilledMember)}
+                  />
+                )}
               </div>
             )}
           </div>
@@ -864,6 +1097,27 @@ export function TeamAnalysisCard({
             )}
           </div>
         </div>
+      )}
+
+      {modalMember && (
+        <Dialog open={!!modalMember} onOpenChange={(open) => !open && setModalMember(null)}>
+          <DialogContent className="sm:max-w-2xl max-h-[85vh] overflow-y-auto">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2">
+                <span>{modalMember.name}</span>
+                <span className="text-xs font-normal text-muted-foreground">• Individual Progress</span>
+              </DialogTitle>
+              <DialogDescription>
+                Cohort LMS checklist progress for team {team.team_name}
+              </DialogDescription>
+            </DialogHeader>
+            <MemberProgressDetail
+              member={modalMember}
+              cohortId={cohortId}
+              teamName={team.team_name}
+            />
+          </DialogContent>
+        </Dialog>
       )}
     </div>
   )

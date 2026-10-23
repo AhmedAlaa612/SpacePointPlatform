@@ -2436,6 +2436,7 @@ async def cohort_program_roster(
             **summary, "user_id": assignment.user_id, "student_name": user.full_name if user else "?",
             "pending_confirmations": pending,
         })
+    out.sort(key=lambda r: (-r.get("pct", 0), -r.get("items_done", 0), (r.get("student_name") or "").lower()))
     return out
 
 
@@ -2495,6 +2496,7 @@ async def program_roster(
             **summary, "user_id": assignment.user_id, "student_name": user.full_name if user else "?",
             "pending_confirmations": pending,
         })
+    out.sort(key=lambda r: (-r.get("pct", 0), -r.get("items_done", 0), (r.get("student_name") or "").lower()))
     return out
 
 

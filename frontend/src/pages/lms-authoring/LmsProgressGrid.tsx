@@ -1,4 +1,4 @@
-import { useState } from "react"
+import { useMemo, useState } from "react"
 import { useQuery } from "@tanstack/react-query"
 import { ArrowLeft } from "lucide-react"
 import { PageHeader, EmptyState, Spinner } from "@/components/ui/primitives"
@@ -94,6 +94,11 @@ function CoursesProgressTab() {
     enabled: !!courseId,
   })
 
+  const sortedStudentRows = useMemo(() => {
+    if (!progress?.rows) return []
+    return [...progress.rows].sort((a, b) => b.pct - a.pct || a.full_name.localeCompare(b.full_name))
+  }, [progress?.rows])
+
   const openCourse = (row: CourseOverviewRow) => {
     setProgramId("")
     setCohortId("")
@@ -181,7 +186,7 @@ function CoursesProgressTab() {
               </tr>
             </thead>
             <tbody>
-              {progress.rows.map((row) => (
+              {sortedStudentRows.map((row) => (
                 <tr key={row.user_id} className="border-b border-border last:border-0">
                   <StudentNameCell userId={row.user_id} name={row.full_name} onOpen={setProfileUserId} />
                   <td className="px-4 py-2.5"><CompletionBar pct={row.pct} /></td>
@@ -286,7 +291,7 @@ function MissionsProgressTab() {
               </tr>
             </thead>
             <tbody>
-              {progress.rows.map((row) => (
+              {sortedStudentRows.map((row) => (
                 <tr key={row.user_id} className="border-b border-border last:border-0">
                   <StudentNameCell userId={row.user_id} name={row.full_name} onOpen={setProfileUserId} />
                   <td className="px-4 py-2.5 text-muted-foreground whitespace-nowrap">

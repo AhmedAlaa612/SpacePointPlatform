@@ -723,8 +723,12 @@ export interface CompetitionAnalyticsDeliverable {
 
 export interface CompetitionAnalyticsTeamMember {
   user_id?: string
+  assignment_id?: string | null
   name: string
   last_login_at: string | null
+  items_total?: number
+  items_done?: number
+  pct?: number
 }
 
 export interface CompetitionTeamQuizSubmission {

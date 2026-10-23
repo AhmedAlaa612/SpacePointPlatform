@@ -450,6 +450,8 @@ async def cohort_team_analytics(db: AsyncSession, *, cohort_id: uuid.UUID, mode:
 
     # ── per-team progress ───────────────────────────────────────────────
     required_team_items = [i for i in team_items if not i.optional]
+    required_individual_items = [i for i in individual_items if not i.optional]
+    ind_total = len(required_individual_items)
     now = datetime.now(timezone.utc)
     team_rows = []
     for team in teams:
@@ -517,7 +519,21 @@ async def cohort_team_analytics(db: AsyncSession, *, cohort_id: uuid.UUID, mode:
             "roster_team_id": team.roster_team_id,
             "is_observer": bool(team.is_observer),
             "member_count": len(member_ids),
-            "members": [{"name": m.full_name, "last_login_at": m.last_login_at} for m in members],
+            "members": [
+                {
+                    "user_id": m.id,
+                    "assignment_id": assignment_by_user.get(m.id),
+                    "name": m.full_name,
+                    "last_login_at": m.last_login_at,
+                    "items_total": ind_total,
+                    "items_done": sum(1 for item in required_individual_items if m.id in done_users_by_item.get(item.id, set())),
+                    "pct": _pct(
+                        sum(1 for item in required_individual_items if m.id in done_users_by_item.get(item.id, set())),
+                        ind_total,
+                    ),
+                }
+                for m in members
+            ],
             "never_logged_in": sum(1 for m in members if m.last_login_at is None),
             "items_total": total,
             "items_done": done,
