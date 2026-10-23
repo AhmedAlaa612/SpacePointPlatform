@@ -1189,6 +1189,7 @@ export function QuizAnswersReview({ cohortId, assignmentId, itemId }: { cohortId
       <div className="flex flex-col gap-2">
         {result.questions.map((q, i) => {
           const isTextarea = q.question_type === "textarea"
+          const isMultiselect = q.question_type === "multiselect" || q.question_type === "multiple_choice"
           const isOpinion = !isTextarea && (q.is_correct === null || (q.correct_index === null && (!q.correct_indices || q.correct_indices.length === 0)))
 
           const cardBorder = isTextarea
