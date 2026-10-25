@@ -26,6 +26,12 @@ from app.models.sessions.checklist import (
 )
 from app.models.sessions.session_call import SessionCall
 from app.models.sessions.media_consent import CohortMediaConsent
+from app.models.sessions.pre_session_quiz import (
+    PreSessionQuizAssignment,
+    PreSessionQuizAttempt,
+    PreSessionQuizPreset,
+    PreSessionQuizQuestion,
+)
 
 __all__ = [
     "Program",
@@ -60,4 +66,8 @@ __all__ = [
     "SessionOpsChecklistProgress",
     "SessionCall",
     "CohortMediaConsent",
+    "PreSessionQuizQuestion",
+    "PreSessionQuizPreset",
+    "PreSessionQuizAssignment",
+    "PreSessionQuizAttempt",
 ]

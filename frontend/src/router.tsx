@@ -71,6 +71,7 @@ import ApplicantReviewPage from "@/pages/instructors/ApplicantReview";
 import FacilitatorTraining from "@/pages/instructors/facilitator/Training";
 import FacilitatorLibrary from "@/pages/instructors/facilitator/Library";
 import FacilitatorApplication from "@/pages/instructors/facilitator/Application";
+import FacilitatorPreSessionQuizzes from "@/pages/instructors/facilitator/PreSessionQuizzes";
 import InstructorAvailableSessions from "@/pages/instructors/AvailableSessions";
 import InstructorMySessions from "@/pages/instructors/MySessions";
 import InstructorSessionDetail from "@/pages/instructors/SessionDetail";
@@ -609,6 +610,7 @@ const instructorsLayoutRoute = createRoute({
         "/instructors/admin/assessment-questions",
         "/instructors/admin/ratings/",
         "/instructors/assessment/",
+        "/instructors/facilitator/quizzes",
       ];
       const opsAllowed = role === "operations" && (
         opsAllowedPaths.some((p) => location.pathname.startsWith(p)) ||
@@ -655,6 +657,7 @@ const instructorsRoutes = [
   createRoute({ getParentRoute: pi, path: "/facilitator/training", component: FacilitatorTraining }),
   createRoute({ getParentRoute: pi, path: "/facilitator/library", component: FacilitatorLibrary }),
   createRoute({ getParentRoute: pi, path: "/facilitator/application", component: FacilitatorApplication }),
+  createRoute({ getParentRoute: pi, path: "/facilitator/quizzes", component: FacilitatorPreSessionQuizzes }),
   createRoute({ getParentRoute: pi, path: "/available-sessions", component: InstructorAvailableSessions }),
   createRoute({ getParentRoute: pi, path: "/my-sessions", component: InstructorMySessions }),
   createRoute({ getParentRoute: pi, path: "/my-holdings", component: InstructorMyHoldings }),

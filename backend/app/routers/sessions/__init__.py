@@ -14,6 +14,7 @@ from app.routers.sessions.staffing import router as staffing_router
 from app.routers.sessions.dashboard import router as dashboard_router
 from app.routers.sessions.openings import router as openings_router
 from app.routers.sessions.journey import router as journey_router
+from app.routers.sessions.pre_session_quiz import router as pre_session_quiz_router
 
 # Aggregate all sessions sub-routers under a single router main.py mounts.
 # Every sub-router already carries its own prefix (public="/public", the rest
@@ -28,6 +29,7 @@ router.include_router(openings_router)
 # /sessions/billable are literal paths that a {session_id} route would try to
 # parse as a UUID.
 router.include_router(journey_router)
+router.include_router(pre_session_quiz_router)
 # Same reason again: `/sessions/day-reviews` is a literal path, and a
 # `{session_id}` route mounted ahead of it would try to parse "day-reviews"
 # as a UUID and 422 before this router ever sees the request.

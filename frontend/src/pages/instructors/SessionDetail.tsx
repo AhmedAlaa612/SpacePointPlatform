@@ -11,6 +11,7 @@ import {
   uploadSessionReportApi,
 } from "@/api/sessions/delivery"
 import { checkInApi, getDayApi, setChecklistProgressApi, submitDayApi } from "@/api/sessions/day"
+import { getSessionPreQuizStatusApi } from "@/api/sessions/pre_session_quiz"
 import type { AttendanceStatus, ChecklistAttachment, ChecklistLine, RosterEntry, SessionReport } from "@/types/sessions"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
@@ -39,6 +40,7 @@ import { SessionKitsPanel } from "@/pages/instructors/components/SessionKitsPane
 import { SessionEquipmentPanel } from "@/pages/instructors/components/SessionEquipmentPanel"
 import { SessionMaterialsPanel } from "@/pages/instructors/components/SessionMaterialsPanel"
 import { SessionGamesPanel } from "@/pages/instructors/components/SessionGamesPanel"
+import { SessionPreQuizModal } from "@/pages/instructors/components/SessionPreQuizModal"
 import { ProgressPanel } from "@/pages/lms-authoring/components/LmsProgressAndMissions"
 
 export default function SessionDetail() {
@@ -58,6 +60,7 @@ export default function SessionDetail() {
   const [checkInError, setCheckInError] = useState("")
   const [askingAbsence, setAskingAbsence] = useState(false)
   const [absenceReason, setAbsenceReason] = useState("")
+  const [preQuizModalOpen, setPreQuizModalOpen] = useState(false)
   const busyRef = useRef(false)
   // The same ticket held in front of the camera is re-detected every frame.
   // Remembering the last one stops a second request firing for it at all,
@@ -73,10 +76,15 @@ export default function SessionDetail() {
     queryKey: ["instructor-day", sessionId],
     queryFn: () => getDayApi(sessionId),
   })
+  const preQuiz = useQuery({
+    queryKey: ["session-pre-quiz-status", sessionId],
+    queryFn: () => getSessionPreQuizStatusApi(sessionId),
+  })
 
   const invalidate = () => {
     qc.invalidateQueries({ queryKey: ["session-delivery", sessionId] })
     qc.invalidateQueries({ queryKey: ["instructor-day", sessionId] })
+    qc.invalidateQueries({ queryKey: ["session-pre-quiz-status", sessionId] })
   }
 
   const start = useMutation({
@@ -217,19 +225,88 @@ export default function SessionDetail() {
         />
         <div className="flex items-center gap-3 flex-wrap shrink-0">
           <span className={cn("text-xs font-semibold px-2.5 py-1 rounded-full shrink-0", statusPill.cls)}>{statusPill.text}</span>
+          {preQuiz.data?.has_quiz && (
+            <button
+              type="button"
+              onClick={() => setPreQuizModalOpen(true)}
+              className={cn(
+                "h-9 px-3.5 rounded-xl border text-xs font-bold inline-flex items-center gap-1.5 transition-all cursor-pointer",
+                preQuiz.data.my_attempt
+                  ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 hover:bg-emerald-500/20"
+                  : "border-amber-500/50 bg-amber-500/15 text-amber-600 dark:text-amber-400 hover:bg-amber-500/25",
+              )}
+            >
+              {preQuiz.data.my_attempt ? (
+                <>
+                  <span>
+                    Pre-Quiz: {preQuiz.data.my_attempt.final_score}/{preQuiz.data.my_attempt.total_questions}
+                  </span>
+                  {preQuiz.data.my_attempt.pending_review_count > 0 && (
+                    <span className="inline-flex items-center text-[10px] px-1.5 py-0.5 rounded-full bg-amber-500/20 text-amber-600 dark:text-amber-300">
+                      {preQuiz.data.my_attempt.pending_review_count} Pending
+                    </span>
+                  )}
+                </>
+              ) : (
+                <span>Take Pre-Session Quiz</span>
+              )}
+            </button>
+          )}
           {!isStarted && !isCompleted && (
             <Button
               size="default"
               disabled={start.isPending}
-              onClick={() => start.mutate()}
-              className="h-11 px-6 text-sm font-bold rounded-xl shadow-lg bg-primary text-black hover:opacity-90 transition-all flex items-center gap-2"
+              onClick={() => {
+                if (preQuiz.data?.has_quiz && !preQuiz.data.my_attempt) {
+                  setPreQuizModalOpen(true)
+                  return
+                }
+                start.mutate()
+              }}
+              className="h-11 px-6 text-sm font-bold rounded-xl shadow-lg bg-primary text-black hover:opacity-90 transition-all flex items-center gap-2 cursor-pointer"
             >
-              <Play size={16} fill="currentColor" />
+              {!(preQuiz.data?.has_quiz && !preQuiz.data.my_attempt) && (
+                <Play size={16} fill="currentColor" />
+              )}
               {start.isPending ? "Starting…" : "Start session"}
             </Button>
           )}
         </div>
       </div>
+
+      {/* Pre-Session Quiz Gate Banner when required before starting */}
+      {!isStarted && !isCompleted && preQuiz.data?.has_quiz && !preQuiz.data.my_attempt && (
+        <div className="p-3.5 sm:p-4 rounded-2xl border border-amber-500/40 bg-amber-500/10 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div>
+            <p className="text-xs sm:text-sm font-bold text-foreground">
+              Pre-Session Quiz Required: {preQuiz.data.preset?.name}
+            </p>
+            <p className="text-xs text-muted-foreground mt-0.5">
+              Complete this {preQuiz.data.preset?.questions.length ?? 0}-question readiness check to unlock{" "}
+              <strong className="text-foreground">Start session</strong>. Submitting unlocks the session immediately.
+            </p>
+          </div>
+          <Button
+            size="sm"
+            onClick={() => setPreQuizModalOpen(true)}
+            className="h-9 px-4 text-xs font-bold rounded-xl bg-primary text-black hover:opacity-90 shrink-0 cursor-pointer"
+          >
+            Open Pre-Session Quiz
+          </Button>
+        </div>
+      )}
+
+      {preQuiz.data?.has_quiz && (
+        <SessionPreQuizModal
+          open={preQuizModalOpen}
+          onClose={() => setPreQuizModalOpen(false)}
+          sessionId={sessionId}
+          quizStatus={preQuiz.data}
+          canStartSession={!isStarted && !isCompleted}
+          onStartSession={() => start.mutate()}
+          isStartingSession={start.isPending}
+        />
+      )}
 
       {/* ── Combined Session Info & Team Header Card ──────────────────── */}
       <Card>

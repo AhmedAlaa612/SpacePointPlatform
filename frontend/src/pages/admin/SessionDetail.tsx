@@ -11,6 +11,7 @@ import { SessionOpeningsPanel } from "@/pages/admin/components/SessionOpeningsPa
 import { MaterialsPanel } from "@/pages/admin/components/MaterialsPanel"
 import { GameAssignmentPanel } from "@/pages/admin/components/GameAssignmentPanel"
 import { SessionOpsChecklistPanel } from "@/pages/admin/components/SessionOpsChecklistPanel"
+import { SessionPreQuizOpsPanel } from "@/pages/admin/components/SessionPreQuizOpsPanel"
 import { EditSessionModal } from "@/pages/admin/components/EditSessionModal"
 import {
   getCohortApi, getSessionsApi, updateSessionApi, assignInstructorApi, unassignInstructorApi, deleteSessionApi,
@@ -347,9 +348,14 @@ function SessionDetailView({ cohort, session, onChanged, onDeleted }: {
       )}
 
       {activeTab === "checklist" && (
-        <Card className="p-4">
-          <SessionOpsChecklistPanel sessionId={session.id} cohortId={cohort.id} />
-        </Card>
+        <div className="flex flex-col gap-4">
+          <Card className="p-4">
+            <SessionPreQuizOpsPanel sessionId={session.id} />
+          </Card>
+          <Card className="p-4">
+            <SessionOpsChecklistPanel sessionId={session.id} cohortId={cohort.id} />
+          </Card>
+        </div>
       )}
 
       {activeTab === "roles" && (

@@ -39,6 +39,7 @@ import { listChecklistItemsApi, setChecklistItemsApi, type ChecklistScope } from
 import { useToast } from "@/components/ui/toast"
 import { cn, getErrorMessage } from "@/lib/utils"
 import { ChecklistAttachmentPicker } from "./ChecklistAttachmentPicker"
+import { PreSessionQuizAssignmentBar } from "./PreSessionQuizAssignmentBar"
 
 export type ChecklistDraftLine = {
   key: string
@@ -910,6 +911,13 @@ export function CohortDayChecklistManager({
           Internal Checklist
         </button>
       </div>
+
+      {/* 2.5. Pre-Session Quiz Preset Assignment (Cohort / Session) */}
+      <PreSessionQuizAssignmentBar
+        scope={isDefaultScope ? "cohorts" : "sessions"}
+        ownerId={isDefaultScope ? cohort.id : selectedDay}
+        dayTitle={dayTitle}
+      />
 
       {/* 3. Active Day & Role Checklist Editor */}
       <div className="p-3 sm:p-4 rounded-xl border border-border bg-card/60">

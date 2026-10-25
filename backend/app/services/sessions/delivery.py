@@ -93,6 +93,28 @@ async def start_session(db: AsyncSession, session_id: UUID, user: User) -> Sessi
     the first tap."""
     session = await _get_deliverable_session(db, session_id, user)
     if session.started_at is None:
+        # Gate on pre-session quiz if one is assigned for this session
+        from app.models.sessions.pre_session_quiz import PreSessionQuizAttempt
+        from app.services.sessions.pre_session_quiz import get_assignment_for_scope
+
+        is_ops = any(r in user.role_values for r in ("operations", "admin", "facilitator"))
+        if not is_ops:
+            assign_info = await get_assignment_for_scope(db, "sessions", session_id)
+            if assign_info.get("preset_id") is not None:
+                attempt = (
+                    await db.execute(
+                        select(PreSessionQuizAttempt).where(
+                            PreSessionQuizAttempt.session_id == session_id,
+                            PreSessionQuizAttempt.user_id == user.id,
+                        )
+                    )
+                ).scalars().first()
+                if attempt is None:
+                    raise HTTPException(
+                        status.HTTP_400_BAD_REQUEST,
+                        detail="Please complete the Pre-Session Quiz before starting the session.",
+                    )
+
         session.started_at = datetime.now(timezone.utc)
         cohort = await db.get(Cohort, session.cohort_id)
         if cohort.status in ("planned", "registration_open"):

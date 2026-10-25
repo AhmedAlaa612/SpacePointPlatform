@@ -43,6 +43,7 @@ import {
 import { useToast } from "@/components/ui/toast"
 import { cn, getErrorMessage } from "@/lib/utils"
 import { ChecklistAttachmentPicker } from "./ChecklistAttachmentPicker"
+import { PreSessionQuizAssignmentBar } from "./PreSessionQuizAssignmentBar"
 
 interface RoleDraft {
   role_id: string
@@ -823,6 +824,13 @@ export function ProgramRolesPanel({ program }: { program: Program }) {
               Internal Checklist
             </button>
           </div>
+
+          {/* 3.5. Pre-Session Quiz Preset Assignment (Program / Template Session) */}
+          <PreSessionQuizAssignmentBar
+            scope={isDefaultSelected ? "programs" : "sessions"}
+            ownerId={isDefaultSelected ? program.id : selectedDayId}
+            dayTitle={activeDayTitle}
+          />
 
           {/* 4. Active Day & Role Checklist Editor */}
           <div className="p-3 sm:p-4 rounded-xl border border-border bg-card/60">
