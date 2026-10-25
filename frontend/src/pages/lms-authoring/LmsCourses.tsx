@@ -123,6 +123,12 @@ export default function LmsCourses() {
                     >
                       {course.is_published ? "Published" : "Draft"}
                     </span>
+                    {course.average_rating !== undefined && course.average_rating !== null && (
+                      <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-amber-500/15 text-amber-600 dark:text-amber-400 flex items-center gap-1">
+                        ★ {course.average_rating.toFixed(1)}
+                        {course.ratings_count ? <span className="opacity-75 font-normal">({course.ratings_count})</span> : null}
+                      </span>
+                    )}
                     {course.kind === "mission" && (
                       <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-primary/10 text-primary">Mission</span>
                     )}

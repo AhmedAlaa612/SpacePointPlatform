@@ -676,3 +676,15 @@ class LmsProgramItemSubmitIn(BaseModel):
     url: str | None = None
     text: str | None = Field(default=None, max_length=4000)
     links: list[LmsSubmissionLink] | None = None
+
+
+class CourseRatingIn(BaseModel):
+    rating: int = Field(ge=1, le=5)
+    review_text: str | None = Field(default=None, max_length=2000)
+
+
+class CourseRatingOut(BaseModel):
+    rating: int | None = None
+    review_text: str | None = None
+    created_at: datetime | None = None
+    updated_at: datetime | None = None

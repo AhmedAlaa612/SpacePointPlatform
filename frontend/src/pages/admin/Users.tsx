@@ -133,6 +133,7 @@ export default function Users() {
             {filteredUsers.length !== users.length ? ` of ${users.length}` : ""}
           </p>
           <button
+            data-tour="admin-new-user-btn"
             onClick={() => setCreateOpen(true)}
             className="flex items-center gap-1.5 h-9 px-4 bg-primary text-primary-foreground text-sm font-medium rounded-xl hover:opacity-90 transition-colors"
           >
@@ -140,7 +141,7 @@ export default function Users() {
           </button>
         </div>
 
-        <div className="flex flex-wrap items-center gap-2">
+        <div data-tour="admin-users-toolbar" className="flex flex-wrap items-center gap-2">
           <input
             value={search}
             onChange={(e) => setSearch(e.target.value)}

@@ -24,7 +24,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.dependencies import get_current_active_user, require_lms_content
 from app.db.session import get_db
 from app.models.enums import UserRole
-from app.models.lms import Course, CourseModule, Enrollment, ModuleItem, VideoCheckpoint
+from app.models.lms import Course, CourseModule, CourseRating, Enrollment, ModuleItem, VideoCheckpoint
 from app.models.videos import Video
 from app.models.lms.invite_grant import InvitationCodeGrant, UserInvitationCode
 from app.models.lms.program import LmsProgram, LmsProgramItem
@@ -54,6 +54,8 @@ from app.schemas.lms_admin import (
     BulkGrantIn,
     BulkGrantOut,
     CourseAdminOut,
+    CourseRatingsSummaryOut,
+    CourseRatingDetailOut,
     CourseCreate,
     CourseUpdate,
     EnrollmentAdminOut,
@@ -176,6 +178,13 @@ async def _course_admin_out(db: AsyncSession, course: Course, current: User | No
         creator = await db.get(User, course.created_by)
         created_by_name = creator.full_name if creator else None
 
+    rating_row = (await db.execute(
+        select(func.avg(CourseRating.rating), func.count(CourseRating.id))
+        .where(CourseRating.course_id == course.id)
+    )).first()
+    average_rating = round(float(rating_row[0]), 1) if rating_row and rating_row[0] is not None else None
+    ratings_count = int(rating_row[1]) if rating_row and rating_row[1] is not None else 0
+
     return CourseAdminOut(
         id=course.id, title=course.title, description=course.description, kind=course.kind,
         is_published=course.is_published, created_by=created_by,
@@ -186,6 +195,8 @@ async def _course_admin_out(db: AsyncSession, course: Course, current: User | No
         access_mode=course.access_mode, access_days=course.access_days,
         price_cents=course.price_cents, currency=course.currency,
         certificate_enabled=course.certificate_enabled,
+        average_rating=average_rating,
+        ratings_count=ratings_count,
     )
 
 
@@ -3051,6 +3062,64 @@ async def course_roster(
         select(Enrollment).where(Enrollment.course_id == course_id).order_by(Enrollment.created_at.desc())
     )).scalars().all()
     return [await enrollment_admin_out(db, e) for e in rows]
+
+
+
+@router.get("/courses/{course_id}/ratings", response_model=CourseRatingsSummaryOut)
+async def course_ratings_summary(
+    course_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    current: User = Depends(require_lms_content),
+):
+    """Retrieve ratings and student feedback for an author's course."""
+    course = await db.get(Course, course_id)
+    if course is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Course not found")
+    await check_course_access(db, current, course)
+
+    # Fetch ratings joined with user
+    stmt = (
+        select(CourseRating, User)
+        .join(User, User.id == CourseRating.user_id)
+        .where(CourseRating.course_id == course_id)
+        .order_by(CourseRating.updated_at.desc())
+    )
+    results = (await db.execute(stmt)).all()
+
+    distribution = {"1": 0, "2": 0, "3": 0, "4": 0, "5": 0}
+    total_score = 0
+    rating_details: list[CourseRatingDetailOut] = []
+
+    for rating_row, user_row in results:
+        r_str = str(rating_row.rating)
+        if r_str in distribution:
+            distribution[r_str] += 1
+        total_score += rating_row.rating
+
+        rating_details.append(
+            CourseRatingDetailOut(
+                id=rating_row.id,
+                user_id=rating_row.user_id,
+                student_name=user_row.full_name or "Student",
+                student_email=user_row.email,
+                student_photo_url=user_row.photo_url,
+                rating=rating_row.rating,
+                review_text=rating_row.review_text,
+                created_at=rating_row.created_at,
+                updated_at=rating_row.updated_at,
+            )
+        )
+
+    count = len(results)
+    avg = round(total_score / count, 1) if count > 0 else None
+
+    return CourseRatingsSummaryOut(
+        course_id=course_id,
+        average_rating=avg,
+        total_count=count,
+        distribution=distribution,
+        ratings=rating_details,
+    )
 
 
 @router.post(

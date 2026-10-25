@@ -1,5 +1,6 @@
 import { Outlet, useLocation } from "@tanstack/react-router";
 import { FinWidget } from "@/components/FinWidget";
+import { TourProvider } from "@/context/TourContext";
 import { LearnSidebar } from "./LearnSidebar";
 import { LearnMobileTabBar } from "./nav/LearnMobileTabBar";
 import type { LearnNavActive } from "./nav/navItems";
@@ -40,33 +41,35 @@ export function LearnShell() {
     : "home";
 
   return (
-    <div className="min-h-screen bg-background text-foreground flex flex-col md:flex-row">
-      <LearnSidebar active={active} />
-      <LearnMobileTabBar active={active} />
-      {/* pb-28 not pb-20 on mobile: staff get a second row (Back to
-          portal) under the tab icons, and the fixed bar's real height
-          varies by role — sized for that taller case so nothing sits
-          behind it either way. md:ml-64 matches LearnSidebar's own
-          width, offsetting for the fixed desktop sidebar instead of a
-          static top navbar. min-w-0 is required alongside flex-1: a
-          flex item's default min-width is `auto` (its content's
-          intrinsic width), not 0 — without this, any wide-ish content
-          a page renders (a hero image, a horizontally-scrolling row)
-          refuses to shrink to the available width and blows out the
-          whole layout instead of clipping/scrolling inside itself,
-          which is what produced the page-wide horizontal scrollbar.
-          print:ml-0/pb-0 to match the sidebar/tab bar going print:hidden
-          below — a page's own "Print report" button (e.g. the design
-          mission's Report tab) should print just that content, not the
-          shell chrome around it, which a fixed-position "cover it on
-          screen" trick doesn't reliably keep off the printed page. */}
-      <main className="flex-1 min-w-0 overflow-x-clip pb-28 md:pb-0 md:ml-64 print:ml-0 print:pb-0">
-        <Outlet />
-      </main>
-      {/* Renders nothing; the messenger injects its own launcher into <body>.
-          Here rather than in main.tsx so it stays on the student surface — see
-          the component's docblock. Inert without VITE_INTERCOM_APP_ID. */}
-      <FinWidget />
-    </div>
+    <TourProvider surface="learn">
+      <div className="min-h-screen bg-background text-foreground flex flex-col md:flex-row">
+        <LearnSidebar active={active} />
+        <LearnMobileTabBar active={active} />
+        {/* pb-28 not pb-20 on mobile: staff get a second row (Back to
+            portal) under the tab icons, and the fixed bar's real height
+            varies by role — sized for that taller case so nothing sits
+            behind it either way. md:ml-64 matches LearnSidebar's own
+            width, offsetting for the fixed desktop sidebar instead of a
+            static top navbar. min-w-0 is required alongside flex-1: a
+            flex item's default min-width is `auto` (its content's
+            intrinsic width), not 0 — without this, any wide-ish content
+            a page renders (a hero image, a horizontally-scrolling row)
+            refuses to shrink to the available width and blows out the
+            whole layout instead of clipping/scrolling inside itself,
+            which is what produced the page-wide horizontal scrollbar.
+            print:ml-0/pb-0 to match the sidebar/tab bar going print:hidden
+            below — a page's own "Print report" button (e.g. the design
+            mission's Report tab) should print just that content, not the
+            shell chrome around it, which a fixed-position "cover it on
+            screen" trick doesn't reliably keep off the printed page. */}
+        <main data-tour="page-workspace" className="flex-1 min-w-0 overflow-x-clip pb-28 md:pb-0 md:ml-64 print:ml-0 print:pb-0">
+          <Outlet />
+        </main>
+        {/* Renders nothing; the messenger injects its own launcher into <body>.
+            Here rather than in main.tsx so it stays on the student surface — see
+            the component's docblock. Inert without VITE_INTERCOM_APP_ID. */}
+        <FinWidget />
+      </div>
+    </TourProvider>
   );
 }

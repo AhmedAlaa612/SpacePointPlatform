@@ -10,6 +10,8 @@ import {
 } from "@/api/lms";
 import { useAuth } from "@/context/AuthContext";
 import { CourseProgress } from "./CourseProgress";
+import { EmojiRating } from "@/components/ui/EmojiRating";
+import { useCourseRating } from "@/api/course_ratings";
 
 function errorDetail(err: unknown, fallback: string): string {
   if (isAxiosError(err) && typeof err.response?.data?.detail === "string") return err.response.data.detail;
@@ -37,6 +39,13 @@ export default function LearnCourse() {
   // as-is into the player below, not read for anything on this page itself.
   const search = useSearch({ strict: false }) as { program?: string };
   const navigate = useNavigate();
+  const [rating, setRating, { reviewText, saveReview }] = useCourseRating(courseId);
+  const [reviewOpen, setReviewOpen] = useState(false);
+  const [reviewDraft, setReviewDraft] = useState(reviewText);
+
+  useEffect(() => {
+    setReviewDraft(reviewText);
+  }, [reviewText]);
   // Logged-out visitors get the public outline (same shape, prices
   // included, module-1-open/rest-locked). Enrolling costs a login.
   const { user } = useAuth();
@@ -119,6 +128,7 @@ export default function LearnCourse() {
     (m.mandatory_total === 0 || m.mandatory_completed >= m.mandatory_total)
   ).length;
   const pct = course.modules.length ? Math.round(100 * modulesDone / course.modules.length) : 0;
+  const isFinished = course.completed || (course.modules.length > 0 && modulesDone >= course.modules.length);
   const itemCta = course.completed ? "Review" : modulesDone > 0 ? "Resume" : "Start";
 
   return (
@@ -210,9 +220,62 @@ export default function LearnCourse() {
                     </div>
                   )}
                   <CourseProgress value={pct} label={`${modulesDone} of ${course.modules.length} modules`} />
+                  {isFinished && (
+                    <div className="flex flex-col items-center gap-1.5 p-3.5 rounded-xl border border-border/80 dark:border-lms-accent-border/30 bg-muted/20 dark:bg-[#12091f]/60 text-center w-full">
+                      <p className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
+                        {rating ? "Your rating" : "Rate this course"}
+                      </p>
+                      <EmojiRating value={rating} onChange={setRating} size="sm" />
+                      {rating && (
+                        <>
+                          <p className="text-[11px] text-muted-foreground font-medium">
+                            Rated {rating}/5 · Click to edit
+                          </p>
+                          {!reviewOpen && !reviewText && (
+                            <button
+                              type="button"
+                              onClick={() => setReviewOpen(true)}
+                              className="text-xs text-primary hover:underline mt-0.5 cursor-pointer"
+                            >
+                              + Add a written review
+                            </button>
+                          )}
+                          {(reviewOpen || reviewText) && (
+                            <div className="w-full flex flex-col gap-1.5 mt-2 text-left">
+                              <textarea
+                                value={reviewDraft}
+                                onChange={(e) => setReviewDraft(e.target.value)}
+                                placeholder="Share your experience with future students and the author (optional)..."
+                                rows={2}
+                                className="w-full text-xs p-2 rounded-lg bg-background border border-border resize-none focus:outline-none focus:ring-1 focus:ring-primary text-foreground"
+                              />
+                              {reviewDraft !== reviewText && (
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    void saveReview(reviewDraft);
+                                    setReviewOpen(false);
+                                  }}
+                                  className="self-end text-xs font-medium px-2.5 py-1 rounded bg-primary text-primary-foreground hover:opacity-90 transition-opacity cursor-pointer"
+                                >
+                                  Save review
+                                </button>
+                              )}
+                            </div>
+                          )}
+                        </>
+                      )}
+                    </div>
+                  )}
                   <Button
                     size="xl" className="w-full"
-                    onClick={() => void navigate({ to: `/learn/courses/${course.id}/learn`, search: { program: search.program } as never })}
+                    onClick={() => void navigate({
+                      to: `/learn/courses/${course.id}/learn`,
+                      search: {
+                        program: search.program,
+                        outline: course.completed ? "true" : undefined,
+                      } as never,
+                    })}
                   >
                     {itemCta}
                   </Button>

@@ -8,6 +8,8 @@ import {
 import { PlayerLayout } from "./PlayerLayout";
 import { ItemPane } from "./ItemPane";
 import { CompletionCelebration } from "./CompletionCelebration";
+import { EmojiRating } from "@/components/ui/EmojiRating";
+import { useCourseRating } from "@/api/course_ratings";
 
 const COMPLETED = new Set(["completed", "skipped"]);
 const ITEM_KIND_LABEL: Record<ModuleItem["kind"], string> = {
@@ -33,6 +35,7 @@ export default function LearnPlayer() {
   const { courseId } = useParams({ strict: false }) as { courseId: string };
   const search = useSearch({ strict: false }) as { program?: string };
   const navigate = useNavigate();
+  const [rating, setRating] = useCourseRating(courseId);
 
   const [course, setCourse] = useState<CourseDetail | null>(null);
   const [modulesData, setModulesData] = useState<Record<string, ModuleDetail>>({});
@@ -65,7 +68,14 @@ export default function LearnPlayer() {
         if (cancelled) return;
 
         const deepLinkItem = new URLSearchParams(window.location.search).get("item");
-        const nextItemId = deepLinkItem || findFirstIncomplete(c, map);
+        const isOutline = new URLSearchParams(window.location.search).get("outline") === "true";
+        let nextItemId = deepLinkItem || findFirstIncomplete(c, map);
+        if (!nextItemId && (c.completed || isOutline)) {
+          const flat = flatItems(c, map);
+          if (flat.length > 0) {
+            nextItemId = flat[0].item.id;
+          }
+        }
 
         setCourse(c);
         setModulesData(map);
@@ -222,11 +232,24 @@ export default function LearnPlayer() {
             )}
           </div>
         ) : (
-          <div className="flex flex-col items-center text-center gap-3 py-16">
-            <CheckCircle2 className="size-12 text-emerald-500" />
-            <h2 className="font-display text-2xl font-bold">Course complete</h2>
+          <div className="flex flex-col items-center text-center gap-4 py-16 max-w-md mx-auto px-4">
+            <CheckCircle2 className="size-14 text-emerald-500 animate-check-pop" />
+            <h2 className="font-['Outfit'] text-3xl font-extrabold text-foreground">Course complete!</h2>
             <p className="text-base text-muted-foreground">Nice work — every module is done.</p>
-            <Button size="xl" onClick={() => void navigate({ to: `/learn/courses/${courseId}` })}>Back to course</Button>
+
+            <div className="flex flex-col items-center gap-1.5 p-5 rounded-2xl border border-border/80 dark:border-lms-accent-border/30 bg-muted/20 dark:bg-[#0d0915] w-full my-1 shadow-lg shadow-black/10">
+              <p className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
+                {rating ? "Your rating" : "Rate this course"}
+              </p>
+              <EmojiRating value={rating} onChange={setRating} />
+              <p className="text-xs text-muted-foreground font-medium mt-1">
+                {rating ? `Rated ${rating}/5 · Click to edit anytime` : "Click an emoji to rate"}
+              </p>
+            </div>
+
+            <Button size="xl" className="w-full mt-2" onClick={() => void navigate({ to: `/learn/courses/${courseId}` })}>
+              Back to course
+            </Button>
           </div>
         )}
       </PlayerLayout>
@@ -236,6 +259,7 @@ export default function LearnPlayer() {
         title="Course complete!"
         subtitle="Nice work — everything's finished here."
         assignmentId={search.program ?? ""}
+        courseId={courseId}
       />
     </>
   );

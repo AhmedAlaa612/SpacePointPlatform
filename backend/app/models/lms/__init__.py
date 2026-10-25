@@ -36,6 +36,7 @@ from app.models.lms.cohort_quiz import (
     CohortQuizAnswer, CohortQuizAttempt, CohortQuizQuestion, CohortQuizTemplate, CohortQuizTemplateQuestion,
 )
 from app.models.lms.course import Course, CourseModule, ModuleItem, VideoCheckpoint
+from app.models.lms.course_rating import CourseRating
 from app.models.lms.enrollment import Enrollment, ItemProgress
 from app.models.lms.invite_grant import InvitationCodeGrant, UserInvitationCode
 from app.models.lms.learning_path import LearningPath, LearningPathStep
@@ -57,6 +58,7 @@ __all__ = [
     "CohortQuizAnswer",
     "Course",
     "CourseModule",
+    "CourseRating",
     "ModuleItem",
     "VideoCheckpoint",
     "Enrollment",

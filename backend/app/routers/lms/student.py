@@ -35,7 +35,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.dependencies import get_current_active_user, require_lms_student
 from app.db.session import get_db
-from app.models.lms import Course, CourseModule, Enrollment, ItemProgress, ModuleItem, VideoCheckpoint
+from app.models.lms import Course, CourseModule, CourseRating, Enrollment, ItemProgress, ModuleItem, VideoCheckpoint
 from app.models.lms.arcade_game import ArcadeGameAttempt
 from app.models.lms.cohort_quiz import CohortQuizAttempt
 from app.models.lms.invite_grant import InvitationCodeGrant
@@ -58,6 +58,8 @@ from app.schemas.lms import (
     ContentQuiz,
     CourseCatalogOut,
     CourseDetailOut,
+    CourseRatingIn,
+    CourseRatingOut,
     EnrollIn,
     EnrollmentOut,
     LeaderboardEntryOut,
@@ -358,6 +360,77 @@ async def course_detail(
             )
             for row in locks
         ],
+    )
+
+
+# ── course ratings (students can rate and review finished/enrolled courses) ──
+
+@router.get("/courses/{course_id}/rating", response_model=CourseRatingOut)
+async def get_course_rating(
+    course_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    current: User = Depends(get_current_active_user),
+):
+    """Retrieve the current user's rating and review for a course."""
+    row = (await db.execute(
+        select(CourseRating).where(
+            CourseRating.course_id == course_id,
+            CourseRating.user_id == current.id,
+        )
+    )).scalar_one_or_none()
+    if not row:
+        return CourseRatingOut(rating=None, review_text=None, created_at=None, updated_at=None)
+    return CourseRatingOut(
+        rating=row.rating,
+        review_text=row.review_text,
+        created_at=row.created_at,
+        updated_at=row.updated_at,
+    )
+
+
+@router.put("/courses/{course_id}/rating", response_model=CourseRatingOut)
+async def upsert_course_rating(
+    course_id: uuid.UUID,
+    body: CourseRatingIn,
+    db: AsyncSession = Depends(get_db),
+    current: User = Depends(get_current_active_user),
+):
+    """Submit or update the current user's rating and optional review for a course."""
+    course = await db.get(Course, course_id)
+    if not course:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Course not found")
+
+    row = (await db.execute(
+        select(CourseRating).where(
+            CourseRating.course_id == course_id,
+            CourseRating.user_id == current.id,
+        )
+    )).scalar_one_or_none()
+
+    now = datetime.now(timezone.utc)
+    review_val = body.review_text.strip() if body.review_text else None
+    if row is None:
+        row = CourseRating(
+            user_id=current.id,
+            course_id=course_id,
+            rating=body.rating,
+            review_text=review_val,
+            created_at=now,
+            updated_at=now,
+        )
+        db.add(row)
+    else:
+        row.rating = body.rating
+        row.review_text = review_val
+        row.updated_at = now
+
+    await db.commit()
+    await db.refresh(row)
+    return CourseRatingOut(
+        rating=row.rating,
+        review_text=row.review_text,
+        created_at=row.created_at,
+        updated_at=row.updated_at,
     )
 
 
@@ -2024,4 +2097,4 @@ async def redeem_invite(
         already_redeemed=already_redeemed,
         roles=current.role_values,
         redirect_to=redirect_to,
-    )
+    )

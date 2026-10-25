@@ -7,7 +7,7 @@ import { DomainIcon } from "@/components/ui/DomainIcon";
 import { ThemeToggle } from "@/components/layout/ThemeToggle";
 import { cn } from "@/lib/utils";
 import { NAV_ITEMS, type LearnNavActive } from "./nav/navItems";
-import { BackToPortalButton, LearnNotificationsBell, LearnProfileMenu } from "./nav/LearnNavShared";
+import { BackToPortalButton, LearnNotificationsBell, LearnProfileMenu, LearnTutorialButton } from "./nav/LearnNavShared";
 
 /** The Roadmap board redesign's fixed desktop sidebar (2026-09) — replaces
  * the old horizontal navbar on `md:` and up per the design spec ("just like
@@ -42,12 +42,13 @@ export function LearnSidebar({ active }: { active: LearnNavActive }) {
   return (
     <aside className="fixed inset-y-0 left-0 z-20 hidden w-64 flex-col border-r border-border bg-background md:flex print:hidden">
       <div className="flex h-20 shrink-0 items-center gap-2 border-b border-border px-4">
-        <Link to="/learn/home" aria-label="SpacePoint Learn" className="flex flex-1 items-center gap-2 overflow-hidden">
+        <Link to="/learn/home" aria-label="SpacePoint Learn" data-tour="learn-brand" className="flex flex-1 items-center gap-2 overflow-hidden">
           <DomainIcon className="h-11 w-auto shrink-0" />
         </Link>
         <Link
           to="/learn/catalog"
           aria-label="Search courses"
+          data-tour="learn-search-catalog"
           className="shrink-0 rounded-lg p-1.5 text-muted-foreground transition-colors hover:bg-foreground/5 hover:text-foreground"
         >
           <Search size={18} />
@@ -62,6 +63,7 @@ export function LearnSidebar({ active }: { active: LearnNavActive }) {
             <Link
               key={item.key}
               to={item.to}
+              data-tour={`learn-nav-${item.key}`}
               className={cn(
                 "flex items-center gap-3 rounded-xl px-4 py-3 text-sm transition-all",
                 isActive
@@ -91,6 +93,7 @@ export function LearnSidebar({ active }: { active: LearnNavActive }) {
           <Link
             to="/learn/checklists/$assignmentId"
             params={{ assignmentId: myProgram.assignment_id }}
+            data-tour="learn-active-program"
             className="group flex flex-col gap-1.5 rounded-xl border border-primary/25 bg-primary/5 px-4 py-3 transition-all duration-200 hover:-translate-y-0.5 hover:border-primary/50 hover:bg-primary/10 hover:shadow-[0_4px_16px_-4px_hsl(var(--primary)/0.35)]"
           >
             <div className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wide text-primary">
@@ -112,6 +115,7 @@ export function LearnSidebar({ active }: { active: LearnNavActive }) {
           <ThemeToggle />
           {user ? (
             <>
+              <LearnTutorialButton align="left" side="top" />
               <LearnNotificationsBell align="left" side="top" />
               <LearnProfileMenu />
             </>

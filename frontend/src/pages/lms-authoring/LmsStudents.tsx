@@ -54,7 +54,7 @@ export default function LmsStudents() {
     <div className="flex flex-col gap-6">
       <PageHeader title="Students" subtitle="Search students, view their profile, and manage what they're enrolled in." />
 
-      <div className="flex flex-wrap items-center gap-3">
+      <div data-tour="students-filter-bar" className="flex flex-wrap items-center gap-3">
         <div className="flex rounded-xl bg-card border border-border p-0.5">
           <button
             type="button"

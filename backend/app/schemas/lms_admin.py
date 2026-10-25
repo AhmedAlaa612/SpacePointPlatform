@@ -422,6 +422,8 @@ class CourseCreate(BaseModel):
     price_cents: int | None = Field(default=None, ge=1)
     currency: str = "usd"
     certificate_enabled: bool = True
+    average_rating: float | None = None
+    ratings_count: int = 0
 
 
 class CourseUpdate(BaseModel):
@@ -830,3 +832,26 @@ class ObserverTeamSummaryOut(BaseModel):
     member_count: int
     member_names: list[str] = []
     is_my_team: bool = False
+
+
+class CourseRatingDetailOut(BaseModel):
+    id: UUID
+    user_id: UUID
+    student_name: str
+    student_email: str | None = None
+    student_photo_url: str | None = None
+    rating: int
+    review_text: str | None = None
+    created_at: datetime
+    updated_at: datetime
+
+
+class CourseRatingsSummaryOut(BaseModel):
+    course_id: UUID
+    average_rating: float | None = None
+    total_count: int = 0
+    distribution: dict[str, int] = Field(
+        default_factory=lambda: {"1": 0, "2": 0, "3": 0, "4": 0, "5": 0}
+    )
+    ratings: list[CourseRatingDetailOut] = []
+

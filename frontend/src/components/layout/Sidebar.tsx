@@ -53,7 +53,10 @@ import { ThemeToggle } from "@/components/layout/ThemeToggle";
 import { SiteFooter } from "@/components/layout/SiteFooter";
 import { PLAIN_LOGO } from "@/lib/logos";
 import { BODY_BACKGROUND } from "@/lib/theme";
+import { slugifyTourId } from "@/lib/tours";
 import { cn } from "@/lib/utils";
+import { TourProvider } from "@/context/TourContext";
+import { TutorialLauncherMenu } from "@/components/ui/SpacePointTourCard";
 
 interface NavItem {
   label: string;
@@ -614,7 +617,7 @@ function NotificationsBell() {
   };
 
   return (
-    <div ref={ref} className="relative">
+    <div ref={ref} className="relative" data-tour="portal-notifications">
       <button
         type="button"
         onClick={handleClick}
@@ -687,7 +690,7 @@ function RoleSwitcher() {
   };
 
   return (
-    <div ref={ref} className="relative">
+    <div ref={ref} className="relative" data-tour="portal-role-switcher">
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
@@ -727,6 +730,7 @@ function Avatar({ to, size = "md" }: { to: string; size?: "sm" | "md" }) {
   return (
     <Link
       to={to}
+      data-tour="portal-profile-avatar"
       className={cn(
         "flex shrink-0 items-center justify-center overflow-hidden rounded-full border border-primary/30 bg-primary/10 font-bold font-display tracking-wide text-primary transition-opacity hover:opacity-80",
         dim,
@@ -765,11 +769,13 @@ function NavLinkItem({
 
   const Icon = item.icon;
   const showBadge = item.to === "/instructors/payments" && pendingSignature > 0;
+  const tourSlug = `portal-nav-${slugifyTourId(item.label)}`;
 
   if (item.children && item.children.length > 0) {
     return (
       <div className="space-y-1">
         <div
+          data-tour={tourSlug}
           className={cn(
             "flex items-center justify-between gap-3 rounded-xl px-4 py-3 text-sm transition-all cursor-pointer select-none",
             isSelfActive || isChildActive
@@ -797,6 +803,7 @@ function NavLinkItem({
                   key={child.label + (child.to ?? "")}
                   to={child.to ?? "#"}
                   onClick={onNavigate}
+                  data-tour={`${tourSlug}-${slugifyTourId(child.label)}`}
                   className={cn(
                     "flex items-center gap-2.5 rounded-lg px-3 py-2 text-xs transition-all",
                     childActive
@@ -819,6 +826,7 @@ function NavLinkItem({
     <Link
       to={item.to ?? "#"}
       onClick={onNavigate}
+      data-tour={tourSlug}
       className={cn(
         "flex items-center gap-3 rounded-xl px-4 py-3 text-sm transition-all",
         isSelfActive
@@ -861,6 +869,16 @@ function NavLinks({
       ))}
     </>
   );
+}
+
+function PortalTutorialButton({
+  tourAttr = "portal-tutorial-btn",
+  compact = false,
+}: {
+  tourAttr?: string;
+  compact?: boolean;
+}) {
+  return <TutorialLauncherMenu tourAttr={tourAttr} compact={compact} align="right" side="bottom" />;
 }
 
 /* ─────────────────────────── shell ─────────────────────────── */
@@ -939,11 +957,12 @@ export function AppShell({ children }: { children: ReactNode }) {
   };
 
   return (
+    <TourProvider surface="portal">
     <div className="min-h-screen">
       {/* ── Desktop sidebar ───────────────────────────────────────── */}
       <aside className="fixed inset-y-0 left-0 z-30 hidden w-64 flex-col border-r border-white/10 bg-card/60 backdrop-blur-xl md:flex">
         <div className="flex h-20 items-center justify-center border-b border-white/10 px-4">
-          <Link to="/" aria-label="SpacePoint home">
+          <Link to="/" aria-label="SpacePoint home" data-tour="portal-brand">
             <DomainIcon className="h-11 w-auto" />
           </Link>
         </div>
@@ -1030,10 +1049,11 @@ export function AppShell({ children }: { children: ReactNode }) {
           >
             <Menu size={22} />
           </button>
-          <Link to="/" className="absolute left-1/2 -translate-x-1/2" aria-label="SpacePoint home">
+          <Link to="/" className="absolute left-1/2 -translate-x-1/2" aria-label="SpacePoint home" data-tour="portal-brand">
             <DomainIcon className="h-9 w-auto" />
           </Link>
           <div className="flex items-center gap-0.5">
+            <PortalTutorialButton compact />
             <ThemeToggle />
             <NotificationsBell />
             <Avatar to={profileTo} size="sm" />
@@ -1046,6 +1066,7 @@ export function AppShell({ children }: { children: ReactNode }) {
             <h2 className="font-display text-lg font-semibold capitalize text-foreground/90">{pageTitle}</h2>
           </div>
           <div className="flex items-center gap-1.5">
+            <PortalTutorialButton />
             <NotificationsBell />
             <RoleSwitcher />
             <ThemeToggle />
@@ -1059,9 +1080,10 @@ export function AppShell({ children }: { children: ReactNode }) {
           </div>
         </header>
 
-        <main className="flex-1 overflow-x-clip p-4 sm:p-6 lg:p-10">{children}</main>
+        <main data-tour="page-workspace" className="flex-1 overflow-x-clip p-4 sm:p-6 lg:p-10">{children}</main>
       </div>
     </div>
+    </TourProvider>
   );
 }
 
@@ -1081,22 +1103,27 @@ export function ApplicantShell({ children }: { children: ReactNode }) {
   };
 
   return (
-    <div className="min-h-screen flex flex-col text-white" style={BODY_BACKGROUND}>
-      <header className="sticky top-0 z-20 flex h-16 shrink-0 items-center justify-between border-b border-white/10 bg-card/60 px-4 backdrop-blur-xl sm:px-6">
-        <Link to="/" aria-label="SpacePoint home">
-          <img src={PLAIN_LOGO} alt="SpacePoint" className="h-9 w-auto object-contain" />
-        </Link>
-        <button
-          type="button"
-          onClick={handleLogout}
-          className="text-sm font-medium text-gray-300 hover:text-white transition-colors"
-        >
-          Logout
-        </button>
-      </header>
-      <main className="flex-1 overflow-x-clip p-4 sm:p-6 lg:p-10">{children}</main>
-      <SiteFooter />
-    </div>
+    <TourProvider surface="applicant">
+      <div className="min-h-screen flex flex-col text-white" style={BODY_BACKGROUND}>
+        <header className="sticky top-0 z-20 flex h-16 shrink-0 items-center justify-between border-b border-white/10 bg-card/60 px-4 backdrop-blur-xl sm:px-6">
+          <Link to="/" aria-label="SpacePoint home" data-tour="applicant-brand">
+            <img src={PLAIN_LOGO} alt="SpacePoint" className="h-9 w-auto object-contain" />
+          </Link>
+          <div className="flex items-center gap-3">
+            <PortalTutorialButton tourAttr="applicant-tutorial-btn" />
+            <button
+              type="button"
+              onClick={handleLogout}
+              className="text-sm font-medium text-gray-300 hover:text-white transition-colors"
+            >
+              Logout
+            </button>
+          </div>
+        </header>
+        <main data-tour="page-workspace" className="flex-1 overflow-x-clip p-4 sm:p-6 lg:p-10">{children}</main>
+        <SiteFooter />
+      </div>
+    </TourProvider>
   );
 }
 

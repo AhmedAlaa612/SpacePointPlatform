@@ -7,7 +7,7 @@ import { useAuth } from "@/context/AuthContext";
 import { cn } from "@/lib/utils";
 import { roleHomePath } from "@/lib/roleHome";
 import { MOBILE_TAB_ITEMS, NAV_ITEMS, type LearnNavActive } from "./navItems";
-import { LearnNotificationsBell, LearnProfileMenu } from "./LearnNavShared";
+import { LearnNotificationsBell, LearnProfileMenu, LearnTutorialButton } from "./LearnNavShared";
 
 /** Extracted verbatim out of the old LearnNav.tsx (2026-09, Roadmap board
  * redesign: desktop navbar → fixed sidebar, mobile keeps this bottom tab
@@ -39,6 +39,7 @@ export function LearnMobileTabBar({ active }: { active: LearnNavActive }) {
             <Link
               key={item.key}
               to={item.to}
+              data-tour={`learn-nav-${item.key}`}
               className={cn(
                 "flex flex-1 flex-col items-center gap-1 py-2.5 text-[11px] font-medium transition-colors",
                 isActive ? "text-primary" : "text-muted-foreground",
@@ -54,6 +55,7 @@ export function LearnMobileTabBar({ active }: { active: LearnNavActive }) {
         {isStaff ? (
           <Link
             to={roleHomePath(currentUser!.role)}
+            data-tour="learn-back-to-portal"
             className="flex items-center gap-1.5 rounded-lg px-2.5 py-1 text-xs font-medium text-muted-foreground transition-colors"
           >
             <ArrowLeftRight className="h-3.5 w-3.5" />
@@ -69,6 +71,7 @@ export function LearnMobileTabBar({ active }: { active: LearnNavActive }) {
                 <Link
                   to="/learn/checklists/$assignmentId"
                   params={{ assignmentId: myProgram.assignment_id }}
+                  data-tour="learn-active-program"
                   aria-label="Go to your program"
                   className="rounded-xl p-2.5 text-muted-foreground transition-colors hover:bg-foreground/5 hover:text-foreground"
                 >
@@ -77,6 +80,7 @@ export function LearnMobileTabBar({ active }: { active: LearnNavActive }) {
               )}
               <Link
                 to="/learn/home"
+                data-tour="learn-nav-home"
                 aria-label="Home"
                 className={cn(
                   "rounded-xl p-2.5 transition-colors hover:bg-foreground/5 hover:text-foreground",
@@ -85,6 +89,7 @@ export function LearnMobileTabBar({ active }: { active: LearnNavActive }) {
               >
                 <Home size={20} />
               </Link>
+              <LearnTutorialButton />
               <ThemeToggle />
               <LearnNotificationsBell />
               <LearnProfileMenu />

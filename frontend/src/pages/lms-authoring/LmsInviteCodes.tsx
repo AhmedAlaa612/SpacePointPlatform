@@ -67,6 +67,7 @@ export default function LmsInviteCodes() {
         subtitle="Students need one of these to sign up. Each code is a batch — filter students by it."
         action={
           <button
+            data-tour="invite-new-code-btn"
             onClick={() => setAddOpen(true)}
             className="flex items-center gap-1.5 h-9 px-4 bg-primary text-primary-foreground text-sm font-medium rounded-xl hover:opacity-90 transition-colors"
           >

@@ -35,6 +35,28 @@ export interface AdminCourse {
   // a new completion certificate from being issued for this course; never
   // revokes one already issued, never blocks a learning-path certificate.
   certificate_enabled: boolean;
+  average_rating?: number | null;
+  ratings_count?: number;
+}
+
+export interface CourseRatingDetail {
+  id: string;
+  user_id: string;
+  student_name: string;
+  student_email?: string | null;
+  student_photo_url?: string | null;
+  rating: number;
+  review_text?: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CourseRatingsSummary {
+  course_id: string;
+  average_rating: number | null;
+  total_count: number;
+  distribution: Record<string, number>;
+  ratings: CourseRatingDetail[];
 }
 
 export interface InstructorOption {
@@ -244,6 +266,8 @@ export interface AdminCheckpoint {
 
 export const listCoursesApi = () => api.get<AdminCourse[]>("/lms/admin/courses").then((r) => r.data);
 export const getCourseApi = (id: string) => api.get<AdminCourse>(`/lms/admin/courses/${id}`).then((r) => r.data);
+export const getCourseRatingsApi = (courseId: string) =>
+  api.get<CourseRatingsSummary>(`/lms/admin/courses/${courseId}/ratings`).then((r) => r.data);
 export const createCourseApi = (
   data: { title: string; description?: string; kind?: CourseKind } & CourseMetadataInput,
 ) => api.post<AdminCourse>("/lms/admin/courses", data).then((r) => r.data);

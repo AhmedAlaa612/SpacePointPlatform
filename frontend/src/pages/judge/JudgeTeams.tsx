@@ -114,7 +114,7 @@ export default function JudgeTeams() {
 
       <div className="flex flex-col gap-4">
         {/* Controls: Search, Mode filter, Filter by Locked, and Sort */}
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+        <div data-tour="judge-toolbar" className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
           <div className="relative flex-1 min-w-[200px] max-w-md">
             <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
             <input

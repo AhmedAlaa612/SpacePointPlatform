@@ -14,6 +14,7 @@ import {
   type AdminCourse, type AdminModule, type CourseLevel, type BulkGrantResult,
 } from "@/api/lms_admin"
 import { AssignPanel } from "@/pages/lms-authoring/components/AssignPanel"
+import { CourseFeedbackPanel } from "@/pages/lms-authoring/components/CourseFeedbackPanel"
 import { useAuth } from "@/context/AuthContext"
 
 export default function LmsCourseDetail() {
@@ -247,6 +248,12 @@ export default function LmsCourseDetail() {
             >
               {course.is_published ? "Published" : "Draft"}
             </span>
+            {course.average_rating !== undefined && course.average_rating !== null && (
+              <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-amber-500/15 text-amber-600 dark:text-amber-400 flex items-center gap-1">
+                ★ {course.average_rating.toFixed(1)}
+                {course.ratings_count ? <span className="opacity-75 font-normal">({course.ratings_count})</span> : null}
+              </span>
+            )}
             {course.level && (
               <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-muted text-muted-foreground capitalize">{course.level}</span>
             )}
@@ -328,6 +335,8 @@ export default function LmsCourseDetail() {
         </div>
       )}
 
+
+      <CourseFeedbackPanel courseId={courseId} />
 
       {canManageAssignedAccess && (
         <AssignPanel

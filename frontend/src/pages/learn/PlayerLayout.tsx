@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from "react";
+import { useState, useEffect, type ReactNode } from "react";
 import { Link, useSearch } from "@tanstack/react-router";
 import {
   ArrowLeft, CheckCircle2, ChevronDown, FileText, HelpCircle, Layers, Lock, PanelLeftClose, PanelLeftOpen,
@@ -23,20 +23,29 @@ export function PlayerLayout({
   onSelectItem: (itemId: string) => void;
   children: ReactNode;
 }) {
+  const { program, preview, outline } = useSearch({ strict: false }) as {
+    program?: string;
+    preview?: string | boolean;
+    outline?: string | boolean;
+  };
+  const isPreview = Boolean(course.is_preview || preview === "true" || preview === true);
+  const shouldOpenOutline = Boolean(outline === "true" || outline === true || course.completed);
+
+  const [sidebarOpen, setSidebarOpen] = useState(shouldOpenOutline);
   const [openModuleId, setOpenModuleId] = useState<string | null>(() => {
     const current = course.modules.find((m) => !m.locked && m.mandatory_completed < m.mandatory_total);
     return current?.module_id ?? course.modules.find((m) => !m.locked)?.module_id ?? null;
   });
-  // Whole-column collapse (2026-09), independent of any single module's own
-  // open/closed state — a "sign to expand/collapse the sidebar itself", not
-  // just its rows. Desktop only; mobile already has no column to collapse
-  // (see the "Back to course" link below).
-  const [sidebarOpen, setSidebarOpen] = useState(false);
-  // Only used to carry the "opened from a checklist" chain through to the
-  // course landing page — same param TaskDrawer/LearnCourse already thread
-  // for the completion-celebration "back to your program" nudge.
-  const { program, preview } = useSearch({ strict: false }) as { program?: string; preview?: string | boolean };
-  const isPreview = Boolean(course.is_preview || preview === "true" || preview === true);
+
+  useEffect(() => {
+    if (!selectedItemId) return;
+    for (const [modId, mData] of Object.entries(modulesData)) {
+      if (mData.items.some((i) => i.id === selectedItemId)) {
+        setOpenModuleId(modId);
+        break;
+      }
+    }
+  }, [selectedItemId, modulesData]);
 
   // A locked module's items were never fetched by LearnPlayer's own
   // loadUnlockedModules (unlocked-only, by design — see its own docblock) —

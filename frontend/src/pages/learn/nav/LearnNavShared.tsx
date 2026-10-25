@@ -5,6 +5,7 @@ import { ArrowLeftRight, Bell, LogOut, User } from "lucide-react";
 import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { TutorialLauncherMenu } from "@/components/ui/SpacePointTourCard";
 import { useAuth } from "@/context/AuthContext";
 import { getNotificationsApi, markAllReadApi } from "@/api/notifications";
 import { cn } from "@/lib/utils";
@@ -23,6 +24,7 @@ export function BackToPortalButton({ compact }: { compact?: boolean }) {
   return (
     <Link
       to={roleHomePath(currentUser.role)}
+      data-tour="learn-back-to-portal"
       className={cn(
         "flex items-center gap-1.5 rounded-xl px-3 h-9 text-sm text-muted-foreground border border-transparent transition-colors hover:bg-foreground/5 hover:text-foreground",
         compact && "px-2.5",
@@ -31,6 +33,23 @@ export function BackToPortalButton({ compact }: { compact?: boolean }) {
       <ArrowLeftRight className="h-4 w-4 shrink-0" />
       {!compact && <span className="hidden lg:inline">Back to portal</span>}
     </Link>
+  );
+}
+
+export function LearnTutorialButton({
+  align = "right",
+  side = "top",
+}: {
+  align?: "left" | "right";
+  side?: "top" | "bottom";
+}) {
+  return (
+    <TutorialLauncherMenu
+      tourAttr="learn-tutorial-btn"
+      compact
+      align={align}
+      side={side}
+    />
   );
 }
 

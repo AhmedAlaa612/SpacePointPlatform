@@ -75,7 +75,7 @@ export default function Payments() {
         <StatCard icon={<Banknote size={20} />} label="Pending Signature" value={summary.data?.pending_signature ?? 0} />
       </div>
 
-      <Card className="mb-6">
+      <Card data-tour="instructor-bank-card" className="mb-6">
         <CardHeader><CardTitle>Bank Details</CardTitle></CardHeader>
         <CardContent className="grid sm:grid-cols-2 gap-3">
           <input className="input" placeholder="Account holder name" value={bank.account_holder_name}

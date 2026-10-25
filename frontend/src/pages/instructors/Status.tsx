@@ -83,8 +83,11 @@ function StepCard({
       </Button>
     )
 
+  const tourSlug = `applicant-step-${title.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`
+
   const card = (
     <Card
+      data-tour={tourSlug}
       className={
         state === "locked"
           ? "border-dashed opacity-80"
