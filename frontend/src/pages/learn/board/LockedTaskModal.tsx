@@ -25,32 +25,32 @@ export function LockedTaskModal({
 
   return (
     <Dialog open onOpenChange={onClose}>
-      <DialogContent className="max-w-md p-6 bg-card border-border">
+      <DialogContent className="max-w-md p-6 bg-background dark:bg-[#05030A] border border-border/80 dark:border-[#a880ff]/30 shadow-2xl">
         <DialogHeader>
           <div className="flex items-center justify-between gap-2 mb-1">
-            <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground bg-muted border border-border px-2 py-0.5 rounded-full flex items-center gap-1">
+            <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground bg-muted/60 dark:bg-[#1a0f26] border border-border/80 dark:border-[#a880ff]/20 px-2.5 py-0.5 rounded-full flex items-center gap-1">
               <Lock size={10} /> Locked Step
             </span>
             <button
               type="button"
               onClick={onClose}
               aria-label="Close"
-              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-muted text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
+              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-muted/60 dark:bg-muted/20 text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
             >
               <X size={15} />
             </button>
           </div>
-          <DialogTitle className="text-lg font-bold font-display text-foreground flex items-center gap-2">
+          <DialogTitle className="text-lg font-bold font-['Outfit'] text-foreground flex items-center gap-2">
             <Icon size={18} className="text-muted-foreground shrink-0" />
             {item.title}
           </DialogTitle>
         </DialogHeader>
 
         <div className="mt-4 space-y-4">
-          <div className="p-4 rounded-xl border border-border/80 bg-muted/40 space-y-2">
+          <div className="p-4 rounded-xl border border-border/80 dark:border-[#a880ff]/20 bg-muted/20 dark:bg-[#0d0915] space-y-2">
             <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-muted-foreground">
               {req.type === "checkpoint" ? (
-                <Flag size={14} className="text-primary shrink-0" />
+                <Flag size={14} className="text-lms-cta dark:text-lms-accent shrink-0" />
               ) : (
                 <AlertCircle size={14} className="text-amber-500 shrink-0" />
               )}
@@ -62,20 +62,24 @@ export function LockedTaskModal({
           </div>
 
           <div className="flex items-center justify-end gap-2 pt-2">
-            <Button variant="outline" size="sm" onClick={onClose}>
+            <button
+              type="button"
+              onClick={onClose}
+              className="lms-btn-secondary px-4 py-2 text-xs rounded-xl cursor-pointer"
+            >
               Got it
-            </Button>
+            </button>
             {blockerItem && onGoToBlocker && (
-              <Button
-                size="sm"
+              <button
+                type="button"
                 onClick={() => {
                   onClose();
                   onGoToBlocker(blockerItem.id);
                 }}
-                className="gap-1.5"
+                className="lms-btn-primary px-4 py-2 text-xs flex items-center gap-1.5 rounded-xl cursor-pointer"
               >
                 Go to task <ArrowRight size={13} />
-              </Button>
+              </button>
             )}
           </div>
         </div>

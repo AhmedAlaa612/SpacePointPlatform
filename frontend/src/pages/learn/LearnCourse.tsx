@@ -139,29 +139,29 @@ export default function LearnCourse() {
         <div className="flex flex-col gap-8 min-w-0">
           <div className="flex flex-col gap-4">
             {course.level && (
-              <span className="w-fit text-xs font-semibold uppercase tracking-wide px-3 py-1.5 rounded-md bg-primary/10 text-primary capitalize">
+              <span className="w-fit text-xs font-semibold uppercase tracking-wider px-3 py-1 rounded-md bg-lms-cta-light border border-lms-accent-border text-lms-cta dark:text-lms-accent capitalize">
                 {course.level}
               </span>
             )}
-            <h1 className="font-display text-3xl sm:text-4xl font-extrabold tracking-tight leading-tight">{course.title}</h1>
+            <h1 className="font-['Outfit'] text-3xl sm:text-4xl font-extrabold tracking-tight leading-tight text-foreground">{course.title}</h1>
             {course.description && <p className="text-base sm:text-lg leading-relaxed text-muted-foreground max-w-xl">{course.description}</p>}
             <div className="flex items-center gap-6 pt-1">
-              <div className="flex items-center gap-2 text-base text-muted-foreground">
-                <PlayCircle className="size-[18px] text-primary" /> {course.modules.length} modules
+              <div className="flex items-center gap-2 text-sm sm:text-base text-muted-foreground">
+                <PlayCircle className="size-[18px] text-lms-cta dark:text-lms-accent" /> {course.modules.length} modules
               </div>
             </div>
           </div>
 
           {course.outcomes.length > 0 && (
             <div className="flex flex-col gap-4">
-              <h2 className="font-display text-xl sm:text-2xl font-bold tracking-tight">What you'll be able to do</h2>
+              <h2 className="font-['Outfit'] text-xl sm:text-2xl font-bold tracking-tight text-foreground">What you'll be able to do</h2>
               <div className="grid sm:grid-cols-2 gap-x-6 gap-y-3.5">
                 {course.outcomes.map((o, i) => (
                   <div key={i} className="flex items-start gap-3">
-                    <div className="w-5 h-5 rounded-md bg-primary/15 text-primary flex items-center justify-center shrink-0 mt-0.5">
+                    <div className="w-5 h-5 rounded-md bg-lms-cta-light text-lms-cta dark:text-lms-accent border border-lms-accent-border flex items-center justify-center shrink-0 mt-0.5">
                       <CheckCircle2 className="size-3.5" />
                     </div>
-                    <span className="text-base text-muted-foreground leading-snug">{o}</span>
+                    <span className="text-sm sm:text-base text-muted-foreground leading-snug">{o}</span>
                   </div>
                 ))}
               </div>
@@ -170,10 +170,10 @@ export default function LearnCourse() {
 
           <div className="flex flex-col gap-4">
             <div className="flex items-end justify-between">
-              <h2 className="font-display text-xl sm:text-2xl font-bold tracking-tight">Course contents</h2>
-              <span className="text-sm text-muted-foreground">{course.modules.length} modules</span>
+              <h2 className="font-['Outfit'] text-xl sm:text-2xl font-bold tracking-tight text-foreground">Course contents</h2>
+              <span className="text-xs sm:text-sm text-muted-foreground font-semibold">{course.modules.length} modules</span>
             </div>
-            <Card className="p-0 divide-y divide-border">
+            <div className="lms-card divide-y divide-[#a880ff]/20 overflow-hidden">
               {course.modules.map((module) => (
                 <ModuleRow
                   key={module.module_id}
@@ -188,13 +188,13 @@ export default function LearnCourse() {
                   loading={loadingModuleId === module.module_id}
                 />
               ))}
-            </Card>
+            </div>
           </div>
         </div>
 
-        <div className="flex flex-col gap-4 lg:sticky lg:top-24">
-          <Card className="p-0">
-            <div className="h-[200px] rounded-t-2xl overflow-hidden bg-muted flex items-center justify-center">
+        <div className="flex flex-col gap-5 lg:sticky lg:top-24">
+          <div className="lms-card overflow-hidden">
+            <div className="h-[200px] border-b border-[#a880ff]/20 overflow-hidden bg-foreground/5 flex items-center justify-center">
               {course.image_url ? (
                 <img src={course.image_url} alt="" className="w-full h-full object-cover" />
               ) : (
@@ -205,24 +205,25 @@ export default function LearnCourse() {
               {course.enrolled ? (
                 <>
                   {course.completed && (
-                    <div className="flex items-center gap-2 text-base font-medium text-emerald-500">
-                      <CheckCircle2 className="size-[18px]" /> Completed
+                    <div className="flex items-center gap-2 text-sm font-semibold text-emerald-400">
+                      <CheckCircle2 className="size-4" /> Completed
                     </div>
                   )}
                   <CourseProgress value={pct} label={`${modulesDone} of ${course.modules.length} modules`} />
-                  <Button
-                    size="xl" className="w-full"
+                  <button
+                    type="button"
+                    className="lms-btn-primary w-full py-3.5 font-['Outfit'] text-sm tracking-wide cursor-pointer"
                     onClick={() => void navigate({ to: `/learn/courses/${course.id}/learn`, search: { program: search.program } as never })}
                   >
                     {itemCta}
-                  </Button>
+                  </button>
                 </>
               ) : course.access_mode === "invite" && !isPurchasable ? (
                 <>
                   <Button size="xl" className="w-full" disabled>
                     <Lock className="size-[18px]" /> Invite only
                   </Button>
-                  <p className="text-sm text-muted-foreground text-center">Ask an admin for access.</p>
+                  <p className="text-xs sm:text-sm text-muted-foreground text-center">Ask an admin for access.</p>
                 </>
               ) : course.locked ? (
                 <>
@@ -233,8 +234,8 @@ export default function LearnCourse() {
                     {course.prerequisites.map((p) => (
                       <span
                         key={p.item_id}
-                        className={`flex items-center gap-1.5 text-sm px-3 py-1.5 rounded-lg ring-1 ${
-                          p.satisfied ? "ring-emerald-500/30 text-emerald-500" : "ring-border text-muted-foreground"
+                        className={`flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg border ${
+                          p.satisfied ? "border-emerald-500/30 text-emerald-400" : "border-border text-muted-foreground"
                         }`}
                       >
                         {p.satisfied ? <CheckCircle2 className="size-3.5" /> : <Lock className="size-3.5" />}
@@ -244,7 +245,12 @@ export default function LearnCourse() {
                   </div>
                 </>
               ) : (
-                <Button size="xl" className="w-full" onClick={() => void handleEnroll()} disabled={enrolling}>
+                <button
+                  type="button"
+                  className="lms-btn-primary w-full py-3.5 font-['Outfit'] text-sm tracking-wide cursor-pointer disabled:opacity-40"
+                  onClick={() => void handleEnroll()}
+                  disabled={enrolling}
+                >
                   {enrolling
                     ? (isPurchasable ? "Redirecting to checkout..." : "Enrolling...")
                     : !isAuthed
@@ -254,24 +260,24 @@ export default function LearnCourse() {
                       : isPurchasable
                         ? `Buy${course.price_cents != null ? ` — ${formatPrice(course.price_cents, course.currency)}` : ""}`
                         : "Enroll"}
-                </Button>
+                </button>
               )}
-              {enrollError && <p className="text-sm text-destructive text-center">{enrollError}</p>}
-              <div className="h-px bg-border" />
-              <div className="flex items-center gap-3 text-base text-muted-foreground">
-                <PlayCircle className="size-[18px] shrink-0" /> Learn at your own pace
+              {enrollError && <p className="text-xs sm:text-sm text-destructive text-center">{enrollError}</p>}
+              <div className="h-px bg-[#a880ff]/15 my-1" />
+              <div className="flex items-center gap-3 text-xs sm:text-sm text-muted-foreground">
+                <PlayCircle className="size-4 shrink-0 text-[#A880FF]" /> Learn at your own pace
               </div>
-              <div className="flex items-center gap-3 text-base text-muted-foreground">
-                <CheckCircle2 className="size-[18px] shrink-0" /> Quizzes &amp; flashcards included
+              <div className="flex items-center gap-3 text-xs sm:text-sm text-muted-foreground">
+                <CheckCircle2 className="size-4 shrink-0 text-lms-cta dark:text-lms-accent" /> Quizzes &amp; flashcards included
               </div>
             </div>
-          </Card>
+          </div>
 
           {course.instructor_name && (
-            <Card className="p-6 gap-4 items-start">
-              <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Your instructor</div>
+            <div className="lms-card p-6 flex flex-col gap-4 items-start">
+              <div className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Your instructor</div>
               <div className="flex items-center gap-3.5">
-                <div className="w-14 h-14 rounded-full bg-primary/10 overflow-hidden shrink-0 flex items-center justify-center text-primary font-display font-bold text-base">
+                <div className="w-14 h-14 rounded-full bg-lms-cta-light border border-lms-accent-border overflow-hidden shrink-0 flex items-center justify-center text-lms-cta dark:text-lms-accent font-['Outfit'] font-bold text-base">
                   {course.instructor_photo_url ? (
                     <img src={course.instructor_photo_url} alt="" className="w-full h-full object-cover" />
                   ) : (
@@ -279,11 +285,11 @@ export default function LearnCourse() {
                   )}
                 </div>
                 <div className="min-w-0">
-                  <div className="font-display text-lg font-semibold truncate">{course.instructor_name}</div>
-                  {course.instructor_title && <div className="text-sm text-primary mt-0.5 truncate">{course.instructor_title}</div>}
+                  <div className="font-['Outfit'] text-base font-bold text-foreground truncate">{course.instructor_name}</div>
+                  {course.instructor_title && <div className="text-xs text-lms-cta dark:text-lms-accent mt-0.5 truncate">{course.instructor_title}</div>}
                 </div>
               </div>
-            </Card>
+            </div>
           )}
         </div>
       </div>
@@ -321,14 +327,16 @@ function ModuleRow({
       <button
         type="button"
         onClick={onToggle}
-        className={`w-full flex items-center gap-4 p-5 text-left transition-colors cursor-pointer hover:bg-foreground/5 ${module.locked ? "opacity-60" : ""}`}
+        className={`w-full flex items-center gap-4 p-5 text-left transition-colors cursor-pointer hover:bg-[#a880ff]/5 ${module.locked ? "opacity-60" : ""}`}
       >
-        <div className="w-8 h-8 rounded-lg bg-muted flex items-center justify-center shrink-0 text-sm font-semibold text-muted-foreground">
-          {module.locked ? <Lock className="size-4" /> : done ? <CheckCircle2 className="size-[18px] text-primary" /> : module.position}
+        <div className={`w-8 h-8 rounded-full border flex items-center justify-center shrink-0 text-xs font-bold font-['Outfit'] ${
+          module.locked ? "border-[#a880ff]/20 text-muted-foreground/50" : done ? "bg-emerald-500/15 border-emerald-500/40 text-emerald-400" : "border-[#a880ff]/40 text-foreground"
+        }`}>
+          {module.locked ? <Lock className="size-3.5" /> : done ? <CheckCircle2 className="size-4" /> : module.position}
         </div>
         <div className="flex-1 min-w-0">
-          <div className="text-base font-medium">{module.title ?? `Module ${module.position}`}</div>
-          <div className="text-sm text-muted-foreground mt-0.5">
+          <div className="font-['Outfit'] text-base font-bold text-foreground">{module.title ?? `Module ${module.position}`}</div>
+          <div className="text-xs sm:text-sm text-muted-foreground mt-0.5">
             {module.total_items === 0
               ? "No content yet"
               : module.mandatory_total === 0
@@ -340,22 +348,22 @@ function ModuleRow({
       </button>
 
       {expanded && (
-        <div className="px-5 pb-4 flex flex-col gap-0.5 border-t border-border/60 pt-3">
-          {loading && <p className="text-sm text-muted-foreground py-2 px-3">Loading...</p>}
+        <div className="px-5 pb-4 flex flex-col gap-0.5 border-t border-[#a880ff]/15 pt-3">
+          {loading && <p className="text-xs sm:text-sm text-muted-foreground py-2 px-3">Loading...</p>}
           {!loading && !isAuthed && (
             <div className="flex flex-col sm:flex-row sm:items-center gap-3 py-2 px-3">
-              <p className="text-sm text-muted-foreground flex-1">Log in to see what's inside this module.</p>
+              <p className="text-xs sm:text-sm text-muted-foreground flex-1">Log in to see what's inside this module.</p>
               <button
                 type="button"
                 onClick={() => void navigate({ to: "/learn/login" })}
-                className="shrink-0 px-4 py-2 rounded-xl text-sm font-semibold bg-primary text-primary-foreground hover:opacity-90 transition-opacity cursor-pointer"
+                className="shrink-0 px-4 py-2 rounded-xl text-xs sm:text-sm font-semibold lms-btn-primary cursor-pointer"
               >
                 Log in
               </button>
             </div>
           )}
           {!loading && isAuthed && detail && detail.items.length === 0 && (
-            <p className="text-sm text-muted-foreground py-2 px-3">No content in this module yet.</p>
+            <p className="text-xs sm:text-sm text-muted-foreground py-2 px-3">No content in this module yet.</p>
           )}
           {detail?.items.map((item) => {
             const itemDone = item.status === "completed" || item.status === "skipped";
@@ -369,15 +377,15 @@ function ModuleRow({
                   void navigate({ to: `/learn/courses/${courseId}/learn`, search: { item: item.id, program } as never });
                 }}
                 className={`flex items-center gap-3 rounded-lg px-3 py-2.5 text-left transition-colors ${
-                  openable ? "hover:bg-foreground/5 cursor-pointer" : "cursor-default"
+                  openable ? "hover:bg-[#a880ff]/5 cursor-pointer text-foreground" : "cursor-default text-muted-foreground/60"
                 }`}
               >
                 {itemDone ? (
-                  <CheckCircle2 className="size-4 text-primary shrink-0" />
+                  <CheckCircle2 className="size-4 text-emerald-400 shrink-0" />
                 ) : (
                   <Circle className="size-4 text-muted-foreground/30 shrink-0" />
                 )}
-                <span className="text-sm flex-1 min-w-0 truncate">{item.title ?? ITEM_KIND_LABEL[item.kind]}</span>
+                <span className="text-xs sm:text-sm flex-1 min-w-0 truncate">{item.title ?? ITEM_KIND_LABEL[item.kind]}</span>
                 <span className="text-xs text-muted-foreground shrink-0">{ITEM_KIND_LABEL[item.kind]}</span>
               </button>
             );

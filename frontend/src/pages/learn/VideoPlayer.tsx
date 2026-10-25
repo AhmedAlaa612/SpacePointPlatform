@@ -240,7 +240,7 @@ export function VideoPlayer({ itemId, videoId, transcodeStatus, onEnded }: Video
 
   if (transcodeStatus !== "ready") {
     return (
-      <div className="aspect-video w-[90%] mx-auto rounded-2xl ring-1 ring-border bg-muted flex items-center justify-center text-sm text-muted-foreground text-center px-6">
+      <div className="aspect-video w-full rounded-2xl border border-border/80 dark:border-[#a880ff]/25 bg-card/95 dark:bg-[#05030A]/90 flex items-center justify-center text-sm sm:text-base text-muted-foreground text-center px-6 font-['Outfit']">
         {transcodeStatus === "failed"
           ? "Video processing failed — contact ops."
           : "Video is still processing — this can take a minute. It'll appear here automatically once ready."}
@@ -249,12 +249,12 @@ export function VideoPlayer({ itemId, videoId, transcodeStatus, onEnded }: Video
   }
 
   return (
-    <div ref={containerRef} className="w-[90%] mx-auto rounded-2xl overflow-hidden ring-1 ring-white/10 bg-black relative">
+    <div ref={containerRef} className="w-full rounded-2xl overflow-hidden border border-border/80 dark:border-[#a880ff]/30 bg-black relative shadow-2xl">
       {loading && (
-        <div className="aspect-video flex items-center justify-center text-sm text-white/70">Loading video...</div>
+        <div className="aspect-video flex items-center justify-center text-sm text-white/70 font-['Outfit']">Loading video...</div>
       )}
       {error && (
-        <div className="aspect-video flex items-center justify-center text-sm text-destructive px-4 text-center">
+        <div className="aspect-video flex items-center justify-center text-sm text-destructive px-4 text-center font-['Outfit']">
           {error}
         </div>
       )}
@@ -273,8 +273,8 @@ export function VideoPlayer({ itemId, videoId, transcodeStatus, onEnded }: Video
         />
 
         {activeNote && "body" in activeNote.content && (
-          <div className="absolute left-2 right-2 bottom-3 flex items-start gap-2.5 rounded-2xl bg-white shadow-xl px-5 py-4 text-sm text-neutral-900 pointer-events-none">
-            <StickyNote className="size-4 shrink-0 mt-0.5 text-primary" />
+          <div className="absolute left-3 right-3 bottom-3 flex items-start gap-3 rounded-xl bg-card/95 dark:bg-[#05030A]/95 backdrop-blur-md border border-border/80 dark:border-lms-accent-border shadow-xl px-5 py-4 text-xs sm:text-sm text-foreground pointer-events-none">
+            <StickyNote className="size-4 shrink-0 mt-0.5 text-lms-cta dark:text-lms-accent" />
             <span>{activeNote.content.body}</span>
           </div>
         )}
@@ -291,7 +291,7 @@ export function VideoPlayer({ itemId, videoId, transcodeStatus, onEnded }: Video
             onClick={(e) => seekTo(e.clientX, e.currentTarget)}
           >
             <div
-              className="absolute left-0 top-0 bottom-0 rounded-full bg-primary"
+              className="absolute left-0 top-0 bottom-0 rounded-full bg-[#A880FF]"
               style={{ width: duration ? `${(currentTime / duration) * 100}%` : "0%" }}
             />
             {duration > 0 && checkpoints.map((c) => (
@@ -316,7 +316,7 @@ export function VideoPlayer({ itemId, videoId, transcodeStatus, onEnded }: Video
             </button>
             <div className="font-mono text-xs text-white">{formatClock(currentTime)} / {formatClock(duration)}</div>
             <div className="flex items-center gap-4 ml-auto">
-              <button onClick={cycleSpeed} className="font-display text-sm font-semibold text-white cursor-pointer" title="Playback speed">
+              <button onClick={cycleSpeed} className="font-['Outfit'] text-xs sm:text-sm font-bold text-white hover:text-[#A880FF] transition-colors cursor-pointer" title="Playback speed">
                 {speed}×
               </button>
               {document.pictureInPictureEnabled && (
@@ -371,14 +371,14 @@ function CheckpointQuizOverlay({
   };
 
   return (
-    <div className="absolute inset-0 flex items-center justify-center bg-black/75 backdrop-blur-sm p-4">
-      <div className="w-full max-w-2xl rounded-2xl bg-card ring-1 ring-primary/25 shadow-2xl p-8 flex flex-col gap-5">
+    <div className="absolute inset-0 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 z-20">
+      <div className="w-full max-w-xl lms-card bg-card dark:bg-[#05030A]/95 backdrop-blur-md border border-border/80 dark:border-[#a880ff]/40 shadow-2xl p-6 sm:p-8 flex flex-col gap-5">
         <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-wide text-amber-500">
+          <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-amber-500 dark:text-amber-400">
             <AlertCircle className="size-3.5" /> Checkpoint · paused at {formatCheckpointClock(checkpoint.start_seconds)}
           </div>
         </div>
-        <p className="font-display text-xl font-semibold leading-snug">{content.prompt}</p>
+        <h3 className="font-['Outfit'] text-lg sm:text-xl font-bold leading-snug text-foreground">{content.prompt}</h3>
 
         {content.question_type === "mcq" && content.options && (
           <div className="flex flex-col gap-2.5">
@@ -387,8 +387,8 @@ function CheckpointQuizOverlay({
                 key={i}
                 disabled={!!result}
                 onClick={() => setSelected(i)}
-                className={`text-left px-4 py-3.5 rounded-xl ring-1 text-base cursor-pointer disabled:cursor-default transition-colors ${
-                  selected === i ? "ring-primary/50 bg-primary/10" : "ring-border hover:bg-muted/50"
+                className={`text-left px-4 py-3 rounded-xl border text-sm sm:text-base cursor-pointer disabled:cursor-default transition-all ${
+                  selected === i ? "border-2 border-lms-cta dark:border-lms-accent bg-lms-cta-light text-foreground dark:text-white font-semibold" : "border-border dark:border-lms-accent-border/40 bg-foreground/[0.02] text-foreground hover:bg-lms-accent/10 hover:border-lms-accent/40"
                 }`}
               >
                 {opt.text}
@@ -406,11 +406,11 @@ function CheckpointQuizOverlay({
                   key={i}
                   disabled={!!result}
                   onClick={() => toggleMulti(i)}
-                  className={`text-left px-4 py-3.5 rounded-xl ring-1 text-base cursor-pointer disabled:cursor-default flex items-center gap-2.5 transition-colors ${
-                    checked ? "ring-primary/50 bg-primary/10" : "ring-border hover:bg-muted/50"
+                  className={`text-left px-4 py-3 rounded-xl border text-sm sm:text-base cursor-pointer disabled:cursor-default flex items-center gap-3 transition-all ${
+                    checked ? "border-2 border-lms-cta dark:border-lms-accent bg-lms-cta-light text-foreground dark:text-white font-semibold" : "border-border dark:border-lms-accent-border/40 bg-foreground/[0.02] text-foreground hover:bg-lms-accent/10 hover:border-lms-accent/40"
                   }`}
                 >
-                  <span className={`size-4 rounded shrink-0 ring-1 ${checked ? "bg-primary ring-primary" : "ring-border"}`} />
+                  <span className={`size-4 rounded shrink-0 border ${checked ? "bg-lms-cta dark:bg-lms-accent border-lms-cta dark:border-lms-accent" : "border-border dark:border-lms-accent-border"}`} />
                   {opt.text}
                 </button>
               );
@@ -425,27 +425,27 @@ function CheckpointQuizOverlay({
             disabled={!!result}
             rows={3}
             placeholder="Type your answer..."
-            className="w-full px-4 py-3 rounded-xl ring-1 ring-border bg-background text-base resize-none focus:outline-none focus:ring-primary/40"
+            className="w-full px-4 py-3 rounded-xl border border-border dark:border-lms-accent-border bg-background text-sm sm:text-base resize-none focus:outline-none focus:border-lms-cta dark:focus:border-lms-accent"
           />
         )}
 
         {result && (
-          <p className={`text-base ${result.correct === null ? "text-muted-foreground" : result.correct ? "text-emerald-500" : "text-destructive"}`}>
+          <p className={`text-xs sm:text-sm font-semibold ${result.correct === null ? "text-muted-foreground" : result.correct ? "text-emerald-600 dark:text-emerald-400" : "text-destructive"}`}>
             {result.correct === null ? "Noted — thanks for answering." : result.correct ? "Correct!" : "Not quite."}
             {result.explanation && ` ${result.explanation}`}
           </p>
         )}
 
         <div className="flex items-center justify-between gap-3 pt-1">
-          <button onClick={onResolved} className="text-base text-muted-foreground hover:text-foreground cursor-pointer">
+          <button onClick={onResolved} className="text-xs sm:text-sm text-muted-foreground hover:text-foreground dark:hover:text-white cursor-pointer transition-colors">
             Skip
           </button>
           {result ? (
-            <Button size="xl" onClick={onResolved}>Continue</Button>
+            <button type="button" className="lms-btn-primary px-6 py-2.5 font-['Outfit'] text-sm cursor-pointer" onClick={onResolved}>Continue</button>
           ) : (
-            <Button size="xl" onClick={() => void submit()} disabled={!canSubmit || submitting}>
+            <button type="button" className="lms-btn-primary px-6 py-2.5 font-['Outfit'] text-sm cursor-pointer disabled:opacity-40" onClick={() => void submit()} disabled={!canSubmit || submitting}>
               {submitting ? "Checking..." : "Check answer"}
-            </Button>
+            </button>
           )}
         </div>
       </div>

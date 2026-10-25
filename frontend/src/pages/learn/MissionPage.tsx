@@ -196,7 +196,7 @@ export default function MissionPage() {
   return (
     <div className="mx-auto max-w-[900px] px-5 sm:px-8 py-6 sm:py-8 flex flex-col gap-6">
       <div className="flex items-center gap-2 text-xs text-muted-foreground">
-        <Link to="/learn/missions" className="text-primary hover:opacity-80">Missions</Link>
+        <Link to="/learn/missions" className="text-lms-cta dark:text-lms-accent hover:underline font-semibold">Missions</Link>
         {mission.track && (
           <>
             <ChevronRight className="size-3" />
@@ -204,14 +204,14 @@ export default function MissionPage() {
           </>
         )}
         <ChevronRight className="size-3" />
-        <span className="text-foreground">{mission.title}</span>
+        <span className="text-foreground font-medium">{mission.title}</span>
       </div>
 
       <div className="flex flex-col gap-3">
-        <div className="w-fit flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide px-2.5 py-1 rounded-md bg-primary/10 text-primary">
+        <div className="w-fit flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wide px-2.5 py-1 rounded-full bg-lms-cta-light text-lms-cta dark:text-lms-accent border border-lms-cta-border dark:border-lms-accent-border">
           <Rocket className="size-3" /> Mission
         </div>
-        <h1 className="font-display text-3xl sm:text-4xl font-extrabold tracking-tight leading-tight">{mission.title}</h1>
+        <h1 className="font-['Outfit'] text-3xl sm:text-4xl font-extrabold tracking-tight leading-tight text-foreground">{mission.title}</h1>
         {mission.description && <p className="text-base leading-relaxed text-muted-foreground max-w-xl">{mission.description}</p>}
       </div>
 
@@ -301,7 +301,7 @@ export default function MissionPage() {
             <Link
               to="/learn/missions/operate/$attemptId"
               params={{ attemptId: activeAttempt.id }}
-              className="ml-auto shrink-0 text-xs text-primary hover:opacity-80"
+              className="ml-auto shrink-0 text-xs font-semibold text-lms-cta dark:text-lms-accent hover:underline"
             >
               View debrief
             </Link>
@@ -347,8 +347,10 @@ export default function MissionPage() {
                   <button
                     key={v.id}
                     onClick={() => setSelectedVariantId(v.id)}
-                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-sm ring-1 transition-colors ${
-                      v.id === selectedVariantId ? "ring-primary/40 bg-primary/10 text-primary font-medium" : "ring-border hover:bg-muted/50"
+                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-sm border transition-colors cursor-pointer ${
+                      v.id === selectedVariantId
+                        ? "border-lms-cta dark:border-lms-accent bg-lms-cta-light text-lms-cta dark:text-lms-accent font-semibold"
+                        : "border-border hover:bg-muted/50"
                     }`}
                   >
                     {v.label}
@@ -381,8 +383,10 @@ export default function MissionPage() {
             />
           )}
 
-          <Button
-            size="xl" className="w-fit" onClick={() => void handleStart()}
+          <button
+            type="button"
+            className="lms-btn-primary h-12 px-8 rounded-xl font-bold text-base w-fit cursor-pointer disabled:opacity-50"
+            onClick={() => void handleStart()}
             disabled={starting || !selectedVariantId || mission.locked || (asTeam && !selectedTeamId)}
           >
             {mission.locked
@@ -396,7 +400,7 @@ export default function MissionPage() {
                   // or a student clicks expecting the clock to start.
                   ? (decided ? "Fly again — read the briefing" : "Read the pre-flight briefing")
                   : decided ? "Try again" : "Start mission"}
-          </Button>
+          </button>
           {startError && <p className="text-xs text-destructive">{startError}</p>}
         </Card>
       )}
@@ -434,13 +438,21 @@ function TeamPicker({
         <div className="flex items-center gap-2 pt-3">
           <button
             onClick={() => onModeChange(false)}
-            className={`px-3 py-1.5 rounded-xl text-sm ring-1 transition-colors ${!asTeam ? "ring-primary/40 bg-primary/10 text-primary font-medium" : "ring-border hover:bg-muted/50"}`}
+            className={`px-3 py-1.5 rounded-xl text-sm border transition-colors cursor-pointer ${
+              !asTeam
+                ? "border-lms-cta dark:border-lms-accent bg-lms-cta-light text-lms-cta dark:text-lms-accent font-semibold"
+                : "border-border hover:bg-muted/50"
+            }`}
           >
             Solo
           </button>
           <button
             onClick={() => onModeChange(true)}
-            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-sm ring-1 transition-colors ${asTeam ? "ring-primary/40 bg-primary/10 text-primary font-medium" : "ring-border hover:bg-muted/50"}`}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-sm border transition-colors cursor-pointer ${
+              asTeam
+                ? "border-lms-cta dark:border-lms-accent bg-lms-cta-light text-lms-cta dark:text-lms-accent font-semibold"
+                : "border-border hover:bg-muted/50"
+            }`}
           >
             <Users className="size-3.5" /> Team
           </button>
@@ -454,8 +466,10 @@ function TeamPicker({
               {myTeams.map((t) => (
                 <div
                   key={t.id}
-                  className={`flex items-center gap-1.5 pl-3 pr-1.5 py-1 rounded-xl text-sm ring-1 transition-colors ${
-                    t.id === selectedTeamId ? "ring-primary/40 bg-primary/10 text-primary font-medium" : "ring-border hover:bg-muted/50"
+                  className={`flex items-center gap-1.5 pl-3 pr-1.5 py-1 rounded-xl text-sm border transition-colors ${
+                    t.id === selectedTeamId
+                      ? "border-lms-cta dark:border-lms-accent bg-lms-cta-light text-lms-cta dark:text-lms-accent font-medium"
+                      : "border-border hover:bg-muted/50"
                   }`}
                 >
                   <button onClick={() => onSelectTeam(t.id)}>
@@ -478,9 +492,9 @@ function TeamPicker({
               value={newTeamName}
               onChange={(e) => onNewTeamNameChange(e.target.value)}
               placeholder="New team name..."
-              className="h-9 px-3 border border-border bg-card text-foreground rounded-xl text-sm focus:outline-none focus:border-primary transition-colors flex-1 min-w-0"
+              className="h-9 px-3 border border-border bg-card text-foreground rounded-xl text-sm focus:outline-none focus:border-lms-cta dark:focus:border-lms-accent transition-colors flex-1 min-w-0"
             />
-            <Button size="sm" onClick={onCreateTeam} disabled={!newTeamName.trim() || creatingTeam}>
+            <Button size="sm" onClick={onCreateTeam} disabled={!newTeamName.trim() || creatingTeam} className="rounded-xl">
               {creatingTeam ? "Creating..." : "Create"}
             </Button>
           </div>
@@ -489,9 +503,9 @@ function TeamPicker({
               value={joinTeamId}
               onChange={(e) => onJoinTeamIdChange(e.target.value)}
               placeholder="Join team (team ID)..."
-              className="h-9 px-3 border border-border bg-card text-foreground rounded-xl text-sm focus:outline-none focus:border-primary transition-colors flex-1 min-w-0"
+              className="h-9 px-3 border border-border bg-card text-foreground rounded-xl text-sm focus:outline-none focus:border-lms-cta dark:focus:border-lms-accent transition-colors flex-1 min-w-0"
             />
-            <Button size="sm" variant="outline" onClick={onJoinTeam} disabled={!joinTeamId.trim() || joiningTeam}>
+            <Button size="sm" variant="outline" onClick={onJoinTeam} disabled={!joinTeamId.trim() || joiningTeam} className="rounded-xl">
               {joiningTeam ? "Joining..." : "Join"}
             </Button>
           </div>
@@ -553,8 +567,10 @@ function MissionQuizForm({
                   return (
                     <div
                       key={oi}
-                      className={`px-3.5 py-2.5 rounded-xl ring-1 text-sm flex items-center justify-between gap-2 ${
-                        isSelected ? "ring-primary/40 bg-primary/10" : "ring-border"
+                      className={`px-3.5 py-2.5 rounded-xl border text-sm flex items-center justify-between gap-2 ${
+                        isSelected
+                          ? "border-lms-cta dark:border-lms-accent bg-lms-cta-light text-foreground"
+                          : "border-border"
                       }`}
                     >
                       <span>{opt.text}</span>
@@ -587,8 +603,10 @@ function MissionQuizForm({
               <button
                 key={oi}
                 onClick={() => setAnswers((prev) => prev.map((a, idx) => (idx === qi ? oi : a)))}
-                className={`text-left px-3.5 py-2.5 rounded-xl ring-1 text-sm transition-colors ${
-                  answers[qi] === oi ? "ring-primary/40 bg-primary/10" : "ring-border hover:bg-muted/50"
+                className={`text-left px-3.5 py-2.5 rounded-xl border text-sm transition-colors cursor-pointer ${
+                  answers[qi] === oi
+                    ? "border-lms-cta dark:border-lms-accent bg-lms-cta-light text-foreground font-medium"
+                    : "border-border hover:bg-muted/50"
                 }`}
               >
                 {opt.text}
@@ -597,9 +615,14 @@ function MissionQuizForm({
           </div>
         </div>
       ))}
-      <Button size="xl" className="w-fit" onClick={() => void handleSubmit()} disabled={!allAnswered || submitting}>
+      <button
+        type="button"
+        className="lms-btn-primary h-11 px-6 rounded-xl font-bold text-sm w-fit cursor-pointer disabled:opacity-50"
+        onClick={() => void handleSubmit()}
+        disabled={!allAnswered || submitting}
+      >
         {submitting ? "Submitting..." : "Submit"}
-      </Button>
+      </button>
       {submitError && <p className="text-xs text-destructive">{submitError}</p>}
     </Card>
   );
@@ -704,7 +727,7 @@ function MissionSubmissionForm({ attemptId, onSubmitted }: { attemptId: string; 
           value={artifactUrl}
           onChange={(e) => setArtifactUrl(e.target.value)}
           placeholder="https://..."
-          className="h-10 px-3.5 border border-border bg-card text-foreground rounded-xl text-sm focus:outline-none focus:border-primary transition-colors"
+          className="h-10 px-3.5 border border-border bg-card text-foreground rounded-xl text-sm focus:outline-none focus:border-lms-cta dark:focus:border-lms-accent transition-colors"
         />
       </div>
       <div className="flex flex-col gap-1.5">
@@ -713,12 +736,17 @@ function MissionSubmissionForm({ attemptId, onSubmitted }: { attemptId: string; 
           value={notes}
           onChange={(e) => setNotes(e.target.value)}
           rows={3}
-          className="px-3.5 py-2.5 border border-border bg-card text-foreground rounded-xl text-sm focus:outline-none focus:border-primary transition-colors resize-none"
+          className="px-3.5 py-2.5 border border-border bg-card text-foreground rounded-xl text-sm focus:outline-none focus:border-lms-cta dark:focus:border-lms-accent transition-colors resize-none"
         />
       </div>
-      <Button size="xl" className="w-fit" onClick={() => void handleSubmit()} disabled={!artifactUrl.trim() || submitting}>
+      <button
+        type="button"
+        className="lms-btn-primary h-11 px-6 rounded-xl font-bold text-sm w-fit cursor-pointer disabled:opacity-50"
+        onClick={() => void handleSubmit()}
+        disabled={!artifactUrl.trim() || submitting}
+      >
         {submitting ? "Submitting..." : "Submit for review"}
-      </Button>
+      </button>
       {submitError && <p className="text-xs text-destructive">{submitError}</p>}
     </Card>
   );

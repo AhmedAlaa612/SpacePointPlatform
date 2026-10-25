@@ -42,13 +42,13 @@ export function AvatarNicknamePicker({
       >
         <div className="relative">
           <AvatarBadge avatar={avatar} nickname={nickname} size={96} />
-          <span className="absolute -bottom-1 -right-1 w-6 h-6 rounded-full bg-primary text-primary-foreground flex items-center justify-center">
+          <span className="absolute -bottom-1 -right-1 w-6 h-6 rounded-full bg-lms-cta dark:bg-lms-accent text-white dark:text-black flex items-center justify-center shadow-md">
             <Pencil size={12} />
           </span>
         </div>
         <div>
-          <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide">Your callsign</p>
-          <p className="font-display text-lg font-bold">{nickname}</p>
+          <p className="text-[11px] font-bold text-muted-foreground uppercase tracking-wide">Your callsign</p>
+          <p className="font-['Outfit'] text-xl font-extrabold text-foreground">{nickname}</p>
           <p className="text-xs text-muted-foreground mt-0.5">Only your callsign and avatar are shown to the class.</p>
         </div>
       </button>
@@ -61,7 +61,7 @@ export function AvatarNicknamePicker({
       <input
         value={draftNickname} onChange={(e) => setDraftNickname(e.target.value)} maxLength={64}
         placeholder="Your callsign"
-        className="w-full h-10 px-3 border border-border bg-card text-foreground rounded-xl text-sm text-center focus:outline-none focus:border-primary transition-colors"
+        className="w-full h-10 px-3 border border-border/80 dark:border-lms-accent-border/30 bg-card text-foreground rounded-xl text-sm text-center focus:outline-none focus:border-lms-cta dark:focus:border-lms-accent transition-colors font-medium"
       />
       <div className="grid grid-cols-5 gap-2 w-full">
         {AVATAR_PRESETS.map((p) => {
@@ -74,8 +74,8 @@ export function AvatarNicknamePicker({
               title={p.label}
               className={`aspect-square flex items-center justify-center rounded-xl border cursor-pointer transition-colors ${
                 selected
-                  ? "border-primary bg-primary/14 text-primary ring-2 ring-primary/30"
-                  : "border-border bg-card text-muted-foreground hover:border-primary/50"
+                  ? "border-lms-cta dark:border-lms-accent bg-lms-cta-light text-lms-cta dark:text-lms-accent ring-2 ring-lms-accent-glow"
+                  : "border-border/80 dark:border-lms-accent-border/30 bg-card text-muted-foreground hover:border-lms-cta dark:hover:border-lms-accent"
               }`}
             >
               <Icon size={20} />
@@ -87,14 +87,14 @@ export function AvatarNicknamePicker({
       <div className="flex gap-2 w-full">
         <button
           onClick={() => setEditing(false)}
-          className="flex-1 h-9 border border-border rounded-xl text-xs font-medium text-foreground hover:bg-muted transition-colors cursor-pointer"
+          className="flex-1 h-10 border border-border/80 rounded-xl text-xs font-semibold text-foreground hover:bg-muted transition-colors cursor-pointer"
         >
           Cancel
         </button>
         <button
           onClick={() => save.mutate()}
           disabled={save.isPending || !draftNickname.trim()}
-          className="flex-1 h-9 bg-primary text-primary-foreground rounded-xl text-xs font-semibold hover:opacity-90 transition-colors disabled:opacity-50 cursor-pointer"
+          className="lms-btn-primary flex-1 h-10 rounded-xl text-xs font-bold transition-colors disabled:opacity-50 cursor-pointer"
         >
           {save.isPending ? "Saving…" : "Save"}
         </button>

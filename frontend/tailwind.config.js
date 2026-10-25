@@ -16,6 +16,18 @@ export default {
           accent: "#A77DFF",
           hover: "#C0A0FF",
         },
+        // LMS Dynamic 1-Line Theme Tokens
+        lms: {
+          cta: "var(--lms-cta)",
+          "cta-hover": "var(--lms-cta-hover)",
+          "cta-light": "var(--lms-cta-light)",
+          "cta-border": "var(--lms-cta-border)",
+          accent: "var(--lms-accent)",
+          "accent-hover": "var(--lms-accent-hover)",
+          "accent-light": "var(--lms-accent-light)",
+          "accent-border": "var(--lms-accent-border)",
+          "accent-glow": "var(--lms-accent-glow)",
+        },
         // semantic tokens (driven by CSS variables in src/index.css)
         background: "hsl(var(--background))",
         foreground: "hsl(var(--foreground))",

@@ -14,19 +14,10 @@ export type LearnNavActive = "home" | "catalog" | "missions" | "paths" | "checkl
 export const NAV_ITEMS: { key: LearnNavActive; label: string; to: string; icon: typeof Home }[] = [
   { key: "home", label: "Home", to: "/learn/home", icon: Home },
   { key: "my-courses", label: "My Learning", to: "/learn/my-courses", icon: GraduationCap },
-  { key: "checklists", label: "Programs", to: "/learn/checklists", icon: ClipboardCheck },
-  // Missions tab hidden temporarily per management request; re-enable by uncommenting.
-  // { key: "missions", label: "Missions", to: "/learn/missions", icon: Rocket },
-  // Live Quiz tab hidden from students per management request; re-enable by uncommenting.
-  // { key: "games", label: "Live Quiz", to: "/learn/games", icon: Gamepad2 },
-  // Arcade tab hidden from students per management request; re-enable by uncommenting.
-  // { key: "arcade", label: "Arcade", to: "/learn/arcade", icon: Rocket },
+  // Programs and Courses are now unified under "My Learning" (/learn/my-courses)
   { key: "leaderboard", label: "Leaderboard", to: "/learn/leaderboard", icon: Trophy },
 ];
 
 /** One row on mobile — Home lives in the profile row instead (see
  * LearnMobileTabBar). Unchanged by the sidebar redesign (2026-09). */
-// Missions tab hidden temporarily per management request; re-enable by uncommenting NAV_ITEMS
-// above and restoring "missions" here in its original slot: ["my-courses", "checklists", "missions", "games", "leaderboard"].
-// Also restore "games" and "arcade" here to match the NAV_ITEMS entries above.
-export const MOBILE_TAB_ITEMS: LearnNavActive[] = ["my-courses", "checklists", "leaderboard"];
+export const MOBILE_TAB_ITEMS: LearnNavActive[] = ["my-courses", "leaderboard"];

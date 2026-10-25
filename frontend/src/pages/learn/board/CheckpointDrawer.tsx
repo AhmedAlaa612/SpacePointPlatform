@@ -44,23 +44,23 @@ export function CheckpointDrawer({
 
   return (
     <Dialog open onOpenChange={onClose}>
-      <DialogContent className="max-w-md p-6 bg-card border-border">
+      <DialogContent className="max-w-md p-6 bg-background dark:bg-[#05030A] border border-border/80 dark:border-[#a880ff]/30 shadow-2xl">
         <DialogHeader>
           <div className="flex items-center justify-between gap-2 mb-1">
-            <span className="text-[10px] font-bold uppercase tracking-wider text-primary bg-primary/10 border border-primary/20 px-2 py-0.5 rounded-full">
+            <span className="text-[10px] font-bold uppercase tracking-wider text-lms-cta dark:text-lms-accent bg-lms-cta-light border border-lms-cta-border dark:border-lms-accent-border px-2.5 py-0.5 rounded-full">
               Team Checkpoint
             </span>
             <button
               type="button"
               onClick={onClose}
               aria-label="Close"
-              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-muted text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
+              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-muted/60 dark:bg-muted/20 text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
             >
               <X size={17} />
             </button>
           </div>
-          <DialogTitle className="text-xl font-bold font-display text-foreground flex items-center gap-2">
-            <Flag size={18} className="text-primary shrink-0" />
+          <DialogTitle className="text-xl font-bold font-['Outfit'] text-foreground flex items-center gap-2">
+            <Flag size={18} className="text-lms-cta dark:text-lms-accent shrink-0" />
             {item.title}
           </DialogTitle>
         </DialogHeader>
@@ -68,10 +68,10 @@ export function CheckpointDrawer({
         <div className="mt-3 space-y-4">
           {item.description && <p className="text-xs text-muted-foreground leading-relaxed">{item.description}</p>}
 
-          <div className="p-4 rounded-xl border border-border bg-muted/30 space-y-2">
+          <div className="p-4 rounded-xl border border-border/80 dark:border-[#a880ff]/20 bg-muted/20 dark:bg-[#0d0915] space-y-2">
             <div className="flex items-center justify-between text-xs font-bold uppercase tracking-wider text-muted-foreground">
               <span>Section progress</span>
-              <span className="font-display text-sm text-foreground">{doneCount}/{section.length}</span>
+              <span className="font-['Outfit'] font-bold text-sm text-foreground">{doneCount}/{section.length}</span>
             </div>
             {section.length === 0 ? (
               <p className="text-xs text-muted-foreground">No team tasks in this section — ready to lock.</p>
@@ -94,7 +94,7 @@ export function CheckpointDrawer({
           </div>
 
           {locked ? (
-            <div className="flex items-center justify-center gap-2 p-3.5 rounded-xl bg-primary/10 border border-primary/25 text-primary text-sm font-semibold">
+            <div className="flex items-center justify-center gap-2 p-3.5 rounded-xl bg-lms-cta-light border border-lms-cta-border dark:border-lms-accent-border text-lms-cta dark:text-lms-accent text-sm font-semibold">
               <Lock size={16} className="shrink-0 text-muted-foreground" />
               {item.updated_by_name
                 ? `Locked by ${item.updated_by_name}${item.updated_at ? ` on ${new Date(item.updated_at).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })}` : ""}`
@@ -108,7 +108,7 @@ export function CheckpointDrawer({
               disabled={!ready || lockMutation.isPending}
               onClick={() => lockMutation.mutate()}
               title={ready ? undefined : "Finish every team task above first"}
-              className="gate-beacon-border w-full flex items-center justify-center gap-2 px-5 py-3 rounded-xl border-[2.5px] bg-primary text-primary-foreground font-extrabold text-sm tracking-wide shadow-md shadow-primary/25 hover:shadow-lg hover:shadow-primary/35 transition-all duration-150 disabled:opacity-50 cursor-pointer disabled:pointer-events-none"
+              className="lms-btn-primary w-full flex items-center justify-center gap-2 px-5 py-3 rounded-xl font-bold text-sm tracking-wide transition-all duration-150 disabled:opacity-50 cursor-pointer disabled:pointer-events-none"
             >
               <Lock size={15} />
               {lockMutation.isPending ? "Locking…" : ready ? "Lock Checkpoint" : `Finish section first (${doneCount}/${section.length})`}

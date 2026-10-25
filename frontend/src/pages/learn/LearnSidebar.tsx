@@ -40,8 +40,8 @@ export function LearnSidebar({ active }: { active: LearnNavActive }) {
   const myProgram = checklists?.[0] ?? null;
 
   return (
-    <aside className="fixed inset-y-0 left-0 z-20 hidden w-64 flex-col border-r border-border bg-background md:flex print:hidden">
-      <div className="flex h-20 shrink-0 items-center gap-2 border-b border-border px-4">
+    <aside className="fixed inset-y-0 left-0 z-20 hidden w-64 flex-col border-r border-border dark:border-[#a880ff]/15 bg-background md:flex print:hidden">
+      <div className="flex h-20 shrink-0 items-center gap-2 border-b border-border dark:border-[#a880ff]/10 px-4">
         <Link to="/learn/home" aria-label="SpacePoint Learn" className="flex flex-1 items-center gap-2 overflow-hidden">
           <DomainIcon className="h-11 w-auto shrink-0" />
         </Link>
@@ -54,7 +54,7 @@ export function LearnSidebar({ active }: { active: LearnNavActive }) {
         </Link>
       </div>
 
-      <nav className="flex flex-1 min-h-0 flex-col space-y-2 overflow-y-auto px-4 py-6">
+      <nav className="flex flex-1 min-h-0 flex-col space-y-1.5 overflow-y-auto px-4 py-6">
         {NAV_ITEMS.map((item) => {
           const Icon = item.icon;
           const isActive = item.key === active;
@@ -63,52 +63,42 @@ export function LearnSidebar({ active }: { active: LearnNavActive }) {
               key={item.key}
               to={item.to}
               className={cn(
-                "flex items-center gap-3 rounded-xl px-4 py-3 text-sm transition-all",
+                "flex items-center gap-3 rounded-[10px] px-4 py-2.5 text-sm transition-all border-[3px]",
                 isActive
-                  ? "border border-primary/30 bg-primary/10 font-semibold text-primary"
-                  : "border border-transparent text-muted-foreground hover:bg-foreground/5 hover:text-foreground",
+                  ? "lms-card font-bold text-foreground dark:text-white shadow-none"
+                  : "border-transparent text-muted-foreground hover:bg-foreground/5 hover:text-foreground dark:hover:bg-[#a880ff]/10 dark:hover:text-white",
               )}
             >
-              <Icon className="h-5 w-5 shrink-0" />
+              <Icon className={cn("h-5 w-5 shrink-0", isActive ? "text-lms-cta dark:text-lms-accent" : "")} />
               <span className="truncate">{item.label}</span>
             </Link>
           );
         })}
       </nav>
 
-      {/* A sibling of the scrollable <nav>, not nested inside it — pinned
-          to the sidebar's true bottom edge regardless of how short the nav
-          list is, rather than relying on `mt-auto` inside an
-          `overflow-y-auto` container (unreliable when content is short). */}
       <div className="shrink-0 flex flex-col gap-3 px-4 pb-6 pt-3">
-        {/* The way back to "your" program once a tile has already sent you
-            off to Madar/a course/wherever (2026-09) — a fresh visit to bare
-            /learn drops a student with a program straight onto its board,
-            but clicking Home (which goes to /learn/home, a plain route with
-            no such redirect) always shows the normal dashboard instead, so
-            this is the persistent quick-return the client asked for. */}
         {myProgram && (
           <Link
             to="/learn/checklists/$assignmentId"
             params={{ assignmentId: myProgram.assignment_id }}
-            className="group flex flex-col gap-1.5 rounded-xl border border-primary/25 bg-primary/5 px-4 py-3 transition-all duration-200 hover:-translate-y-0.5 hover:border-primary/50 hover:bg-primary/10 hover:shadow-[0_4px_16px_-4px_hsl(var(--primary)/0.35)]"
+            className="lms-card p-3.5 flex flex-col gap-2 transition-transform hover:-translate-y-0.5"
           >
-            <div className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wide text-primary">
-              <Rocket className="size-3 transition-transform duration-200 group-hover:-translate-y-0.5 group-hover:translate-x-0.5" />
+            <div className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wide text-lms-cta dark:text-lms-accent">
+              <Rocket className="size-3" />
               {myProgram.cohort_name ?? "Your program"}
             </div>
-            <div className="text-sm font-bold text-foreground truncate transition-colors group-hover:text-primary">
+            <div className="text-sm font-bold text-foreground truncate">
               {myProgram.name}
             </div>
-            <div className="h-[4px] rounded-full bg-border overflow-hidden">
+            <div className="h-1.5 rounded-full bg-foreground/10 dark:bg-white/10 overflow-hidden">
               <div
-                className="h-full rounded-full bg-primary transition-[width] duration-300"
+                className="h-full rounded-full bg-lms-cta dark:bg-lms-accent transition-[width] duration-300"
                 style={{ width: `${myProgram.pct}%` }}
               />
             </div>
           </Link>
         )}
-        <div className="flex items-center gap-1 border-t border-border pt-3">
+        <div className="flex items-center gap-1 border-t border-border dark:border-[#a880ff]/10 pt-3">
           <ThemeToggle />
           {user ? (
             <>
@@ -119,13 +109,13 @@ export function LearnSidebar({ active }: { active: LearnNavActive }) {
             <>
               <Link
                 to="/learn/login"
-                className="flex h-9 flex-1 items-center justify-center rounded-xl px-3 text-sm font-medium text-muted-foreground transition-colors hover:bg-foreground/5 hover:text-foreground"
+                className="flex h-9 flex-1 items-center justify-center rounded-lg px-3 text-sm font-medium text-muted-foreground transition-colors hover:bg-foreground/5 hover:text-foreground"
               >
                 Log in
               </Link>
               <Link
                 to="/learn/signup"
-                className="flex h-9 flex-1 items-center justify-center rounded-xl px-3 text-sm font-semibold bg-primary text-primary-foreground transition-opacity hover:opacity-90"
+                className="lms-btn-primary flex h-9 flex-1 items-center justify-center px-3 text-sm font-bold"
               >
                 Sign up
               </Link>

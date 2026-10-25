@@ -99,38 +99,38 @@ export default function LearnInviteLink() {
   }, [code, user, loading, navigate, queryClient, setCurrentUser]);
 
   return (
-    <div className="min-h-screen bg-background text-foreground flex items-center justify-center px-4 bg-[radial-gradient(circle_at_15%_10%,hsl(var(--primary)/0.06)_0%,transparent_45%)]">
+    <div className="min-h-screen bg-background dark:bg-[#05030A] text-foreground flex items-center justify-center px-4 py-12">
       <div className="w-full max-w-sm flex flex-col items-center">
         <div className="flex justify-center mb-8">
           <DomainIcon className="h-10 w-auto" />
         </div>
 
-        <Card className="p-6 sm:p-7 w-full text-center">
+        <div className="lms-card p-6 sm:p-8 rounded-2xl shadow-2xl w-full text-center">
           {error ? (
             <div className="flex flex-col gap-4">
-              <div className="p-3.5 rounded-xl bg-destructive/10 text-destructive text-sm font-medium">
+              <div className="p-3.5 rounded-xl bg-destructive/10 border border-destructive/20 text-destructive text-sm font-medium">
                 {error}
               </div>
               <p className="text-xs text-muted-foreground">
                 Code <span className="font-mono font-semibold text-foreground">{code}</span> could not be redeemed.
               </p>
-              <Button
-                variant="outline"
-                className="w-full mt-2"
+              <button
+                type="button"
+                className="lms-btn-primary w-full h-11 text-sm font-bold rounded-xl mt-2 flex items-center justify-center cursor-pointer"
                 onClick={() => void navigate({ to: (user ? "/learn/checklists" : "/learn/login") as never, replace: true })}
               >
                 {user ? "Go to Programs" : "Go to Login"}
-              </Button>
+              </button>
             </div>
           ) : (
             <div className="flex flex-col items-center gap-3 py-4">
-              <Spinner className="size-8 text-primary" />
+              <Spinner className="size-8 text-lms-cta dark:text-lms-accent" />
               <p className="text-sm font-medium text-muted-foreground">
                 {redeeming ? `Redeeming invite code ${code}...` : "Loading invite..."}
               </p>
             </div>
           )}
-        </Card>
+        </div>
       </div>
     </div>
   );

@@ -193,8 +193,8 @@ function TeamFormationPanel({
 
   if (isLocked) {
     return (
-      <div className="flex flex-col gap-2.5 rounded-xl ring-1 ring-border p-4 text-sm" onClick={(e) => e.stopPropagation()}>
-        <div className="flex items-center gap-2 text-sm font-semibold text-foreground">
+      <div className="flex flex-col gap-2.5 rounded-xl border border-border/80 dark:border-[#a880ff]/20 bg-muted/20 dark:bg-[#0d0915] p-4 text-sm" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center gap-2 text-sm font-bold font-['Outfit'] text-foreground">
           <Users size={16} /> {teamName ? `Team ${teamName}` : "Team formation"}
         </div>
         {teamName && (
@@ -202,7 +202,7 @@ function TeamFormationPanel({
             {teamCode && (
               <div className="flex items-center gap-2 text-sm">
                 <span className="text-muted-foreground">Team code:</span>
-                <code className="font-mono font-bold tracking-widest text-foreground">{teamCode}</code>
+                <code className="font-mono font-bold tracking-widest text-lms-cta dark:text-lms-accent">{teamCode}</code>
               </div>
             )}
             {teamMembers.length > 0 && (
@@ -217,7 +217,7 @@ function TeamFormationPanel({
 
   if (!teamName) {
     return (
-      <div className="flex flex-col gap-3 rounded-xl ring-1 ring-border p-4 text-sm" onClick={(e) => e.stopPropagation()}>
+      <div className="flex flex-col gap-3 rounded-xl border border-border/80 dark:border-lms-accent-border/30 bg-muted/20 dark:bg-[#0d0915] p-4 text-sm" onClick={(e) => e.stopPropagation()}>
         <div className="flex flex-col gap-2">
           <span className="text-xs font-bold uppercase tracking-wide text-muted-foreground">Have a team code?</span>
           <div className="flex gap-2">
@@ -226,31 +226,43 @@ function TeamFormationPanel({
               onChange={(e) => { setJoinCode(e.target.value.toUpperCase()); setPreview(null); }}
               placeholder="Enter code (e.g. K7P2QX)"
               maxLength={16}
-              className="h-12 flex-1 min-w-0 px-4 border border-border bg-background text-foreground rounded-lg text-base font-mono uppercase tracking-widest focus:outline-none focus:border-primary transition-colors"
+              className="h-12 flex-1 min-w-0 px-4 border border-border/80 dark:border-lms-accent-border/30 bg-background dark:bg-[#05030A] text-foreground rounded-xl text-base font-mono uppercase tracking-widest focus:outline-none focus:border-lms-cta dark:focus:border-lms-accent transition-colors"
             />
-            <Button
+            <button
+              type="button"
               disabled={!joinCode.trim() || previewMutation.isPending || joinMutation.isPending}
               onClick={() => previewMutation.mutate(joinCode.trim(), { onSuccess: (p) => { setPreview(p); if (!p.requires_switch) joinMutation.mutate({ code: joinCode.trim(), confirm: false }); } })}
-              className="h-12 px-4 shrink-0"
+              className="lms-btn-primary h-12 px-5 rounded-xl font-bold text-sm shrink-0 disabled:opacity-50 cursor-pointer"
             >
               {previewMutation.isPending || joinMutation.isPending ? "Joining…" : "Join"}
-            </Button>
+            </button>
           </div>
           {preview && (
-            <div className="rounded-lg bg-muted/50 px-3 py-2.5 flex flex-col gap-2">
+            <div className="rounded-xl border border-border/80 dark:border-lms-accent-border/30 bg-muted/40 dark:bg-[#1a0f26]/60 px-4 py-3 flex flex-col gap-2">
               <p className="text-sm text-foreground">
-                Join <span className="font-semibold">{preview.team_name}</span> ({preview.member_count} member{preview.member_count === 1 ? "" : "s"})?
+                Join <span className="font-bold text-lms-cta dark:text-lms-accent">{preview.team_name}</span> ({preview.member_count} member{preview.member_count === 1 ? "" : "s"})?
               </p>
               {preview.requires_switch && (
                 <p className="text-sm text-amber-600 dark:text-amber-500">
                   You're on {preview.current_team_name} — joining will move you. Your old team is deleted if it goes empty.
                 </p>
               )}
-              <div className="flex gap-2">
-                <Button size="sm" disabled={joinMutation.isPending} onClick={() => joinMutation.mutate({ code: joinCode.trim(), confirm: true })}>
+              <div className="flex gap-2 pt-1">
+                <button
+                  type="button"
+                  disabled={joinMutation.isPending}
+                  onClick={() => joinMutation.mutate({ code: joinCode.trim(), confirm: true })}
+                  className="lms-btn-primary px-3.5 py-1.5 text-xs rounded-xl cursor-pointer"
+                >
                   {joinMutation.isPending ? "Moving…" : preview.requires_switch ? `Leave ${preview.current_team_name} & join` : "Confirm join"}
-                </Button>
-                <Button size="sm" variant="outline" onClick={() => setPreview(null)}>Cancel</Button>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setPreview(null)}
+                  className="lms-btn-secondary px-3.5 py-1.5 text-xs rounded-xl cursor-pointer"
+                >
+                  Cancel
+                </button>
               </div>
             </div>
           )}
@@ -258,8 +270,8 @@ function TeamFormationPanel({
             <p className="text-sm text-destructive">No team found with this code — check it and try again.</p>
           )}
         </div>
-        <div className="flex items-center gap-2 text-xs text-muted-foreground">
-          <span className="h-px flex-1 bg-border" /> or <span className="h-px flex-1 bg-border" />
+        <div className="flex items-center gap-2 text-xs text-muted-foreground my-1">
+          <span className="h-px flex-1 bg-border/80 dark:bg-[#a880ff]/20" /> or <span className="h-px flex-1 bg-border/80 dark:bg-[#a880ff]/20" />
         </div>
         <div className="flex flex-col gap-2">
           <span className="text-xs font-bold uppercase tracking-wide text-muted-foreground">No code? Create a team</span>
@@ -269,15 +281,16 @@ function TeamFormationPanel({
               onChange={(e) => setCreateName(e.target.value)}
               placeholder="Your team's name"
               maxLength={100}
-              className="h-12 flex-1 min-w-0 px-4 border border-border bg-background text-foreground rounded-lg text-base focus:outline-none focus:border-primary transition-colors"
+              className="h-12 flex-1 min-w-0 px-4 border border-border/80 dark:border-lms-accent-border/30 bg-background dark:bg-[#05030A] text-foreground rounded-xl text-base focus:outline-none focus:border-lms-cta dark:focus:border-lms-accent transition-colors"
             />
-            <Button
+            <button
+              type="button"
               disabled={!createName.trim() || createMutation.isPending}
               onClick={() => createMutation.mutate(createName.trim())}
-              className="h-12 px-4 shrink-0"
+              className="lms-btn-primary h-12 px-5 rounded-xl font-bold text-sm shrink-0 disabled:opacity-50 cursor-pointer"
             >
               {createMutation.isPending ? "Creating…" : "Create"}
-            </Button>
+            </button>
           </div>
           <p className="text-xs text-muted-foreground">You'll get a code to share with teammates.</p>
         </div>
@@ -289,18 +302,18 @@ function TeamFormationPanel({
   }
 
   return (
-    <div className="flex flex-col gap-3 rounded-xl ring-1 ring-border p-4 text-sm" onClick={(e) => e.stopPropagation()}>
+    <div className="flex flex-col gap-3 rounded-xl border border-border/80 dark:border-lms-accent-border/30 bg-muted/20 dark:bg-[#0d0915] p-4 text-sm" onClick={(e) => e.stopPropagation()}>
       {/* Team name — big and bold, edit-in-place via the pencil */}
       <div className="flex flex-col gap-1.5">
         {!editingName ? (
           <>
             <div className="flex items-center gap-2">
-              <span className="text-xl font-extrabold tracking-tight text-foreground">{teamName}</span>
+              <span className="text-xl font-extrabold tracking-tight font-['Outfit'] text-foreground">{teamName}</span>
               <button
                 type="button"
                 aria-label="Rename team"
                 onClick={() => { setEditValue(teamName ?? ""); setEditingName(true); }}
-                className="flex h-8 w-8 items-center justify-center rounded-full text-muted-foreground hover:text-primary hover:bg-primary/10 transition-colors cursor-pointer"
+                className="flex h-8 w-8 items-center justify-center rounded-full text-muted-foreground hover:text-lms-cta dark:hover:text-lms-accent hover:bg-lms-cta-light transition-colors cursor-pointer"
               >
                 <Pencil size={15} />
               </button>
@@ -321,17 +334,24 @@ function TeamFormationPanel({
               autoFocus
               placeholder="Your team's name"
               maxLength={100}
-              className="h-12 px-4 border border-border bg-background text-foreground rounded-lg text-base font-semibold focus:outline-none focus:border-primary transition-colors"
+              className="h-12 px-4 border border-border/80 dark:border-lms-accent-border/30 bg-background dark:bg-[#05030A] text-foreground rounded-xl text-base font-semibold focus:outline-none focus:border-lms-cta dark:focus:border-lms-accent transition-colors"
             />
             <div className="flex gap-2">
-              <Button
-                size="sm"
+              <button
+                type="button"
                 disabled={!editValue.trim() || renameMutation.isPending}
                 onClick={() => renameMutation.mutate(editValue.trim())}
+                className="lms-btn-primary px-4 py-2 text-xs rounded-xl cursor-pointer disabled:opacity-50"
               >
                 {renameMutation.isPending ? "Saving…" : "Save"}
-              </Button>
-              <Button size="sm" variant="outline" onClick={() => setEditingName(false)}>Cancel</Button>
+              </button>
+              <button
+                type="button"
+                onClick={() => setEditingName(false)}
+                className="lms-btn-secondary px-4 py-2 text-xs rounded-xl cursor-pointer"
+              >
+                Cancel
+              </button>
             </div>
           </>
         )}
@@ -342,8 +362,8 @@ function TeamFormationPanel({
           Members · {teamMembers.length}
         </span>
         {teamMembers.map((m) => (
-          <div key={m.id} className="flex items-center gap-2.5 rounded-lg ring-1 ring-border bg-muted/30 px-3 py-2">
-            <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-primary/15 text-xs font-bold text-primary">
+          <div key={m.id} className="flex items-center gap-2.5 rounded-xl border border-border/80 dark:border-lms-accent-border/30 bg-background/50 dark:bg-[#05030A]/50 px-3 py-2">
+            <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-lms-cta-light text-xs font-bold text-lms-cta dark:text-lms-accent">
               {(m.name ?? "?").charAt(0).toUpperCase()}
             </span>
             <span className="text-sm font-bold text-foreground">{m.name ?? "—"}</span>
@@ -351,10 +371,10 @@ function TeamFormationPanel({
         ))}
       </div>
       {teamCode && (
-        <div className="flex items-center gap-2 rounded-lg bg-primary/10 border border-primary/25 px-3 py-2.5">
+        <div className="flex items-center gap-2 rounded-xl bg-lms-cta-light border border-lms-cta-border dark:border-lms-accent-border px-3.5 py-2.5">
           <div className="flex flex-col">
             <span className="text-xs font-bold uppercase tracking-wide text-muted-foreground">Team code — share to add members</span>
-            <code className="font-mono text-lg font-bold tracking-[0.2em] text-foreground">{teamCode}</code>
+            <code className="font-mono text-lg font-bold tracking-[0.2em] text-lms-cta dark:text-lms-accent">{teamCode}</code>
           </div>
           <button
             type="button"
@@ -364,9 +384,9 @@ function TeamFormationPanel({
               if (navigator.clipboard?.writeText) void navigator.clipboard.writeText(teamCode).then(done).catch(done);
               else done();
             }}
-            className="ml-auto flex h-9 w-9 items-center justify-center rounded-full bg-background text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
+            className="ml-auto flex h-9 w-9 items-center justify-center rounded-full bg-background dark:bg-[#05030A] border border-border/80 dark:border-[#a880ff]/20 text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
           >
-            {copied ? <Check size={16} className="text-emerald-600" /> : <Copy size={16} />}
+            {copied ? <Check size={16} className="text-emerald-500" /> : <Copy size={16} />}
           </button>
         </div>
       )}
@@ -380,13 +400,24 @@ function TeamFormationPanel({
           <LogOut size={14} /> Leave team
         </button>
       ) : (
-        <div className="rounded-lg bg-muted/50 px-3 py-2.5 flex flex-col gap-2">
+        <div className="rounded-xl border border-destructive/30 bg-destructive/5 px-3.5 py-2.5 flex flex-col gap-2">
           <p className="text-sm text-foreground">Leave {teamName}? {teamMembers.length <= 1 ? "The team will be deleted." : ""}</p>
           <div className="flex gap-2">
-            <Button size="sm" variant="destructive" disabled={leaveMutation.isPending} onClick={() => leaveMutation.mutate()}>
+            <button
+              type="button"
+              disabled={leaveMutation.isPending}
+              onClick={() => leaveMutation.mutate()}
+              className="px-3.5 py-1.5 rounded-xl bg-destructive text-destructive-foreground font-bold text-xs hover:opacity-90 transition-opacity cursor-pointer disabled:opacity-50"
+            >
               {leaveMutation.isPending ? "Leaving…" : "Yes, leave"}
-            </Button>
-            <Button size="sm" variant="outline" onClick={() => setConfirmLeave(false)}>Stay</Button>
+            </button>
+            <button
+              type="button"
+              onClick={() => setConfirmLeave(false)}
+              className="lms-btn-secondary px-3.5 py-1.5 text-xs rounded-xl cursor-pointer"
+            >
+              Stay
+            </button>
           </div>
         </div>
       )}
@@ -439,24 +470,24 @@ function DrawerBody({
   return (
     <>
       <div className="flex items-center justify-between gap-2">
-        <div className="text-xs font-bold uppercase tracking-[0.06em] text-primary truncate">
+        <div className="text-xs font-bold uppercase tracking-[0.06em] text-lms-cta dark:text-lms-accent truncate">
           {item.checkpoint_label ?? "Task"} · {item.item_type === "mission_run" && item.mission_step_key ? MISSION_STEP_LABELS[item.mission_step_key as MissionStepKey] : "Step"}
         </div>
         <button
           type="button"
           onClick={onClose}
           aria-label="Close"
-          className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-muted text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
+          className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-muted/60 dark:bg-muted/20 text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
         >
           <X size={17} />
         </button>
       </div>
 
       <div className="flex flex-col gap-1.5">
-        <h2 className="font-display text-[26px] md:text-2xl font-extrabold tracking-tight text-foreground">{item.title}</h2>
-        {item.description && <p className="text-base text-muted-foreground">{item.description}</p>}
+        <h2 className="font-['Outfit'] text-[26px] md:text-2xl font-extrabold tracking-tight text-foreground">{item.title}</h2>
+        {item.description && <p className="text-sm md:text-base text-muted-foreground leading-relaxed">{item.description}</p>}
         {item.deadline_at && (
-          <p className={`text-sm ${pastDeadline ? "text-amber-600 dark:text-amber-500 font-medium" : "text-muted-foreground"}`}>
+          <p className={`text-xs md:text-sm ${pastDeadline ? "text-amber-600 dark:text-amber-500 font-medium" : "text-muted-foreground"}`}>
             {pastDeadline ? "Deadline passed · " : ""}Due {new Date(item.deadline_at).toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}
           </p>
         )}
@@ -467,12 +498,12 @@ function DrawerBody({
           <Check size={19} /> Cleared
         </div>
       )}
-      {awaiting && <p className="text-base font-medium text-primary">Awaiting instructor review</p>}
+      {awaiting && <p className="text-base font-medium text-lms-cta dark:text-lms-accent">Awaiting instructor review</p>}
 
       {/* Guide — optional, only when this item has one. A video is shown
           directly inline (nothing to "open"); a PDF/link gets a button. */}
       {hasGuideline && (
-        <div className="flex flex-col gap-2.5 rounded-2xl ring-1 ring-border p-4 bg-muted/30">
+        <div className="flex flex-col gap-2.5 rounded-2xl border border-border/80 dark:border-lms-accent-border/30 p-4 bg-muted/20 dark:bg-[#0d0915]">
           <div className="flex items-center justify-between gap-2">
             <span className="text-xs font-bold uppercase tracking-wide text-muted-foreground">Guide</span>
             {guidelineOpened && effectiveGuidelineKind !== "video" && (
@@ -487,16 +518,16 @@ function DrawerBody({
                 <VideoPlayer
                   info={guidelineVideoInfo}
                   title="Guideline video"
-                  className="aspect-video rounded-lg overflow-hidden border border-border bg-black"
+                  className="aspect-video rounded-xl overflow-hidden border border-border/80 dark:border-lms-accent-border/30 bg-black"
                 />
               ) : (
-                <div className="aspect-video rounded-lg border border-dashed border-border flex items-center justify-center text-sm text-muted-foreground bg-muted/20">
+                <div className="aspect-video rounded-xl border border-dashed border-border/80 dark:border-lms-accent-border/30 flex items-center justify-center text-sm text-muted-foreground bg-muted/20">
                   Loading video…
                 </div>
               )
             ) : item.guideline_url ? (
               isKnownEmbedHost(item.guideline_url) ? (
-                <div className="aspect-video rounded-lg overflow-hidden border border-border">
+                <div className="aspect-video rounded-xl overflow-hidden border border-border/80 dark:border-lms-accent-border/30">
                   <iframe
                     src={toEmbedUrl(item.guideline_url)} title="Guideline video" allowFullScreen
                     className="w-full h-full"
@@ -505,22 +536,26 @@ function DrawerBody({
               ) : (
                 <a
                   href={ensureAbsoluteUrl(item.guideline_url)} target="_blank" rel="noreferrer"
-                  className="flex items-center gap-1.5 text-base text-primary hover:underline"
+                  className="flex items-center gap-1.5 text-base text-lms-cta dark:text-lms-accent hover:underline font-medium"
                 >
                   Watch the video <ExternalLink size={15} />
                 </a>
               )
             ) : (
-              <div className="flex items-center gap-2.5 rounded-lg border border-dashed border-border px-4 py-3.5 text-sm text-muted-foreground">
+              <div className="flex items-center gap-2.5 rounded-xl border border-dashed border-border/80 dark:border-lms-accent-border/30 px-4 py-3.5 text-sm text-muted-foreground">
                 <Play size={17} /> Start here · 3 min — video coming soon
               </div>
             )
           ) : (
-            <Button variant="outline" onClick={openGuideline} className="h-12 text-base gap-2 justify-start">
+            <button
+              type="button"
+              onClick={openGuideline}
+              className="lms-btn-secondary h-12 text-sm font-semibold gap-2 justify-start px-4 flex items-center rounded-xl cursor-pointer"
+            >
               <Icon className="size-[18px]" />
               {effectiveGuidelineKind === "pdf" ? "View guideline (PDF)" : "Open guideline"}
               {guidelineOpened && <Check size={15} className="ml-auto text-emerald-600 dark:text-emerald-500" />}
-            </Button>
+            </button>
           )}
         </div>
       )}
@@ -530,7 +565,7 @@ function DrawerBody({
         <button
           type="button"
           onClick={() => window.open(ensureAbsoluteUrl(item.poster_template_url!), "_blank", "noreferrer")}
-          className="flex items-center justify-between gap-3 rounded-xl ring-1 ring-border p-4 text-left hover:bg-foreground/5 transition-colors cursor-pointer"
+          className="flex items-center justify-between gap-3 rounded-xl border border-border/80 dark:border-lms-accent-border/30 bg-muted/10 dark:bg-[#0d0915]/50 p-4 text-left hover:bg-muted/30 dark:hover:bg-lms-cta-light hover:border-lms-cta dark:hover:border-lms-accent transition-all cursor-pointer"
         >
           <span className="text-base font-semibold text-foreground">Open poster template</span>
           <ExternalLink size={17} className="text-muted-foreground shrink-0" />
@@ -541,7 +576,7 @@ function DrawerBody({
         <button
           type="button"
           onClick={onOpenMadar}
-          className="flex items-center justify-between gap-3 rounded-xl ring-1 ring-border p-4 text-left hover:bg-foreground/5 transition-colors cursor-pointer"
+          className="flex items-center justify-between gap-3 rounded-xl border border-border/80 dark:border-lms-accent-border/30 bg-muted/10 dark:bg-[#0d0915]/50 p-4 text-left hover:bg-muted/30 dark:hover:bg-lms-cta-light hover:border-lms-cta dark:hover:border-lms-accent transition-all cursor-pointer"
         >
           <span className="text-base font-semibold text-foreground">Go to Mission</span>
           <ExternalLink size={17} className="text-muted-foreground shrink-0" />
@@ -552,7 +587,7 @@ function DrawerBody({
       {item.item_type === "external_link" && (
         <button
           type="button" onClick={doWork}
-          className="flex items-center justify-between gap-3 rounded-xl ring-1 ring-border p-4 text-left hover:bg-foreground/5 transition-colors"
+          className="flex items-center justify-between gap-3 rounded-xl border border-border/80 dark:border-lms-accent-border/30 bg-muted/10 dark:bg-[#0d0915]/50 p-4 text-left hover:bg-muted/30 dark:hover:bg-lms-cta-light hover:border-lms-cta dark:hover:border-lms-accent transition-all cursor-pointer"
         >
           <span className="text-base font-semibold text-foreground">{workLabel}</span>
           <ExternalLink size={17} className="text-muted-foreground shrink-0" />
@@ -560,7 +595,7 @@ function DrawerBody({
       )}
 
       {item.item_type === "session" && (
-        <div className="flex flex-col gap-1 rounded-xl ring-1 ring-border p-4 text-sm">
+        <div className="flex flex-col gap-1 rounded-xl border border-border/80 dark:border-lms-accent-border/30 bg-muted/20 dark:bg-[#0d0915] p-4 text-sm">
           {item.session_date && (
             <span className="font-semibold text-foreground">
               {new Date(item.session_date).toLocaleDateString(undefined, { weekday: "long", month: "short", day: "numeric" })}
@@ -571,7 +606,7 @@ function DrawerBody({
           {item.session_meeting_url && (
             <a
               href={ensureAbsoluteUrl(item.session_meeting_url)} target="_blank" rel="noreferrer"
-              className="flex items-center gap-1.5 text-primary hover:underline mt-1"
+              className="flex items-center gap-1.5 text-lms-cta dark:text-lms-accent hover:underline mt-1 font-medium"
             >
               Join link <ExternalLink size={14} />
             </a>
@@ -584,7 +619,7 @@ function DrawerBody({
           Frozen by a locked checkpoint → neutral lock notice, no forms. */}
       {isTeamSetup && (
         frozen ? (
-          <div className="flex items-center justify-center gap-2 p-3.5 rounded-xl bg-primary/10 border border-primary/25 text-primary text-sm font-semibold">
+          <div className="flex items-center justify-center gap-2 p-3.5 rounded-xl bg-lms-cta-light border border-lms-cta-border dark:border-lms-accent-border text-lms-cta dark:text-lms-accent text-sm font-semibold">
             <Lock size={16} className="shrink-0 text-muted-foreground" />
             This checkpoint is now locked for your team
           </div>
@@ -601,7 +636,7 @@ function DrawerBody({
       {isSubmission && submissionReference && (
         <a
           href={ensureAbsoluteUrl(submissionReference)} target="_blank" rel="noreferrer"
-          className="flex items-center gap-1.5 text-base text-primary hover:underline"
+          className="flex items-center gap-1.5 text-base text-lms-cta dark:text-lms-accent hover:underline font-medium"
         >
           Open the reference link <ExternalLink size={15} />
         </a>
@@ -613,7 +648,7 @@ function DrawerBody({
           item is overridable at any time, individual or team-scoped, up
           until the deadline. */}
       {isSubmission && isMultiLink && item.submitted_links && item.submitted_links.length > 0 && (
-        <div className="flex flex-col gap-1 text-sm text-muted-foreground bg-muted/50 rounded-lg px-3 py-2">
+        <div className="flex flex-col gap-1 text-sm text-muted-foreground bg-muted/20 dark:bg-[#0d0915] border border-border/80 dark:border-[#a880ff]/20 rounded-xl px-4 py-3">
           <div className="flex items-center gap-1.5 font-medium text-foreground">
             <Check className="size-3.5 shrink-0 text-emerald-600 dark:text-emerald-500" /> Submitted
             {item.updated_at &&
@@ -628,7 +663,7 @@ function DrawerBody({
               ) : (
                 <a
                   href={ensureAbsoluteUrl(link.url ?? "")} target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()}
-                  className="text-primary hover:underline truncate max-w-full min-w-0"
+                  className="text-lms-cta dark:text-lms-accent hover:underline truncate max-w-full min-w-0"
                 >
                   {link.url}
                 </a>
@@ -639,11 +674,11 @@ function DrawerBody({
       )}
 
       {isSubmission && !isMultiLink && !isTextSubmission && item.submitted_url && (
-        <div className="flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-sm text-muted-foreground bg-muted/50 rounded-lg px-3 py-2">
+        <div className="flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-sm text-muted-foreground bg-muted/20 dark:bg-[#0d0915] border border-border/80 dark:border-[#a880ff]/20 rounded-xl px-4 py-3">
           <Check className="size-3.5 shrink-0 text-emerald-600 dark:text-emerald-500" />
           <a
             href={ensureAbsoluteUrl(item.submitted_url)} target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()}
-            className="text-primary hover:underline truncate max-w-full min-w-0 font-medium"
+            className="text-lms-cta dark:text-lms-accent hover:underline truncate max-w-full min-w-0 font-medium"
           >
             {item.submitted_url}
           </a>
@@ -657,7 +692,7 @@ function DrawerBody({
       )}
 
       {isTextSubmission && item.submitted_text && (
-        <div className="flex flex-col gap-1 text-sm text-muted-foreground bg-muted/50 rounded-lg px-3 py-2">
+        <div className="flex flex-col gap-1 text-sm text-muted-foreground bg-muted/20 dark:bg-[#0d0915] border border-border/80 dark:border-[#a880ff]/20 rounded-xl px-4 py-3">
           <div className="flex items-center gap-1.5 font-medium text-foreground">
             <Check className="size-3.5 shrink-0 text-emerald-600 dark:text-emerald-500" /> Submitted
             {item.updated_at &&
@@ -682,7 +717,7 @@ function DrawerBody({
               placeholder="Type your answer…"
               rows={5}
               disabled={!canSubmit}
-              className="px-4 py-3 border border-border bg-background text-foreground rounded-lg text-base focus:outline-none focus:border-primary transition-colors disabled:opacity-50 resize-y"
+              className="px-4 py-3 border border-border/80 dark:border-lms-accent-border/30 bg-background dark:bg-[#05030A] text-foreground rounded-xl text-base focus:outline-none focus:border-lms-cta dark:focus:border-lms-accent transition-colors disabled:opacity-50 resize-y"
             />
           </div>
         ) : (
@@ -697,7 +732,7 @@ function DrawerBody({
               onChange={(e) => setSubmitUrl(e.target.value)}
               placeholder={isPoster ? "https://..." : "Paste your link…"}
               disabled={!canSubmit}
-              className="h-12 px-4 border border-border bg-background text-foreground rounded-lg text-base focus:outline-none focus:border-primary transition-colors disabled:opacity-50"
+              className="h-12 px-4 border border-border/80 dark:border-lms-accent-border/30 bg-background dark:bg-[#05030A] text-foreground rounded-xl text-base focus:outline-none focus:border-lms-cta dark:focus:border-lms-accent transition-colors disabled:opacity-50"
             />
           </div>
         )
@@ -727,7 +762,7 @@ function DrawerBody({
                     placeholder="Type your answer…"
                     rows={4}
                     disabled={!canSubmit}
-                    className="px-3 py-2.5 border border-border bg-background text-foreground rounded-lg text-base focus:outline-none focus:border-primary transition-colors disabled:opacity-50 resize-y"
+                    className="px-3.5 py-2.5 border border-border/80 dark:border-lms-accent-border/30 bg-background dark:bg-[#05030A] text-foreground rounded-xl text-base focus:outline-none focus:border-lms-cta dark:focus:border-lms-accent transition-colors disabled:opacity-50 resize-y"
                   />
                 ) : (
                   <input
@@ -735,7 +770,7 @@ function DrawerBody({
                     onChange={(e) => setLinksInput((prev) => prev.map((l, j) => j === i ? { ...l, url: e.target.value } : l))}
                     placeholder="https://…"
                     disabled={!canSubmit}
-                    className="h-12 px-3 border border-border bg-background text-foreground rounded-lg text-base focus:outline-none focus:border-primary transition-colors disabled:opacity-50"
+                    className="h-12 px-3.5 border border-border/80 dark:border-lms-accent-border/30 bg-background dark:bg-[#05030A] text-foreground rounded-xl text-base focus:outline-none focus:border-lms-cta dark:focus:border-lms-accent transition-colors disabled:opacity-50"
                   />
                 )}
               </div>
@@ -751,21 +786,21 @@ function DrawerBody({
                   onChange={(e) => setLinksInput((prev) => prev.map((l, j) => j === i ? { ...l, label: e.target.value } : l))}
                   placeholder="Label (optional) — e.g. Member 1"
                   disabled={!canSubmit}
-                  className="h-12 w-2/5 px-3 border border-border bg-background text-foreground rounded-lg text-sm focus:outline-none focus:border-primary transition-colors disabled:opacity-50"
+                  className="h-12 w-2/5 px-3 border border-border/80 dark:border-lms-accent-border/30 bg-background dark:bg-[#05030A] text-foreground rounded-xl text-sm focus:outline-none focus:border-lms-cta dark:focus:border-lms-accent transition-colors disabled:opacity-50"
                 />
                 <input
                   value={link.url ?? ""}
                   onChange={(e) => setLinksInput((prev) => prev.map((l, j) => j === i ? { ...l, url: e.target.value } : l))}
                   placeholder="https://…"
                   disabled={!canSubmit}
-                  className="h-12 flex-1 px-3 border border-border bg-background text-foreground rounded-lg text-base focus:outline-none focus:border-primary transition-colors disabled:opacity-50"
+                  className="h-12 flex-1 px-3 border border-border/80 dark:border-lms-accent-border/30 bg-background dark:bg-[#05030A] text-foreground rounded-xl text-base focus:outline-none focus:border-lms-cta dark:focus:border-lms-accent transition-colors disabled:opacity-50"
                 />
                 <button
                   type="button"
                   disabled={!canSubmit || linksInput.length <= 1}
                   onClick={() => setLinksInput((prev) => prev.filter((_, j) => j !== i))}
                   aria-label="Remove link"
-                  className="flex h-12 w-10 shrink-0 items-center justify-center rounded-lg text-muted-foreground hover:text-destructive transition-colors disabled:opacity-30"
+                  className="flex h-12 w-10 shrink-0 items-center justify-center rounded-xl text-muted-foreground hover:text-destructive transition-colors disabled:opacity-30 cursor-pointer"
                 >
                   <Trash2 size={16} />
                 </button>
@@ -775,7 +810,7 @@ function DrawerBody({
               type="button"
               disabled={!canSubmit}
               onClick={() => setLinksInput((prev) => [...prev, { label: "", url: "", text: "" }])}
-              className="self-start flex items-center gap-1.5 text-sm font-medium text-primary hover:underline disabled:opacity-50"
+              className="self-start flex items-center gap-1.5 text-sm font-semibold text-lms-cta dark:text-lms-accent hover:underline disabled:opacity-50 cursor-pointer"
             >
               <Plus size={14} /> Add another link
             </button>
@@ -798,13 +833,13 @@ function DrawerBody({
       {/* Exactly one primary action, whatever this item's type. A section
           frozen by a locked checkpoint never shows a submit/complete button —
           just the neutral lock notice, so the write can never 409. */}
-      <div className="mt-auto pt-3 flex flex-col gap-2.5 border-t border-border">
+      <div className="mt-auto pt-3 flex flex-col gap-2.5 border-t border-border/80 dark:border-lms-accent-border/20">
         {frozen ? (
-          <div className="flex items-center justify-center gap-2 p-3.5 rounded-xl bg-primary/10 border border-primary/25 text-primary text-sm font-semibold">
+          <div className="flex items-center justify-center gap-2 p-3.5 rounded-xl bg-lms-cta-light border border-lms-cta-border dark:border-lms-accent-border text-lms-cta dark:text-lms-accent text-sm font-semibold">
             <Lock size={16} className="shrink-0 text-muted-foreground" /> This checkpoint is now locked for your team
           </div>
         ) : teamFinalLocked && item.scope === "team" ? (
-          <div className="flex items-center justify-center gap-2 p-3.5 rounded-xl bg-primary/10 border border-primary/25 text-primary text-sm font-semibold">
+          <div className="flex items-center justify-center gap-2 p-3.5 rounded-xl bg-lms-cta-light border border-lms-cta-border dark:border-lms-accent-border text-lms-cta dark:text-lms-accent text-sm font-semibold">
             <Lock size={16} /> Final submission locked · Sealed for review
           </div>
         ) : (
@@ -813,7 +848,8 @@ function DrawerBody({
               <p className="text-xs text-muted-foreground text-center">View the guide above first</p>
             )}
             {isAutoTracked && (
-              <Button
+              <button
+                type="button"
                 disabled={item.item_type === "quiz" && pastDeadline && !done}
                 onClick={() => {
                   if (item.item_type === "mission_run" && !item.mission_attempt_id) {
@@ -822,7 +858,7 @@ function DrawerBody({
                   }
                   doWork();
                 }}
-                className="h-[52px] text-base gap-2"
+                className="lms-btn-primary h-[52px] text-base font-bold flex items-center justify-center gap-2 rounded-xl transition-all cursor-pointer disabled:opacity-50 disabled:pointer-events-none"
               >
                 {item.item_type === "quiz" && pastDeadline && !done ? (
                   "Deadline passed"
@@ -834,13 +870,14 @@ function DrawerBody({
                 ) : (
                   workLabel
                 )}
-              </Button>
+              </button>
             )}
             {isSubmission && !isMultiLink && !isTextSubmission && !pastDeadline && (
-              <Button
+              <button
+                type="button"
                 disabled={!canSubmit || (!submitUrl && !item.submitted_url) || submitMutation.isPending}
                 onClick={() => submitMutation.mutate(submitUrl || item.submitted_url || "")}
-                className="h-[52px] text-base"
+                className="lms-btn-primary h-[52px] text-base font-bold flex items-center justify-center rounded-xl transition-all cursor-pointer disabled:opacity-50 disabled:pointer-events-none"
               >
                 {submitMutation.isPending
                   ? "Submitting…"
@@ -851,23 +888,25 @@ function DrawerBody({
                   : isPoster
                   ? "Submit poster"
                   : "Submit for review"}
-              </Button>
+              </button>
             )}
             {isTextSubmission && !pastDeadline && (
-              <Button
+              <button
+                type="button"
                 disabled={!canSubmit || (!submitText.trim() && !item.submitted_text) || submitTextMutation.isPending}
                 onClick={() => submitTextMutation.mutate((submitText || item.submitted_text || "").trim())}
-                className="h-[52px] text-base"
+                className="lms-btn-primary h-[52px] text-base font-bold flex items-center justify-center rounded-xl transition-all cursor-pointer disabled:opacity-50 disabled:pointer-events-none"
               >
                 {submitTextMutation.isPending
                   ? "Submitting…"
                   : item.submitted_text
                   ? "Replace submission"
                   : "Submit for review"}
-              </Button>
+              </button>
             )}
             {isSubmission && isMultiLink && !pastDeadline && (
-              <Button
+              <button
+                type="button"
                 disabled={
                   !canSubmit || submitLinksMutation.isPending
                   // A row's "does it have an answer" reads .text for a
@@ -889,20 +928,21 @@ function DrawerBody({
                         : { label: link.label?.trim() || null, url: (link.url ?? "").trim(), text: null }
                     )),
                 )}
-                className="h-[52px] text-base"
+                className="lms-btn-primary h-[52px] text-base font-bold flex items-center justify-center rounded-xl transition-all cursor-pointer disabled:opacity-50 disabled:pointer-events-none"
               >
                 {submitLinksMutation.isPending
                   ? "Submitting…"
                   : item.submitted_links?.length
                   ? "Replace submission"
                   : "Submit for review"}
-              </Button>
+              </button>
             )}
             {isSelfCheck && !done && !awaiting && (
-              <Button
+              <button
+                type="button"
                 disabled={!canSubmit || completeMutation.isPending || pastDeadline}
                 onClick={() => completeMutation.mutate()}
-                className="h-[52px] text-base"
+                className="lms-btn-primary h-[52px] text-base font-bold flex items-center justify-center rounded-xl transition-all cursor-pointer disabled:opacity-50 disabled:pointer-events-none"
               >
                 {pastDeadline
                   ? "Deadline passed"
@@ -911,7 +951,7 @@ function DrawerBody({
                   : item.requires_confirmation
                   ? "Mark as done (needs sign-off)"
                   : "Mark as done"}
-              </Button>
+              </button>
             )}
           </>
         )}
@@ -1159,25 +1199,23 @@ export function TaskDrawer({
       {/* Scrim */}
       <div
         className="fixed inset-0 z-40 bg-black/55 dark:bg-black/55 transition-opacity"
-        style={{ background: "var(--drawer-scrim, rgba(5,3,10,0.55))" }}
+        style={{ background: "rgba(5, 3, 10, 0.75)" }}
         onClick={onClose}
       />
-      {/* Desktop right panel — 640px, not a viewport-relative width: wide
-          enough to give an embedded video real size without turning into
-          most of the screen on a large monitor. */}
-      <div className="hidden md:flex fixed inset-y-0 right-0 z-50 w-[720px] flex-col bg-card p-8 gap-5 shadow-[-28px_0_60px_-30px_rgba(23,17,31,0.6)] overflow-y-auto">
+      {/* Desktop right panel — 720px, backdrop-blur-md space background */}
+      <div className="hidden md:flex fixed inset-y-0 right-0 z-50 w-[720px] flex-col bg-background/95 dark:bg-[#05030A]/95 backdrop-blur-md border-l border-border/80 dark:border-[#a880ff]/20 p-8 gap-5 shadow-[-28px_0_60px_-30px_rgba(5,3,10,0.8)] overflow-y-auto">
         <DrawerBody {...bodyProps} />
       </div>
       {/* Mobile bottom sheet */}
-      <div className="md:hidden fixed inset-x-0 bottom-0 z-50 flex flex-col rounded-t-[22px] bg-card px-5 pt-3 pb-6 gap-4 max-h-[86vh] overflow-y-auto">
-        <div className="mx-auto h-1.5 w-12 rounded-full bg-border shrink-0" />
+      <div className="md:hidden fixed inset-x-0 bottom-0 z-50 flex flex-col rounded-t-[22px] bg-background/95 dark:bg-[#05030A]/95 backdrop-blur-md border-t border-border/80 dark:border-[#a880ff]/20 px-5 pt-3 pb-6 gap-4 max-h-[86vh] overflow-y-auto">
+        <div className="mx-auto h-1.5 w-12 rounded-full bg-border/80 dark:bg-[#a880ff]/30 shrink-0" />
         <DrawerBody {...bodyProps} />
       </div>
 
       {effectiveGuidelineKind === "pdf" ? (
         <Dialog open={viewingPdf} onOpenChange={setViewingPdf}>
-          <DialogContent className="sm:max-w-[95vw] max-w-[95vw] w-[95vw]">
-            <DialogHeader><DialogTitle>{item.title} — Guideline</DialogTitle></DialogHeader>
+          <DialogContent className="sm:max-w-[95vw] max-w-[95vw] w-[95vw] bg-background dark:bg-[#05030A] border border-border/80 dark:border-[#a880ff]/30">
+            <DialogHeader><DialogTitle className="font-['Outfit'] font-bold text-foreground">{item.title} — Guideline</DialogTitle></DialogHeader>
             {pdfLoading && <p className="text-sm text-muted-foreground py-6">Loading document...</p>}
             {pdfError && <p className="text-sm text-destructive py-6">Couldn't load this document.</p>}
             {pdfUrl && <PdfViewer url={pdfUrl} />}

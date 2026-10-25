@@ -40,7 +40,7 @@ export function LearnShell() {
     : "home";
 
   return (
-    <div className="min-h-screen bg-background text-foreground flex flex-col md:flex-row">
+    <div className="min-h-screen bg-background text-foreground flex flex-col md:flex-row selection:bg-lms-cta selection:text-white">
       <LearnSidebar active={active} />
       <LearnMobileTabBar active={active} />
       {/* pb-28 not pb-20 on mobile: staff get a second row (Back to

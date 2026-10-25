@@ -163,8 +163,8 @@ export default function LearnPlayer() {
     setSelectedItemId(next);
   }, [course, selectedModuleId, selectedItemId, modulesData, courseId, loadUnlockedModules]);
 
-  if (error) return <div className="p-8"><p className="text-sm text-destructive">{error}</p></div>;
-  if (initialLoading || !course) return <div className="p-8"><p className="text-sm text-muted-foreground">Loading...</p></div>;
+  if (error) return <div className="p-12 text-center text-destructive font-['Outfit']"><p className="text-base">{error}</p></div>;
+  if (initialLoading || !course) return <div className="p-16 text-center text-sm text-muted-foreground font-['Outfit']">Loading course content...</div>;
 
   return (
     <>
@@ -179,11 +179,11 @@ export default function LearnPlayer() {
             {selectedItem.kind !== "video" && (
               <div className="min-w-0">
                 {currentModule && (
-                  <div className="text-xs font-semibold uppercase tracking-wide text-primary">
+                  <div className="text-xs font-semibold uppercase tracking-wider text-[#A880FF]">
                     Module {currentModule.position} · Item {itemIndexInModule + 1} of {itemsInModule.length}
                   </div>
                 )}
-                <h1 className="font-display text-3xl font-bold tracking-tight mt-2">
+                <h1 className="font-['Outfit'] text-2xl sm:text-3xl font-extrabold tracking-tight mt-1 text-foreground">
                   {selectedItem.title ?? ITEM_KIND_LABEL[selectedItem.kind]}
                 </h1>
               </div>
@@ -200,33 +200,41 @@ export default function LearnPlayer() {
             <ItemPane key={selectedItem.id} item={selectedItem} onProgressed={() => void handleProgressed()} />
 
             {selectedItem.kind === "video" && (
-              <div className="flex items-center justify-between gap-4">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pt-2">
                 <div className="min-w-0">
                   {currentModule && (
-                    <div className="text-xs font-semibold uppercase tracking-wide text-primary">
+                    <div className="text-xs font-semibold uppercase tracking-wider text-[#A880FF]">
                       Module {currentModule.position} · Item {itemIndexInModule + 1} of {itemsInModule.length}
                     </div>
                   )}
-                  <h1 className="font-display text-3xl font-bold tracking-tight mt-2">
+                  <h1 className="font-['Outfit'] text-2xl sm:text-3xl font-extrabold tracking-tight mt-1 text-foreground">
                     {selectedItem.title ?? ITEM_KIND_LABEL[selectedItem.kind]}
                   </h1>
                 </div>
-                <Button
-                  size="xl"
-                  className="shrink-0"
+                <button
+                  type="button"
+                  className="lms-btn-primary shrink-0 px-6 py-3 font-['Outfit'] text-sm flex items-center justify-center gap-2 cursor-pointer self-start sm:self-auto"
                   onClick={() => { recordProgress(selectedItem.id, "video-watched").finally(() => void handleProgressed()); }}
                 >
                   <CheckCircle2 className="size-4" /> Got it!
-                </Button>
+                </button>
               </div>
             )}
           </div>
         ) : (
-          <div className="flex flex-col items-center text-center gap-3 py-16">
-            <CheckCircle2 className="size-12 text-emerald-500" />
-            <h2 className="font-display text-2xl font-bold">Course complete</h2>
-            <p className="text-base text-muted-foreground">Nice work — every module is done.</p>
-            <Button size="xl" onClick={() => void navigate({ to: `/learn/courses/${courseId}` })}>Back to course</Button>
+          <div className="lms-card p-10 sm:p-14 flex flex-col items-center text-center gap-4 my-8">
+            <div className="size-16 rounded-full bg-emerald-500/15 border border-emerald-500/40 flex items-center justify-center text-emerald-400">
+              <CheckCircle2 className="size-9" />
+            </div>
+            <h2 className="font-['Outfit'] text-2xl sm:text-3xl font-extrabold text-foreground">Course complete</h2>
+            <p className="text-sm sm:text-base text-muted-foreground max-w-md">Nice work — every module in this course is complete.</p>
+            <button
+              type="button"
+              onClick={() => void navigate({ to: `/learn/courses/${courseId}` })}
+              className="lms-btn-primary px-7 py-3 font-['Outfit'] text-sm mt-2 cursor-pointer"
+            >
+              Back to course
+            </button>
           </div>
         )}
       </PlayerLayout>

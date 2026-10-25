@@ -65,17 +65,17 @@ export default function LearnLogin() {
   );
 
   return (
-    <div className="min-h-screen bg-background text-foreground flex items-center justify-center px-4 bg-[radial-gradient(circle_at_15%_10%,hsl(var(--primary)/0.06)_0%,transparent_45%)]">
+    <div className="min-h-screen bg-background dark:bg-[#05030A] text-foreground flex items-center justify-center px-4 py-12">
       <div className="w-full max-w-sm">
         <div className="flex justify-center mb-8">
           <DomainIcon className="h-10 w-auto" />
         </div>
 
-        <Card className="p-6 sm:p-7">
-          <h1 className="text-center font-display text-xl font-bold mb-6">Log in</h1>
+        <div className="lms-card p-6 sm:p-8 rounded-2xl shadow-2xl">
+          <h1 className="text-center font-['Outfit'] text-2xl font-bold mb-6 text-foreground">Log in</h1>
 
           {inviteParam && (
-            <div className="mb-4 p-3 rounded-xl bg-primary/10 text-primary text-xs font-medium flex items-center justify-center gap-1.5 text-center">
+            <div className="mb-4 p-3 rounded-xl bg-lms-cta-light dark:bg-lms-accent-light border border-lms-cta-border dark:border-lms-accent-border text-lms-cta dark:text-lms-accent text-xs font-medium flex items-center justify-center gap-1.5 text-center">
               <Ticket className="size-3.5 shrink-0" />
               <span>
                 Log in to redeem invite code <span className="font-mono font-bold">{inviteParam}</span>
@@ -84,7 +84,7 @@ export default function LearnLogin() {
           )}
 
           {error && (
-            <div className="mb-4 p-3 rounded-xl bg-destructive/10 text-destructive text-sm text-center">
+            <div className="mb-4 p-3 rounded-xl bg-destructive/10 border border-destructive/20 text-destructive text-sm text-center">
               {error}
             </div>
           )}
@@ -96,32 +96,36 @@ export default function LearnLogin() {
               required
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              className="h-11 px-4 rounded-xl text-sm bg-background ring-1 ring-border focus:outline-none focus:ring-primary/50 transition-shadow"
+              className="lms-input h-11 px-4 text-sm w-full"
             />
             <PasswordInput
               placeholder="Password"
               required
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              className="h-11 px-4 rounded-xl text-sm bg-background ring-1 ring-border focus:outline-none focus:ring-primary/50 transition-shadow"
+              className="lms-input h-11 px-4 text-sm w-full"
             />
             <div className="text-right -mt-1">
-              <Link to="/learn/forgot-password" className="text-xs text-muted-foreground hover:text-primary transition-colors">
+              <Link to="/learn/forgot-password" className="text-xs text-muted-foreground hover:text-lms-cta dark:hover:text-lms-accent transition-colors">
                 Forgot password?
               </Link>
             </div>
-            <Button size="xl" type="submit" disabled={loading} className="w-full mt-1">
+            <button
+              type="submit"
+              disabled={loading}
+              className="lms-btn-primary w-full h-11 text-sm font-bold rounded-xl mt-1 flex items-center justify-center cursor-pointer disabled:opacity-50"
+            >
               {loading ? "Logging in..." : "Log in"}
-            </Button>
+            </button>
           </form>
-        </Card>
+        </div>
 
         <p className="mt-5 text-center text-sm text-muted-foreground">
           Don't have an account?{" "}
           <Link
             to="/learn/signup"
             search={inviteParam ? { invite: inviteParam } : undefined}
-            className="text-primary font-medium"
+            className="lms-link"
           >
             Sign up
           </Link>

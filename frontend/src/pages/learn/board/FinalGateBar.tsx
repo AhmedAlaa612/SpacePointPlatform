@@ -715,7 +715,7 @@ export function FinalGateBar({
                 <button
                   type="button"
                   disabled
-                  className="w-full sm:w-auto justify-center flex items-center gap-2 px-6 py-3 sm:py-2.5 rounded-xl bg-rose-500/10 border border-rose-500/25 text-rose-400 font-bold text-sm tracking-wide shrink-0 cursor-not-allowed opacity-90 select-none"
+                  className="w-full sm:w-auto justify-center flex items-center gap-2 px-6 py-3 sm:py-2.5 rounded-xl bg-rose-500/10 border border-rose-500/25 text-rose-400 font-bold text-sm tracking-wide shrink-0 cursor-not-allowed opacity-90 select-none font-['Outfit']"
                 >
                   <span>Deadline Passed</span>
                 </button>
@@ -724,7 +724,7 @@ export function FinalGateBar({
                   type="button"
                   disabled={finalSubmitMutation.isPending}
                   onClick={() => setConfirmModalOpen(true)}
-                  className="w-full sm:w-auto justify-center flex items-center gap-2 px-5 py-3 sm:py-2.5 rounded-xl bg-primary hover:bg-[#b895ff] text-primary-foreground font-extrabold text-sm tracking-wide shadow-md shadow-primary/25 hover:shadow-lg hover:shadow-primary/35 hover:scale-[1.03] hover:-translate-y-0.5 active:scale-95 active:translate-y-0 transition-all duration-150 ease-out shrink-0 cursor-pointer disabled:opacity-50 disabled:pointer-events-none"
+                  className="w-full sm:w-auto justify-center flex items-center gap-2 px-6 py-3 sm:py-2.5 rounded-xl lms-btn-primary font-['Outfit'] font-extrabold text-sm tracking-wide shrink-0 cursor-pointer disabled:opacity-50"
                 >
                   <span>{finalSubmitMutation.isPending ? "Locking…" : "Lock & Submit"}</span>
                   <ArrowRight size={16} className="stroke-[2.5] transition-transform duration-150 group-hover:translate-x-1" />
@@ -741,14 +741,14 @@ export function FinalGateBar({
 
           if (isUngatedDone) {
             return (
-              <div className="mt-6 md:mt-auto flex items-center justify-between gap-4 rounded-2xl bg-card p-4 sm:p-5 border border-border shadow-lg transition-all duration-200 hover:-translate-y-0.5">
+              <div className="mt-6 md:mt-auto flex items-center justify-between gap-4 rounded-2xl lms-card p-4 sm:p-5 transition-all duration-200">
                 <div className="flex items-center gap-3.5 min-w-0">
-                  <div className="flex h-10 w-10 sm:h-11 sm:w-11 shrink-0 items-center justify-center rounded-xl bg-primary/15 text-primary">
+                  <div className="flex h-10 w-10 sm:h-11 sm:w-11 shrink-0 items-center justify-center rounded-xl bg-emerald-500/15 border border-emerald-500/30 text-emerald-600 dark:text-emerald-400">
                     <CheckCircle2 size={20} />
                   </div>
                   <div className="min-w-0 flex-1">
-                    <div className="text-[11px] font-bold uppercase tracking-[0.1em] text-primary">{eyebrow}</div>
-                    <div className="font-display font-bold text-[16px] sm:text-[17px] text-foreground">All clear — nice work!</div>
+                    <div className="text-[11px] font-bold uppercase tracking-[0.1em] text-lms-cta dark:text-lms-accent">{eyebrow}</div>
+                    <div className="font-['Outfit'] font-bold text-[16px] sm:text-[18px] text-foreground">All clear — nice work!</div>
                   </div>
                 </div>
                 {activeWindow && !isDeadlinePassed && (
@@ -761,36 +761,32 @@ export function FinalGateBar({
           return (
             <div
               ref={cardRef}
-              className="relative mt-6 md:mt-auto rounded-2xl p-[2.5px] overflow-hidden shadow-xl transition-all duration-200 hover:-translate-y-0.5 hover:shadow-2xl"
+              className="relative mt-6 md:mt-auto rounded-2xl lms-card p-4 sm:p-5 transition-all duration-200"
             >
-              <div className="absolute -inset-[150%] gate-walking-beam pointer-events-none" />
-              <div className="absolute inset-0 bg-primary/20 rounded-2xl pointer-events-none" />
+              <div className="flex items-center gap-3.5 sm:gap-4">
+                <div className="flex h-10 w-10 sm:h-11 sm:w-11 shrink-0 items-center justify-center rounded-xl bg-lms-cta-light border border-lms-cta-border dark:border-lms-accent-border text-lms-cta dark:text-lms-accent">
+                  <Flag size={18} className="stroke-[2] sm:w-5 sm:h-5" />
+                </div>
 
-              <div className="relative z-10 rounded-[14px] bg-card/95 backdrop-blur-xl p-4 sm:px-5 sm:py-4 border border-primary/20">
-                <div className="flex items-center gap-3.5 sm:gap-4">
-                  <div className="flex h-10 w-10 sm:h-11 sm:w-11 shrink-0 items-center justify-center rounded-xl bg-primary/15 border border-primary/25 text-primary">
-                    <Flag size={18} className="stroke-[2] sm:w-5 sm:h-5" />
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center justify-between gap-2 mb-0.5">
+                    <span className="text-[11px] font-bold uppercase tracking-[0.1em] text-lms-cta dark:text-lms-accent">
+                      {eyebrow}
+                    </span>
+                    {/* Mobile percentage indicator */}
+                    <span className="text-[11px] font-bold font-mono text-lms-cta dark:text-lms-accent sm:hidden">
+                      {pct}% Complete
+                    </span>
                   </div>
 
-                  <div className="min-w-0 flex-1">
-                    <div className="flex items-center justify-between gap-2 mb-0.5">
-                      <span className="text-[11px] font-bold uppercase tracking-[0.1em] text-primary">
-                        {eyebrow}
-                      </span>
-                      {/* Mobile percentage indicator */}
-                      <span className="text-[11px] font-bold font-mono text-primary sm:hidden">
-                        {pct}% Complete
-                      </span>
-                    </div>
-
-                    {/* Headline that wraps cleanly without truncation */}
-                    <div className="font-display font-bold text-[15px] sm:text-[17px] text-foreground tracking-tight leading-snug">
-                      {isDeadlinePassed
-                        ? "Submission deadline has passed"
-                        : remaining > 0
-                        ? "Complete remaining tasks to submit"
-                        : "Review & submit deliverables"}
-                    </div>
+                  {/* Headline that wraps cleanly without truncation */}
+                  <div className="font-['Outfit'] font-bold text-[15px] sm:text-[17px] text-foreground tracking-tight leading-snug">
+                    {isDeadlinePassed
+                      ? "Submission deadline has passed"
+                      : remaining > 0
+                      ? "Complete remaining tasks to submit"
+                      : "Review & submit deliverables"}
+                  </div>
 
                     {/* Mobile countdown if active */}
                     {activeWindow && !isDeadlinePassed && (
@@ -827,21 +823,20 @@ export function FinalGateBar({
                   </div>
                 </div>
               </div>
-            </div>
           );
         })()
       )}
 
       {/* SpacePoint-themed Submission Lock Confirmation Modal */}
       <Dialog open={confirmModalOpen} onOpenChange={setConfirmModalOpen}>
-        <DialogContent className="max-w-md p-6 bg-card border-border">
+        <DialogContent className="max-w-md p-6 bg-background dark:bg-[#05030A] border border-border/80 dark:border-[#a880ff]/30">
           <DialogHeader>
             <div className="flex items-center gap-2 mb-1">
-              <span className="text-[10px] font-bold uppercase tracking-wider text-primary bg-primary/10 border border-primary/20 px-2 py-0.5 rounded-full">
+              <span className="text-[10px] font-bold uppercase tracking-wider text-lms-cta dark:text-lms-accent bg-lms-cta-light border border-lms-cta-border dark:border-lms-accent-border px-2 py-0.5 rounded-full">
                 Final Submission Gate
               </span>
             </div>
-            <DialogTitle className="text-xl font-bold font-display text-foreground">
+            <DialogTitle className="text-xl font-bold font-['Outfit'] text-foreground">
               Lock In Team Deliverables?
             </DialogTitle>
           </DialogHeader>
@@ -859,7 +854,7 @@ export function FinalGateBar({
                   ? "bg-rose-500/10 border-rose-500/30 text-rose-400"
                   : activeWindow.color === "white"
                   ? "bg-white/10 border-white/20 text-zinc-100"
-                  : "bg-green-500/10 border-green-500/30 text-green-400"
+                  : "bg-emerald-500/10 border-emerald-500/30 text-emerald-400"
               )}>
                 <div className="flex items-center justify-between text-xs font-bold uppercase tracking-wider">
                   <span>{activeWindow.is_deadline ? "Submission Deadline" : "Timing Window"}</span>
@@ -867,7 +862,7 @@ export function FinalGateBar({
                     <span>{activeWindow.points > 0 ? `+${activeWindow.points}` : activeWindow.points} pts</span>
                   )}
                 </div>
-                <div className="text-sm font-extrabold text-foreground">
+                <div className="text-sm font-extrabold font-['Outfit'] text-foreground">
                   {activeWindow.name}
                 </div>
                 <div className="text-xs text-muted-foreground">
@@ -878,11 +873,11 @@ export function FinalGateBar({
               </div>
             )}
 
-            <div className="flex items-center justify-end gap-2 pt-2 border-t border-border">
+            <div className="flex items-center justify-end gap-2.5 pt-2 border-t border-border/60 dark:border-[#a880ff]/15">
               <button
                 type="button"
                 onClick={() => setConfirmModalOpen(false)}
-                className="px-4 py-2 rounded-xl border border-border text-xs font-semibold text-foreground hover:bg-muted transition-colors cursor-pointer"
+                className="lms-btn-secondary px-4 py-2 font-['Outfit'] text-xs font-semibold cursor-pointer"
               >
                 Go Back
               </button>
@@ -893,7 +888,7 @@ export function FinalGateBar({
                   setConfirmModalOpen(false);
                   handleLockClick();
                 }}
-                className="flex items-center gap-1.5 px-5 py-2 rounded-xl bg-primary text-primary-foreground text-xs font-bold hover:bg-[#b895ff] transition-all shadow-md shadow-primary/25 disabled:opacity-50 cursor-pointer"
+                className="lms-btn-primary flex items-center gap-1.5 px-5 py-2 font-['Outfit'] text-xs font-bold disabled:opacity-50 cursor-pointer"
               >
                 <Lock size={13} />
                 {finalSubmitMutation.isPending ? "Locking…" : "Confirm & Lock Now"}

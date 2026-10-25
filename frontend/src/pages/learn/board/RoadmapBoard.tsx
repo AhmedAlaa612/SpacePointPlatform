@@ -222,22 +222,22 @@ export default function RoadmapBoard() {
         </div>
 
         <div className="px-5 sm:px-8 lg:px-8 xl:px-14 py-6 sm:py-8 flex flex-col gap-6 sm:gap-8 max-w-[1180px] mx-auto w-full">
-          <div className="flex flex-col gap-1.5">
-            <h1 className="font-display text-[19px] sm:text-2xl font-extrabold tracking-tight leading-none">
+          <div className="flex flex-col gap-2">
+            <h1 className="font-['Outfit'] text-2xl sm:text-3xl lg:text-4xl font-extrabold tracking-tight leading-tight text-foreground">
               {checklist.name}
             </h1>
             {checklist.program_name && (
-              <p className="text-xs sm:text-sm font-medium text-muted-foreground">
+              <p className="text-sm font-medium text-muted-foreground">
                 {checklist.program_name}
               </p>
             )}
             {checklist.team_name && (
-              <div className="flex flex-wrap items-center gap-2">
-                <div className="inline-flex w-fit items-center gap-1.5 rounded-full border border-primary/30 bg-primary/10 px-3 py-1 text-sm font-semibold text-primary">
-                  <Users className="size-4" /> Team {checklist.team_name}
+              <div className="flex flex-wrap items-center gap-2 pt-1">
+                <div className="inline-flex w-fit items-center gap-1.5 rounded-full border border-lms-cta-border dark:border-lms-accent-border bg-lms-cta-light px-3.5 py-1 text-xs font-bold text-lms-cta dark:text-lms-accent">
+                  <Users className="size-3.5" /> Team {checklist.team_name}
                 </div>
                 {checklist.team_code && (
-                  <span className="inline-flex w-fit items-center gap-1 rounded-full border border-border px-2.5 py-1 text-xs font-mono font-bold tracking-[0.15em] text-muted-foreground">
+                  <span className="inline-flex w-fit items-center gap-1 rounded-full border border-border/80 dark:border-lms-accent-border/30 px-2.5 py-1 text-xs font-mono font-bold tracking-[0.15em] text-muted-foreground">
                     {checklist.team_code}
                   </span>
                 )}
@@ -247,12 +247,12 @@ export default function RoadmapBoard() {
 
           <div className="flex items-center gap-4">
             <div className="flex items-baseline gap-1 shrink-0">
-              <span className="font-display text-2xl sm:text-3xl font-extrabold text-foreground">{doneCount}</span>
-              <span className="text-base sm:text-lg font-semibold text-muted-foreground">/{requiredItems.length}</span>
-              <span className="ml-1.5 whitespace-nowrap text-xs text-muted-foreground">steps done</span>
+              <span className="font-['Outfit'] text-2xl sm:text-3xl font-extrabold text-foreground">{doneCount}</span>
+              <span className="text-base sm:text-lg font-bold text-muted-foreground">/{requiredItems.length}</span>
+              <span className="ml-1.5 whitespace-nowrap text-xs text-muted-foreground font-medium">steps done</span>
             </div>
-            <div className="h-px flex-1 bg-border relative">
-              <div className="absolute inset-y-0 left-0 bg-primary transition-[width] duration-300" style={{ width: `${pct}%` }} />
+            <div className="h-2 flex-1 bg-foreground/10 rounded-full relative overflow-hidden">
+              <div className="absolute inset-y-0 left-0 bg-lms-cta dark:bg-lms-accent rounded-full transition-[width] duration-300" style={{ width: `${pct}%` }} />
             </div>
           </div>
 

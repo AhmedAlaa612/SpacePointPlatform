@@ -27,29 +27,29 @@ export function CompletionCelebration({
   const navigate = useNavigate();
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-[380px]">
-        <div className="flex flex-col items-center gap-4 py-3 text-center">
-          <div className="flex h-16 w-16 items-center justify-center rounded-full bg-emerald-500/15 text-emerald-500 animate-check-pop">
+      <DialogContent className="sm:max-w-[400px] border border-border dark:border-[#a880ff]/30 bg-background dark:bg-[#05030A]">
+        <div className="flex flex-col items-center gap-4 py-4 text-center">
+          <div className="flex h-16 w-16 items-center justify-center rounded-full bg-emerald-500/15 border border-emerald-500/40 text-emerald-600 dark:text-emerald-400 animate-check-pop">
             <CheckCircle2 className="size-9" />
           </div>
-          <div className="flex flex-col gap-1">
-            <DialogTitle className="font-display text-xl font-bold text-foreground">{title}</DialogTitle>
+          <div className="flex flex-col gap-1.5">
+            <DialogTitle className="font-['Outfit'] text-2xl font-extrabold text-foreground">{title}</DialogTitle>
             <DialogDescription className="text-sm text-muted-foreground">{subtitle}</DialogDescription>
           </div>
-          <Button
-            size="xl"
-            className="w-full mt-1"
+          <button
+            type="button"
+            className="lms-btn-primary w-full py-3 font-['Outfit'] text-sm mt-1 cursor-pointer"
             onClick={() => {
               onOpenChange(false);
               if (assignmentId) void navigate({ to: "/learn/checklists/$assignmentId", params: { assignmentId } });
             }}
           >
             {assignmentId ? "Back to your program" : "Back to board"}
-          </Button>
+          </button>
           <button
             type="button"
             onClick={() => onOpenChange(false)}
-            className="text-xs text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
+            className="text-xs text-muted-foreground hover:text-foreground dark:hover:text-white transition-colors cursor-pointer"
           >
             Stay here
           </button>

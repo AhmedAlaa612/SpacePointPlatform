@@ -97,17 +97,17 @@ export default function LearnSignup() {
   );
 
   return (
-    <div className="min-h-screen bg-background text-foreground flex items-center justify-center px-4 bg-[radial-gradient(circle_at_15%_10%,hsl(var(--primary)/0.06)_0%,transparent_45%)]">
+    <div className="min-h-screen bg-background dark:bg-[#05030A] text-foreground flex items-center justify-center px-4 py-12">
       <div className="w-full max-w-sm">
         <div className="flex justify-center mb-8">
           <DomainIcon className="h-10 w-auto" />
         </div>
 
-        <Card className="p-6 sm:p-7">
-          <h1 className="text-center font-display text-xl font-bold mb-6">Sign up</h1>
+        <div className="lms-card p-6 sm:p-8 rounded-2xl shadow-2xl">
+          <h1 className="text-center font-['Outfit'] text-2xl font-bold mb-6 text-foreground">Sign up</h1>
 
           {error && (
-            <div className="mb-4 p-3 rounded-xl bg-destructive/10 text-destructive text-sm text-center">
+            <div className="mb-4 p-3 rounded-xl bg-destructive/10 border border-destructive/20 text-destructive text-sm text-center">
               {error}
             </div>
           )}
@@ -119,7 +119,7 @@ export default function LearnSignup() {
               required
               value={fullName}
               onChange={(e) => setFullName(e.target.value)}
-              className="h-11 px-4 rounded-xl text-sm bg-background ring-1 ring-border focus:outline-none focus:ring-primary/50 transition-shadow"
+              className="lms-input h-11 px-4 text-sm w-full"
             />
             <input
               type="email"
@@ -127,7 +127,7 @@ export default function LearnSignup() {
               required
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              className="h-11 px-4 rounded-xl text-sm bg-background ring-1 ring-border focus:outline-none focus:ring-primary/50 transition-shadow"
+              className="lms-input h-11 px-4 text-sm w-full"
             />
             <input
               type="tel"
@@ -136,7 +136,7 @@ export default function LearnSignup() {
               maxLength={20}
               value={phone}
               onChange={(e) => setPhone(e.target.value)}
-              className="h-11 px-4 rounded-xl text-sm bg-background ring-1 ring-border focus:outline-none focus:ring-primary/50 transition-shadow"
+              className="lms-input h-11 px-4 text-sm w-full"
             />
             <div>
               <label className="block text-[11px] text-muted-foreground mb-1 pl-0.5">Date of birth (optional)</label>
@@ -144,7 +144,7 @@ export default function LearnSignup() {
                 type="date"
                 value={dob}
                 onChange={(e) => setDob(e.target.value)}
-                className="w-full h-11 px-4 rounded-xl text-sm bg-background ring-1 ring-border focus:outline-none focus:ring-primary/50 transition-shadow"
+                className="lms-input w-full h-11 px-4 text-sm"
               />
             </div>
             <div className="grid grid-cols-2 gap-2">
@@ -154,7 +154,7 @@ export default function LearnSignup() {
                   value={country}
                   onChange={setCountry}
                   valueType="code"
-                  className="w-full h-11 px-4 rounded-xl text-sm bg-background ring-1 ring-border focus:outline-none focus:ring-primary/50 transition-shadow"
+                  className="lms-input w-full h-11 px-4 text-sm"
                 />
               </div>
               {countryCities.length > 0 || country ? (
@@ -168,14 +168,14 @@ export default function LearnSignup() {
                     onChange={setCityId}
                     otherValue={cityOther}
                     onOtherChange={setCityOther}
-                    className="w-full h-11 px-4 rounded-xl text-sm bg-background ring-1 ring-border focus:outline-none focus:ring-primary/50 transition-shadow"
+                    className="lms-input w-full h-11 px-4 text-sm"
                   />
                 </div>
               ) : null}
             </div>
             <div className="flex flex-col gap-1">
               {urlInvite && inviteCode === urlInvite && (
-                <div className="flex items-center gap-1.5 text-xs font-medium text-emerald-600 dark:text-emerald-400 bg-emerald-500/10 px-2.5 py-1 rounded-lg w-fit mb-0.5">
+                <div className="flex items-center gap-1.5 text-xs font-medium text-emerald-600 dark:text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-2.5 py-1 rounded-lg w-fit mb-0.5">
                   <Ticket className="size-3.5" />
                   Invite code {urlInvite} applied
                 </div>
@@ -185,7 +185,7 @@ export default function LearnSignup() {
                 placeholder="Invite code"
                 value={inviteCode}
                 onChange={(e) => setInviteCode(e.target.value.toUpperCase())}
-                className="h-11 px-4 rounded-xl text-sm bg-background ring-1 ring-border focus:outline-none focus:ring-primary/50 transition-shadow font-mono"
+                className="lms-input h-11 px-4 text-sm w-full font-mono"
               />
               <span className="text-xs text-muted-foreground px-1">
                 Enter your class invite code if given one.
@@ -196,7 +196,7 @@ export default function LearnSignup() {
               required
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              className="h-11 px-4 rounded-xl text-sm bg-background ring-1 ring-border focus:outline-none focus:ring-primary/50 transition-shadow"
+              className="lms-input h-11 px-4 text-sm w-full"
             />
 
             <button
@@ -207,38 +207,42 @@ export default function LearnSignup() {
               Parent/guardian information (optional)
             </button>
             {parentOpen && (
-              <div className="flex flex-col gap-2 pl-3 border-l-2 border-border ml-1">
+              <div className="flex flex-col gap-2 pl-3 border-l-2 border-lms-cta-border dark:border-lms-accent-border ml-1">
                 <input
                   type="text" placeholder="Parent/guardian name"
                   value={parentName} onChange={(e) => setParentName(e.target.value)}
-                  className="h-10 px-3.5 rounded-xl text-sm bg-background ring-1 ring-border focus:outline-none focus:ring-primary/50 transition-shadow"
+                  className="lms-input h-10 px-3.5 text-sm"
                 />
                 <input
                   type="tel" placeholder="Parent/guardian phone"
                   maxLength={20}
                   value={parentPhone} onChange={(e) => setParentPhone(e.target.value)}
-                  className="h-10 px-3.5 rounded-xl text-sm bg-background ring-1 ring-border focus:outline-none focus:ring-primary/50 transition-shadow"
+                  className="lms-input h-10 px-3.5 text-sm"
                 />
                 <input
                   type="email" placeholder="Parent/guardian email (optional)"
                   value={parentEmail} onChange={(e) => setParentEmail(e.target.value)}
-                  className="h-10 px-3.5 rounded-xl text-sm bg-background ring-1 ring-border focus:outline-none focus:ring-primary/50 transition-shadow"
+                  className="lms-input h-10 px-3.5 text-sm"
                 />
               </div>
             )}
 
-            <Button size="xl" type="submit" disabled={loading} className="w-full mt-1">
+            <button
+              type="submit"
+              disabled={loading}
+              className="lms-btn-primary w-full h-11 text-sm font-bold rounded-xl mt-1 flex items-center justify-center cursor-pointer disabled:opacity-50"
+            >
               {loading ? "Signing up..." : "Sign up"}
-            </Button>
+            </button>
           </form>
-        </Card>
+        </div>
 
         <p className="mt-5 text-center text-sm text-muted-foreground">
           Already have an account?{" "}
           <Link
             to="/learn/login"
             search={inviteCode.trim() ? { invite: inviteCode.trim().toUpperCase() } : undefined}
-            className="text-primary font-medium"
+            className="lms-link"
           >
             Log in
           </Link>

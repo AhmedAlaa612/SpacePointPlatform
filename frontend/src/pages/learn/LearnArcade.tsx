@@ -89,7 +89,7 @@ export default function LearnArcade() {
       {/* ── Top Hero & Stats ── */}
       <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-8 pt-2">
         <div className="flex flex-col gap-3 max-w-2xl">
-          <h1 className="font-display text-3xl sm:text-4xl lg:text-5xl font-extrabold tracking-tight text-foreground">
+          <h1 className="font-['Outfit'] text-3xl sm:text-4xl lg:text-5xl font-extrabold tracking-tight text-foreground">
             Satellite Engineering Simulators
           </h1>
 
@@ -102,13 +102,13 @@ export default function LearnArcade() {
             <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mr-1">
               Active Track:
             </span>
-            <div className="inline-flex rounded-xl bg-card border border-border p-1">
+            <div className="inline-flex rounded-full bg-card border border-border/80 dark:border-lms-accent-border/40 p-1">
               <button
                 type="button"
                 onClick={() => setMode("explorer")}
-                className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-all ${
+                className={`flex items-center gap-1.5 px-4 py-1.5 rounded-full text-xs font-semibold transition-all cursor-pointer ${
                   mode === "explorer"
-                    ? "bg-primary text-primary-foreground shadow-sm"
+                    ? "bg-lms-cta text-white shadow-none"
                     : "text-muted-foreground hover:text-foreground"
                 }`}
               >
@@ -117,9 +117,9 @@ export default function LearnArcade() {
               <button
                 type="button"
                 onClick={() => setMode("engineer")}
-                className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-all ${
+                className={`flex items-center gap-1.5 px-4 py-1.5 rounded-full text-xs font-semibold transition-all cursor-pointer ${
                   mode === "engineer"
-                    ? "bg-primary text-primary-foreground shadow-sm"
+                    ? "bg-lms-cta text-white shadow-none"
                     : "text-muted-foreground hover:text-foreground"
                 }`}
               >
@@ -130,33 +130,33 @@ export default function LearnArcade() {
         </div>
 
         {/* Overall Progress Stats Box */}
-        <div className="flex flex-col gap-4 p-5 sm:p-6 rounded-2xl bg-card border border-border min-w-[280px] lg:w-80 shrink-0">
+        <div className="lms-card p-5 sm:p-6 min-w-[280px] lg:w-80 shrink-0 flex flex-col gap-4">
           <div className="flex items-center justify-between">
             <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
               Track Mastery
             </span>
-            <span className="text-sm font-bold font-display tabular-nums text-primary">{stats.percent}%</span>
+            <span className="text-sm font-extrabold font-['Outfit'] tabular-nums text-lms-cta dark:text-lms-accent">{stats.percent}%</span>
           </div>
 
           {/* Progress bar */}
-          <div className="h-2 w-full rounded-full bg-muted overflow-hidden">
+          <div className="h-2 w-full rounded-full bg-foreground/10 overflow-hidden">
             <div
-              className="h-full bg-primary rounded-full transition-all duration-500"
+              className="h-full bg-lms-cta dark:bg-lms-accent rounded-full transition-all duration-500"
               style={{ width: `${stats.percent}%` }}
             />
           </div>
 
-          <div className="grid grid-cols-3 gap-2 pt-1 border-t border-border/50 text-center">
+          <div className="grid grid-cols-3 gap-2 pt-1 border-t border-border/50 dark:border-lms-accent-border/20 text-center">
             <div>
-              <p className="text-lg font-bold font-display tabular-nums text-foreground">{stats.cleared}/{stats.totalGames}</p>
+              <p className="text-lg font-extrabold font-['Outfit'] tabular-nums text-foreground">{stats.cleared}/{stats.totalGames}</p>
               <p className="text-[11px] text-muted-foreground font-medium">Cleared</p>
             </div>
             <div>
-              <p className="text-lg font-bold font-display tabular-nums text-amber-400">+{stats.totalPoints}</p>
+              <p className="text-lg font-extrabold font-['Outfit'] tabular-nums text-lms-cta dark:text-lms-accent">+{stats.totalPoints}</p>
               <p className="text-[11px] text-muted-foreground font-medium">Points</p>
             </div>
             <div>
-              <p className="text-lg font-bold font-display tabular-nums text-foreground">{stats.threeDCleared}/11</p>
+              <p className="text-lg font-extrabold font-['Outfit'] tabular-nums text-foreground">{stats.threeDCleared}/11</p>
               <p className="text-[11px] text-muted-foreground font-medium">3D Sims</p>
             </div>
           </div>
@@ -166,17 +166,17 @@ export default function LearnArcade() {
       {/* ── Search & Filter Controls ── */}
       <div className="flex flex-col gap-4">
         {/* Module Category Tabs */}
-        <div className="flex items-center gap-2.5 overflow-x-auto pb-2 scrollbar-none">
+        <div className="flex items-center gap-2 overflow-x-auto pb-1 scrollbar-none">
           {MODULE_TABS.map((tab) => {
             const isSelected = selectedModule === tab.key;
             return (
               <button
                 key={tab.key}
                 onClick={() => setSelectedModule(tab.key)}
-                className={`px-5 py-2.5 rounded-2xl text-sm font-semibold whitespace-nowrap transition-all border shrink-0 ${
+                className={`h-9 px-4 rounded-full text-xs font-semibold whitespace-nowrap transition-all cursor-pointer shrink-0 ${
                   isSelected
-                    ? "bg-foreground text-background border-foreground shadow-md font-bold"
-                    : "bg-card text-muted-foreground border-border hover:border-foreground/30 hover:text-foreground"
+                    ? "bg-lms-cta text-white shadow-none"
+                    : "bg-transparent text-muted-foreground border border-border/70 dark:border-lms-accent-border/30 hover:text-foreground hover:border-lms-accent"
                 }`}
               >
                 {tab.label}
@@ -187,19 +187,19 @@ export default function LearnArcade() {
 
         {/* Search Bar */}
         <div className="flex items-center justify-between gap-3">
-          <div className="relative flex-1 max-w-md">
+          <div className="relative w-full max-w-md">
             <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 size-4 text-muted-foreground pointer-events-none" />
             <input
               type="text"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               placeholder="Search missions, topics, or satellite systems..."
-              className="w-full h-11 pl-10 pr-9 bg-card border border-border text-foreground rounded-xl text-sm placeholder:text-muted-foreground/70 focus:outline-none focus:border-primary transition-colors"
+              className="w-full h-10 pl-9 pr-9 border border-border/80 dark:border-lms-accent-border bg-background text-foreground rounded-full text-xs sm:text-sm focus:outline-none focus:border-lms-cta dark:focus:border-lms-accent transition-colors"
             />
             {searchQuery && (
               <button
                 onClick={() => setSearchQuery("")}
-                className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                className="absolute right-3.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground cursor-pointer"
               >
                 <X className="size-4" />
               </button>
@@ -209,12 +209,12 @@ export default function LearnArcade() {
       </div>
 
       {/* ── Games Count & Result Bar ── */}
-      <div className="flex items-center justify-between text-xs text-muted-foreground border-b border-border/50 pb-2">
+      <div className="flex items-center justify-between text-xs text-muted-foreground border-b border-border/50 dark:border-[#a880ff]/15 pb-2">
         <span>Showing {filteredGames.length} of {games.length} simulations</span>
         {searchQuery && (
           <button
             onClick={() => setSearchQuery("")}
-            className="text-primary hover:underline font-medium"
+            className="text-lms-cta dark:text-lms-accent hover:underline font-semibold cursor-pointer"
           >
             Clear search
           </button>
@@ -223,21 +223,21 @@ export default function LearnArcade() {
 
       {/* ── Games Grid ── */}
       {isLoading ? (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
           {Array.from({ length: 6 }).map((_, i) => (
-            <div key={i} className="h-64 rounded-2xl bg-card border border-border animate-pulse" />
+            <div key={i} className="h-64 rounded-xl lms-card animate-pulse opacity-40" />
           ))}
         </div>
       ) : filteredGames.length === 0 ? (
-        <div className="flex flex-col items-center justify-center p-12 text-center rounded-2xl border border-dashed border-border bg-card/40">
-          <Gamepad2 className="size-10 text-muted-foreground mb-3" />
-          <h3 className="font-display text-base font-semibold text-foreground">No simulations found</h3>
-          <p className="text-xs text-muted-foreground mt-1 max-w-sm">
-            Try adjusting your track, module filter, or search keywords.
+        <div className="lms-card p-12 text-center flex flex-col items-center justify-center gap-2">
+          <Gamepad2 className="size-10 text-muted-foreground mb-1" />
+          <p className="font-['Outfit'] text-base font-bold text-foreground">No simulations found</p>
+          <p className="text-xs text-muted-foreground">
+            Try adjusting your active track, module filter, or search keywords.
           </p>
         </div>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
           {filteredGames.map((game) => {
             const modeData = mode === "engineer" ? game.engineer : game.explorer;
             const isPassed = modeData?.passed;
@@ -248,22 +248,22 @@ export default function LearnArcade() {
             const lesson = mode === "engineer" ? game.lesson_engineer : game.lesson_explorer;
 
             return (
-              <div
+              <article
                 key={game.id}
-                className="group relative flex flex-col justify-between rounded-2xl border border-border bg-card p-5 hover:border-primary/50 transition-all hover:shadow-lg flex flex-col justify-between"
+                className="lms-card p-5 sm:p-6 flex flex-col justify-between gap-5 group transition-all"
               >
                 <div>
                   {/* Top Badges */}
                   <div className="flex items-center justify-between gap-2 mb-3">
                     <div className="flex items-center gap-1.5 flex-wrap">
-                      <span className="px-2 py-0.5 rounded-md text-[10px] font-bold uppercase tracking-wider bg-primary/10 text-primary border border-primary/20">
+                      <span className="px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider bg-lms-cta-light text-lms-cta dark:text-lms-accent border border-lms-cta-border dark:border-lms-accent-border">
                         M{game.module_no} · {game.module_name}
                       </span>
-                      <span className="px-2 py-0.5 rounded-md text-[10px] font-bold uppercase tracking-wider bg-muted text-muted-foreground border border-border">
+                      <span className="px-2 py-0.5 rounded text-[10px] font-semibold uppercase tracking-wider bg-foreground/5 text-muted-foreground border border-border/60">
                         {game.kind}
                       </span>
                       {game.is_3d && (
-                        <span className="flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[10px] font-bold text-primary bg-primary/10 border border-primary/25">
+                        <span className="flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold text-lms-cta dark:text-lms-accent bg-lms-cta-light border border-lms-cta-border dark:border-lms-accent-border">
                           <Box className="size-2.5" /> 3D
                         </span>
                       )}
@@ -271,15 +271,15 @@ export default function LearnArcade() {
 
                     {/* Completion Status Pill */}
                     {isPassed ? (
-                      <span className="flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold text-emerald-400 bg-emerald-500/10 border border-emerald-500/25 shrink-0">
+                      <span className="flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-semibold text-emerald-600 dark:text-emerald-400 bg-emerald-500/10 border border-emerald-500/30 shrink-0">
                         <CheckCircle2 className="size-3" /> {bestScore}/100
                       </span>
                     ) : attemptsCount > 0 ? (
-                      <span className="flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold text-amber-400 bg-amber-500/10 border border-amber-500/25 shrink-0">
+                      <span className="flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-semibold text-amber-500 dark:text-amber-400 bg-amber-500/10 border border-amber-500/30 shrink-0">
                         <Clock className="size-3" /> Retry ({bestScore})
                       </span>
                     ) : (
-                      <span className="px-2 py-0.5 rounded-full text-[10px] font-medium text-muted-foreground/70 border border-border/50 shrink-0">
+                      <span className="px-2 py-0.5 rounded-full text-[10px] font-medium text-muted-foreground border border-border/60 shrink-0">
                         Unplayed
                       </span>
                     )}
@@ -292,31 +292,31 @@ export default function LearnArcade() {
                     search={{ mode }}
                     className="block"
                   >
-                    <h3 className="font-display text-lg font-bold text-foreground group-hover:text-primary transition-colors flex items-center gap-2">
+                    <h3 className="font-['Outfit'] text-lg sm:text-xl font-bold text-foreground group-hover:text-lms-cta dark:group-hover:text-lms-accent transition-colors leading-snug">
                       {game.title}
                     </h3>
                   </Link>
 
-                  <p className="text-xs text-muted-foreground line-clamp-2 mt-1.5 leading-relaxed">
+                  <p className="text-xs sm:text-sm text-muted-foreground line-clamp-2 mt-2 leading-relaxed">
                     {game.blurb || "Interactive subsystem mission simulator."}
                   </p>
 
                   {/* Lesson Tag */}
                   {lesson && (
-                    <p className="text-[11px] text-muted-foreground/75 mt-3 pt-2.5 border-t border-border/40 truncate flex items-center gap-1">
-                      <Layers className="size-3 shrink-0 text-muted-foreground/60" />
+                    <p className="text-xs text-muted-foreground/80 mt-3 pt-3 border-t border-border/50 dark:border-lms-accent-border/15 truncate flex items-center gap-1.5">
+                      <Layers className="size-3.5 shrink-0 text-muted-foreground/60" />
                       <span className="truncate">{lesson}</span>
                     </p>
                   )}
                 </div>
 
                 {/* Card Footer */}
-                <div className="flex items-center justify-between gap-3 pt-4 mt-4 border-t border-border/60">
-                  <div className="flex items-center gap-3 text-xs">
+                <div className="flex items-center justify-between gap-3 pt-3 mt-1 border-t border-border/50 dark:border-lms-accent-border/15">
+                  <div className="flex items-center gap-2.5 text-xs">
                     <span className="tabular-nums font-medium text-muted-foreground flex items-center gap-1">
-                      <Clock className="size-3" /> {timeLimit}s
+                      <Clock className="size-3 text-muted-foreground/70" /> {timeLimit}s
                     </span>
-                    <span className="tabular-nums font-semibold text-amber-400 bg-amber-500/10 border border-amber-500/20 px-1.5 py-0.5 rounded text-[11px]">
+                    <span className="tabular-nums font-semibold text-lms-cta dark:text-lms-accent bg-lms-cta-light border border-lms-cta-border dark:border-lms-accent-border px-2 py-0.5 rounded text-[11px]">
                       +{points} pts
                     </span>
                   </div>
@@ -325,12 +325,12 @@ export default function LearnArcade() {
                     to="/learn/arcade/$gameKey"
                     params={{ gameKey: game.game_key }}
                     search={{ mode }}
-                    className="inline-flex items-center gap-1.5 h-8 px-4 rounded-xl bg-primary text-primary-foreground text-xs font-semibold hover:opacity-90 transition-opacity"
+                    className="lms-btn-primary inline-flex items-center gap-1.5 h-8 px-4 font-['Outfit'] text-xs font-semibold cursor-pointer"
                   >
                     <Play className="size-3" /> {isPassed ? "Replay" : "Launch"}
                   </Link>
                 </div>
-              </div>
+              </article>
             );
           })}
         </div>

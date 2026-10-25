@@ -49,8 +49,8 @@ function Countdown({ seconds, questionKey, onExpire }: { seconds: number; questi
   }, [questionKey, seconds])
 
   return (
-    <div className={`flex items-center gap-2 font-display text-3xl sm:text-4xl font-black tracking-tight ${remaining <= 5 ? "text-destructive animate-pulse" : "text-foreground"}`}>
-      <Clock className={`size-6 sm:size-7 ${remaining <= 5 ? "text-destructive" : "text-primary"}`} />
+    <div className={`flex items-center gap-2 font-['Outfit'] text-3xl sm:text-4xl font-black tracking-tight ${remaining <= 5 ? "text-destructive animate-pulse" : "text-foreground"}`}>
+      <Clock className={`size-6 sm:size-7 ${remaining <= 5 ? "text-destructive" : "text-lms-cta dark:text-lms-accent"}`} />
       <span>{remaining}s</span>
     </div>
   )
@@ -69,9 +69,12 @@ function FinalStandings({ runId }: { runId: string }) {
 
   return (
     <div className="flex flex-col items-center gap-6 pt-4">
-      <div className="text-center">
-        <Trophy className="size-10 text-primary mx-auto" />
-        <h1 className="font-display text-2xl font-extrabold mt-2">Game over!</h1>
+      <div className="text-center flex flex-col items-center gap-2">
+        {/* Floating trophy icon with no container wrapper */}
+        <Trophy className="size-16 text-lms-cta dark:text-lms-accent stroke-[1.75]" />
+        <h1 className="font-['Outfit'] text-3xl sm:text-4xl font-extrabold tracking-tight text-foreground">
+          Game over!
+        </h1>
       </div>
       <div className="w-full">
         <PodiumBoard entries={board} ownParticipantId={own?.participant_id} />
@@ -86,11 +89,6 @@ export default function GamePlay() {
   const { currentUser } = useAuth()
 
   const [avatar] = useState<string | null>(null)
-  // My own in-game identity (nickname/avatar) — distinct from the profile
-  // nickname once the picker's been used, D18. Seeded by the join
-  // response and re-synced by an idempotent join call on page load (see
-  // the effect below), since a mid-lobby refresh never re-fires the
-  // "Join game" button's own click handler.
   const [me, setMe] = useState<{ nickname: string; avatar: string | null } | null>(null)
   const [selectedIndex, setSelectedIndex] = useState<number | null>(null)
   const [ack, setAck] = useState<AnswerAck | null>(null)
@@ -139,9 +137,6 @@ export default function GamePlay() {
       qc.invalidateQueries({ queryKey: ["play-leaderboard", runId] })
       qc.invalidateQueries({ queryKey: ["play-my-score", runId] })
     } else if (msg.type === "game_restarted") {
-      // Same run, reset to its lobby — the student stays put rather than
-      // being bounced back to the join-code screen, which is what made the
-      // old new-run restart feel like being kicked out.
       setRevealed(false)
       setRevealResults(null)
       qc.invalidateQueries({ queryKey: runKey })
@@ -170,8 +165,6 @@ export default function GamePlay() {
     }
   })
 
-  // Redis pub/sub has no replay — a reconnect after a drop needs an
-  // explicit re-sync, not just a green "connected" dot.
   useEffect(() => {
     if (!connected) return
     qc.invalidateQueries({ queryKey: runKey })
@@ -189,9 +182,6 @@ export default function GamePlay() {
     },
   })
 
-  // join_run is idempotent — safe to call again on a mid-lobby page
-  // refresh, purely to re-populate `me` (the join button's own onSuccess
-  // only fires once, the first time).
   useEffect(() => {
     if (hasJoined && !me && !join.isPending) join.mutate()
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -225,17 +215,21 @@ export default function GamePlay() {
     <div className="mx-auto max-w-3xl lg:max-w-4xl px-5 py-6 sm:py-10 flex flex-col gap-6 min-h-[70vh]">
       {phase === "join" && (
         <div className="flex flex-col items-center gap-5 text-center pt-10">
-          <Trophy className="size-10 text-primary" />
+          {/* Floating trophy icon with no container wrapper */}
+          <Trophy className="size-16 text-lms-cta dark:text-lms-accent stroke-[1.75]" />
           <div>
-            <h1 className="font-display text-2xl font-extrabold">Ready to play?</h1>
-            <p className="text-sm text-muted-foreground mt-1">
-              You'll play as <span className="font-semibold text-foreground">{myNickname}</span>
+            <h1 className="font-['Outfit'] text-3xl sm:text-4xl font-extrabold tracking-tight text-foreground">
+              Ready to play?
+            </h1>
+            <p className="text-base text-muted-foreground mt-1.5">
+              You'll play as <span className="font-bold text-foreground">{myNickname}</span>
             </p>
           </div>
           <button
+            type="button"
             onClick={() => join.mutate()}
             disabled={join.isPending}
-            className="h-12 px-8 bg-primary text-primary-foreground rounded-2xl text-base font-bold hover:opacity-90 transition-colors disabled:opacity-50"
+            className="lms-btn-primary h-12 px-8 rounded-2xl text-base font-bold cursor-pointer disabled:opacity-50"
           >
             {join.isPending ? "Joining…" : "Join game"}
           </button>
@@ -245,8 +239,10 @@ export default function GamePlay() {
       {phase === "lobby" && (
         <div className="flex flex-col items-center gap-6 pt-4">
           <div className="text-center">
-            <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide">You're in · waiting room</p>
-            <h1 className="font-display text-xl font-extrabold mt-1">
+            <p className="text-xs font-bold text-lms-cta dark:text-lms-accent uppercase tracking-wider">
+              You're in · waiting room
+            </p>
+            <h1 className="font-['Outfit'] text-2xl font-extrabold mt-1 text-foreground">
               {run.total_questions} question{run.total_questions === 1 ? "" : "s"}
             </h1>
           </div>
@@ -258,23 +254,23 @@ export default function GamePlay() {
             onUpdated={setMe}
           />
 
-          <div className="w-full flex flex-col gap-2">
-            <p className="flex items-center gap-1.5 text-xs font-semibold text-muted-foreground uppercase tracking-wide">
-              <Users size={13} /> {roster.length} {roster.length === 1 ? "explorer" : "explorers"} in the room
+          <div className="w-full flex flex-col gap-2.5">
+            <p className="flex items-center gap-1.5 text-xs font-bold text-muted-foreground uppercase tracking-wider">
+              <Users size={14} /> {roster.length} {roster.length === 1 ? "explorer" : "explorers"} in the room
             </p>
             <div className="flex flex-wrap gap-2">
               {roster.map((p) => (
-                <div key={p.participant_id} className="flex items-center gap-1.5 pl-1 pr-2.5 py-1 rounded-full bg-muted">
+                <div key={p.participant_id} className="flex items-center gap-2 pl-1.5 pr-3 py-1 rounded-full bg-muted/50 dark:bg-[#1a0f26] border border-border/80 dark:border-lms-accent-border/30">
                   <AvatarBadge avatar={p.avatar} nickname={p.nickname} size={32} />
-                  <span className="text-xs text-foreground">{p.nickname}</span>
+                  <span className="text-xs font-semibold text-foreground">{p.nickname}</span>
                 </div>
               ))}
             </div>
           </div>
 
-          <div className="w-full mt-auto flex items-center gap-2 px-4 py-3 rounded-2xl bg-card border border-border">
-            <span className="w-2 h-2 rounded-full bg-primary animate-pulse" />
-            <span className="text-xs text-muted-foreground">Starts when the instructor says go</span>
+          <div className="w-full mt-auto flex items-center gap-2.5 px-4 py-3 rounded-2xl lms-card border border-border/80 dark:border-lms-accent-border/30 bg-muted/20 dark:bg-[#0d0915]">
+            <span className="w-2.5 h-2.5 rounded-full bg-lms-cta dark:bg-lms-accent animate-pulse" />
+            <span className="text-xs font-medium text-muted-foreground">Starts when the instructor says go</span>
           </div>
         </div>
       )}
@@ -300,9 +296,9 @@ export default function GamePlay() {
                       key={i}
                       className={`h-2.5 rounded-full transition-all duration-300 ${
                         isCurrent
-                          ? "w-7 bg-primary ring-2 ring-primary/30"
+                          ? "w-7 bg-lms-cta dark:bg-lms-accent ring-2 ring-lms-accent-glow"
                           : isPast
-                          ? "w-2.5 bg-primary/60"
+                          ? "w-2.5 bg-lms-cta/60 dark:bg-lms-accent/60"
                           : "w-2.5 bg-muted-foreground/25 dark:bg-muted-foreground/20"
                       }`}
                     />
@@ -317,28 +313,40 @@ export default function GamePlay() {
               />
             )}
           </div>
-          <h1 className="font-display text-2xl sm:text-3xl lg:text-4xl font-semibold leading-tight tracking-normal text-foreground">{question.prompt}</h1>
+          <h1 className="font-['Outfit'] text-2xl sm:text-3xl lg:text-4xl font-extrabold leading-tight tracking-normal text-foreground">
+            {question.prompt}
+          </h1>
           <div className="grid grid-cols-1 gap-3">
             {question.options.map((o, i) => {
               const result = revealResults?.[i]
               const isMine = selectedIndex === i
-              let colorClass = "border-border bg-card"
+              let colorClass = "border-border/80 dark:border-lms-accent-border/30 bg-muted/10 dark:bg-[#0d0915]/60 hover:border-lms-cta dark:hover:border-lms-accent"
+              let badgeClass = "border-border/80 dark:border-lms-accent-border/30 bg-muted/30 dark:bg-[#1a0f26] text-muted-foreground"
+
               if (revealed && result) {
-                if (result.is_correct) colorClass = "border-emerald-500 bg-emerald-500/10"
-                else if (isMine) colorClass = "border-destructive bg-destructive/10"
+                if (result.is_correct) {
+                  colorClass = "border-emerald-500/60 bg-emerald-500/15"
+                  badgeClass = "border-emerald-500/50 bg-emerald-500 text-white dark:text-black font-bold"
+                } else if (isMine) {
+                  colorClass = "border-destructive/60 bg-destructive/15"
+                  badgeClass = "border-destructive/50 bg-destructive text-white font-bold"
+                }
               } else if (isMine) {
-                colorClass = "border-primary bg-primary/10"
+                colorClass = "border-lms-cta dark:border-lms-accent bg-lms-cta-light"
+                badgeClass = "border-lms-cta dark:border-lms-accent bg-lms-cta dark:bg-lms-accent text-white dark:text-black font-bold"
               }
+
               return (
                 <button
                   key={i}
+                  type="button"
                   onClick={() => !locked && !answer.isPending && answer.mutate(i)}
                   disabled={locked || answer.isPending}
-                  className={`min-h-[64px] py-3.5 px-5 rounded-2xl border-2 text-left text-base font-semibold text-foreground transition-all flex items-center gap-4 ${colorClass} ${
-                    !locked ? "hover:border-primary/50 active:scale-[0.98] disabled:opacity-60" : ""
+                  className={`min-h-[64px] py-3.5 px-5 rounded-2xl border-2 text-left text-base font-semibold text-foreground transition-all flex items-center gap-4 cursor-pointer ${colorClass} ${
+                    !locked ? "active:scale-[0.98] disabled:opacity-60" : ""
                   }`}
                 >
-                  <span className="w-8 h-8 flex-none flex items-center justify-center rounded-xl border-2 border-current text-sm font-extrabold">
+                  <span className={`w-8 h-8 flex-none flex items-center justify-center rounded-xl border-2 text-sm font-extrabold transition-colors ${badgeClass}`}>
                     {String.fromCharCode(65 + i)}
                   </span>
                   <span className="flex-1 text-base leading-snug">{o.text}</span>
@@ -350,7 +358,7 @@ export default function GamePlay() {
           </div>
 
           {locked && !revealed && (
-            <p className="text-xs text-muted-foreground flex items-center gap-1.5">
+            <p className="text-xs text-muted-foreground flex items-center gap-1.5 font-medium">
               <Clock size={12} /> {selectedIndex === null ? "Time's up" : "Locked in"} — waiting for the rest of the class
               {roster.length > 0 && ` · ${answeredCount} of ${roster.length} answered`}
             </p>
@@ -359,12 +367,12 @@ export default function GamePlay() {
           {revealed && (
             <>
               {ack && (
-                <div className={`flex flex-col gap-2 p-4 rounded-2xl border ${ack.is_correct ? "border-emerald-500/30 bg-emerald-500/5" : "border-border bg-card"}`}>
+                <div className={`flex flex-col gap-2 p-5 rounded-2xl border-2 shadow-lg shadow-black/10 ${ack.is_correct ? "border-emerald-500/40 bg-emerald-500/10" : "border-border/80 dark:border-lms-accent-border/30 bg-muted/20 dark:bg-[#0d0915]"}`}>
                   <div className="flex items-center justify-between">
-                    <span className={`text-sm font-bold ${ack.is_correct ? "text-emerald-500" : "text-muted-foreground"}`}>
+                    <span className={`text-base font-bold ${ack.is_correct ? "text-emerald-500 dark:text-emerald-400" : "text-muted-foreground"}`}>
                       {ack.is_correct ? "Correct!" : selectedIndex === null ? "No answer submitted" : "Not quite"}
                     </span>
-                    <span className="font-display text-xl font-extrabold text-primary">+{ack.points_awarded}</span>
+                    <span className="font-['Outfit'] text-2xl font-black text-lms-cta dark:text-lms-accent">+{ack.points_awarded}</span>
                   </div>
                   {ack.is_correct && (
                     <div className="flex flex-col gap-1 text-xs text-muted-foreground">
@@ -373,7 +381,7 @@ export default function GamePlay() {
                     </div>
                   )}
                   {ack.streak >= 2 && (
-                    <span className="inline-flex items-center gap-1.5 w-fit px-3 py-1 rounded-full bg-amber-500/10 text-amber-600 dark:text-amber-400 text-xs font-semibold">
+                    <span className="inline-flex items-center gap-1.5 w-fit px-3 py-1 rounded-full bg-amber-500/15 text-amber-500 border border-amber-500/30 text-xs font-bold">
                       <Flame size={12} /> {ack.streak} in a row
                     </span>
                   )}
@@ -382,27 +390,31 @@ export default function GamePlay() {
 
               {run.blackout_active ? (
                 <div className="flex flex-col items-center gap-2 text-center py-6">
-                  <EyeOff className="size-8 text-amber-500" />
-                  <p className="text-sm font-semibold">Blackout round</p>
+                  <EyeOff className="size-10 text-amber-500 stroke-[1.75]" />
+                  <p className="text-base font-bold text-foreground">Blackout round</p>
                   <p className="text-xs text-muted-foreground">Leaderboard's hidden till the end — here's your score.</p>
-                  <p className="font-display text-3xl font-extrabold text-primary mt-1">{myScore.data?.score ?? 0}</p>
+                  <p className="font-['Outfit'] text-4xl font-black text-lms-cta dark:text-lms-accent mt-1">{myScore.data?.score ?? 0}</p>
                 </div>
               ) : (
-                <div className="flex flex-col gap-2">
-                  <p className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                    <Trophy size={13} /> Leaderboard
+                <div className="flex flex-col gap-2.5">
+                  <p className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-muted-foreground">
+                    <Trophy size={14} className="text-lms-cta dark:text-lms-accent" /> Leaderboard
                   </p>
                   {leaderboard.map((row, i) => (
                     <div
                       key={row.participant_id}
-                      className={`flex items-center gap-3 rounded-xl border p-3 ${row.is_me ? "border-primary/40 bg-primary/5" : "border-border bg-card"}`}
+                      className={`flex items-center gap-3.5 rounded-2xl border p-3.5 transition-all ${
+                        row.is_me
+                          ? "border-lms-cta dark:border-lms-accent bg-lms-cta-light"
+                          : "border-border/80 dark:border-lms-accent-border/30 bg-muted/10 dark:bg-[#0d0915]"
+                      }`}
                     >
-                      <span className="w-6 text-center text-sm font-bold text-muted-foreground">{i + 1}</span>
-                      <AvatarBadge avatar={row.avatar} nickname={row.nickname} size={32} />
-                      <span className="flex-1 text-sm font-medium truncate">
-                        {row.nickname}{row.is_me && <span className="ml-1.5 font-normal text-muted-foreground">(you)</span>}
+                      <span className="w-6 text-center text-sm font-mono font-bold text-muted-foreground">{i + 1}</span>
+                      <AvatarBadge avatar={row.avatar} nickname={row.nickname} size={34} />
+                      <span className="flex-1 text-sm font-semibold truncate text-foreground">
+                        {row.nickname}{row.is_me && <span className="ml-1.5 font-bold text-lms-cta dark:text-lms-accent">(you)</span>}
                       </span>
-                      <span className="font-display font-bold text-sm">{row.score}</span>
+                      <span className="font-['Outfit'] font-black text-base text-foreground">{row.score}</span>
                     </div>
                   ))}
                 </div>

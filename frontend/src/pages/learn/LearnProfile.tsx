@@ -2,20 +2,31 @@ import { useRef, useState } from "react";
 import { useNavigate } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { isAxiosError } from "axios";
-import { Award, CheckCircle2, Download, LogOut, Pencil, Plus, RefreshCw, Upload, Users } from "lucide-react";
+import {
+  Award,
+  CheckCircle2,
+  Download,
+  LogOut,
+  Pencil,
+  Plus,
+  RefreshCw,
+  Upload,
+  Users,
+  Ticket,
+  KeyRound,
+  ArrowRight,
+  BookOpen,
+} from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
 import { changePassword, fetchMe, rerollNicknameApi, updateMeApi, updatePhotoApi } from "@/api/auth";
 import { fetchMyActivity, fetchMyCertificates, fetchMyCourses } from "@/api/lms";
 import { fetchMyTeams } from "@/api/missions";
 import { Button } from "@/components/ui/button";
-import { Card } from "@/components/ui/card";
 import { CountrySelect } from "@/components/ui/CountrySelect";
 import { CitySelect, useCitiesForCountry } from "@/components/ui/CitySelect";
 import { PasswordInput } from "@/components/ui/PasswordInput";
 import { getCountries } from "@/lib/countries";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { StatTile } from "@/components/ProfileStatsCards";
-import { EmptyState } from "@/components/ui/primitives";
 import { ImageCropModal } from "@/components/ui/ImageCropModal";
 import { cn } from "@/lib/utils";
 import { CourseProgress } from "./CourseProgress";
@@ -26,17 +37,14 @@ function errorDetail(err: unknown, fallback: string): string {
   return fallback;
 }
 
-/** /learn/profile (design 2a/2b) — follows the portal's own profile
- * vocabulary (`pages/shared/Profile.tsx`'s edit mutations, `StatTile` from
- * `ProfileStatsCards.tsx`) rather than inventing a new one. Certificates
- * landed 2026-08-13 (auto-issued on course/path completion, see
- * `services/lms/certificates.py`); the achievements grid is still deferred,
- * as are playback-preference toggles — there's no backend to persist those
- * against. */
+type ProfileTab = "record" | "certificates" | "teams";
+
 export default function LearnProfile() {
   const { currentUser, setCurrentUser, logout } = useAuth();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
+
+  const [tab, setTab] = useState<ProfileTab>("record");
   const [editOpen, setEditOpen] = useState(false);
   const [pwOpen, setPwOpen] = useState(false);
   const [redeemOpen, setRedeemOpen] = useState(false);
@@ -45,8 +53,8 @@ export default function LearnProfile() {
   const { data: me } = useQuery({ queryKey: ["me"], queryFn: fetchMe, initialData: currentUser ?? undefined });
   const { data: dashboard } = useQuery({ queryKey: ["lms-my-courses"], queryFn: fetchMyCourses });
   const { data: activity } = useQuery({ queryKey: ["lms-my-activity"], queryFn: fetchMyActivity });
-  const { data: certificates } = useQuery({ queryKey: ["lms-my-certificates"], queryFn: fetchMyCertificates });
-  const { data: teams } = useQuery({ queryKey: ["my-teams"], queryFn: fetchMyTeams });
+  const { data: certificates = [] } = useQuery({ queryKey: ["lms-my-certificates"], queryFn: fetchMyCertificates });
+  const { data: teams = [] } = useQuery({ queryKey: ["my-teams"], queryFn: fetchMyTeams });
 
   const reroll = useMutation({
     mutationFn: rerollNicknameApi,
@@ -65,252 +73,443 @@ export default function LearnProfile() {
     ? new Date(me.created_at).toLocaleDateString("en-US", { month: "long", year: "numeric" })
     : null;
 
+  const rawBirthDate = me.birthdate || me.date_of_birth;
+  const birthDateFormatted = rawBirthDate
+    ? new Date(rawBirthDate).toLocaleDateString("en-US", {
+        month: "long",
+        day: "numeric",
+        year: "numeric",
+      })
+    : "Not set";
+
+  const location = [me.city_name, getCountries().find((c) => c.code === me.country)?.name ?? me.country]
+    .filter(Boolean)
+    .join(", ");
+
+  const redeemedCodes = (me.invitation_codes_used && me.invitation_codes_used.length > 0)
+    ? me.invitation_codes_used.map((c) => c.code)
+    : me.invitation_code_used
+    ? [me.invitation_code_used]
+    : [];
+
   const handleLogout = async () => {
     await logout();
     void navigate({ to: "/learn/login" });
   };
 
   return (
-    <div className="mx-auto max-w-[1180px] px-5 sm:px-8 lg:px-10 py-6 sm:py-8 flex flex-col gap-6">
-      <Card className="flex-row items-center gap-6 p-6">
-        <div className="w-24 h-24 rounded-full bg-primary/10 border-2 border-primary/30 flex items-center justify-center text-2xl font-display font-bold text-primary overflow-hidden shrink-0">
-          {me.photo_url ? <img src={me.photo_url} alt="" className="w-full h-full object-cover" /> : initials}
+    <div className="mx-auto max-w-[1240px] px-6 sm:px-10 lg:px-12 py-10 sm:py-16 flex flex-col gap-10 sm:gap-12">
+      {/* Profile Identity Card */}
+      <section className="lms-card p-6 sm:p-8 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-6">
+        <div className="flex items-center gap-5 sm:gap-6 min-w-0">
+          <div className="size-20 sm:size-24 rounded-full border-2 border-lms-accent bg-lms-cta-light flex items-center justify-center font-display font-extrabold text-2xl sm:text-3xl text-lms-cta dark:text-lms-accent overflow-hidden shrink-0 shadow-sm">
+            {me.photo_url ? (
+              <img src={me.photo_url} alt="" className="w-full h-full object-cover" />
+            ) : (
+              initials
+            )}
+          </div>
+          <div className="flex flex-col gap-1.5 min-w-0">
+            <div className="flex items-center gap-3 flex-wrap">
+              <h1 className="font-display text-2xl sm:text-3xl font-extrabold text-foreground tracking-tight truncate">
+                {me.full_name}
+              </h1>
+              <span
+                className={cn(
+                  "text-[10px] sm:text-xs font-bold uppercase tracking-wider px-2.5 py-0.5 rounded-full border",
+                  me.roles?.includes("observer")
+                    ? "bg-lms-cta-light text-lms-cta dark:text-lms-accent border-lms-accent-border"
+                    : "bg-white/10 text-white border-white/20"
+                )}
+              >
+                {me.roles?.includes("observer") ? "Observer" : "Student"}
+              </span>
+            </div>
+
+            {me.nickname && (
+              <div className="flex items-center gap-2 text-xs text-muted-foreground flex-wrap">
+                <span className="font-bold uppercase tracking-wider text-[11px] text-[#A880FF]">
+                  Callsign:
+                </span>
+                <strong className="font-semibold text-foreground">{me.nickname}</strong>
+                <button
+                  onClick={() => {
+                    setRerollError(null);
+                    reroll.mutate();
+                  }}
+                  disabled={reroll.isPending}
+                  className="inline-flex items-center gap-1 text-xs text-[#A880FF] hover:underline cursor-pointer disabled:opacity-50"
+                  title="Reroll callsign"
+                >
+                  <RefreshCw className={cn("size-3", reroll.isPending && "animate-spin")} />
+                  {reroll.isPending ? "Rerolling..." : "Reroll"}
+                </button>
+              </div>
+            )}
+            {rerollError && <p className="text-xs text-destructive">{rerollError}</p>}
+            {memberSince && (
+              <span className="text-[11px] text-muted-foreground">
+                Explorer since {memberSince}
+              </span>
+            )}
+          </div>
         </div>
-        <div className="flex-1 min-w-0 flex flex-col gap-1.5">
-          <div className="flex items-center gap-2.5 flex-wrap">
-            <div className="font-display text-2xl font-bold tracking-tight">{me.full_name}</div>
-            <span
-              className={cn(
-                "text-[11px] font-semibold px-2.5 py-1 rounded-full",
-                me.roles?.includes("observer")
-                  ? "bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border border-indigo-500/20"
-                  : "bg-primary/10 text-primary",
-              )}
+
+        <button
+          onClick={() => setEditOpen(true)}
+          className="lms-btn-secondary h-11 px-5 text-xs sm:text-sm inline-flex items-center gap-2 cursor-pointer shrink-0"
+        >
+          <Pencil className="size-3.5" />
+          Edit profile
+        </button>
+      </section>
+
+      {/* Account & Security Layout */}
+      <section className="lms-card p-6 sm:p-8 flex flex-col gap-6">
+        <h2 className="font-display text-xl sm:text-2xl font-extrabold text-foreground tracking-tight">
+          Account & security
+        </h2>
+
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
+          {/* Account Details */}
+          <div className="lg:col-span-7 flex flex-col divide-y divide-border/20">
+            <div className="py-3.5 first:pt-0 grid grid-cols-3 sm:grid-cols-4 items-center text-xs">
+              <span className="font-bold text-muted-foreground uppercase tracking-wider text-[11px]">
+                Email
+              </span>
+              <span className="col-span-2 sm:col-span-3 font-medium text-foreground truncate">
+                {me.email}
+              </span>
+            </div>
+
+            <div className="py-3.5 grid grid-cols-3 sm:grid-cols-4 items-center text-xs">
+              <span className="font-bold text-muted-foreground uppercase tracking-wider text-[11px]">
+                WhatsApp
+              </span>
+              <span className="col-span-2 sm:col-span-3 font-medium text-foreground">
+                {me.phone || "Not set"}
+              </span>
+            </div>
+
+            <div className="py-3.5 grid grid-cols-3 sm:grid-cols-4 items-center text-xs">
+              <span className="font-bold text-muted-foreground uppercase tracking-wider text-[11px]">
+                Location
+              </span>
+              <span className="col-span-2 sm:col-span-3 font-medium text-foreground">
+                {location || "Not set"}
+              </span>
+            </div>
+
+            <div className="py-3.5 last:pb-0 grid grid-cols-3 sm:grid-cols-4 items-center text-xs">
+              <span className="font-bold text-muted-foreground uppercase tracking-wider text-[11px]">
+                Birthdate
+              </span>
+              <span className="col-span-2 sm:col-span-3 font-medium text-foreground">
+                {birthDateFormatted}
+              </span>
+            </div>
+          </div>
+
+          {/* Security & Quick Actions */}
+          <div className="lg:col-span-5 flex flex-col gap-3 border-t lg:border-t-0 lg:border-l border-border/40 pt-6 lg:pt-0 lg:pl-8">
+            <button
+              onClick={() => setRedeemOpen(true)}
+              className="lms-btn-secondary h-11 px-4 text-xs sm:text-sm inline-flex items-center justify-between cursor-pointer w-full"
             >
-              {me.roles?.includes("observer") ? "Observer" : "Student"}
-            </span>
-          </div>
-          <div className="text-sm text-muted-foreground">{me.email}</div>
-          {me.nickname && (
-            <div className="flex items-center gap-2 text-xs text-muted-foreground" title="What other students see on leaderboards and in live games — never your real name.">
-              <span>Nickname: <span className="font-medium text-foreground">{me.nickname}</span></span>
-              <button
-                onClick={() => { setRerollError(null); reroll.mutate(); }}
-                disabled={reroll.isPending}
-                className="inline-flex items-center gap-1 text-primary hover:opacity-80 cursor-pointer font-medium disabled:opacity-50"
-              >
-                <RefreshCw className={`size-3 ${reroll.isPending ? "animate-spin" : ""}`} />
-                {reroll.isPending ? "Rerolling..." : "Reroll"}
-              </button>
-            </div>
-          )}
-          {rerollError && <div className="text-xs text-destructive">{rerollError}</div>}
-          {memberSince && <div className="text-xs text-muted-foreground">Student since {memberSince}</div>}
-        </div>
-        <Button variant="outline" onClick={() => setEditOpen(true)} className="shrink-0">
-          <Pencil className="size-3.5" /> Edit profile
-        </Button>
-      </Card>
+              <span className="inline-flex items-center gap-2">
+                <Ticket className="size-4 text-[#A880FF]" />
+                Redeem invite code
+              </span>
+              <ArrowRight className="size-3.5 text-muted-foreground" />
+            </button>
 
-      <div className="grid lg:grid-cols-[1fr_340px] gap-5 items-start">
-        <div className="flex flex-col gap-5 min-w-0">
-          <div className="flex flex-col gap-3">
-            <h2 className="font-display text-lg font-bold tracking-tight">Learning record</h2>
-            <div className="grid grid-cols-3 gap-3">
-              <StatTile label="Enrolled" value={dashboard?.stats.total_enrolled ?? 0} />
-              <StatTile label="In progress" value={dashboard?.stats.in_progress ?? 0} />
-              <StatTile label="Modules done" value={dashboard?.stats.modules_done ?? 0} />
-            </div>
-          </div>
+            <button
+              onClick={() => setPwOpen(true)}
+              className="lms-btn-secondary h-11 px-4 text-xs sm:text-sm inline-flex items-center justify-between cursor-pointer w-full"
+            >
+              <span className="inline-flex items-center gap-2">
+                <KeyRound className="size-4 text-[#A880FF]" />
+                Change password
+              </span>
+              <ArrowRight className="size-3.5 text-muted-foreground" />
+            </button>
 
-          <Card className="p-5 gap-4">
-            <div className="flex items-center justify-between">
-              <h2 className="font-display text-base font-bold tracking-tight">Courses</h2>
-              <button
-                onClick={() => void navigate({ to: "/learn/my-courses" })}
-                className="text-xs font-medium text-primary hover:opacity-80 cursor-pointer"
-              >
-                Go to my courses
-              </button>
-            </div>
-            {!dashboard || dashboard.courses.length === 0 ? (
-              <EmptyState title="No courses yet" hint="Enrol in something from the catalog to see it here." />
-            ) : (
-              <div className="flex flex-col divide-y divide-border">
-                {dashboard.courses.map((c) => (
-                  <div key={c.course_id} className="flex items-center gap-4 py-3 first:pt-0 last:pb-0">
-                    <div className="flex-1 min-w-0">
-                      <div className="text-sm font-medium truncate">{c.title}</div>
-                      <div className="text-xs text-muted-foreground mt-0.5">
-                        {c.status === "completed" ? "Completed" : `${c.modules_done} of ${c.modules_total} modules`}
-                      </div>
-                    </div>
-                    <CourseProgress value={c.pct} className="w-36 shrink-0 hidden sm:flex" />
-                  </div>
-                ))}
-              </div>
-            )}
-          </Card>
+            <button
+              onClick={() => void handleLogout()}
+              className="lms-btn-secondary h-11 px-4 text-xs sm:text-sm inline-flex items-center justify-between cursor-pointer w-full text-red-400/90 hover:text-red-300 hover:border-red-500/50"
+            >
+              <span className="inline-flex items-center gap-2">
+                <LogOut className="size-4" />
+                Sign out
+              </span>
+              <ArrowRight className="size-3.5" />
+            </button>
 
-          <Card className="p-5 gap-4">
-            <h2 className="font-display text-base font-bold tracking-tight">Recent activity</h2>
-            {!activity || activity.length === 0 ? (
-              <EmptyState title="Nothing here yet" hint="Completed lessons, quizzes and flashcards will show up here." />
-            ) : (
-              <div className="flex flex-col gap-3">
-                {activity.map((a) => (
-                  <div key={a.item_id} className="flex items-start gap-3">
-                    <CheckCircle2 className="size-4 text-primary shrink-0 mt-0.5" />
-                    <div className="min-w-0">
-                      <div className="text-sm text-foreground leading-snug">
-                        Completed <span className="font-medium">{a.item_title ?? a.item_kind}</span> in {a.course_title}
-                      </div>
-                      {a.completed_at && (
-                        <div className="text-xs text-muted-foreground mt-0.5">
-                          {new Date(a.completed_at).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </Card>
-
-          <Card className="p-5 gap-4">
-            <h2 className="font-display text-base font-bold tracking-tight">Certificates</h2>
-            {!certificates || certificates.length === 0 ? (
-              <EmptyState
-                title="No certificates yet"
-                hint="Finish a course or a learning path and its certificate appears here automatically."
-              />
-            ) : (
-              <div className="flex flex-col gap-2">
-                {certificates.map((c) => (
-                  <div
-                    key={c.id}
-                    className="flex items-center gap-3 rounded-xl border border-border p-3"
-                  >
-                    <div className="flex size-10 shrink-0 items-center justify-center rounded-full ring-1 ring-primary/35 text-primary">
-                      <Award className="size-5" />
-                    </div>
-                    <div className="min-w-0 flex-1">
-                      <div className="text-sm font-medium text-foreground truncate">{c.title}</div>
-                      <div className="text-xs text-muted-foreground">
-                        {c.type === "student_completion"
-                          ? "Program"
-                          : c.type === "lms_path_completion"
-                          ? "Learning path"
-                          : "Course"}
-                        {c.issued_at && ` · ${new Date(c.issued_at).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}`}
-                      </div>
-                    </div>
-                    {c.url && (
-                      <a
-                        href={c.url}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="shrink-0 flex items-center gap-1.5 text-sm font-medium text-primary hover:opacity-80"
-                      >
-                        <Download className="size-3.5" /> PDF
-                      </a>
-                    )}
-                  </div>
-                ))}
-              </div>
-            )}
-          </Card>
-
-          <Card className="p-5 gap-4">
-            <h2 className="font-display text-base font-bold tracking-tight">Teams</h2>
-            {!teams || teams.length === 0 ? (
-              <EmptyState title="No teams yet" hint="Join or create a team from a team-policy mission to see it here." />
-            ) : (
-              <div className="flex flex-col gap-2">
-                {teams.map((t) => (
-                  <div
-                    key={t.id}
-                    className="flex items-center gap-3 rounded-xl border border-border p-3"
-                  >
-                    <div className="flex size-10 shrink-0 items-center justify-center rounded-full ring-1 ring-primary/35 text-primary">
-                      <Users className="size-5" />
-                    </div>
-                    <div className="min-w-0 flex-1">
-                      <div className="text-sm font-medium text-foreground truncate">{t.name}</div>
-                      <div className="text-xs text-muted-foreground">
-                        {t.cohort_id ? "Cohort team" : "Self-formed"}
-                        {t.member_names.length > 0 && ` · ${t.member_names.join(", ")}`}
-                      </div>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </Card>
-        </div>
-
-        <Card className="p-5 gap-4">
-          <div className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Account info</div>
-          <div className="flex flex-col gap-3">
-            <AccountField label="Email" value={me.email} />
-            <AccountField label="WhatsApp" value={me.phone || "Not set"} />
-            <AccountField
-              label="Location"
-              value={
-                [me.city_name, getCountries().find((c) => c.code === me.country)?.name ?? me.country]
-                  .filter(Boolean)
-                  .join(", ") || "Not set"
-              }
-            />
-            {memberSince && <AccountField label="Member since" value={memberSince} />}
-          </div>
-          <div className="h-px bg-border" />
-          <div className="flex flex-col gap-2">
-            <div className="flex items-center justify-between">
-              <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Invite codes</span>
-              <button
-                type="button"
-                onClick={() => setRedeemOpen(true)}
-                className="text-xs font-medium text-primary hover:opacity-80 inline-flex items-center gap-1 cursor-pointer"
-              >
-                <Plus className="size-3" /> Redeem code
-              </button>
-            </div>
-            {(() => {
-              const codes = (me.invitation_codes_used && me.invitation_codes_used.length > 0)
-                ? me.invitation_codes_used.map((c) => c.code)
-                : me.invitation_code_used
-                ? [me.invitation_code_used]
-                : [];
-              if (codes.length === 0) {
-                return <span className="text-xs text-muted-foreground italic">None redeemed yet</span>;
-              }
-              return (
-                <div className="flex flex-wrap gap-1.5 pt-0.5">
-                  {codes.map((code) => (
+            {redeemedCodes.length > 0 && (
+              <div className="flex flex-col gap-1.5 pt-2">
+                <span className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">
+                  Redeemed Codes
+                </span>
+                <div className="flex flex-wrap gap-1.5">
+                  {redeemedCodes.map((code) => (
                     <span
                       key={code}
-                      className="font-mono text-xs font-semibold px-2 py-0.5 rounded-md bg-primary/10 text-primary border border-primary/20"
+                      className="font-mono text-xs font-semibold px-2 py-0.5 rounded border border-lms-accent-border bg-lms-cta-light text-lms-cta dark:text-lms-accent"
                     >
                       {code}
                     </span>
                   ))}
                 </div>
-              );
-            })()}
+              </div>
+            )}
           </div>
-          <div className="h-px bg-border" />
-          <div className="flex items-center justify-between">
-            <button onClick={() => setPwOpen(true)} className="text-sm font-medium text-primary hover:opacity-80 cursor-pointer text-left">
-              Change password
-            </button>
-            <button onClick={() => void handleLogout()} className="text-sm font-medium text-destructive hover:opacity-80 cursor-pointer inline-flex items-center gap-1.5">
-              <LogOut className="size-3.5" /> Sign out
-            </button>
-          </div>
-        </Card>
+        </div>
+      </section>
+
+      {/* Tabs Control */}
+      <div className="flex items-center gap-2.5 sm:gap-3 flex-wrap">
+        <button
+          onClick={() => setTab("record")}
+          className={cn(
+            "h-10 px-5 rounded-full text-xs sm:text-sm font-bold transition-all cursor-pointer inline-flex items-center gap-2 select-none",
+            tab === "record"
+              ? "bg-lms-cta text-white shadow-none"
+              : "bg-transparent text-muted-foreground border border-border/60 dark:border-lms-accent-border hover:text-foreground hover:border-lms-accent"
+          )}
+        >
+          <BookOpen className="size-4" />
+          Learning record
+        </button>
+
+        <button
+          onClick={() => setTab("certificates")}
+          className={cn(
+            "h-10 px-5 rounded-full text-xs sm:text-sm font-bold transition-all cursor-pointer inline-flex items-center gap-2 select-none",
+            tab === "certificates"
+              ? "bg-lms-cta text-white shadow-none"
+              : "bg-transparent text-muted-foreground border border-border/60 dark:border-lms-accent-border hover:text-foreground hover:border-lms-accent"
+          )}
+        >
+          <Award className="size-4" />
+          Certificates
+          {certificates.length > 0 && (
+            <span
+              className={cn(
+                "font-mono text-[11px] px-1.5 py-0.5 rounded-full",
+                tab === "certificates" ? "bg-white/20 text-white" : "text-muted-foreground"
+              )}
+            >
+              {certificates.length}
+            </span>
+          )}
+        </button>
+
+        <button
+          onClick={() => setTab("teams")}
+          className={cn(
+            "h-10 px-5 rounded-full text-xs sm:text-sm font-bold transition-all cursor-pointer inline-flex items-center gap-2 select-none",
+            tab === "teams"
+              ? "bg-lms-cta text-white shadow-none"
+              : "bg-transparent text-muted-foreground border border-border/60 dark:border-lms-accent-border hover:text-foreground hover:border-lms-accent"
+          )}
+        >
+          <Users className="size-4" />
+          Teams
+          {teams.length > 0 && (
+            <span
+              className={cn(
+                "font-mono text-[11px] px-1.5 py-0.5 rounded-full",
+                tab === "teams" ? "bg-white/20 text-white" : "text-muted-foreground"
+              )}
+            >
+              {teams.length}
+            </span>
+          )}
+        </button>
       </div>
 
+      {/* Tab Panels */}
+      {tab === "record" && (
+        <div className="flex flex-col gap-8">
+          {/* Course Progress List */}
+          <div className="lms-card p-6 sm:p-8 flex flex-col gap-6">
+            <div className="flex items-center justify-between">
+              <h2 className="font-display text-xl font-bold text-foreground">
+                Course progress
+              </h2>
+              <button
+                onClick={() => void navigate({ to: "/learn/my-courses" })}
+                className="text-xs font-semibold text-[#A880FF] hover:underline inline-flex items-center gap-1 cursor-pointer"
+              >
+                Go to my learning <ArrowRight className="size-3" />
+              </button>
+            </div>
+
+            {!dashboard || dashboard.courses.length === 0 ? (
+              <div className="py-8 text-center text-xs sm:text-sm text-muted-foreground">
+                No enrolled courses yet. Explore the catalog to start learning.
+              </div>
+            ) : (
+              <div className="flex flex-col divide-y divide-border/20">
+                {dashboard.courses.map((c) => (
+                  <div
+                    key={c.course_id}
+                    onClick={() => void navigate({ to: `/learn/courses/${c.course_id}/learn` as never })}
+                    className="py-4 first:pt-0 last:pb-0 flex flex-col sm:flex-row sm:items-center justify-between gap-4 cursor-pointer group"
+                  >
+                    <div className="flex-1 min-w-0">
+                      <strong className="font-semibold text-sm text-foreground group-hover:text-[#A880FF] transition-colors truncate block">
+                        {c.title}
+                      </strong>
+                      <span className="text-xs text-muted-foreground mt-0.5 block">
+                        {c.status === "completed"
+                          ? "Completed"
+                          : `${c.modules_done} of ${c.modules_total} modules completed`}
+                      </span>
+                    </div>
+
+                    <div className="w-full sm:w-56 shrink-0 flex items-center gap-3">
+                      <CourseProgress value={c.pct} className="flex-1" />
+                      <ArrowRight className="size-4 text-muted-foreground group-hover:text-[#A880FF] transition-colors shrink-0" />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Recent Activity */}
+          {activity && activity.length > 0 && (
+            <div className="lms-card p-6 sm:p-8 flex flex-col gap-5">
+              <h2 className="font-display text-xl font-bold text-foreground">
+                Recent activity
+              </h2>
+              <div className="flex flex-col divide-y divide-border/20">
+                {activity.map((a) => (
+                  <div key={a.item_id} className="py-3.5 first:pt-0 last:pb-0 flex items-start gap-3">
+                    <CheckCircle2 className="size-4 text-[#A880FF] shrink-0 mt-0.5" />
+                    <div className="min-w-0 flex-1 flex flex-col sm:flex-row sm:items-center justify-between gap-1">
+                      <span className="text-xs sm:text-sm text-foreground">
+                        Completed <strong className="font-semibold">{a.item_title ?? a.item_kind}</strong> in {a.course_title}
+                      </span>
+                      {a.completed_at && (
+                        <span className="text-[11px] text-muted-foreground shrink-0">
+                          {new Date(a.completed_at).toLocaleDateString("en-US", {
+                            month: "short",
+                            day: "numeric",
+                            year: "numeric",
+                          })}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {tab === "certificates" && (
+        <div className="flex flex-col gap-6">
+          {certificates.length === 0 ? (
+            <div className="lms-card p-12 text-center flex flex-col items-center gap-3">
+              <Award className="size-10 text-muted-foreground/40" />
+              <h3 className="font-display text-lg font-bold text-foreground">No certificates yet</h3>
+              <p className="text-xs sm:text-sm text-muted-foreground max-w-sm">
+                Complete a course or program checklist to earn and download verified certificates.
+              </p>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+              {certificates.map((c) => (
+                <div key={c.id} className="lms-card p-6 flex flex-col justify-between gap-5">
+                  <div className="flex flex-col gap-3">
+                    <div className="size-10 rounded-full border border-lms-accent-border bg-lms-cta-light flex items-center justify-center text-lms-cta dark:text-lms-accent">
+                      <Award className="size-5" />
+                    </div>
+                    <div>
+                      <strong className="font-display text-base font-bold text-foreground block line-clamp-2">
+                        {c.title}
+                      </strong>
+                      <span className="text-xs text-muted-foreground mt-1 block">
+                        {c.type === "student_completion"
+                          ? "Program Certificate"
+                          : c.type === "lms_path_completion"
+                          ? "Learning Path Certificate"
+                          : "Course Certificate"}
+                        {c.issued_at &&
+                          ` · ${new Date(c.issued_at).toLocaleDateString("en-US", {
+                            month: "short",
+                            day: "numeric",
+                            year: "numeric",
+                          })}`}
+                      </span>
+                    </div>
+                  </div>
+
+                  {c.url && (
+                    <a
+                      href={c.url}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="lms-btn-secondary h-10 px-4 text-xs inline-flex items-center justify-center gap-2 cursor-pointer font-bold"
+                    >
+                      <Download className="size-3.5" />
+                      Download PDF
+                    </a>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {tab === "teams" && (
+        <div className="flex flex-col gap-6">
+          {teams.length === 0 ? (
+            <div className="lms-card p-12 text-center flex flex-col items-center gap-3">
+              <Users className="size-10 text-muted-foreground/40" />
+              <h3 className="font-display text-lg font-bold text-foreground">No teams yet</h3>
+              <p className="text-xs sm:text-sm text-muted-foreground max-w-sm">
+                Join or create a team inside a collaborative space mission or cohort.
+              </p>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+              {teams.map((t) => (
+                <div key={t.id} className="lms-card p-6 flex flex-col justify-between gap-4">
+                  <div className="flex flex-col gap-2">
+                    <div className="size-10 rounded-full border border-lms-accent-border bg-lms-cta-light flex items-center justify-center text-lms-cta dark:text-lms-accent">
+                      <Users className="size-5" />
+                    </div>
+                    <strong className="font-display text-base font-bold text-foreground truncate mt-1">
+                      {t.name}
+                    </strong>
+                    <span className="text-xs text-muted-foreground">
+                      {t.cohort_id ? "Cohort team" : "Self-formed team"}
+                    </span>
+                  </div>
+
+                  {t.member_names && t.member_names.length > 0 && (
+                    <div className="border-t border-border/20 pt-3 flex flex-col gap-1">
+                      <span className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">
+                        Members ({t.member_names.length})
+                      </span>
+                      <p className="text-xs text-foreground/80 line-clamp-2">
+                        {t.member_names.join(", ")}
+                      </p>
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Functional Dialogs */}
       <EditProfileDialog open={editOpen} onOpenChange={setEditOpen} />
       <ChangePasswordDialog open={pwOpen} onOpenChange={setPwOpen} />
       <RedeemInviteModal
@@ -326,22 +525,9 @@ export default function LearnProfile() {
   );
 }
 
-function AccountField({ label, value }: { label: string; value: string }) {
-  return (
-    <div>
-      <div className="text-[10.5px] font-medium uppercase tracking-wider text-muted-foreground">{label}</div>
-      <div className="text-sm mt-0.5">{value}</div>
-    </div>
-  );
-}
-
 function EditProfileDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (v: boolean) => void }) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      {/* Mounting the form fresh each time it opens (instead of an effect
-       * that resets state on `open`) is what discards any unsaved edits
-       * from a previous open — React's own recommended fix for "reset state
-       * when X changes" (see the set-state-in-effect rule this avoids). */}
       {open && <EditProfileForm onOpenChange={onOpenChange} />}
     </Dialog>
   );
@@ -356,6 +542,7 @@ function EditProfileForm({ onOpenChange }: { onOpenChange: (v: boolean) => void 
   const [country, setCountry] = useState(currentUser?.country ?? "");
   const [cityId, setCityId] = useState(currentUser?.city_id ?? "");
   const [cityOther, setCityOther] = useState(currentUser?.city_other ?? "");
+  const [birthdate, setBirthdate] = useState(currentUser?.birthdate || currentUser?.date_of_birth || "");
   const [cropSrc, setCropSrc] = useState<string | null>(null);
   const [cropOpen, setCropOpen] = useState(false);
 
@@ -372,10 +559,16 @@ function EditProfileForm({ onOpenChange }: { onOpenChange: (v: boolean) => void 
   });
 
   const save = useMutation({
-    mutationFn: () => updateMeApi({
-      full_name: fullName, phone: phone || undefined,
-      country: country || undefined, city_id: cityId || undefined, city_other: cityOther || undefined,
-    }),
+    mutationFn: () =>
+      updateMeApi({
+        full_name: fullName,
+        phone: phone || undefined,
+        country: country || undefined,
+        birthdate: birthdate || undefined,
+        date_of_birth: birthdate || undefined,
+        city_id: cityId || undefined,
+        city_other: cityOther || undefined,
+      }),
     onSuccess: (updated) => {
       setCurrentUser(updated);
       void queryClient.invalidateQueries({ queryKey: ["me"] });
@@ -390,125 +583,154 @@ function EditProfileForm({ onOpenChange }: { onOpenChange: (v: boolean) => void 
       <DialogHeader>
         <DialogTitle className="font-display">Edit profile</DialogTitle>
       </DialogHeader>
-        <div className="flex flex-col gap-5 py-2">
-          <div className="flex items-center gap-4">
-            <div
-              className="relative w-16 h-16 rounded-full bg-primary/10 border-2 border-primary/30 flex items-center justify-center text-lg font-display font-bold text-primary overflow-hidden shrink-0 cursor-pointer group"
-              onClick={() => photoRef.current?.click()}
-            >
-              {currentUser.photo_url ? (
-                <img src={currentUser.photo_url} alt="" className="w-full h-full object-cover" />
-              ) : (
-                currentUser.full_name.split(" ").map((w) => w[0]).slice(0, 2).join("")
-              )}
-              <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
-                <Upload size={16} className="text-white" />
+      <div className="flex flex-col gap-5 py-2">
+        <div className="flex items-center gap-4">
+          <div
+            className="relative w-16 h-16 rounded-full bg-lms-cta-light border-2 border-lms-accent/50 flex items-center justify-center text-lg font-display font-bold text-lms-cta dark:text-lms-accent overflow-hidden shrink-0 cursor-pointer group"
+            onClick={() => photoRef.current?.click()}
+          >
+            {currentUser.photo_url ? (
+              <img src={currentUser.photo_url} alt="" className="w-full h-full object-cover" />
+            ) : (
+              currentUser.full_name.split(" ").map((w) => w[0]).slice(0, 2).join("")
+            )}
+            <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+              <Upload size={16} className="text-white" />
+            </div>
+            {uploadPhoto.isPending && (
+              <div className="absolute inset-0 bg-black/50 flex items-center justify-center">
+                <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
               </div>
-              {uploadPhoto.isPending && (
-                <div className="absolute inset-0 bg-black/50 flex items-center justify-center">
-                  <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                </div>
-              )}
-            </div>
-            <input
-              ref={photoRef} type="file" accept="image/*" className="hidden"
-              onChange={(e) => {
-                const f = e.target.files?.[0];
-                if (f) {
-                  const reader = new FileReader();
-                  reader.onload = () => {
-                    setCropSrc(reader.result as string);
-                    setCropOpen(true);
-                  };
-                  reader.readAsDataURL(f);
-                }
-                e.currentTarget.value = "";
-              }}
-            />
-            <div>
-              <button onClick={() => photoRef.current?.click()} className="text-sm font-medium text-primary hover:opacity-80 cursor-pointer">
-                Upload photo
-              </button>
-              <div className="text-xs text-muted-foreground mt-0.5">JPG or PNG</div>
-            </div>
+            )}
           </div>
-
-          <div className="flex flex-col gap-3">
-            <div>
-              <label className="block text-xs font-medium text-muted-foreground mb-1.5">Full name</label>
-              <input
-                value={fullName} onChange={(e) => setFullName(e.target.value)}
-                className="w-full h-11 rounded-xl border border-border bg-background px-3.5 text-sm focus:outline-none focus:border-primary transition-colors"
-              />
-            </div>
-            <div>
-              <label className="block text-xs font-medium text-muted-foreground mb-1.5">Email</label>
-              <div className="w-full h-11 rounded-xl border border-border/60 bg-muted/30 px-3.5 flex items-center text-sm text-muted-foreground">
-                {currentUser.email}
-              </div>
-              <div className="text-xs text-muted-foreground mt-1.5">Contact support to change your email — it's your sign-in.</div>
-            </div>
-            <div>
-              <label className="block text-xs font-medium text-muted-foreground mb-1.5">
-                WhatsApp <span className="normal-case font-normal">(optional)</span>
-              </label>
-              <input
-                value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="+234..."
-                className="w-full h-11 rounded-xl border border-border bg-background px-3.5 text-sm focus:outline-none focus:border-primary transition-colors"
-              />
-            </div>
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label className="block text-xs font-medium text-muted-foreground mb-1.5">
-                  Country <span className="normal-case font-normal">(optional)</span>
-                </label>
-                <CountrySelect
-                  value={country} onChange={setCountry} valueType="code"
-                  className="w-full h-11 rounded-xl border border-border bg-background px-3.5 text-sm focus:outline-none focus:border-primary transition-colors"
-                />
-              </div>
-              {countryCities.length > 0 || country ? (
-                <div>
-                  <label className="block text-xs font-medium text-muted-foreground mb-1.5">
-                    City <span className="normal-case font-normal">(optional)</span>
-                  </label>
-                  <CitySelect
-                    country={country} value={cityId} onChange={setCityId}
-                    otherValue={cityOther} onOtherChange={setCityOther}
-                    className="w-full h-11 rounded-xl border border-border bg-background px-3.5 text-sm focus:outline-none focus:border-primary transition-colors"
-                  />
-                </div>
-              ) : null}
-            </div>
-          </div>
-        </div>
-        <DialogFooter>
-          <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
-          <Button onClick={() => save.mutate()} disabled={save.isPending}>
-            {save.isPending ? "Saving..." : "Save changes"}
-          </Button>
-        </DialogFooter>
-
-        {cropSrc && (
-          <ImageCropModal
-            isOpen={cropOpen}
-            onClose={() => {
-              if (!uploadPhoto.isPending) {
-                setCropOpen(false);
-                setCropSrc(null);
+          <input
+            ref={photoRef}
+            type="file"
+            accept="image/*"
+            className="hidden"
+            onChange={(e) => {
+              const f = e.target.files?.[0];
+              if (f) {
+                const reader = new FileReader();
+                reader.onload = () => {
+                  setCropSrc(reader.result as string);
+                  setCropOpen(true);
+                };
+                reader.readAsDataURL(f);
               }
-            }}
-            imageSrc={cropSrc}
-            title="Crop Profile Photo"
-            aspect={1}
-            circularCrop={true}
-            showPreview={false}
-            isUploading={uploadPhoto.isPending}
-            onCropComplete={async (croppedFile) => {
-              await uploadPhoto.mutateAsync(croppedFile);
+              e.currentTarget.value = "";
             }}
           />
-        )}
+          <div>
+            <button
+              onClick={() => photoRef.current?.click()}
+              className="text-sm font-medium text-[#A880FF] hover:underline cursor-pointer"
+            >
+              Upload photo
+            </button>
+            <div className="text-xs text-muted-foreground mt-0.5">JPG or PNG</div>
+          </div>
+        </div>
+
+        <div className="flex flex-col gap-3">
+          <div>
+            <label className="block text-xs font-medium text-muted-foreground mb-1.5">Full name</label>
+            <input
+              value={fullName}
+              onChange={(e) => setFullName(e.target.value)}
+              className="w-full h-11 rounded-xl border border-border bg-background px-3.5 text-sm focus:outline-none focus:border-[#A880FF] transition-colors"
+            />
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-muted-foreground mb-1.5">Email</label>
+            <div className="w-full h-11 rounded-xl border border-border/60 bg-muted/30 px-3.5 flex items-center text-sm text-muted-foreground">
+              {currentUser.email}
+            </div>
+            <div className="text-xs text-muted-foreground mt-1.5">
+              Contact support to change your email — it's your sign-in.
+            </div>
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-muted-foreground mb-1.5">
+              WhatsApp <span className="normal-case font-normal">(optional)</span>
+            </label>
+            <input
+              value={phone}
+              onChange={(e) => setPhone(e.target.value)}
+              placeholder="+971..."
+              className="w-full h-11 rounded-xl border border-border bg-background px-3.5 text-sm focus:outline-none focus:border-[#A880FF] transition-colors"
+            />
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-muted-foreground mb-1.5">
+              Birthdate <span className="normal-case font-normal">(optional)</span>
+            </label>
+            <input
+              type="date"
+              value={birthdate ? birthdate.slice(0, 10) : ""}
+              onChange={(e) => setBirthdate(e.target.value)}
+              className="w-full h-11 rounded-xl border border-border bg-background px-3.5 text-sm focus:outline-none focus:border-[#A880FF] transition-colors"
+            />
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-xs font-medium text-muted-foreground mb-1.5">
+                Country <span className="normal-case font-normal">(optional)</span>
+              </label>
+              <CountrySelect
+                value={country}
+                onChange={setCountry}
+                valueType="code"
+                className="w-full h-11 rounded-xl border border-border bg-background px-3.5 text-sm focus:outline-none focus:border-[#A880FF] transition-colors"
+              />
+            </div>
+            {countryCities.length > 0 || country ? (
+              <div>
+                <label className="block text-xs font-medium text-muted-foreground mb-1.5">
+                  City <span className="normal-case font-normal">(optional)</span>
+                </label>
+                <CitySelect
+                  country={country}
+                  value={cityId}
+                  onChange={setCityId}
+                  otherValue={cityOther}
+                  onOtherChange={setCityOther}
+                  className="w-full h-11 rounded-xl border border-border bg-background px-3.5 text-sm focus:outline-none focus:border-[#A880FF] transition-colors"
+                />
+              </div>
+            ) : null}
+          </div>
+        </div>
+      </div>
+      <DialogFooter>
+        <Button variant="outline" onClick={() => onOpenChange(false)}>
+          Cancel
+        </Button>
+        <Button onClick={() => save.mutate()} disabled={save.isPending} className="bg-lms-cta hover:bg-lms-cta-hover text-white">
+          {save.isPending ? "Saving..." : "Save changes"}
+        </Button>
+      </DialogFooter>
+
+      {cropSrc && (
+        <ImageCropModal
+          isOpen={cropOpen}
+          onClose={() => {
+            if (!uploadPhoto.isPending) {
+              setCropOpen(false);
+              setCropSrc(null);
+            }
+          }}
+          imageSrc={cropSrc}
+          title="Crop Profile Photo"
+          aspect={1}
+          circularCrop={true}
+          showPreview={false}
+          isUploading={uploadPhoto.isPending}
+          onCropComplete={async (croppedFile) => {
+            await uploadPhoto.mutateAsync(croppedFile);
+          }}
+        />
+      )}
     </DialogContent>
   );
 }
@@ -521,7 +743,11 @@ function ChangePasswordDialog({ open, onOpenChange }: { open: boolean; onOpenCha
   const [done, setDone] = useState(false);
 
   const reset = () => {
-    setCurrent(""); setNext(""); setConfirm(""); setError(null); setDone(false);
+    setCurrent("");
+    setNext("");
+    setConfirm("");
+    setError(null);
+    setDone(false);
   };
 
   const change = useMutation({
@@ -529,7 +755,10 @@ function ChangePasswordDialog({ open, onOpenChange }: { open: boolean; onOpenCha
     onSuccess: () => {
       setDone(true);
       setError(null);
-      setTimeout(() => { reset(); onOpenChange(false); }, 1500);
+      setTimeout(() => {
+        reset();
+        onOpenChange(false);
+      }, 1500);
     },
     onError: (err: unknown) => setError(errorDetail(err, "Failed to change password")),
   });
@@ -541,24 +770,54 @@ function ChangePasswordDialog({ open, onOpenChange }: { open: boolean; onOpenCha
     change.mutate();
   };
 
-  const inputCls = "w-full h-11 rounded-xl border border-border bg-background px-3.5 text-sm focus:outline-none focus:border-primary transition-colors";
+  const inputCls =
+    "w-full h-11 rounded-xl border border-border bg-background px-3.5 text-sm focus:outline-none focus:border-[#A880FF] transition-colors";
 
   return (
-    <Dialog open={open} onOpenChange={(v) => { onOpenChange(v); if (!v) reset(); }}>
+    <Dialog
+      open={open}
+      onOpenChange={(v) => {
+        onOpenChange(v);
+        if (!v) reset();
+      }}
+    >
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
           <DialogTitle className="font-display">Change password</DialogTitle>
         </DialogHeader>
         <div className="flex flex-col gap-3 py-2">
-          <PasswordInput value={current} onChange={(e) => setCurrent(e.target.value)} placeholder="Current password" className={inputCls} />
-          <PasswordInput value={next} onChange={(e) => setNext(e.target.value)} placeholder="New password" className={inputCls} />
-          <PasswordInput value={confirm} onChange={(e) => setConfirm(e.target.value)} placeholder="Confirm new password" className={inputCls} />
+          <PasswordInput
+            value={current}
+            onChange={(e) => setCurrent(e.target.value)}
+            placeholder="Current password"
+            className={inputCls}
+          />
+          <PasswordInput
+            value={next}
+            onChange={(e) => setNext(e.target.value)}
+            placeholder="New password"
+            className={inputCls}
+          />
+          <PasswordInput
+            value={confirm}
+            onChange={(e) => setConfirm(e.target.value)}
+            placeholder="Confirm new password"
+            className={inputCls}
+          />
           {error && <p className="text-xs text-destructive">{error}</p>}
-          {done && <p className="text-xs text-emerald-500 flex items-center gap-1.5"><CheckCircle2 size={14} /> Password updated</p>}
+          {done && (
+            <p className="text-xs text-emerald-500 flex items-center gap-1.5">
+              <CheckCircle2 size={14} /> Password updated
+            </p>
+          )}
         </div>
         <DialogFooter>
-          <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
-          <Button onClick={submit} disabled={change.isPending}>{change.isPending ? "Updating..." : "Update password"}</Button>
+          <Button variant="outline" onClick={() => onOpenChange(false)}>
+            Cancel
+          </Button>
+          <Button onClick={submit} disabled={change.isPending} className="bg-lms-cta hover:bg-lms-cta-hover text-white">
+            {change.isPending ? "Updating..." : "Update password"}
+          </Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>

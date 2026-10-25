@@ -6,6 +6,7 @@ import "@fontsource-variable/inter";
 import "@fontsource/outfit/400.css";
 import "@fontsource/outfit/500.css";
 import "@fontsource/outfit/700.css";
+import "@fontsource/outfit/800.css";
 import "@fontsource/outfit/900.css";
 import "./index.css";
 import { router } from "./router";

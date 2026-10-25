@@ -30,8 +30,8 @@ export function PlayerLayout({
   // Whole-column collapse (2026-09), independent of any single module's own
   // open/closed state — a "sign to expand/collapse the sidebar itself", not
   // just its rows. Desktop only; mobile already has no column to collapse
-  // (see the "Back to course" link below).
-  const [sidebarOpen, setSidebarOpen] = useState(false);
+  // (see the "Back to course" link below). Defaults to true so curriculum is visible.
+  const [sidebarOpen, setSidebarOpen] = useState(true);
   // Only used to carry the "opened from a checklist" chain through to the
   // course landing page — same param TaskDrawer/LearnCourse already thread
   // for the completion-celebration "back to your program" nudge.
@@ -96,12 +96,12 @@ export function PlayerLayout({
             "Back to course" link (below) to the landing page's own expandable
             module list (LearnCourse.tsx's ModuleRow) to browse/pick from. */}
         {sidebarOpen && (
-          <aside className="hidden lg:block lg:w-[380px] lg:shrink-0 lg:overflow-y-auto border-b lg:border-b-0 lg:border-r border-border bg-card/30">
-            <div className="p-5 sm:p-6 flex items-center justify-between gap-2">
+          <aside className="hidden lg:block lg:w-[360px] lg:shrink-0 lg:overflow-y-auto border-b lg:border-b-0 lg:border-r border-border/80 dark:border-[#a880ff]/20 bg-background/95 dark:bg-[#05030A]/80 backdrop-blur-md">
+            <div className="p-5 sm:p-6 flex items-center justify-between gap-3 border-b border-border/60 dark:border-[#a880ff]/15">
               <div className="min-w-0 flex items-center gap-2">
-                <h2 className="font-display text-lg font-bold truncate">{course.title}</h2>
+                <h2 className="font-['Outfit'] text-base sm:text-lg font-bold truncate text-foreground tracking-tight">{course.title}</h2>
                 {course.is_published === false && (
-                  <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-muted text-muted-foreground border border-border shrink-0">
+                  <span className="text-[10px] font-semibold px-2 py-0.5 rounded bg-muted text-muted-foreground border border-border shrink-0">
                     Draft
                   </span>
                 )}
@@ -109,7 +109,7 @@ export function PlayerLayout({
               <button
                 type="button"
                 onClick={() => setSidebarOpen(false)}
-                className="shrink-0 rounded-lg p-1.5 text-muted-foreground hover:bg-foreground/5 hover:text-foreground transition-colors cursor-pointer"
+                className="shrink-0 rounded-lg p-1.5 text-muted-foreground hover:bg-[#a880ff]/10 hover:text-foreground dark:hover:text-white transition-colors cursor-pointer"
                 title="Collapse module list"
               >
                 <PanelLeftClose className="size-[18px]" />
@@ -123,27 +123,27 @@ export function PlayerLayout({
               const isOpen = openModuleId === module.module_id;
               const isPreviewLoading = previewLoadingId === module.module_id;
               return (
-                <div key={module.module_id} className="border-t border-border/60">
+                <div key={module.module_id} className="border-t border-border/60 dark:border-[#a880ff]/15">
                   <button
                     onClick={() => toggleModule(module)}
                     className={cn(
-                      "w-full flex items-center gap-3.5 px-5 sm:px-6 py-4 text-left transition-colors cursor-pointer hover:bg-foreground/5",
-                      isOpen && "bg-foreground/[0.03]",
+                      "w-full flex items-center gap-3.5 px-5 sm:px-6 py-3.5 text-left transition-colors cursor-pointer hover:bg-foreground/5 dark:hover:bg-[#a880ff]/5",
+                      isOpen && "bg-foreground/[0.03] dark:bg-[#a880ff]/[0.04]",
                     )}
                   >
                     <span className={cn(
-                      "flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-sm font-semibold",
-                      module.locked ? "ring-1 ring-border text-muted-foreground"
-                        : done ? "bg-emerald-500/15 text-emerald-500 ring-1 ring-emerald-500/40"
-                        : isOpen ? "ring-1.5 ring-primary text-primary"
-                        : "ring-1 ring-border text-muted-foreground",
+                      "flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-xs font-bold font-['Outfit']",
+                      module.locked ? "border border-border dark:border-lms-accent-border/40 text-muted-foreground/60"
+                        : done ? "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border border-emerald-500/40"
+                        : isOpen ? "border border-lms-cta dark:border-lms-accent text-lms-cta dark:text-lms-accent bg-lms-cta-light dark:bg-lms-accent-light"
+                        : "border border-border/80 text-muted-foreground",
                     )}>
-                      {module.locked ? <Lock className="size-4" /> : done ? <CheckCircle2 className="size-4" /> : module.position}
+                      {module.locked ? <Lock className="size-3.5" /> : done ? <CheckCircle2 className="size-3.5" /> : module.position}
                     </span>
-                    <span className={cn("flex-1 min-w-0 text-base truncate", module.locked ? "text-muted-foreground" : "font-medium")}>
+                    <span className={cn("flex-1 min-w-0 text-sm truncate font-['Outfit']", module.locked ? "text-muted-foreground/70" : "font-semibold text-foreground")}>
                       {module.title ?? `Module ${module.position}`}
                     </span>
-                    <ChevronDown className={cn("size-5 text-muted-foreground shrink-0 transition-transform", isOpen && "rotate-180")} />
+                    <ChevronDown className={cn("size-4 text-muted-foreground shrink-0 transition-transform duration-200", isOpen && "rotate-180")} />
                   </button>
                   {isOpen && (
                     <div className="pb-2">
@@ -157,16 +157,16 @@ export function PlayerLayout({
                             onClick={() => !module.locked && onSelectItem(item.id)}
                             disabled={module.locked}
                             className={cn(
-                              "w-full flex items-center gap-2.5 pl-12 pr-5 py-2.5 text-left text-sm transition-colors",
-                              module.locked ? "cursor-default text-muted-foreground/70"
-                                : isSelected ? "cursor-pointer bg-primary/10 text-foreground font-medium"
-                                : "cursor-pointer text-muted-foreground hover:bg-foreground/5",
+                              "w-full flex items-center gap-3 pl-11 pr-5 py-2.5 text-left text-xs sm:text-sm transition-all border-l-2",
+                              module.locked ? "cursor-default text-muted-foreground/40 border-transparent"
+                                : isSelected ? "cursor-pointer bg-lms-cta-light border-lms-cta dark:border-lms-accent text-foreground dark:text-white font-semibold"
+                                : "cursor-pointer text-muted-foreground border-transparent hover:bg-foreground/5 dark:hover:bg-lms-accent/5 hover:text-foreground",
                             )}
                           >
                             <span className="relative shrink-0">
-                              <Icon className={cn("size-4", isDone && "text-emerald-500", isSelected && "text-primary")} />
+                              <Icon className={cn("size-4", isDone ? "text-emerald-600 dark:text-emerald-400" : isSelected ? "text-lms-cta dark:text-lms-accent" : "text-muted-foreground")} />
                               {isDone && (
-                                <CheckCircle2 className="absolute -top-0.5 -right-1 size-3 text-emerald-500 bg-card rounded-full" />
+                                <CheckCircle2 className="absolute -top-1 -right-1 size-3 text-emerald-600 dark:text-emerald-400 bg-background rounded-full" />
                               )}
                             </span>
                             <span className="truncate">{item.title ?? item.kind}</span>
@@ -174,11 +174,11 @@ export function PlayerLayout({
                         );
                       })}
                       {items.length === 0 && (
-                        <div className="pl-12 pr-5 py-2.5 text-sm text-muted-foreground flex items-center gap-2">
+                        <div className="pl-11 pr-5 py-2.5 text-xs text-muted-foreground flex items-center gap-2">
                           {module.locked && !isPreviewLoading ? (
                             "Preview not available yet."
                           ) : (
-                            <><PlayCircle className="size-4" /> Loading...</>
+                            <><PlayCircle className="size-3.5" /> Loading...</>
                           )}
                         </div>
                       )}
@@ -197,7 +197,7 @@ export function PlayerLayout({
             to="/learn/courses/$courseId"
             params={{ courseId: course.id }}
             search={program ? ({ program } as never) : undefined}
-            className="lg:hidden flex items-center gap-2 px-5 py-3.5 text-sm font-semibold text-primary bg-background/95 backdrop-blur border-b border-border"
+            className="lg:hidden flex items-center gap-2 px-5 py-3.5 text-xs sm:text-sm font-semibold text-lms-cta dark:text-lms-accent hover:text-foreground dark:hover:text-white bg-background/95 dark:bg-[#05030A]/95 backdrop-blur border-b border-border/80 dark:border-lms-accent-border/40 transition-colors"
           >
             <ArrowLeft className="size-4" /> Back to course
           </Link>
@@ -205,13 +205,13 @@ export function PlayerLayout({
             <button
               type="button"
               onClick={() => setSidebarOpen(true)}
-              className="hidden lg:flex w-full items-center gap-2 px-6 py-3.5 text-left text-sm font-semibold text-primary bg-background/95 backdrop-blur border-b border-border cursor-pointer hover:bg-foreground/5 transition-colors"
+              className="hidden lg:flex w-full items-center gap-2 px-6 py-3 text-left text-xs sm:text-sm font-semibold text-muted-foreground hover:text-foreground dark:hover:text-white bg-background/95 dark:bg-[#05030A]/95 backdrop-blur border-b border-border/80 dark:border-[#a880ff]/20 cursor-pointer hover:bg-foreground/5 dark:hover:bg-[#a880ff]/5 transition-colors"
             >
               <PanelLeftOpen className="size-4" /> Show course outline
             </button>
           )}
         </div>
-        <div className="px-5 sm:px-8 lg:px-12 pb-5 sm:pb-8 lg:pb-12 pt-5 sm:pt-6 lg:pt-6">
+        <div className="px-5 sm:px-8 lg:px-12 pb-8 sm:pb-12 pt-6 sm:pt-8">
           <div className="max-w-[1040px] mx-auto">
             {children}
           </div>

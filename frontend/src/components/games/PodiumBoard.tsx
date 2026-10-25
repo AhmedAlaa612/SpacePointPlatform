@@ -44,18 +44,18 @@ export function PodiumBoard({
               <div key={entry.participant_id} className="flex flex-col items-center gap-2 w-24">
                 <Medal className={cn("size-6", MEDAL_SHADES[i])} />
                 <AvatarBadge avatar={entry.avatar} nickname={label(entry)} size={44} />
-                <p className={cn("text-xs font-semibold truncate w-full text-center", isMe && "text-primary")}>
+                <p className={cn("text-xs font-semibold truncate w-full text-center", isMe && "text-lms-cta dark:text-lms-accent font-bold")}>
                   {label(entry)}{isMe && " (you)"}
                 </p>
-                <p className="font-display text-sm font-bold">{entry.score}</p>
+                <p className="font-['Outfit'] text-sm font-bold">{entry.score}</p>
                 <div
                   className={cn(
                     "w-full rounded-t-xl border-2 flex items-start justify-center pt-2",
                     PODIUM_HEIGHTS[i],
-                    isMe ? "border-primary bg-primary/10" : "border-border bg-card",
+                    isMe ? "border-lms-cta dark:border-lms-accent bg-lms-cta-light" : "border-border bg-card",
                   )}
                 >
-                  <span className="font-display text-lg font-extrabold text-muted-foreground">{i + 1}</span>
+                  <span className="font-['Outfit'] text-lg font-extrabold text-muted-foreground">{i + 1}</span>
                 </div>
               </div>
             )
@@ -72,15 +72,15 @@ export function PodiumBoard({
                 key={entry.participant_id}
                 className={cn(
                   "flex items-center gap-3 rounded-xl border p-3",
-                  isMe ? "border-primary/40 bg-primary/5" : "border-border bg-card",
+                  isMe ? "border-lms-cta dark:border-lms-accent bg-lms-cta-light" : "border-border bg-card",
                 )}
               >
                 <span className="w-6 text-center text-sm font-bold text-muted-foreground">{i + 4}</span>
                 <AvatarBadge avatar={entry.avatar} nickname={label(entry)} size={32} />
                 <span className="flex-1 text-sm font-medium truncate">
-                  {label(entry)}{isMe && <span className="ml-1.5 font-normal text-muted-foreground">(you)</span>}
+                  {label(entry)}{isMe && <span className="ml-1.5 font-bold text-lms-cta dark:text-lms-accent">(you)</span>}
                 </span>
-                <span className="font-display font-bold text-sm">{entry.score}</span>
+                <span className="font-['Outfit'] font-bold text-sm">{entry.score}</span>
               </div>
             )
           })}

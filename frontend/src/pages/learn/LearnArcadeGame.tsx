@@ -76,20 +76,20 @@ export default function LearnArcadeGame() {
   return (
     <div className="w-full h-[calc(100vh-4rem)] md:h-screen flex flex-col bg-background">
       {/* ── SpacePoint LMS Header Bar ── */}
-      <div className="flex items-center justify-between px-4 sm:px-6 py-2.5 bg-card/90 border-b border-border text-sm shrink-0 backdrop-blur-sm">
+      <div className="flex items-center justify-between px-4 sm:px-6 py-2.5 bg-background/95 dark:bg-[#05030A]/95 border-b border-border/80 dark:border-[#a880ff]/20 text-sm shrink-0 backdrop-blur-sm">
         <div className="flex items-center gap-3 min-w-0">
           {assignmentId ? (
             <Link
               to="/learn/checklists/$assignmentId"
               params={{ assignmentId }}
-              className="inline-flex items-center gap-1.5 font-semibold text-primary hover:underline shrink-0"
+              className="inline-flex items-center gap-1.5 font-semibold text-lms-cta dark:text-lms-accent hover:underline shrink-0 font-['Outfit']"
             >
               <ArrowLeft className="size-4" /> Back to Program
             </Link>
           ) : (
             <Link
               to="/learn/arcade"
-              className="inline-flex items-center gap-1.5 font-semibold text-primary hover:underline shrink-0"
+              className="inline-flex items-center gap-1.5 font-semibold text-lms-cta dark:text-lms-accent hover:underline shrink-0 font-['Outfit']"
             >
               <ArrowLeft className="size-4" /> Mission Arcade
             </Link>
@@ -98,15 +98,15 @@ export default function LearnArcadeGame() {
           <div className="hidden sm:flex items-center gap-2 text-muted-foreground min-w-0">
             <span>/</span>
             {currentGame && (
-              <span className="text-xs font-semibold uppercase tracking-wider text-primary/80 bg-primary/10 px-2 py-0.5 rounded border border-primary/20 shrink-0">
+              <span className="text-xs font-bold uppercase tracking-wider text-lms-cta dark:text-lms-accent bg-lms-cta-light px-2 py-0.5 rounded border border-lms-cta-border dark:border-lms-accent-border shrink-0">
                 M{currentGame.module_no} · {currentGame.module_name}
               </span>
             )}
-            <span className="font-display font-bold text-foreground truncate">
+            <span className="font-['Outfit'] font-bold text-foreground truncate">
               {currentGame?.title || gameKey}
             </span>
             {currentGame?.is_3d && (
-              <span className="flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold text-primary bg-primary/15 border border-primary/30 shrink-0">
+              <span className="flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold text-lms-cta dark:text-lms-accent bg-lms-cta-light border border-lms-cta-border dark:border-lms-accent-border shrink-0">
                 <Box className="size-2.5" /> 3D
               </span>
             )}
@@ -115,7 +115,7 @@ export default function LearnArcadeGame() {
 
         <div className="flex items-center gap-3 shrink-0">
           {/* Track selector */}
-          <div className="inline-flex rounded-lg bg-card/80 border border-border p-0.5 text-xs">
+          <div className="inline-flex rounded-lg bg-card border border-border/80 dark:border-lms-accent-border/40 p-0.5 text-xs">
             <button
               onClick={() => {
                 void navigate({
@@ -124,9 +124,9 @@ export default function LearnArcadeGame() {
                   search: { mode: "explorer", program: assignmentId, itemId } as never,
                 });
               }}
-              className={`px-2.5 py-1 rounded-md font-medium transition-all flex items-center gap-1 ${
+              className={`px-3 py-1 rounded-md transition-all flex items-center gap-1 cursor-pointer ${
                 mode === "explorer"
-                  ? "bg-primary text-primary-foreground font-semibold"
+                  ? "bg-lms-cta text-white font-semibold"
                   : "text-muted-foreground hover:text-foreground"
               }`}
             >
@@ -140,9 +140,9 @@ export default function LearnArcadeGame() {
                   search: { mode: "engineer", program: assignmentId, itemId } as never,
                 });
               }}
-              className={`px-2.5 py-1 rounded-md font-medium transition-all flex items-center gap-1 ${
+              className={`px-3 py-1 rounded-md transition-all flex items-center gap-1 cursor-pointer ${
                 mode === "engineer"
-                  ? "bg-primary text-primary-foreground font-semibold"
+                  ? "bg-lms-cta text-white font-semibold"
                   : "text-muted-foreground hover:text-foreground"
               }`}
             >
@@ -152,7 +152,7 @@ export default function LearnArcadeGame() {
 
           {/* Cleared badge */}
           {(justPassed || modeData?.passed) && (
-            <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-emerald-400 bg-emerald-500/15 border border-emerald-500/30 px-2.5 py-1 rounded-full">
+            <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-emerald-600 dark:text-emerald-400 bg-emerald-500/10 border border-emerald-500/30 px-2.5 py-1 rounded-full">
               <CheckCircle2 className="size-3.5" /> Cleared ({modeData?.best_score ?? 100}/100)
             </span>
           )}

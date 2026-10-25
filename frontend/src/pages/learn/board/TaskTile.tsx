@@ -50,7 +50,7 @@ export function TaskTile({
       onClick={onOpen}
       onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onOpen(); } }}
       className={cn(
-        "relative z-[1] flex w-[200px] h-[104px] md:w-[158px] md:h-[136px] shrink-0 flex-col rounded-2xl p-3 md:p-[13px] box-border bg-card transition-transform transition-shadow duration-150 ease-in-out cursor-pointer hover:-translate-y-1",
+        "relative z-[1] flex w-[200px] h-[104px] md:w-[158px] md:h-[136px] shrink-0 flex-col rounded-2xl p-3 md:p-[13px] box-border bg-card dark:bg-[#080511]/90 backdrop-blur-sm transition-transform transition-shadow duration-150 ease-in-out cursor-pointer hover:-translate-y-1",
         isLocked && "hover:shadow-md",
         isPulsing && "animate-board-pulse",
         isGate && "gate-beacon-border border-[2px]",
@@ -72,7 +72,7 @@ export function TaskTile({
           )}
           <div
             className={cn(
-              "flex h-[22px] w-[22px] shrink-0 items-center justify-center rounded-full font-display text-[11px] font-bold",
+              "flex h-[22px] w-[22px] shrink-0 items-center justify-center rounded-full font-['Outfit'] text-[11px] font-bold",
               state === "live" ? "bg-primary/15" : "bg-transparent",
             )}
             style={{ color: INK[state] }}
@@ -83,7 +83,7 @@ export function TaskTile({
       </div>
 
       <div
-        className="mt-2 md:mt-2.5 font-display text-[12px] font-bold leading-[1.25] tracking-[-0.01em] text-foreground line-clamp-2"
+        className="mt-2 md:mt-2.5 font-['Outfit'] text-[12px] font-bold leading-[1.25] tracking-[-0.01em] text-foreground line-clamp-2"
       >
         {tile.title}
       </div>
