@@ -12,9 +12,12 @@ storage_local), regardless of which backend is currently active — Supabase
 URLs never point here.
 """
 
+import base64
 import mimetypes
+import os
 from urllib.parse import quote
 
+from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import Response
 
@@ -24,6 +27,13 @@ router = APIRouter(prefix="/files", tags=["files"])
 
 
 PUBLIC_BUCKETS: set[str] = {"website-assets", "lms-quiz-images"}
+
+# Buckets whose PDFs are strictly rendered inside the in-app PdfViewer (never
+# opened as raw browser tab links like certificates or contracts). PDFs in
+# these buckets — or any PDF requested with ?enc=1 by PdfViewer — are wrapped
+# in a per-request AES-256-GCM envelope so download managers (IDM, etc.) only
+# ever capture unreadable ciphertext.
+ENCRYPTED_PDF_BUCKETS: set[str] = {"lms-attachments", "library-resources"}
 
 
 @router.options("/{bucket}/{path:path}")
@@ -46,6 +56,7 @@ async def serve_file(
     request: Request,
     exp: int | None = Query(None),
     sig: str | None = Query(None),
+    enc: int | None = Query(None),
 ):
     if bucket not in PUBLIC_BUCKETS:
         if exp is None or sig is None or not storage_local.verify_signature(bucket, path, exp, sig):
@@ -68,6 +79,38 @@ async def serve_file(
     # real name percent-encoded in `filename*` for everything modern.
     ascii_fallback = filename.encode("ascii", "ignore").decode("ascii").replace('"', "").replace("\\", "") or "file"
     content_disposition = f"inline; filename=\"{ascii_fallback}\"; filename*=UTF-8''{quote(filename)}"
+
+    should_encrypt_pdf = media_type == "application/pdf" and (
+        enc == 1
+        or bucket in ENCRYPTED_PDF_BUCKETS
+        or path.lower().endswith("/datasheet.pdf")
+        or "datasheets/" in path.lower()
+    )
+
+    if should_encrypt_pdf:
+        key = os.urandom(32)
+        iv = os.urandom(12)
+        encrypted_data = AESGCM(key).encrypt(iv, data, None)
+        headers = {
+            "Content-Disposition": content_disposition,
+            "Accept-Ranges": "none",
+            "Cache-Control": "no-store",
+            "X-Pdf-Key": base64.b64encode(key).decode("ascii"),
+            "X-Pdf-Iv": base64.b64encode(iv).decode("ascii"),
+            "Content-Length": str(len(encrypted_data)),
+            "Access-Control-Allow-Origin": "*",
+            "Access-Control-Allow-Methods": "GET, HEAD, OPTIONS",
+            "Access-Control-Allow-Headers": "*",
+            "Access-Control-Expose-Headers": (
+                "Accept-Ranges, Content-Encoding, Content-Length, Content-Range, "
+                "Content-Disposition, X-Pdf-Key, X-Pdf-Iv"
+            ),
+        }
+        return Response(
+            content=encrypted_data,
+            media_type="application/octet-stream",
+            headers=headers,
+        )
 
     total_len = len(data)
     headers = {

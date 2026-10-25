@@ -49,6 +49,43 @@ const ZOOM_STEP = 0.25
 
 type TextLayerInstance = InstanceType<typeof pdfjsLib.TextLayer>
 
+function withEncryptedPdfParam(rawUrl: string): string {
+  try {
+    const parsed = new URL(rawUrl, window.location.origin)
+    if (parsed.pathname.includes("/files/")) {
+      parsed.searchParams.set("enc", "1")
+      return parsed.toString()
+    }
+  } catch {
+    // Leave non-standard or relative URLs untouched if URL parsing fails
+  }
+  return rawUrl
+}
+
+async function decryptPdfBufferIfNeeded(res: Response, buffer: ArrayBuffer): Promise<Uint8Array> {
+  const keyB64 = res.headers.get("X-Pdf-Key")
+  const ivB64 = res.headers.get("X-Pdf-Iv")
+  if (!keyB64 || !ivB64) {
+    return new Uint8Array(buffer)
+  }
+
+  const rawKey = Uint8Array.from(atob(keyB64), (c) => c.charCodeAt(0))
+  const iv = Uint8Array.from(atob(ivB64), (c) => c.charCodeAt(0))
+  const cryptoKey = await window.crypto.subtle.importKey(
+    "raw",
+    rawKey,
+    { name: "AES-GCM" },
+    false,
+    ["decrypt"],
+  )
+  const decrypted = await window.crypto.subtle.decrypt(
+    { name: "AES-GCM", iv },
+    cryptoKey,
+    buffer,
+  )
+  return new Uint8Array(decrypted)
+}
+
 async function renderPage(
   page: PDFPageProxy, canvas: HTMLCanvasElement, wrapper: HTMLDivElement, textLayerEl: HTMLDivElement,
   cssScale: number,
@@ -119,13 +156,16 @@ export function PdfViewer({ url, className }: { url: string; className?: string 
 
     async function loadPdf() {
       try {
-        // Fetching in the main thread bypasses web-worker CORS restrictions and
+        // Fetching in the main thread bypasses web-worker CORS restrictions,
+        // decrypts AES-256-GCM payloads in RAM when served by /files/, and
         // passes raw bytes directly into the worker as transferable data.
-        const res = await fetch(url)
+        const res = await fetch(withEncryptedPdfParam(url))
         if (!res.ok) throw new Error(`HTTP ${res.status}`)
         const buffer = await res.arrayBuffer()
         if (cancelled) return
-        loadingTask = pdfjsLib.getDocument({ data: new Uint8Array(buffer) })
+        const pdfBytes = await decryptPdfBufferIfNeeded(res, buffer)
+        if (cancelled) return
+        loadingTask = pdfjsLib.getDocument({ data: pdfBytes })
         const loaded = await loadingTask.promise
         if (cancelled) {
           loaded.destroy()

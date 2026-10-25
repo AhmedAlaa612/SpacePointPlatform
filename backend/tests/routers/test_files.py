@@ -4,9 +4,11 @@ quote, in this case), which used to crash Content-Disposition header
 encoding with a raw UnicodeEncodeError (2026-08-31).
 """
 
+import base64
 import uuid
 
 import pytest
+from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
 from app.services import storage_local
 
@@ -45,4 +47,27 @@ async def test_serve_file_public_bucket_without_signatures(client):
     assert resp.status_code == 200, resp.text
     assert resp.content == b"\x89PNG\r\n\x1a\nfake png bytes"
     assert resp.headers["content-type"] == "image/png"
+
+
+@pytest.mark.asyncio
+async def test_serve_file_encrypts_pdf_with_aes_gcm(client):
+    bucket = "lms-attachments"
+    path = f"{uuid.uuid4()}/lesson-notes.pdf"
+    raw_pdf = b"%PDF-1.7 secret lesson content"
+    await storage_local.upload_to_path(bucket, path, raw_pdf, "application/pdf")
+
+    url = await storage_local.get_signed_url(bucket, path)
+    relative = url.split("/files/", 1)[1]
+
+    resp = await client.get(f"/files/{relative}")
+    assert resp.status_code == 200, resp.text
+    assert resp.headers["content-type"] == "application/octet-stream"
+    assert resp.content != raw_pdf
+    assert b"%PDF" not in resp.content
+
+    key = base64.b64decode(resp.headers["x-pdf-key"])
+    iv = base64.b64decode(resp.headers["x-pdf-iv"])
+    decrypted = AESGCM(key).decrypt(iv, resp.content, None)
+    assert decrypted == raw_pdf
+
 
