@@ -73,7 +73,10 @@ export function slugifyTourId(label: string): string {
 }
 
 /** Find the first visible DOM element matching `selector` (supports comma-separated
- * priority fallback selectors, and ignores hidden desktop/mobile containers). */
+ * priority fallback selectors, and ignores hidden desktop/mobile containers).
+ * If a selector targets `[data-tour="page-workspace"]`, it resolves to the
+ * compact top header/control bar inside `<main>` rather than the full-height
+ * `<main>` container so the tooltip always appears at the top of the screen. */
 export function findVisibleTarget(selector: string): HTMLElement | null {
   if (typeof document === "undefined") return null;
   if (selector === "body") return document.body;
@@ -81,19 +84,32 @@ export function findVisibleTarget(selector: string): HTMLElement | null {
     .split(",")
     .map((s) => s.trim())
     .filter(Boolean);
-  for (const part of parts) {
-    const elements = document.querySelectorAll<HTMLElement>(part);
-    for (const el of elements) {
-      const rect = el.getBoundingClientRect();
-      const style = window.getComputedStyle(el);
-      if (
-        rect.width > 0 &&
-        rect.height > 0 &&
-        style.display !== "none" &&
-        style.visibility !== "hidden" &&
-        style.opacity !== "0"
-      ) {
-        return el;
+  for (const rawPart of parts) {
+    const expandedParts =
+      rawPart === '[data-tour="page-workspace"]'
+        ? [
+            'main [role="tablist"]',
+            "main h1",
+            "main h2",
+            "main > div > :first-child",
+            '[data-tour="page-workspace"]',
+          ]
+        : [rawPart];
+
+    for (const part of expandedParts) {
+      const elements = document.querySelectorAll<HTMLElement>(part);
+      for (const el of elements) {
+        const rect = el.getBoundingClientRect();
+        const style = window.getComputedStyle(el);
+        if (
+          rect.width > 0 &&
+          rect.height > 0 &&
+          style.display !== "none" &&
+          style.visibility !== "hidden" &&
+          style.opacity !== "0"
+        ) {
+          return el;
+        }
       }
     }
   }
@@ -640,7 +656,7 @@ export function resolveActionGuides(
             selector: '[data-tour="page-workspace"]',
             title: "2. Pick a Course to Continue",
             content: "Select any course card here to launch the video player and module lessons.",
-            placement: "top",
+            placement: "bottom",
           },
         ],
       },
@@ -664,7 +680,7 @@ export function resolveActionGuides(
             selector: '[data-tour="page-workspace"]',
             title: "2. Open Your Program Roadmap",
             content: "Click on your active cohort program to open the interactive milestone board.",
-            placement: "top",
+            placement: "bottom",
           },
         ],
       },
@@ -688,7 +704,7 @@ export function resolveActionGuides(
             selector: '[data-tour="page-workspace"]',
             title: "2. Launch a Mission",
             content: "Pick a mission briefing to start configuring subsystems or operating a pass.",
-            placement: "top",
+            placement: "bottom",
           },
         ],
       },
@@ -712,7 +728,7 @@ export function resolveActionGuides(
             selector: '[data-tour="page-workspace"]',
             title: "2. Choose Explorer or Engineer Track",
             content: "Filter by subsystem and launch any simulation to verify your engineering skills.",
-            placement: "top",
+            placement: "bottom",
           },
         ],
       },
@@ -735,8 +751,8 @@ export function resolveActionGuides(
             route: "/learn/catalog",
             selector: '[data-tour="page-workspace"]',
             title: "2. Filter & Enroll",
-            content: "Search by topic and click any course to view its syllabus and enroll.",
-            placement: "top",
+            content: "Switch between Courses, Upcoming programs, and Enrolled tabs here, or search by topic to enroll.",
+            placement: "bottom",
           },
         ],
       },
@@ -767,7 +783,7 @@ export function resolveActionGuides(
             selector: '[data-tour="page-workspace"]',
             title: "2. Watch & Write Summary",
             content: "Watch each training video and submit your 200+ word summary below it.",
-            placement: "top",
+            placement: "bottom",
           },
         ],
       },
@@ -830,7 +846,7 @@ export function resolveActionGuides(
             selector: '[data-tour="page-workspace"]',
             title: "2. Review & Approve",
             content: "Approve or decline requests here and generate official internship letters.",
-            placement: "top",
+            placement: "bottom",
           },
         ],
       },
@@ -859,7 +875,7 @@ export function resolveActionGuides(
             selector: '[data-tour="invite-new-code-btn"], [data-tour="page-workspace"]',
             title: "2. Click 'New code'",
             content: "Click 'New code' to create a student or observer signup code, then expand 'Grants' on the row to attach courses or cohorts.",
-            placement: "left",
+            placement: "bottom",
             advanceOnClick: true,
           },
         ],
@@ -912,7 +928,7 @@ export function resolveActionGuides(
           selector: '[data-tour="page-workspace"]',
           title: "2. Review & Adjust Stock",
           content: "Record stock counts, restock items, and track kit allocations across warehouses.",
-          placement: "top",
+          placement: "bottom",
         },
       ],
     });
@@ -939,7 +955,7 @@ export function resolveActionGuides(
           selector: '[data-tour="page-workspace"]',
           title: "2. Edit & Publish Live",
           content: "Update general configuration, events, programs, or press items — changes hydrate spacepoint.ae and labs.spacepoint.ae immediately.",
-          placement: "top",
+          placement: "bottom",
         },
       ],
     });
@@ -966,7 +982,7 @@ export function resolveActionGuides(
           selector: '[data-tour="page-workspace"]',
           title: "2. Manage Your Assigned Sessions",
           content: "Review session dates, locations, and open any session to record attendance.",
-          placement: "top",
+          placement: "bottom",
         },
       ],
     });
@@ -1018,7 +1034,7 @@ export function resolveActionGuides(
             selector: '[data-tour="page-workspace"]',
             title: "2. Work Through Training Modules",
             content: "Complete each module here to prepare for delivering hands-on SatKit sessions.",
-            placement: "top",
+            placement: "bottom",
           },
         ],
       },
@@ -1047,7 +1063,7 @@ export function resolveActionGuides(
             selector: '[data-tour="page-workspace"]',
             title: "2. Drag & Update Tasks",
             content: "Click any task card to inspect details or move it from To Do to In Progress / Done.",
-            placement: "top",
+            placement: "bottom",
           },
         ],
       },
@@ -1071,7 +1087,7 @@ export function resolveActionGuides(
             selector: '[data-tour="page-workspace"]',
             title: "2. Fill Out Mission Objectives",
             content: "Define the mission scope, deliverables, and timeline, then submit it for approval.",
-            placement: "top",
+            placement: "bottom",
           },
         ],
       },
@@ -1100,7 +1116,7 @@ export function resolveActionGuides(
             selector: '[data-tour="page-workspace"]',
             title: "2. Submit Task Completion",
             content: "Pick an available task, complete the outreach activity, and submit it for points.",
-            placement: "top",
+            placement: "bottom",
           },
         ],
       },
@@ -1124,7 +1140,7 @@ export function resolveActionGuides(
             selector: '[data-tour="page-workspace"]',
             title: "2. Add & Track Your Leads",
             content: "Log new school contacts here and track their status through the partnership pipeline.",
-            placement: "top",
+            placement: "bottom",
           },
         ],
       },
@@ -1153,7 +1169,7 @@ export function resolveActionGuides(
             selector: '[data-tour="page-workspace"]',
             title: "2. Add Your Time Slots",
             content: "Add or update your available weekly slots so mentees can schedule sessions.",
-            placement: "top",
+            placement: "bottom",
           },
         ],
       },
@@ -1177,7 +1193,7 @@ export function resolveActionGuides(
             selector: '[data-tour="page-workspace"]',
             title: "2. Join Meet & Track Attendance",
             content: "Access the Google Meet link and record session attendance here.",
-            placement: "top",
+            placement: "bottom",
           },
         ],
       },
@@ -1205,7 +1221,7 @@ export function resolveActionGuides(
           selector: '[data-tour="page-workspace"]',
           title: "2. Select a Team Row to Score",
           content: "Click on any team in the list to inspect their CubeSat mission artifacts and enter your rubric scores.",
-          placement: "top",
+          placement: "bottom",
         },
       ],
     });
@@ -1232,7 +1248,7 @@ export function resolveActionGuides(
           selector: '[data-tour="page-workspace"]',
           title: "2. Inspect Event Rosters",
           content: "Review event details, participant lists, and schedules here.",
-          placement: "top",
+          placement: "bottom",
         },
       ],
     });

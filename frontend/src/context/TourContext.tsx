@@ -16,7 +16,6 @@ import {
   findVisibleTarget,
   resolveActionGuides,
   resolveCandidateSteps,
-  waitForVisibleTarget,
   type TourActionGuide,
   type TourStepDef,
 } from "@/lib/tours";
@@ -68,40 +67,56 @@ export function TourProvider({
   const { user, activeRole } = useAuth();
   const { pathname } = useLocation();
   const navigate = useNavigate();
+  const navigateRef = useRef(navigate);
+  navigateRef.current = navigate;
+
   const [activeDefs, setActiveDefs] = useState<TourStepDef[]>([]);
   const [run, setRun] = useState(false);
   const activeIdsRef = useRef<string[]>([]);
 
+  // Keep `joyrideSteps` strictly dependent ONLY on `activeDefs` so route changes
+  // never recreate step closures mid-tour or abort Joyride's step lifecycle.
   const joyrideSteps: Step[] = useMemo(
     () =>
-      activeDefs.map((def) => ({
-        id: def.id,
-        target: () => findVisibleTarget(def.selector) ?? document.body,
-        title: def.title,
-        content: def.content,
-        placement: def.placement ?? "auto",
-        skipBeacon: true,
-        isFixed: true,
-        blockTargetInteraction: def.allowInteraction === false,
-        targetWaitTimeout: 3500,
-        before: async () => {
-          if (def.route && window.location.pathname !== def.route) {
-            await navigate({ to: def.route as never });
-          }
-          if (def.beforeStep) {
-            await def.beforeStep();
-          }
-          if (def.route || def.beforeStep) {
-            await waitForVisibleTarget(def.selector, 3500);
-          }
-        },
-      })),
-    [activeDefs, navigate],
+      activeDefs.map((def) => {
+        const isMobile = typeof window !== "undefined" && window.innerWidth < 768;
+        const effectivePlacement =
+          isMobile && def.selector.includes("learn-nav-")
+            ? "top"
+            : (def.placement ?? "auto");
+
+        return {
+          id: def.id,
+          target: () => {
+            if (def.route && typeof window !== "undefined" && window.location.pathname !== def.route) {
+              return null;
+            }
+            return findVisibleTarget(def.selector);
+          },
+          title: def.title,
+          content: def.content,
+          placement: effectivePlacement,
+          skipBeacon: true,
+          isFixed: true,
+          blockTargetInteraction: def.allowInteraction === false,
+          targetWaitTimeout: 3000,
+        };
+      }),
+    [activeDefs],
   );
 
   const handleEvent = useCallback(
-    (data: EventData) => {
-      const { status, type } = data;
+    (data: EventData, tourControls: { next: () => void; stop: () => void }) => {
+      const { status, type, index, size } = data;
+      if (type === EVENTS.TARGET_NOT_FOUND || type === EVENTS.ERROR) {
+        if (index + 1 < size) {
+          tourControls.next();
+        } else {
+          tourControls.stop();
+          setRun(false);
+        }
+        return;
+      }
       if (
         type === EVENTS.TOUR_END ||
         status === STATUS.FINISHED ||
@@ -122,6 +137,9 @@ export function TourProvider({
     continuous: true,
     scrollToFirstStep: true,
     tooltipComponent: SpacePointTourCard,
+    floatingOptions: {
+      hideArrow: true,
+    },
     onEvent: handleEvent,
     options: {
       buttons: ["back", "close", "primary", "skip"],
@@ -135,6 +153,23 @@ export function TourProvider({
       zIndex: 1000,
     },
   });
+
+  // Perform route navigation or beforeStep actions reactively when `state.index`
+  // changes, letting Joyride's built-in target poller wait for the new page element.
+  useEffect(() => {
+    if (!run) return;
+    const currentDef = activeDefs[state.index];
+    if (!currentDef) return;
+
+    if (currentDef.route && window.location.pathname !== currentDef.route) {
+      void navigateRef.current({ to: currentDef.route as never }).then(() => {
+        window.scrollTo({ top: 0, behavior: "instant" as ScrollBehavior });
+      });
+    }
+    if (currentDef.beforeStep) {
+      void currentDef.beforeStep();
+    }
+  }, [run, activeDefs, state.index]);
 
   // When a step has `advanceOnClick: true`, clicking the highlighted DOM element
   // performs its real click action AND automatically advances the tour to the next step!

@@ -174,9 +174,13 @@ export function TutorialLauncherMenu({
       {open && (
         <div
           className={cn(
-            "absolute z-50 w-80 max-w-[calc(100vw-2rem)] overflow-hidden rounded-2xl border border-border bg-popover text-popover-foreground shadow-2xl",
-            align === "left" ? "left-0" : "right-0",
-            side === "top" ? "bottom-full mb-2" : "top-full mt-2",
+            "z-50 overflow-hidden rounded-2xl border border-border bg-popover text-popover-foreground shadow-2xl",
+            // Mobile: fixed full-width card with 12px horizontal margin so it never clips off screen edges
+            "fixed inset-x-3 sm:absolute sm:inset-x-auto sm:w-80",
+            align === "left" ? "sm:left-0" : "sm:right-0",
+            side === "top"
+              ? "bottom-24 sm:bottom-full sm:mb-2"
+              : "top-16 sm:top-full sm:mt-2",
           )}
         >
           <div className="border-b border-border px-4 py-3">

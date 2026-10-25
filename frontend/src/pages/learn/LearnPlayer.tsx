@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams, useSearch } from "@tanstack/react-router";
-import { CheckCircle2 } from "lucide-react";
+import { CheckCircle2, Check } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   fetchCourse, fetchModule, recordProgress, type CourseDetail, type ModuleDetail, type ModuleItem,
@@ -35,7 +35,14 @@ export default function LearnPlayer() {
   const { courseId } = useParams({ strict: false }) as { courseId: string };
   const search = useSearch({ strict: false }) as { program?: string };
   const navigate = useNavigate();
-  const [rating, setRating] = useCourseRating(courseId);
+  const [rating, setRating, { reviewText, saveReview, isSubmitting }] = useCourseRating(courseId);
+  const [playerReviewOpen, setPlayerReviewOpen] = useState(false);
+  const [playerReviewDraft, setPlayerReviewDraft] = useState(reviewText);
+  const [playerReviewSaved, setPlayerReviewSaved] = useState(false);
+
+  useEffect(() => {
+    setPlayerReviewDraft(reviewText);
+  }, [reviewText]);
 
   const [course, setCourse] = useState<CourseDetail | null>(null);
   const [modulesData, setModulesData] = useState<Record<string, ModuleDetail>>({});
@@ -242,9 +249,59 @@ export default function LearnPlayer() {
                 {rating ? "Your rating" : "Rate this course"}
               </p>
               <EmojiRating value={rating} onChange={setRating} />
-              <p className="text-xs text-muted-foreground font-medium mt-1">
-                {rating ? `Rated ${rating}/5 · Click to edit anytime` : "Click an emoji to rate"}
-              </p>
+              {rating && (
+                <>
+                  <p className="text-xs text-muted-foreground font-medium mt-1">
+                    Rated {rating}/5 · Click to edit anytime
+                  </p>
+                  {!playerReviewOpen && !reviewText && (
+                    <button
+                      type="button"
+                      onClick={() => setPlayerReviewOpen(true)}
+                      className="text-xs text-primary hover:underline mt-1 cursor-pointer"
+                    >
+                      + Add a written review (optional)
+                    </button>
+                  )}
+                  {(playerReviewOpen || reviewText) && (
+                    <div className="w-full flex flex-col gap-1.5 mt-2.5 text-left">
+                      <textarea
+                        value={playerReviewDraft}
+                        onChange={(e) => {
+                          setPlayerReviewDraft(e.target.value);
+                          setPlayerReviewSaved(false);
+                        }}
+                        placeholder="Share your feedback for the instructor (optional)..."
+                        rows={2}
+                        className="w-full text-xs p-2.5 rounded-lg bg-background border border-border resize-none focus:outline-none focus:ring-1 focus:ring-primary text-foreground"
+                      />
+                      <div className="flex items-center justify-between">
+                        {playerReviewSaved ? (
+                          <span className="text-xs text-emerald-500 font-medium flex items-center gap-1">
+                            <Check className="size-3.5" /> Review saved!
+                          </span>
+                        ) : (
+                          <span />
+                        )}
+                        {playerReviewDraft !== reviewText && (
+                          <button
+                            type="button"
+                            disabled={isSubmitting}
+                            onClick={async () => {
+                              await saveReview(playerReviewDraft);
+                              setPlayerReviewSaved(true);
+                              setTimeout(() => setPlayerReviewSaved(false), 2500);
+                            }}
+                            className="text-xs font-medium px-3 py-1 rounded bg-primary text-primary-foreground hover:opacity-90 transition-opacity cursor-pointer disabled:opacity-50"
+                          >
+                            {isSubmitting ? "Saving..." : "Save review"}
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  )}
+                </>
+              )}
             </div>
 
             <Button size="xl" className="w-full mt-2" onClick={() => void navigate({ to: `/learn/courses/${courseId}` })}>
