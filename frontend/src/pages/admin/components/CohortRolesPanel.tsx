@@ -13,40 +13,76 @@ import {
   ChevronDown,
   ChevronRight,
   ChevronUp,
+  ClipboardCheck,
   Copy,
+  FileText,
   GripVertical,
   ImageIcon,
+  Link2,
   Plus,
   RotateCcw,
   Send,
   Trash2,
+  X,
 } from "lucide-react"
-import type { Cohort, ChecklistItem, Session } from "@/types/sessions"
+import type { Cohort, ChecklistItem, ChecklistAttachment, Session } from "@/types/sessions"
 import {
   getDeliveryRolesApi,
   getCohortOpeningsApi,
   setCohortOpeningsApi,
+  getMaterialsApi,
   type DeliveryRole,
+  type Material,
 } from "@/api/sessions/openings"
 import { getSessionsApi } from "@/api/sessions/cohorts"
 import { listChecklistItemsApi, setChecklistItemsApi, type ChecklistScope } from "@/api/sessions/day"
 import { useToast } from "@/components/ui/toast"
 import { cn, getErrorMessage } from "@/lib/utils"
+import { ChecklistAttachmentPicker } from "./ChecklistAttachmentPicker"
 
 export type ChecklistDraftLine = {
   key: string
   title: string
+  description?: string | null
   requires_proof: boolean
   is_required: boolean
+  material_id?: string | null
+  link_url?: string | null
+  attachments?: ChecklistAttachment[]
 }
 
 export function toDraftLines(items: ChecklistItem[]): ChecklistDraftLine[] {
-  return items.map((i) => ({
-    key: i.id || `item-${Math.random().toString(36).substring(2, 9)}`,
-    title: i.title,
-    requires_proof: i.requires_proof,
-    is_required: i.is_required,
-  }))
+  return items.map((i) => {
+    let attachments: ChecklistAttachment[] = i.attachments ? [...i.attachments] : []
+    if (attachments.length === 0) {
+      if (i.material_id) {
+        attachments.push({
+          id: `mat-${i.material_id}`,
+          type: "material",
+          material_id: i.material_id,
+          title: "Material Reference",
+        })
+      }
+      if (i.link_url) {
+        attachments.push({
+          id: `link-${Date.now()}`,
+          type: "link",
+          title: i.link_url,
+          url: i.link_url,
+        })
+      }
+    }
+    return {
+      key: i.id || `item-${Math.random().toString(36).substring(2, 9)}`,
+      title: i.title,
+      description: i.description,
+      requires_proof: i.requires_proof,
+      is_required: i.is_required,
+      material_id: i.material_id,
+      link_url: i.link_url,
+      attachments,
+    }
+  })
 }
 
 /** Fallback resolution ladder:
@@ -60,7 +96,24 @@ async function fetchFallbackChecklistItems(
   programId?: string,
   roleId?: string | null,
   cohortId?: string,
+  targetAudience: "instructor" | "internal" = "instructor",
 ): Promise<ChecklistItem[]> {
+  if (targetAudience === "internal") {
+    if (scope === "sessions" && cohortId) {
+      try {
+        const cohortInternal = await listChecklistItemsApi("cohorts", cohortId, null, "internal")
+        if (cohortInternal.length > 0) return cohortInternal
+      } catch {}
+    }
+    if (programId) {
+      try {
+        const progInternal = await listChecklistItemsApi("programs", programId, null, "internal")
+        if (progInternal.length > 0) return progInternal
+      } catch {}
+    }
+    return []
+  }
+
   if (scope === "sessions" && cohortId) {
     if (roleId) {
       try {
@@ -150,9 +203,11 @@ export function OrderNumberInput({
 function ReorderableChecklistList({
   rows,
   onChange,
+  availableMaterials = [],
 }: {
   rows: ChecklistDraftLine[]
   onChange: (updated: ChecklistDraftLine[]) => void
+  availableMaterials?: Material[]
 }) {
   const [dragKey, setDragKey] = useState<string | null>(null)
 
@@ -220,14 +275,14 @@ function ReorderableChecklistList({
             dropOnto(line.key)
           }}
           onDragEnd={() => setDragKey(null)}
-          className={`flex flex-col sm:flex-row sm:items-center gap-2 p-2.5 sm:p-2 bg-card border rounded-xl transition-all ${
+          className={`flex flex-col sm:flex-row sm:items-start gap-2 p-2.5 sm:p-2 bg-card border rounded-xl transition-all ${
             dragKey === line.key
               ? "opacity-40 border-primary ring-1 ring-primary/40"
               : "border-border hover:border-border/80"
           }`}
         >
-          {/* Top / Left section: reordering controls & title input */}
-          <div className="flex items-center gap-1.5 flex-1 min-w-0 w-full">
+          {/* Top bar on mobile / Reorder controls on desktop */}
+          <div className="flex items-center justify-between sm:justify-start gap-1.5 shrink-0 sm:pt-1">
             <div className="flex items-center gap-1 shrink-0 text-muted-foreground" title="Drag to reorder">
               <GripVertical
                 size={15}
@@ -261,44 +316,116 @@ function ReorderableChecklistList({
               </button>
             </div>
 
-            <input
-              value={line.title}
-              placeholder="Checklist item description…"
-              onChange={(e) =>
-                onChange(rows.map((r, j) => (j === i ? { ...r, title: e.target.value } : r)))
-              }
-              className="flex-1 min-w-0 h-8 px-2.5 border border-border bg-background text-foreground rounded-lg text-xs sm:text-sm focus:outline-none focus:border-primary transition-colors"
-            />
-          </div>
-
-          {/* Bottom / Right section: Required, Photo, and Delete */}
-          <div className="flex items-center justify-between sm:justify-end gap-1.5 shrink-0 pl-7 sm:pl-0 pt-1 sm:pt-0 border-t sm:border-t-0 border-border/40">
-            <div className="flex items-center gap-1 sm:gap-1.5">
-              <label className="flex items-center gap-1.5 text-xs text-muted-foreground cursor-pointer whitespace-nowrap select-none px-1.5 py-1 rounded-md hover:bg-muted/50">
+            {/* Mobile-only action buttons in top row */}
+            <div className="flex items-center gap-1 sm:hidden">
+              <label className="flex items-center gap-1 text-[11px] text-muted-foreground cursor-pointer select-none px-1.5 py-0.5 rounded-md hover:bg-muted/50">
                 <input
                   type="checkbox"
                   checked={line.is_required}
                   onChange={(e) =>
                     onChange(rows.map((r, j) => (j === i ? { ...r, is_required: e.target.checked } : r)))
                   }
-                  className="rounded border-border text-primary focus:ring-primary"
+                  className="rounded border-border text-primary focus:ring-primary size-3"
                 />
-                <span>Required</span>
+                <span>Req</span>
               </label>
-
-              <label className="flex items-center gap-1.5 text-xs text-muted-foreground cursor-pointer whitespace-nowrap select-none px-1.5 py-1 rounded-md hover:bg-muted/50">
+              <label className="flex items-center gap-1 text-[11px] text-muted-foreground cursor-pointer select-none px-1.5 py-0.5 rounded-md hover:bg-muted/50">
                 <input
                   type="checkbox"
                   checked={line.requires_proof}
                   onChange={(e) =>
                     onChange(rows.map((r, j) => (j === i ? { ...r, requires_proof: e.target.checked } : r)))
                   }
-                  className="rounded border-border text-primary focus:ring-primary"
+                  className="rounded border-border text-primary focus:ring-primary size-3"
                 />
-                <ImageIcon size={13} />
                 <span>Photo</span>
               </label>
+              <button
+                type="button"
+                onClick={() => onChange(rows.filter((_, j) => j !== i))}
+                className="p-1 text-muted-foreground hover:text-red-500 hover:bg-red-500/10 rounded transition-colors shrink-0 cursor-pointer"
+                aria-label="Remove item"
+              >
+                <Trash2 size={13} />
+              </button>
             </div>
+          </div>
+
+          {/* Description input + Attached References tags + Picker */}
+          <div className="flex flex-col gap-1.5 flex-1 min-w-0 w-full">
+            <input
+              value={line.title}
+              placeholder="Checklist item description… (supports [Links](url))"
+              onChange={(e) =>
+                onChange(rows.map((r, j) => (j === i ? { ...r, title: e.target.value } : r)))
+              }
+              className="w-full h-8 px-2.5 border border-border bg-background text-foreground rounded-lg text-xs sm:text-sm focus:outline-none focus:border-primary transition-colors"
+            />
+
+            {/* Attached References Pills + Attach button */}
+            <div className="flex items-center gap-1.5 flex-wrap">
+              {(line.attachments ?? []).map((att, attIdx) => (
+                <span
+                  key={att.id || attIdx}
+                  className={cn(
+                    "inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-xs font-medium border transition-colors",
+                    att.is_file
+                      ? "bg-primary/10 text-primary border-primary/20"
+                      : "bg-muted text-foreground border-border"
+                  )}
+                >
+                  {att.is_file ? <FileText size={11} className="shrink-0 text-primary" /> : <Link2 size={11} className="shrink-0 text-muted-foreground" />}
+                  <span className="truncate max-w-[180px] sm:max-w-xs">{att.title || att.url || "Reference"}</span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const nextAtts = (line.attachments ?? []).filter((_, idx) => idx !== attIdx)
+                      onChange(rows.map((r, j) => (j === i ? { ...r, attachments: nextAtts } : r)))
+                    }}
+                    className="ml-0.5 text-muted-foreground hover:text-red-500 cursor-pointer"
+                    title="Remove reference"
+                  >
+                    <X size={11} />
+                  </button>
+                </span>
+              ))}
+
+              <ChecklistAttachmentPicker
+                availableMaterials={availableMaterials}
+                onAdd={(newAtt) => {
+                  const nextAtts = [...(line.attachments ?? []), newAtt]
+                  onChange(rows.map((r, j) => (j === i ? { ...r, attachments: nextAtts } : r)))
+                }}
+              />
+            </div>
+          </div>
+
+          {/* Desktop-only Right section: Required, Photo, and Delete */}
+          <div className="hidden sm:flex items-center justify-end gap-1.5 shrink-0 sm:pt-1">
+            <label className="flex items-center gap-1.5 text-xs text-muted-foreground cursor-pointer whitespace-nowrap select-none px-1.5 py-1 rounded-md hover:bg-muted/50">
+              <input
+                type="checkbox"
+                checked={line.is_required}
+                onChange={(e) =>
+                  onChange(rows.map((r, j) => (j === i ? { ...r, is_required: e.target.checked } : r)))
+                }
+                className="rounded border-border text-primary focus:ring-primary"
+              />
+              <span>Required</span>
+            </label>
+
+            <label className="flex items-center gap-1.5 text-xs text-muted-foreground cursor-pointer whitespace-nowrap select-none px-1.5 py-1 rounded-md hover:bg-muted/50">
+              <input
+                type="checkbox"
+                checked={line.requires_proof}
+                onChange={(e) =>
+                  onChange(rows.map((r, j) => (j === i ? { ...r, requires_proof: e.target.checked } : r)))
+                }
+                className="rounded border-border text-primary focus:ring-primary"
+              />
+              <ImageIcon size={13} />
+              <span>Photo</span>
+            </label>
 
             <button
               type="button"
@@ -326,6 +453,7 @@ function DayChecklistEditor({
   dayTitle,
   isDefaultScope,
   allSessions,
+  targetAudience = "instructor",
 }: {
   scope: ChecklistScope
   ownerId: string
@@ -336,6 +464,7 @@ function DayChecklistEditor({
   dayTitle: string
   isDefaultScope: boolean
   allSessions: Session[]
+  targetAudience?: "instructor" | "internal"
 }) {
   const qc = useQueryClient()
   const toast = useToast()
@@ -345,10 +474,28 @@ function DayChecklistEditor({
   const [error, setError] = useState("")
   const [isApplyingAll, setIsApplyingAll] = useState(false)
 
-  const queryKey = ["checklist-items", scope, ownerId, roleId ?? "general"]
+  const audienceKey = targetAudience === "internal" ? "internal" : (roleId ?? "general")
+  const queryKey = ["checklist-items", scope, ownerId, audienceKey]
   const { data: items = [], isLoading } = useQuery({
     queryKey,
-    queryFn: () => listChecklistItemsApi(scope, ownerId, roleId),
+    queryFn: () => listChecklistItemsApi(scope, ownerId, roleId, targetAudience),
+  })
+
+  // Load materials available for attaching
+  const { data: availableMaterials = [] } = useQuery({
+    queryKey: ["materials-for-cohort-checklist", cohortId, programId],
+    queryFn: async () => {
+      try {
+        const cohortMats = await getMaterialsApi({ cohort_id: cohortId })
+        if (cohortMats.length > 0) return cohortMats
+      } catch {}
+      if (programId) {
+        try {
+          return await getMaterialsApi({ program_id: programId })
+        } catch {}
+      }
+      return []
+    },
   })
 
   // Reset draft on day/role switch
@@ -356,7 +503,7 @@ function DayChecklistEditor({
     setDraft(null)
     setIsInherited(false)
     setError("")
-  }, [scope, ownerId, roleId])
+  }, [scope, ownerId, roleId, targetAudience])
 
   useEffect(() => {
     if (draft !== null || isLoading) return
@@ -366,7 +513,7 @@ function DayChecklistEditor({
       setIsInherited(false)
     } else {
       setIsLoadingFallback(true)
-      fetchFallbackChecklistItems(scope, ownerId, programId, roleId, cohortId)
+      fetchFallbackChecklistItems(scope, ownerId, programId, roleId, cohortId, targetAudience)
         .then((fb) => {
           setDraft(toDraftLines(fb))
           setIsInherited(fb.length > 0)
@@ -377,17 +524,21 @@ function DayChecklistEditor({
         })
         .finally(() => setIsLoadingFallback(false))
     }
-  }, [isLoading, items, draft, scope, ownerId, programId, roleId, cohortId])
+  }, [isLoading, items, draft, scope, ownerId, programId, roleId, cohortId, targetAudience])
 
   const saveMutation = useMutation({
     mutationFn: () => {
       const payload = (draft ?? []).map((l, i) => ({
         title: l.title,
+        description: l.description,
         requires_proof: l.requires_proof,
         is_required: l.is_required,
+        material_id: l.material_id,
+        link_url: l.link_url,
+        attachments: l.attachments ?? [],
         sort_order: i + 1,
       }))
-      return setChecklistItemsApi(scope, ownerId, payload, roleId)
+      return setChecklistItemsApi(scope, ownerId, payload, roleId, targetAudience)
     },
     onSuccess: () => {
       toast.success(`${dayTitle} checklist saved`)
@@ -401,14 +552,14 @@ function DayChecklistEditor({
   // Copy default checklist into this session
   const handleCopyFromDefault = async () => {
     try {
-      const defaultItems = await listChecklistItemsApi("cohorts", cohortId, roleId)
+      const defaultItems = await listChecklistItemsApi("cohorts", cohortId, roleId, targetAudience)
       if (defaultItems.length > 0) {
         setDraft(toDraftLines(defaultItems))
         setIsInherited(false)
         toast.success("Copied default checklist items")
       } else {
         const progDefault = programId
-          ? await listChecklistItemsApi("programs", programId, roleId)
+          ? await listChecklistItemsApi("programs", programId, roleId, targetAudience)
           : []
         if (progDefault.length > 0) {
           setDraft(toDraftLines(progDefault))
@@ -426,7 +577,7 @@ function DayChecklistEditor({
   // Revert session override back to template
   const handleRevertToTemplate = async () => {
     try {
-      await setChecklistItemsApi(scope, ownerId, [], roleId)
+      await setChecklistItemsApi(scope, ownerId, [], roleId, targetAudience)
       qc.invalidateQueries({ queryKey })
       setDraft(null)
       toast.success("Reverted to inherited template")
@@ -450,12 +601,16 @@ function DayChecklistEditor({
     try {
       const payload = currentRows.map((l, i) => ({
         title: l.title,
+        description: l.description,
         requires_proof: l.requires_proof,
         is_required: l.is_required,
+        material_id: l.material_id,
+        link_url: l.link_url,
+        attachments: l.attachments ?? [],
         sort_order: i + 1,
       }))
       await Promise.all(
-        allSessions.map((s) => setChecklistItemsApi("sessions", s.id, payload, roleId)),
+        allSessions.map((s) => setChecklistItemsApi("sessions", s.id, payload, roleId, targetAudience)),
       )
       qc.invalidateQueries({ queryKey: ["checklist-items"] })
       toast.success(`Checklist applied to all ${allSessions.length} sessions`)
@@ -558,7 +713,7 @@ function DayChecklistEditor({
       {loading ? (
         <div className="py-8 text-center text-xs text-muted-foreground">Loading checklist…</div>
       ) : (
-        <ReorderableChecklistList rows={rows} onChange={setDraft} />
+        <ReorderableChecklistList rows={rows} onChange={setDraft} availableMaterials={availableMaterials} />
       )}
     </div>
   )
@@ -583,6 +738,7 @@ export function CohortDayChecklistManager({
 
   const [selectedDay, setSelectedDay] = useState<string>(initialSessionId || "default")
   const [activeRoleId, setActiveRoleId] = useState<string | null>(null)
+  const [isInternalChecklist, setIsInternalChecklist] = useState(false)
 
   const isDefaultScope = selectedDay === "default"
   const currentSession = !isDefaultScope ? sortedSessions.find((s) => s.id === selectedDay) : null
@@ -596,9 +752,11 @@ export function CohortDayChecklistManager({
       ? `Day ${currentDayIndex + 1}: ${currentSession.title}`
       : `Day ${currentDayIndex + 1}`
 
-  const activeRoleName = activeRoleId
-    ? roles.find((r) => r.id === activeRoleId)?.name || "Role"
-    : "All Roles (General)"
+  const activeRoleName = isInternalChecklist
+    ? "Internal Checklist"
+    : activeRoleId
+      ? roles.find((r) => r.id === activeRoleId)?.name || "Role"
+      : "All Roles (General)"
 
   return (
     <div className="flex flex-col gap-4">
@@ -699,10 +857,13 @@ export function CohortDayChecklistManager({
       <div className="flex items-center gap-1.5 overflow-x-auto pb-1 scrollbar-none no-scrollbar">
         <button
           type="button"
-          onClick={() => setActiveRoleId(null)}
+          onClick={() => {
+            setIsInternalChecklist(false)
+            setActiveRoleId(null)
+          }}
           className={cn(
             "h-7 px-3 rounded-full text-xs font-medium transition-colors shrink-0 cursor-pointer",
-            activeRoleId === null
+            !isInternalChecklist && activeRoleId === null
               ? "bg-primary text-primary-foreground shadow-sm"
               : "bg-muted/60 text-muted-foreground hover:text-foreground hover:bg-muted",
           )}
@@ -712,12 +873,15 @@ export function CohortDayChecklistManager({
         {roles
           .filter((r) => r.is_active)
           .map((role) => {
-            const isRoleActive = activeRoleId === role.id
+            const isRoleActive = !isInternalChecklist && activeRoleId === role.id
             return (
               <button
                 key={role.id}
                 type="button"
-                onClick={() => setActiveRoleId(role.id)}
+                onClick={() => {
+                  setIsInternalChecklist(false)
+                  setActiveRoleId(role.id)
+                }}
                 className={cn(
                   "h-7 px-3 rounded-full text-xs font-medium transition-colors shrink-0 cursor-pointer",
                   isRoleActive
@@ -729,6 +893,22 @@ export function CohortDayChecklistManager({
               </button>
             )
           })}
+        <button
+          type="button"
+          onClick={() => {
+            setIsInternalChecklist(true)
+            setActiveRoleId(null)
+          }}
+          className={cn(
+            "h-7 px-3 rounded-full text-xs font-medium transition-colors shrink-0 cursor-pointer flex items-center gap-1.5 border border-dashed",
+            isInternalChecklist
+              ? "bg-primary text-primary-foreground border-transparent shadow-sm"
+              : "border-border text-muted-foreground hover:text-foreground hover:bg-muted",
+          )}
+        >
+          <ClipboardCheck size={12} />
+          Internal Checklist
+        </button>
       </div>
 
       {/* 3. Active Day & Role Checklist Editor */}
@@ -743,6 +923,7 @@ export function CohortDayChecklistManager({
           dayTitle={dayTitle}
           isDefaultScope={isDefaultScope}
           allSessions={sortedSessions}
+          targetAudience={isInternalChecklist ? "internal" : "instructor"}
         />
       </div>
     </div>
@@ -813,8 +994,12 @@ export function ChecklistSection({
         ownerId,
         (draft ?? []).map((l, i) => ({
           title: l.title,
+          description: l.description,
           requires_proof: l.requires_proof,
           is_required: l.is_required,
+          material_id: l.material_id,
+          link_url: l.link_url,
+          attachments: l.attachments ?? [],
           sort_order: i + 1,
         })),
         roleId,

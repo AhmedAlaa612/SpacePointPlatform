@@ -1,16 +1,17 @@
 import { useRef, useState } from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { FileText, Link2, Plus, Trash2, Upload, Video as VideoIcon } from "lucide-react"
+import { Copy, FileText, Globe, Link2, Lock, Plus, Trash2, Upload, Video as VideoIcon } from "lucide-react"
 import {
   addMaterialFileApi,
   addMaterialLinkApi,
   deleteMaterialApi,
   getMaterialsApi,
+  updateMaterialApi,
   type MaterialOwner,
 } from "@/api/sessions/openings"
 import { useToast } from "@/components/ui/toast"
 import { InheritedBadge } from "@/pages/admin/components/InheritedFrom"
-import { ensureAbsoluteUrl } from "@/lib/utils"
+import { cn, ensureAbsoluteUrl } from "@/lib/utils"
 import { MediaPreviewModal } from "@/components/media/MediaPreviewModal"
 
 /**
@@ -39,6 +40,7 @@ export function MaterialsPanel({ owner, inheritedNote, level }: {
   const fileRef = useRef<HTMLInputElement>(null)
   const [title, setTitle] = useState("")
   const [url, setUrl] = useState("")
+  const [publishNew, setPublishNew] = useState(false)
   const [error, setError] = useState("")
   const [previewMedia, setPreviewMedia] = useState<{
     title: string
@@ -52,13 +54,23 @@ export function MaterialsPanel({ owner, inheritedNote, level }: {
   const invalidate = () => qc.invalidateQueries({ queryKey: key })
   const onError = (e: any) => setError(e?.response?.data?.detail ?? "Could not save that")
 
+  const togglePublish = useMutation({
+    mutationFn: ({ id, is_published }: { id: string; is_published: boolean }) =>
+      updateMaterialApi(id, { is_published }),
+    onSuccess: (_, vars) => {
+      toast.success(vars.is_published ? "Published to instructors" : "Set to internal only")
+      invalidate()
+    },
+    onError,
+  })
+
   const addLink = useMutation({
-    mutationFn: () => addMaterialLinkApi({ owner, title: title || url, url }),
+    mutationFn: () => addMaterialLinkApi({ owner, title: title || url, url, is_published: publishNew }),
     onSuccess: () => { toast.success("Link added"); setError(""); setTitle(""); setUrl(""); invalidate() },
     onError,
   })
   const addFile = useMutation({
-    mutationFn: (file: File) => addMaterialFileApi({ owner, title: title || file.name, file }),
+    mutationFn: (file: File) => addMaterialFileApi({ owner, title: title || file.name, file, is_published: publishNew }),
     onSuccess: () => { toast.success("File added"); setError(""); setTitle(""); invalidate() },
     onError,
   })
@@ -93,9 +105,9 @@ export function MaterialsPanel({ owner, inheritedNote, level }: {
           return (
             <div
               key={m.id}
-              className="flex items-center justify-between gap-3 rounded-xl border border-border bg-background/50 px-3 py-2"
+              className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 sm:gap-3 rounded-xl border border-border bg-background/50 p-2.5 sm:px-3 sm:py-2"
             >
-              <span className="flex items-center gap-2 min-w-0">
+              <div className="flex items-center gap-2 min-w-0 flex-1">
                 {isVideo ? (
                   <VideoIcon size={14} className="shrink-0 text-muted-foreground" />
                 ) : m.filename || isPdf ? (
@@ -119,22 +131,63 @@ export function MaterialsPanel({ owner, inheritedNote, level }: {
                 ) : (
                   <span className="text-sm text-foreground truncate">{m.title}</span>
                 )}
-              </span>
-              <div className="flex items-center gap-1 shrink-0">
-                {m.url && isMedia && (
-                  <button
-                    type="button"
-                    onClick={() => setPreviewMedia({ title: m.title, type: isPdf ? "pdf" : "video", url: ensureAbsoluteUrl(m.url!) })}
-                    className="text-xs text-primary font-medium hover:underline px-1.5 py-1"
-                  >
-                    View
-                  </button>
-                )}
+              </div>
+              <div className="flex items-center justify-between sm:justify-end gap-2 shrink-0 w-full sm:w-auto pt-1.5 sm:pt-0 border-t sm:border-t-0 border-border/40">
+                {/* Publish to instructors toggle */}
                 <button
-                  onClick={() => remove.mutate(m.id)}
-                  className="p-1 text-muted-foreground hover:text-red-600 shrink-0"
-                  aria-label={`Remove ${m.title}`}
-                ><Trash2 size={14} /></button>
+                  type="button"
+                  onClick={() => togglePublish.mutate({ id: m.id, is_published: !m.is_published })}
+                  disabled={togglePublish.isPending}
+                  title={m.is_published ? "Click to set to internal only" : "Click to publish to instructors"}
+                  className={cn(
+                    "flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-medium transition-colors border",
+                    m.is_published
+                      ? "bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100 dark:bg-emerald-500/10 dark:text-emerald-400 dark:border-emerald-500/20"
+                      : "bg-muted/80 text-muted-foreground border-border hover:bg-muted hover:text-foreground"
+                  )}
+                >
+                  {m.is_published ? (
+                    <>
+                      <Globe size={11} className="text-emerald-600 dark:text-emerald-400" />
+                      <span>Published to instructors</span>
+                    </>
+                  ) : (
+                    <>
+                      <Lock size={11} />
+                      <span>Internal only</span>
+                    </>
+                  )}
+                </button>
+
+                <div className="flex items-center gap-1.5">
+                  {m.url && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        navigator.clipboard.writeText(ensureAbsoluteUrl(m.url!))
+                        toast.success("Link copied to clipboard")
+                      }}
+                      className="p-1 text-muted-foreground hover:text-foreground shrink-0 cursor-pointer"
+                      title="Copy link to clipboard"
+                    >
+                      <Copy size={13} />
+                    </button>
+                  )}
+                  {m.url && isMedia && (
+                    <button
+                      type="button"
+                      onClick={() => setPreviewMedia({ title: m.title, type: isPdf ? "pdf" : "video", url: ensureAbsoluteUrl(m.url!) })}
+                      className="text-xs text-primary font-medium hover:underline px-1.5 py-1"
+                    >
+                      View
+                    </button>
+                  )}
+                  <button
+                    onClick={() => remove.mutate(m.id)}
+                    className="p-1 text-muted-foreground hover:text-red-600 shrink-0"
+                    aria-label={`Remove ${m.title}`}
+                  ><Trash2 size={14} /></button>
+                </div>
               </div>
             </div>
           )
@@ -144,35 +197,50 @@ export function MaterialsPanel({ owner, inheritedNote, level }: {
         )}
       </div>
 
-      <div className="flex items-center gap-2 flex-wrap">
-        <input
-          placeholder="Title (optional)" value={title}
-          onChange={(e) => setTitle(e.target.value)}
-          className="flex-1 min-w-[8rem] h-9 px-2 border border-border bg-background text-foreground rounded-lg text-sm"
-        />
-        <input
-          placeholder="https://…" value={url}
-          onChange={(e) => setUrl(e.target.value)}
-          className="flex-1 min-w-[10rem] h-9 px-2 border border-border bg-background text-foreground rounded-lg text-sm"
-        />
-        <button
-          onClick={() => { setError(""); addLink.mutate() }}
-          disabled={!url || addLink.isPending}
-          className="h-9 px-3 border border-border text-foreground text-sm rounded-lg hover:bg-muted disabled:opacity-40"
-        ><Plus size={14} className="inline mr-1" /> Link</button>
-        <button
-          onClick={() => fileRef.current?.click()}
-          disabled={addFile.isPending}
-          className="h-9 px-3 border border-border text-foreground text-sm rounded-lg hover:bg-muted disabled:opacity-40"
-        ><Upload size={14} className="inline mr-1" /> {addFile.isPending ? "Uploading…" : "File"}</button>
-        <input
-          ref={fileRef} type="file" className="hidden"
-          onChange={(e) => {
-            const f = e.target.files?.[0]
-            if (f) { setError(""); addFile.mutate(f) }
-            e.target.value = ""
-          }}
-        />
+      <div className="flex flex-col gap-2 pt-1">
+        <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
+          <input
+            placeholder="Title (optional)" value={title}
+            onChange={(e) => setTitle(e.target.value)}
+            className="flex-1 min-w-0 h-9 px-2.5 border border-border bg-background text-foreground rounded-lg text-sm"
+          />
+          <input
+            placeholder="https://… (e.g. Canva, document link)" value={url}
+            onChange={(e) => setUrl(e.target.value)}
+            className="flex-1 min-w-0 h-9 px-2.5 border border-border bg-background text-foreground rounded-lg text-sm"
+          />
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => { setError(""); addLink.mutate() }}
+              disabled={!url || addLink.isPending}
+              className="flex-1 sm:flex-none h-9 px-3 border border-border text-foreground text-sm rounded-lg hover:bg-muted disabled:opacity-40"
+            ><Plus size={14} className="inline mr-1" /> Link</button>
+            <button
+              onClick={() => fileRef.current?.click()}
+              disabled={addFile.isPending}
+              className="flex-1 sm:flex-none h-9 px-3 border border-border text-foreground text-sm rounded-lg hover:bg-muted disabled:opacity-40"
+            ><Upload size={14} className="inline mr-1" /> {addFile.isPending ? "Uploading…" : "File"}</button>
+          </div>
+          <input
+            ref={fileRef} type="file" className="hidden"
+            onChange={(e) => {
+              const f = e.target.files?.[0]
+              if (f) { setError(""); addFile.mutate(f) }
+              e.target.value = ""
+            }}
+          />
+        </div>
+        <div className="flex items-center gap-2">
+          <label className="flex items-center gap-1.5 text-xs text-muted-foreground cursor-pointer select-none">
+            <input
+              type="checkbox"
+              checked={publishNew}
+              onChange={(e) => setPublishNew(e.target.checked)}
+              className="rounded border-border text-primary focus:ring-primary size-3.5"
+            />
+            <span>Publish to instructors upon upload</span>
+          </label>
+        </div>
       </div>
 
       {error && <p className="text-xs text-red-600 dark:text-red-400">{error}</p>}

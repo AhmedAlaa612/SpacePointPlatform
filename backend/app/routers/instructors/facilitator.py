@@ -448,6 +448,7 @@ async def list_library(db: AsyncSession = Depends(get_db), current_user: User = 
             module_resources.append(LibraryResourceOut(
                 id=r.id, title=r.title, description=r.description, format=r.format,
                 file_url=file_url, resource_type=r.resource_type, video_info=video_info,
+                is_published=bool(r.is_published),
             ))
         result.append(LibraryModuleOut(id=m.id, name=m.name, description=m.description, resources=module_resources))
     return result
@@ -519,19 +520,20 @@ async def add_library_link(
     title: str,
     url: str,
     description: str | None = None,
+    is_published: bool = True,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_facilitator),
 ):
     resource = LibraryResource(
         title=title, description=description, format="LINK", file_url=url,
-        module_id=module_id, resource_type="link",
+        module_id=module_id, resource_type="link", is_published=is_published,
     )
     db.add(resource)
     await db.commit()
     await db.refresh(resource)
     return LibraryResourceOut(id=resource.id, title=resource.title, description=resource.description,
                               format=resource.format, file_url=resource.file_url,
-                              resource_type=resource.resource_type)
+                              resource_type=resource.resource_type, is_published=bool(resource.is_published))
 
 
 @router.post("/library/video-embed", response_model=LibraryResourceOut, status_code=201)
@@ -540,6 +542,7 @@ async def add_library_video_embed(
     title: str,
     url: str,
     description: str | None = None,
+    is_published: bool = True,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_facilitator),
 ):
@@ -552,7 +555,7 @@ async def add_library_video_embed(
     the whole resource."""
     resource = LibraryResource(
         title=title, description=description, format="EMBED", file_url="",
-        module_id=module_id, resource_type="file",
+        module_id=module_id, resource_type="file", is_published=is_published,
     )
     db.add(resource)
     await db.flush()  # need resource.id as the Video owner_id below
@@ -570,7 +573,7 @@ async def add_library_video_embed(
     file_url, video_info = await _lib_playback(db, resource)
     return LibraryResourceOut(id=resource.id, title=resource.title, description=resource.description,
                               format=resource.format, file_url=file_url, resource_type=resource.resource_type,
-                              video_info=video_info)
+                              video_info=video_info, is_published=bool(resource.is_published))
 
 
 @router.post("/library", response_model=LibraryResourceOut, status_code=201)
@@ -579,6 +582,7 @@ async def upload_library_resource(
     title: str,
     file: UploadFile,
     description: str | None = None,
+    is_published: bool = True,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_facilitator),
     arq_redis: ArqRedis | None = Depends(get_arq_redis),
@@ -590,7 +594,7 @@ async def upload_library_resource(
 
     resource = LibraryResource(
         title=title, description=description, format=fmt, file_url="",
-        module_id=module_id, resource_type="file",
+        module_id=module_id, resource_type="file", is_published=is_published,
     )
     db.add(resource)
     await db.flush()  # need resource.id as the Video owner_id below
@@ -616,7 +620,8 @@ async def upload_library_resource(
     file_url, video_info = await _lib_playback(db, resource)
     return LibraryResourceOut(id=resource.id, title=resource.title, description=resource.description,
                               format=resource.format, file_url=file_url,
-                              resource_type=resource.resource_type, video_info=video_info)
+                              resource_type=resource.resource_type, video_info=video_info,
+                              is_published=bool(resource.is_published))
 
 
 @router.patch("/library/{resource_id}", response_model=LibraryResourceOut)
@@ -624,12 +629,15 @@ async def update_library_resource(
     resource_id: uuid.UUID,
     title: str | None = None,
     url: str | None = None,
+    is_published: bool | None = None,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_facilitator),
 ):
     resource = (await db.execute(select(LibraryResource).where(LibraryResource.id == resource_id))).scalars().first()
     if not resource:
         raise HTTPException(status_code=404, detail="Resource not found")
+    if is_published is not None:
+        resource.is_published = is_published
     if title is not None:
         resource.title = title
     if url is not None and resource.resource_type == "link":
@@ -651,7 +659,8 @@ async def update_library_resource(
     file_url, video_info = await _lib_playback(db, resource)
     return LibraryResourceOut(id=resource.id, title=resource.title, description=resource.description,
                               format=resource.format, file_url=file_url,
-                              resource_type=resource.resource_type, video_info=video_info)
+                              resource_type=resource.resource_type, video_info=video_info,
+                              is_published=bool(resource.is_published))
 
 
 @router.put("/library/{resource_id}/file", response_model=LibraryResourceOut)
@@ -659,6 +668,7 @@ async def replace_library_file(
     resource_id: uuid.UUID,
     file: UploadFile,
     title: str | None = None,
+    is_published: bool | None = None,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_facilitator),
     arq_redis: ArqRedis | None = Depends(get_arq_redis),
@@ -702,12 +712,15 @@ async def replace_library_file(
     resource.format = fmt
     if title is not None:
         resource.title = title
+    if is_published is not None:
+        resource.is_published = is_published
     await db.commit()
     await db.refresh(resource)
     file_url, video_info = await _lib_playback(db, resource)
     return LibraryResourceOut(id=resource.id, title=resource.title, description=resource.description,
                               format=resource.format, file_url=file_url,
-                              resource_type=resource.resource_type, video_info=video_info)
+                              resource_type=resource.resource_type, video_info=video_info,
+                              is_published=bool(resource.is_published))
 
 
 @router.delete("/library/{resource_id}")

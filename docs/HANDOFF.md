@@ -33,6 +33,7 @@ where everything is and what it does. Depth lives in the per-domain files linked
 | [`HANDOFF_AMBASSADORS.md`](./HANDOFF_AMBASSADORS.md) | Leads, points/titles/badges, teacher sessions, the task approval state machine |
 | [`HANDOFF_VPS_DEPLOYMENT.md`](./HANDOFF_VPS_DEPLOYMENT.md) | VPS environment, deploy scripts (`deploy-backend.sh`, `deploy-frontend.sh`, `deploy-website.sh`, `deploy-labs.sh`), auto-rollback logic, storage layout |
 | [`HANDOFF_VIDEO.md`](./HANDOFF_VIDEO.md) | Cloudflare R2 video storage, transcode pipeline, playback tokens, HLS mechanics |
+| [`HANDOFF_TUTORIALS.md`](./HANDOFF_TUTORIALS.md) | **Interactive Onboarding & Live Action Guides (`react-joyride` v3)** — `TourContext.tsx`, `lib/tours/index.ts`, `SpacePointTourCard.tsx`, dynamic hidden-tab filtering, per-step spotlight memory, and multi-page live action walkthroughs across Portal & LMS |
 | [`OPS_BACKUPS.md`](./OPS_BACKUPS.md) | Database backup script — usage, cron, restore |
 
 ---
@@ -55,6 +56,7 @@ where everything is and what it does. Depth lives in the per-domain files linked
 | **Course & Path Enrollments** | `pages/lms-authoring/LmsStudentDetail.tsx` | `routers/lms/admin.py::assign_student_courses` | `services/lms/enrollment.py::enroll` |
 | **User & Contact Email Sync** | `pages/admin/Users.tsx`<br/>`pages/lms-authoring/LmsStudentDetail.tsx` | `routers/admin/users.py`<br/>`routers/lms/admin.py` | `services/spine/identity.py::replace_user_email` *(Mandatory helper)* |
 | **Student App Shell (`/learn`)** | `pages/learn/LearnShell.tsx`<br/>`pages/learn/nav/LearnSidebar.tsx` | `routers/lms/student.py` | `services/lms/progress.py` |
+| **Tutorials & Live Action Guides (`react-joyride` v3)** | `context/TourContext.tsx`<br/>`lib/tours/index.ts`<br/>`components/ui/SpacePointTourCard.tsx` | *(Frontend-managed via `localStorage` per-step IDs)* | — |
 
 ### Critical Codebase Invariants (Avoid Pitfalls)
 1. **Never Nest Control Bars Inside Conditional Empty States**: Filter/search toolbars (such as `Students | Observers | All`) must **always** sit above `{isLoading ? <Spinner/> : items.length === 0 ? <EmptyState/> : <List/>}` so users are never trapped when an active filter is empty.

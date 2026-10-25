@@ -44,6 +44,10 @@ async def unique_website_event_slug(db: AsyncSession, base_text: str, exclude_id
 
 
 async def resolve_user_organization(db: AsyncSession, user: User) -> Organization | None:
+    if getattr(user, "organization_id", None):
+        org = await db.get(Organization, user.organization_id)
+        if org is not None:
+            return org
     org = (
         await db.execute(
             select(Organization).where(Organization.owner_user_id == user.id)

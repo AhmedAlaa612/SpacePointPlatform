@@ -66,10 +66,13 @@ async def list_library(db: AsyncSession = Depends(get_db), current_user: User = 
     viewer, or a <video> with its own download affordances stripped)
     rather than a clickable link.
     """
+    is_manager = any(r in current_user.role_values for r in ("facilitator", "operations", "admin"))
     modules = (await db.execute(select(LibraryModule).order_by(LibraryModule.created_at))).scalars().all()
-    resources = (await db.execute(
-        select(LibraryResource).where(LibraryResource.module_id.in_([m.id for m in modules]))
-    )).scalars().all()
+    
+    query = select(LibraryResource).where(LibraryResource.module_id.in_([m.id for m in modules]))
+    if not is_manager:
+        query = query.where(LibraryResource.is_published.is_(True))
+    resources = (await db.execute(query)).scalars().all()
 
     by_module: dict[uuid.UUID, list] = {}
     for r in resources:
@@ -88,6 +91,7 @@ async def list_library(db: AsyncSession = Depends(get_db), current_user: User = 
             module_resources.append(LibraryResourceOut(
                 id=r.id, title=r.title, description=r.description,
                 format=r.format, file_url=url, resource_type=r.resource_type,
+                is_published=bool(r.is_published),
             ))
         result.append(LibraryModuleOut(id=m.id, name=m.name, description=m.description, resources=module_resources))
     return result
@@ -97,18 +101,12 @@ async def list_library(db: AsyncSession = Depends(get_db), current_user: User = 
 async def get_library_resource_url(
     resource_id: uuid.UUID, db: AsyncSession = Depends(get_db), current_user: User = Depends(require_instructor),
 ) -> dict:
-    """Resolved only when someone actually opens a document — same posture
-    as `streamVideoApi`/the LMS attachment viewer, never embedded in the
-    list above for a hosted PDF or video.
-
-    `video_info`, present only for a video-service-backed resource, mirrors
-    get_playback_info()'s shape exactly and is what the frontend's shared
-    <VideoPlayer> needs — `url` alone can't distinguish an embed (needs an
-    <iframe>, and for one there IS no "url", only "embed_url") from a direct
-    upload (needs a plain <video src>). Returning `{"url": ""}` for an embed,
-    as this used to, meant `ResourceViewer` treated it as a failed load."""
     resource = (await db.execute(select(LibraryResource).where(LibraryResource.id == resource_id))).scalars().first()
     if resource is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Resource not found")
+
+    is_manager = any(r in current_user.role_values for r in ("facilitator", "operations", "admin"))
+    if not resource.is_published and not is_manager:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Resource not found")
 
     if resource.resource_type == "link" or resource.file_url.startswith("http"):

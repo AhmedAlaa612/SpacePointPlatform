@@ -37,6 +37,18 @@ class UserCreate(UserBase):
     org_type: str | None = None
     org_country: str | None = None
     org_city: str | None = None
+    organization_id: UUID | None = None
+    org_is_approved: bool | None = None
+    org_can_publish_events: bool | None = None
+    org_can_author_courses: bool | None = None
+    org_can_publish_courses: bool | None = None
+    org_course_scope_all: bool | None = None
+    org_allowed_course_ids: list[str] | None = None
+    org_max_events: int | None = None
+    org_max_programs: int | None = None
+    org_max_cohorts: int | None = None
+    org_max_students_per_cohort: int | None = None
+    org_max_observers_per_cohort: int | None = None
 
 
 class UserUpdate(BaseModel):
@@ -48,21 +60,26 @@ class UserUpdate(BaseModel):
     author_scope_all: bool | None = None
     phone: str | None = None
     birthdate: date | None = None
-    # Student identity in live games. Editable by an admin because a
-    # generated nickname occasionally lands somewhere unusable in front of a
-    # class, and there was previously no way to change it for someone else.
     nickname: str | None = None
     avatar: str | None = None
-    # "active" | "inactive" — already enforced everywhere (auth.py's login
-    # checks, dependencies.py's per-request check), but had no admin-facing
-    # way to set it. Judge accounts (competition domain, 2026-08-24) are
-    # meant to be temporary; deactivating one blocks login/access instantly
-    # without touching their historical CompetitionScore rows the way a
-    # hard delete would (see delete_user's guard below).
     status: str | None = None
+    organization_id: UUID | None = None
     org_name_latin: str | None = None
     org_name_arabic: str | None = None
     org_type: str | None = None
+    org_country: str | None = None
+    org_city: str | None = None
+    org_is_approved: bool | None = None
+    org_can_publish_events: bool | None = None
+    org_can_author_courses: bool | None = None
+    org_can_publish_courses: bool | None = None
+    org_course_scope_all: bool | None = None
+    org_allowed_course_ids: list[str] | None = None
+    org_max_events: int | None = None
+    org_max_programs: int | None = None
+    org_max_cohorts: int | None = None
+    org_max_students_per_cohort: int | None = None
+    org_max_observers_per_cohort: int | None = None
     org_country: str | None = None
     org_city: str | None = None
 
@@ -123,6 +140,17 @@ class UserOut(UserReadBase):
     organization_type: str | None = None
     organization_country: str | None = None
     organization_city: str | None = None
+    org_is_approved: bool | None = None
+    org_can_publish_events: bool | None = None
+    org_can_author_courses: bool | None = None
+    org_can_publish_courses: bool | None = None
+    org_course_scope_all: bool | None = None
+    org_allowed_course_ids: list[str] | None = None
+    org_max_events: int | None = None
+    org_max_programs: int | None = None
+    org_max_cohorts: int | None = None
+    org_max_students_per_cohort: int | None = None
+    org_max_observers_per_cohort: int | None = None
 
     class Config:
         from_attributes = True

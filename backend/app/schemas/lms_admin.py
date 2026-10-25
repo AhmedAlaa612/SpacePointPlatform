@@ -421,6 +421,9 @@ class CourseCreate(BaseModel):
     # endpoint is what actually enforces "paid must have a positive price".
     price_cents: int | None = Field(default=None, ge=1)
     currency: str = "usd"
+    organization_id: UUID | None = None
+    organization_name: str | None = None
+    submitted_for_review_at: datetime | None = None
     certificate_enabled: bool = True
     average_rating: float | None = None
     ratings_count: int = 0
@@ -464,6 +467,9 @@ class CourseAdminOut(BaseModel):
     access_days: int | None = None
     price_cents: int | None = None
     currency: str = "usd"
+    organization_id: UUID | None = None
+    organization_name: str | None = None
+    submitted_for_review_at: datetime | None = None
     certificate_enabled: bool = True
 
 

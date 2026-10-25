@@ -99,6 +99,7 @@ class LibraryResourceOut(BaseModel):
     # facilitator Library UI uses this, not file_url, to decide whether/how
     # to render a <VideoPlayer>.
     video_info: LibraryVideoPlaybackInfo | None = None
+    is_published: bool = True
 
     class Config:
         from_attributes = True

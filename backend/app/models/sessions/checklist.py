@@ -4,7 +4,7 @@ from datetime import datetime, timezone
 from sqlalchemy import (
     Boolean, CheckConstraint, Column, DateTime, ForeignKey, Integer, String, Text, UniqueConstraint,
 )
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.dialects.postgresql import JSONB, UUID
 
 from app.db.base import Base
 
@@ -62,6 +62,10 @@ class DeliveryChecklistItem(Base):
     # NULL = general (applies to every role at this level). Set = only that
     # role sees this item, replacing the general list rather than adding to it.
     role_id = Column(UUID(as_uuid=True), ForeignKey("delivery_roles.id", ondelete="RESTRICT"), nullable=True, index=True)
+    target_audience = Column(String(20), nullable=False, default="instructor", server_default="instructor")
+    material_id = Column(UUID(as_uuid=True), ForeignKey("session_materials.id", ondelete="SET NULL"), nullable=True)
+    link_url = Column(Text, nullable=True)
+    attachments = Column(JSONB, nullable=False, default=list, server_default="[]")
 
     title = Column(String(255), nullable=False)
     description = Column(Text, nullable=True)
@@ -170,3 +174,35 @@ class InstructorChecklistProgress(Base):
         default=lambda: datetime.now(timezone.utc),
         onupdate=lambda: datetime.now(timezone.utc),
     )
+
+
+class SessionOpsChecklistProgress(Base):
+    """Tracks completion of internal operational checklist items for a session.
+    Filled by operations / admin, with optional photo/document proof and notes.
+    """
+
+    __tablename__ = "session_ops_checklist_progress"
+    __table_args__ = (
+        UniqueConstraint("session_id", "checklist_item_id", name="uq_session_ops_checklist_progress"),
+    )
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    session_id = Column(
+        UUID(as_uuid=True), ForeignKey("sessions.id", ondelete="CASCADE"),
+        nullable=False, index=True,
+    )
+    checklist_item_id = Column(
+        UUID(as_uuid=True), ForeignKey("delivery_checklist_items.id", ondelete="CASCADE"), nullable=False
+    )
+    is_done = Column(Boolean, nullable=False, default=False, server_default="false")
+    proof_report_id = Column(
+        UUID(as_uuid=True), ForeignKey("session_reports.id", ondelete="SET NULL"), nullable=True
+    )
+    note = Column(Text, nullable=True)
+    completed_by = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    updated_at = Column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(timezone.utc),
+    )
+

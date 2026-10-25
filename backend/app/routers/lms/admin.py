@@ -185,6 +185,12 @@ async def _course_admin_out(db: AsyncSession, course: Course, current: User | No
     average_rating = round(float(rating_row[0]), 1) if rating_row and rating_row[0] is not None else None
     ratings_count = int(rating_row[1]) if rating_row and rating_row[1] is not None else 0
 
+    org_name = None
+    if course.organization_id:
+        org = await db.get(Organization, course.organization_id)
+        if org:
+            org_name = org.name_latin
+
     return CourseAdminOut(
         id=course.id, title=course.title, description=course.description, kind=course.kind,
         is_published=course.is_published, created_by=created_by,
@@ -197,6 +203,9 @@ async def _course_admin_out(db: AsyncSession, course: Course, current: User | No
         certificate_enabled=course.certificate_enabled,
         average_rating=average_rating,
         ratings_count=ratings_count,
+        organization_id=course.organization_id,
+        organization_name=org_name,
+        submitted_for_review_at=course.submitted_for_review_at,
     )
 
 
@@ -1169,13 +1178,40 @@ async def get_courses_video_backend_status(
 
 @router.get("/courses", response_model=list[CourseAdminOut])
 async def list_courses(
+    for_picker: bool = Query(False),
     db: AsyncSession = Depends(get_db),
     current: User = Depends(require_lms_content),
 ):
     _, scope_all = await get_author_permissions(db, current)
     stmt = select(Course)
-    if not scope_all:
+
+    if any(r in current.role_values for r in ("admin", "operations", "facilitator")):
+        pass
+    elif "organization" in current.role_values:
+        from app.services.website_events import resolve_user_organization
+        org = await resolve_user_organization(db, current)
+        if org:
+            if for_picker:
+                conds = [Course.organization_id == org.id]
+                if org.course_scope_all:
+                    conds.append(Course.is_published.is_(True))
+                elif org.allowed_course_ids:
+                    allowed_uuids = []
+                    for cid in org.allowed_course_ids:
+                        try:
+                            allowed_uuids.append(uuid.UUID(cid))
+                        except Exception:
+                            pass
+                    if allowed_uuids:
+                        conds.append(Course.id.in_(allowed_uuids))
+                stmt = stmt.where(or_(*conds))
+            else:
+                stmt = stmt.where(or_(Course.organization_id == org.id, Course.created_by == current.id))
+        else:
+            stmt = stmt.where(Course.created_by == current.id)
+    elif not scope_all:
         stmt = stmt.where(Course.created_by == current.id)
+
     rows = (await db.execute(stmt.order_by(Course.created_at.desc()))).scalars().all()
     return [await _course_admin_out(db, c, current) for c in rows]
 
@@ -1187,7 +1223,16 @@ async def create_course(
     current: User = Depends(require_lms_content),
 ):
     await _check_instructor(db, body.instructor_id)
-    course = Course(id=uuid.uuid4(), created_by=current.id, **body.model_dump())
+    org_id = None
+    if "organization" in current.role_values:
+        from app.services.website_events import resolve_user_organization
+        org = await resolve_user_organization(db, current)
+        if org:
+            if not org.can_author_courses:
+                raise HTTPException(status.HTTP_403_FORBIDDEN, detail="Your organization does not have LMS authoring access")
+            org_id = org.id
+
+    course = Course(id=uuid.uuid4(), created_by=current.id, organization_id=org_id, **body.model_dump())
     db.add(course)
     await db.commit()
     await db.refresh(course)
@@ -1239,6 +1284,7 @@ async def publish_course(
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Course not found")
     await check_course_publish_access(db, current, course)
     course.is_published = True
+    course.submitted_for_review_at = None
     await db.commit()
     await db.refresh(course)
     return await _course_admin_out(db, course, current)
@@ -1274,6 +1320,7 @@ async def submit_course_review(
     if course.is_published:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="Course is already published")
 
+    course.submitted_for_review_at = datetime.now(timezone.utc)
     from app.services.notification import create_notification
     from app.services.email import send_course_review_submission_email
     admins = (await db.execute(select(User).where(User.roles.any("admin")))).scalars().all()
@@ -2897,6 +2944,7 @@ async def submit_learning_path_review(
     if path.is_published:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="Learning path is already published")
 
+    course.submitted_for_review_at = datetime.now(timezone.utc)
     from app.services.notification import create_notification
     from app.services.email import send_learning_path_review_submission_email
     admins = (await db.execute(select(User).where(User.roles.any("admin")))).scalars().all()

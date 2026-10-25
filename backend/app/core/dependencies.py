@@ -188,7 +188,7 @@ require_lms_student = RequireRole(["student"])
 # instructors don't, so a course can't be edited by whoever happens to be
 # teaching it that day). lms_author is the dedicated partner author role.
 # admin passes, as everywhere.
-require_lms_content = RequireRole(["operations", "facilitator", "lms_author"])
+require_lms_content = RequireRole(["operations", "facilitator", "lms_author", "organization"])
 require_lms_author = RequireRole(["lms_author", "operations", "facilitator"])
 
 # 2026-08-17 — cohort-scoped instructor access to the Design mission

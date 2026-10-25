@@ -4,17 +4,18 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { Link, useParams } from "@tanstack/react-router"
 import {
   ArrowLeft, BookOpen, Calendar, Camera, CheckCircle2, ChevronDown,
-  Download, ExternalLink, FileText, ImageIcon, MapPin, Play, QrCode, Search, Send, UserX, X,
+  Download, ExternalLink, FileText, ImageIcon, Link2, Lock, MapPin, Play, QrCode, Search, Send, UserX, X,
 } from "lucide-react"
 import {
   getSessionDeliveryApi, markAttendanceApi, markSessionDoneApi, scanAttendanceApi, startSessionApi,
   uploadSessionReportApi,
 } from "@/api/sessions/delivery"
 import { checkInApi, getDayApi, setChecklistProgressApi, submitDayApi } from "@/api/sessions/day"
-import type { AttendanceStatus, ChecklistLine, RosterEntry, SessionReport } from "@/types/sessions"
+import type { AttendanceStatus, ChecklistAttachment, ChecklistLine, RosterEntry, SessionReport } from "@/types/sessions"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
 import { EmptyState, PageHeader, Spinner } from "@/pages/instructors/components/common"
+import { useToast } from "@/components/ui/toast"
 import { extractQrToken, useQrScanner } from "@/hooks/useQrScanner"
 import { UserProfileModal } from "@/components/UserProfileModal"
 import { cn, ensureAbsoluteUrl, getErrorMessage } from "@/lib/utils"
@@ -635,6 +636,7 @@ function ChecklistRow({
   line: ChecklistLine; sessionId: string; cohortId: string; locked: boolean
   onChanged: () => void
 }) {
+  const toast = useToast()
   const fileRef = useRef<HTMLInputElement>(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState("")
@@ -644,6 +646,34 @@ function ChecklistRow({
     onSuccess: onChanged,
     onError: (e) => setError(getErrorMessage(e, "Couldn't save that")),
   })
+
+  const attachments: ChecklistAttachment[] =
+    line.attachments && line.attachments.length > 0
+      ? line.attachments
+      : line.material_url || line.link_url
+      ? [
+          {
+            id: "legacy",
+            type: (line.material_url ? "material" : "link") as "material" | "link",
+            title: line.material_title || (line.material_url ? "Document" : "Link"),
+            url: line.material_url || line.link_url,
+            is_file: Boolean(line.material_url),
+            is_published: true,
+            has_access: true,
+            access_denied_message: null,
+          },
+        ]
+      : []
+
+  const handleAttachmentClick = (att: ChecklistAttachment, e: React.MouseEvent) => {
+    if (att.has_access === false) {
+      e.preventDefault()
+      toast.error(
+        att.access_denied_message ||
+          "You don't have access to this document, please contact the operations team."
+      )
+    }
+  }
 
   /** Upload through the ordinary session-report path, then point the checklist
    *  row at the row it created. Two steps on purpose — one upload mechanism
@@ -682,6 +712,40 @@ function ChecklistRow({
         </p>
         {line.description && (
           <p className="text-xs text-muted-foreground">{line.description}</p>
+        )}
+        {attachments.length > 0 && (
+          <div className="flex items-center gap-1.5 flex-wrap mt-1.5">
+            {attachments.map((att, attIdx) => {
+              const isRestricted = att.has_access === false
+              return (
+                <a
+                  key={att.id || attIdx}
+                  href={att.url ? ensureAbsoluteUrl(att.url) : "#"}
+                  target={att.url ? "_blank" : undefined}
+                  rel="noreferrer"
+                  onClick={(e) => handleAttachmentClick(att, e)}
+                  className={cn(
+                    "inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-xs font-medium border transition-colors cursor-pointer max-w-full",
+                    isRestricted
+                      ? "bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/20 hover:bg-amber-500/15"
+                      : att.is_file
+                      ? "bg-primary/10 text-primary hover:bg-primary/15 border-primary/20"
+                      : "bg-muted text-foreground hover:bg-muted/80 border-border"
+                  )}
+                  title={isRestricted ? att.access_denied_message || "Restricted document" : undefined}
+                >
+                  {isRestricted ? (
+                    <Lock size={11} className="shrink-0 text-amber-500" />
+                  ) : att.is_file ? (
+                    <FileText size={11} className="shrink-0 text-primary" />
+                  ) : (
+                    <Link2 size={11} className="shrink-0 text-muted-foreground" />
+                  )}
+                  <span className="truncate max-w-[160px] sm:max-w-xs">{att.title || "Reference"}</span>
+                </a>
+              )
+            })}
+          </div>
         )}
         {error && <p className="text-xs text-red-600 dark:text-red-400">{error}</p>}
       </div>

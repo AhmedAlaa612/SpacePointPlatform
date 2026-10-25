@@ -30,6 +30,7 @@ from app.schemas.sessions.journey import (
     AcceptResponsibilitiesIn,
     MaterialLinkIn,
     MaterialOut,
+    MaterialUpdateIn,
     ResponsibilitiesIn,
     ResponsibilitiesOut,
     SessionMaterialsOut,
@@ -50,7 +51,9 @@ async def _out(material: Material) -> MaterialOut:
         title=material.title, notes=material.notes,
         url=await mat.material_url(material),
         filename=mat.display_filename(material.file_path) if material.file_path else None,
-        sort_order=material.sort_order, created_at=material.created_at,
+        sort_order=material.sort_order,
+        is_published=bool(material.is_published),
+        created_at=material.created_at,
     )
 
 
@@ -84,6 +87,7 @@ async def add_material_link(
     material = await mat.add_material(
         db, user=current_user, title=body.title, url=body.url, notes=body.notes,
         program_id=program_id, cohort_id=cohort_id, session_id=session_id,
+        is_published=body.is_published,
     )
     await db.commit()
     await db.refresh(material)
@@ -97,6 +101,7 @@ async def add_material_file(
     program_id: uuid.UUID | None = Form(None),
     cohort_id: uuid.UUID | None = Form(None),
     session_id: uuid.UUID | None = Form(None),
+    is_published: bool = Form(False),
     file: UploadFile = File(...),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_materials_manager),
@@ -106,6 +111,28 @@ async def add_material_file(
         program_id=program_id, cohort_id=cohort_id, session_id=session_id,
         file_bytes=await file.read(), filename=file.filename,
         content_type=file.content_type,
+        is_published=is_published,
+    )
+    await db.commit()
+    await db.refresh(material)
+    return await _out(material)
+
+
+@router.patch("/materials/{material_id}", response_model=MaterialOut)
+async def update_material(
+    material_id: uuid.UUID,
+    body: MaterialUpdateIn,
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(require_materials_manager),
+):
+    material = await db.get(Material, material_id)
+    if material is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Material not found")
+    await mat.update_material(
+        db, material,
+        is_published=body.is_published,
+        title=body.title,
+        notes=body.notes,
     )
     await db.commit()
     await db.refresh(material)

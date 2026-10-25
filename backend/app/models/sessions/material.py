@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime, timezone
 
-from sqlalchemy import CheckConstraint, Column, DateTime, ForeignKey, Integer, String, Text
+from sqlalchemy import Boolean, CheckConstraint, Column, DateTime, ForeignKey, Integer, String, Text
 from sqlalchemy.dialects.postgresql import UUID
 
 from app.db.base import Base
@@ -61,6 +61,7 @@ class Material(Base):
     url = Column(Text, nullable=True)
 
     sort_order = Column(Integer, nullable=False, default=1)
+    is_published = Column(Boolean, nullable=False, default=False, server_default="false")
     # SET NULL, not CASCADE — a departed facilitator must not delete the
     # material they uploaded (same rule as everywhere else in this codebase).
     uploaded_by = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)

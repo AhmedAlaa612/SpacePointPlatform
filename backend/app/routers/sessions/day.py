@@ -39,6 +39,8 @@ from app.schemas.sessions.day import (
     DayActionOut,
     DayDetailOut,
     DayReviewOut,
+    OpsChecklistItemOut,
+    OpsChecklistProgressIn,
     ReturnDayIn,
     SessionBoardOut,
     SetChecklistItemsIn,
@@ -70,13 +72,16 @@ async def list_checklist_items(
     scope: str,
     owner_id: uuid.UUID,
     role_id: uuid.UUID | None = None,
+    target_audience: str = "instructor",
     db: AsyncSession = Depends(get_db),
     _: User = Depends(require_operations),
 ):
-    """One (level, role) bucket — the management view, no inheritance applied.
+    """One (level, role, target_audience) bucket — the management view, no inheritance applied.
     Omit `role_id` for the general bucket; pass a role to edit that role's own
     list. Use the instructor's day endpoint to see what actually resolves."""
-    return await svc.list_checklist_items(db, role_id=role_id, **_scope_kwarg(scope, owner_id))
+    return await svc.list_checklist_items(
+        db, role_id=role_id, target_audience=target_audience, **_scope_kwarg(scope, owner_id)
+    )
 
 
 @router.put("/{scope}/{owner_id}/checklist-items", response_model=list[ChecklistItemOut])
@@ -85,19 +90,48 @@ async def set_checklist_items(
     owner_id: uuid.UUID,
     body: SetChecklistItemsIn,
     role_id: uuid.UUID | None = None,
+    target_audience: str = "instructor",
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_operations),
 ):
-    """Replace one (level, role) bucket. Saving an empty list clears it, which
+    """Replace one (level, role, target_audience) bucket. Saving an empty list clears it, which
     makes the next fallback apply again — general at this level if a role's
     list is cleared, or the next level up if the general one is cleared. That
     is how you go back to inheriting rather than overriding."""
     items = await svc.set_checklist_items(
         db, lines=[i.model_dump() for i in body.items], actor_user_id=current_user.id, role_id=role_id,
+        target_audience=target_audience,
         **_scope_kwarg(scope, owner_id),
     )
     await db.commit()
     return items
+
+
+@router.get("/{session_id}/internal-checklist", response_model=list[OpsChecklistItemOut])
+async def get_internal_checklist(
+    session_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(require_operations),
+):
+    """Internal / operational checklist for a session, resolved with inheritance."""
+    return await svc.get_internal_checklist_for_session(db, session_id)
+
+
+@router.post("/{session_id}/internal-checklist/{item_id}")
+async def set_internal_checklist_item_progress(
+    session_id: uuid.UUID,
+    item_id: uuid.UUID,
+    body: OpsChecklistProgressIn,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_operations),
+):
+    """Update progress for an internal checklist item on a session."""
+    await svc.set_internal_checklist_progress(
+        db, session_id=session_id, checklist_item_id=item_id, actor_user_id=current_user.id,
+        is_done=body.is_done, proof_report_id=body.proof_report_id, note=body.note,
+    )
+    await db.commit()
+    return {"ok": True}
 
 
 # ── instructor: the day ─────────────────────────────────────────────────────

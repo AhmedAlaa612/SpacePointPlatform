@@ -19,6 +19,7 @@ class MaterialOut(BaseModel):
     url: str | None = None
     filename: str | None = None
     sort_order: int = 1
+    is_published: bool = False
     created_at: datetime | None = None
 
 
@@ -33,6 +34,13 @@ class SessionMaterialsOut(BaseModel):
 class MaterialLinkIn(BaseModel):
     title: str
     url: str
+    notes: str | None = None
+    is_published: bool = False
+
+
+class MaterialUpdateIn(BaseModel):
+    is_published: bool | None = None
+    title: str | None = None
     notes: str | None = None
 
 

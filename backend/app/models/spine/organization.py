@@ -1,8 +1,8 @@
 import uuid
 from datetime import datetime, timezone
 
-from sqlalchemy import Column, DateTime, ForeignKey, String, Text
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy import Boolean, Column, DateTime, ForeignKey, Integer, String, Text
+from sqlalchemy.dialects.postgresql import JSONB, UUID
 
 from app.db.base import Base
 
@@ -30,4 +30,21 @@ class Organization(Base):
     )
     owner_user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     notes = Column(Text, nullable=True)
+
+    # ── Hosting Grants & Quotas ──────────────────────────────────────────
+    is_approved = Column(Boolean, nullable=False, default=True, server_default="true")
+    can_publish_events = Column(Boolean, nullable=False, default=False, server_default="false")
+    can_author_courses = Column(Boolean, nullable=False, default=True, server_default="true")
+    can_publish_courses = Column(Boolean, nullable=False, default=False, server_default="false")
+    course_scope_all = Column(Boolean, nullable=False, default=False, server_default="false")
+    # Specific SpacePoint Course IDs this organization is allowed to attach to its cohorts
+    allowed_course_ids = Column(JSONB, nullable=False, default=list, server_default="[]")
+
+    # Constraints (NULL = unlimited)
+    max_events = Column(Integer, nullable=True)
+    max_programs = Column(Integer, nullable=True)
+    max_cohorts = Column(Integer, nullable=True)
+    max_students_per_cohort = Column(Integer, nullable=True)
+    max_observers_per_cohort = Column(Integer, nullable=True)
+
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))

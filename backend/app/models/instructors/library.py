@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime, timezone
 
-from sqlalchemy import Column, DateTime, ForeignKey, String, Text
+from sqlalchemy import Boolean, Column, DateTime, ForeignKey, String, Text
 from sqlalchemy.dialects.postgresql import UUID
 
 from app.db.base import Base
@@ -27,4 +27,5 @@ class LibraryResource(Base):
     resource_type = Column(String(10), nullable=False, default="file")  # "file" | "link"
     uploader_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     module_id = Column(UUID(as_uuid=True), ForeignKey("library_modules.id", ondelete="CASCADE"), nullable=False)
+    is_published = Column(Boolean, nullable=False, default=True, server_default="true")
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))

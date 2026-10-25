@@ -58,7 +58,9 @@ async def create_user(db: AsyncSession, user_in: UserCreate) -> User:
     # first card view (operator ask, 2026-08-17).
     await ensure_card_number(db, db_user)
 
-    if "organization" in db_user.role_values or user_in.org_name_latin:
+    if user_in.organization_id:
+        db_user.organization_id = user_in.organization_id
+    elif "organization" in db_user.role_values or user_in.org_name_latin:
         from app.models.spine.organization import Organization
         org = Organization(
             name_latin=(user_in.org_name_latin or db_user.full_name).strip(),
@@ -68,9 +70,21 @@ async def create_user(db: AsyncSession, user_in: UserCreate) -> User:
             city=(user_in.org_city or "").strip() or None,
             primary_contact_id=contact.id if contact else db_user.contact_id,
             owner_user_id=db_user.id,
+            is_approved=user_in.org_is_approved if user_in.org_is_approved is not None else True,
+            can_publish_events=bool(user_in.org_can_publish_events),
+            can_author_courses=user_in.org_can_author_courses if user_in.org_can_author_courses is not None else True,
+            can_publish_courses=bool(user_in.org_can_publish_courses),
+            course_scope_all=bool(user_in.org_course_scope_all),
+            allowed_course_ids=user_in.org_allowed_course_ids or [],
+            max_events=user_in.org_max_events,
+            max_programs=user_in.org_max_programs,
+            max_cohorts=user_in.org_max_cohorts,
+            max_students_per_cohort=user_in.org_max_students_per_cohort,
+            max_observers_per_cohort=user_in.org_max_observers_per_cohort,
         )
         db.add(org)
         await db.flush()
+        db_user.organization_id = org.id
         if contact:
             contact.organization_id = org.id
 
@@ -98,7 +112,13 @@ async def update_user(db: AsyncSession, user_id: UUID, user_in: UserUpdate | Use
 
     org_fields = {
         k: update_data.pop(k)
-        for k in ("org_name_latin", "org_name_arabic", "org_type", "org_country", "org_city")
+        for k in (
+            "org_name_latin", "org_name_arabic", "org_type", "org_country", "org_city",
+            "org_is_approved", "org_can_publish_events", "org_can_author_courses",
+            "org_can_publish_courses", "org_course_scope_all", "org_allowed_course_ids",
+            "org_max_events", "org_max_programs", "org_max_cohorts",
+            "org_max_students_per_cohort", "org_max_observers_per_cohort",
+        )
         if k in update_data
     }
 
@@ -220,9 +240,13 @@ async def update_user(db: AsyncSession, user_id: UUID, user_in: UserUpdate | Use
     # Sync Organization profile if user has 'organization' role or org fields were sent
     if "organization" in user.role_values or org_fields:
         from app.models.spine.organization import Organization
-        org = (
-            await db.execute(select(Organization).where(Organization.owner_user_id == user.id))
-        ).scalars().first()
+        org = None
+        if user.organization_id:
+            org = await db.get(Organization, user.organization_id)
+        if org is None:
+            org = (
+                await db.execute(select(Organization).where(Organization.owner_user_id == user.id))
+            ).scalars().first()
         if org is None and user.contact_id:
             contact_row = await db.get(Contact, user.contact_id)
             if contact_row and contact_row.organization_id:
@@ -236,8 +260,21 @@ async def update_user(db: AsyncSession, user_id: UUID, user_in: UserUpdate | Use
                 city=(org_fields.get("org_city") or user.city_other or "").strip() or None,
                 primary_contact_id=user.contact_id,
                 owner_user_id=user.id,
+                is_approved=org_fields["org_is_approved"] if "org_is_approved" in org_fields and org_fields["org_is_approved"] is not None else True,
+                can_publish_events=bool(org_fields.get("org_can_publish_events")),
+                can_author_courses=org_fields["org_can_author_courses"] if "org_can_author_courses" in org_fields and org_fields["org_can_author_courses"] is not None else True,
+                can_publish_courses=bool(org_fields.get("org_can_publish_courses")),
+                course_scope_all=bool(org_fields.get("org_course_scope_all")),
+                allowed_course_ids=org_fields.get("org_allowed_course_ids") or [],
+                max_events=org_fields.get("org_max_events"),
+                max_programs=org_fields.get("org_max_programs"),
+                max_cohorts=org_fields.get("org_max_cohorts"),
+                max_students_per_cohort=org_fields.get("org_max_students_per_cohort"),
+                max_observers_per_cohort=org_fields.get("org_max_observers_per_cohort"),
             )
             db.add(org)
+            await db.flush()
+            user.organization_id = org.id
         else:
             if "org_name_latin" in org_fields and org_fields["org_name_latin"]:
                 org.name_latin = org_fields["org_name_latin"].strip()
@@ -249,8 +286,32 @@ async def update_user(db: AsyncSession, user_id: UUID, user_in: UserUpdate | Use
                 org.country = org_fields["org_country"].strip().lower() or None
             if "org_city" in org_fields:
                 org.city = (org_fields["org_city"] or "").strip() or None
+            if "org_is_approved" in org_fields and org_fields["org_is_approved"] is not None:
+                org.is_approved = bool(org_fields["org_is_approved"])
+            if "org_can_publish_events" in org_fields and org_fields["org_can_publish_events"] is not None:
+                org.can_publish_events = bool(org_fields["org_can_publish_events"])
+            if "org_can_author_courses" in org_fields and org_fields["org_can_author_courses"] is not None:
+                org.can_author_courses = bool(org_fields["org_can_author_courses"])
+            if "org_can_publish_courses" in org_fields and org_fields["org_can_publish_courses"] is not None:
+                org.can_publish_courses = bool(org_fields["org_can_publish_courses"])
+            if "org_course_scope_all" in org_fields and org_fields["org_course_scope_all"] is not None:
+                org.course_scope_all = bool(org_fields["org_course_scope_all"])
+            if "org_allowed_course_ids" in org_fields and org_fields["org_allowed_course_ids"] is not None:
+                org.allowed_course_ids = org_fields["org_allowed_course_ids"]
+            if "org_max_events" in org_fields:
+                org.max_events = org_fields["org_max_events"]
+            if "org_max_programs" in org_fields:
+                org.max_programs = org_fields["org_max_programs"]
+            if "org_max_cohorts" in org_fields:
+                org.max_cohorts = org_fields["org_max_cohorts"]
+            if "org_max_students_per_cohort" in org_fields:
+                org.max_students_per_cohort = org_fields["org_max_students_per_cohort"]
+            if "org_max_observers_per_cohort" in org_fields:
+                org.max_observers_per_cohort = org_fields["org_max_observers_per_cohort"]
             if org.owner_user_id is None:
                 org.owner_user_id = user.id
+            if user.organization_id is None:
+                user.organization_id = org.id
 
     await db.commit()
     await db.refresh(user)

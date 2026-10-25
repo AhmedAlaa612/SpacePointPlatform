@@ -12,6 +12,7 @@ import type {
   DayDetail,
   DayReview,
   InstructorAttendance,
+  OpsChecklistItem,
   SessionBoard,
   SessionGameRun,
 } from "@/types/sessions"
@@ -23,9 +24,17 @@ export type ChecklistScope = "programs" | "cohorts" | "sessions"
 /** One (level, role) bucket — the management view, no inheritance applied.
  *  Omit `roleId` for the general bucket; pass a role to see that role's own
  *  list. What actually resolves for an instructor comes back on the day. */
-export const listChecklistItemsApi = (scope: ChecklistScope, ownerId: string, roleId?: string | null) =>
+export const listChecklistItemsApi = (
+  scope: ChecklistScope,
+  ownerId: string,
+  roleId?: string | null,
+  targetAudience: "instructor" | "internal" = "instructor",
+) =>
   api.get<ChecklistItem[]>(`/sessions/${scope}/${ownerId}/checklist-items`, {
-    params: roleId ? { role_id: roleId } : {},
+    params: {
+      ...(roleId ? { role_id: roleId } : {}),
+      target_audience: targetAudience,
+    },
   }).then((r) => r.data)
 
 /** Whole-bucket replace, like openings. Saving an empty list clears this
@@ -42,12 +51,28 @@ export const setChecklistItemsApi = (
     requires_proof?: boolean
     is_required?: boolean
     sort_order?: number | null
+    material_id?: string | null
+    link_url?: string | null
   }[],
   roleId?: string | null,
+  targetAudience: "instructor" | "internal" = "instructor",
 ) =>
   api.put<ChecklistItem[]>(`/sessions/${scope}/${ownerId}/checklist-items`, { items }, {
-    params: roleId ? { role_id: roleId } : {},
+    params: {
+      ...(roleId ? { role_id: roleId } : {}),
+      target_audience: targetAudience,
+    },
   }).then((r) => r.data)
+
+export const getInternalChecklistApi = (sessionId: string) =>
+  api.get<OpsChecklistItem[]>(`/sessions/${sessionId}/internal-checklist`).then((r) => r.data)
+
+export const setInternalChecklistProgressApi = (
+  sessionId: string,
+  itemId: string,
+  body: { is_done: boolean; proof_report_id?: string | null; note?: string | null },
+) =>
+  api.post<{ ok: boolean }>(`/sessions/${sessionId}/internal-checklist/${itemId}`, body).then((r) => r.data)
 
 // ── instructor: the day ─────────────────────────────────────────────────────
 

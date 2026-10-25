@@ -56,9 +56,13 @@ async def _attach_org_and_author(db: AsyncSession, user: User, row: UserOut) -> 
         if ap:
             row.author_can_publish = ap.can_publish
             row.author_scope_all = ap.scope_all
-    org = (
-        await db.execute(select(Organization).where(Organization.owner_user_id == user.id))
-    ).scalars().first()
+    org = None
+    if user.organization_id:
+        org = await db.get(Organization, user.organization_id)
+    if org is None:
+        org = (
+            await db.execute(select(Organization).where(Organization.owner_user_id == user.id))
+        ).scalars().first()
     if org is None and user.contact_id:
         contact = await db.get(Contact, user.contact_id)
         if contact and contact.organization_id:
@@ -70,6 +74,17 @@ async def _attach_org_and_author(db: AsyncSession, user: User, row: UserOut) -> 
         row.organization_type = org.org_type
         row.organization_country = org.country
         row.organization_city = org.city
+        row.org_is_approved = org.is_approved
+        row.org_can_publish_events = org.can_publish_events
+        row.org_can_author_courses = org.can_author_courses
+        row.org_can_publish_courses = org.can_publish_courses
+        row.org_course_scope_all = org.course_scope_all
+        row.org_allowed_course_ids = [str(cid) for cid in (org.allowed_course_ids or [])]
+        row.org_max_events = org.max_events
+        row.org_max_programs = org.max_programs
+        row.org_max_cohorts = org.max_cohorts
+        row.org_max_students_per_cohort = org.max_students_per_cohort
+        row.org_max_observers_per_cohort = org.max_observers_per_cohort
     return row
 
 
@@ -111,7 +126,7 @@ async def read_users(db: AsyncSession = Depends(get_db), current_user: User = De
     out: list[UserOut] = []
     for user in users:
         contact = contacts.get(user.contact_id) if user.contact_id else None
-        org = orgs_by_owner.get(user.id) or (orgs.get(contact.organization_id) if contact and contact.organization_id else None)
+        org = (orgs.get(user.organization_id) if user.organization_id else None) or orgs_by_owner.get(user.id) or (orgs.get(contact.organization_id) if contact and contact.organization_id else None)
         ap = author_profiles.get(user.id)
         row = UserOut.model_validate(user)
         row.grade = contact.grade if contact else None
@@ -126,6 +141,17 @@ async def read_users(db: AsyncSession = Depends(get_db), current_user: User = De
             row.organization_type = org.org_type
             row.organization_country = org.country
             row.organization_city = org.city
+            row.org_is_approved = org.is_approved
+            row.org_can_publish_events = org.can_publish_events
+            row.org_can_author_courses = org.can_author_courses
+            row.org_can_publish_courses = org.can_publish_courses
+            row.org_course_scope_all = org.course_scope_all
+            row.org_allowed_course_ids = [str(cid) for cid in (org.allowed_course_ids or [])]
+            row.org_max_events = org.max_events
+            row.org_max_programs = org.max_programs
+            row.org_max_cohorts = org.max_cohorts
+            row.org_max_students_per_cohort = org.max_students_per_cohort
+            row.org_max_observers_per_cohort = org.max_observers_per_cohort
         out.append(row)
     return out
 

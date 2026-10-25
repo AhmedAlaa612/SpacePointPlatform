@@ -279,6 +279,7 @@ async def clone_program(
                 file_path=mat.file_path,
                 url=mat.url,
                 sort_order=mat.sort_order,
+                is_published=mat.is_published,
                 uploaded_by=current_user.id,
             ))
         if materials:
@@ -329,6 +330,10 @@ async def clone_program(
                 requires_proof=ci.requires_proof,
                 is_required=ci.is_required,
                 sort_order=ci.sort_order,
+                target_audience=ci.target_audience,
+                material_id=ci.material_id,
+                link_url=ci.link_url,
+                attachments=list(ci.attachments or []),
                 created_by=current_user.id,
             ))
         if source_delivery_items:
@@ -384,6 +389,10 @@ async def clone_program(
                         requires_proof=item.requires_proof,
                         is_required=item.is_required,
                         sort_order=item.sort_order,
+                        target_audience=item.target_audience,
+                        material_id=item.material_id,
+                        link_url=item.link_url,
+                        attachments=list(item.attachments or []),
                         created_by=current_user.id,
                     ))
             if source_template_sessions:

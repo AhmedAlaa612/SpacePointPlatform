@@ -738,6 +738,18 @@ export interface CohortAssignment {
 export type InstructorAttendance = "present" | "absent";
 export type DayStatus = "draft" | "submitted" | "changes_required" | "approved";
 
+export interface ChecklistAttachment {
+  id?: string;
+  type: "material" | "link";
+  material_id?: string | null;
+  title?: string | null;
+  url?: string | null;
+  is_file?: boolean;
+  is_published?: boolean;
+  has_access?: boolean;
+  access_denied_message?: string | null;
+}
+
 export interface ChecklistItem {
   id: string;
   program_id?: string | null;
@@ -753,6 +765,33 @@ export interface ChecklistItem {
   /** A non-required item is a prompt, not a gate. */
   is_required: boolean;
   sort_order: number;
+  target_audience?: "instructor" | "internal";
+  material_id?: string | null;
+  link_url?: string | null;
+  attachments?: ChecklistAttachment[];
+}
+
+export interface OpsChecklistItem {
+  item_id: string;
+  title: string;
+  description?: string | null;
+  requires_proof: boolean;
+  is_required: boolean;
+  sort_order: number;
+  target_audience?: "internal";
+  material_id?: string | null;
+  material_title?: string | null;
+  material_url?: string | null;
+  material_is_file?: boolean;
+  link_url?: string | null;
+  attachments?: ChecklistAttachment[];
+  is_done: boolean;
+  proof_report_id?: string | null;
+  proof_url?: string | null;
+  note?: string | null;
+  completed_by?: string | null;
+  completed_by_name?: string | null;
+  updated_at?: string | null;
 }
 
 export interface ChecklistLine {
@@ -762,11 +801,16 @@ export interface ChecklistLine {
   requires_proof: boolean;
   is_required: boolean;
   sort_order: number;
+  material_id?: string | null;
+  material_title?: string | null;
+  material_url?: string | null;
+  link_url?: string | null;
   is_done: boolean;
   note?: string | null;
   proof_report_id?: string | null;
   /** Signed URL, minted per request — never stored. */
   proof_url?: string | null;
+  attachments?: ChecklistAttachment[];
 }
 
 export interface DayDetail {

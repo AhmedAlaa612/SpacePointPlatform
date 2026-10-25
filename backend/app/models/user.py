@@ -89,6 +89,11 @@ class User(Base):
         UUID(as_uuid=True), ForeignKey("contacts.id", ondelete="SET NULL", name="fk_users_contact_id"),
         nullable=True, index=True,
     )
+    # Organization membership link (multi-member partner accounts)
+    organization_id = Column(
+        UUID(as_uuid=True), ForeignKey("organizations.id", ondelete="SET NULL"),
+        nullable=True, index=True,
+    )
 
     # Live Games (Phase 2C, 8-1). Students-only public identity: auto-
     # generated at account creation (services/nicknames.py), never a real

@@ -19,6 +19,26 @@ DayStatus = Literal["draft", "submitted", "changes_required", "approved"]
 
 # ── checklist templates (ops) ───────────────────────────────────────────────
 
+class ChecklistAttachmentIn(BaseModel):
+    id: str | None = None
+    type: Literal["material", "link"] = "link"
+    material_id: UUID | None = None
+    title: str | None = None
+    url: str | None = None
+
+
+class ChecklistAttachmentOut(BaseModel):
+    id: str | None = None
+    type: Literal["material", "link"] = "link"
+    material_id: UUID | None = None
+    title: str | None = None
+    url: str | None = None
+    is_file: bool = False
+    is_published: bool = True
+    has_access: bool = True
+    access_denied_message: str | None = None
+
+
 class ChecklistItemIn(BaseModel):
     title: str
     description: str | None = None
@@ -27,6 +47,10 @@ class ChecklistItemIn(BaseModel):
     # A non-required item is a prompt, not a gate — it never blocks submission.
     is_required: bool = True
     sort_order: int | None = None
+    target_audience: str = "instructor"
+    material_id: UUID | None = None
+    link_url: str | None = None
+    attachments: list[ChecklistAttachmentIn] = []
 
 
 class SetChecklistItemsIn(BaseModel):
@@ -45,9 +69,42 @@ class ChecklistItemOut(BaseModel):
     requires_proof: bool
     is_required: bool
     sort_order: int
+    target_audience: str = "instructor"
+    material_id: UUID | None = None
+    link_url: str | None = None
+    attachments: list[ChecklistAttachmentOut] = []
 
     class Config:
         from_attributes = True
+
+
+class OpsChecklistItemOut(BaseModel):
+    item_id: UUID
+    title: str
+    description: str | None = None
+    requires_proof: bool
+    is_required: bool
+    sort_order: int
+    target_audience: str = "internal"
+    material_id: UUID | None = None
+    material_title: str | None = None
+    material_url: str | None = None
+    material_is_file: bool = False
+    link_url: str | None = None
+    attachments: list[ChecklistAttachmentOut] = []
+    is_done: bool = False
+    proof_report_id: UUID | None = None
+    proof_url: str | None = None
+    note: str | None = None
+    completed_by: UUID | None = None
+    completed_by_name: str | None = None
+    updated_at: datetime | None = None
+
+
+class OpsChecklistProgressIn(BaseModel):
+    is_done: bool
+    proof_report_id: UUID | None = None
+    note: str | None = None
 
 
 # ── the instructor's day ────────────────────────────────────────────────────
@@ -83,6 +140,7 @@ class ChecklistLineOut(BaseModel):
     proof_report_id: UUID | None = None
     # Signed URL, minted per request — never stored.
     proof_url: str | None = None
+    attachments: list[ChecklistAttachmentOut] = []
 
 
 class DayDetailOut(BaseModel):

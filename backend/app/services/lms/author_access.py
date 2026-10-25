@@ -22,6 +22,7 @@ async def get_author_permissions(db: AsyncSession, user: User) -> tuple[bool, bo
 
     Admin, operations, and facilitator are treated as full-access (True, True).
     If the user has 'lms_author', reads their LmsAuthorProfile.
+    If the user has 'organization', reads their Organization grants.
     Otherwise defaults to (False, False).
     """
     if any(r in user.role_values for r in ("admin", "operations", "facilitator")):
@@ -31,6 +32,12 @@ async def get_author_permissions(db: AsyncSession, user: User) -> tuple[bool, bo
         if profile:
             return (profile.can_publish, profile.scope_all)
         return (False, False)
+    if "organization" in user.role_values:
+        from app.services.website_events import resolve_user_organization
+        org = await resolve_user_organization(db, user)
+        if org and org.can_author_courses:
+            return (org.can_publish_courses, org.course_scope_all)
+        return (False, False)
     return (False, False)
 
 
@@ -38,6 +45,11 @@ async def is_course_author_or_staff(db: AsyncSession, user: User, course: Course
     """Returns True if the user has staff privileges or authorship over this course."""
     if any(r in user.role_values for r in ("admin", "operations", "facilitator")):
         return True
+    if "organization" in user.role_values:
+        from app.services.website_events import resolve_user_organization
+        org = await resolve_user_organization(db, user)
+        if org and org.can_author_courses and (course.organization_id == org.id or course.created_by == user.id):
+            return True
     if "lms_author" in user.role_values:
         _, scope_all = await get_author_permissions(db, user)
         return scope_all or course.created_by == user.id
@@ -46,6 +58,15 @@ async def is_course_author_or_staff(db: AsyncSession, user: User, course: Course
 
 async def check_course_access(db: AsyncSession, user: User, course: Course) -> None:
     """Raises 404 if the author does not have scope over this course."""
+    if any(r in user.role_values for r in ("admin", "operations", "facilitator")):
+        return
+    if "organization" in user.role_values:
+        from app.services.website_events import resolve_user_organization
+        org = await resolve_user_organization(db, user)
+        if org and org.can_author_courses:
+            if course.organization_id == org.id or course.created_by == user.id:
+                return
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Course not found")
     _, scope_all = await get_author_permissions(db, user)
     if not scope_all and course.created_by != user.id:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Course not found")

@@ -236,9 +236,20 @@ async def admin_list_event_organizations(
         ).all()
     )
 
+    member_counts = dict(
+        (
+            await db.execute(
+                select(User.organization_id, func.count(User.id))
+                .where(User.organization_id.is_not(None))
+                .group_by(User.organization_id)
+            )
+        ).all()
+    )
+
     out = []
     for o in orgs:
         owner = owners_by_id.get(o.owner_user_id) if o.owner_user_id else None
+        m_count = member_counts.get(o.id, 1 if o.owner_user_id else 0)
         out.append(
             {
                 "id": o.id,
@@ -253,6 +264,18 @@ async def admin_list_event_organizations(
                 "owner_phone": owner.phone if owner else None,
                 "owner_status": owner.status if owner else None,
                 "events_count": counts.get(o.id, 0),
+                "members_count": max(m_count, 1 if o.owner_user_id else 0),
+                "is_approved": o.is_approved,
+                "can_publish_events": o.can_publish_events,
+                "can_author_courses": o.can_author_courses,
+                "can_publish_courses": o.can_publish_courses,
+                "course_scope_all": o.course_scope_all,
+                "allowed_course_ids": [str(c) for c in (o.allowed_course_ids or [])],
+                "max_events": o.max_events,
+                "max_programs": o.max_programs,
+                "max_cohorts": o.max_cohorts,
+                "max_students_per_cohort": o.max_students_per_cohort,
+                "max_observers_per_cohort": o.max_observers_per_cohort,
             }
         )
     return out
@@ -312,8 +335,21 @@ async def admin_create_organization_account(
         city=(body.city or "").strip() or None,
         primary_contact_id=contact_id,
         owner_user_id=user.id,
+        is_approved=body.is_approved,
+        can_publish_events=body.can_publish_events,
+        can_author_courses=body.can_author_courses,
+        can_publish_courses=body.can_publish_courses,
+        course_scope_all=body.course_scope_all,
+        allowed_course_ids=body.allowed_course_ids,
+        max_events=body.max_events,
+        max_programs=body.max_programs,
+        max_cohorts=body.max_cohorts,
+        max_students_per_cohort=body.max_students_per_cohort,
+        max_observers_per_cohort=body.max_observers_per_cohort,
     )
     db.add(org)
+    await db.flush()
+    user.organization_id = org.id
     await db.commit()
     await db.refresh(org)
 
@@ -330,6 +366,18 @@ async def admin_create_organization_account(
         "owner_phone": user.phone,
         "owner_status": user.status,
         "events_count": 0,
+        "members_count": 1,
+        "is_approved": org.is_approved,
+        "can_publish_events": org.can_publish_events,
+        "can_author_courses": org.can_author_courses,
+        "can_publish_courses": org.can_publish_courses,
+        "course_scope_all": org.course_scope_all,
+        "allowed_course_ids": [str(c) for c in (org.allowed_course_ids or [])],
+        "max_events": org.max_events,
+        "max_programs": org.max_programs,
+        "max_cohorts": org.max_cohorts,
+        "max_students_per_cohort": org.max_students_per_cohort,
+        "max_observers_per_cohort": org.max_observers_per_cohort,
     }
 
 
@@ -358,6 +406,29 @@ async def admin_update_organization_account(
         org.country = payload.country.strip().lower() or None
     if payload.city is not None:
         org.city = payload.city.strip() or None
+
+    if payload.is_approved is not None:
+        org.is_approved = payload.is_approved
+    if payload.can_publish_events is not None:
+        org.can_publish_events = payload.can_publish_events
+    if payload.can_author_courses is not None:
+        org.can_author_courses = payload.can_author_courses
+    if payload.can_publish_courses is not None:
+        org.can_publish_courses = payload.can_publish_courses
+    if payload.course_scope_all is not None:
+        org.course_scope_all = payload.course_scope_all
+    if payload.allowed_course_ids is not None:
+        org.allowed_course_ids = payload.allowed_course_ids
+    if "max_events" in body:
+        org.max_events = payload.max_events
+    if "max_programs" in body:
+        org.max_programs = payload.max_programs
+    if "max_cohorts" in body:
+        org.max_cohorts = payload.max_cohorts
+    if "max_students_per_cohort" in body:
+        org.max_students_per_cohort = payload.max_students_per_cohort
+    if "max_observers_per_cohort" in body:
+        org.max_observers_per_cohort = payload.max_observers_per_cohort
 
     owner = await db.get(User, org.owner_user_id) if org.owner_user_id else None
     if owner is not None:
@@ -416,6 +487,9 @@ async def admin_update_organization_account(
             await db.flush()
             await ensure_card_number(db, owner)
         org.owner_user_id = owner.id
+        owner.organization_id = org.id
+    elif owner is not None and owner.organization_id is None:
+        owner.organization_id = org.id
 
     await db.commit()
     await db.refresh(org)
@@ -425,6 +499,12 @@ async def admin_update_organization_account(
     events_count = (
         await db.execute(
             select(func.count(WebsiteEvent.id)).where(WebsiteEvent.organization_id == org.id)
+        )
+    ).scalar_one()
+
+    members_count = (
+        await db.execute(
+            select(func.count(User.id)).where(User.organization_id == org.id)
         )
     ).scalar_one()
 
@@ -441,6 +521,18 @@ async def admin_update_organization_account(
         "owner_phone": owner.phone if owner else None,
         "owner_status": owner.status if owner else None,
         "events_count": events_count,
+        "members_count": max(members_count, 1 if owner else 0),
+        "is_approved": org.is_approved,
+        "can_publish_events": org.can_publish_events,
+        "can_author_courses": org.can_author_courses,
+        "can_publish_courses": org.can_publish_courses,
+        "course_scope_all": org.course_scope_all,
+        "allowed_course_ids": [str(c) for c in (org.allowed_course_ids or [])],
+        "max_events": org.max_events,
+        "max_programs": org.max_programs,
+        "max_cohorts": org.max_cohorts,
+        "max_students_per_cohort": org.max_students_per_cohort,
+        "max_observers_per_cohort": org.max_observers_per_cohort,
     }
 
 

@@ -10,6 +10,7 @@ import { SessionKitAssignment } from "@/pages/admin/components/SessionKitAssignm
 import { SessionOpeningsPanel } from "@/pages/admin/components/SessionOpeningsPanel"
 import { MaterialsPanel } from "@/pages/admin/components/MaterialsPanel"
 import { GameAssignmentPanel } from "@/pages/admin/components/GameAssignmentPanel"
+import { SessionOpsChecklistPanel } from "@/pages/admin/components/SessionOpsChecklistPanel"
 import { EditSessionModal } from "@/pages/admin/components/EditSessionModal"
 import {
   getCohortApi, getSessionsApi, updateSessionApi, assignInstructorApi, unassignInstructorApi, deleteSessionApi,
@@ -101,10 +102,11 @@ export default function SessionDetail() {
   )
 }
 
-type SessionTab = "setup" | "roles" | "staffing" | "attendance" | "report"
+type SessionTab = "setup" | "checklist" | "roles" | "staffing" | "attendance" | "report"
 
 const SESSION_TABS: { key: SessionTab; label: string }[] = [
   { key: "setup", label: "Setup" },
+  { key: "checklist", label: "Checklist" },
   { key: "roles", label: "Roles" },
   { key: "staffing", label: "Staffing" },
   { key: "attendance", label: "Attendance" },
@@ -342,6 +344,12 @@ function SessionDetailView({ cohort, session, onChanged, onDeleted }: {
             </button>
           </div>
         </div>
+      )}
+
+      {activeTab === "checklist" && (
+        <Card className="p-4">
+          <SessionOpsChecklistPanel sessionId={session.id} cohortId={cohort.id} />
+        </Card>
       )}
 
       {activeTab === "roles" && (

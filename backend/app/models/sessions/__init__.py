@@ -22,6 +22,7 @@ from app.models.sessions.checklist import (
     DeliveryChecklistItem,
     InstructorChecklistProgress,
     InstructorSessionDay,
+    SessionOpsChecklistProgress,
 )
 from app.models.sessions.session_call import SessionCall
 from app.models.sessions.media_consent import CohortMediaConsent
@@ -56,6 +57,7 @@ __all__ = [
     "DeliveryChecklistItem",
     "InstructorSessionDay",
     "InstructorChecklistProgress",
+    "SessionOpsChecklistProgress",
     "SessionCall",
     "CohortMediaConsent",
 ]

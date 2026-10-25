@@ -11,16 +11,22 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import {
   ChevronDown,
   ChevronUp,
+  ClipboardCheck,
+  FileText,
   GripVertical,
   ImageIcon,
+  Link2,
   Plus,
   Trash2,
+  X,
 } from "lucide-react"
 import type { Program } from "@/types/sessions"
 import {
   getDeliveryRolesApi,
   getProgramOpeningsApi,
   setProgramOpeningsApi,
+  getMaterialsApi,
+  type Material,
 } from "@/api/sessions/openings"
 import {
   getProgramTemplateApi,
@@ -36,6 +42,7 @@ import {
 } from "@/pages/admin/components/CohortRolesPanel"
 import { useToast } from "@/components/ui/toast"
 import { cn, getErrorMessage } from "@/lib/utils"
+import { ChecklistAttachmentPicker } from "./ChecklistAttachmentPicker"
 
 interface RoleDraft {
   role_id: string
@@ -50,9 +57,11 @@ interface RoleDraft {
 function ProgramChecklistList({
   rows,
   onChange,
+  availableMaterials = [],
 }: {
   rows: ChecklistDraftLine[]
   onChange: (updated: ChecklistDraftLine[]) => void
+  availableMaterials?: Material[]
 }) {
   const [dragKey, setDragKey] = useState<string | null>(null)
 
@@ -120,14 +129,14 @@ function ProgramChecklistList({
             dropOnto(line.key)
           }}
           onDragEnd={() => setDragKey(null)}
-          className={`flex flex-col sm:flex-row sm:items-center gap-2 p-2.5 sm:p-2 bg-card border rounded-xl transition-all ${
+          className={`flex flex-col sm:flex-row sm:items-start gap-2 p-2.5 sm:p-2 bg-card border rounded-xl transition-all ${
             dragKey === line.key
               ? "opacity-40 border-primary ring-1 ring-primary/40"
               : "border-border hover:border-border/80"
           }`}
         >
-          {/* Top / Left section: reordering controls & title input */}
-          <div className="flex items-center gap-1.5 flex-1 min-w-0 w-full">
+          {/* Top bar on mobile / Reorder controls on desktop */}
+          <div className="flex items-center justify-between sm:justify-start gap-1.5 shrink-0 sm:pt-1">
             <div className="flex items-center gap-1 shrink-0 text-muted-foreground" title="Drag to reorder">
               <GripVertical
                 size={15}
@@ -161,44 +170,116 @@ function ProgramChecklistList({
               </button>
             </div>
 
-            <input
-              value={line.title}
-              placeholder="Checklist item description…"
-              onChange={(e) =>
-                onChange(rows.map((r, j) => (j === i ? { ...r, title: e.target.value } : r)))
-              }
-              className="flex-1 min-w-0 h-8 px-2.5 border border-border bg-background text-foreground rounded-lg text-xs sm:text-sm focus:outline-none focus:border-primary transition-colors"
-            />
-          </div>
-
-          {/* Bottom / Right section: Required, Photo, and Delete */}
-          <div className="flex items-center justify-between sm:justify-end gap-1.5 shrink-0 pl-7 sm:pl-0 pt-1 sm:pt-0 border-t sm:border-t-0 border-border/40">
-            <div className="flex items-center gap-1 sm:gap-1.5">
-              <label className="flex items-center gap-1.5 text-xs text-muted-foreground cursor-pointer whitespace-nowrap select-none px-1.5 py-1 rounded-md hover:bg-muted/50">
+            {/* Mobile-only action buttons in top row */}
+            <div className="flex items-center gap-1 sm:hidden">
+              <label className="flex items-center gap-1 text-[11px] text-muted-foreground cursor-pointer select-none px-1.5 py-0.5 rounded-md hover:bg-muted/50">
                 <input
                   type="checkbox"
                   checked={line.is_required}
                   onChange={(e) =>
                     onChange(rows.map((r, j) => (j === i ? { ...r, is_required: e.target.checked } : r)))
                   }
-                  className="rounded border-border text-primary focus:ring-primary"
+                  className="rounded border-border text-primary focus:ring-primary size-3"
                 />
-                <span>Required</span>
+                <span>Req</span>
               </label>
-
-              <label className="flex items-center gap-1.5 text-xs text-muted-foreground cursor-pointer whitespace-nowrap select-none px-1.5 py-1 rounded-md hover:bg-muted/50">
+              <label className="flex items-center gap-1 text-[11px] text-muted-foreground cursor-pointer select-none px-1.5 py-0.5 rounded-md hover:bg-muted/50">
                 <input
                   type="checkbox"
                   checked={line.requires_proof}
                   onChange={(e) =>
                     onChange(rows.map((r, j) => (j === i ? { ...r, requires_proof: e.target.checked } : r)))
                   }
-                  className="rounded border-border text-primary focus:ring-primary"
+                  className="rounded border-border text-primary focus:ring-primary size-3"
                 />
-                <ImageIcon size={13} />
                 <span>Photo</span>
               </label>
+              <button
+                type="button"
+                onClick={() => onChange(rows.filter((_, j) => j !== i))}
+                className="p-1 text-muted-foreground hover:text-red-500 hover:bg-red-500/10 rounded transition-colors shrink-0 cursor-pointer"
+                aria-label="Remove item"
+              >
+                <Trash2 size={13} />
+              </button>
             </div>
+          </div>
+
+          {/* Description input + Attached References tags + Picker */}
+          <div className="flex flex-col gap-1.5 flex-1 min-w-0 w-full">
+            <input
+              value={line.title}
+              placeholder="Checklist item description… (supports [Links](url))"
+              onChange={(e) =>
+                onChange(rows.map((r, j) => (j === i ? { ...r, title: e.target.value } : r)))
+              }
+              className="w-full h-8 px-2.5 border border-border bg-background text-foreground rounded-lg text-xs sm:text-sm focus:outline-none focus:border-primary transition-colors"
+            />
+
+            {/* Attached References Pills + Attach button */}
+            <div className="flex items-center gap-1.5 flex-wrap">
+              {(line.attachments ?? []).map((att, attIdx) => (
+                <span
+                  key={att.id || attIdx}
+                  className={cn(
+                    "inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-xs font-medium border transition-colors",
+                    att.is_file
+                      ? "bg-primary/10 text-primary border-primary/20"
+                      : "bg-muted text-foreground border-border"
+                  )}
+                >
+                  {att.is_file ? <FileText size={11} className="shrink-0 text-primary" /> : <Link2 size={11} className="shrink-0 text-muted-foreground" />}
+                  <span className="truncate max-w-[180px] sm:max-w-xs">{att.title || att.url || "Reference"}</span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const nextAtts = (line.attachments ?? []).filter((_, idx) => idx !== attIdx)
+                      onChange(rows.map((r, j) => (j === i ? { ...r, attachments: nextAtts } : r)))
+                    }}
+                    className="ml-0.5 text-muted-foreground hover:text-red-500 cursor-pointer"
+                    title="Remove reference"
+                  >
+                    <X size={11} />
+                  </button>
+                </span>
+              ))}
+
+              <ChecklistAttachmentPicker
+                availableMaterials={availableMaterials}
+                onAdd={(newAtt) => {
+                  const nextAtts = [...(line.attachments ?? []), newAtt]
+                  onChange(rows.map((r, j) => (j === i ? { ...r, attachments: nextAtts } : r)))
+                }}
+              />
+            </div>
+          </div>
+
+          {/* Desktop-only Right section: Required, Photo, and Delete */}
+          <div className="hidden sm:flex items-center justify-end gap-1.5 shrink-0 sm:pt-1">
+            <label className="flex items-center gap-1.5 text-xs text-muted-foreground cursor-pointer whitespace-nowrap select-none px-1.5 py-1 rounded-md hover:bg-muted/50">
+              <input
+                type="checkbox"
+                checked={line.is_required}
+                onChange={(e) =>
+                  onChange(rows.map((r, j) => (j === i ? { ...r, is_required: e.target.checked } : r)))
+                }
+                className="rounded border-border text-primary focus:ring-primary"
+              />
+              <span>Required</span>
+            </label>
+
+            <label className="flex items-center gap-1.5 text-xs text-muted-foreground cursor-pointer whitespace-nowrap select-none px-1.5 py-1 rounded-md hover:bg-muted/50">
+              <input
+                type="checkbox"
+                checked={line.requires_proof}
+                onChange={(e) =>
+                  onChange(rows.map((r, j) => (j === i ? { ...r, requires_proof: e.target.checked } : r)))
+                }
+                className="rounded border-border text-primary focus:ring-primary"
+              />
+              <ImageIcon size={13} />
+              <span>Photo</span>
+            </label>
 
             <button
               type="button"
@@ -219,31 +300,42 @@ function ProgramChecklistList({
 function ProgramDayChecklistEditor({
   scope,
   ownerId,
+  programId,
   roleId,
   roleName,
   dayTitle,
+  targetAudience = "instructor",
 }: {
   scope: ChecklistScope
   ownerId: string
+  programId: string
   roleId: string | null
   roleName: string
   dayTitle: string
+  targetAudience?: "instructor" | "internal"
 }) {
   const qc = useQueryClient()
   const toast = useToast()
   const [draft, setDraft] = useState<ChecklistDraftLine[] | null>(null)
   const [error, setError] = useState("")
 
-  const queryKey = ["checklist-items", scope, ownerId, roleId ?? "general"]
+  const audienceKey = targetAudience === "internal" ? "internal" : (roleId ?? "general")
+  const queryKey = ["checklist-items", scope, ownerId, audienceKey]
   const { data: items = [], isLoading } = useQuery({
     queryKey,
-    queryFn: () => listChecklistItemsApi(scope, ownerId, roleId),
+    queryFn: () => listChecklistItemsApi(scope, ownerId, roleId, targetAudience),
+  })
+
+  // Load materials available for attaching
+  const { data: availableMaterials = [] } = useQuery({
+    queryKey: ["materials-for-program-checklist", programId],
+    queryFn: () => getMaterialsApi({ program_id: programId }),
   })
 
   useEffect(() => {
     setDraft(null)
     setError("")
-  }, [scope, ownerId, roleId])
+  }, [scope, ownerId, roleId, targetAudience])
 
   useEffect(() => {
     if (draft !== null || isLoading) return
@@ -254,11 +346,15 @@ function ProgramDayChecklistEditor({
     mutationFn: () => {
       const payload = (draft ?? []).map((l, i) => ({
         title: l.title,
+        description: l.description,
         requires_proof: l.requires_proof,
         is_required: l.is_required,
+        material_id: l.material_id,
+        link_url: l.link_url,
+        attachments: l.attachments ?? [],
         sort_order: i + 1,
       }))
-      return setChecklistItemsApi(scope, ownerId, payload, roleId)
+      return setChecklistItemsApi(scope, ownerId, payload, roleId, targetAudience)
     },
     onSuccess: () => {
       toast.success(`${dayTitle} checklist saved`)
@@ -316,7 +412,7 @@ function ProgramDayChecklistEditor({
       {isLoading ? (
         <div className="py-8 text-center text-xs text-muted-foreground">Loading checklist…</div>
       ) : (
-        <ProgramChecklistList rows={rows} onChange={setDraft} />
+        <ProgramChecklistList rows={rows} onChange={setDraft} availableMaterials={availableMaterials} />
       )}
     </div>
   )
@@ -329,6 +425,7 @@ export function ProgramRolesPanel({ program }: { program: Program }) {
   const [activeTab, setActiveTab] = useState<"days" | "rates">("days")
   const [selectedDayId, setSelectedDayId] = useState<string>("default")
   const [activeRoleId, setActiveRoleId] = useState<string | null>(null)
+  const [isInternalChecklist, setIsInternalChecklist] = useState(false)
   const [dayTitleInput, setDayTitleInput] = useState("")
   const [dayDurationInput, setDayDurationInput] = useState("")
 
@@ -469,9 +566,11 @@ export function ProgramRolesPanel({ program }: { program: Program }) {
     ? "Pre-Workshop / General"
     : selectedSession?.title || `Day ${selectedDayIndex + 1}`
 
-  const activeRoleName = activeRoleId
-    ? roles.find((r) => r.id === activeRoleId)?.name || "Role"
-    : "All Roles (General)"
+  const activeRoleName = isInternalChecklist
+    ? "Internal Checklist"
+    : activeRoleId
+      ? roles.find((r) => r.id === activeRoleId)?.name || "Role"
+      : "All Roles (General)"
 
   return (
     <div className="flex flex-col gap-4 py-1">
@@ -671,10 +770,13 @@ export function ProgramRolesPanel({ program }: { program: Program }) {
           <div className="flex items-center gap-1.5 overflow-x-auto pb-1 scrollbar-none no-scrollbar">
             <button
               type="button"
-              onClick={() => setActiveRoleId(null)}
+              onClick={() => {
+                setIsInternalChecklist(false)
+                setActiveRoleId(null)
+              }}
               className={cn(
                 "h-7 px-3 rounded-full text-xs font-medium transition-colors shrink-0 cursor-pointer",
-                activeRoleId === null
+                !isInternalChecklist && activeRoleId === null
                   ? "bg-primary text-primary-foreground shadow-sm"
                   : "bg-muted/60 text-muted-foreground hover:text-foreground hover:bg-muted",
               )}
@@ -684,12 +786,15 @@ export function ProgramRolesPanel({ program }: { program: Program }) {
             {roles
               .filter((r) => r.is_active)
               .map((role) => {
-                const isRoleActive = activeRoleId === role.id
+                const isRoleActive = !isInternalChecklist && activeRoleId === role.id
                 return (
                   <button
                     key={role.id}
                     type="button"
-                    onClick={() => setActiveRoleId(role.id)}
+                    onClick={() => {
+                      setIsInternalChecklist(false)
+                      setActiveRoleId(role.id)
+                    }}
                     className={cn(
                       "h-7 px-3 rounded-full text-xs font-medium transition-colors shrink-0 cursor-pointer",
                       isRoleActive
@@ -701,6 +806,22 @@ export function ProgramRolesPanel({ program }: { program: Program }) {
                   </button>
                 )
               })}
+            <button
+              type="button"
+              onClick={() => {
+                setIsInternalChecklist(true)
+                setActiveRoleId(null)
+              }}
+              className={cn(
+                "h-7 px-3 rounded-full text-xs font-medium transition-colors shrink-0 cursor-pointer flex items-center gap-1.5 border border-dashed",
+                isInternalChecklist
+                  ? "bg-primary text-primary-foreground border-transparent shadow-sm"
+                  : "border-border text-muted-foreground hover:text-foreground hover:bg-muted",
+              )}
+            >
+              <ClipboardCheck size={12} />
+              Internal Checklist
+            </button>
           </div>
 
           {/* 4. Active Day & Role Checklist Editor */}
@@ -708,9 +829,11 @@ export function ProgramRolesPanel({ program }: { program: Program }) {
             <ProgramDayChecklistEditor
               scope={isDefaultSelected ? "programs" : "sessions"}
               ownerId={isDefaultSelected ? program.id : selectedDayId}
+              programId={program.id}
               roleId={activeRoleId}
               roleName={activeRoleName}
               dayTitle={activeDayTitle}
+              targetAudience={isInternalChecklist ? "internal" : "instructor"}
             />
           </div>
         </div>

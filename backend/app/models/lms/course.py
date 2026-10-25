@@ -47,6 +47,11 @@ class Course(Base):
     created_by = Column(
         UUID(as_uuid=True), ForeignKey("users.id", ondelete="RESTRICT"), nullable=False
     )
+    # Organization ownership for partner-authored courses
+    organization_id = Column(
+        UUID(as_uuid=True), ForeignKey("organizations.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    submitted_for_review_at = Column(DateTime(timezone=True), nullable=True)
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
 
     # ── authoring metadata (LMS redesign, 2026-08-06) — all optional, an

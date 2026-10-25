@@ -316,6 +316,10 @@ async def create_cohort(
                     requires_proof=ci.requires_proof,
                     is_required=ci.is_required,
                     sort_order=ci.sort_order,
+                    target_audience=ci.target_audience,
+                    material_id=ci.material_id,
+                    link_url=ci.link_url,
+                    attachments=list(ci.attachments or []),
                     created_by=current_user.id,
                 ))
             if t_items:
@@ -335,6 +339,10 @@ async def create_cohort(
                 requires_proof=ci.requires_proof,
                 is_required=ci.is_required,
                 sort_order=ci.sort_order,
+                target_audience=ci.target_audience,
+                material_id=ci.material_id,
+                link_url=ci.link_url,
+                attachments=list(ci.attachments or []),
                 created_by=current_user.id,
             ))
         if template_cohort_items:
@@ -566,6 +574,7 @@ async def clone_cohort(
                 file_path=mat.file_path,
                 url=mat.url,
                 sort_order=mat.sort_order,
+                is_published=mat.is_published,
                 uploaded_by=current_user.id,
             ))
         if materials:
@@ -647,6 +656,10 @@ async def clone_cohort(
                 requires_proof=ci.requires_proof,
                 is_required=ci.is_required,
                 sort_order=ci.sort_order,
+                target_audience=ci.target_audience,
+                material_id=ci.material_id,
+                link_url=ci.link_url,
+                attachments=list(ci.attachments or []),
                 created_by=current_user.id,
             ))
         if source_checklist_items:
@@ -891,6 +904,10 @@ async def seed_cohort_sessions_from_template(
                     requires_proof=ti.requires_proof,
                     is_required=ti.is_required,
                     sort_order=ti.sort_order,
+                    target_audience=ti.target_audience,
+                    material_id=ti.material_id,
+                    link_url=ti.link_url,
+                    attachments=list(ti.attachments or []),
                     created_by=actor_user_id,
                 ))
     await db.flush()

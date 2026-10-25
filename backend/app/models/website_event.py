@@ -105,6 +105,12 @@ class WebsiteEvent(Base):
         nullable=True,
         index=True,
     )
+    cohort_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("cohorts.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
     created_by_user_id = Column(
         UUID(as_uuid=True),
         ForeignKey("users.id", ondelete="SET NULL"),

@@ -206,6 +206,7 @@ export interface Material {
   url: string | null
   filename: string | null
   sort_order: number
+  is_published: boolean
   created_at: string | null
 }
 
@@ -232,21 +233,27 @@ export const addMaterialLinkApi = ({ owner, ...body }: {
   title: string
   url: string
   notes?: string | null
+  is_published?: boolean
 }) => api.post<Material>("/sessions/materials/link", body, { params: owner }).then((r) => r.data)
 
-export const addMaterialFileApi = ({ owner, title, file, notes }: {
+export const addMaterialFileApi = ({ owner, title, file, notes, is_published }: {
   owner: MaterialOwner
   title: string
   file: File
   notes?: string | null
+  is_published?: boolean
 }) => {
   const form = new FormData()
   form.append("title", title)
   form.append("file", file)
   if (notes) form.append("notes", notes)
+  if (is_published !== undefined) form.append("is_published", String(is_published))
   Object.entries(owner).forEach(([k, v]) => form.append(k, v as string))
   return api.post<Material>("/sessions/materials/file", form).then((r) => r.data)
 }
+
+export const updateMaterialApi = (id: string, body: { is_published?: boolean; title?: string; notes?: string | null }) =>
+  api.patch<Material>(`/sessions/materials/${id}`, body).then((r) => r.data)
 
 export const deleteMaterialApi = (id: string) =>
   api.delete(`/sessions/materials/${id}`).then((r) => r.data)

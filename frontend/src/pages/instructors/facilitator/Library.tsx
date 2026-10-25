@@ -1,6 +1,6 @@
 import { useRef, useState } from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { ExternalLink, FileText, Link2, Pencil, Plus, Trash2, Upload, Video } from "lucide-react"
+import { ExternalLink, FileText, Globe, Link2, Lock, Pencil, Plus, Trash2, Upload, Video } from "lucide-react"
 import {
   addLibraryLinkApi, addLibraryVideoEmbedApi, createLibraryModuleApi, deleteLibraryModuleApi,
   deleteLibraryResourceApi, facilitatorListLibraryApi, replaceLibraryFileApi, updateLibraryResourceApi,
@@ -13,7 +13,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { EmptyState, PageHeader, Spinner } from "@/pages/instructors/components/common"
 import { PdfViewer } from "@/components/documents/PdfViewer"
 import { VideoPlayer } from "@/components/video/VideoPlayer"
-import { isVideoFormat } from "@/lib/utils"
+import { cn, isVideoFormat } from "@/lib/utils"
 
 const isPdf = (r: LibraryResource) => r.resource_type === "file" && r.format.toUpperCase() === "PDF"
 // A video resource is either an upload (format is a real video extension,
@@ -23,44 +23,71 @@ const isPdf = (r: LibraryResource) => r.resource_type === "file" && r.format.toU
 const isVideoResource = (r: LibraryResource) =>
   r.resource_type === "file" && (isVideoFormat(r.format) || r.format === "EMBED")
 
-function ResourceRow({ r, onEdit, onDelete, onPreviewPdf }: {
-  r: LibraryResource; onEdit: () => void; onDelete: () => void; onPreviewPdf: () => void
+function ResourceRow({ r, onEdit, onDelete, onPreviewPdf, onTogglePublish, isToggling }: {
+  r: LibraryResource
+  onEdit: () => void
+  onDelete: () => void
+  onPreviewPdf: () => void
+  onTogglePublish: (next: boolean) => void
+  isToggling?: boolean
 }) {
   const isVideo = isVideoResource(r)
+  const isPublished = r.is_published !== false
 
   return (
     <div className="flex flex-col gap-2 p-3 rounded-lg border bg-background">
-      <div className="flex items-center gap-3">
-        {isVideo ? <Video className="text-primary shrink-0" size={18} /> : <FileText className="text-primary shrink-0" size={18} />}
-        {isPdf(r) ? (
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+        <div className="flex items-center gap-2.5 min-w-0 flex-1">
+          {isVideo ? <Video className="text-primary shrink-0" size={18} /> : <FileText className="text-primary shrink-0" size={18} />}
+          {isPdf(r) ? (
+            <button
+              type="button"
+              onClick={onPreviewPdf}
+              className="text-sm flex-1 truncate hover:text-primary flex items-center gap-1.5 min-w-0 text-left cursor-pointer"
+            >
+              <span className="truncate">{r.title}</span>
+              <span className="text-muted-foreground shrink-0 text-xs">({r.format})</span>
+            </button>
+          ) : (
+            <a
+              href={r.file_url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-sm flex-1 truncate hover:text-primary flex items-center gap-1.5 min-w-0"
+            >
+              <span className="truncate">{r.title}</span>
+              {r.resource_type !== "link" && (
+                <span className="text-muted-foreground shrink-0 text-xs">({r.format})</span>
+              )}
+              <ExternalLink size={12} className="shrink-0 text-muted-foreground" />
+            </a>
+          )}
+        </div>
+        <div className="flex items-center justify-between sm:justify-end gap-2 shrink-0 pt-1.5 sm:pt-0 border-t sm:border-t-0 border-border/40">
           <button
             type="button"
-            onClick={onPreviewPdf}
-            className="text-sm flex-1 truncate hover:text-primary flex items-center gap-1.5 min-w-0 text-left cursor-pointer"
-          >
-            <span className="truncate">{r.title}</span>
-            <span className="text-muted-foreground shrink-0 text-xs">({r.format})</span>
-          </button>
-        ) : (
-          <a
-            href={r.file_url}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="text-sm flex-1 truncate hover:text-primary flex items-center gap-1.5 min-w-0"
-          >
-            <span className="truncate">{r.title}</span>
-            {r.resource_type !== "link" && (
-              <span className="text-muted-foreground shrink-0 text-xs">({r.format})</span>
+            onClick={() => onTogglePublish(!isPublished)}
+            disabled={isToggling}
+            className={cn(
+              "flex items-center gap-1 text-xs px-2.5 py-1 rounded-full border transition-colors shrink-0 font-medium",
+              isPublished
+                ? "border-emerald-500/40 text-emerald-600 bg-emerald-500/10 hover:bg-emerald-500/20"
+                : "border-amber-500/40 text-amber-600 bg-amber-500/10 hover:bg-amber-500/20",
             )}
-            <ExternalLink size={12} className="shrink-0 text-muted-foreground" />
-          </a>
-        )}
-        <button onClick={onEdit} className="p-1 text-muted-foreground hover:text-primary">
-          <Pencil size={14} />
-        </button>
-        <button onClick={onDelete} className="p-1 text-muted-foreground hover:text-destructive">
-          <Trash2 size={14} />
-        </button>
+            title={isPublished ? "Published to instructors — click to make internal only" : "Internal only — click to publish to instructors"}
+          >
+            {isPublished ? <Globe size={11} /> : <Lock size={11} />}
+            <span>{isPublished ? "Published" : "Internal only"}</span>
+          </button>
+          <div className="flex items-center gap-1">
+            <button onClick={onEdit} className="p-1.5 text-muted-foreground hover:text-primary" title="Edit resource">
+              <Pencil size={14} />
+            </button>
+            <button onClick={onDelete} className="p-1.5 text-muted-foreground hover:text-destructive" title="Delete resource">
+              <Trash2 size={14} />
+            </button>
+          </div>
+        </div>
       </div>
       {isVideo && (
         <VideoPlayer
@@ -89,10 +116,12 @@ export default function FacilitatorLibrary() {
   const [videoSource, setVideoSource] = useState<"upload" | "embed">("upload")
   const [resourceTitle, setResourceTitle] = useState("")
   const [linkUrl, setLinkUrl] = useState("")
+  const [resourcePublished, setResourcePublished] = useState(true)
 
   const [editResource, setEditResource] = useState<LibraryResource | null>(null)
   const [editTitle, setEditTitle] = useState("")
   const [editUrl, setEditUrl] = useState("")
+  const [editPublished, setEditPublished] = useState(true)
 
   const [previewResource, setPreviewResource] = useState<LibraryResource | null>(null)
 
@@ -142,17 +171,32 @@ export default function FacilitatorLibrary() {
   })
 
   const addLink = useMutation({
-    mutationFn: () => addLibraryLinkApi({ moduleId: addResourceModuleId!, title: resourceTitle, url: linkUrl }),
+    mutationFn: () => addLibraryLinkApi({
+      moduleId: addResourceModuleId!,
+      title: resourceTitle,
+      url: linkUrl,
+      is_published: resourcePublished,
+    }),
     onSuccess: () => { qc.invalidateQueries({ queryKey: ["facilitator-library"] }); closeAddDialog() },
   })
 
   const uploadFile = useMutation({
-    mutationFn: (file: File) => uploadLibraryResourceApi({ moduleId: addResourceModuleId!, title: resourceTitle, file }),
+    mutationFn: (file: File) => uploadLibraryResourceApi({
+      moduleId: addResourceModuleId!,
+      title: resourceTitle,
+      file,
+      is_published: resourcePublished,
+    }),
     onSuccess: () => { qc.invalidateQueries({ queryKey: ["facilitator-library"] }); closeAddDialog() },
   })
 
   const addVideoEmbed = useMutation({
-    mutationFn: () => addLibraryVideoEmbedApi({ moduleId: addResourceModuleId!, title: resourceTitle, url: linkUrl }),
+    mutationFn: () => addLibraryVideoEmbedApi({
+      moduleId: addResourceModuleId!,
+      title: resourceTitle,
+      url: linkUrl,
+      is_published: resourcePublished,
+    }),
     onSuccess: () => { qc.invalidateQueries({ queryKey: ["facilitator-library"] }); closeAddDialog() },
   })
 
@@ -162,19 +206,25 @@ export default function FacilitatorLibrary() {
       // video IS resource_type "file" (it's video-service-backed, same as an
       // upload), but there's no bytes to replace, only a URL to re-paste.
       if (editResource!.format === "EMBED") {
-        return updateLibraryResourceApi(editResource!.id, { title: editTitle, url: editUrl })
+        return updateLibraryResourceApi(editResource!.id, { title: editTitle, url: editUrl, is_published: editPublished })
       }
       if (editResource!.resource_type === "file") {
         const newFile = editFileRef.current?.files?.[0]
-        if (newFile) return replaceLibraryFileApi(editResource!.id, newFile, editTitle)
-        return updateLibraryResourceApi(editResource!.id, { title: editTitle })
+        if (newFile) return replaceLibraryFileApi(editResource!.id, newFile, editTitle, editPublished)
+        return updateLibraryResourceApi(editResource!.id, { title: editTitle, is_published: editPublished })
       }
-      return updateLibraryResourceApi(editResource!.id, { title: editTitle, url: editUrl })
+      return updateLibraryResourceApi(editResource!.id, { title: editTitle, url: editUrl, is_published: editPublished })
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["facilitator-library"] })
       setEditResource(null)
     },
+  })
+
+  const togglePublish = useMutation({
+    mutationFn: ({ id, is_published }: { id: string; is_published: boolean }) =>
+      updateLibraryResourceApi(id, { is_published }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["facilitator-library"] }),
   })
 
   const deleteResource = useMutation({
@@ -188,6 +238,7 @@ export default function FacilitatorLibrary() {
     setVideoSource("upload")
     setResourceTitle("")
     setLinkUrl("")
+    setResourcePublished(true)
   }
 
   function closeAddDialog() {
@@ -195,12 +246,14 @@ export default function FacilitatorLibrary() {
     setVideoSource("upload")
     setResourceTitle("")
     setLinkUrl("")
+    setResourcePublished(true)
   }
 
   function openEditDialog(r: LibraryResource) {
     setEditResource(r)
     setEditTitle(r.title)
     setEditUrl(r.file_url)
+    setEditPublished(r.is_published !== false)
   }
 
   function openEditModule(m: LibraryModule) {
@@ -248,6 +301,8 @@ export default function FacilitatorLibrary() {
                     onEdit={() => openEditDialog(r)}
                     onDelete={() => deleteResource.mutate(r.id)}
                     onPreviewPdf={() => setPreviewResource(r)}
+                    onTogglePublish={(next) => togglePublish.mutate({ id: r.id, is_published: next })}
+                    isToggling={togglePublish.isPending && (togglePublish.variables as { id: string } | undefined)?.id === r.id}
                   />
                 ))}
               </CardContent>
@@ -360,6 +415,20 @@ export default function FacilitatorLibrary() {
             <input key="file-input" ref={fileRef} type="file" accept={addMode === "video" ? "video/*" : undefined} className="input mb-3" />
           )}
 
+          <label className="flex items-center gap-2 text-sm text-foreground cursor-pointer select-none mb-4 p-2 rounded-lg border bg-muted/30">
+            <input
+              type="checkbox"
+              checked={resourcePublished}
+              onChange={(e) => setResourcePublished(e.target.checked)}
+              className="h-4 w-4 rounded border-border text-primary focus:ring-primary"
+            />
+            <span className="flex items-center gap-1.5 font-medium">
+              {resourcePublished ? <Globe size={14} className="text-emerald-500" /> : <Lock size={14} className="text-amber-500" />}
+              Publish to instructors
+            </span>
+            <span className="text-xs text-muted-foreground">({resourcePublished ? "Visible to instructors" : "Internal only"})</span>
+          </label>
+
           <Button
             onClick={() => {
               if (addMode === "link") { addLink.mutate() }
@@ -411,6 +480,20 @@ export default function FacilitatorLibrary() {
               />
             </div>
           )}
+
+          <label className="flex items-center gap-2 text-sm text-foreground cursor-pointer select-none mb-4 p-2 rounded-lg border bg-muted/30">
+            <input
+              type="checkbox"
+              checked={editPublished}
+              onChange={(e) => setEditPublished(e.target.checked)}
+              className="h-4 w-4 rounded border-border text-primary focus:ring-primary"
+            />
+            <span className="flex items-center gap-1.5 font-medium">
+              {editPublished ? <Globe size={14} className="text-emerald-500" /> : <Lock size={14} className="text-amber-500" />}
+              Publish to instructors
+            </span>
+            <span className="text-xs text-muted-foreground">({editPublished ? "Visible to instructors" : "Internal only"})</span>
+          </label>
 
           <Button
             onClick={() => updateResource.mutate()}

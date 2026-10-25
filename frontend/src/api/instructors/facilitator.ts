@@ -70,19 +70,21 @@ export const updateLibraryModuleApi = (moduleId: string, params: { name?: string
 export const deleteLibraryModuleApi = (moduleId: string) =>
   api.delete(`/instructors/facilitator/library/modules/${moduleId}`).then((r) => r.data)
 
-export const addLibraryLinkApi = (params: { moduleId: string; title: string; url: string; description?: string }) => {
+export const addLibraryLinkApi = (params: { moduleId: string; title: string; url: string; description?: string; is_published?: boolean }) => {
   const qs = new URLSearchParams({ module_id: params.moduleId, title: params.title, url: params.url })
   if (params.description) qs.set("description", params.description)
+  if (params.is_published !== undefined) qs.set("is_published", String(params.is_published))
   return api.post(`/instructors/facilitator/library/link?${qs}`).then((r) => r.data)
 }
 
 export const uploadLibraryResourceApi = (params: {
-  moduleId: string; title: string; file: File; description?: string
+  moduleId: string; title: string; file: File; description?: string; is_published?: boolean
 }) => {
   const form = new FormData()
   form.append("file", params.file)
   const qs = new URLSearchParams({ module_id: params.moduleId, title: params.title })
   if (params.description) qs.set("description", params.description)
+  if (params.is_published !== undefined) qs.set("is_published", String(params.is_published))
   return api.post(`/instructors/facilitator/library?${qs}`, form).then((r) => r.data)
 }
 
@@ -90,25 +92,28 @@ export const uploadLibraryResourceApi = (params: {
  * link, rendered inline via the shared <VideoPlayer>, instead of only ever a
  * raw file upload. */
 export const addLibraryVideoEmbedApi = (params: {
-  moduleId: string; title: string; url: string; description?: string
+  moduleId: string; title: string; url: string; description?: string; is_published?: boolean
 }) => {
   const qs = new URLSearchParams({ module_id: params.moduleId, title: params.title, url: params.url })
   if (params.description) qs.set("description", params.description)
+  if (params.is_published !== undefined) qs.set("is_published", String(params.is_published))
   return api.post(`/instructors/facilitator/library/video-embed?${qs}`).then((r) => r.data)
 }
 
-export const updateLibraryResourceApi = (resourceId: string, params: { title?: string; url?: string }) => {
+export const updateLibraryResourceApi = (resourceId: string, params: { title?: string; url?: string; is_published?: boolean }) => {
   const qs = new URLSearchParams()
   if (params.title !== undefined) qs.set("title", params.title)
   if (params.url !== undefined) qs.set("url", params.url)
+  if (params.is_published !== undefined) qs.set("is_published", String(params.is_published))
   return api.patch(`/instructors/facilitator/library/${resourceId}?${qs}`).then((r) => r.data)
 }
 
-export const replaceLibraryFileApi = (resourceId: string, file: File, title?: string) => {
+export const replaceLibraryFileApi = (resourceId: string, file: File, title?: string, is_published?: boolean) => {
   const form = new FormData()
   form.append("file", file)
   const qs = new URLSearchParams()
   if (title) qs.set("title", title)
+  if (is_published !== undefined) qs.set("is_published", String(is_published))
   return api.put(`/instructors/facilitator/library/${resourceId}/file?${qs}`, form).then((r) => r.data)
 }
 

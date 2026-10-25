@@ -65,6 +65,10 @@ class Program(Base):
     keep_course_access_after_completion = Column(
         Boolean, nullable=False, default=True, server_default="true",
     )
+    # Organization hosting (Partner-hosted program)
+    organization_id = Column(
+        UUID(as_uuid=True), ForeignKey("organizations.id", ondelete="SET NULL"), nullable=True, index=True,
+    )
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
 
     @property

@@ -38,6 +38,7 @@ from app.models.sessions.checklist import (
     DeliveryChecklistItem,
     InstructorChecklistProgress,
     InstructorSessionDay,
+    SessionOpsChecklistProgress,
 )
 from app.models.sessions.cohort import Cohort
 from app.models.sessions.program import Program
@@ -56,11 +57,9 @@ DAY_STATUSES = {"draft", "submitted", "changes_required", "approved"}
 async def _items_at_level(
     db: AsyncSession, *,
     program_id: UUID | None = None, cohort_id: UUID | None = None, session_id: UUID | None = None,
+    target_audience: str = "instructor",
 ) -> list[DeliveryChecklistItem]:
-    """Every item set at exactly one level — general *and* every role's,
-    unfiltered. The raw fetch both `list_checklist_items` (which then filters
-    to one role bucket) and `resolve_checklist` (which splits by role itself,
-    level by level) build on."""
+    """Every item set at exactly one level for a specific target_audience ('instructor' or 'internal')."""
     column = (
         DeliveryChecklistItem.program_id if program_id
         else DeliveryChecklistItem.cohort_id if cohort_id
@@ -71,7 +70,10 @@ async def _items_at_level(
     if column is None:
         return []
     return list((await db.execute(
-        select(DeliveryChecklistItem).where(column == value)
+        select(DeliveryChecklistItem).where(
+            column == value,
+            DeliveryChecklistItem.target_audience == target_audience,
+        )
         .order_by(DeliveryChecklistItem.sort_order, DeliveryChecklistItem.created_at)
     )).scalars().all())
 
@@ -80,17 +82,13 @@ async def list_checklist_items(
     db: AsyncSession, *,
     program_id: UUID | None = None, cohort_id: UUID | None = None, session_id: UUID | None = None,
     role_id: UUID | None = None,
+    target_audience: str = "instructor",
 ) -> list[DeliveryChecklistItem]:
-    """One (level, role) bucket — no inheritance, no role fallback applied.
-
-    This is the management view: ops editing a program's *general* checklist
-    has to see exactly the program's own general rows, not whatever a cohort
-    happens to inherit and not another role's list. `role_id=None` (the
-    default) means the general bucket; pass a role to edit that role's own
-    list. Same split as `materials.list_materials` vs. its resolver, with role
-    as a second, independent axis on top.
-    """
-    items = await _items_at_level(db, program_id=program_id, cohort_id=cohort_id, session_id=session_id)
+    """One (level, role, target_audience) bucket — no inheritance, no role fallback applied."""
+    items = await _items_at_level(
+        db, program_id=program_id, cohort_id=cohort_id, session_id=session_id,
+        target_audience=target_audience,
+    )
     return [i for i in items if i.role_id == role_id]
 
 
@@ -98,20 +96,9 @@ async def set_checklist_items(
     db: AsyncSession, *, lines: list[dict], actor_user_id: UUID,
     program_id: UUID | None = None, cohort_id: UUID | None = None, session_id: UUID | None = None,
     role_id: UUID | None = None,
+    target_audience: str = "instructor",
 ) -> list[DeliveryChecklistItem]:
-    """Replace one (level, role) bucket wholesale.
-
-    Whole-bucket rather than per-line editing, the same choice `set_openings`
-    and `PUT /templates/{id}/items` already make: the client never has to
-    diff, and a half-applied edit can't leave a checklist half-rewritten
-    mid-workshop. Scoped to `role_id` so editing a role's own list never
-    touches the general bucket or another role's — each is independent.
-
-    Rows are replaced wholesale, so progress rows against removed items go with
-    them (CASCADE). That is correct — an item ops deleted is not an item
-    anybody still owes proof for — but it does mean editing a checklist while a
-    workshop is running discards ticks for the items removed.
-    """
+    """Replace one (level, role, target_audience) bucket wholesale."""
     owners = [program_id, cohort_id, session_id]
     if sum(1 for o in owners if o is not None) != 1:
         raise HTTPException(
@@ -121,6 +108,7 @@ async def set_checklist_items(
 
     existing = await list_checklist_items(
         db, program_id=program_id, cohort_id=cohort_id, session_id=session_id, role_id=role_id,
+        target_audience=target_audience,
     )
     for item in existing:
         await db.delete(item)
@@ -131,8 +119,72 @@ async def set_checklist_items(
         title = (line.get("title") or "").strip()
         if not title:
             raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="A checklist item needs a title")
+
+        raw_attachments = line.get("attachments") or []
+        attachments = []
+        for att in raw_attachments:
+            if isinstance(att, dict):
+                mat_id = att.get("material_id")
+                attachments.append({
+                    "id": str(att.get("id") or uuid4()),
+                    "type": att.get("type") or ("material" if mat_id else "link"),
+                    "material_id": str(mat_id) if mat_id else None,
+                    "title": att.get("title"),
+                    "url": att.get("url"),
+                })
+            elif hasattr(att, "model_dump"):
+                d = att.model_dump()
+                mat_id = d.get("material_id")
+                attachments.append({
+                    "id": str(d.get("id") or uuid4()),
+                    "type": d.get("type") or ("material" if mat_id else "link"),
+                    "material_id": str(mat_id) if mat_id else None,
+                    "title": d.get("title"),
+                    "url": d.get("url"),
+                })
+
+        mat_id = line.get("material_id")
+        link_u = line.get("link_url")
+        if not attachments:
+            if mat_id:
+                attachments.append({
+                    "id": str(uuid4()),
+                    "type": "material",
+                    "material_id": str(mat_id),
+                    "title": None,
+                    "url": None,
+                })
+            if link_u:
+                attachments.append({
+                    "id": str(uuid4()),
+                    "type": "link",
+                    "material_id": None,
+                    "title": link_u,
+                    "url": link_u,
+                })
+
+        primary_mat_id = mat_id
+        primary_link_url = link_u
+        if not primary_mat_id:
+            for a in attachments:
+                if a.get("type") == "material" and a.get("material_id"):
+                    try:
+                        primary_mat_id = UUID(str(a["material_id"]))
+                        break
+                    except (ValueError, TypeError):
+                        pass
+        if not primary_link_url:
+            for a in attachments:
+                if a.get("type") == "link" and a.get("url"):
+                    primary_link_url = a["url"]
+                    break
+
         item = DeliveryChecklistItem(
             id=uuid4(), program_id=program_id, cohort_id=cohort_id, session_id=session_id, role_id=role_id,
+            target_audience=target_audience,
+            material_id=primary_mat_id,
+            link_url=primary_link_url,
+            attachments=attachments,
             title=title, description=line.get("description"),
             requires_proof=bool(line.get("requires_proof")),
             is_required=bool(line.get("is_required", True)),
@@ -243,6 +295,286 @@ async def resolve_checklist(
         return [i for i in program_items if i.role_id is None]
 
     return []
+
+
+async def resolve_internal_checklist(
+    db: AsyncSession, session: Session
+) -> list[DeliveryChecklistItem]:
+    """Resolves operational / internal checklist items for a session.
+    Overrides program -> cohort -> session, exactly mirroring materials and instructor checklist.
+    """
+    # 1. Session level
+    items = await _items_at_level(db, session_id=session.id, target_audience="internal")
+    if items:
+        return items
+
+    # 2. Template session fallback
+    cohort = await db.get(Cohort, session.cohort_id)
+    if cohort is not None:
+        template_cohort = await db.scalar(
+            select(Cohort).where(
+                Cohort.program_id == cohort.program_id,
+                Cohort.name.ilike("%template%"),
+                Cohort.id != cohort.id,
+            ).order_by(Cohort.created_at.asc())
+        )
+        if template_cohort is not None:
+            all_sessions = (await db.execute(
+                select(Session.id).where(Session.cohort_id == cohort.id)
+                .order_by(Session.meeting_date, Session.starts_at)
+            )).scalars().all()
+            try:
+                s_idx = all_sessions.index(session.id)
+                t_sessions = (await db.execute(
+                    select(Session.id).where(Session.cohort_id == template_cohort.id)
+                    .order_by(Session.meeting_date, Session.starts_at)
+                )).scalars().all()
+                if s_idx < len(t_sessions):
+                    t_items = await _items_at_level(db, session_id=t_sessions[s_idx], target_audience="internal")
+                    if t_items:
+                        return t_items
+            except ValueError:
+                pass
+
+        # 3. Cohort level
+        cohort_items = await _items_at_level(db, cohort_id=cohort.id, target_audience="internal")
+        if cohort_items:
+            return cohort_items
+
+        # 4. Program level
+        program_items = await _items_at_level(db, program_id=cohort.program_id, target_audience="internal")
+        if program_items:
+            return program_items
+
+    return []
+
+
+async def hydrate_checklist_attachments(
+    db: AsyncSession, items: list[DeliveryChecklistItem], *, is_ops: bool = False
+) -> dict[UUID, list[dict]]:
+    from app.models.sessions.material import Material
+    from app.services.sessions import materials as mat_svc
+
+    # 1. Collect all material IDs
+    material_ids = set()
+    for item in items:
+        att_list = item.attachments or []
+        for a in att_list:
+            if isinstance(a, dict) and a.get("type") == "material" and a.get("material_id"):
+                try:
+                    material_ids.add(UUID(str(a["material_id"])))
+                except (ValueError, TypeError):
+                    pass
+        if item.material_id:
+            material_ids.add(item.material_id)
+
+    materials_by_id = {}
+    if material_ids:
+        m_rows = (await db.execute(
+            select(Material).where(Material.id.in_(list(material_ids)))
+        )).scalars().all()
+        for m in m_rows:
+            materials_by_id[m.id] = m
+
+    # 2. Build hydrated attachments map
+    hydrated_by_item: dict[UUID, list[dict]] = {}
+    for item in items:
+        res = []
+        att_list = list(item.attachments or [])
+        # If attachments is empty but legacy columns present, synthesize
+        if not att_list:
+            if item.material_id:
+                att_list.append({"type": "material", "material_id": str(item.material_id)})
+            if item.link_url:
+                att_list.append({"type": "link", "url": item.link_url, "title": item.link_url})
+
+        for att in att_list:
+            if not isinstance(att, dict):
+                continue
+            att_type = att.get("type") or "link"
+            att_id = att.get("id") or str(uuid4())
+            if att_type == "material":
+                m_id_str = att.get("material_id")
+                m_obj = None
+                if m_id_str:
+                    try:
+                        m_obj = materials_by_id.get(UUID(str(m_id_str)))
+                    except (ValueError, TypeError):
+                        pass
+                if m_obj:
+                    is_published = bool(m_obj.is_published)
+                    has_access = is_ops or is_published
+                    url = await mat_svc.material_url(m_obj) if has_access else None
+                    access_denied_message = (
+                        None if has_access
+                        else "You don't have access to this document, please contact the operations team."
+                    )
+                    res.append({
+                        "id": att_id,
+                        "type": "material",
+                        "material_id": str(m_obj.id),
+                        "title": m_obj.title,
+                        "url": url,
+                        "is_file": bool(m_obj.file_path),
+                        "is_published": is_published,
+                        "has_access": has_access,
+                        "access_denied_message": access_denied_message,
+                    })
+                else:
+                    res.append({
+                        "id": att_id,
+                        "type": "material",
+                        "material_id": m_id_str,
+                        "title": att.get("title") or "Document",
+                        "url": None,
+                        "is_file": False,
+                        "is_published": False,
+                        "has_access": False,
+                        "access_denied_message": "Document not found",
+                    })
+            else:
+                # Link
+                url = att.get("url")
+                title = att.get("title") or url
+                res.append({
+                    "id": att_id,
+                    "type": "link",
+                    "material_id": None,
+                    "title": title,
+                    "url": url,
+                    "is_file": False,
+                    "is_published": True,
+                    "has_access": True,
+                    "access_denied_message": None,
+                })
+        hydrated_by_item[item.id] = res
+
+    return hydrated_by_item
+
+
+async def get_internal_checklist_for_session(
+    db: AsyncSession, session_id: UUID
+) -> list[dict]:
+    session = await db.get(Session, session_id)
+    if session is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Session not found")
+
+    items = await resolve_internal_checklist(db, session)
+    if not items:
+        return []
+
+    hydrated_attachments = await hydrate_checklist_attachments(db, items, is_ops=True)
+
+    item_ids = [i.id for i in items]
+    progress_rows = (await db.execute(
+        select(SessionOpsChecklistProgress).where(
+            SessionOpsChecklistProgress.session_id == session_id,
+            SessionOpsChecklistProgress.checklist_item_id.in_(item_ids),
+        )
+    )).scalars().all()
+    progress_by_item = {p.checklist_item_id: p for p in progress_rows}
+
+    # Material resolution for legacy material_id
+    material_ids = [i.material_id for i in items if i.material_id]
+    materials_by_id = {}
+    if material_ids:
+        from app.models.sessions.material import Material
+        m_rows = (await db.execute(
+            select(Material).where(Material.id.in_(material_ids))
+        )).scalars().all()
+        from app.services.sessions import materials as mat_svc
+        for m in m_rows:
+            materials_by_id[m.id] = {
+                "title": m.title,
+                "url": await mat_svc.material_url(m),
+                "is_file": bool(m.file_path),
+            }
+
+    user_ids = [p.completed_by for p in progress_rows if p.completed_by]
+    user_names = {}
+    if user_ids:
+        u_rows = (await db.execute(
+            select(User).where(User.id.in_(user_ids))
+        )).scalars().all()
+        user_names = {u.id: u.full_name or u.email for u in u_rows}
+
+    report_ids = [p.proof_report_id for p in progress_rows if p.proof_report_id]
+    proof_urls = {}
+    if report_ids:
+        r_rows = (await db.execute(
+            select(SessionReport).where(SessionReport.id.in_(report_ids))
+        )).scalars().all()
+        for r in r_rows:
+            proof_urls[r.id] = await resolve_report_url(r.file_ref)
+
+    out = []
+    for item in items:
+        prog = progress_by_item.get(item.id)
+        mat_info = materials_by_id.get(item.material_id) if item.material_id else None
+        item_atts = hydrated_attachments.get(item.id, [])
+        out.append({
+            "item_id": item.id,
+            "title": item.title,
+            "description": item.description,
+            "requires_proof": item.requires_proof,
+            "is_required": item.is_required,
+            "sort_order": item.sort_order,
+            "target_audience": item.target_audience,
+            "material_id": item.material_id,
+            "material_title": mat_info["title"] if mat_info else None,
+            "material_url": mat_info["url"] if mat_info else None,
+            "material_is_file": mat_info["is_file"] if mat_info else False,
+            "link_url": item.link_url,
+            "attachments": item_atts,
+            "is_done": prog.is_done if prog else False,
+            "proof_report_id": prog.proof_report_id if prog else None,
+            "proof_url": proof_urls.get(prog.proof_report_id) if prog and prog.proof_report_id else None,
+            "note": prog.note if prog else None,
+            "completed_by": prog.completed_by if prog else None,
+            "completed_by_name": user_names.get(prog.completed_by) if prog and prog.completed_by else None,
+            "updated_at": prog.updated_at if prog else None,
+        })
+    return out
+
+
+async def set_internal_checklist_progress(
+    db: AsyncSession,
+    session_id: UUID,
+    checklist_item_id: UUID,
+    actor_user_id: UUID,
+    *,
+    is_done: bool,
+    proof_report_id: UUID | None = None,
+    note: str | None = None,
+) -> SessionOpsChecklistProgress:
+    prog = await db.scalar(
+        select(SessionOpsChecklistProgress).where(
+            SessionOpsChecklistProgress.session_id == session_id,
+            SessionOpsChecklistProgress.checklist_item_id == checklist_item_id,
+        )
+    )
+    if prog is None:
+        prog = SessionOpsChecklistProgress(
+            id=uuid4(),
+            session_id=session_id,
+            checklist_item_id=checklist_item_id,
+            is_done=is_done,
+            proof_report_id=proof_report_id,
+            note=note,
+            completed_by=actor_user_id if is_done else None,
+            updated_at=datetime.now(timezone.utc),
+        )
+        db.add(prog)
+    else:
+        prog.is_done = is_done
+        if proof_report_id is not None:
+            prog.proof_report_id = proof_report_id
+        if note is not None:
+            prog.note = note
+        prog.completed_by = actor_user_id if is_done else None
+        prog.updated_at = datetime.now(timezone.utc)
+    await db.flush()
+    return prog
 
 
 # ── the instructor's day ────────────────────────────────────────────────────
@@ -546,6 +878,8 @@ async def get_day_detail(db: AsyncSession, session_id: UUID, user: User, *, for_
 
     role_id = await _instructor_role(db, session_id, target_id)
     items = await resolve_checklist(db, session, role_id)
+    is_ops = any(r in user.role_values for r in ("operations", "admin", "facilitator"))
+    hydrated_attachments = await hydrate_checklist_attachments(db, items, is_ops=is_ops)
     progress = {
         p.checklist_item_id: p for p in (await db.execute(
             select(InstructorChecklistProgress).where(InstructorChecklistProgress.day_id == day.id)
@@ -571,6 +905,7 @@ async def get_day_detail(db: AsyncSession, session_id: UUID, user: User, *, for_
             "note": row.note if row else None,
             "proof_report_id": row.proof_report_id if row else None,
             "proof_url": proof_url,
+            "attachments": hydrated_attachments.get(item.id, []),
         })
 
     missing = await _missing_requirements(db, session, day)

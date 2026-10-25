@@ -75,6 +75,7 @@ class WebsiteEventBase(BaseModel):
     slug: str
     mega_event_id: UUID | None = None
     organization_id: UUID | None = None
+    cohort_id: UUID | None = None
 
     country: str = "uae"
     city: str | None = None
@@ -154,6 +155,7 @@ class WebsiteEventUpdate(BaseModel):
     slug: str | None = None
     mega_event_id: UUID | None = None
     organization_id: UUID | None = None
+    cohort_id: UUID | None = None
 
     country: str | None = None
     city: str | None = None
@@ -234,6 +236,18 @@ class OrganizationAccountCreateIn(BaseModel):
     phone: str | None = None
     password: str
 
+    is_approved: bool = True
+    can_publish_events: bool = False
+    can_author_courses: bool = True
+    can_publish_courses: bool = False
+    course_scope_all: bool = False
+    allowed_course_ids: list[str] = Field(default_factory=list)
+    max_events: int | None = None
+    max_programs: int | None = None
+    max_cohorts: int | None = None
+    max_students_per_cohort: int | None = None
+    max_observers_per_cohort: int | None = None
+
 
 class OrganizationAccountUpdateIn(BaseModel):
     """Admin update payload for an Organization and its linked User account."""
@@ -246,6 +260,18 @@ class OrganizationAccountUpdateIn(BaseModel):
     email: EmailStr | None = None
     phone: str | None = None
     password: str | None = None
+
+    is_approved: bool | None = None
+    can_publish_events: bool | None = None
+    can_author_courses: bool | None = None
+    can_publish_courses: bool | None = None
+    course_scope_all: bool | None = None
+    allowed_course_ids: list[str] | None = None
+    max_events: int | None = None
+    max_programs: int | None = None
+    max_cohorts: int | None = None
+    max_students_per_cohort: int | None = None
+    max_observers_per_cohort: int | None = None
 
 
 class OrganizationSummaryOut(BaseModel):
@@ -261,3 +287,33 @@ class OrganizationSummaryOut(BaseModel):
     owner_phone: str | None = None
     owner_status: str | None = None
     events_count: int = 0
+    members_count: int = 1
+
+    is_approved: bool = True
+    can_publish_events: bool = False
+    can_author_courses: bool = True
+    can_publish_courses: bool = False
+    course_scope_all: bool = False
+    allowed_course_ids: list[str] = Field(default_factory=list)
+    max_events: int | None = None
+    max_programs: int | None = None
+    max_cohorts: int | None = None
+    max_students_per_cohort: int | None = None
+    max_observers_per_cohort: int | None = None
+
+
+class OrgTeamMemberOut(BaseModel):
+    id: UUID
+    full_name: str
+    email: str
+    phone: str | None = None
+    status: str
+    created_at: datetime
+    is_owner: bool = False
+
+
+class OrgTeamMemberCreateIn(BaseModel):
+    full_name: str
+    email: EmailStr
+    password: str
+    phone: str | None = None
