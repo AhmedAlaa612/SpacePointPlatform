@@ -198,6 +198,8 @@ export default function GameLiveConsole() {
   const [results, setResults] = useState<QuestionResult[] | null>(null)
   const [restartConfirm, setRestartConfirm] = useState(false)
   const [endConfirm, setEndConfirm] = useState(false)
+  // Local instructor toggle to show/hide correct answers on screen without ending round
+  const [showAnswersOnBoard, setShowAnswersOnBoard] = useState(false)
   // Client-local 3-2-1 overlay — set the instant Start/Next is clicked
   // (own action, no need to wait on the WS round trip) and again from the
   // question_started broadcast (covers reconnects / any other path onto
@@ -212,6 +214,11 @@ export default function GameLiveConsole() {
     queryFn: () => getCurrentQuestionApi(runId),
     enabled: !!run && run.status === "live",
   })
+
+  // Hide answers on board whenever the question changes
+  useEffect(() => {
+    setShowAnswersOnBoard(false)
+  }, [question?.id])
 
   const rosterKey = ["game-run-roster", runId, run?.current_question_position]
   const { data: roster = [] } = useQuery({
@@ -233,6 +240,7 @@ export default function GameLiveConsole() {
     if (msg.type === "question_started") {
       setRevealed(false)
       setResults(null)
+      setShowAnswersOnBoard(false)
       setLeadIn(true)
       qc.invalidateQueries({ queryKey: runKey })
     } else if (msg.type === "leaderboard_update") {
@@ -242,6 +250,7 @@ export default function GameLiveConsole() {
       toast.success("Game restarted")
       setRevealed(false)
       setResults(null)
+      setShowAnswersOnBoard(false)
       setLeadIn(true)
       qc.invalidateQueries({ queryKey: runKey })
     } else if (msg.type === "game_ended") {
@@ -279,7 +288,7 @@ export default function GameLiveConsole() {
 
   const start = useMutation({
     mutationFn: () => startRunApi(runId),
-    onSuccess: () => { setRevealed(false); setLeadIn(true); qc.invalidateQueries({ queryKey: runKey }) },
+    onSuccess: () => { setRevealed(false); setShowAnswersOnBoard(false); setLeadIn(true); qc.invalidateQueries({ queryKey: runKey }) },
   })
   const reveal = useMutation({
     mutationFn: () => revealRunApi(runId),
@@ -287,7 +296,7 @@ export default function GameLiveConsole() {
   })
   const next = useMutation({
     mutationFn: () => nextQuestionApi(runId),
-    onSuccess: () => { setRevealed(false); setResults(null); setLeadIn(true); qc.invalidateQueries({ queryKey: runKey }) },
+    onSuccess: () => { setRevealed(false); setResults(null); setShowAnswersOnBoard(false); setLeadIn(true); qc.invalidateQueries({ queryKey: runKey }) },
   })
   const restart = useMutation({
     mutationFn: () => restartRunApi(runId),
@@ -298,6 +307,7 @@ export default function GameLiveConsole() {
       setRestartConfirm(false)
       setRevealed(false)
       setResults(null)
+      setShowAnswersOnBoard(false)
       setLeadIn(true)
       toast.success("Restarted — points from this run are reversed, everyone is back in the lobby")
       qc.invalidateQueries({ queryKey: runKey })
@@ -394,25 +404,47 @@ export default function GameLiveConsole() {
         <div className="flex flex-col lg:flex-row gap-4 items-start">
           <Card className="flex-1 min-w-0 w-full">
             <CardContent className="p-6 sm:p-8 flex flex-col gap-6">
-              <p className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
-                Question {question.position} of {run.total_questions}
-              </p>
+              <div className="flex items-center justify-between gap-3">
+                <p className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
+                  Question {question.position} of {run.total_questions}
+                </p>
+                <button
+                  type="button"
+                  onClick={() => setShowAnswersOnBoard((prev) => !prev)}
+                  className={`h-7 px-2.5 rounded-lg border text-xs font-medium flex items-center gap-1.5 transition-colors cursor-pointer ${
+                    showAnswersOnBoard
+                      ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"
+                      : "border-border text-muted-foreground hover:text-foreground hover:bg-muted"
+                  }`}
+                  title={showAnswersOnBoard ? "Hide answers on instructor screen" : "Reveal answers on instructor screen"}
+                >
+                  {showAnswersOnBoard ? <EyeOff size={12} /> : <Eye size={12} />}
+                  <span>{showAnswersOnBoard ? "Hide answers" : "Reveal answers"}</span>
+                </button>
+              </div>
               <p className="font-display text-2xl sm:text-3xl font-bold text-foreground leading-snug">{question.prompt}</p>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                {question.options.map((o, i) => (
-                  <div
-                    key={i}
-                    className={`flex items-center gap-3 min-h-14 px-4 py-3 rounded-xl border text-base ${
-                      o.is_correct ? "border-emerald-500/40 bg-emerald-500/5 text-foreground" : "border-border text-foreground"
-                    }`}
-                  >
-                    <span className="w-8 h-8 flex-none flex items-center justify-center rounded-lg border border-current text-sm font-bold">
-                      {String.fromCharCode(65 + i)}
-                    </span>
-                    <span className="flex-1">{o.text}</span>
-                    {o.is_correct && <CheckCircle2 size={16} className="text-emerald-500 shrink-0" />}
-                  </div>
-                ))}
+                {question.options.map((o, i) => {
+                  const showCorrect = showAnswersOnBoard && o.is_correct
+                  return (
+                    <div
+                      key={i}
+                      className={`flex items-center gap-3 min-h-14 px-4 py-3 rounded-xl border text-base transition-colors ${
+                        showCorrect
+                          ? "border-emerald-500/50 bg-emerald-500/10 text-foreground font-medium"
+                          : "border-border text-foreground"
+                      }`}
+                    >
+                      <span className={`w-8 h-8 flex-none flex items-center justify-center rounded-lg border text-sm font-bold transition-colors ${
+                        showCorrect ? "border-emerald-500 text-emerald-500" : "border-current"
+                      }`}>
+                        {String.fromCharCode(65 + i)}
+                      </span>
+                      <span className="flex-1">{o.text}</span>
+                      {showCorrect && <CheckCircle2 size={16} className="text-emerald-500 shrink-0" />}
+                    </div>
+                  )
+                })}
               </div>
             </CardContent>
           </Card>
@@ -430,13 +462,28 @@ export default function GameLiveConsole() {
                 </p>
               </div>
               <RosterGrid roster={roster} />
-              <button
-                onClick={() => reveal.mutate()}
-                disabled={reveal.isPending}
-                className="w-full h-11 bg-primary text-primary-foreground rounded-xl text-sm font-semibold hover:opacity-90 transition-colors disabled:opacity-50"
-              >
-                {reveal.isPending ? "Revealing…" : "Reveal answers"}
-              </button>
+              <div className="flex flex-col gap-2.5 w-full">
+                <button
+                  type="button"
+                  onClick={() => reveal.mutate()}
+                  disabled={reveal.isPending}
+                  className="w-full h-11 bg-primary text-primary-foreground rounded-xl text-sm font-semibold hover:opacity-90 transition-colors disabled:opacity-50 flex items-center justify-center gap-2 cursor-pointer"
+                >
+                  {reveal.isPending ? "Ending round…" : "End round"}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setShowAnswersOnBoard((prev) => !prev)}
+                  className={`w-full h-10 border rounded-xl text-sm font-medium transition-colors flex items-center justify-center gap-2 cursor-pointer ${
+                    showAnswersOnBoard
+                      ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 hover:bg-emerald-500/15"
+                      : "border-border text-foreground hover:bg-muted"
+                  }`}
+                >
+                  {showAnswersOnBoard ? <EyeOff size={14} /> : <Eye size={14} />}
+                  {showAnswersOnBoard ? "Hide answers" : "Reveal answers"}
+                </button>
+              </div>
             </CardContent>
           </Card>
         </div>
