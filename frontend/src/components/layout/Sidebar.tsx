@@ -19,6 +19,7 @@ import {
   GitMerge,
   Globe,
   GraduationCap,
+  Layers,
   LayoutGrid,
   LayoutList,
   ListChecks,
@@ -132,6 +133,7 @@ const ICONS: Record<string, LucideIcon> = {
   "Check-in": QrCode,
   Operations: Warehouse,
   Inventory: Warehouse,
+  "Ground Station": Antenna,
   "Ground Station Devices": Antenna,
   "My Articles": Newspaper,
   Website: Globe,
@@ -142,6 +144,9 @@ const ICONS: Record<string, LucideIcon> = {
   "Newsletters & Leads": Bell,
   Events: CalendarDays,
   "My Events": CalendarDays,
+  "Landing Pages": Globe,
+  "Programs & Cohorts": Layers,
+  Team: Users,
   Birthdays: Cake,
   "Admin Hub": UserCog,
   Kits: Boxes,
@@ -182,6 +187,11 @@ const LMS_GROUP = mkGroup("LMS", undefined, [
   mk("Invite Codes", "/lms-authoring/invite-codes"),
   mk("Progress", "/lms-authoring/progress"),
   mk("Component library", "/lms-authoring/design-library"),
+]);
+
+const LMS_OPS_GROUP = mkGroup("LMS", undefined, [
+  ...LMS_GROUP.children!,
+  mk("Ground Station Devices", "/operations/ground-station-devices"),
 ]);
 
 const INVENTORY_GROUP = mkGroup("Inventory", undefined, [
@@ -237,7 +247,13 @@ const DOMAIN_TITLE: Record<string, string> = {
 function getNavItems(pathname: string, activeRole: Role | null): NavItem[] {
   if (activeRole === "organization" || pathname.startsWith("/organization")) {
     return [
-      mk("My Events", "/organization/events"),
+      mk("Programs & Cohorts", "/organization/programs"),
+      mk("Students", "/lms-authoring/students"),
+      mk("Invite Codes", "/lms-authoring/invite-codes"),
+      mk("Courses", "/lms-authoring/courses"),
+      mk("Quiz Bank", "/lms-authoring/quiz-bank"),
+      mk("Landing Pages", "/organization/events"),
+      mk("Team", "/organization/team"),
       mk("Mentors", "/mentors"),
       mk("Profile & Settings", "/organization/profile"),
     ];
@@ -288,15 +304,15 @@ function getNavItems(pathname: string, activeRole: Role | null): NavItem[] {
     return [
       mk("Dashboard", "/operations/dashboard"),
       PROGRAMS_GROUP,
-      LMS_GROUP,
+      LMS_OPS_GROUP,
       INVENTORY_GROUP,
       WEBSITE_GROUP,
       MENTORS_GROUP,
       mk("Learn", "/learn"),
-      mk("Sessions Calendar", "/operations/calendar"),
-      mk("Ground Station Devices", "/operations/ground-station-devices"),
+      // mk("Sessions Calendar", "/operations/calendar"),
+      // mk("Ground Station Devices", "/operations/ground-station-devices"),
       mk("Test Accounts", "/operations/test-accounts"),
-      mk("My Articles", "/articles"),
+      // mk("My Articles", "/articles"),
     ];
   }
   if (pathname.startsWith("/admin")) {
@@ -307,7 +323,7 @@ function getNavItems(pathname: string, activeRole: Role | null): NavItem[] {
       mk("Applications", "/admin/applications"),
       mk("Role Requests", "/admin/role-requests"),
       mk("Birthdays", "/admin/birthdays"),
-      mk("My Articles", "/articles"),
+      // mk("My Articles", "/articles"),
       mk("Learn", "/learn"),
       mk("Settings", "/admin/settings"),
       mk("Operations", "/operations/dashboard"),
@@ -371,7 +387,6 @@ function getNavItems(pathname: string, activeRole: Role | null): NavItem[] {
           mk("Training", "/instructors/facilitator/training"),
           mk("Library", "/instructors/facilitator/library"),
           mk("Assessment", "/instructors/admin/assessment-questions"),
-        mk("Pre-Session Quizzes", "/instructors/facilitator/quizzes"),
           mk("Pre-Session Quizzes", "/instructors/facilitator/quizzes"),
           mk("Applications", "/instructors/facilitator/application"),
         ]),
@@ -487,6 +502,7 @@ function getNavItems(pathname: string, activeRole: Role | null): NavItem[] {
         mk("Training", "/instructors/facilitator/training"),
         mk("Library", "/instructors/facilitator/library"),
         mk("Assessment", "/instructors/admin/assessment-questions"),
+        mk("Pre-Session Quizzes", "/instructors/facilitator/quizzes"),
         mk("Applications", "/instructors/facilitator/application"),
       ]),
       LMS_GROUP,
@@ -505,7 +521,7 @@ function getNavItems(pathname: string, activeRole: Role | null): NavItem[] {
       mk("Role Requests", "/admin/role-requests"),
       mk("Birthdays", "/admin/birthdays"),
       LMS_GROUP,
-      mk("My Articles", "/articles"),
+      // mk("My Articles", "/articles"),
       mk("Learn", "/learn"),
       mk("Settings", "/admin/settings"),
       mk("Operations", "/operations/dashboard"),
@@ -515,15 +531,15 @@ function getNavItems(pathname: string, activeRole: Role | null): NavItem[] {
     return [
       mk("Dashboard", "/operations/dashboard"),
       PROGRAMS_GROUP,
-      LMS_GROUP,
+      LMS_OPS_GROUP,
       INVENTORY_GROUP,
       WEBSITE_GROUP,
       MENTORS_GROUP,
       mk("Learn", "/learn"),
-      mk("Sessions Calendar", "/operations/calendar"),
-      mk("Ground Station Devices", "/operations/ground-station-devices"),
+      // mk("Sessions Calendar", "/operations/calendar"),
+      // mk("Ground Station Devices", "/operations/ground-station-devices"),
       mk("Test Accounts", "/operations/test-accounts"),
-      mk("My Articles", "/articles"),
+      // mk("My Articles", "/articles"),
     ];
   }
   if (activeRole === "mentor") {
@@ -925,7 +941,7 @@ export function AppShell({ children }: { children: ReactNode }) {
       : activeRole === "lms_author"
       ? "/lms-authoring/courses"
       : activeRole === "organization"
-      ? "/organization/profile"
+      ? "/organization/programs"
       : "/interns/profile";
 
   // Body scroll lock + Escape-to-close for the mobile drawer.
