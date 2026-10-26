@@ -2,7 +2,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { PdfViewer } from "@/components/documents/PdfViewer"
 import { VideoPlayer as GeneralVideoPlayer, type VideoPlaybackInfo } from "@/components/video/VideoPlayer"
 import { VideoPlayer as CourseVideoPlayer } from "@/pages/learn/VideoPlayer"
-import { ExternalLink, FileText, Video as VideoIcon } from "lucide-react"
+import { FileText, Video as VideoIcon } from "lucide-react"
 
 export interface MediaPreviewModalProps {
   open: boolean
@@ -48,18 +48,6 @@ export function MediaPreviewModal({
             )}
             <DialogTitle className="truncate text-base sm:text-lg font-semibold">{title}</DialogTitle>
           </div>
-          {url && isPdf && (
-            <a
-              href={url}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="inline-flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors mr-6 shrink-0"
-              title="Open in new browser tab"
-            >
-              <span>Open in tab</span>
-              <ExternalLink size={13} />
-            </a>
-          )}
         </DialogHeader>
 
         <div className="flex-1 min-h-0 mt-3 flex flex-col justify-center">

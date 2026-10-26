@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react"
 import { FileWarning, Maximize2, ZoomIn, ZoomOut } from "lucide-react"
 import * as pdfjsLib from "pdfjs-dist"
 import type { PDFDocumentProxy, PDFPageProxy, RenderTask } from "pdfjs-dist"
+import { cn } from "@/lib/utils"
 // ?url: served as a raw asset, bypassing Vite's dev-mode JS transform (which
 // injects an HMR-client import that breaks once this runs inside a Worker).
 import pdfjsWorkerUrl from "pdfjs-dist/build/pdf.worker.min.mjs?url"
@@ -87,19 +88,29 @@ async function decryptPdfBufferIfNeeded(res: Response, buffer: ArrayBuffer): Pro
 }
 
 async function renderPage(
-  page: PDFPageProxy, canvas: HTMLCanvasElement, wrapper: HTMLDivElement, textLayerEl: HTMLDivElement,
+  page: PDFPageProxy,
+  canvas: HTMLCanvasElement,
+  wrapper: HTMLDivElement,
+  textLayerEl: HTMLDivElement,
   cssScale: number,
 ): Promise<{ renderTask: RenderTask; textLayer: TextLayerInstance }> {
-  const dpr = window.devicePixelRatio || 1
+  // Cap DPR to 2 to prevent excessive GPU memory and sluggish rendering on high-DPI displays at high zoom
+  const dpr = Math.min(window.devicePixelRatio || 1, 2)
   const cssViewport = page.getViewport({ scale: cssScale })
   const renderViewport = page.getViewport({ scale: cssScale * dpr })
 
-  canvas.width = renderViewport.width
-  canvas.height = renderViewport.height
-  canvas.style.width = `${cssViewport.width}px`
-  canvas.style.height = `${cssViewport.height}px`
-  wrapper.style.width = `${cssViewport.width}px`
-  wrapper.style.height = `${cssViewport.height}px`
+  const pixelWidth = Math.round(renderViewport.width)
+  const pixelHeight = Math.round(renderViewport.height)
+
+  if (canvas.width !== pixelWidth) canvas.width = pixelWidth
+  if (canvas.height !== pixelHeight) canvas.height = pixelHeight
+
+  const cssW = `${Math.round(cssViewport.width)}px`
+  const cssH = `${Math.round(cssViewport.height)}px`
+  canvas.style.width = cssW
+  canvas.style.height = cssH
+  wrapper.style.width = cssW
+  wrapper.style.height = cssH
   wrapper.style.setProperty("--total-scale-factor", String(cssScale))
 
   const renderTask = page.render({ canvas, viewport: renderViewport })
@@ -119,27 +130,35 @@ export function PdfViewer({ url, className }: { url: string; className?: string 
   const wrapperRefs = useRef<(HTMLDivElement | null)[]>([])
   const canvasRefs = useRef<(HTMLCanvasElement | null)[]>([])
   const textLayerRefs = useRef<(HTMLDivElement | null)[]>([])
+  const activeRenderTasksRef = useRef<Map<number, RenderTask>>(new Map())
+  const activeTextLayersRef = useRef<Map<number, TextLayerInstance>>(new Map())
   const [doc, setDoc] = useState<PDFDocumentProxy | null>(null)
   const [pdfError, setPdfError] = useState(false)
   // The "fit width" baseline — how wide the container actually is right now,
-  // not a one-time read at mount. Tracked live via ResizeObserver so pages
-  // re-fit correctly whether the container was still animating open (a
-  // Dialog's enter transition) when the doc first loaded, or the window is
-  // resized afterward.
+  // tracked live via ResizeObserver. Debounced and thresholded to prevent
+  // feedback loops when scrollbars appear or subpixel values fluctuate.
   const [containerWidth, setContainerWidth] = useState(800)
-  // Multiplies the fit-width scale — 1 means "fit width" exactly, same as
-  // before zoom controls existed.
+  // Multiplies the fit-width scale — 1 means "fit width" exactly.
   const [zoom, setZoom] = useState(1)
 
   useEffect(() => {
     const el = containerRef.current
     if (!el) return
+    let timeoutId: number | null = null
     const observer = new ResizeObserver((entries) => {
       const width = entries[0]?.contentRect.width
-      if (width) setContainerWidth(width)
+      if (!width || width <= 0) return
+      if (timeoutId) window.clearTimeout(timeoutId)
+      timeoutId = window.setTimeout(() => {
+        const rounded = Math.round(width)
+        setContainerWidth((prev) => (Math.abs(prev - rounded) > 4 ? rounded : prev))
+      }, 60)
     })
     observer.observe(el)
-    return () => observer.disconnect()
+    return () => {
+      if (timeoutId) window.clearTimeout(timeoutId)
+      observer.disconnect()
+    }
   }, [])
 
   useEffect(() => {
@@ -173,8 +192,9 @@ export function PdfViewer({ url, className }: { url: string; className?: string 
         }
         loadedDoc = loaded
         setDoc(loaded)
-      } catch {
+      } catch (err) {
         if (cancelled) return
+        console.warn("PdfViewer encrypted fetch failed, falling back to direct URL:", err)
         // Fallback: try direct URL loading with pdfjs
         try {
           loadingTask = pdfjsLib.getDocument({
@@ -188,7 +208,8 @@ export function PdfViewer({ url, className }: { url: string; className?: string 
           }
           loadedDoc = loaded
           setDoc(loaded)
-        } catch {
+        } catch (fallbackErr) {
+          console.error("PdfViewer fallback load failed:", fallbackErr)
           if (!cancelled) setPdfError(true)
         }
       }
@@ -202,21 +223,48 @@ export function PdfViewer({ url, className }: { url: string; className?: string 
     }
   }, [url])
 
-  // Renders every page in order — canvas pixels plus its matching text
-  // layer. Sequential (each awaited before the next starts) rather than
-  // firing numPages renders at once — pdf.js handles one in-flight render
-  // fine, a couple dozen concurrent ones on the same worker is the kind of
-  // thing that's fine until it isn't. Both the RenderTask and the TextLayer
-  // are tracked and cancelled on cleanup — pdf.js only auto-supersedes a
-  // properly-cancelled prior task, so leaving one running (e.g. React
-  // StrictMode's double-invoke in dev, or zoom changing mid-render) leaves
-  // the worker's queue stuck.
+  // Renders every page in order — canvas pixels plus matching text layer.
+  // Cancels previous in-flight tasks cleanly to prevent multiple render
+  // operations on the same canvas. Applies immediate CSS scaling for instant
+  // visual feedback before the background high-res rasterization completes.
   useEffect(() => {
     if (!doc) return
     let cancelled = false
-    const renderTasks: RenderTask[] = []
-    const textLayers: TextLayerInstance[] = []
+
+    // Cancel all in-flight rendering from any prior zoom/resize pass
+    for (const task of activeRenderTasksRef.current.values()) {
+      task.cancel()
+    }
+    for (const tl of activeTextLayersRef.current.values()) {
+      tl.cancel()
+    }
+
     ;(async () => {
+      // Pass 1: Immediate CSS dimension update for instant 60fps responsiveness
+      for (let i = 1; i <= doc.numPages; i++) {
+        if (cancelled) return
+        const wrapper = wrapperRefs.current[i - 1]
+        const canvas = canvasRefs.current[i - 1]
+        if (!wrapper || !canvas) continue
+        try {
+          const page = await doc.getPage(i)
+          if (cancelled) return
+          const unscaled = page.getViewport({ scale: 1 })
+          const cssScale = (containerWidth / unscaled.width) * zoom
+          const cssViewport = page.getViewport({ scale: cssScale })
+          const cssW = `${Math.round(cssViewport.width)}px`
+          const cssH = `${Math.round(cssViewport.height)}px`
+          wrapper.style.width = cssW
+          wrapper.style.height = cssH
+          wrapper.style.setProperty("--total-scale-factor", String(cssScale))
+          canvas.style.width = cssW
+          canvas.style.height = cssH
+        } catch {
+          // Handled in main rasterization loop
+        }
+      }
+
+      // Pass 2: High-DPI rasterization and textLayer attachment
       for (let i = 1; i <= doc.numPages; i++) {
         if (cancelled) return
         const wrapper = wrapperRefs.current[i - 1]
@@ -226,21 +274,53 @@ export function PdfViewer({ url, className }: { url: string; className?: string 
         try {
           const page = await doc.getPage(i)
           if (cancelled) return
+
+          // Safely wait for any prior render task on this specific canvas to finish releasing it
+          const prevTask = activeRenderTasksRef.current.get(i)
+          if (prevTask) {
+            prevTask.cancel()
+            try {
+              await prevTask.promise
+            } catch {
+              // Expected cancellation
+            }
+            activeRenderTasksRef.current.delete(i)
+          }
+
+          const prevTl = activeTextLayersRef.current.get(i)
+          if (prevTl) {
+            prevTl.cancel()
+            activeTextLayersRef.current.delete(i)
+          }
+
+          if (cancelled) return
           const unscaled = page.getViewport({ scale: 1 })
           const cssScale = (containerWidth / unscaled.width) * zoom
           const { renderTask, textLayer } = await renderPage(page, canvas, wrapper, textLayerEl, cssScale)
-          renderTasks.push(renderTask)
-          textLayers.push(textLayer)
+          activeRenderTasksRef.current.set(i, renderTask)
+          activeTextLayersRef.current.set(i, textLayer)
+
           await Promise.all([renderTask.promise, textLayer.render()])
         } catch (err: unknown) {
-          if (!cancelled && (err as { name?: string })?.name !== "RenderingCancelledException") setPdfError(true)
+          const name = (err as { name?: string })?.name
+          if (!cancelled && name !== "RenderingCancelledException" && name !== "AbortException") {
+            setPdfError(true)
+          }
+        } finally {
+          activeRenderTasksRef.current.delete(i)
+          activeTextLayersRef.current.delete(i)
         }
       }
     })()
+
     return () => {
       cancelled = true
-      renderTasks.forEach((t) => t.cancel())
-      textLayers.forEach((t) => t.cancel())
+      for (const task of activeRenderTasksRef.current.values()) {
+        task.cancel()
+      }
+      for (const tl of activeTextLayersRef.current.values()) {
+        tl.cancel()
+      }
     }
   }, [doc, containerWidth, zoom])
 
@@ -253,7 +333,7 @@ export function PdfViewer({ url, className }: { url: string; className?: string 
   }
 
   return (
-    <div className={className ?? "flex flex-col gap-3"}>
+    <div className={cn("flex flex-col gap-3 min-w-0 max-w-full", className)}>
       <div className="flex items-center justify-between gap-2 flex-wrap">
         <div className="flex items-center gap-1">
           <button
@@ -291,19 +371,23 @@ export function PdfViewer({ url, className }: { url: string; className?: string 
       </div>
       <div
         ref={containerRef}
-        className="w-full flex-1 min-h-0 max-h-[80vh] overflow-y-auto rounded-2xl ring-1 ring-border bg-card flex flex-col items-center gap-3 p-3"
+        className="w-full flex-1 min-h-0 max-h-[80vh] overflow-auto rounded-2xl ring-1 ring-border bg-card p-3 min-w-0"
       >
-        {!doc && <p className="text-sm text-muted-foreground py-16">Loading document...</p>}
-        {doc && Array.from({ length: doc.numPages }, (_, i) => (
-          <div
-            key={i}
-            ref={(el) => { wrapperRefs.current[i] = el }}
-            className="relative max-w-full shadow-sm shrink-0"
-          >
-            <canvas ref={(el) => { canvasRefs.current[i] = el }} className="block max-w-full" />
-            <div ref={(el) => { textLayerRefs.current[i] = el }} className="textLayer" />
+        {!doc && <p className="text-sm text-muted-foreground py-16 text-center">Loading document...</p>}
+        {doc && (
+          <div className="flex flex-col items-center min-w-full w-fit gap-3 mx-auto">
+            {Array.from({ length: doc.numPages }, (_, i) => (
+              <div
+                key={i}
+                ref={(el) => { wrapperRefs.current[i] = el }}
+                className="relative shadow-md shrink-0 bg-white"
+              >
+                <canvas ref={(el) => { canvasRefs.current[i] = el }} className="block" />
+                <div ref={(el) => { textLayerRefs.current[i] = el }} className="textLayer" />
+              </div>
+            ))}
           </div>
-        ))}
+        )}
       </div>
     </div>
   )

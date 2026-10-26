@@ -166,6 +166,8 @@ app.add_middleware(
         "Content-Length",
         "Accept-Ranges",
         "Content-Range",
+        "X-Pdf-Key",
+        "X-Pdf-Iv",
     ],
 )
 
