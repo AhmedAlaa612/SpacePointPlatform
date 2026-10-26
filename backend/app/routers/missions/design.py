@@ -484,6 +484,7 @@ async def add_design_component(
         await design_service.add_custom_to_design(
             db, design_id=design.id, attempt_id=attempt.id,
             custom_component_id=body.custom_component_id, quantity=body.quantity,
+            attempt=attempt,
         )
     else:
         # XOR validator guarantees library_component_id is set on this branch.
@@ -566,6 +567,7 @@ async def upload_custom_component_image(
     custom = await design_service.update_custom_component(
         db, attempt_id=attempt.id, custom_component_id=custom_component_id,
         fields={"image_bucket": CUSTOM_IMAGE_BUCKET, "image_path": path},
+        attempt=attempt,
     )
     await db.commit()
     await db.refresh(custom)
@@ -578,9 +580,8 @@ async def create_custom_component(
     db: AsyncSession = Depends(get_db), current: User = Depends(get_current_active_user),
 ):
     """Define a student-owned custom part and place it in the design in one
-    step (quantity comes from the same body). The part is visible only to
-    this attempt (+ ops via design-detail/explorer) — never to other
-    students, never to sibling attempts/retries."""
+    step (quantity comes from the same body). The part is visible to this
+    attempt (and to team missions in the same cohort)."""
     attempt = await _own_design_attempt(db, attempt_id, current)
     await _require_team_not_final_locked(db, attempt=attempt)
     await require_step_unlocked(db, attempt=attempt, step_key="components")
@@ -600,6 +601,7 @@ async def create_custom_component(
     await design_service.add_custom_to_design(
         db, design_id=design.id, attempt_id=attempt.id,
         custom_component_id=custom.id, quantity=body.quantity,
+        attempt=attempt,
     )
     result = await design_state_out(db, attempt=attempt, design=design)
     await db.commit()
@@ -612,7 +614,7 @@ async def list_custom_components(
     current: User = Depends(get_current_active_user),
 ):
     attempt = await _own_design_attempt(db, attempt_id, current)
-    rows = await design_service.list_custom_components(db, attempt_id=attempt.id)
+    rows = await design_service.list_custom_components(db, attempt_id=attempt.id, attempt=attempt)
     return [await _custom_out(c) for c in rows]
 
 
@@ -627,6 +629,7 @@ async def update_custom_component(
     custom = await design_service.update_custom_component(
         db, attempt_id=attempt.id, custom_component_id=custom_component_id,
         fields=body.model_dump(exclude_unset=True),
+        attempt=attempt,
     )
     await db.commit()
     await db.refresh(custom)
@@ -643,6 +646,7 @@ async def delete_custom_component(
     await require_step_unlocked(db, attempt=attempt, step_key="components")
     await design_service.deactivate_custom_component(
         db, attempt_id=attempt.id, custom_component_id=custom_component_id,
+        attempt=attempt,
     )
     await db.commit()
 

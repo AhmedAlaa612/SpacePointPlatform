@@ -20,13 +20,11 @@ from datetime import datetime, timezone
 from typing import TYPE_CHECKING
 
 from fastapi import HTTPException
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
-if TYPE_CHECKING:
-    from app.models.missions.mission import MissionAttempt
-
+from app.models.missions.mission import MissionAttempt
 from app.models.missions.design import (
     Design,
     DesignComponent,
@@ -151,21 +149,84 @@ def custom_power_mw(*, voltage_v: float, current_ma: float) -> float:
     return round(voltage_v * current_ma, 3)
 
 
+async def _team_member_user_ids(
+    db: AsyncSession, *, attempt: MissionAttempt,
+) -> set[uuid.UUID]:
+    """Returns all user IDs belonging to the attempt's team, combining current
+    learner team roster and any frozen attempt member snapshot."""
+    if attempt.team_id is None:
+        return set()
+    from app.models.missions.mission import MissionAttemptMember
+    from app.models.team import TeamMember
+
+    roster_rows = (await db.execute(
+        select(TeamMember.user_id).where(TeamMember.team_id == attempt.team_id)
+    )).scalars().all()
+    snapshot_rows = (await db.execute(
+        select(MissionAttemptMember.user_id).where(MissionAttemptMember.attempt_id == attempt.id)
+    )).scalars().all()
+    return set(roster_rows) | set(snapshot_rows)
+
+
 async def _get_owned_custom(
     db: AsyncSession, *, attempt_id: uuid.UUID, custom_component_id: uuid.UUID,
+    attempt: MissionAttempt | None = None,
 ) -> DesignCustomComponent:
     """Fetches an active custom component and confirms it belongs to
-    `attempt_id`, 404ing otherwise — a foreign attempt's id never leaks
-    existence (404, not 403). Attempt scope is the whole privacy boundary:
-    no user_id/team_id OR-clause, so retries and sibling missions stay
-    isolated."""
+    `attempt_id` (or, if this is a team attempt in a cohort, was created by a member
+    of that team in the same cohort), 404ing otherwise — a foreign attempt's id
+    never leaks existence (404, not 403)."""
     custom = await db.get(DesignCustomComponent, custom_component_id)
-    if custom is None or not custom.is_active or custom.attempt_id != attempt_id:
+    if custom is None or not custom.is_active:
         raise HTTPException(404, detail="Custom component not found")
-    return custom
+    if custom.attempt_id == attempt_id:
+        return custom
+    if attempt is None:
+        attempt = await db.get(MissionAttempt, attempt_id)
+    if attempt is not None and attempt.team_id is not None:
+        if custom.team_id is not None and custom.team_id == attempt.team_id:
+            return custom
+        if attempt.cohort_id is not None:
+            team_members = await _team_member_user_ids(db, attempt=attempt)
+            if custom.user_id in team_members:
+                creator_attempt = await db.get(MissionAttempt, custom.attempt_id)
+                if creator_attempt is not None and creator_attempt.cohort_id == attempt.cohort_id:
+                    return custom
+    raise HTTPException(404, detail="Custom component not found")
 
 
-async def list_custom_components(db: AsyncSession, *, attempt_id: uuid.UUID) -> list[DesignCustomComponent]:
+async def list_custom_components(
+    db: AsyncSession, *, attempt_id: uuid.UUID, attempt: MissionAttempt | None = None,
+) -> list[DesignCustomComponent]:
+    """Lists active custom components available to this attempt.
+    For team attempts in a cohort, components created by team members in that same cohort
+    are also returned."""
+    if attempt is None:
+        attempt = await db.get(MissionAttempt, attempt_id)
+
+    if attempt is not None and attempt.team_id is not None:
+        team_members = await _team_member_user_ids(db, attempt=attempt)
+        conditions = [
+            DesignCustomComponent.attempt_id == attempt.id,
+            DesignCustomComponent.team_id == attempt.team_id,
+        ]
+        if attempt.cohort_id is not None and team_members:
+            conditions.append(
+                (MissionAttempt.cohort_id == attempt.cohort_id)
+                & DesignCustomComponent.user_id.in_(team_members)
+            )
+
+        stmt = (
+            select(DesignCustomComponent)
+            .join(MissionAttempt, MissionAttempt.id == DesignCustomComponent.attempt_id)
+            .where(
+                DesignCustomComponent.is_active == True,  # noqa: E712
+                or_(*conditions),
+            )
+            .order_by(DesignCustomComponent.created_at)
+        )
+        return list((await db.execute(stmt)).scalars().all())
+
     return list((await db.execute(
         select(DesignCustomComponent)
         .where(DesignCustomComponent.attempt_id == attempt_id,
@@ -188,20 +249,21 @@ async def create_custom_component(
 
 async def update_custom_component(
     db: AsyncSession, *, attempt_id: uuid.UUID, custom_component_id: uuid.UUID, fields: dict,
+    attempt: MissionAttempt | None = None,
 ) -> DesignCustomComponent:
     """Edits the custom definition and propagates updates to placed DesignComponent
-    snapshots in this attempt's design."""
-    custom = await _get_owned_custom(db, attempt_id=attempt_id, custom_component_id=custom_component_id)
+    snapshots."""
+    custom = await _get_owned_custom(
+        db, attempt_id=attempt_id, custom_component_id=custom_component_id, attempt=attempt,
+    )
     for field, value in fields.items():
         setattr(custom, field, value)
     custom.updated_at = datetime.now(timezone.utc)
 
-    # Propagate edits (including image) to placed snapshots in this attempt's design
+    # Propagate edits (including image) to placed snapshots referencing this custom component
     placed_stmt = (
         select(DesignComponent)
-        .join(Design, Design.id == DesignComponent.design_id)
         .where(
-            Design.attempt_id == attempt_id,
             DesignComponent.custom_component_id == custom.id,
         )
     )
@@ -237,11 +299,14 @@ async def update_custom_component(
 
 async def deactivate_custom_component(
     db: AsyncSession, *, attempt_id: uuid.UUID, custom_component_id: uuid.UUID,
+    attempt: MissionAttempt | None = None,
 ) -> None:
     """Soft-delete (is_active=False). Cart rows referencing it are untouched —
     removal from the design is the explicit DELETE .../components/{id} call,
     so history never loses rows to a definition edit."""
-    custom = await _get_owned_custom(db, attempt_id=attempt_id, custom_component_id=custom_component_id)
+    custom = await _get_owned_custom(
+        db, attempt_id=attempt_id, custom_component_id=custom_component_id, attempt=attempt,
+    )
     custom.is_active = False
     custom.updated_at = datetime.now(timezone.utc)
     await db.flush()
@@ -250,11 +315,14 @@ async def deactivate_custom_component(
 async def add_custom_to_design(
     db: AsyncSession, *, design_id: uuid.UUID, attempt_id: uuid.UUID,
     custom_component_id: uuid.UUID, quantity: int = 1,
+    attempt: MissionAttempt | None = None,
 ) -> DesignComponent:
     """Freezes a custom definition into a DesignComponent snapshot — the
     same F1/F2 posture as library picks (RESTRICT FK, frozen specs). Cost
     is AED verbatim (no USD conversion); power is server-computed."""
-    custom = await _get_owned_custom(db, attempt_id=attempt_id, custom_component_id=custom_component_id)
+    custom = await _get_owned_custom(
+        db, attempt_id=attempt_id, custom_component_id=custom_component_id, attempt=attempt,
+    )
     dc = DesignComponent(
         id=uuid.uuid4(), design_id=design_id, library_component_id=None,
         custom_component_id=custom.id, is_custom=True, quantity=quantity,
