@@ -86,6 +86,7 @@ class CohortQuizQuestionOut(BaseModel):
     explanation: str | None
     source_url: str | None
     is_active: bool
+    organization_id: UUID | None = None
 
 
 class CohortQuizQuestionImportOut(BaseModel):
@@ -118,6 +119,7 @@ class CohortQuizTemplateOut(BaseModel):
     is_active: bool
     created_at: datetime | None
     question_count: int
+    organization_id: UUID | None = None
 
 
 class CohortQuizTemplateQuestionIn(BaseModel):

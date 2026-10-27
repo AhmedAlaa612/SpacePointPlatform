@@ -106,6 +106,7 @@ export interface WebsiteEvent {
   mega_event_id: string | null
   mega_event_slug: string | null
   mega_event_title: string | null
+  cohort_id?: string | null
   organization_id: string | null
   organization_name: string | null
   created_by_user_id: string | null
@@ -209,6 +210,20 @@ export interface OrganizationAccountSummary {
   owner_phone?: string | null
   owner_status?: string | null
   events_count: number
+  members_count: number
+  is_approved: boolean
+  can_publish_events: boolean
+  can_author_courses: boolean
+  can_publish_courses: boolean
+  course_scope_all: boolean
+  allowed_course_ids: string[]
+  quiz_scope?: string
+  allowed_quiz_template_ids?: string[]
+  max_events?: number | null
+  max_programs?: number | null
+  max_cohorts?: number | null
+  max_students_per_cohort?: number | null
+  max_observers_per_cohort?: number | null
 }
 
 export interface OrganizationAccountCreatePayload {
@@ -221,6 +236,19 @@ export interface OrganizationAccountCreatePayload {
   email: string
   phone?: string | null
   password: string
+  is_approved?: boolean
+  can_publish_events?: boolean
+  can_author_courses?: boolean
+  can_publish_courses?: boolean
+  course_scope_all?: boolean
+  allowed_course_ids?: string[]
+  quiz_scope?: string
+  allowed_quiz_template_ids?: string[]
+  max_events?: number | null
+  max_programs?: number | null
+  max_cohorts?: number | null
+  max_students_per_cohort?: number | null
+  max_observers_per_cohort?: number | null
 }
 
 export interface OrganizationAccountUpdatePayload {
@@ -233,6 +261,28 @@ export interface OrganizationAccountUpdatePayload {
   email?: string
   phone?: string | null
   password?: string
+  is_approved?: boolean
+  can_publish_events?: boolean
+  can_author_courses?: boolean
+  can_publish_courses?: boolean
+  course_scope_all?: boolean
+  allowed_course_ids?: string[]
+  quiz_scope?: string
+  allowed_quiz_template_ids?: string[]
+  max_events?: number | null
+  max_programs?: number | null
+  max_cohorts?: number | null
+  max_students_per_cohort?: number | null
+  max_observers_per_cohort?: number | null
+}
+
+export interface OrgTeamMember {
+  id: string
+  email: string
+  full_name: string
+  is_active: boolean
+  is_owner: boolean
+  created_at?: string
 }
 
 // ── Admin Endpoints ──────────────────────────────────────────────────────────
@@ -291,12 +341,39 @@ export interface MyOrganizationContext {
     org_type: string
     country: string | null
     city: string | null
+    is_approved: boolean
+    can_publish_events: boolean
+    can_author_courses: boolean
+    can_publish_courses: boolean
+    course_scope_all: boolean
+    allowed_course_ids: string[]
+    max_events?: number | null
+    max_programs?: number | null
+    max_cohorts?: number | null
+    max_students_per_cohort?: number | null
+    max_observers_per_cohort?: number | null
   } | null
   mega_events: MegaEvent[]
 }
 
 export const getMyOrganizationContext = () =>
   api.get<MyOrganizationContext>("/organization/me").then((r) => r.data)
+
+export const getOrganizationTeamApi = () =>
+  api.get<OrgTeamMember[]>("/organization/team").then((r) => r.data)
+
+export const addOrganizationTeamMemberApi = (payload: { email: string; full_name: string; password?: string }) =>
+  api.post<OrgTeamMember>("/organization/team", payload).then((r) => r.data)
+
+export const removeOrganizationTeamMemberApi = (userId: string) =>
+  api.delete(`/organization/team/${userId}`)
+
+export const getOrganizationMemberResetLinkApi = (userId: string) =>
+  api
+    .post<{ organization_id: string; user_id: string; email: string; reset_url: string }>(
+      `/organization/team/${userId}/reset-link`
+    )
+    .then((r) => r.data)
 
 export const getMyOrganizationEvents = () =>
   api.get<WebsiteEvent[]>("/organization/events").then((r) => r.data)

@@ -16,6 +16,9 @@ export interface AdminCourse {
   created_by?: string | null;
   created_by_name?: string | null;
   created_at?: string | null;
+  organization_id?: string | null;
+  organization_name?: string | null;
+  submitted_for_review_at?: string | null;
 
 
   image_url: string | null;
@@ -264,7 +267,10 @@ export interface AdminCheckpoint {
 
 // ── courses ──────────────────────────────────────────────────────────────
 
-export const listCoursesApi = () => api.get<AdminCourse[]>("/lms/admin/courses").then((r) => r.data);
+export const listCoursesApi = (params?: { for_picker?: boolean } | any) => {
+  const p = params && typeof params === "object" && "for_picker" in params ? { for_picker: params.for_picker } : undefined;
+  return api.get<AdminCourse[]>("/lms/admin/courses", { params: p }).then((r) => r.data);
+};
 export const getCourseApi = (id: string) => api.get<AdminCourse>(`/lms/admin/courses/${id}`).then((r) => r.data);
 export const getCourseRatingsApi = (courseId: string) =>
   api.get<CourseRatingsSummary>(`/lms/admin/courses/${courseId}/ratings`).then((r) => r.data);

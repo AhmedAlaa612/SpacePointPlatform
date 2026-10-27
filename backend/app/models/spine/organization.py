@@ -32,13 +32,18 @@ class Organization(Base):
     notes = Column(Text, nullable=True)
 
     # ── Hosting Grants & Quotas ──────────────────────────────────────────
-    is_approved = Column(Boolean, nullable=False, default=True, server_default="true")
+    is_approved = Column(Boolean, nullable=False, default=False, server_default="false")
     can_publish_events = Column(Boolean, nullable=False, default=False, server_default="false")
     can_author_courses = Column(Boolean, nullable=False, default=True, server_default="true")
     can_publish_courses = Column(Boolean, nullable=False, default=False, server_default="false")
     course_scope_all = Column(Boolean, nullable=False, default=False, server_default="false")
     # Specific SpacePoint Course IDs this organization is allowed to attach to its cohorts
     allowed_course_ids = Column(JSONB, nullable=False, default=list, server_default="[]")
+
+    # Quiz Bank & Question Access: 'all' | 'selected' | 'own'
+    quiz_scope = Column(String(32), nullable=False, default="own", server_default="'own'")
+    # Specific SpacePoint Quiz Template IDs this organization is allowed to access
+    allowed_quiz_template_ids = Column(JSONB, nullable=False, default=list, server_default="[]")
 
     # Constraints (NULL = unlimited)
     max_events = Column(Integer, nullable=True)

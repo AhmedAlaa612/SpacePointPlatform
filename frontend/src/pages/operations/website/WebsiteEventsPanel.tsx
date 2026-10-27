@@ -27,6 +27,7 @@ import { CityNameSelect } from "@/components/ui/CitySelect"
 import { UserProfileModal } from "@/components/UserProfileModal"
 import { apiBaseUrl } from "@/api/client"
 import { uploadWebsiteAsset } from "@/api/websiteConfig"
+import { OrgGrantsAndQuotasForm } from "@/components/organization/OrgGrantsAndQuotasForm"
 import {
   createAdminMegaEvent,
   createAdminOrganizationAccount,
@@ -1957,7 +1958,7 @@ export function WebsiteEventsPanel() {
   const [editingOrg, setEditingOrg] = useState<OrganizationAccountSummary | null>(null)
   const [profileUserId, setProfileUserId] = useState<string | null>(null)
   const [orgResetLink, setOrgResetLink] = useState<{ orgName: string; email: string; url: string } | null>(null)
-  const [orgForm, setOrgForm] = useState({
+  const defaultOrgForm = {
     org_name_latin: "",
     org_name_arabic: "",
     org_type: "university",
@@ -1967,7 +1968,21 @@ export function WebsiteEventsPanel() {
     email: "",
     phone: "",
     password: "",
-  })
+    is_approved: true,
+    can_publish_events: false,
+    can_author_courses: false,
+    can_publish_courses: false,
+    course_scope_all: false,
+    allowed_course_ids: [] as string[],
+    quiz_scope: "own" as "all" | "selected" | "own",
+    allowed_quiz_template_ids: [] as string[],
+    max_events: null as number | null,
+    max_programs: null as number | null,
+    max_cohorts: null as number | null,
+    max_students_per_cohort: null as number | null,
+    max_observers_per_cohort: null as number | null,
+  }
+  const [orgForm, setOrgForm] = useState(defaultOrgForm)
 
   const saveEventMut = useMutation({
     mutationFn: (payload: WebsiteEventInput) =>
@@ -2038,6 +2053,19 @@ export function WebsiteEventsPanel() {
             email: orgForm.email || undefined,
             phone: orgForm.phone,
             password: orgForm.password || undefined,
+            is_approved: orgForm.is_approved,
+            can_publish_events: orgForm.can_publish_events,
+            can_author_courses: orgForm.can_author_courses,
+            can_publish_courses: orgForm.can_publish_courses,
+            course_scope_all: orgForm.course_scope_all,
+            allowed_course_ids: orgForm.allowed_course_ids,
+            quiz_scope: orgForm.quiz_scope,
+            allowed_quiz_template_ids: orgForm.allowed_quiz_template_ids,
+            max_events: orgForm.max_events,
+            max_programs: orgForm.max_programs,
+            max_cohorts: orgForm.max_cohorts,
+            max_students_per_cohort: orgForm.max_students_per_cohort,
+            max_observers_per_cohort: orgForm.max_observers_per_cohort,
           })
         : createAdminOrganizationAccount(orgForm),
     onSuccess: () => {
@@ -2045,17 +2073,7 @@ export function WebsiteEventsPanel() {
       void qc.invalidateQueries({ queryKey: ["users"] })
       setCreatingOrg(false)
       setEditingOrg(null)
-      setOrgForm({
-        org_name_latin: "",
-        org_name_arabic: "",
-        org_type: "university",
-        country: "uae",
-        city: "Abu Dhabi",
-        full_name: "",
-        email: "",
-        phone: "",
-        password: "",
-      })
+      setOrgForm(defaultOrgForm)
       toast.success(editingOrg ? "Organization updated!" : "Organization account created!")
     },
     onError: (err) => toast.error(getErrorMessage(err, "Failed to save organization account")),
@@ -2568,6 +2586,13 @@ export function WebsiteEventsPanel() {
             onChange={(v) => setOrgForm((p) => ({ ...p, password: v }))}
             placeholder="••••••••"
           />
+
+          <div className="pt-2 border-t border-border">
+            <OrgGrantsAndQuotasForm
+              data={orgForm}
+              onChange={(updatedGrants) => setOrgForm((p) => ({ ...p, ...updatedGrants }))}
+            />
+          </div>
         </div>
       </div>
     )
@@ -2658,7 +2683,10 @@ export function WebsiteEventsPanel() {
           {subTab === "organizations" && (
             <button
               type="button"
-              onClick={() => setCreatingOrg(true)}
+              onClick={() => {
+                setOrgForm(defaultOrgForm)
+                setCreatingOrg(true)
+              }}
               className="inline-flex items-center gap-2 rounded-xl bg-primary px-4 py-2 text-xs font-semibold text-primary-foreground hover:opacity-90"
             >
               <Plus className="h-4 w-4" /> Create Organization Account
@@ -3111,6 +3139,19 @@ export function WebsiteEventsPanel() {
                         email: org.owner_email || "",
                         phone: org.owner_phone || "",
                         password: "",
+                        is_approved: org.is_approved ?? true,
+                        can_publish_events: org.can_publish_events ?? false,
+                        can_author_courses: org.can_author_courses ?? false,
+                        can_publish_courses: org.can_publish_courses ?? false,
+                        course_scope_all: org.course_scope_all ?? false,
+                        allowed_course_ids: org.allowed_course_ids || [],
+                        quiz_scope: (org.quiz_scope as "all" | "selected" | "own") || "own",
+                        allowed_quiz_template_ids: org.allowed_quiz_template_ids || [],
+                        max_events: org.max_events ?? null,
+                        max_programs: org.max_programs ?? null,
+                        max_cohorts: org.max_cohorts ?? null,
+                        max_students_per_cohort: org.max_students_per_cohort ?? null,
+                        max_observers_per_cohort: org.max_observers_per_cohort ?? null,
                       })
                     }}
                     className="inline-flex items-center gap-1 rounded-xl border border-border bg-background px-3 py-1.5 text-xs font-semibold text-foreground hover:bg-muted transition"

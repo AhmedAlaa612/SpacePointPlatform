@@ -457,6 +457,18 @@ export const getCohortLeaderboardApi = (cohortId: string, mode?: "participant" |
 export const getCohortExportTop20Api = (cohortId: string) =>
   api.get<CompetitionLeaderboardRow[]>(`/competitions/admin/cohorts/${cohortId}/export-top20`).then((r) => r.data)
 
+export const downloadCompetitionRosterTemplateApi = async () => {
+  const res = await api.get("/competitions/admin/roster-template.xlsx", { responseType: "blob" })
+  const url = URL.createObjectURL(res.data as Blob)
+  const a = document.createElement("a")
+  a.href = url
+  a.download = "competition_roster_template.xlsx"
+  document.body.appendChild(a)
+  a.click()
+  document.body.removeChild(a)
+  URL.revokeObjectURL(url)
+}
+
 /** One .xlsx: a Scores sheet (rank, average, every judge's own score) and
  * a Submissions sheet (every team's link deliverables, who sent them,
  * when) — for reviewing a cohort's judging round outside the app. */

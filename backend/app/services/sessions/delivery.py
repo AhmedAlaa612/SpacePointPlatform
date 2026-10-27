@@ -346,13 +346,21 @@ async def complete_cohort(
                     LmsProgramAssignment.mode == "observer",
                 )
             ) is not None
+
+        # Partner organization programs/competitions manage certificates manually
+        # through judging and the certificates dashboard; never auto-generate or
+        # auto-email certificates on automated cohort completion.
+        is_org_program = bool(cohort.organization_id or (program and program.organization_id))
+        effective_send_certificates = False if is_org_program else send_certificates
+
         gate_ok = False if is_observer else await certificate_gate_satisfied(db, cohort_id=cohort_id, user_id=user_id)
         if _meets_completion_rule(program, present, total) and gate_ok:
             registration.status = "completed"
             contact = await db.get(Contact, registration.contact_id)
-            await _issue_student_certificate(
-                db, registration, contact, cohort, program, actor_user_id, send_email=send_certificates,
-            )
+            if not is_org_program:
+                await _issue_student_certificate(
+                    db, registration, contact, cohort, program, actor_user_id, send_email=effective_send_certificates,
+                )
         else:
             registration.status = "attended"
 

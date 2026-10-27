@@ -44,6 +44,8 @@ class UserCreate(UserBase):
     org_can_publish_courses: bool | None = None
     org_course_scope_all: bool | None = None
     org_allowed_course_ids: list[str] | None = None
+    org_quiz_scope: str | None = None
+    org_allowed_quiz_template_ids: list[str] | None = None
     org_max_events: int | None = None
     org_max_programs: int | None = None
     org_max_cohorts: int | None = None
@@ -75,13 +77,13 @@ class UserUpdate(BaseModel):
     org_can_publish_courses: bool | None = None
     org_course_scope_all: bool | None = None
     org_allowed_course_ids: list[str] | None = None
+    org_quiz_scope: str | None = None
+    org_allowed_quiz_template_ids: list[str] | None = None
     org_max_events: int | None = None
     org_max_programs: int | None = None
     org_max_cohorts: int | None = None
     org_max_students_per_cohort: int | None = None
     org_max_observers_per_cohort: int | None = None
-    org_country: str | None = None
-    org_city: str | None = None
 
 
 class UserSelfUpdate(BaseModel):
@@ -146,6 +148,8 @@ class UserOut(UserReadBase):
     org_can_publish_courses: bool | None = None
     org_course_scope_all: bool | None = None
     org_allowed_course_ids: list[str] | None = None
+    org_quiz_scope: str | None = None
+    org_allowed_quiz_template_ids: list[str] | None = None
     org_max_events: int | None = None
     org_max_programs: int | None = None
     org_max_cohorts: int | None = None

@@ -80,6 +80,8 @@ async def _attach_org_and_author(db: AsyncSession, user: User, row: UserOut) -> 
         row.org_can_publish_courses = org.can_publish_courses
         row.org_course_scope_all = org.course_scope_all
         row.org_allowed_course_ids = [str(cid) for cid in (org.allowed_course_ids or [])]
+        row.org_quiz_scope = org.quiz_scope
+        row.org_allowed_quiz_template_ids = [str(tid) for tid in (org.allowed_quiz_template_ids or [])]
         row.org_max_events = org.max_events
         row.org_max_programs = org.max_programs
         row.org_max_cohorts = org.max_cohorts
@@ -147,6 +149,8 @@ async def read_users(db: AsyncSession = Depends(get_db), current_user: User = De
             row.org_can_publish_courses = org.can_publish_courses
             row.org_course_scope_all = org.course_scope_all
             row.org_allowed_course_ids = [str(cid) for cid in (org.allowed_course_ids or [])]
+            row.org_quiz_scope = org.quiz_scope
+            row.org_allowed_quiz_template_ids = [str(tid) for tid in (org.allowed_quiz_template_ids or [])]
             row.org_max_events = org.max_events
             row.org_max_programs = org.max_programs
             row.org_max_cohorts = org.max_cohorts

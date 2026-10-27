@@ -30,7 +30,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
 
-from app.core.dependencies import require_operations, require_session_delivery
+from app.core.dependencies import get_current_active_user, require_operations, require_session_delivery
 from app.db.session import get_db
 from app.models.certificate import Certificate
 from app.models.competitions.judging import CompetitionJudge, CompetitionRubric, CompetitionRubricCriterion
@@ -357,11 +357,19 @@ async def create_cohort(
 async def get_cohort(
     cohort_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_operations),
+    current_user: User = Depends(get_current_active_user),
 ):
     cohort = await db.get(Cohort, cohort_id)
     if cohort is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Cohort not found")
+
+    is_ops = bool({"operations", "admin", "coo"} & set(current_user.role_values))
+    if not is_ops:
+        if "organization" in current_user.role_values and cohort.organization_id == current_user.organization_id:
+            pass
+        else:
+            raise HTTPException(status.HTTP_403_FORBIDDEN, detail="Forbidden")
+
     program = await db.get(Program, cohort.program_id)
     location = await db.get(Location, cohort.location_id) if cohort.location_id else None
     return await _cohort_out(

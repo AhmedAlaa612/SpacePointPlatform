@@ -123,6 +123,16 @@ export default function LmsCourses() {
                     >
                       {course.is_published ? "Published" : "Draft"}
                     </span>
+                    {!course.is_published && course.submitted_for_review_at && (
+                      <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-amber-500/15 text-amber-600 dark:text-amber-400">
+                        Pending Review
+                      </span>
+                    )}
+                    {course.organization_name && (
+                      <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-primary/10 text-primary">
+                        {course.organization_name}
+                      </span>
+                    )}
                     {course.average_rating !== undefined && course.average_rating !== null && (
                       <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-amber-500/15 text-amber-600 dark:text-amber-400 flex items-center gap-1">
                         ★ {course.average_rating.toFixed(1)}
@@ -197,11 +207,11 @@ export default function LmsCourses() {
                   ) : (
                     <button
                       onClick={() => submitReviewMutation.mutate(course.id)}
-                      disabled={submitReviewMutation.isPending || submittedCourseIds.has(course.id)}
+                      disabled={submitReviewMutation.isPending || Boolean(course.submitted_for_review_at || submittedCourseIds.has(course.id))}
                       title="Submit this course to administrators for review and publishing"
                       className="h-8 px-3 rounded-lg text-xs font-medium border border-amber-500/40 text-amber-600 dark:text-amber-400 hover:bg-amber-500/10 transition-colors disabled:opacity-60 flex items-center gap-1.5"
                     >
-                      {submittedCourseIds.has(course.id) ? "Submitted for review" : "Submit for review"}
+                      {Boolean(course.submitted_for_review_at || submittedCourseIds.has(course.id)) ? "Submitted for review" : "Submit for review"}
                     </button>
                   )
                 ) : (

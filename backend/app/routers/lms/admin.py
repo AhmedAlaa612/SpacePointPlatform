@@ -318,7 +318,7 @@ async def search_students(
     login_status: Literal["all", "never", "has_logged_in"] = "all",
     mode: Literal["student", "observer", "all"] = Query("student"),
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(require_lms_content),
+    current_user: User = Depends(require_lms_content),
 ):
     """Name/email substring search over student accounts, capped at 50 rows
     — the list view backing the student-management page.
@@ -338,7 +338,17 @@ async def search_students(
     The actual query lives in `services/lms/students.py` (extracted
     2026-09-14) — the Competition Judging Assign tab's cohort-scoped search
     reuses it rather than re-implementing this from scratch."""
-    return await student_search_service.search_students(db, q=q, invite_code=invite_code, login_status=login_status, mode=mode)
+    org_id = None
+    if "organization" in current_user.role_values and not any(r in current_user.role_values for r in ("admin", "operations")):
+        from app.services.website_events import resolve_user_organization
+        org = await resolve_user_organization(db, current_user)
+        if not org:
+            return []
+        org_id = org.id
+
+    return await student_search_service.search_students(
+        db, q=q, invite_code=invite_code, login_status=login_status, mode=mode, org_id=org_id,
+    )
 
 
 # ── student invite codes (2026-08-13) ───────────────────────────────────────
@@ -701,7 +711,7 @@ async def _enriched_student_programs(db: AsyncSession, user: User) -> list[Stude
 async def student_profile(
     user_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(require_lms_content),
+    current_user: User = Depends(require_lms_content),
 ):
     """Profile: nickname, programs attended. Current courses are a separate
     call — `GET /lms/admin/users/{user_id}/enrollments` already returns
@@ -710,6 +720,12 @@ async def student_profile(
 
     Programs are the enriched union (Registration + LmsProgramAssignment)
     so observers show up alongside real students, with mode + team inline."""
+    if "organization" in current_user.role_values and not any(r in current_user.role_values for r in ("admin", "operations")):
+        from app.services.website_events import resolve_user_organization
+        org = await resolve_user_organization(db, current_user)
+        if not org or not await student_search_service.user_belongs_to_organization(db, user_id, org.id):
+            raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Student not found")
+
     user = await db.get(User, user_id)
     if user is None or not ({"student", "observer"} & set(user.role_values)):
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Student not found")
@@ -726,7 +742,7 @@ async def update_student_account(
     user_id: uuid.UUID,
     body: StudentAccountUpdateIn,
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(require_lms_content),
+    current_user: User = Depends(require_lms_content),
 ):
     """Ops email/name correction — duplicate-checked, contact-synced.
 
@@ -746,6 +762,12 @@ async def update_student_account(
     what / whose parent it is, not this person's identity, and are left
     untouched."""
     from app.services.spine.identity import normalize_user_email, replace_user_email, user_email_matches
+
+    if "organization" in current_user.role_values and not any(r in current_user.role_values for r in ("admin", "operations")):
+        from app.services.website_events import resolve_user_organization
+        org = await resolve_user_organization(db, current_user)
+        if not org or not await student_search_service.user_belongs_to_organization(db, user_id, org.id):
+            raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Student not found")
 
     user = await db.get(User, user_id)
     if user is None or not ({"student", "observer"} & set(user.role_values)):
@@ -2475,7 +2497,7 @@ async def try_as_observer(
     roles = set(current.role_values)
     staff = (
         "admin" in roles
-        or bool({"operations", "facilitator", "lms_author"} & roles)
+        or bool({"operations", "facilitator", "lms_author", "organization"} & roles)
     )
     if not staff:
         if "instructor" not in roles:
@@ -2483,8 +2505,32 @@ async def try_as_observer(
         from app.services.missions.cohort_access import require_cohort_access
         await require_cohort_access(db, cohort_id=cohort_id, user=current)
 
-    if await db.get(Cohort, cohort_id) is None:
+    cohort = await db.get(Cohort, cohort_id)
+    if cohort is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Cohort not found")
+
+    if cohort.organization_id:
+        from app.models.spine.organization import Organization
+        org = await db.get(Organization, cohort.organization_id)
+        if org and org.max_observers_per_cohort is not None:
+            obs_count = await db.scalar(
+                select(func.count(LmsProgramAssignment.id)).where(
+                    LmsProgramAssignment.cohort_id == cohort_id,
+                    LmsProgramAssignment.mode == "observer",
+                )
+            ) or 0
+            has_mine = await db.scalar(
+                select(LmsProgramAssignment.id).where(
+                    LmsProgramAssignment.cohort_id == cohort_id,
+                    LmsProgramAssignment.user_id == current.id,
+                    LmsProgramAssignment.mode == "observer",
+                )
+            )
+            if not has_mine and obs_count >= org.max_observers_per_cohort:
+                raise HTTPException(
+                    status.HTTP_400_BAD_REQUEST,
+                    detail=f"Your organization observer limit for this cohort is {org.max_observers_per_cohort}. Contact the SpacePoint team to increase your limit.",
+                )
 
     existing = await db.scalar(
         select(LmsProgramAssignment).where(
@@ -3226,12 +3272,18 @@ async def revoke_enrollment(
 async def student_enrollments(
     user_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(require_lms_content),
+    current_user: User = Depends(require_lms_content),
 ):
     """Per-student view (P1-5) — every course this account has ever been
     enrolled in, active or not. The richer contact-centric panel (linked
     account, registrations, cohorts, points) is Stage 3's P3-1; this is the
     narrower building block the roster/grant UI needs today."""
+    if "organization" in current_user.role_values and not any(r in current_user.role_values for r in ("admin", "operations")):
+        from app.services.website_events import resolve_user_organization
+        org = await resolve_user_organization(db, current_user)
+        if not org or not await student_search_service.user_belongs_to_organization(db, user_id, org.id):
+            raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Student not found")
+
     user = await db.get(User, user_id)
     if user is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="User not found")

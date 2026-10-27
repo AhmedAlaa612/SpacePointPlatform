@@ -15,6 +15,7 @@ import { Modal, Field, ModalActions, Spinner } from "@/pages/admin/components/co
 import { PasswordInput } from "@/components/ui/PasswordInput"
 import { CountrySelect } from "@/components/ui/CountrySelect"
 import { CityNameSelect } from "@/components/ui/CitySelect"
+import { OrgGrantsAndQuotasForm, type OrgGrantsAndQuotasData } from "@/components/organization/OrgGrantsAndQuotasForm"
 
 const ALL_ROLES: Role[] = ["admin", "intern", "leader", "applicant", "instructor", "facilitator", "ambassador", "teacher", "operations", "coo", "storekeeper", "student", "judge", "lms_author", "observer", "organization", "mentor"]
 
@@ -467,6 +468,21 @@ function CreateUserModal({
   const [orgType, setOrgType] = useState("university")
   const [orgCountry, setOrgCountry] = useState("AE")
   const [orgCity, setOrgCity] = useState("")
+  const [orgGrants, setOrgGrants] = useState<OrgGrantsAndQuotasData>({
+    is_approved: true,
+    can_publish_events: false,
+    can_author_courses: false,
+    can_publish_courses: false,
+    course_scope_all: false,
+    allowed_course_ids: [],
+    quiz_scope: "own",
+    allowed_quiz_template_ids: [],
+    max_events: null,
+    max_programs: null,
+    max_cohorts: null,
+    max_students_per_cohort: null,
+    max_observers_per_cohort: null,
+  })
   const [teamId,   setTeamId]   = useState("")
   const [phone,    setPhone]    = useState("")
   const [error,    setError]    = useState("")
@@ -501,6 +517,19 @@ function CreateUserModal({
               org_type: orgType,
               org_country: orgCountry,
               org_city: orgCity.trim() || undefined,
+              org_is_approved: orgGrants.is_approved,
+              org_can_publish_events: orgGrants.can_publish_events,
+              org_can_author_courses: orgGrants.can_author_courses,
+              org_can_publish_courses: orgGrants.can_publish_courses,
+              org_course_scope_all: orgGrants.course_scope_all,
+              org_allowed_course_ids: orgGrants.allowed_course_ids,
+              org_quiz_scope: orgGrants.quiz_scope,
+              org_allowed_quiz_template_ids: orgGrants.allowed_quiz_template_ids,
+              org_max_events: orgGrants.max_events,
+              org_max_programs: orgGrants.max_programs,
+              org_max_cohorts: orgGrants.max_cohorts,
+              org_max_students_per_cohort: orgGrants.max_students_per_cohort,
+              org_max_observers_per_cohort: orgGrants.max_observers_per_cohort,
             }
           : {}),
       })
@@ -604,6 +633,12 @@ function CreateUserModal({
             setCanPublish={setAuthorCanPublish}
             scopeAll={authorScopeAll}
             setScopeAll={setAuthorScopeAll}
+          />
+        )}
+        {roles.includes("organization") && (
+          <OrgGrantsAndQuotasForm
+            data={orgGrants}
+            onChange={setOrgGrants}
           />
         )}
         {roles.includes("intern") && (
@@ -985,6 +1020,21 @@ function EditUserModal({ user, onClose, onSuccess }: { user: User; onClose: () =
   const [orgType, setOrgType] = useState(user.organization_type || "university")
   const [orgCountry, setOrgCountry] = useState(user.organization_country || user.country || "AE")
   const [orgCity, setOrgCity] = useState(user.organization_city || user.city_other || "")
+  const [orgGrants, setOrgGrants] = useState<OrgGrantsAndQuotasData>({
+    is_approved: user.org_is_approved ?? true,
+    can_publish_events: user.org_can_publish_events ?? false,
+    can_author_courses: user.org_can_author_courses ?? false,
+    can_publish_courses: user.org_can_publish_courses ?? false,
+    course_scope_all: user.org_course_scope_all ?? false,
+    allowed_course_ids: user.org_allowed_course_ids || [],
+    quiz_scope: (user.org_quiz_scope as "all" | "selected" | "own") || "own",
+    allowed_quiz_template_ids: user.org_allowed_quiz_template_ids || [],
+    max_events: user.org_max_events ?? null,
+    max_programs: user.org_max_programs ?? null,
+    max_cohorts: user.org_max_cohorts ?? null,
+    max_students_per_cohort: user.org_max_students_per_cohort ?? null,
+    max_observers_per_cohort: user.org_max_observers_per_cohort ?? null,
+  })
   const [phone,    setPhone]    = useState(user.phone || "")
   const [nickname, setNickname] = useState(user.nickname || "")
   const [avatar,   setAvatar]   = useState(user.avatar || "")
@@ -1009,6 +1059,19 @@ function EditUserModal({ user, onClose, onSuccess }: { user: User; onClose: () =
             org_type: orgType,
             org_country: orgCountry,
             org_city: orgCity.trim(),
+            org_is_approved: orgGrants.is_approved,
+            org_can_publish_events: orgGrants.can_publish_events,
+            org_can_author_courses: orgGrants.can_author_courses,
+            org_can_publish_courses: orgGrants.can_publish_courses,
+            org_course_scope_all: orgGrants.course_scope_all,
+            org_allowed_course_ids: orgGrants.allowed_course_ids,
+            org_quiz_scope: orgGrants.quiz_scope,
+            org_allowed_quiz_template_ids: orgGrants.allowed_quiz_template_ids,
+            org_max_events: orgGrants.max_events,
+            org_max_programs: orgGrants.max_programs,
+            org_max_cohorts: orgGrants.max_cohorts,
+            org_max_students_per_cohort: orgGrants.max_students_per_cohort,
+            org_max_observers_per_cohort: orgGrants.max_observers_per_cohort,
           }
         : {}),
     }),
@@ -1102,6 +1165,12 @@ function EditUserModal({ user, onClose, onSuccess }: { user: User; onClose: () =
             setCanPublish={setAuthorCanPublish}
             scopeAll={authorScopeAll}
             setScopeAll={setAuthorScopeAll}
+          />
+        )}
+        {roles.includes("organization") && (
+          <OrgGrantsAndQuotasForm
+            data={orgGrants}
+            onChange={setOrgGrants}
           />
         )}
         <Field label="WhatsApp number (optional)">

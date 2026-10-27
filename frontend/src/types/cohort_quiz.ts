@@ -27,6 +27,7 @@ export interface CohortQuizQuestion {
   explanation?: string | null;
   source_url?: string | null;
   is_active: boolean;
+  organization_id?: string | null;
 }
 
 export interface CohortQuizQuestionImportResult {
@@ -45,6 +46,7 @@ export interface CohortQuizTemplate {
   is_active: boolean;
   created_at?: string | null;
   question_count: number;
+  organization_id?: string | null;
 }
 
 export interface CohortQuizTemplateQuestionEntry {

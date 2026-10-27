@@ -265,6 +265,19 @@ async def login(data: LoginRequest, db: AsyncSession = Depends(get_db)):
         await db.commit()
         raise HTTPException(status_code=403, detail="Account deactivated, contact admin")
 
+    # Partner Organization approval review check:
+    # If the user is an organization account (and not platform admin/operations staff),
+    # ensure their partner organization has been verified and approved by Operations.
+    if "organization" in roles and "admin" not in roles and "operations" not in roles:
+        from app.services.website_events import resolve_user_organization
+        org = await resolve_user_organization(db, user)
+        if org and not org.is_approved:
+            await db.commit()
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Your organization account is currently under review by SpacePoint Operations. Our team will verify your application and notify you once approved.",
+            )
+
     user.last_login_at = datetime.now(timezone.utc)
     await db.commit()
 
@@ -457,6 +470,7 @@ async def organization_signup(
         city=(data.city or "").strip() or None,
         primary_contact_id=contact.id,
         owner_user_id=user.id,
+        is_approved=False,
     )
     db.add(org)
     await db.flush()

@@ -79,6 +79,19 @@ export interface User {
   organization_type?: string | null;
   organization_country?: string | null;
   organization_city?: string | null;
+  org_is_approved?: boolean;
+  org_can_publish_events?: boolean;
+  org_can_author_courses?: boolean;
+  org_can_publish_courses?: boolean;
+  org_course_scope_all?: boolean;
+  org_allowed_course_ids?: string[];
+  org_quiz_scope?: "all" | "selected" | "own" | string;
+  org_allowed_quiz_template_ids?: string[];
+  org_max_events?: number | null;
+  org_max_programs?: number | null;
+  org_max_cohorts?: number | null;
+  org_max_students_per_cohort?: number | null;
+  org_max_observers_per_cohort?: number | null;
   // Auto-generated student callsign (Live Games Phase 2C, 8-1) — present
   // on student accounts, absent/null for other roles.
   nickname?: string | null;

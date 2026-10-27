@@ -22,7 +22,7 @@ export function roleHomePath(role: Role | null): string {
     // same reasoning as students: /judge is a separate surface.
     case "judge": return "/judge";
     case "lms_author": return "/lms-authoring/courses";
-    case "organization": return "/organization/events";
+    case "organization": return "/organization/programs";
     case "mentor": return "/mentor/settings";
     // Safety net only — activeRole should never be observer (see
     // resolveActiveRole + RoleSwitcher filtering). Observers run the

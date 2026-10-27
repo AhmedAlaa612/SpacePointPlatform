@@ -18,6 +18,7 @@ import {
   advanceCohortTeamsApi, createCohortTeamApi, deleteTeamApi, downloadCohortResultsWorkbookApi,
   downloadCohortTeamsWorkbookApi, registerUsersToCohortApi,
   downloadCompetitionCertificatesApi,
+  downloadCompetitionRosterTemplateApi,
   getCohortExportTop20Api,
   confirmCohortRegistrationImportApi,
   getCohortRegistrationImportBatchStatusApi,
@@ -42,6 +43,7 @@ import {
   DropdownMenuSeparator,
 } from "@/components/ui/dropdown-menu"
 import { useToast } from "@/components/ui/toast"
+import { useAuth } from "@/context/AuthContext"
 import { getErrorMessage } from "@/lib/utils"
 
 type JudgingTab = "roster" | "assign" | "teams" | "analysis" | "rubric" | "judges" | "results"
@@ -64,6 +66,15 @@ export default function CompetitionJudging() {
   const { cohortId } = useParams({ strict: false }) as { cohortId: string }
   const [tab, setTab] = useState<JudgingTab>("roster")
   const [certificatesOpen, setCertificatesOpen] = useState(false)
+  const { activeRole } = useAuth()
+  const isOrg = activeRole === "organization" || (typeof window !== "undefined" && (window.location.pathname.startsWith("/organization") || localStorage.getItem("active_role") === "organization"))
+  const visibleTabs = isOrg ? TABS.filter((t) => t.key !== "assign") : TABS
+
+  useEffect(() => {
+    if (isOrg && tab === "assign") {
+      setTab("roster")
+    }
+  }, [isOrg, tab])
 
   const { data: cohort, isLoading } = useQuery({
     queryKey: ["sessions-cohort", cohortId],
@@ -85,10 +96,11 @@ export default function CompetitionJudging() {
   return (
     <div className="flex flex-col gap-5">
       <Link
-        to="/operations/cohorts/$cohortId" params={{ cohortId: cohort.id }}
+        to={isOrg ? "/organization/programs/$cohortId" : "/operations/cohorts/$cohortId"}
+        params={{ cohortId: cohort.id }}
         className="inline-flex w-fit items-center gap-1.5 text-sm font-medium text-muted-foreground hover:text-foreground transition-colors"
       >
-        <ArrowLeft size={14} /> {cohort.name}
+        <ArrowLeft size={14} /> Back to Cohort ({cohort.name})
       </Link>
 
       <PageHeader
@@ -109,7 +121,7 @@ export default function CompetitionJudging() {
           landed no longer fits a phone width; without this the row just
           clipped past "Results" with no way to reach it by touch. */}
       <div className="flex gap-1 border-b border-border overflow-x-auto">
-        {TABS.map((t) => (
+        {visibleTabs.map((t) => (
           <button
             key={t.key}
             onClick={() => setTab(t.key)}
@@ -123,7 +135,7 @@ export default function CompetitionJudging() {
       </div>
 
       {tab === "roster" && <RosterTab cohortId={cohort.id} />}
-      {tab === "assign" && <AssignTab cohortId={cohort.id} />}
+      {tab === "assign" && !isOrg && <AssignTab cohortId={cohort.id} />}
       {tab === "teams" && <TeamsTab cohortId={cohort.id} cohortName={cohort.name} />}
       {tab === "analysis" && <CompetitionAnalysisTab cohortId={cohort.id} />}
       {tab === "rubric" && <RubricTab cohortId={cohort.id} />}
@@ -362,13 +374,22 @@ function RosterTab({ cohortId }: { cohortId: string }) {
             ref={fileInputRef} type="file" accept=".xlsx,.xls,.csv" className="hidden"
             onChange={(e) => { const file = e.target.files?.[0]; if (file) previewMutation.mutate(file); e.target.value = "" }}
           />
-          <button
-            onClick={() => fileInputRef.current?.click()}
-            disabled={previewMutation.isPending}
-            className="self-start flex items-center gap-1.5 h-10 px-4 bg-primary text-primary-foreground rounded-xl text-sm font-medium hover:opacity-90 transition-colors disabled:opacity-50 cursor-pointer"
-          >
-            <Upload size={14} /> {previewMutation.isPending ? "Reading…" : "Upload roster"}
-          </button>
+          <div className="flex items-center gap-3 flex-wrap">
+            <button
+              type="button"
+              onClick={() => void downloadCompetitionRosterTemplateApi()}
+              className="flex items-center gap-1.5 h-10 px-4 border border-border bg-card text-foreground rounded-xl text-sm font-medium hover:bg-muted transition-colors cursor-pointer"
+            >
+              <Download size={14} className="text-primary" /> Download roster template (.xlsx)
+            </button>
+            <button
+              onClick={() => fileInputRef.current?.click()}
+              disabled={previewMutation.isPending}
+              className="flex items-center gap-1.5 h-10 px-4 bg-primary text-primary-foreground rounded-xl text-sm font-medium hover:opacity-90 transition-colors disabled:opacity-50 cursor-pointer"
+            >
+              <Upload size={14} /> {previewMutation.isPending ? "Reading…" : "Upload roster (.xlsx)"}
+            </button>
+          </div>
         </div>
       )}
 

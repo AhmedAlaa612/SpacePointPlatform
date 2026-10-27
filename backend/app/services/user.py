@@ -70,12 +70,14 @@ async def create_user(db: AsyncSession, user_in: UserCreate) -> User:
             city=(user_in.org_city or "").strip() or None,
             primary_contact_id=contact.id if contact else db_user.contact_id,
             owner_user_id=db_user.id,
-            is_approved=user_in.org_is_approved if user_in.org_is_approved is not None else True,
+            is_approved=user_in.org_is_approved if user_in.org_is_approved is not None else False,
             can_publish_events=bool(user_in.org_can_publish_events),
             can_author_courses=user_in.org_can_author_courses if user_in.org_can_author_courses is not None else True,
             can_publish_courses=bool(user_in.org_can_publish_courses),
             course_scope_all=bool(user_in.org_course_scope_all),
             allowed_course_ids=user_in.org_allowed_course_ids or [],
+            quiz_scope=(user_in.org_quiz_scope or "own").strip().lower(),
+            allowed_quiz_template_ids=user_in.org_allowed_quiz_template_ids or [],
             max_events=user_in.org_max_events,
             max_programs=user_in.org_max_programs,
             max_cohorts=user_in.org_max_cohorts,
@@ -116,6 +118,7 @@ async def update_user(db: AsyncSession, user_id: UUID, user_in: UserUpdate | Use
             "org_name_latin", "org_name_arabic", "org_type", "org_country", "org_city",
             "org_is_approved", "org_can_publish_events", "org_can_author_courses",
             "org_can_publish_courses", "org_course_scope_all", "org_allowed_course_ids",
+            "org_quiz_scope", "org_allowed_quiz_template_ids",
             "org_max_events", "org_max_programs", "org_max_cohorts",
             "org_max_students_per_cohort", "org_max_observers_per_cohort",
         )
@@ -260,12 +263,14 @@ async def update_user(db: AsyncSession, user_id: UUID, user_in: UserUpdate | Use
                 city=(org_fields.get("org_city") or user.city_other or "").strip() or None,
                 primary_contact_id=user.contact_id,
                 owner_user_id=user.id,
-                is_approved=org_fields["org_is_approved"] if "org_is_approved" in org_fields and org_fields["org_is_approved"] is not None else True,
+                is_approved=org_fields["org_is_approved"] if "org_is_approved" in org_fields and org_fields["org_is_approved"] is not None else False,
                 can_publish_events=bool(org_fields.get("org_can_publish_events")),
                 can_author_courses=org_fields["org_can_author_courses"] if "org_can_author_courses" in org_fields and org_fields["org_can_author_courses"] is not None else True,
                 can_publish_courses=bool(org_fields.get("org_can_publish_courses")),
                 course_scope_all=bool(org_fields.get("org_course_scope_all")),
                 allowed_course_ids=org_fields.get("org_allowed_course_ids") or [],
+                quiz_scope=(org_fields.get("org_quiz_scope") or "own").strip().lower(),
+                allowed_quiz_template_ids=org_fields.get("org_allowed_quiz_template_ids") or [],
                 max_events=org_fields.get("org_max_events"),
                 max_programs=org_fields.get("org_max_programs"),
                 max_cohorts=org_fields.get("org_max_cohorts"),
@@ -298,6 +303,10 @@ async def update_user(db: AsyncSession, user_id: UUID, user_in: UserUpdate | Use
                 org.course_scope_all = bool(org_fields["org_course_scope_all"])
             if "org_allowed_course_ids" in org_fields and org_fields["org_allowed_course_ids"] is not None:
                 org.allowed_course_ids = org_fields["org_allowed_course_ids"]
+            if "org_quiz_scope" in org_fields and org_fields["org_quiz_scope"]:
+                org.quiz_scope = org_fields["org_quiz_scope"].strip().lower()
+            if "org_allowed_quiz_template_ids" in org_fields and org_fields["org_allowed_quiz_template_ids"] is not None:
+                org.allowed_quiz_template_ids = org_fields["org_allowed_quiz_template_ids"]
             if "org_max_events" in org_fields:
                 org.max_events = org_fields["org_max_events"]
             if "org_max_programs" in org_fields:

@@ -400,6 +400,18 @@ export const NAV_TAB_CATALOG: Record<string, { title: string; content: string }>
     title: "Organization Events",
     content: "View and manage your organization's hosted SpacePoint events, cohorts, and participant rosters.",
   },
+  "portal-nav-programs-and-cohorts": {
+    title: "Programs & Cohorts",
+    content: "Host competitions and programs, create new cohorts, duplicate existing cohorts, and manage student enrollments.",
+  },
+  "portal-nav-landing-pages": {
+    title: "Landing Pages",
+    content: "Design and publish custom branded landing pages for your events and competitions.",
+  },
+  "portal-nav-team": {
+    title: "Organization Team",
+    content: "Add and manage multiple coordinators and admins to collaborate on your organization account.",
+  },
 
   // ── Competition Judges Navigation ─────────────────────────────────────────
   "portal-nav-teams": {
@@ -1228,30 +1240,80 @@ export function resolveActionGuides(
   }
 
   if (role === "organization") {
-    guides.push({
-      id: "action-org-events",
-      title: "Manage Organization Events & Mentors",
-      description: "View your hosted SpacePoint events and browse the Space Mentors directory.",
-      requiredSelector: '[data-tour="portal-nav-my-events"]',
-      steps: [
-        {
-          id: "act-org-1",
-          selector: '[data-tour="portal-nav-my-events"]',
-          title: "1. Open My Events",
-          content: "Click 'My Events' in the sidebar to view your organization's events.",
-          placement: "right",
-          advanceOnClick: true,
-        },
-        {
-          id: "act-org-2",
-          route: "/organization/events",
-          selector: '[data-tour="page-workspace"]',
-          title: "2. Inspect Event Rosters",
-          content: "Review event details, participant lists, and schedules here.",
-          placement: "bottom",
-        },
-      ],
-    });
+    guides.push(
+      {
+        id: "action-org-programs",
+        title: "Create Programs & Host Cohorts",
+        description: "Set up programs, create cohorts, duplicate curriculum, and manage student enrollment.",
+        requiredSelector: '[data-tour="portal-nav-programs-and-cohorts"]',
+        steps: [
+          {
+            id: "act-org-prog-1",
+            selector: '[data-tour="portal-nav-programs-and-cohorts"]',
+            title: "1. Open Programs & Cohorts",
+            content: "Click 'Programs & Cohorts' in the sidebar.",
+            placement: "right",
+            advanceOnClick: true,
+          },
+          {
+            id: "act-org-prog-2",
+            route: "/organization/programs",
+            selector: '[data-tour="page-workspace"]',
+            title: "2. Manage Programs & Quotas",
+            content: "Check your student and cohort quotas, add new programs, or click 'Manage' on any cohort to configure milestones and student rosters.",
+            placement: "bottom",
+          },
+        ],
+      },
+      {
+        id: "action-org-landing",
+        title: "Design Custom Landing Pages",
+        description: "Build branded landing pages for your hosted events and competitions.",
+        requiredSelector: '[data-tour="portal-nav-landing-pages"]',
+        steps: [
+          {
+            id: "act-org-land-1",
+            selector: '[data-tour="portal-nav-landing-pages"]',
+            title: "1. Open Landing Pages",
+            content: "Click 'Landing Pages' in the sidebar.",
+            placement: "right",
+            advanceOnClick: true,
+          },
+          {
+            id: "act-org-land-2",
+            route: "/organization/events",
+            selector: '[data-tour="page-workspace"]',
+            title: "2. Edit Sections & Content",
+            content: "Configure your custom banner, agenda, deliverables, and link your landing page directly to a cohort.",
+            placement: "bottom",
+          },
+        ],
+      },
+      {
+        id: "action-org-team",
+        title: "Manage Organization Coordinators",
+        description: "Add team members to co-manage programs, curriculum, and student cohorts.",
+        requiredSelector: '[data-tour="portal-nav-team"]',
+        steps: [
+          {
+            id: "act-org-team-1",
+            selector: '[data-tour="portal-nav-team"]',
+            title: "1. Open Team",
+            content: "Click 'Team' in the sidebar.",
+            placement: "right",
+            advanceOnClick: true,
+          },
+          {
+            id: "act-org-team-2",
+            route: "/organization/team",
+            selector: '[data-tour="page-workspace"]',
+            title: "2. Add Admins & Coordinators",
+            content: "Invite colleagues to help manage your platform programs and generate direct password reset links.",
+            placement: "bottom",
+          },
+        ],
+      },
+    );
   }
 
   return guides.filter((g) => !g.requiredSelector || findVisibleTarget(g.requiredSelector) !== null);

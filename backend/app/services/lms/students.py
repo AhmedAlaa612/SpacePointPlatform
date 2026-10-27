@@ -17,7 +17,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.instructors.invitation_code import InvitationCode
 from app.models.lms.invite_grant import UserInvitationCode
-from app.models.lms.program import LmsProgramAssignment
+from app.models.lms.program import LmsProgram, LmsProgramAssignment
+from app.models.sessions.cohort import Cohort
+from app.models.sessions.program import Program
 from app.models.sessions.registration import Registration
 from app.models.spine.contact import Contact
 from app.models.spine.organization import Organization
@@ -112,11 +114,64 @@ async def _summarize_users(db: AsyncSession, users: list[User]) -> list[StudentS
     return out
 
 
+def org_student_filter(org_id: uuid.UUID):
+    org_cohort_subq = select(Cohort.id).outerjoin(Program, Cohort.program_id == Program.id).where(
+        or_(Cohort.organization_id == org_id, Program.organization_id == org_id)
+    )
+    org_lms_prog_subq = select(LmsProgram.id).join(Program, LmsProgram.program_id == Program.id).where(
+        Program.organization_id == org_id
+    )
+    has_org_assignment = exists(
+        select(1).where(
+            LmsProgramAssignment.user_id == User.id,
+            or_(
+                LmsProgramAssignment.cohort_id.in_(org_cohort_subq),
+                LmsProgramAssignment.lms_program_id.in_(org_lms_prog_subq),
+            ),
+        )
+    )
+    has_org_registration = exists(
+        select(1).where(
+            Registration.cohort_id.in_(org_cohort_subq),
+            Registration.status.not_in(["cancelled", "rejected"]),
+            or_(
+                Registration.contact_id == User.contact_id,
+                exists(
+                    select(1).where(
+                        Contact.id == Registration.contact_id,
+                        func.lower(Contact.email) == func.lower(User.email),
+                    )
+                ),
+            ),
+        )
+    )
+    has_org_contact = exists(
+        select(1).where(
+            Contact.organization_id == org_id,
+            or_(
+                Contact.id == User.contact_id,
+                func.lower(Contact.email) == func.lower(User.email),
+            ),
+        )
+    )
+    is_org_member = User.organization_id == org_id
+    return or_(is_org_member, has_org_contact, has_org_assignment, has_org_registration)
+
+
+async def user_belongs_to_organization(db: AsyncSession, user_id: uuid.UUID, org_id: uuid.UUID) -> bool:
+    stmt = select(1).select_from(User).where(
+        User.id == user_id,
+        org_student_filter(org_id),
+    )
+    return (await db.scalar(stmt)) is not None
+
+
 async def search_students(
     db: AsyncSession, *, q: str | None = None, invite_code: str | None = None,
     login_status: Literal["all", "never", "has_logged_in"] = "all",
     mode: Literal["student", "observer", "all"] = "student",
     limit: int = 50,
+    org_id: uuid.UUID | None = None,
 ) -> list[StudentSummaryOut]:
     """Name/email substring search over student accounts, capped at `limit` rows.
 
@@ -165,6 +220,8 @@ async def search_students(
         stmt = stmt.where(User.last_login_at.is_(None))
     elif login_status == "has_logged_in":
         stmt = stmt.where(User.last_login_at.is_not(None))
+    if org_id is not None:
+        stmt = stmt.where(org_student_filter(org_id))
     rows = (await db.execute(stmt.order_by(User.full_name).limit(limit))).scalars().all()
     return await _summarize_users(db, rows)
 

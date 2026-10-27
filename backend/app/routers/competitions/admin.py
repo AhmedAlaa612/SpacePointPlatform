@@ -57,6 +57,80 @@ router = APIRouter(
 )
 
 
+@router.get("/roster-template.xlsx")
+async def download_roster_template():
+    """Generates a styled Excel template (.xlsx) for bulk competition registration and team import."""
+    import io
+    import openpyxl
+    from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+    from fastapi.responses import Response
+
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "Roster Import Template"
+
+    headers = [
+        "Team ID",
+        "Team Name",
+        "Student Name",
+        "Email",
+        "Phone",
+        "School / University",
+        "Nationality",
+        "Gender",
+    ]
+    ws.append(headers)
+
+    header_fill = PatternFill(start_color="1E293B", end_color="1E293B", fill_type="solid")
+    header_font = Font(name="Calibri", size=11, bold=True, color="FFFFFF")
+    thin_border = Border(
+        left=Side(style='thin', color='CBD5E1'),
+        right=Side(style='thin', color='CBD5E1'),
+        top=Side(style='thin', color='CBD5E1'),
+        bottom=Side(style='thin', color='CBD5E1')
+    )
+
+    for col_num in range(1, len(headers) + 1):
+        cell = ws.cell(row=1, column=col_num)
+        cell.fill = header_fill
+        cell.font = header_font
+        cell.alignment = Alignment(horizontal="center", vertical="center")
+        cell.border = thin_border
+
+    # Sample rows (generic names only, strictly zero real agency mentions)
+    samples = [
+        ["TEAM-01", "Orbital Pioneers", "Sara Al-Hashimi", "sara@example.com", "+971501234567", "Academy of Engineering", "Emirati", "Female"],
+        ["TEAM-01", "Orbital Pioneers", "Zaid Al-Mansoor", "zaid@example.com", "+971509876543", "Academy of Engineering", "Emirati", "Male"],
+        ["TEAM-02", "Nova Explorers", "Fatima Al-Khatib", "fatima@example.com", "+971502468135", "National University", "Jordanian", "Female"],
+        ["TEAM-02", "Nova Explorers", "Omar Tarek", "omar@example.com", "+971508642097", "National University", "Egyptian", "Male"],
+    ]
+
+    for row in samples:
+        ws.append(row)
+        for col_num in range(1, len(headers) + 1):
+            cell = ws.cell(row=ws.max_row, column=col_num)
+            cell.border = thin_border
+            cell.alignment = Alignment(vertical="center")
+
+    column_widths = [14, 22, 22, 28, 18, 28, 16, 12]
+    for i, width in enumerate(column_widths, 1):
+        col_letter = openpyxl.utils.get_column_letter(i)
+        ws.column_dimensions[col_letter].width = width
+
+    buf = io.BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+
+    return Response(
+        content=buf.getvalue(),
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={
+            "Content-Disposition": 'attachment; filename="competition_roster_template.xlsx"',
+            "Cache-Control": "no-cache",
+        },
+    )
+
+
 def _rubric_out(rubric, criteria) -> CompetitionRubricOut:
     return CompetitionRubricOut(
         id=rubric.id, program_id=rubric.program_id, cohort_id=rubric.cohort_id, name=rubric.name,

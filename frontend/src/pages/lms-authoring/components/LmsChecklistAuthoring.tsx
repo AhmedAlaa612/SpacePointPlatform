@@ -1196,7 +1196,11 @@ export function ItemForm({
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState("")
 
-  const { data: courses = [] } = useQuery({ queryKey: ["lms-admin-courses"], queryFn: listCoursesApi, enabled: itemType === "course" })
+  const { data: courses = [] } = useQuery({
+    queryKey: ["lms-admin-courses", "picker"],
+    queryFn: () => listCoursesApi({ for_picker: true }),
+    enabled: itemType === "course",
+  })
   const { data: missions = [] } = useQuery({ queryKey: ["missions-admin-full"], queryFn: listMissionsAdminFullApi, enabled: itemType === "mission_run" })
   const { data: arcadeGames = [] } = useQuery({
     queryKey: ["arcade-games"],

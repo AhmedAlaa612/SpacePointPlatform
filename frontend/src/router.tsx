@@ -124,6 +124,9 @@ import TestAccounts from "@/pages/operations/TestAccounts";
 import Birthdays from "@/pages/operations/Birthdays";
 import WebsiteManagement from "@/pages/operations/website/WebsiteManagement";
 import OrganizationEvents from "@/pages/organization/OrganizationEvents";
+import OrganizationPrograms from "@/pages/organization/OrganizationPrograms";
+import OrganizationCohortDetail from "@/pages/organization/OrganizationCohortDetail";
+import OrganizationTeam from "@/pages/organization/OrganizationTeam";
 import { OrganizationSignup } from "@/pages/auth/OrganizationSignup";
 
 // Unified apply flow
@@ -909,10 +912,14 @@ const organizationRoutes = [
     getParentRoute: porg,
     path: "/",
     beforeLoad: () => {
-      throw redirect({ to: "/organization/events" });
+      throw redirect({ to: "/organization/programs" });
     },
   }),
+  createRoute({ getParentRoute: porg, path: "/programs", component: OrganizationPrograms }),
+  createRoute({ getParentRoute: porg, path: "/programs/$cohortId", component: OrganizationCohortDetail }),
+  createRoute({ getParentRoute: porg, path: "/programs/$cohortId/judging", component: CompetitionJudging }),
   createRoute({ getParentRoute: porg, path: "/events", component: OrganizationEvents }),
+  createRoute({ getParentRoute: porg, path: "/team", component: OrganizationTeam }),
   createRoute({ getParentRoute: porg, path: "/mentors", component: PublicDirectory }),
   createRoute({ getParentRoute: porg, path: "/mentors/$slug", component: PublicProfile }),
   createRoute({ getParentRoute: porg, path: "/profile", component: SharedProfile }),
@@ -958,7 +965,7 @@ const lmsAuthoringLayoutRoute = createRoute({
   path: "/lms-authoring",
   beforeLoad: () => {
     const role = localStorage.getItem("active_role");
-    if (!role || !["operations", "facilitator", "instructor", "admin", "lms_author"].includes(role)) {
+    if (!role || !["operations", "facilitator", "instructor", "admin", "lms_author", "organization"].includes(role)) {
       throw redirect({ to: "/" });
     }
   },

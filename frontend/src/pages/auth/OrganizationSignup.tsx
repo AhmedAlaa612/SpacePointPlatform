@@ -1,16 +1,14 @@
 import { useState, type FormEvent } from "react"
 import { Link } from "@tanstack/react-router"
-import { Building2, Eye, EyeOff, Loader2, Lock, Mail, Phone, User as UserIcon } from "lucide-react"
+import { Building2, Clock, Eye, EyeOff, Loader2, Lock, Mail, Phone, User as UserIcon } from "lucide-react"
 import { PLAIN_LOGO } from "@/lib/logos"
 import { Button } from "@/components/ui/button"
 import { CountrySelect } from "@/components/ui/CountrySelect"
 import { CityNameSelect } from "@/components/ui/CitySelect"
 import { getErrorMessage } from "@/lib/utils"
 import { organizationSignupApi } from "@/api/websiteEvents"
-import { useAuth } from "@/context/AuthContext"
 
 export function OrganizationSignup() {
-  const { setCurrentUser, setActiveRole } = useAuth()
   const [orgNameLatin, setOrgNameLatin] = useState("")
   const [orgType, setOrgType] = useState("university")
   const [country, setCountry] = useState("AE")
@@ -22,13 +20,14 @@ export function OrganizationSignup() {
   const [showPassword, setShowPassword] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
+  const [submitted, setSubmitted] = useState(false)
 
   async function onSubmit(e: FormEvent) {
     e.preventDefault()
     setError(null)
     setBusy(true)
     try {
-      const user = await organizationSignupApi({
+      await organizationSignupApi({
         org_name_latin: orgNameLatin,
         org_type: orgType,
         country,
@@ -38,14 +37,56 @@ export function OrganizationSignup() {
         phone,
         password,
       })
-      setCurrentUser(user)
-      setActiveRole("organization")
-      window.location.href = "/organization/events"
+      setSubmitted(true)
     } catch (err) {
       setError(getErrorMessage(err, "Could not create organization account."))
     } finally {
       setBusy(false)
     }
+  }
+
+  if (submitted) {
+    return (
+      <div className="dark relative flex min-h-screen items-center justify-center bg-[#08040f] text-white px-4 py-10 overflow-hidden select-none">
+        <div className="absolute inset-0 bg-[linear-gradient(to_right,rgba(255,255,255,0.015)_1px,transparent_1px),linear-gradient(to_bottom,rgba(255,255,255,0.015)_1px,transparent_1px)] bg-[size:4rem_4rem] pointer-events-none opacity-40" />
+        <div className="absolute top-[-10%] right-[-10%] w-[60%] h-[60%] rounded-full bg-[#a880ff]/10 blur-[130px] pointer-events-none" />
+
+        <div className="relative z-10 w-full max-w-lg space-y-6 rounded-2xl border border-[#653f84]/40 bg-[#12091e]/90 backdrop-blur-xl p-8 shadow-2xl text-center animate-fade-in-up">
+          <img src={PLAIN_LOGO} alt="SpacePoint" className="mx-auto h-11 w-auto object-contain" />
+
+          <div className="mx-auto w-14 h-14 rounded-2xl bg-amber-500/15 border border-amber-500/30 flex items-center justify-center text-amber-400">
+            <Clock className="w-7 h-7" />
+          </div>
+
+          <div className="space-y-2">
+            <h1 className="text-2xl font-bold tracking-tight text-white">
+              Application Under Review
+            </h1>
+            <p className="text-sm text-white/70 leading-relaxed">
+              Thank you for applying. Your partner organization application for <span className="font-semibold text-white">{orgNameLatin}</span> has been submitted successfully.
+            </p>
+          </div>
+
+          <div className="p-4 rounded-xl border border-white/10 bg-white/[0.03] text-left text-xs text-white/70 space-y-2.5">
+            <div className="flex items-start gap-2">
+              <span className="text-amber-400 font-bold">•</span>
+              <span>Our operations team will review your organization details and set up your program hosting limits.</span>
+            </div>
+            <div className="flex items-start gap-2">
+              <span className="text-amber-400 font-bold">•</span>
+              <span>Once approved, you will be notified at <span className="text-white font-medium">{email}</span> and can log in to manage your programs, cohorts, and student milestones.</span>
+            </div>
+          </div>
+
+          <Link
+            to="/login"
+            className="inline-flex items-center justify-center w-full h-11 rounded-xl text-sm font-semibold text-white bg-gradient-to-r from-[#653f84] to-[#7e4fa3] hover:from-[#583574] hover:to-[#6d438f] transition-all"
+          >
+            Return to Login
+          </Link>
+        </div>
+      </div>
+    )
   }
 
   return (

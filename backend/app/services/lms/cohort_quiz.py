@@ -13,7 +13,7 @@ from datetime import datetime, timezone
 from typing import Optional
 
 from fastapi import HTTPException, status
-from sqlalchemy import delete as sa_delete, func, select
+from sqlalchemy import delete as sa_delete, exists, func, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -31,13 +31,14 @@ from app.schemas.lms_cohort_quiz import (
 
 async def create_question(
     db: AsyncSession, *, body: CohortQuizQuestionIn, created_by: uuid.UUID | None,
+    organization_id: uuid.UUID | None = None,
 ) -> CohortQuizQuestion:
     question = CohortQuizQuestion(
         id=uuid.uuid4(), topic=body.topic, subtopic=body.subtopic, difficulty=body.difficulty,
         time_limit_seconds=body.time_limit_seconds, bloom_level=body.bloom_level,
         question_type=body.question_type or "mcq", is_optional=bool(body.is_optional), prompt=body.prompt,
         options=[o.model_dump() for o in body.options], explanation=body.explanation,
-        source_url=body.source_url, created_by=created_by,
+        source_url=body.source_url, created_by=created_by, organization_id=organization_id,
     )
     db.add(question)
     await db.flush()
@@ -78,6 +79,7 @@ async def update_question(
 
 async def import_questions_deduped(
     db: AsyncSession, *, parsed: list[CohortQuizQuestionIn], created_by: uuid.UUID | None,
+    organization_id: uuid.UUID | None = None,
 ) -> tuple[list[CohortQuizQuestion], int]:
     """Bulk-create from already-parsed import rows, skipping any whose
     prompt text already exists in the bank — the actual dedup this
@@ -95,7 +97,7 @@ async def import_questions_deduped(
         if body.prompt in existing_prompts:
             skipped += 1
             continue
-        q = await create_question(db, body=body, created_by=created_by)
+        q = await create_question(db, body=body, created_by=created_by, organization_id=organization_id)
         existing_prompts.add(body.prompt)
         created.append(q)
     return created, skipped
@@ -103,12 +105,27 @@ async def import_questions_deduped(
 
 async def list_questions(
     db: AsyncSession, *, topic: str | None = None, is_active: bool | None = None,
+    org_id: uuid.UUID | None = None,
+    quiz_scope: str = "all",
+    allowed_template_ids: list[uuid.UUID] | None = None,
 ) -> list[CohortQuizQuestion]:
     q = select(CohortQuizQuestion)
     if topic:
         q = q.where(CohortQuizQuestion.topic == topic)
     if is_active is not None:
         q = q.where(CohortQuizQuestion.is_active.is_(is_active))
+    if org_id is not None:
+        if quiz_scope == "own":
+            q = q.where(CohortQuizQuestion.organization_id == org_id)
+        elif quiz_scope == "selected":
+            allowed_ids = allowed_template_ids or []
+            in_allowed_templates = exists(
+                select(1).where(
+                    CohortQuizTemplateQuestion.question_id == CohortQuizQuestion.id,
+                    CohortQuizTemplateQuestion.template_id.in_(allowed_ids),
+                )
+            )
+            q = q.where(or_(CohortQuizQuestion.organization_id == org_id, in_allowed_templates))
     return (await db.execute(q.order_by(CohortQuizQuestion.topic, CohortQuizQuestion.created_at))).scalars().all()
 
 
@@ -116,8 +133,12 @@ async def list_questions(
 
 async def create_template(
     db: AsyncSession, *, body: CohortQuizTemplateCreate, created_by: uuid.UUID | None,
+    organization_id: uuid.UUID | None = None,
 ) -> CohortQuizTemplate:
-    template = CohortQuizTemplate(id=uuid.uuid4(), name=body.name, description=body.description, created_by=created_by)
+    template = CohortQuizTemplate(
+        id=uuid.uuid4(), name=body.name, description=body.description, created_by=created_by,
+        organization_id=organization_id,
+    )
     db.add(template)
     await db.flush()
     return template
@@ -132,8 +153,25 @@ async def update_template(
     return template
 
 
-async def list_templates(db: AsyncSession) -> list[CohortQuizTemplate]:
-    return (await db.execute(select(CohortQuizTemplate).order_by(CohortQuizTemplate.created_at))).scalars().all()
+async def list_templates(
+    db: AsyncSession, *,
+    org_id: uuid.UUID | None = None,
+    quiz_scope: str = "all",
+    allowed_template_ids: list[uuid.UUID] | None = None,
+) -> list[CohortQuizTemplate]:
+    q = select(CohortQuizTemplate)
+    if org_id is not None:
+        if quiz_scope == "own":
+            q = q.where(CohortQuizTemplate.organization_id == org_id)
+        elif quiz_scope == "selected":
+            allowed_ids = allowed_template_ids or []
+            q = q.where(
+                or_(
+                    CohortQuizTemplate.organization_id == org_id,
+                    CohortQuizTemplate.id.in_(allowed_ids),
+                )
+            )
+    return (await db.execute(q.order_by(CohortQuizTemplate.created_at))).scalars().all()
 
 
 async def get_template_questions(db: AsyncSession, template_id: uuid.UUID) -> list[CohortQuizTemplateQuestion]:

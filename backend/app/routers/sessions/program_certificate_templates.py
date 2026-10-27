@@ -14,7 +14,7 @@ from fastapi import APIRouter, Depends, HTTPException, Response, UploadFile, sta
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.dependencies import require_operations
+from app.core.dependencies import get_current_active_user, require_operations
 from app.db.session import get_db
 from app.models.sessions.program import Program
 from app.models.sessions.program_certificate_template import ProgramCertificateTemplate
@@ -98,11 +98,18 @@ async def _enrich_template_urls(template: ProgramCertificateTemplate) -> None:
 async def list_program_certificate_templates(
     program_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_operations),
+    current_user: User = Depends(get_current_active_user),
 ):
     program = await db.get(Program, program_id)
     if program is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Program not found")
+
+    is_ops = bool({"operations", "admin", "coo"} & set(current_user.role_values))
+    if not is_ops:
+        if "organization" in current_user.role_values and program.organization_id == current_user.organization_id:
+            pass
+        else:
+            raise HTTPException(status.HTTP_403_FORBIDDEN, detail="Forbidden")
 
     templates = (
         await db.execute(

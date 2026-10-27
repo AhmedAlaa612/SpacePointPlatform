@@ -54,6 +54,7 @@ class CohortQuizQuestion(Base):
     explanation = Column(Text, nullable=True)
     source_url = Column(String(512), nullable=True)
     created_by = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    organization_id = Column(UUID(as_uuid=True), ForeignKey("organizations.id", ondelete="SET NULL"), nullable=True, index=True)
     # Retire, never delete (F1) — a question already drawn into a submitted
     # attempt must stay readable in that attempt's review.
     is_active = Column(Boolean, nullable=False, default=True, server_default="true")
@@ -73,6 +74,7 @@ class CohortQuizTemplate(Base):
     description = Column(Text, nullable=True)
     is_active = Column(Boolean, nullable=False, default=True, server_default="true")
     created_by = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    organization_id = Column(UUID(as_uuid=True), ForeignKey("organizations.id", ondelete="SET NULL"), nullable=True, index=True)
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
 
 
