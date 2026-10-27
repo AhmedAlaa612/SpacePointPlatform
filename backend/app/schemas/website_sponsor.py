@@ -11,6 +11,7 @@ class SponsorOut(BaseModel):
     id: UUID
     name: str
     logo_url: str
+    logo_hover_url: Optional[str] = None
     website_url: Optional[str] = None
     tier: str
     display_order: int
@@ -35,6 +36,7 @@ class SponsorsGroupedOut(BaseModel):
 class SponsorCreate(BaseModel):
     name: str = Field(min_length=1, max_length=255)
     logo_url: str = Field(min_length=1, max_length=512)
+    logo_hover_url: Optional[str] = Field(default=None, max_length=512)
     tier: SponsorTier = "partner"
     website_url: Optional[str] = Field(default=None, max_length=512)
     display_order: int = 0
@@ -44,6 +46,7 @@ class SponsorCreate(BaseModel):
 class SponsorUpdate(BaseModel):
     name: Optional[str] = Field(default=None, min_length=1, max_length=255)
     logo_url: Optional[str] = Field(default=None, min_length=1, max_length=512)
+    logo_hover_url: Optional[str] = Field(default=None, max_length=512)
     tier: Optional[SponsorTier] = None
     website_url: Optional[str] = Field(default=None, max_length=512)
     display_order: Optional[int] = None

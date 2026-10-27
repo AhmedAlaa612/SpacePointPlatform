@@ -1,8 +1,9 @@
 import { useRef, useState } from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { isAxiosError } from "axios"
-import { Globe, Pencil, Plus, Save, Trash2, Upload } from "lucide-react"
+import { ChevronDown, ChevronUp, Globe, Pencil, Plus, Save, Trash2, Upload } from "lucide-react"
 import { cn } from "@/lib/utils"
+import { apiBaseUrl } from "@/api/client"
 import { ImageCropModal } from "@/components/ui/ImageCropModal"
 import { PageHeader, Spinner } from "@/components/ui/primitives"
 import { useToast } from "@/components/ui/toast"
@@ -102,6 +103,16 @@ const WEBSITE_BASE_URL =
 export function resolveWebsiteAsset(url: string | null | undefined): string {
   const raw = (url ?? "").trim()
   if (!raw) return ""
+  const apiPrefix = apiBaseUrl.replace(/\/$/, "")
+  if (raw.startsWith("https://portal.spacepoint.ae/public/website/uploads/")) {
+    return raw.replace(
+      "https://portal.spacepoint.ae/public/website/uploads/",
+      `${apiPrefix}/public/website/uploads/`
+    )
+  }
+  if (raw.startsWith("/public/website/uploads/") || raw.startsWith("/files/")) {
+    return `${apiPrefix}${raw}`
+  }
   if (/^(https?:|data:|blob:)/i.test(raw)) return raw
   const path = raw.startsWith("/") ? raw : `/${raw}`
   return `${WEBSITE_BASE_URL}${encodeURI(path)}`
@@ -147,6 +158,7 @@ export function AssetField({
   aspect,
   circularCrop = false,
   aspectHint,
+  disableCrop = false,
 }: {
   label: string
   value: string
@@ -157,6 +169,7 @@ export function AssetField({
   aspect?: number
   circularCrop?: boolean
   aspectHint?: string
+  disableCrop?: boolean
 }) {
   const toast = useToast()
   const fileRef = useRef<HTMLInputElement | null>(null)
@@ -183,7 +196,7 @@ export function AssetField({
     if (!file) return
     const isRasterImage =
       file.type.startsWith("image/") && file.type !== "image/svg+xml"
-    if (isRasterImage) {
+    if (isRasterImage && !disableCrop) {
       const stem = file.name.replace(/\.[^.]+$/, "") || "cropped"
       setCropFileName(`${stem}.png`)
       const reader = new FileReader()
@@ -712,6 +725,15 @@ function SponsorsSection() {
     onError: () => toast.error("Could not delete this sponsor"),
   })
 
+  const updateOrder = useMutation({
+    mutationFn: ({ id, order }: { id: string; order: number }) =>
+      updateWebsiteSponsor(id, { display_order: order }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["website-sponsors"] })
+    },
+    onError: () => toast.error("Could not update order"),
+  })
+
   if (isLoading) return <Spinner />
   if (isError) {
     return (
@@ -756,19 +778,50 @@ function SponsorsSection() {
             key={s.id}
             className="rounded-2xl border border-border bg-card p-4 flex items-center gap-4 flex-wrap"
           >
-            <div className="w-28 h-14 rounded-lg bg-[#130921] border border-border flex items-center justify-center overflow-hidden shrink-0 px-2.5 py-1.5">
-              {s.logo_url ? (
-                <img
-                  src={resolveWebsiteAsset(s.logo_url)}
-                  alt={`${s.name} logo`}
-                  className="max-w-full max-h-full object-contain"
-                  onError={(e) => {
-                    e.currentTarget.style.display = "none"
-                  }}
-                />
-              ) : (
-                <span className="text-[10px] text-muted-foreground">No logo</span>
-              )}
+            <div className="flex items-center gap-2 shrink-0">
+              {/* White (Default) Version */}
+              <div className="flex flex-col items-center gap-1">
+                <div
+                  className="w-24 h-14 rounded-lg bg-[#130921] border border-border flex items-center justify-center overflow-hidden px-2 py-1"
+                  title="White / Default version"
+                >
+                  {s.logo_url ? (
+                    <img
+                      src={resolveWebsiteAsset(s.logo_url)}
+                      alt={`${s.name} white logo`}
+                      className="max-w-full max-h-full object-contain"
+                      onError={(e) => {
+                        e.currentTarget.style.display = "none"
+                      }}
+                    />
+                  ) : (
+                    <span className="text-[9px] text-muted-foreground">No white</span>
+                  )}
+                </div>
+                <span className="text-[9px] text-muted-foreground uppercase font-semibold tracking-wider">White</span>
+              </div>
+
+              {/* Color (Hover) Version */}
+              <div className="flex flex-col items-center gap-1">
+                <div
+                  className="w-24 h-14 rounded-lg bg-[#130921] border border-border flex items-center justify-center overflow-hidden px-2 py-1"
+                  title="Colored / Hover version"
+                >
+                  {s.logo_hover_url ? (
+                    <img
+                      src={resolveWebsiteAsset(s.logo_hover_url)}
+                      alt={`${s.name} colored logo`}
+                      className="max-w-full max-h-full object-contain"
+                      onError={(e) => {
+                        e.currentTarget.style.display = "none"
+                      }}
+                    />
+                  ) : (
+                    <span className="text-[9px] text-muted-foreground/60 italic">Fallback</span>
+                  )}
+                </div>
+                <span className="text-[9px] text-muted-foreground uppercase font-semibold tracking-wider">Color</span>
+              </div>
             </div>
             <div className="flex-1 min-w-40">
               <div className="flex items-center gap-2 flex-wrap">
@@ -782,7 +835,7 @@ function SponsorsSection() {
                   </span>
                 )}
               </div>
-              <div className="flex items-center gap-3 mt-1 text-xs text-muted-foreground">
+              <div className="flex items-center gap-3 mt-1 text-xs text-muted-foreground flex-wrap">
                 {s.website_url ? (
                   <a
                     href={s.website_url}
@@ -795,7 +848,9 @@ function SponsorsSection() {
                 ) : (
                   <span>No link</span>
                 )}
-                <span className="tabular-nums">Order {s.display_order}</span>
+                <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-muted font-mono font-medium text-foreground text-[11px]">
+                  Order #{s.display_order}
+                </span>
               </div>
             </div>
             <button
@@ -817,6 +872,27 @@ function SponsorsSection() {
               />
             </button>
             <div className="flex items-center gap-1 shrink-0">
+              <div className="flex items-center border border-border rounded-lg overflow-hidden bg-muted/40 mr-1">
+                <button
+                  type="button"
+                  disabled={updateOrder.isPending || s.display_order <= 1}
+                  onClick={() => updateOrder.mutate({ id: s.id, order: Math.max(1, s.display_order - 1) })}
+                  className="p-1.5 text-muted-foreground hover:text-foreground hover:bg-muted disabled:opacity-20 transition-colors cursor-pointer"
+                  title="Move order up (#1 is first)"
+                >
+                  <ChevronUp size={14} />
+                </button>
+                <div className="w-[1px] h-4 bg-border" />
+                <button
+                  type="button"
+                  disabled={updateOrder.isPending}
+                  onClick={() => updateOrder.mutate({ id: s.id, order: s.display_order + 2 })}
+                  className="p-1.5 text-muted-foreground hover:text-foreground hover:bg-muted disabled:opacity-20 transition-colors cursor-pointer"
+                  title="Move order down"
+                >
+                  <ChevronDown size={14} />
+                </button>
+              </div>
               <button
                 onClick={() => setModal({ open: true, sponsor: s })}
                 className="p-2 rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
@@ -847,6 +923,7 @@ function SponsorsSection() {
         <SponsorModal
           key={modal.sponsor?.id ?? "new"}
           sponsor={modal.sponsor}
+          allSponsors={sponsors}
           onClose={() => setModal({ open: false, sponsor: null })}
         />
       )}
@@ -854,28 +931,46 @@ function SponsorsSection() {
   )
 }
 
-function SponsorModal({ sponsor, onClose }: { sponsor: WebsiteSponsor | null; onClose: () => void }) {
+function SponsorModal({
+  sponsor,
+  allSponsors,
+  onClose,
+}: {
+  sponsor: WebsiteSponsor | null
+  allSponsors: WebsiteSponsor[]
+  onClose: () => void
+}) {
   const qc = useQueryClient()
   const toast = useToast()
-  // Mount-time snapshot: the modal only mounts when opened, so these
-  // initializers always reflect the row being edited (or blanks for new).
+
+  const getNextOrder = (t: string) => {
+    const inTier = allSponsors.filter((s) => s.tier === t)
+    const max = inTier.reduce((m, s) => Math.max(m, s.display_order), 0)
+    return String(max + 1)
+  }
+
   const [name, setName] = useState(sponsor?.name ?? "")
   const [logoUrl, setLogoUrl] = useState(sponsor?.logo_url ?? "")
+  const [logoHoverUrl, setLogoHoverUrl] = useState(sponsor?.logo_hover_url ?? "")
   const [websiteUrl, setWebsiteUrl] = useState(sponsor?.website_url ?? "")
-  const [tier, setTier] = useState<SponsorTier>(sponsor?.tier as SponsorTier | undefined ?? "partner")
-  const [order, setOrder] = useState(String(sponsor?.display_order ?? 0))
+  const [tier, setTier] = useState<SponsorTier>((sponsor?.tier as SponsorTier | undefined) ?? "partner")
+  const [order, setOrder] = useState(
+    sponsor ? String(sponsor.display_order) : getNextOrder(sponsor?.tier ?? "partner")
+  )
   const [active, setActive] = useState(sponsor?.is_active ?? true)
 
   const save = useMutation({
     mutationFn: () => {
       if (!name.trim()) throw new Error("Name is required")
-      if (!logoUrl.trim()) throw new Error("Logo URL is required")
+      if (!logoUrl.trim()) throw new Error("Default (White) Logo is required")
+      const parsedOrder = Math.max(1, Number(order) || 1)
       const payload = {
         name: name.trim(),
         logo_url: logoUrl.trim(),
+        logo_hover_url: logoHoverUrl.trim() || null,
         website_url: websiteUrl.trim() || null,
         tier,
-        display_order: Number(order) || 0,
+        display_order: parsedOrder,
         is_active: active,
       }
       return sponsor
@@ -884,7 +979,7 @@ function SponsorModal({ sponsor, onClose }: { sponsor: WebsiteSponsor | null; on
     },
     onSuccess: (saved) => {
       qc.invalidateQueries({ queryKey: ["website-sponsors"] })
-      toast.success(`“${saved.name}” saved — the public site updates immediately`)
+      toast.success(`“${saved.name}” saved — order #${saved.display_order}`)
       onClose()
     },
     onError: (e: unknown) => {
@@ -910,7 +1005,13 @@ function SponsorModal({ sponsor, onClose }: { sponsor: WebsiteSponsor | null; on
           </span>
           <select
             value={tier}
-            onChange={(e) => setTier(e.target.value as SponsorTier)}
+            onChange={(e) => {
+              const nextTier = e.target.value as SponsorTier
+              setTier(nextTier)
+              if (!sponsor) {
+                setOrder(getNextOrder(nextTier))
+              }
+            }}
             className="h-10 px-3 bg-background border border-border rounded-xl text-sm focus:outline-none focus:border-primary text-foreground"
           >
             {SPONSOR_TIERS.map((t) => (
@@ -922,25 +1023,95 @@ function SponsorModal({ sponsor, onClose }: { sponsor: WebsiteSponsor | null; on
         </label>
       </div>
 
-      <AssetField
-        label="Logo / Icon"
-        value={logoUrl}
-        onChange={setLogoUrl}
-        accept="image/*,.svg"
-        placeholder="https://… or upload logo"
-        aspect={2 / 1}
-        aspectHint="2:1 Logo"
-      />
-      {logoUrl.trim() && (
-        <div className="w-full h-16 rounded-xl bg-[#130921] border border-border flex items-center justify-center overflow-hidden px-4 py-2">
-          <img
-            src={resolveWebsiteAsset(logoUrl.trim())}
-            alt="Logo preview"
-            className="max-w-full max-h-full object-contain"
-            onError={(e) => {
-              e.currentTarget.style.display = "none"
-            }}
-          />
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        <AssetField
+          label="Default Logo (White Version)"
+          value={logoUrl}
+          onChange={setLogoUrl}
+          accept="image/*,.svg"
+          placeholder="Upload white logo or paste URL"
+          aspectHint="Freeform (No Lock)"
+          helper="Shown on dark backgrounds. Cropper opens with full flexibility and no lock."
+        />
+        <AssetField
+          label="Hover Logo (Colored Version)"
+          value={logoHoverUrl}
+          onChange={setLogoHoverUrl}
+          accept="image/*,.svg"
+          placeholder="Upload colored logo or paste URL"
+          aspectHint="Freeform (No Lock)"
+          helper="Revealed on mouse hover. Cropper opens with full flexibility and no lock."
+        />
+      </div>
+
+      {(logoUrl.trim() || logoHoverUrl.trim()) && (
+        <div className="flex flex-col gap-1.5 p-3 rounded-xl bg-muted/40 border border-border">
+          <span className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">
+            Logo Previews (Hover right box to test)
+          </span>
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <div className="flex flex-col items-center gap-1">
+              <div className="w-full h-16 rounded-xl bg-[#130921] border border-border flex items-center justify-center overflow-hidden px-4 py-2">
+                {logoUrl.trim() ? (
+                  <img
+                    src={resolveWebsiteAsset(logoUrl.trim())}
+                    alt="White logo preview"
+                    className="max-w-full max-h-full object-contain"
+                    onError={(e) => {
+                      e.currentTarget.style.display = "none"
+                    }}
+                  />
+                ) : (
+                  <span className="text-xs text-muted-foreground">No white logo</span>
+                )}
+              </div>
+              <span className="text-[10px] text-muted-foreground font-medium">1. White (Default)</span>
+            </div>
+
+            <div className="flex flex-col items-center gap-1">
+              <div className="w-full h-16 rounded-xl bg-[#130921] border border-border flex items-center justify-center overflow-hidden px-4 py-2">
+                {logoHoverUrl.trim() ? (
+                  <img
+                    src={resolveWebsiteAsset(logoHoverUrl.trim())}
+                    alt="Colored logo preview"
+                    className="max-w-full max-h-full object-contain"
+                    onError={(e) => {
+                      e.currentTarget.style.display = "none"
+                    }}
+                  />
+                ) : (
+                  <span className="text-xs text-muted-foreground italic">None (Falls back)</span>
+                )}
+              </div>
+              <span className="text-[10px] text-muted-foreground font-medium">2. Color (Hover)</span>
+            </div>
+
+            <div className="flex flex-col items-center gap-1">
+              <div
+                className="w-full h-16 rounded-xl bg-[#130921] border border-border flex items-center justify-center overflow-hidden px-4 py-2 relative group cursor-pointer"
+                title="Hover cursor here to preview the transition"
+              >
+                {logoUrl.trim() && (
+                  <img
+                    src={resolveWebsiteAsset(logoUrl.trim())}
+                    alt="Preview default"
+                    className={cn(
+                      "max-w-full max-h-full object-contain transition-opacity duration-300",
+                      logoHoverUrl.trim() ? "group-hover:opacity-0" : ""
+                    )}
+                  />
+                )}
+                {logoHoverUrl.trim() && (
+                  <img
+                    src={resolveWebsiteAsset(logoHoverUrl.trim())}
+                    alt="Preview hover"
+                    className="absolute max-w-full max-h-full object-contain opacity-0 transition-opacity duration-300 group-hover:opacity-100"
+                  />
+                )}
+              </div>
+              <span className="text-[10px] text-primary font-semibold">Hover to Test</span>
+            </div>
+          </div>
         </div>
       )}
       <Field label="Website URL" value={websiteUrl} onChange={setWebsiteUrl} placeholder="https://… (optional)" />
@@ -948,13 +1119,15 @@ function SponsorModal({ sponsor, onClose }: { sponsor: WebsiteSponsor | null; on
       <div className="grid grid-cols-2 gap-4">
         <label className="flex flex-col gap-1.5">
           <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
-            Display Order
+            Display Order (Starts from 1)
           </span>
           <input
-            type="number" min={0} step={1} value={order}
+            type="number" min={1} step={1} value={order}
             onChange={(e) => setOrder(e.target.value)}
+            placeholder="1, 2, 3..."
             className="h-10 px-3 bg-background border border-border rounded-xl text-sm focus:outline-none focus:border-primary text-foreground tabular-nums"
           />
+          <span className="text-[10px] text-muted-foreground">Auto-renumbers with no duplicates</span>
         </label>
         <label className="flex items-center gap-2 text-sm text-foreground cursor-pointer self-end pb-2.5">
           <input
@@ -1187,13 +1360,15 @@ function FaqModal({
       <div className="grid grid-cols-2 gap-4">
         <label className="flex flex-col gap-1.5">
           <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
-            Display Order
+            Display Order (Starts from 1)
           </span>
           <input
-            type="number" min={0} step={1} value={order}
+            type="number" min={1} step={1} value={order}
             onChange={(e) => setOrder(e.target.value)}
+            placeholder="1, 2, 3..."
             className="h-10 px-3 bg-background border border-border rounded-xl text-sm focus:outline-none focus:border-primary text-foreground tabular-nums"
           />
+          <span className="text-[10px] text-muted-foreground">Auto-renumbers with no duplicates</span>
         </label>
         <label className="flex items-center gap-2 text-sm text-foreground cursor-pointer self-end pb-2.5">
           <input
@@ -1430,13 +1605,15 @@ function MediaModal({
       <div className="grid grid-cols-2 gap-4">
         <label className="flex flex-col gap-1.5">
           <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
-            Display Order
+            Display Order (Starts from 1)
           </span>
           <input
-            type="number" min={0} step={1} value={order}
+            type="number" min={1} step={1} value={order}
             onChange={(e) => setOrder(e.target.value)}
+            placeholder="1, 2, 3..."
             className="h-10 px-3 bg-background border border-border rounded-xl text-sm focus:outline-none focus:border-primary text-foreground tabular-nums"
           />
+          <span className="text-[10px] text-muted-foreground">Auto-renumbers with no duplicates</span>
         </label>
         <div className="flex flex-col gap-2 self-end pb-1">
           <label className="flex items-center gap-2 text-sm text-foreground cursor-pointer">
@@ -1761,13 +1938,15 @@ function NewsletterModal({
       <div className="grid grid-cols-2 gap-4">
         <label className="flex flex-col gap-1.5">
           <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
-            Display Order
+            Display Order (Starts from 1)
           </span>
           <input
-            type="number" min={0} step={1} value={order}
+            type="number" min={1} step={1} value={order}
             onChange={(e) => setOrder(e.target.value)}
+            placeholder="1, 2, 3..."
             className="h-10 px-3 bg-background border border-border rounded-xl text-sm focus:outline-none focus:border-primary text-foreground tabular-nums"
           />
+          <span className="text-[10px] text-muted-foreground">Auto-renumbers with no duplicates</span>
         </label>
         <label className="flex items-center gap-2 text-sm text-foreground cursor-pointer self-end pb-2.5">
           <input

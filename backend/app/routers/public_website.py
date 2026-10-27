@@ -115,6 +115,8 @@ async def upload_website_asset(
 
     cfg_base = (settings.BASE_URL or "").rstrip("/")
     base = cfg_base if cfg_base and cfg_base != "http://localhost:8000" else str(request.base_url).rstrip("/")
+    if "portal.spacepoint.ae" in base and not base.endswith("/api"):
+        base = f"{base}/api"
     return {
         "url": f"{base}/public/website/uploads/{stored_name}",
         "filename": orig_name,

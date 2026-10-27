@@ -103,7 +103,8 @@ export function ImageCropModal({
   onCropComplete,
   isUploading = false,
 }: ImageCropModalProps) {
-  const effectiveAspect = circularCrop ? (aspect ?? 1) : aspect
+  const [isLocked, setIsLocked] = useState(Boolean(aspect))
+  const effectiveAspect = circularCrop ? (aspect ?? 1) : (isLocked ? aspect : undefined)
 
   const imgRef = useRef<HTMLImageElement | null>(null)
   const containerRef = useRef<HTMLDivElement | null>(null)
@@ -121,8 +122,9 @@ export function ImageCropModal({
       setActiveTab("crop")
       setPreviewDataUrl(null)
       setPreviewFile(null)
+      setIsLocked(Boolean(aspect))
     }
-  }, [isOpen, imageSrc])
+  }, [isOpen, imageSrc, aspect])
 
   // Initialize crop when image loads in the DOM
   const onImageLoad = useCallback((e: React.SyntheticEvent<HTMLImageElement>) => {
@@ -348,8 +350,19 @@ export function ImageCropModal({
           {/* ── CROP TAB (4-sided freeform drag) ────────────────────── */}
           <div className={activeTab === "crop" ? "flex flex-col" : "hidden"}>
             {/* Informative helper bar */}
-            <div className="px-4 py-2 bg-muted/30 border-b border-border flex items-center justify-between text-xs text-muted-foreground">
-              <span>Drag the corners or edges to crop</span>
+            <div className="px-4 py-2 bg-muted/30 border-b border-border flex items-center justify-between text-xs text-muted-foreground flex-wrap gap-2">
+              <div className="flex items-center gap-2">
+                <span>{effectiveAspect ? "Drag to crop (locked aspect ratio)" : "Drag any handle freely (no lock)"}</span>
+                {aspect && !circularCrop && (
+                  <button
+                    type="button"
+                    onClick={() => setIsLocked(!isLocked)}
+                    className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md border border-border bg-card hover:bg-muted text-[11px] font-medium text-foreground transition-colors cursor-pointer"
+                  >
+                    {isLocked ? "🔒 Aspect Locked" : "🔓 Freeform (No Lock)"}
+                  </button>
+                )}
+              </div>
 
               <button
                 type="button"
@@ -357,7 +370,7 @@ export function ImageCropModal({
                 className="inline-flex items-center gap-1 text-primary hover:underline font-medium cursor-pointer"
               >
                 <RotateCcw className="w-3 h-3" />
-                <span>Reset</span>
+                <span>Select Entire Image</span>
               </button>
             </div>
 

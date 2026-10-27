@@ -25,6 +25,7 @@ class WebsiteSponsor(Base):
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     name = Column(String(255), nullable=False)
     logo_url = Column(String(512), nullable=False)
+    logo_hover_url = Column(String(512), nullable=True)
     website_url = Column(String(512), nullable=True)
     tier = Column(String(32), nullable=False, default="partner")
     display_order = Column(Integer, nullable=False, default=0)

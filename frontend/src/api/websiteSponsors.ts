@@ -6,6 +6,7 @@ export interface WebsiteSponsor {
   id: string
   name: string
   logo_url: string
+  logo_hover_url?: string | null
   website_url: string | null
   tier: SponsorTier | string
   display_order: number
@@ -16,13 +17,13 @@ export interface WebsiteSponsor {
 
 export type WebsiteSponsorCreate = Pick<
   WebsiteSponsor,
-  "name" | "logo_url" | "tier" | "website_url" | "display_order" | "is_active"
+  "name" | "logo_url" | "logo_hover_url" | "tier" | "website_url" | "display_order" | "is_active"
 >
 
 export type WebsiteSponsorUpdate = Partial<
   Pick<
     WebsiteSponsor,
-    "name" | "logo_url" | "tier" | "website_url" | "display_order" | "is_active"
+    "name" | "logo_url" | "logo_hover_url" | "tier" | "website_url" | "display_order" | "is_active"
   >
 >
 
