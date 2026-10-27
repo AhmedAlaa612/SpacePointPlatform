@@ -16,6 +16,8 @@ from app.models.enums import UserRole
 from app.models.inventory.city import City
 from app.models.instructors.applicant_profile import ApplicantProfile
 from app.models.instructors.application_review import ApplicationReview
+from app.models.spine.contact import Contact
+from app.models.spine.organization import Organization
 from app.models.user import User
 from app.services import storage
 from app.services.documents.id_card import ensure_card_number
@@ -106,13 +108,14 @@ async def approve_application(
 ):
     app = await _get_pending(db, app_id)
 
-    # Create the user
+    # Create or update the user
     from app.models.enums import UserRole
     role_map = {
         "ambassador": UserRole.ambassador,
         "intern":     UserRole.intern,
         "teacher":    UserRole.teacher,
         "facilitator": UserRole.facilitator,
+        "organization": UserRole.organization,
     }
     user_role = role_map.get(app.role)
     if not user_role:
@@ -133,23 +136,33 @@ async def approve_application(
         except Exception:
             pass
 
-    new_user = User(
-        full_name=app.full_name,
-        email=normalize_user_email(app.email),
-        password_hash=app.password_hash,
-        phone=app.phone,
-        country=app.country,
-        city_id=app.city_id,
-        city_other=(app.answers or {}).get("city_other"),
-        birthdate=app_birthdate,
-        roles=[user_role],
-        status="active",
-        invite_code=secrets.token_hex(4).upper(),
-        invited_by_id=app.invited_by_id,
-    )
-    db.add(new_user)
-    await db.flush()
-    await ensure_card_number(db, new_user)
+    # Check if user already exists (e.g. from self-signup)
+    new_user = (await db.execute(
+        select(User).where(user_email_matches(app.email))
+    )).scalars().first()
+
+    if not new_user:
+        new_user = User(
+            full_name=app.full_name,
+            email=normalize_user_email(app.email),
+            password_hash=app.password_hash,
+            phone=app.phone,
+            country=app.country,
+            city_id=app.city_id,
+            city_other=(app.answers or {}).get("city_other") or (app.answers or {}).get("city"),
+            birthdate=app_birthdate,
+            roles=[user_role],
+            status="active",
+            invite_code=secrets.token_hex(4).upper(),
+            invited_by_id=app.invited_by_id,
+        )
+        db.add(new_user)
+        await db.flush()
+        await ensure_card_number(db, new_user)
+    else:
+        if user_role not in (new_user.roles or []):
+            new_user.roles = list(new_user.roles or []) + [user_role]
+        new_user.status = "active"
 
     # Ambassador teacher-referral points — admin approval is now the single
     # canonical award point (was previously the ambassador-side approval).
@@ -163,6 +176,39 @@ async def approve_application(
             db, user=new_user, university_id_number=university_id_number,
             start_date=start_date, department=None, approve=body.internship,
         )
+
+    if app.role == "organization":
+        org = None
+        org_id_str = (app.answers or {}).get("organization_id")
+        if org_id_str:
+            try:
+                org = await db.get(Organization, uuid.UUID(org_id_str))
+            except Exception:
+                pass
+        if not org and new_user:
+            org = (await db.execute(
+                select(Organization).where(Organization.owner_user_id == new_user.id)
+            )).scalars().first()
+
+        if org:
+            org.is_approved = True
+        else:
+            org = Organization(
+                name_latin=(app.answers or {}).get("organization_name") or app.full_name,
+                name_arabic=(app.answers or {}).get("organization_name_arabic"),
+                org_type=(app.answers or {}).get("organization_type") or "university",
+                country=app.country or "uae",
+                city=(app.answers or {}).get("city"),
+                owner_user_id=new_user.id,
+                is_approved=True,
+            )
+            db.add(org)
+            await db.flush()
+
+        if new_user.contact_id and org:
+            contact = await db.get(Contact, new_user.contact_id)
+            if contact and not contact.organization_id:
+                contact.organization_id = org.id
 
     # Mark application done
     app.status = "approved"
@@ -192,6 +238,22 @@ async def reject_application(
     app.admin_notes = body.admin_notes
     app.reviewed_by = current_user.id
     app.reviewed_at = datetime.now(timezone.utc)
+
+    if app.role == "organization":
+        org = None
+        org_id_str = (app.answers or {}).get("organization_id")
+        if org_id_str:
+            try:
+                org = await db.get(Organization, uuid.UUID(org_id_str))
+            except Exception:
+                pass
+        if not org:
+            u = (await db.execute(select(User).where(user_email_matches(app.email)))).scalars().first()
+            if u:
+                org = (await db.execute(select(Organization).where(Organization.owner_user_id == u.id))).scalars().first()
+        if org:
+            org.is_approved = False
+
     await db.commit()
     return {"detail": "rejected"}
 
@@ -313,7 +375,7 @@ async def _app_out(db: AsyncSession, a: Application) -> dict:
         city = await db.get(City, a.city_id)
         city_name = city.name if city else None
     if not city_name:
-        city_name = (a.answers or {}).get("city_other")  # "Other (type it)" (2026-08-08)
+        city_name = (a.answers or {}).get("city_other") or (a.answers or {}).get("city")
     return {
         "id": str(a.id), "role": a.role, "status": a.status,
         "full_name": a.full_name, "email": a.email,

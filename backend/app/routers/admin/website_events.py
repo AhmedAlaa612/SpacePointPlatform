@@ -409,6 +409,20 @@ async def admin_update_organization_account(
 
     if payload.is_approved is not None:
         org.is_approved = payload.is_approved
+        from app.models.application import Application
+        app_rows = (await db.execute(
+            select(Application).where(Application.role == "organization")
+        )).scalars().all()
+        for a in app_rows:
+            if (a.answers or {}).get("organization_id") == str(org.id):
+                if payload.is_approved and a.status == "pending":
+                    a.status = "approved"
+                    a.reviewed_at = datetime.now(timezone.utc)
+                    a.reviewed_by = current_user.id
+                elif not payload.is_approved and a.status == "approved":
+                    a.status = "rejected"
+                    a.reviewed_at = datetime.now(timezone.utc)
+                    a.reviewed_by = current_user.id
     if payload.can_publish_events is not None:
         org.can_publish_events = payload.can_publish_events
     if payload.can_author_courses is not None:

@@ -18,6 +18,7 @@ from app.core.security import (
     verify_password,
 )
 from app.db.session import get_db
+from app.models.application import Application
 from app.models.inventory.city import City
 from app.models.spine.contact import Contact
 from app.models.spine.organization import Organization
@@ -475,6 +476,46 @@ async def organization_signup(
     db.add(org)
     await db.flush()
     contact.organization_id = org.id
+
+    # Record partner application so admin can review and approve via Admin > Applications
+    existing_app = (await db.execute(
+        select(Application).where(Application.email == email, Application.role == "organization")
+    )).scalars().first()
+    if existing_app:
+        existing_app.status = "pending"
+        existing_app.full_name = data.full_name.strip()
+        existing_app.phone = data.phone.strip()
+        existing_app.country = (data.country or "uae").strip().lower()
+        existing_app.password_hash = user.password_hash
+        existing_app.answers = {
+            "organization_name": data.org_name_latin.strip(),
+            "organization_name_arabic": (data.org_name_arabic or "").strip() or None,
+            "organization_type": (data.org_type or "university").strip().lower(),
+            "city": (data.city or "").strip() or None,
+            "country": (data.country or "uae").strip().lower(),
+            "organization_id": str(org.id),
+            "user_id": str(user.id),
+        }
+    else:
+        app_record = Application(
+            role="organization",
+            status="pending",
+            full_name=data.full_name.strip(),
+            email=email,
+            phone=data.phone.strip(),
+            country=(data.country or "uae").strip().lower(),
+            password_hash=user.password_hash,
+            answers={
+                "organization_name": data.org_name_latin.strip(),
+                "organization_name_arabic": (data.org_name_arabic or "").strip() or None,
+                "organization_type": (data.org_type or "university").strip().lower(),
+                "city": (data.city or "").strip() or None,
+                "country": (data.country or "uae").strip().lower(),
+                "organization_id": str(org.id),
+                "user_id": str(user.id),
+            },
+        )
+        db.add(app_record)
 
     await db.commit()
     await db.refresh(user)

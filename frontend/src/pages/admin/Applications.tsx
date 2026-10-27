@@ -23,6 +23,7 @@ const ROLE_OPTIONS = [
   { value: "intern",     label: "Intern" },
   { value: "teacher",    label: "Teacher" },
   { value: "facilitator", label: "Facilitator" },
+  { value: "organization", label: "Organization" },
 ]
 
 const STATUS_COLOR: Record<string, string> = {
@@ -37,14 +38,14 @@ const ROLE_COLOR: Record<string, string> = {
   intern:     "bg-[#d6c7e1] text-[#643f83]",
   teacher:    "bg-blue-100 text-blue-700 dark:bg-blue-500/20 dark:text-blue-300",
   facilitator:"bg-teal-100 text-teal-700 dark:bg-teal-500/20 dark:text-teal-300",
+  organization:"bg-amber-100 text-amber-800 dark:bg-amber-500/20 dark:text-amber-300",
 }
 
-// Fixed keys the intern apply form writes into `answers` (routers/apply.py) —
-// shown with real labels in the "Internship Letter Details" card below
-// instead of the generic per-question Q&A list, so they don't appear twice
-// (once unlabeled there, once labeled here).
-const INTERNSHIP_ANSWER_KEYS = new Set([
+// Fixed keys written into `answers` that are displayed in dedicated cards
+// instead of the generic per-question Q&A list.
+const RESERVED_ANSWER_KEYS = new Set([
   "university_id_number", "preferred_city_id", "requested_start_date", "requested_duration_weeks",
+  "organization_name", "organization_name_arabic", "organization_type", "city", "country", "organization_id", "user_id",
 ])
 
 type Tab = "applications" | "questions"
@@ -130,7 +131,11 @@ function ApplicationsTab() {
             >
               <div className="min-w-0 flex-1">
                 <div className="flex items-center gap-2 flex-wrap">
-                  <p className="text-sm font-semibold text-foreground">{app.full_name}</p>
+                  <p className="text-sm font-semibold text-foreground">
+                    {app.role === "organization" && app.answers?.organization_name
+                      ? `${app.full_name} · ${String(app.answers.organization_name)}`
+                      : app.full_name}
+                  </p>
                   <span className={`text-[11px] font-semibold px-2 py-0.5 rounded-full ${ROLE_COLOR[app.role] ?? "bg-muted text-foreground"}`}>
                     {app.role}
                   </span>
@@ -238,6 +243,31 @@ function ApplicationDetailDialog({ id, onClose }: { id: string; onClose: () => v
                   </CardContent>
                 </Card>
 
+                {app.role === "organization" && (
+                  <Card>
+                    <CardContent className="p-4 flex flex-col gap-3">
+                      <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Organization Details</p>
+                      <div className="grid grid-cols-2 gap-2 text-sm">
+                        {Boolean(app.answers?.organization_name) && (
+                          <Info label="Organization Name" value={String(app.answers.organization_name)} noCapitalize />
+                        )}
+                        {Boolean(app.answers?.organization_name_arabic) && (
+                          <Info label="Arabic Name" value={String(app.answers.organization_name_arabic)} noCapitalize />
+                        )}
+                        {Boolean(app.answers?.organization_type) && (
+                          <Info label="Organization Type" value={String(app.answers.organization_type)} />
+                        )}
+                        {Boolean(app.answers?.city || app.city) && (
+                          <Info label="City" value={String(app.answers?.city || app.city)} />
+                        )}
+                        {Boolean(app.answers?.country || app.country) && (
+                          <Info label="Country" value={countryName(String(app.answers?.country || app.country))} />
+                        )}
+                      </div>
+                    </CardContent>
+                  </Card>
+                )}
+
                 {app.has_cv && app.cv_signed_url && (
                   <a href={app.cv_signed_url} target="_blank" rel="noreferrer">
                     <Button variant="outline" className="w-full gap-2">
@@ -246,12 +276,12 @@ function ApplicationDetailDialog({ id, onClose }: { id: string; onClose: () => v
                   </a>
                 )}
 
-                {Object.entries(app.answers ?? {}).filter(([qId]) => !INTERNSHIP_ANSWER_KEYS.has(qId)).length > 0 && (
+                {Object.entries(app.answers ?? {}).filter(([qId]) => !RESERVED_ANSWER_KEYS.has(qId)).length > 0 && (
                   <Card>
                     <CardContent className="p-4 flex flex-col gap-3">
                       <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Answers</p>
                       {Object.entries(app.answers)
-                        .filter(([qId]) => !INTERNSHIP_ANSWER_KEYS.has(qId))
+                        .filter(([qId]) => !RESERVED_ANSWER_KEYS.has(qId))
                         .map(([qId, ans]) => (
                           <div key={qId}>
                             <p className="text-xs text-muted-foreground mb-0.5">{qLabel(qId)}</p>
@@ -360,11 +390,11 @@ function ApplicationDetailDialog({ id, onClose }: { id: string; onClose: () => v
   )
 }
 
-function Info({ label, value }: { label: string; value: string }) {
+function Info({ label, value, noCapitalize }: { label: string; value: string; noCapitalize?: boolean }) {
   return (
     <div>
       <p className="text-xs text-muted-foreground">{label}</p>
-      <p className="text-sm font-medium text-foreground capitalize">{value}</p>
+      <p className={`text-sm font-medium text-foreground ${noCapitalize ? "" : "capitalize"}`}>{value}</p>
     </div>
   )
 }

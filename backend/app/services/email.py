@@ -164,6 +164,7 @@ _APPLICATION_ROLE_LABELS = {
     "intern": "Intern",
     "teacher": "Teacher",
     "facilitator": "Facilitator",
+    "organization": "Partner Organization",
 }
 
 
