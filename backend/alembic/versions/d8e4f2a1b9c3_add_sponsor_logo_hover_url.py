@@ -1,7 +1,7 @@
 """add sponsor logo hover url
 
 Revision ID: d8e4f2a1b9c3
-Revises: c7d3e1f9a2b5
+Revises: c7b8a9d0e1f2
 Create Date: 2026-10-27
 
 Adds `logo_hover_url` to the `sponsors` table to support separate white and
@@ -13,7 +13,7 @@ import sqlalchemy as sa
 
 
 revision = 'd8e4f2a1b9c3'
-down_revision = 'c7d3e1f9a2b5'
+down_revision = 'c7b8a9d0e1f2'
 branch_labels = None
 depends_on = None
 
