@@ -953,9 +953,10 @@ function SponsorModal({
   const [logoUrl, setLogoUrl] = useState(sponsor?.logo_url ?? "")
   const [logoHoverUrl, setLogoHoverUrl] = useState(sponsor?.logo_hover_url ?? "")
   const [websiteUrl, setWebsiteUrl] = useState(sponsor?.website_url ?? "")
-  const [tier, setTier] = useState<SponsorTier>((sponsor?.tier as SponsorTier | undefined) ?? "partner")
+  const initialTier = (sponsor?.tier as SponsorTier | undefined) ?? "partner"
+  const [tier, setTier] = useState<SponsorTier>(initialTier)
   const [order, setOrder] = useState(
-    sponsor ? String(sponsor.display_order) : getNextOrder(sponsor?.tier ?? "partner")
+    sponsor ? String(sponsor.display_order) : getNextOrder(initialTier)
   )
   const [active, setActive] = useState(sponsor?.is_active ?? true)
 
