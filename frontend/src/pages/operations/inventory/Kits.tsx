@@ -2,12 +2,15 @@ import { useState } from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import {
   AlertTriangle,
+  Check,
   CheckCircle2,
   Download,
   Eye,
   Layers,
+  Pencil,
   Plus,
   Search,
+  X,
 } from "lucide-react"
 import type { KitListItem, KitStatus } from "@/types/inventory"
 import {
@@ -16,6 +19,7 @@ import {
   getLocationsApi,
   getWarehousesApi,
   getTemplatesApi,
+  updateKitApi,
 } from "@/api/inventory"
 import { Field, Modal, ModalActions, Spinner } from "@/pages/admin/components/common"
 import { KitQrCode, downloadKitQrLabel } from "@/components/ui/KitQrCode"
@@ -46,6 +50,22 @@ export default function Kits() {
   // sees a button that then 403s.
   const { activeRole } = useAuth()
   const canManage = activeRole !== "storekeeper"
+
+  const queryClient = useQueryClient()
+  const [editingKit, setEditingKit] = useState<{ id: string; label: string } | null>(null)
+  const [editError, setEditError] = useState("")
+
+  const renameMutation = useMutation({
+    mutationFn: ({ id, label }: { id: string; label: string }) => updateKitApi({ id, label }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["inv-kits"] })
+      setEditingKit(null)
+      setEditError("")
+    },
+    onError: (err: any) => {
+      setEditError(err?.response?.data?.detail ?? "Could not rename kit")
+    },
+  })
 
   const [locationId, setLocationId] = useState("")
   const [warehouseId, setWarehouseId] = useState("")
@@ -189,9 +209,86 @@ export default function Kits() {
 
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-2 flex-wrap">
-                    <p className="text-base font-bold font-mono text-foreground group-hover:text-primary transition-colors">
-                      {k.label}
-                    </p>
+                    {editingKit?.id === k.id ? (
+                      <form
+                        onSubmit={(e) => {
+                          e.preventDefault()
+                          e.stopPropagation()
+                          const val = editingKit.label.trim()
+                          if (!val) {
+                            setEditError("Name cannot be empty")
+                            return
+                          }
+                          if (val === k.label) {
+                            setEditingKit(null)
+                            return
+                          }
+                          renameMutation.mutate({ id: k.id, label: val })
+                        }}
+                        onClick={(e) => e.stopPropagation()}
+                        className="flex items-center gap-1.5 flex-wrap"
+                      >
+                        <input
+                          autoFocus
+                          value={editingKit.label}
+                          onChange={(e) => {
+                            setEditingKit({ id: k.id, label: e.target.value })
+                            setEditError("")
+                          }}
+                          onKeyDown={(e) => {
+                            if (e.key === "Escape") {
+                              setEditingKit(null)
+                              setEditError("")
+                            }
+                          }}
+                          maxLength={32}
+                          className="h-7 px-2 font-mono text-sm font-bold border border-primary bg-background text-foreground rounded-lg focus:outline-none"
+                        />
+                        <button
+                          type="submit"
+                          disabled={renameMutation.isPending}
+                          title="Save kit name"
+                          className="inline-flex items-center justify-center h-7 px-2 bg-primary text-primary-foreground text-xs font-semibold rounded-lg hover:opacity-90 disabled:opacity-50 cursor-pointer"
+                        >
+                          {renameMutation.isPending ? <Spinner className="w-3 h-3" /> : <Check size={13} />}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setEditingKit(null)
+                            setEditError("")
+                          }}
+                          disabled={renameMutation.isPending}
+                          title="Cancel"
+                          className="inline-flex items-center justify-center h-7 px-2 border border-border text-muted-foreground hover:text-foreground text-xs rounded-lg hover:bg-muted cursor-pointer"
+                        >
+                          <X size={13} />
+                        </button>
+                        {editError && (
+                          <span className="text-xs text-red-600 dark:text-red-400 font-normal">{editError}</span>
+                        )}
+                      </form>
+                    ) : (
+                      <div className="flex items-center gap-1.5">
+                        <p className="text-base font-bold font-mono text-foreground group-hover:text-primary transition-colors">
+                          {k.label}
+                        </p>
+                        {canManage && (
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              setEditingKit({ id: k.id, label: k.label })
+                              setEditError("")
+                            }}
+                            title="Change kit name"
+                            className="text-muted-foreground/60 hover:text-foreground p-1 rounded-md hover:bg-muted transition-colors cursor-pointer"
+                          >
+                            <Pencil size={13} />
+                          </button>
+                        )}
+                      </div>
+                    )}
                     <span className={cn("text-xs font-semibold px-2.5 py-0.5 rounded-full capitalize", STATUS_STYLE[k.status])}>
                       {STATUS_LABEL[k.status]}
                     </span>
@@ -307,8 +404,12 @@ function BulkCreateModal({ onClose }: { onClose: () => void }) {
   const [locationId, setLocationId] = useState("")
   const [warehouseId, setWarehouseId] = useState("")
   const [count, setCount] = useState(1)
+  const [customLabel, setCustomLabel] = useState("")
+  const [customLabelsText, setCustomLabelsText] = useState("")
   const [complete, setComplete] = useState(true)
   const [error, setError] = useState("")
+
+  const selectedTemplate = templates.find((t) => t.id === templateId)
 
   const { data: warehouses = [] } = useQuery({
     queryKey: ["inv-warehouses", locationId],
@@ -328,7 +429,7 @@ function BulkCreateModal({ onClose }: { onClose: () => void }) {
   return (
     <Modal title="Add kits" onClose={onClose} maxWidth="sm:max-w-xl max-w-xl">
       <p className="text-xs text-muted-foreground -mt-1">
-        Labels continue from the highest existing number for that template, so this is safe to run again.
+        Labels can be custom named or will auto-increment from the highest existing number.
       </p>
       <Field label="Kit type">
         <select
@@ -368,6 +469,42 @@ function BulkCreateModal({ onClose }: { onClose: () => void }) {
           className="w-full h-10 px-3 border border-border bg-background text-foreground rounded-xl text-sm"
         />
       </Field>
+
+      {count === 1 ? (
+        <Field label="Kit name / label (optional)">
+          <input
+            type="text"
+            maxLength={32}
+            value={customLabel}
+            onChange={(e) => {
+              setCustomLabel(e.target.value)
+              setError("")
+            }}
+            placeholder={selectedTemplate ? `e.g. SP-${selectedTemplate.code}-0001 (leave blank to auto-number)` : "Leave blank to auto-number"}
+            className="w-full h-10 px-3 border border-border bg-background text-foreground rounded-xl text-sm font-mono focus:outline-none focus:border-primary"
+          />
+          <p className="text-[11px] text-muted-foreground mt-1">
+            Already have a physical label on this box? Enter it here, or leave blank to auto-number.
+          </p>
+        </Field>
+      ) : (
+        <Field label="Custom kit labels (optional)">
+          <textarea
+            rows={3}
+            value={customLabelsText}
+            onChange={(e) => {
+              setCustomLabelsText(e.target.value)
+              setError("")
+            }}
+            placeholder="Leave blank to auto-number, or enter custom labels (one per line or comma-separated)"
+            className="w-full p-2.5 border border-border bg-background text-foreground rounded-xl text-sm font-mono resize-none focus:outline-none focus:border-primary"
+          />
+          <p className="text-[11px] text-muted-foreground mt-1">
+            Leave blank to auto-generate from highest number. If providing custom labels, enter {count} label{count === 1 ? "" : "s"}.
+          </p>
+        </Field>
+      )}
+
       <label className="flex items-start gap-2 cursor-pointer">
         <input
           type="checkbox" checked={complete}
@@ -388,7 +525,20 @@ function BulkCreateModal({ onClose }: { onClose: () => void }) {
         onCancel={onClose}
         onConfirm={() => {
           setError("")
-          mutation.mutate({ template_id: templateId, warehouse_id: warehouseId, count, complete })
+          let labels: string[] | undefined = undefined
+          if (count === 1) {
+            if (customLabel.trim()) {
+              labels = [customLabel.trim()]
+            }
+          } else if (customLabelsText.trim()) {
+            const parsed = customLabelsText.split(/[\n,]+/).map((s) => s.trim()).filter(Boolean)
+            if (parsed.length !== count) {
+              setError(`You requested ${count} kits, but provided ${parsed.length} custom label${parsed.length === 1 ? "" : "s"}.`)
+              return
+            }
+            labels = parsed
+          }
+          mutation.mutate({ template_id: templateId, warehouse_id: warehouseId, count, complete, labels })
         }}
         loading={mutation.isPending}
         disabled={!templateId || !warehouseId}

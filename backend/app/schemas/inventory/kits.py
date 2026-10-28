@@ -4,7 +4,7 @@ import uuid
 from datetime import date, datetime
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 KitStatus = Literal["working", "damaged", "retired", "lost"]
 MovementReason = Literal[
@@ -30,7 +30,7 @@ class KitBulkCreate(BaseModel):
 
     The first-day path: without it, entering an existing fleet means N × a
     28-field form, which stalls halfway. Labels are generated from the
-    template code and the highest existing number.
+    template code and the highest existing number, or taken from `labels` if supplied.
     """
 
     template_id: uuid.UUID
@@ -40,12 +40,25 @@ class KitBulkCreate(BaseModel):
         default=True,
         description="Fill each kit to its template quantities. False creates them empty.",
     )
+    labels: list[str] | None = Field(
+        default=None,
+        description="Optional list of custom labels. If omitted, labels continue from highest auto-increment number.",
+    )
 
 
 class KitUpdate(BaseModel):
     label: str | None = Field(default=None, min_length=1, max_length=32)
     status: KitStatus | None = None
     notes: str | None = None
+
+    @field_validator("label")
+    @classmethod
+    def clean_label(cls, v: str | None) -> str | None:
+        if v is not None:
+            v = v.strip()
+            if not v:
+                raise ValueError("Kit label cannot be empty")
+        return v
 
 
 class KitShortageOut(BaseModel):

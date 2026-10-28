@@ -4,9 +4,12 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import {
   AlertTriangle,
   Building2,
+  Check,
   CheckCircle2,
   ExternalLink,
+  Pencil,
   UserPlus,
+  X,
 } from "lucide-react"
 import type { KitStatus } from "@/types/inventory"
 import {
@@ -49,6 +52,22 @@ export function KitModal({ kitId, onClose }: KitModalProps) {
   const canManage = activeRole !== "storekeeper"
   const [moveAction, setMoveAction] = useState<"warehouse" | "person" | null>(null)
   const [selectedLocationId, setSelectedLocationId] = useState<string | null>(null)
+  const [isEditingLabel, setIsEditingLabel] = useState(false)
+  const [labelValue, setLabelValue] = useState("")
+  const [labelError, setLabelError] = useState("")
+
+  const renameMutation = useMutation({
+    mutationFn: (newLabel: string) => updateKitApi({ id: kitId, label: newLabel }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["inv-kit", kitId] })
+      queryClient.invalidateQueries({ queryKey: ["inv-kits"] })
+      setIsEditingLabel(false)
+      setLabelError("")
+    },
+    onError: (err: any) => {
+      setLabelError(err?.response?.data?.detail ?? "Could not rename kit")
+    },
+  })
 
   const { data: kit, isLoading } = useQuery({
     queryKey: ["inv-kit", kitId],
@@ -86,7 +105,82 @@ export function KitModal({ kitId, onClose }: KitModalProps) {
           <div className="flex items-center justify-between gap-3 border-b border-border pb-4">
             <div>
               <div className="flex items-center gap-2 flex-wrap">
-                <h2 className="text-xl font-bold font-mono text-foreground">{kit.label}</h2>
+                {isEditingLabel ? (
+                  <form
+                    onSubmit={(e) => {
+                      e.preventDefault()
+                      const clean = labelValue.trim()
+                      if (!clean) {
+                        setLabelError("Kit name cannot be empty")
+                        return
+                      }
+                      if (clean === kit.label) {
+                        setIsEditingLabel(false)
+                        return
+                      }
+                      renameMutation.mutate(clean)
+                    }}
+                    className="flex items-center gap-1.5 flex-wrap"
+                  >
+                    <input
+                      autoFocus
+                      value={labelValue}
+                      onChange={(e) => {
+                        setLabelValue(e.target.value)
+                        setLabelError("")
+                      }}
+                      onKeyDown={(e) => {
+                        if (e.key === "Escape") {
+                          setIsEditingLabel(false)
+                          setLabelError("")
+                        }
+                      }}
+                      maxLength={32}
+                      className="h-8 px-2.5 font-mono text-base font-bold border border-primary bg-background text-foreground rounded-xl focus:outline-none"
+                    />
+                    <button
+                      type="submit"
+                      disabled={renameMutation.isPending}
+                      title="Save kit name"
+                      className="inline-flex items-center justify-center h-8 px-2.5 bg-primary text-primary-foreground text-xs font-semibold rounded-xl hover:opacity-90 disabled:opacity-50 cursor-pointer"
+                    >
+                      {renameMutation.isPending ? <Spinner className="w-3 h-3" /> : <Check size={14} />}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIsEditingLabel(false)
+                        setLabelError("")
+                      }}
+                      disabled={renameMutation.isPending}
+                      title="Cancel"
+                      className="inline-flex items-center justify-center h-8 px-2.5 border border-border text-muted-foreground hover:text-foreground text-xs rounded-xl hover:bg-muted cursor-pointer"
+                    >
+                      <X size={14} />
+                    </button>
+                    {labelError && (
+                      <span className="text-xs text-red-600 dark:text-red-400 font-normal">{labelError}</span>
+                    )}
+                  </form>
+                ) : (
+                  <div className="flex items-center gap-1.5">
+                    <h2 className="text-xl font-bold font-mono text-foreground">{kit.label}</h2>
+                    {canManage && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setIsEditingLabel(true)
+                          setLabelValue(kit.label)
+                          setLabelError("")
+                        }}
+                        title="Change kit name"
+                        className="text-muted-foreground/60 hover:text-foreground p-1 rounded-md hover:bg-muted transition-colors cursor-pointer"
+                      >
+                        <Pencil size={14} />
+                      </button>
+                    )}
+                  </div>
+                )}
                 <span className="text-xs font-mono font-semibold px-2 py-0.5 rounded-md bg-secondary text-secondary-foreground">
                   {kit.template_code}
                 </span>

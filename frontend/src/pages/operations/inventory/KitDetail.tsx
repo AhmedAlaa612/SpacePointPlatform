@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react"
 import { Link, useParams } from "@tanstack/react-router"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { AlertTriangle, ArrowLeft, Building2, CheckCircle2, ClipboardList, ExternalLink, UserPlus } from "lucide-react"
+import { AlertTriangle, ArrowLeft, Building2, Check, CheckCircle2, ClipboardList, ExternalLink, Pencil, UserPlus, X } from "lucide-react"
 import type { KitDetail as KitDetailType, KitStatus, Movement } from "@/types/inventory"
 import {
   countKitApi,
@@ -17,6 +17,7 @@ import { Field, Modal, ModalActions, Spinner } from "@/pages/admin/components/co
 import { KitQrCode } from "@/components/ui/KitQrCode"
 import { LocationModal } from "@/pages/operations/inventory/LocationModal"
 import { KitSessionsCalendar } from "@/pages/operations/inventory/KitSessionsCalendar"
+import { useAuth } from "@/context/AuthContext"
 
 
 const STATUSES: KitStatus[] = ["working", "damaged", "retired", "lost"]
@@ -35,9 +36,27 @@ const REASON_LABEL: Record<string, string> = {
 export default function KitDetail() {
   const { kitId } = useParams({ from: "/auth/operations/inventory/kits/$kitId" })
   const queryClient = useQueryClient()
+  const { activeRole } = useAuth()
+  const canManage = activeRole !== "storekeeper"
   const [moveAction, setMoveAction] = useState<"warehouse" | "person" | null>(null)
   const [selectedLocationId, setSelectedLocationId] = useState<string | null>(null)
   const [counting, setCounting] = useState(false)
+  const [isEditingLabel, setIsEditingLabel] = useState(false)
+  const [labelValue, setLabelValue] = useState("")
+  const [labelError, setLabelError] = useState("")
+
+  const renameMutation = useMutation({
+    mutationFn: (newLabel: string) => updateKitApi({ id: kitId, label: newLabel }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["inv-kit", kitId] })
+      queryClient.invalidateQueries({ queryKey: ["inv-kits"] })
+      setIsEditingLabel(false)
+      setLabelError("")
+    },
+    onError: (err: any) => {
+      setLabelError(err?.response?.data?.detail ?? "Could not rename kit")
+    },
+  })
 
   const { data: kit, isLoading } = useQuery({ queryKey: ["inv-kit", kitId], queryFn: () => getKitApi(kitId) })
   const { data: history = [] } = useQuery({ queryKey: ["inv-kit-history", kitId], queryFn: () => getKitHistoryApi(kitId) })
@@ -77,7 +96,82 @@ export default function KitDetail() {
           <div className="flex flex-col gap-2 min-w-0 flex-1">
             <div>
               <div className="flex items-center gap-2 flex-wrap">
-                <h1 className="text-2xl font-bold text-foreground tracking-tight font-mono">{kit.label}</h1>
+                {isEditingLabel ? (
+                  <form
+                    onSubmit={(e) => {
+                      e.preventDefault()
+                      const clean = labelValue.trim()
+                      if (!clean) {
+                        setLabelError("Kit name cannot be empty")
+                        return
+                      }
+                      if (clean === kit.label) {
+                        setIsEditingLabel(false)
+                        return
+                      }
+                      renameMutation.mutate(clean)
+                    }}
+                    className="flex items-center gap-1.5 flex-wrap"
+                  >
+                    <input
+                      autoFocus
+                      value={labelValue}
+                      onChange={(e) => {
+                        setLabelValue(e.target.value)
+                        setLabelError("")
+                      }}
+                      onKeyDown={(e) => {
+                        if (e.key === "Escape") {
+                          setIsEditingLabel(false)
+                          setLabelError("")
+                        }
+                      }}
+                      maxLength={32}
+                      className="h-9 px-2.5 font-mono text-xl font-bold border border-primary bg-background text-foreground rounded-xl focus:outline-none"
+                    />
+                    <button
+                      type="submit"
+                      disabled={renameMutation.isPending}
+                      title="Save kit name"
+                      className="inline-flex items-center justify-center h-9 px-3 bg-primary text-primary-foreground text-xs font-semibold rounded-xl hover:opacity-90 disabled:opacity-50 cursor-pointer"
+                    >
+                      {renameMutation.isPending ? <Spinner className="w-3.5 h-3.5" /> : <Check size={15} />}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIsEditingLabel(false)
+                        setLabelError("")
+                      }}
+                      disabled={renameMutation.isPending}
+                      title="Cancel"
+                      className="inline-flex items-center justify-center h-9 px-2.5 border border-border text-muted-foreground hover:text-foreground text-xs rounded-xl hover:bg-muted cursor-pointer"
+                    >
+                      <X size={15} />
+                    </button>
+                    {labelError && (
+                      <span className="text-xs text-red-600 dark:text-red-400 font-normal">{labelError}</span>
+                    )}
+                  </form>
+                ) : (
+                  <div className="flex items-center gap-1.5">
+                    <h1 className="text-2xl font-bold text-foreground tracking-tight font-mono">{kit.label}</h1>
+                    {canManage && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setIsEditingLabel(true)
+                          setLabelValue(kit.label)
+                          setLabelError("")
+                        }}
+                        title="Change kit name"
+                        className="text-muted-foreground/60 hover:text-foreground p-1 rounded-md hover:bg-muted transition-colors cursor-pointer"
+                      >
+                        <Pencil size={15} />
+                      </button>
+                    )}
+                  </div>
+                )}
                 <span className="text-xs font-semibold px-2.5 py-0.5 rounded-full bg-secondary text-secondary-foreground font-mono">
                   {kit.template_code}
                 </span>

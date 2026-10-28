@@ -212,6 +212,29 @@ async def bulk_create_kits(
     if warehouse is None:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="Unknown warehouse")
 
+    custom_labels: list[str] = []
+    if body.labels:
+        for raw in body.labels:
+            clean = raw.strip() if isinstance(raw, str) else ""
+            if not clean:
+                continue
+            if len(clean) > 32:
+                raise HTTPException(status.HTTP_400_BAD_REQUEST, detail=f"Kit label '{clean}' exceeds 32 characters")
+            custom_labels.append(clean)
+
+        if custom_labels:
+            if len(custom_labels) != len(set(custom_labels)):
+                raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="Duplicate kit labels in request")
+
+            clash = (await db.execute(
+                select(Kit.label).where(Kit.label.in_(custom_labels))
+            )).scalars().all()
+            if clash:
+                raise HTTPException(
+                    status.HTTP_409_CONFLICT,
+                    detail=f"Kit label already exists: {', '.join(clash)}",
+                )
+
     prefix = f"SP-{template.code}-"
     existing = (await db.execute(
         select(Kit.label).where(Kit.label.like(f"{prefix}%"))
@@ -227,12 +250,14 @@ async def bulk_create_kits(
         .where(KitTemplateItem.template_id == body.template_id)
     )).all() if body.complete else []
 
+    total_count = len(custom_labels) if custom_labels else body.count
     created: list[Kit] = []
-    for offset in range(1, body.count + 1):
+    for offset in range(1, total_count + 1):
+        kit_label = custom_labels[offset - 1] if custom_labels else f"{prefix}{highest + offset:04d}"
         kit = Kit(
             id=uuid.uuid4(),
             template_id=body.template_id,
-            label=f"{prefix}{highest + offset:04d}",
+            label=kit_label,
             public_token=_token(),
             current_location_id=warehouse.location_id,
             current_warehouse_id=warehouse.id,
@@ -313,10 +338,12 @@ async def update_kit(
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Kit not found")
 
     changes = body.model_dump(exclude_unset=True)
-    if "label" in changes and changes["label"] != kit.label:
-        clash = (await db.execute(select(Kit.id).where(Kit.label == changes["label"]))).first()
-        if clash:
-            raise HTTPException(status.HTTP_409_CONFLICT, detail="A kit with this label already exists")
+    if "label" in changes and changes["label"]:
+        changes["label"] = changes["label"].strip()
+        if changes["label"] != kit.label:
+            clash = (await db.execute(select(Kit.id).where(Kit.label == changes["label"]))).first()
+            if clash:
+                raise HTTPException(status.HTTP_409_CONFLICT, detail="A kit with this label already exists")
 
     for field, value in changes.items():
         setattr(kit, field, value)

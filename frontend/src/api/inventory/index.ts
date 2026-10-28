@@ -212,6 +212,8 @@ export const createKitApi = (body: {
   template_id: string
   label: string
   current_warehouse_id: string
+  notes?: string | null
+  complete?: boolean
 }) => api.post<KitDetail>("/inventory/kits", body).then((r) => r.data)
 
 export const bulkCreateKitsApi = (body: {
@@ -219,6 +221,7 @@ export const bulkCreateKitsApi = (body: {
   warehouse_id: string
   count: number
   complete: boolean
+  labels?: string[]
 }) => api.post<KitListItem[]>("/inventory/kits/bulk", body).then((r) => r.data)
 
 export const updateKitApi = ({ id, ...body }: {
