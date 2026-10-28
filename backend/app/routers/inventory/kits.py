@@ -196,7 +196,7 @@ async def create_kit(
 async def bulk_create_kits(
     body: KitBulkCreate,
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(require_inventory_manage),
+    current_user: User = Depends(require_inventory_manage),
 ):
     """Create N kits of one template in one warehouse.
 
@@ -223,6 +223,12 @@ async def bulk_create_kits(
             custom_labels.append(clean)
 
         if custom_labels:
+            if "admin" not in current_user.role_values:
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="Only administrators can set custom kit names",
+                )
+
             if len(custom_labels) != len(set(custom_labels)):
                 raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="Duplicate kit labels in request")
 
@@ -331,7 +337,7 @@ async def update_kit(
     kit_id: uuid.UUID,
     body: KitUpdate,
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(require_inventory_manage),
+    current_user: User = Depends(require_inventory_manage),
 ):
     kit = await db.get(Kit, kit_id)
     if kit is None:
@@ -341,6 +347,11 @@ async def update_kit(
     if "label" in changes and changes["label"]:
         changes["label"] = changes["label"].strip()
         if changes["label"] != kit.label:
+            if "admin" not in current_user.role_values:
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="Only administrators can rename kits",
+                )
             clash = (await db.execute(select(Kit.id).where(Kit.label == changes["label"]))).first()
             if clash:
                 raise HTTPException(status.HTTP_409_CONFLICT, detail="A kit with this label already exists")
@@ -348,7 +359,7 @@ async def update_kit(
     for field, value in changes.items():
         setattr(kit, field, value)
     await db.commit()
-    return await get_kit(kit_id, db, _)
+    return await get_kit(kit_id, db, current_user)
 
 
 @router.post("/kits/{kit_id}/move", response_model=MovementOut, status_code=status.HTTP_201_CREATED)

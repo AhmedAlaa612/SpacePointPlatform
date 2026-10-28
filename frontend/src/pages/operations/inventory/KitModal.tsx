@@ -48,7 +48,7 @@ interface KitModalProps {
 
 export function KitModal({ kitId, onClose }: KitModalProps) {
   const queryClient = useQueryClient()
-  const { activeRole } = useAuth()
+  const { activeRole, isAdmin } = useAuth()
   const canManage = activeRole !== "storekeeper"
   const [moveAction, setMoveAction] = useState<"warehouse" | "person" | null>(null)
   const [selectedLocationId, setSelectedLocationId] = useState<string | null>(null)
@@ -165,7 +165,7 @@ export function KitModal({ kitId, onClose }: KitModalProps) {
                 ) : (
                   <div className="flex items-center gap-1.5">
                     <h2 className="text-xl font-bold font-mono text-foreground">{kit.label}</h2>
-                    {canManage && (
+                    {isAdmin && (
                       <button
                         type="button"
                         onClick={() => {

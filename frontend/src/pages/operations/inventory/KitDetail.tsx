@@ -36,8 +36,7 @@ const REASON_LABEL: Record<string, string> = {
 export default function KitDetail() {
   const { kitId } = useParams({ from: "/auth/operations/inventory/kits/$kitId" })
   const queryClient = useQueryClient()
-  const { activeRole } = useAuth()
-  const canManage = activeRole !== "storekeeper"
+  const { isAdmin } = useAuth()
   const [moveAction, setMoveAction] = useState<"warehouse" | "person" | null>(null)
   const [selectedLocationId, setSelectedLocationId] = useState<string | null>(null)
   const [counting, setCounting] = useState(false)
@@ -156,7 +155,7 @@ export default function KitDetail() {
                 ) : (
                   <div className="flex items-center gap-1.5">
                     <h1 className="text-2xl font-bold text-foreground tracking-tight font-mono">{kit.label}</h1>
-                    {canManage && (
+                    {isAdmin && (
                       <button
                         type="button"
                         onClick={() => {

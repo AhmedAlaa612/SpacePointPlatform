@@ -48,7 +48,7 @@ export default function Kits() {
   // control this page and KitModal render for a write is gated the same way,
   // so a storekeeper who can reach this page (it's in their nav now) never
   // sees a button that then 403s.
-  const { activeRole } = useAuth()
+  const { activeRole, isAdmin } = useAuth()
   const canManage = activeRole !== "storekeeper"
 
   const queryClient = useQueryClient()
@@ -273,7 +273,7 @@ export default function Kits() {
                         <p className="text-base font-bold font-mono text-foreground group-hover:text-primary transition-colors">
                           {k.label}
                         </p>
-                        {canManage && (
+                        {isAdmin && (
                           <button
                             type="button"
                             onClick={(e) => {
@@ -396,6 +396,7 @@ export default function Kits() {
 
 /** The first-day path: enter a whole shelf at once rather than one form per box. */
 function BulkCreateModal({ onClose }: { onClose: () => void }) {
+  const { isAdmin } = useAuth()
   const queryClient = useQueryClient()
   const { data: templates = [] } = useQuery({ queryKey: ["inv-templates"], queryFn: getTemplatesApi })
   const { data: locations = [] } = useQuery({ queryKey: ["inv-locations"], queryFn: () => getLocationsApi() })
@@ -429,7 +430,9 @@ function BulkCreateModal({ onClose }: { onClose: () => void }) {
   return (
     <Modal title="Add kits" onClose={onClose} maxWidth="sm:max-w-xl max-w-xl">
       <p className="text-xs text-muted-foreground -mt-1">
-        Labels can be custom named or will auto-increment from the highest existing number.
+        {isAdmin
+          ? "Labels can be custom named or will auto-increment from the highest existing number."
+          : "Labels continue from the highest existing number for that template, so this is safe to run again."}
       </p>
       <Field label="Kit type">
         <select
@@ -470,7 +473,7 @@ function BulkCreateModal({ onClose }: { onClose: () => void }) {
         />
       </Field>
 
-      {count === 1 ? (
+      {isAdmin && (count === 1 ? (
         <Field label="Kit name / label (optional)">
           <input
             type="text"
@@ -503,7 +506,7 @@ function BulkCreateModal({ onClose }: { onClose: () => void }) {
             Leave blank to auto-generate from highest number. If providing custom labels, enter {count} label{count === 1 ? "" : "s"}.
           </p>
         </Field>
-      )}
+      ))}
 
       <label className="flex items-start gap-2 cursor-pointer">
         <input
@@ -526,17 +529,19 @@ function BulkCreateModal({ onClose }: { onClose: () => void }) {
         onConfirm={() => {
           setError("")
           let labels: string[] | undefined = undefined
-          if (count === 1) {
-            if (customLabel.trim()) {
-              labels = [customLabel.trim()]
+          if (isAdmin) {
+            if (count === 1) {
+              if (customLabel.trim()) {
+                labels = [customLabel.trim()]
+              }
+            } else if (customLabelsText.trim()) {
+              const parsed = customLabelsText.split(/[\n,]+/).map((s) => s.trim()).filter(Boolean)
+              if (parsed.length !== count) {
+                setError(`You requested ${count} kits, but provided ${parsed.length} custom label${parsed.length === 1 ? "" : "s"}.`)
+                return
+              }
+              labels = parsed
             }
-          } else if (customLabelsText.trim()) {
-            const parsed = customLabelsText.split(/[\n,]+/).map((s) => s.trim()).filter(Boolean)
-            if (parsed.length !== count) {
-              setError(`You requested ${count} kits, but provided ${parsed.length} custom label${parsed.length === 1 ? "" : "s"}.`)
-              return
-            }
-            labels = parsed
           }
           mutation.mutate({ template_id: templateId, warehouse_id: warehouseId, count, complete, labels })
         }}
