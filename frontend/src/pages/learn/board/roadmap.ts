@@ -3,6 +3,7 @@ import {
   ClipboardCheck, ClipboardList, Users, Gamepad2, type LucideIcon,
 } from "lucide-react";
 import type { LmsProgramChecklistItem } from "@/api/lms";
+import type { CheckpointTimingWindowInfo, SubmissionWindowItem } from "@/api/competitions";
 
 /** Pure helpers shared by every board surface (RoadmapBoard, TaskTile,
  * NextTaskCard, FinalGateBar, TraceLayer, TaskDrawer) — one place that
@@ -31,6 +32,10 @@ export interface BoardTile {
   accent?: "checkpoint";
   /** Explains why this tile is locked and what to complete to unlock it. */
   lockHint?: string;
+  timingWindow?: {
+    activeWindow: (SubmissionWindowItem & { seconds_remaining: number; is_active: boolean }) | null;
+    isDeadlinePassed?: boolean;
+  };
 }
 
 export function itemDone(item: LmsProgramChecklistItem): boolean {
@@ -138,13 +143,23 @@ export function tileMeta(item: LmsProgramChecklistItem): string | null {
 
 /** One checklist item, reduced to what `TileField`/`TaskTile`/`TraceLayer`
  * actually need. */
-export function checklistItemToTile(item: LmsProgramChecklistItem, allItems?: LmsProgramChecklistItem[]): BoardTile {
+export function checklistItemToTile(
+  item: LmsProgramChecklistItem,
+  allItems?: LmsProgramChecklistItem[],
+  checkpointTiming?: CheckpointTimingWindowInfo,
+): BoardTile {
   const isLocked = item.locked && item.status !== "done";
   return {
     id: item.id, title: item.title, state: tileState(item), icon: iconForItem(item),
     optional: item.optional, meta: tileMeta(item),
     lockHint: isLocked && allItems ? unlockReasonForItem(allItems, item) : undefined,
     ...(item.item_type === "checkpoint" ? { accent: "checkpoint" as const } : {}),
+    timingWindow: checkpointTiming
+      ? {
+          activeWindow: checkpointTiming.active_window,
+          isDeadlinePassed: checkpointTiming.is_deadline_passed,
+        }
+      : undefined,
   };
 }
 

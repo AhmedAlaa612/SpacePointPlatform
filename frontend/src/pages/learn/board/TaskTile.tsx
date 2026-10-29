@@ -1,5 +1,8 @@
+import { useEffect, useState } from "react";
+import { Clock } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { actionLineText, type BoardTile, type TileState } from "./roadmap";
+import { formatCountdown } from "./FinalGateBar";
 
 const RING_GLOW: Record<TileState, string> = {
   cleared: "inset 0 0 0 1.5px var(--board-cleared-ring), 0 0 22px var(--board-cleared-glow)",
@@ -40,6 +43,32 @@ export function TaskTile({
   // gate reads as a milestone, not a plain task. Only the reachable one
   // glows — locked/cleared gates keep their own state styling.
   const isGate = tile.accent === "checkpoint" && state === "live";
+  const isCheckpoint = tile.accent === "checkpoint";
+
+  const activeWindow = tile.timingWindow?.activeWindow;
+  const isDeadlinePassed = !!tile.timingWindow?.isDeadlinePassed;
+
+  const [secondsLeft, setSecondsLeft] = useState<number>(() => {
+    if (activeWindow?.cutoff_at) {
+      const ms = new Date(activeWindow.cutoff_at).getTime() - Date.now();
+      return Math.max(0, Math.floor(ms / 1000));
+    }
+    return Math.max(0, activeWindow?.seconds_remaining ?? 0);
+  });
+
+  useEffect(() => {
+    if (!activeWindow?.cutoff_at) {
+      setSecondsLeft(0);
+      return;
+    }
+    const cutoffMs = new Date(activeWindow.cutoff_at).getTime();
+    const update = () => {
+      setSecondsLeft(Math.max(0, Math.floor((cutoffMs - Date.now()) / 1000)));
+    };
+    update();
+    const interval = setInterval(update, 1000);
+    return () => clearInterval(interval);
+  }, [activeWindow?.cutoff_at, activeWindow?.seconds_remaining]);
 
   return (
     <div
@@ -70,6 +99,18 @@ export function TaskTile({
               Optional
             </span>
           )}
+          {activeWindow && state !== "cleared" && !isDeadlinePassed && activeWindow.points !== 0 && (
+            <span
+              className={cn(
+                "rounded-full px-1.5 py-0.5 text-[8px] font-mono font-bold border",
+                activeWindow.points > 0
+                  ? "bg-emerald-500/15 text-emerald-400 border-emerald-500/30"
+                  : "bg-rose-500/15 text-rose-400 border-rose-500/30"
+              )}
+            >
+              {activeWindow.points > 0 ? `+${activeWindow.points}` : activeWindow.points}
+            </span>
+          )}
           <div
             className={cn(
               "flex h-[22px] w-[22px] shrink-0 items-center justify-center rounded-full font-display text-[11px] font-bold",
@@ -88,13 +129,59 @@ export function TaskTile({
         {tile.title}
       </div>
 
-      {meta && <div className="hidden md:block mt-auto text-[10px] text-muted-foreground truncate">{meta}</div>}
+      {/* Checkpoint countdown line on desktop */}
+      {isCheckpoint && state !== "cleared" && (
+        isDeadlinePassed ? (
+          <div className="hidden md:flex mt-auto text-[10px] font-bold text-rose-400 truncate">
+            Deadline passed
+          </div>
+        ) : activeWindow && secondsLeft > 0 ? (
+          <div className="hidden md:flex items-center gap-1 mt-auto text-[10px] font-mono font-bold text-primary truncate">
+            <Clock size={10} className="shrink-0 text-primary" />
+            <span className="truncate">{formatCountdown(secondsLeft)}</span>
+          </div>
+        ) : null
+      )}
 
+      {meta && !(isCheckpoint && (activeWindow || isDeadlinePassed)) && (
+        <div className="hidden md:block mt-auto text-[10px] text-muted-foreground truncate">{meta}</div>
+      )}
+
+      {/* Desktop action line */}
       <div
-        className={cn("mt-auto md:mt-1.5 text-[10px] font-bold tracking-[0.03em]", state === "locked" && "flex items-center gap-1")}
+        className={cn(
+          "hidden md:block text-[10px] font-bold tracking-[0.03em]",
+          isCheckpoint && state !== "cleared" && (activeWindow || isDeadlinePassed) ? "mt-0.5" : "mt-auto md:mt-1.5",
+          state === "locked" && "flex items-center gap-1"
+        )}
         style={{ color: INK[state] }}
       >
         {isGate ? "Review gate →" : actionLineText(state)}
+      </div>
+
+      {/* Mobile action line / countdown */}
+      <div className="md:hidden mt-auto">
+        {isCheckpoint && state !== "cleared" && isDeadlinePassed ? (
+          <div className="flex items-center justify-between text-[10px] font-bold">
+            <span className="text-rose-400">Deadline passed</span>
+            <span style={{ color: INK[state] }}>Review →</span>
+          </div>
+        ) : isCheckpoint && state !== "cleared" && activeWindow && secondsLeft > 0 ? (
+          <div className="flex items-center justify-between text-[10px] font-bold">
+            <span className="font-mono text-primary flex items-center gap-1 truncate max-w-[125px]">
+              <Clock size={10} className="shrink-0" />
+              <span className="truncate">{formatCountdown(secondsLeft)}</span>
+            </span>
+            <span className="shrink-0" style={{ color: INK[state] }}>Review →</span>
+          </div>
+        ) : (
+          <div
+            className={cn("text-[10px] font-bold tracking-[0.03em]", state === "locked" && "flex items-center gap-1")}
+            style={{ color: INK[state] }}
+          >
+            {isGate ? "Review gate →" : actionLineText(state)}
+          </div>
+        )}
       </div>
     </div>
   );

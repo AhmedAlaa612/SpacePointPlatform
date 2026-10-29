@@ -15,6 +15,7 @@ import { CheckpointDrawer } from "./CheckpointDrawer";
 import { StudentTeamResultCard } from "@/components/competitions/StudentTeamResultCard";
 import { ObserverTeamModal } from "@/components/lms/ObserverTeamModal";
 import { LockedTaskModal } from "./LockedTaskModal";
+import { getCohortTimingWindowStudentApi } from "@/api/competitions";
 import {
   checklistItemToTile, computeLiveTaskId, groupByCheckpoint, readBoardScrollPosition,
 } from "./roadmap";
@@ -50,6 +51,13 @@ export default function RoadmapBoard() {
     refetchOnMount: "always",
     refetchOnWindowFocus: "always",
     staleTime: 5_000,
+  });
+
+  const { data: timingData } = useQuery({
+    queryKey: ["competitions-timing-student", checklist?.cohort_id],
+    queryFn: () => getCohortTimingWindowStudentApi(checklist!.cohort_id!),
+    enabled: !!checklist?.cohort_id,
+    refetchInterval: 30_000,
   });
 
   const invalidate = () => queryClient.invalidateQueries({ queryKey: ["lms-checklist", assignmentId] });
@@ -283,7 +291,7 @@ export default function RoadmapBoard() {
 
           {items.length > 0 && (
             <TileField
-              items={items.map((i) => checklistItemToTile(i, items))}
+              items={items.map((i) => checklistItemToTile(i, items, timingData?.checkpoints?.[i.id]))}
               liveTaskId={liveTaskId}
               onOpenItem={(tile) => {
                 const clicked = items.find((i) => i.id === tile.id);
