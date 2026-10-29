@@ -125,5 +125,6 @@ async def test_the_emailed_token_actually_sets_the_new_password_via_set_password
 def test_send_set_password_email_formats_validity_copy_for_arbitrary_windows():
     assert ops_integration._format_validity(timedelta(hours=24)) == "1 day"
     assert ops_integration._format_validity(timedelta(days=3)) == "3 days"
+    assert ops_integration._format_validity(timedelta(days=7)) == "7 days"
     assert ops_integration._format_validity(timedelta(hours=1)) == "1 hour"
     assert ops_integration._format_validity(timedelta(hours=6)) == "6 hours"

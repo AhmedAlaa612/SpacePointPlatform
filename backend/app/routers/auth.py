@@ -986,8 +986,8 @@ async def set_password(
     """LM1-7 — the ops-created-account invite link (§8 Q5). Token-authenticated
     (core/security.py's create_password_set_token), not a logged-in-user action
     — the whole point is the student doesn't have a working password yet. The
-    link's lifetime is the sender's call, not this endpoint's: 3 days for the
-    student/judge email and the bulk intern import, 24h for bulk instructors."""
+    link's lifetime is the sender's call, not this endpoint's: 7 days for the
+    student/judge email, 3 days for the bulk intern import, 24h for bulk instructors."""
     try:
         user_id = decode_password_set_token(data.token)
     except JWTError:

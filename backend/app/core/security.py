@@ -86,7 +86,7 @@ def create_password_set_token(user_id: Any, expires_delta: timedelta | None = No
     accounts (must_change_password=True). Defaults to 24h — long enough for
     someone to open an email later the same day without leaving a permanent
     credential lying around in an inbox. Senders whose audience reads mail
-    less promptly pass a longer `expires_delta` (students and interns get 3
+    less promptly pass a longer `expires_delta` (students get 7 days, interns get 3
     days); whatever they pick has to match what their email copy claims."""
     payload = {
         "sub": str(user_id),

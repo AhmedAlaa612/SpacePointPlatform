@@ -137,12 +137,11 @@ async def get_or_create_student_account(db: AsyncSession, contact_id: uuid.UUID)
 
 # Students open these later than staff do — a link that dies overnight strands
 # whoever read the email the next evening, and re-inviting is a manual ops step.
-# 3 days matches the bulk intern import (scripts/bulk_import_interns.py) for the
-# same reason; the token stays stateless, so this is also how long a leaked link
-# stays usable. Callers that want a different window (e.g. the self-service
-# "Forgot password?" flow, which is a 24h link — /auth/forgot-password) pass
-# their own `expires_delta`.
-_LINK_VALIDITY = timedelta(days=3)
+# 7 days for the set-password invite link so newly onboarded LMS users have ample time;
+# the token stays stateless, so this is also how long a leaked link stays usable.
+# Callers that want a different window (e.g. the self-service "Forgot password?"
+# flow, which is a 24h link — /auth/forgot-password) pass their own `expires_delta`.
+_LINK_VALIDITY = timedelta(days=7)
 
 
 def _format_validity(delta: timedelta) -> str:
@@ -228,7 +227,7 @@ async def send_set_password_email(
     Only meaningful on `purpose="welcome"` — a reset has no registration
     event to announce, `_AUDIENCE_COPY[audience]["reset"]` is used as-is.
 
-    `expires_delta` defaults to `_LINK_VALIDITY` (3 days) — the self-service
+    `expires_delta` defaults to `_LINK_VALIDITY` (7 days) — the self-service
     "Forgot password?" flow (routers/auth.py::forgot_password) passes 24
     hours instead, since that's a link the requester is waiting on right
     now, not a "get to it whenever" invite."""

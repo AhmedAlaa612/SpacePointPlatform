@@ -182,7 +182,7 @@ async def generate_user_password_reset_link(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_admin),
 ):
-    """Generates a direct password-set/reset link for a user account (valid for 72h)."""
+    """Generates a direct password-set/reset link for a user account (valid for 7 days)."""
     from datetime import timedelta
     from app.core.config import settings
     from app.core.security import create_password_set_token
@@ -190,7 +190,7 @@ async def generate_user_password_reset_link(
     target = await db.get(User, id)
     if not target:
         raise HTTPException(status_code=404, detail="User not found")
-    token = create_password_set_token(target.id, expires_delta=timedelta(days=3))
+    token = create_password_set_token(target.id, expires_delta=timedelta(days=7))
     base = (settings.FRONTEND_URL or "http://localhost:5173").rstrip("/")
     return {
         "user_id": str(target.id),
