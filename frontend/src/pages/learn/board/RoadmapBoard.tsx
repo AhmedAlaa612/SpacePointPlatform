@@ -116,7 +116,10 @@ export default function RoadmapBoard() {
   const liveTaskId = computeLiveTaskId(items);
   const liveItem = items.find((i) => i.id === liveTaskId) ?? null;
   const requiredItems = items.filter((i) => !i.optional);
+  const optionalItems = items.filter((i) => i.optional);
   const doneCount = requiredItems.filter((i) => i.status === "done").length;
+  const optionalDoneCount = optionalItems.filter((i) => i.status === "done").length;
+  const totalDoneCount = doneCount + optionalDoneCount;
   const pct = requiredItems.length ? Math.round((100 * doneCount) / requiredItems.length) : 100;
   const groups = groupByCheckpoint(items);
   // "Final Submit" is a team action — only the team's own required
@@ -245,15 +248,33 @@ export default function RoadmapBoard() {
             )}
           </div>
 
-          <div className="flex items-center gap-4">
-            <div className="flex items-baseline gap-1 shrink-0">
-              <span className="font-display text-2xl sm:text-3xl font-extrabold text-foreground">{doneCount}</span>
-              <span className="text-base sm:text-lg font-semibold text-muted-foreground">/{requiredItems.length}</span>
-              <span className="ml-1.5 whitespace-nowrap text-xs text-muted-foreground">steps done</span>
+          <div className="flex flex-col gap-2.5">
+            <div className="flex items-center gap-4">
+              <div className="flex items-baseline gap-1 shrink-0">
+                <span className="font-display text-2xl sm:text-3xl font-extrabold text-foreground">{doneCount}</span>
+                <span className="text-base sm:text-lg font-semibold text-muted-foreground">/{requiredItems.length}</span>
+                <span className="ml-1.5 whitespace-nowrap text-xs text-muted-foreground font-medium">required done</span>
+              </div>
+              <div className="h-px flex-1 bg-border relative">
+                <div className="absolute inset-y-0 left-0 bg-primary transition-[width] duration-300" style={{ width: `${pct}%` }} />
+              </div>
             </div>
-            <div className="h-px flex-1 bg-border relative">
-              <div className="absolute inset-y-0 left-0 bg-primary transition-[width] duration-300" style={{ width: `${pct}%` }} />
-            </div>
+
+            {optionalItems.length > 0 && (
+              <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1 text-xs text-muted-foreground">
+                <span className="inline-flex items-center gap-1 font-medium">
+                  <span className="text-foreground font-semibold">{doneCount}/{requiredItems.length}</span> required
+                </span>
+                <span className="text-border" aria-hidden="true">&bull;</span>
+                <span className="inline-flex items-center gap-1 font-medium">
+                  <span className="text-foreground font-semibold">{optionalDoneCount}/{optionalItems.length}</span> optional
+                </span>
+                <span className="text-border" aria-hidden="true">&bull;</span>
+                <span className="inline-flex items-center gap-1 font-medium">
+                  <span className="text-foreground font-semibold">{totalDoneCount}/{items.length}</span> total
+                </span>
+              </div>
+            )}
           </div>
 
           {checklist?.cohort_id && <StudentTeamResultCard cohortId={checklist.cohort_id} />}
