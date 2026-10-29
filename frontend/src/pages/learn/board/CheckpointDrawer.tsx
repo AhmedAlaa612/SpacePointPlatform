@@ -1,12 +1,14 @@
+import { useEffect, useState } from "react";
 import { isAxiosError } from "axios";
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { CheckCircle2, Circle, Flag, Lock, X } from "lucide-react";
+import { CheckCircle2, Circle, Clock, Flag, Lock, X } from "lucide-react";
 import { lockCheckpointChecklist, type LmsProgramChecklistItem } from "@/api/lms";
 import { getCohortTimingWindowStudentApi } from "@/api/competitions";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { useToast } from "@/components/ui/toast";
 import { cn } from "@/lib/utils";
 import { checkpointSectionItems } from "./roadmap";
+import { formatCountdown } from "./FinalGateBar";
 
 /** Same 2-line pattern FinalGateBar/TaskDrawer duplicate locally. */
 function errorDetail(err: unknown, fallback: string): string {
@@ -43,6 +45,22 @@ export function CheckpointDrawer({
 
   const activeWindow = timingData?.active_window;
   const isDeadlinePassed = !!timingData?.is_deadline_passed;
+
+  const [secondsLeft, setSecondsLeft] = useState<number>(0);
+
+  useEffect(() => {
+    if (!activeWindow?.cutoff_at) {
+      setSecondsLeft(0);
+      return;
+    }
+    const cutoffMs = new Date(activeWindow.cutoff_at).getTime();
+    const update = () => {
+      setSecondsLeft(Math.max(0, Math.floor((cutoffMs - Date.now()) / 1000)));
+    };
+    update();
+    const interval = setInterval(update, 1000);
+    return () => clearInterval(interval);
+  }, [activeWindow?.cutoff_at]);
 
   const lockMutation = useMutation({
     mutationFn: () => lockCheckpointChecklist(assignmentId, item.id),
@@ -82,9 +100,26 @@ export function CheckpointDrawer({
 
           {/* Active Timing Window (if configured) */}
           {activeWindow && !locked && !isDeadlinePassed && (
-            <div className="flex items-center justify-between text-xs py-2 px-3 rounded-xl bg-muted/40 border border-border">
-              <span className="text-muted-foreground font-medium">{activeWindow.name}</span>
-              <span className="font-semibold text-primary">
+            <div className="flex items-center justify-between text-xs py-2.5 px-3.5 rounded-xl bg-muted/40 border border-border">
+              <div className="flex flex-col gap-0.5">
+                <span className="text-foreground font-semibold flex items-center gap-1.5">
+                  <Clock size={13} className="text-primary" />
+                  {activeWindow.name}
+                </span>
+                {secondsLeft > 0 && (
+                  <span className="text-[11px] font-mono text-muted-foreground">
+                    {formatCountdown(secondsLeft)}
+                  </span>
+                )}
+              </div>
+              <span className={cn(
+                "font-bold text-xs px-2.5 py-0.5 rounded-full border",
+                activeWindow.points > 0
+                  ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/30"
+                  : activeWindow.points < 0
+                  ? "bg-rose-500/10 text-rose-400 border-rose-500/30"
+                  : "bg-muted text-muted-foreground border-border"
+              )}>
                 {activeWindow.points > 0 ? `+${activeWindow.points}` : activeWindow.points} pts
               </span>
             </div>
