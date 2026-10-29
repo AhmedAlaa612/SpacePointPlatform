@@ -812,9 +812,17 @@ function DrawerBody({
             {!canSubmit && (isSubmission || isSelfCheck || isTeamSetup) && !done && !awaiting && (
               <p className="text-xs text-muted-foreground text-center">View the guide above first</p>
             )}
+            {item.item_type === "mission_run" && item.scope === "team" && !teamName && (
+              <p className="text-xs text-amber-600 dark:text-amber-500 text-center font-medium">
+                This is a team mission. Join or form a team to unlock it.
+              </p>
+            )}
             {isAutoTracked && (
               <Button
-                disabled={item.item_type === "quiz" && pastDeadline && !done}
+                disabled={
+                  (item.item_type === "quiz" && pastDeadline && !done) ||
+                  (item.item_type === "mission_run" && item.scope === "team" && !teamName)
+                }
                 onClick={() => {
                   if (item.item_type === "mission_run" && !item.mission_attempt_id) {
                     onChanged();
@@ -827,10 +835,14 @@ function DrawerBody({
                 {item.item_type === "quiz" && pastDeadline && !done ? (
                   "Deadline passed"
                 ) : item.item_type === "mission_run" && !item.mission_attempt_id ? (
-                  <>
-                    <Loader2 size={16} className="animate-spin" />
-                    Syncing mission… Click to refresh
-                  </>
+                  item.scope === "team" && !teamName ? (
+                    "Join a team to unlock this mission"
+                  ) : (
+                    <>
+                      <Loader2 size={16} className="animate-spin" />
+                      Syncing mission… Click to refresh
+                    </>
+                  )
                 ) : (
                   workLabel
                 )}

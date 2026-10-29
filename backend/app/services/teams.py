@@ -94,6 +94,9 @@ async def create_team(
     for user_id in members:
         db.add(TeamMember(team_id=team.id, user_id=user_id))
     await db.flush()
+    if team.cohort_id is not None and members:
+        from app.services.lms.program import sync_team_mission_runs
+        await sync_team_mission_runs(db, team=team)
     return team
 
 
@@ -103,6 +106,10 @@ async def join_team(db: AsyncSession, *, team_id: uuid.UUID, user_id: uuid.UUID)
         return
     db.add(TeamMember(team_id=team_id, user_id=user_id))
     await db.flush()
+    team = await db.get(Team, team_id)
+    if team is not None and team.cohort_id is not None:
+        from app.services.lms.program import sync_team_mission_runs
+        await sync_team_mission_runs(db, team=team)
 
 
 async def leave_team(db: AsyncSession, *, team_id: uuid.UUID, user_id: uuid.UUID) -> None:

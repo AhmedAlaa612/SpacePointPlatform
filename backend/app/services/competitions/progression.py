@@ -133,6 +133,8 @@ async def advance_teams(
 
         if to_team is None:
             raise HTTPException(status.HTTP_400_BAD_REQUEST, detail=f"Team '{team.name}' has no members to advance")
+        from app.services.lms.program import sync_team_mission_runs
+        await sync_team_mission_runs(db, team=to_team)
         results.append(TeamAdvanceResult(
             team_id=team.id, team_name=team.name, to_team_id=to_team.id, members_advanced=advanced,
             new_registration_ids=new_registration_ids,

@@ -22,8 +22,11 @@ item-id copies for the same reason, rather than orphaning it.
 
 from __future__ import annotations
 
+import logging
 import uuid
 from datetime import datetime, timezone
+
+logger = logging.getLogger(__name__)
 
 from fastapi import HTTPException, status
 from sqlalchemy import func, select
@@ -1954,6 +1957,51 @@ async def get_student_checklist(db: AsyncSession, *, assignment_id: uuid.UUID, u
     )
 
     pairs = await _assignment_items_and_progress(db, assignment_id)
+
+    # Just-in-Time auto-sync: keep assignment progress rows and team mission attempts
+    # caught up on read, so students never encounter missing items or "Syncing mission..."
+    team = None
+    if assignment.cohort_id:
+        try:
+            team = await team_for_cohort_member(db, cohort_id=assignment.cohort_id, user_id=user_id)
+            resolved = await resolve_cohort_program(db, assignment.cohort_id)
+            if resolved is not None:
+                _, cohort_items = resolved
+                cohort_item_ids = {i.id for i in cohort_items}
+                pair_item_ids = {item.id for item, _ in pairs}
+                missing_items = bool(cohort_item_ids - pair_item_ids)
+
+                unwired_team_items = False
+                if team is not None:
+                    team_run_item_ids = [
+                        i.id for i in cohort_items
+                        if i.item_type == "mission_run" and i.scope == "team" and i.mission_id
+                    ]
+                    if team_run_item_ids:
+                        wired_count = await db.scalar(
+                            select(func.count(LmsProgramTeamItemProgress.id))
+                            .where(
+                                LmsProgramTeamItemProgress.team_id == team.id,
+                                LmsProgramTeamItemProgress.item_id.in_(team_run_item_ids),
+                                LmsProgramTeamItemProgress.mission_attempt_id.isnot(None),
+                            )
+                        )
+                        if (wired_count or 0) < len(team_run_item_ids):
+                            unwired_team_items = True
+
+                if missing_items or unwired_team_items:
+                    added = await sync_assignment_items(db, assignment=assignment)
+                    if added > 0:
+                        await db.commit()
+                        pairs = await _assignment_items_and_progress(db, assignment_id)
+        except Exception as exc:
+            logger.warning("JIT checklist auto-sync failed for assignment %s: %s", assignment_id, exc)
+            try:
+                await db.rollback()
+            except Exception:
+                pass
+            pairs = await _assignment_items_and_progress(db, assignment_id)
+
     mission_ids = {item.mission_id for item, _ in pairs if item.mission_id}
     mission_kinds = dict((await db.execute(
         select(Mission.id, Mission.kind).where(Mission.id.in_(mission_ids))
@@ -1975,7 +2023,8 @@ async def get_student_checklist(db: AsyncSession, *, assignment_id: uuid.UUID, u
     # of the individual one materialized above — one lookup for the
     # caller's team, one batched query for every team-scoped item's
     # progress row, one for the names of whoever last touched each.
-    team = await team_for_cohort_member(db, cohort_id=assignment.cohort_id, user_id=user_id)
+    if team is None and assignment.cohort_id:
+        team = await team_for_cohort_member(db, cohort_id=assignment.cohort_id, user_id=user_id)
     team_item_ids = [item.id for item, _ in pairs if item.scope == "team"]
     team_progress_by_item: dict[uuid.UUID, LmsProgramTeamItemProgress] = {}
     updater_names: dict[uuid.UUID, str] = {}
