@@ -516,7 +516,7 @@ async def clone_cohort(
         new_cohort.poster_template_url = source.poster_template_url
         new_cohort.keep_course_access_after_completion = source.keep_course_access_after_completion
     if "windows" in body.carry:
-        new_cohort.submission_windows = list(source.submission_windows or [])
+        new_cohort.submission_windows = [dict(w) if isinstance(w, dict) else w for w in (source.submission_windows or [])]
     db.add(new_cohort)
     await db.flush()
 
@@ -603,8 +603,10 @@ async def clone_cohort(
                 )
                 db.add(override)
                 await db.flush()
+                item_id_map: dict[str, str] = {}
                 for item in source_items:
                     copy_id = uuid.uuid4()
+                    item_id_map[str(item.id)] = str(copy_id)
                     copy_pdf_path = None
                     if item.pdf_path:
                         data = await storage.download_file(PROGRAM_ITEM_PDF_BUCKET, item.pdf_path)
@@ -646,6 +648,18 @@ async def clone_cohort(
                         cohort_quiz_template_id=item.cohort_quiz_template_id,
                     ))
                 await db.flush()
+
+                # Remap checkpoint IDs in cloned submission windows if windows were also carried
+                if "windows" in body.carry and new_cohort.submission_windows:
+                    from sqlalchemy.orm.attributes import flag_modified
+                    remapped_windows = []
+                    for w in new_cohort.submission_windows:
+                        if isinstance(w, dict) and w.get("checkpoint_id") and str(w["checkpoint_id"]) in item_id_map:
+                            remapped_windows.append({**w, "checkpoint_id": item_id_map[str(w["checkpoint_id"])]})
+                        else:
+                            remapped_windows.append(w)
+                    new_cohort.submission_windows = remapped_windows
+                    flag_modified(new_cohort, "submission_windows")
 
         # ── Delivery checklist (cohort-level pre-workshop items) ──
         source_checklist_items = (await db.execute(

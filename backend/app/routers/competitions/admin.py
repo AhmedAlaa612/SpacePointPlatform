@@ -933,26 +933,74 @@ async def post_cohort_certificates_test_email(
 
 # ── Submission Windows & Timing Adjustments ─────────────────────────────
 
-@router.get("/cohorts/{cohort_id}/submission-windows")
-async def get_cohort_submission_windows(
+@router.get("/cohorts/{cohort_id}/checkpoints")
+async def get_cohort_checkpoints(
     cohort_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
 ):
-    """Retrieve configured submission time windows for a cohort."""
+    """Retrieve checklist checkpoints for a cohort."""
+    from app.services.lms.program import resolve_cohort_program
+    resolved = await resolve_cohort_program(db, cohort_id)
+    if resolved is None:
+        return []
+    _program, items = resolved
+    checkpoints = sorted(
+        [i for i in items if i.item_type == "checkpoint"],
+        key=lambda i: i.position,
+    )
+    return [
+        {
+            "id": str(i.id),
+            "title": i.title,
+            "position": i.position,
+            "description": i.description,
+        }
+        for i in checkpoints
+    ]
+
+
+@router.get("/cohorts/{cohort_id}/submission-windows")
+async def get_cohort_submission_windows(
+    cohort_id: uuid.UUID,
+    checkpoint_id: str | None = None,
+    db: AsyncSession = Depends(get_db),
+):
+    """Retrieve configured submission time windows for a cohort, optionally filtered by checkpoint_id."""
+    from app.services.competitions.timing_windows import filter_windows_for_gate
     cohort = await _get_cohort_or_404(db, cohort_id)
-    return cohort.submission_windows or []
+    windows = cohort.submission_windows or []
+    if checkpoint_id is not None:
+        target_cid = None if checkpoint_id == "final" else checkpoint_id
+        return filter_windows_for_gate(windows, target_cid)
+    return windows
 
 
 @router.put("/cohorts/{cohort_id}/submission-windows")
 async def update_cohort_submission_windows(
     cohort_id: uuid.UUID,
     body: CohortSubmissionWindowsUpdate,
+    checkpoint_id: str | None = None,
     db: AsyncSession = Depends(get_db),
 ):
-    """Save or update submission time windows for a cohort."""
+    """Save or update submission time windows for a cohort.
+    If checkpoint_id is provided, only windows for that gate are replaced.
+    """
     from sqlalchemy.orm.attributes import flag_modified
     cohort = await _get_cohort_or_404(db, cohort_id)
-    cohort.submission_windows = [w.model_dump() for w in body.windows]
+    new_dicts = [w.model_dump() for w in body.windows]
+
+    if checkpoint_id is not None:
+        existing = cohort.submission_windows or []
+        target_cid = None if checkpoint_id == "final" else checkpoint_id
+        # Retain windows not belonging to this gate
+        if target_cid is None:
+            retained = [w for w in existing if w.get("checkpoint_id") and w.get("checkpoint_id") != "final"]
+        else:
+            retained = [w for w in existing if str(w.get("checkpoint_id") or "") != str(target_cid)]
+        cohort.submission_windows = retained + new_dicts
+    else:
+        cohort.submission_windows = new_dicts
+
     flag_modified(cohort, "submission_windows")
     await db.commit()
     return cohort.submission_windows

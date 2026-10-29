@@ -1,7 +1,11 @@
 import { useEffect, useState } from "react"
-import { useMutation, useQueryClient } from "@tanstack/react-query"
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { Clock, RotateCcw, Save } from "lucide-react"
-import { updateTeamTimingAdjustmentApi, type CompetitionLeaderboardRow } from "@/api/competitions"
+import {
+  updateTeamTimingAdjustmentApi,
+  getTeamScoreBreakdownApi,
+  type CompetitionLeaderboardRow,
+} from "@/api/competitions"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { useToast } from "@/components/ui/toast"
 
@@ -18,6 +22,12 @@ export function TimingOverrideModal({ cohortId, team, open, onClose }: TimingOve
 
   const [pointsStr, setPointsStr] = useState<string>("")
   const [notes, setNotes] = useState<string>("")
+
+  const { data: breakdown } = useQuery({
+    queryKey: ["competitions-team-breakdown", cohortId, team?.team_id],
+    queryFn: () => getTeamScoreBreakdownApi(cohortId, team!.team_id),
+    enabled: open && !!team,
+  })
 
   useEffect(() => {
     if (team) {
@@ -112,6 +122,22 @@ export function TimingOverrideModal({ cohortId, team, open, onClose }: TimingOve
                 {team.timing_tier_name || team.timing_badge || "Standard (0 pts)"}
               </span>
             </div>
+
+            {breakdown?.timing_breakdown && breakdown.timing_breakdown.length > 1 && (
+              <div className="border-t border-border/40 pt-2 space-y-1">
+                <span className="text-[11px] font-semibold text-muted-foreground">Breakdown:</span>
+                {breakdown.timing_breakdown.map((gate) => (
+                  <div key={gate.gate_id} className="flex justify-between items-center text-xs">
+                    <span className="text-muted-foreground truncate">{gate.title}</span>
+                    <span className={`font-mono text-[11px] font-semibold ${
+                      gate.points > 0 ? "text-emerald-400" : gate.points < 0 ? "text-rose-400" : "text-muted-foreground"
+                    }`}>
+                      {gate.points > 0 ? `+${gate.points}` : gate.points} pts
+                    </span>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
 
           <form onSubmit={handleSaveOverride} className="space-y-4">

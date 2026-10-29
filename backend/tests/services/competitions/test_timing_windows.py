@@ -129,3 +129,82 @@ def test_get_current_active_window():
     assert active["id"] == "early"
     assert active["seconds_remaining"] == 7200
     assert active["is_active"] is True
+
+
+def test_checkpoint_timing_windows_and_aggregation():
+    cp1_id = str(uuid.uuid4())
+    cp2_id = str(uuid.uuid4())
+
+    now = datetime(2026, 9, 20, 12, 0, 0, tzinfo=timezone.utc)
+    t1 = now + timedelta(hours=2)   # 14:00 Checkpoint 1 Early
+    t2 = now + timedelta(hours=4)   # 16:00 Checkpoint 1 Deadline
+    t3 = now + timedelta(hours=6)   # 18:00 Final Lock Early
+    t4 = now + timedelta(hours=8)   # 20:00 Final Lock On-time
+
+    windows = [
+        # Checkpoint 1 windows
+        {"id": "cp1-early", "name": "CP1 Early", "cutoff_at": t1.isoformat(), "points": 3.0, "checkpoint_id": cp1_id},
+        {"id": "cp1-deadline", "name": "CP1 Deadline", "cutoff_at": t2.isoformat(), "points": 0.0, "checkpoint_id": cp1_id, "is_deadline": True},
+        # Final lock windows
+        {"id": "final-early", "name": "Final Early", "cutoff_at": t3.isoformat(), "points": 5.0, "checkpoint_id": None},
+        {"id": "final-ontime", "name": "Final On-Time", "cutoff_at": t4.isoformat(), "points": 0.0, "checkpoint_id": None},
+    ]
+
+    cohort = Cohort(id=uuid.uuid4(), name="Test Cohort", program_id=uuid.uuid4(), submission_windows=windows)
+
+    # 1. Team locked CP1 early (13:00 -> +3 pts), Final locked on-time (19:00 -> 0 pts)
+    team = Team(id=uuid.uuid4(), name="Alpha Team", final_locked_at=now + timedelta(hours=7))
+    checkpoint_states = [
+        {"item_id": cp1_id, "title": "Checkpoint 1", "locked_at": now + timedelta(hours=1), "status": "done"},
+        {"item_id": cp2_id, "title": "Checkpoint 2", "locked_at": None, "status": "pending"},
+    ]
+
+    res = resolve_team_timing(cohort, team, checkpoint_states=checkpoint_states)
+    assert res["points"] == 3.0  # 3.0 from CP1 + 0.0 from Final
+    assert res["calculated_total"] == 3.0
+    assert len(res["breakdown"]) == 3  # CP1, CP2, Final
+    assert res["breakdown"][0]["points"] == 3.0
+    assert res["breakdown"][1]["points"] == 0.0
+    assert res["breakdown"][2]["points"] == 0.0
+
+
+def test_is_checkpoint_deadline_passed():
+    from app.services.competitions.timing_windows import is_checkpoint_deadline_passed, is_cohort_deadline_passed
+
+    cp_id = str(uuid.uuid4())
+    now = datetime(2026, 9, 20, 12, 0, 0, tzinfo=timezone.utc)
+    t_past = now - timedelta(hours=1)
+    t_future = now + timedelta(hours=1)
+
+    windows = [
+        {"id": "cp-dead", "name": "CP Deadline", "cutoff_at": t_past.isoformat(), "checkpoint_id": cp_id, "is_deadline": True},
+        {"id": "final-dead", "name": "Final Deadline", "cutoff_at": t_future.isoformat(), "checkpoint_id": None, "is_deadline": True},
+    ]
+
+    # Checkpoint deadline has passed
+    assert is_checkpoint_deadline_passed(windows, cp_id, now_dt=now) is True
+    # Final deadline has NOT passed
+    assert is_cohort_deadline_passed(windows, now_dt=now, checkpoint_id=None) is False
+
+
+def test_cloned_windows_checkpoint_remapping():
+    old_cp1 = str(uuid.uuid4())
+    new_cp1 = str(uuid.uuid4())
+    item_id_map = {old_cp1: new_cp1}
+
+    source_windows = [
+        {"id": "tier-1", "name": "Early", "checkpoint_id": old_cp1, "points": 5.0},
+        {"id": "tier-2", "name": "Final Lock", "checkpoint_id": None, "points": 10.0},
+    ]
+
+    remapped = []
+    for w in source_windows:
+        if isinstance(w, dict) and w.get("checkpoint_id") and str(w["checkpoint_id"]) in item_id_map:
+            remapped.append({**w, "checkpoint_id": item_id_map[str(w["checkpoint_id"])]})
+        else:
+            remapped.append(w)
+
+    assert remapped[0]["checkpoint_id"] == new_cp1
+    assert remapped[1]["checkpoint_id"] is None
+
+

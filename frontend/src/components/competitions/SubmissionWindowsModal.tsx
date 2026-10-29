@@ -4,11 +4,14 @@ import { Calendar, Plus, Trash2, Save } from "lucide-react"
 import {
   getCohortSubmissionWindowsApi,
   updateCohortSubmissionWindowsApi,
+  getCohortCheckpointsApi,
   type SubmissionWindowItem,
+  type CohortCheckpoint,
 } from "@/api/competitions"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { useToast } from "@/components/ui/toast"
 import { Spinner } from "@/components/ui/primitives"
+import { cn } from "@/lib/utils"
 
 interface SubmissionWindowsModalProps {
   cohortId: string
@@ -26,7 +29,14 @@ export function SubmissionWindowsModal({ cohortId, open, onClose }: SubmissionWi
     enabled: open,
   })
 
+  const { data: checkpoints = [] } = useQuery<CohortCheckpoint[]>({
+    queryKey: ["competitions-cohort-checkpoints", cohortId],
+    queryFn: () => getCohortCheckpointsApi(cohortId),
+    enabled: open,
+  })
+
   const [windows, setWindows] = useState<SubmissionWindowItem[]>([])
+  const [selectedGateId, setSelectedGateId] = useState<string>("final")
 
   // New tier inline form state
   const [name, setName] = useState("")
@@ -36,10 +46,10 @@ export function SubmissionWindowsModal({ cohortId, open, onClose }: SubmissionWi
   const [isDeadline, setIsDeadline] = useState(false)
 
   useEffect(() => {
-    if (initialWindows) {
+    if (open && initialWindows) {
       setWindows(initialWindows)
     }
-  }, [initialWindows])
+  }, [open, initialWindows])
 
   const mutation = useMutation({
     mutationFn: (updated: SubmissionWindowItem[]) =>
@@ -57,6 +67,12 @@ export function SubmissionWindowsModal({ cohortId, open, onClose }: SubmissionWi
   })
 
   if (!open) return null
+
+  const activeWindows = windows.filter((w) =>
+    selectedGateId === "final"
+      ? !w.checkpoint_id || w.checkpoint_id === "final"
+      : String(w.checkpoint_id || "") === String(selectedGateId)
+  )
 
   const handleAddWindow = () => {
     if (!name.trim()) {
@@ -83,6 +99,7 @@ export function SubmissionWindowsModal({ cohortId, open, onClose }: SubmissionWi
       badge: badgeLabel,
       color,
       is_deadline: isDeadline,
+      checkpoint_id: selectedGateId === "final" ? null : selectedGateId,
     }
 
     // Insert and sort by cutoff
@@ -106,9 +123,12 @@ export function SubmissionWindowsModal({ cohortId, open, onClose }: SubmissionWi
     mutation.mutate(windows)
   }
 
+  const selectedCheckpoint = checkpoints.find((c) => c.id === selectedGateId)
+  const currentGateLabel = selectedGateId === "final" ? "Final Submission" : (selectedCheckpoint?.title || "Checkpoint")
+
   return (
     <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
-      <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto p-6 bg-card border-border">
+      <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto p-4 sm:p-6 bg-card border-border">
         <DialogHeader>
           <div className="flex items-center gap-2 mb-1">
             <span className="text-[10px] font-bold uppercase tracking-wider text-primary bg-primary/10 border border-primary/20 px-2 py-0.5 rounded-full">
@@ -118,10 +138,6 @@ export function SubmissionWindowsModal({ cohortId, open, onClose }: SubmissionWi
           <DialogTitle className="text-xl font-bold font-display text-foreground">
             Submission Windows & Timing Incentives
           </DialogTitle>
-          <p className="text-xs text-muted-foreground mt-0.5">
-            Configure tiered deadlines (bonuses, deductions, and hard submission deadlines).
-            The platform dynamically evaluates each team's submission timestamp against these brackets.
-          </p>
         </DialogHeader>
 
         {isLoading ? (
@@ -129,29 +145,61 @@ export function SubmissionWindowsModal({ cohortId, open, onClose }: SubmissionWi
             <Spinner />
           </div>
         ) : (
-          <div className="mt-4 space-y-6">
-            {/* Existing Brackets List */}
+          <div className="mt-2 space-y-5">
+            {/* Gate Selector */}
+            <div className="flex items-center gap-1.5 p-1 bg-muted/40 rounded-xl overflow-x-auto border border-border">
+              <button
+                type="button"
+                onClick={() => setSelectedGateId("final")}
+                className={cn(
+                  "px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition-colors cursor-pointer",
+                  selectedGateId === "final"
+                    ? "bg-primary text-primary-foreground shadow-sm"
+                    : "text-muted-foreground hover:text-foreground hover:bg-muted/60"
+                )}
+              >
+                Final Submission
+              </button>
+              {checkpoints.map((cp, idx) => (
+                <button
+                  key={cp.id}
+                  type="button"
+                  onClick={() => setSelectedGateId(cp.id)}
+                  className={cn(
+                    "px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition-colors cursor-pointer",
+                    selectedGateId === cp.id
+                      ? "bg-primary text-primary-foreground shadow-sm"
+                      : "text-muted-foreground hover:text-foreground hover:bg-muted/60"
+                  )}
+                >
+                  {cp.title || `Checkpoint ${idx + 1}`}
+                </button>
+              ))}
+            </div>
+
+            {/* Existing Brackets List for current gate */}
             <div>
               <div className="text-xs font-semibold text-foreground mb-2 flex items-center justify-between">
-                <span>Configured Cutoff Tiers ({windows.length})</span>
+                <span>{currentGateLabel} Tiers ({activeWindows.length})</span>
                 <span className="text-[11px] text-muted-foreground font-normal">
                   Evaluated in chronological order
                 </span>
               </div>
 
-              {windows.length === 0 ? (
-                <div className="p-6 text-center rounded-xl border border-dashed border-border bg-muted/20 text-xs text-muted-foreground">
-                  No submission brackets configured. Standard flat deadline applies with 0 timing points.
+              {activeWindows.length === 0 ? (
+                <div className="p-5 text-center rounded-xl border border-dashed border-border bg-muted/20 text-xs text-muted-foreground">
+                  No submission brackets configured for {currentGateLabel.toLowerCase()}.
                 </div>
               ) : (
                 <div className="space-y-2">
-                  {windows.map((w, index) => {
+                  {activeWindows.map((w, index) => {
                     const cutoffDate = new Date(w.cutoff_at)
-                    const colorStyle = w.color === "rose"
-                      ? "bg-rose-500/10 text-rose-400 border-rose-500/30"
-                      : w.color === "white"
-                      ? "bg-white/10 text-zinc-100 border-white/20"
-                      : "bg-green-500/10 text-green-400 border-green-500/30";
+                    const colorStyle =
+                      w.color === "rose"
+                        ? "bg-rose-500/10 text-rose-400 border-rose-500/30"
+                        : w.color === "white"
+                        ? "bg-white/10 text-zinc-100 border-white/20"
+                        : "bg-green-500/10 text-green-400 border-green-500/30"
 
                     return (
                       <div
@@ -184,7 +232,7 @@ export function SubmissionWindowsModal({ cohortId, open, onClose }: SubmissionWi
                         <button
                           type="button"
                           onClick={() => handleDeleteWindow(w.id)}
-                          className="p-1.5 rounded-lg text-muted-foreground hover:text-rose-400 hover:bg-rose-500/10 transition-colors"
+                          className="p-1.5 rounded-lg text-muted-foreground hover:text-rose-400 hover:bg-rose-500/10 transition-colors cursor-pointer"
                           title="Remove tier"
                         >
                           <Trash2 size={14} />
@@ -200,7 +248,7 @@ export function SubmissionWindowsModal({ cohortId, open, onClose }: SubmissionWi
             <div className="p-4 rounded-xl border border-primary/20 bg-primary/5 space-y-3">
               <div className="text-xs font-bold uppercase tracking-wider text-primary flex items-center gap-1.5">
                 <Plus size={13} />
-                Add New Bracket Tier
+                Add Tier for {currentGateLabel}
               </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
@@ -219,7 +267,7 @@ export function SubmissionWindowsModal({ cohortId, open, onClose }: SubmissionWi
 
                 <div className="sm:col-span-1">
                   <label className="block text-[11px] font-semibold text-muted-foreground mb-1">
-                    Points Adjustment (+/-)
+                    Points (+/-)
                   </label>
                   <input
                     type="number"
@@ -275,7 +323,7 @@ export function SubmissionWindowsModal({ cohortId, open, onClose }: SubmissionWi
               <button
                 type="button"
                 onClick={handleAddWindow}
-                className="w-full py-2 rounded-lg border border-primary/30 bg-primary/10 text-primary text-xs font-bold hover:bg-primary/20 transition-all flex items-center justify-center gap-1.5"
+                className="w-full py-2 rounded-lg border border-primary/30 bg-primary/10 text-primary text-xs font-bold hover:bg-primary/20 transition-all flex items-center justify-center gap-1.5 cursor-pointer"
               >
                 <Plus size={13} />
                 Add to Brackets
@@ -287,7 +335,7 @@ export function SubmissionWindowsModal({ cohortId, open, onClose }: SubmissionWi
               <button
                 type="button"
                 onClick={onClose}
-                className="px-3.5 py-2 rounded-xl border border-border text-xs font-medium text-foreground hover:bg-muted transition-colors"
+                className="px-3.5 py-2 rounded-xl border border-border text-xs font-medium text-foreground hover:bg-muted transition-colors cursor-pointer"
               >
                 Cancel
               </button>
@@ -295,7 +343,7 @@ export function SubmissionWindowsModal({ cohortId, open, onClose }: SubmissionWi
                 type="button"
                 disabled={mutation.isPending}
                 onClick={handleSave}
-                className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-primary text-primary-foreground text-xs font-bold hover:opacity-90 transition-all disabled:opacity-50"
+                className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-primary text-primary-foreground text-xs font-bold hover:opacity-90 transition-all disabled:opacity-50 cursor-pointer"
               >
                 <Save size={13} />
                 {mutation.isPending ? "Saving…" : "Save Windows"}

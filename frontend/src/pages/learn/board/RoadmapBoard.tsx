@@ -318,6 +318,7 @@ export default function RoadmapBoard() {
         <CheckpointDrawer
           key={openItem.id} item={openItem} items={items} assignmentId={assignmentId}
           hasTeam={!!checklist.team_name}
+          cohortId={checklist.cohort_id}
           onClose={() => setOpenItemId(null)} onChanged={invalidate}
         />
       ) : (

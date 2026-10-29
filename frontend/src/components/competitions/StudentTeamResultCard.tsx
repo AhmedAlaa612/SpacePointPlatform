@@ -67,7 +67,11 @@ export function StudentTeamResultCard({ cohortId }: StudentTeamResultCardProps) 
                 </span>
               )}
               {result.timing_badge && (
-                <span className="inline-flex items-center gap-1 text-xs font-medium text-emerald-700 dark:text-emerald-400 bg-emerald-500/10 border border-emerald-500/30 rounded-full px-2.5 py-0.5">
+                <span className={`inline-flex items-center gap-1 text-xs font-medium rounded-full px-2.5 py-0.5 border ${
+                  (result.timing_adjustment ?? 0) < 0
+                    ? "text-rose-700 dark:text-rose-400 bg-rose-500/10 border-rose-500/30"
+                    : "text-emerald-700 dark:text-emerald-400 bg-emerald-500/10 border-emerald-500/30"
+                }`}>
                   <Clock size={12} /> {result.timing_badge}
                 </span>
               )}

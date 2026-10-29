@@ -238,6 +238,19 @@ class SubmissionWindowItem(BaseModel):
     color: str | None = "green"
     description: str | None = None
     is_deadline: bool = False
+    checkpoint_id: str | None = None
+
+
+class TimingGateBreakdownItem(BaseModel):
+    gate_id: str
+    title: str
+    type: str  # "final" | "checkpoint"
+    points: float = 0.0
+    badge: str | None = None
+    tier_name: str | None = None
+    color: str | None = "green"
+    locked_at: datetime | str | None = None
+    is_deadline: bool = False
 
 
 class CohortSubmissionWindowsUpdate(BaseModel):
@@ -288,6 +301,7 @@ class TeamScoreBreakdownOut(BaseModel):
     raw_judge_score: float | None = None
     timing_adjustment: float | None = None
     timing_badge: str | None = None
+    timing_breakdown: list[TimingGateBreakdownItem] = []
     is_timing_override: bool = False
     timing_override_notes: str | None = None
     final_locked_at: datetime | None = None

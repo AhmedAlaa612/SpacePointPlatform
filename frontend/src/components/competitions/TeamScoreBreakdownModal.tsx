@@ -129,6 +129,20 @@ export function TeamScoreBreakdownModal({ cohortId, teamId, open, onClose }: Tea
                   Ops Note: {breakdown.timing_override_notes}
                 </div>
               )}
+              {breakdown.timing_breakdown && breakdown.timing_breakdown.length > 1 && (
+                <div className="border-t border-border/40 pt-2 mt-2 space-y-1">
+                  {breakdown.timing_breakdown.map((gate) => (
+                    <div key={gate.gate_id} className="flex items-center justify-between text-xs">
+                      <span className="text-muted-foreground truncate">{gate.title}</span>
+                      <span className={`font-mono text-[11px] font-semibold ${
+                        gate.points > 0 ? "text-emerald-400" : gate.points < 0 ? "text-rose-400" : "text-muted-foreground"
+                      }`}>
+                        {gate.points > 0 ? `+${gate.points}` : gate.points} pts
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
 
             {/* Operations Criteria — graded by the SpacePoint team, not the judges */}

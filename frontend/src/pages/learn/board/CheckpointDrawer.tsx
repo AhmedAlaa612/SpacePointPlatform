@@ -1,7 +1,8 @@
 import { isAxiosError } from "axios";
-import { useMutation } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import { CheckCircle2, Circle, Flag, Lock, X } from "lucide-react";
 import { lockCheckpointChecklist, type LmsProgramChecklistItem } from "@/api/lms";
+import { getCohortTimingWindowStudentApi } from "@/api/competitions";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { useToast } from "@/components/ui/toast";
 import { cn } from "@/lib/utils";
@@ -17,12 +18,13 @@ function errorDetail(err: unknown, fallback: string): string {
  * Final Submit confirmation dialog: title + section X/Y + one glowing
  * lock action when ready, or the locked-by line when already locked. */
 export function CheckpointDrawer({
-  item, items, assignmentId, hasTeam, onClose, onChanged,
+  item, items, assignmentId, hasTeam, cohortId, onClose, onChanged,
 }: {
   item: LmsProgramChecklistItem;
   items: LmsProgramChecklistItem[];
   assignmentId: string;
   hasTeam: boolean;
+  cohortId?: string | null;
   onClose: () => void;
   onChanged: () => void;
 }) {
@@ -31,6 +33,16 @@ export function CheckpointDrawer({
   const doneCount = section.filter((i) => i.status === "done").length;
   const ready = section.length > 0 ? doneCount === section.length : true;
   const locked = item.status === "done";
+
+  const { data: timingData } = useQuery({
+    queryKey: ["competitions-timing-checkpoint", cohortId, item.id],
+    queryFn: () => getCohortTimingWindowStudentApi(cohortId!, item.id),
+    enabled: !!cohortId && !locked,
+    refetchInterval: 30_000,
+  });
+
+  const activeWindow = timingData?.active_window;
+  const isDeadlinePassed = !!timingData?.is_deadline_passed;
 
   const lockMutation = useMutation({
     mutationFn: () => lockCheckpointChecklist(assignmentId, item.id),
@@ -68,6 +80,17 @@ export function CheckpointDrawer({
         <div className="mt-3 space-y-4">
           {item.description && <p className="text-xs text-muted-foreground leading-relaxed">{item.description}</p>}
 
+          {/* Active Timing Window (if configured) */}
+          {activeWindow && !locked && !isDeadlinePassed && (
+            <div className="flex items-center justify-between text-xs py-2 px-3 rounded-xl bg-muted/40 border border-border">
+              <span className="text-muted-foreground font-medium">{activeWindow.name}</span>
+              <span className="font-semibold text-primary">
+                {activeWindow.points > 0 ? `+${activeWindow.points}` : activeWindow.points} pts
+              </span>
+            </div>
+          )}
+
+          {/* Section Progress */}
           <div className="p-4 rounded-xl border border-border bg-muted/30 space-y-2">
             <div className="flex items-center justify-between text-xs font-bold uppercase tracking-wider text-muted-foreground">
               <span>Section progress</span>
@@ -93,6 +116,13 @@ export function CheckpointDrawer({
             )}
           </div>
 
+          {/* Hard Deadline Passed Notice */}
+          {isDeadlinePassed && !locked && (
+            <div className="p-3.5 rounded-xl border border-rose-500/30 bg-rose-500/10 text-rose-400 text-xs font-medium leading-relaxed">
+              The deadline for this checkpoint has passed. Please contact the SpacePoint team for late reason clarification.
+            </div>
+          )}
+
           {locked ? (
             <div className="flex items-center justify-center gap-2 p-3.5 rounded-xl bg-primary/10 border border-primary/25 text-primary text-sm font-semibold">
               <Lock size={16} className="shrink-0 text-muted-foreground" />
@@ -105,13 +135,13 @@ export function CheckpointDrawer({
           ) : (
             <button
               type="button"
-              disabled={!ready || lockMutation.isPending}
+              disabled={!ready || lockMutation.isPending || isDeadlinePassed}
               onClick={() => lockMutation.mutate()}
-              title={ready ? undefined : "Finish every team task above first"}
+              title={isDeadlinePassed ? "Deadline has passed" : ready ? undefined : "Finish every team task above first"}
               className="gate-beacon-border w-full flex items-center justify-center gap-2 px-5 py-3 rounded-xl border-[2.5px] bg-primary text-primary-foreground font-extrabold text-sm tracking-wide shadow-md shadow-primary/25 hover:shadow-lg hover:shadow-primary/35 transition-all duration-150 disabled:opacity-50 cursor-pointer disabled:pointer-events-none"
             >
               <Lock size={15} />
-              {lockMutation.isPending ? "Locking…" : ready ? "Lock Checkpoint" : `Finish section first (${doneCount}/${section.length})`}
+              {lockMutation.isPending ? "Locking…" : isDeadlinePassed ? "Deadline Passed" : ready ? "Lock Checkpoint" : `Finish section first (${doneCount}/${section.length})`}
             </button>
           )}
         </div>

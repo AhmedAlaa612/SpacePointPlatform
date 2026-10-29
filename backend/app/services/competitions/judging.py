@@ -365,6 +365,42 @@ async def list_judges_with_progress(db: AsyncSession, *, cohort_id: uuid.UUID) -
 
 # ── Leaderboard, publish, export ────────────────────────────────────────
 
+async def _get_team_checkpoint_states(
+    db: AsyncSession, *, cohort_id: uuid.UUID, team_ids: list[uuid.UUID],
+) -> dict[uuid.UUID, list[dict]]:
+    from app.services.lms.program import resolve_cohort_program
+    from app.models.lms.program import LmsProgramTeamItemProgress
+    resolved = await resolve_cohort_program(db, cohort_id)
+    if not resolved:
+        return {tid: [] for tid in team_ids}
+    _prog, items = resolved
+    checkpoints = sorted([i for i in items if i.item_type == "checkpoint"], key=lambda i: i.position)
+    if not checkpoints or not team_ids:
+        return {tid: [] for tid in team_ids}
+    rows = (await db.execute(
+        select(LmsProgramTeamItemProgress).where(
+            LmsProgramTeamItemProgress.team_id.in_(team_ids),
+            LmsProgramTeamItemProgress.item_id.in_([c.id for c in checkpoints]),
+        )
+    )).scalars().all()
+    by_team_item: dict[uuid.UUID, dict[uuid.UUID, LmsProgramTeamItemProgress]] = {}
+    for r in rows:
+        by_team_item.setdefault(r.team_id, {})[r.item_id] = r
+    result: dict[uuid.UUID, list[dict]] = {}
+    for tid in team_ids:
+        states = []
+        for cp in checkpoints:
+            r = by_team_item.get(tid, {}).get(cp.id)
+            states.append({
+                "item_id": cp.id,
+                "title": cp.title,
+                "locked_at": r.completed_at if r and r.status == "done" else None,
+                "status": r.status if r else "pending",
+            })
+        result[tid] = states
+    return result
+
+
 async def leaderboard(db: AsyncSession, *, cohort_id: uuid.UUID, mode: str = "participant") -> list[dict]:
     """Standings for a cohort. Returns one row per team with final aggregated
     scores, timing adjustments (dynamic or overridden), and judge details.
@@ -438,6 +474,8 @@ async def leaderboard(db: AsyncSession, *, cohort_id: uuid.UUID, mode: str = "pa
     ops_criteria = [c for c in (rubric_tuple[1] if rubric_tuple else []) if getattr(c, "scored_by", "judge") == "operations"]
     ops_max_total = float(sum(c.max_points for c in ops_criteria))
 
+    team_cp_map = await _get_team_checkpoint_states(db, cohort_id=cohort.id, team_ids=[t.id for t in teams]) if cohort else {}
+
     for team in teams:
         pts_list = team_raw_points.get(team.id, [])
         pct_list = team_normalized_percentages.get(team.id, [])
@@ -445,7 +483,7 @@ async def leaderboard(db: AsyncSession, *, cohort_id: uuid.UUID, mode: str = "pa
         raw_judge_score = round(sum(pts_list) / count, 1) if count > 0 else None
         avg_pct = round(sum(pct_list) / count, 1) if count > 0 else None
 
-        timing_info = resolve_team_timing(cohort, team)
+        timing_info = resolve_team_timing(cohort, team, checkpoint_states=team_cp_map.get(team.id, []))
         try:
             timing_pts = float(timing_info.get("points") or 0.0)
         except (ValueError, TypeError):
@@ -583,7 +621,8 @@ async def get_team_score_breakdown(
             "criteria": crit_items,
         })
 
-    timing_info = resolve_team_timing(cohort, team)
+    team_cp_map = await _get_team_checkpoint_states(db, cohort_id=cohort_id, team_ids=[team.id])
+    timing_info = resolve_team_timing(cohort, team, checkpoint_states=team_cp_map.get(team.id, []))
     raw_judge_score = round(sum(judge_totals) / len(judge_totals), 1) if judge_totals else None
 
     ops_scores: dict = getattr(team, "ops_criterion_scores", None) or {}
@@ -635,6 +674,7 @@ async def get_team_score_breakdown(
         "score_percent": round(100 * (final_score / 110), 1) if final_score is not None else None,
         "timing_adjustment": timing_info["points"],
         "timing_badge": timing_info["badge"],
+        "timing_breakdown": timing_info.get("breakdown") or [],
         "is_timing_override": timing_info["is_override"],
         "timing_override_notes": timing_info["override_notes"],
         "final_locked_at": team.final_locked_at,
@@ -668,7 +708,8 @@ async def get_student_team_result(
     pub = await get_publication(db, cohort_id=cohort_id)
     if pub is None:
         cohort = await db.get(Cohort, cohort_id)
-        timing_info = resolve_team_timing(cohort, team)
+        team_cp_map = await _get_team_checkpoint_states(db, cohort_id=cohort_id, team_ids=[team.id])
+        timing_info = resolve_team_timing(cohort, team, checkpoint_states=team_cp_map.get(team.id, []))
         try:
             timing_pts = float(timing_info.get("points") or 0.0)
         except (ValueError, TypeError):

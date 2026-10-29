@@ -1191,6 +1191,15 @@ async def lock_checkpoint_item(
     ready, reason = await checkpoint_lock_readiness(db, assignment=assignment, item=item)
     if not ready:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, detail=reason or "This section isn't done yet")
+    if assignment.cohort_id:
+        from app.models.sessions.cohort import Cohort
+        from app.services.competitions.timing_windows import is_checkpoint_deadline_passed
+        cohort = await db.get(Cohort, assignment.cohort_id)
+        if cohort and cohort.submission_windows and is_checkpoint_deadline_passed(cohort.submission_windows, item.id):
+            raise HTTPException(
+                status.HTTP_400_BAD_REQUEST,
+                detail="The deadline for this checkpoint has passed. Please contact the SpacePoint team for late reason clarification.",
+            )
     target = await checklist_item_write_target(db, assignment=assignment, item=item, individual=individual, user_id=current.id)
     if not isinstance(target, LmsProgramTeamItemProgress):
         # Can't happen given a checkpoint is forced team-scoped at

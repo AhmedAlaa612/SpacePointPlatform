@@ -137,6 +137,18 @@ export interface SubmissionWindowItem {
   color?: string | null
   description?: string | null
   is_deadline?: boolean
+  checkpoint_id?: string | null
+}
+
+export interface TimingGateBreakdownItem {
+  gate_id: string
+  title: string
+  type: "final" | "checkpoint"
+  points: number
+  badge?: string | null
+  tier_name?: string | null
+  color?: string | null
+  locked_at?: string | null
 }
 
 export interface TeamTimingAdjustmentUpdate {
@@ -183,6 +195,7 @@ export interface TeamScoreBreakdown {
   raw_judge_score?: number | null
   timing_adjustment?: number | null
   timing_badge?: string | null
+  timing_breakdown?: TimingGateBreakdownItem[]
   is_timing_override: boolean
   timing_override_notes?: string | null
   final_locked_at?: string | null
@@ -982,11 +995,25 @@ export const downloadCompetitionCertificatesApi = async (
 export const getStudentCompetitionResultApi = (cohortId: string) =>
   api.get<CompetitionStudentResult>(`/competitions/student/cohorts/${cohortId}/my-result`).then((r) => r.data)
 
-export const getCohortSubmissionWindowsApi = (cohortId: string) =>
-  api.get<SubmissionWindowItem[]>(`/competitions/admin/cohorts/${cohortId}/submission-windows`).then((r) => r.data)
+export interface CohortCheckpoint {
+  id: string
+  title: string
+  position: number
+  description?: string | null
+}
 
-export const updateCohortSubmissionWindowsApi = (cohortId: string, windows: SubmissionWindowItem[]) =>
-  api.put<SubmissionWindowItem[]>(`/competitions/admin/cohorts/${cohortId}/submission-windows`, { windows }).then((r) => r.data)
+export const getCohortCheckpointsApi = (cohortId: string) =>
+  api.get<CohortCheckpoint[]>(`/competitions/admin/cohorts/${cohortId}/checkpoints`).then((r) => r.data)
+
+export const getCohortSubmissionWindowsApi = (cohortId: string, checkpointId?: string) =>
+  api.get<SubmissionWindowItem[]>(`/competitions/admin/cohorts/${cohortId}/submission-windows`, {
+    params: checkpointId !== undefined ? { checkpoint_id: checkpointId } : undefined,
+  }).then((r) => r.data)
+
+export const updateCohortSubmissionWindowsApi = (cohortId: string, windows: SubmissionWindowItem[], checkpointId?: string) =>
+  api.put<SubmissionWindowItem[]>(`/competitions/admin/cohorts/${cohortId}/submission-windows`, { windows }, {
+    params: checkpointId !== undefined ? { checkpoint_id: checkpointId } : undefined,
+  }).then((r) => r.data)
 
 export const updateTeamTimingAdjustmentApi = (cohortId: string, teamId: string, body: TeamTimingAdjustmentUpdate) =>
   api.patch<TeamScoreBreakdown>(`/competitions/admin/cohorts/${cohortId}/teams/${teamId}/timing-adjustment`, body).then((r) => r.data)
@@ -1011,15 +1038,26 @@ export interface OperationsScoreResult {
 export const putTeamOperationsScoreApi = (cohortId: string, teamId: string, body: OperationsScoreUpdate) =>
   api.put<OperationsScoreResult>(`/competitions/admin/cohorts/${cohortId}/teams/${teamId}/ops-score`, body).then((r) => r.data)
 
-export interface CohortTimingWindowResponse {
+export interface CheckpointTimingWindowInfo {
   windows: SubmissionWindowItem[]
   active_window: (SubmissionWindowItem & { seconds_remaining: number; is_active: boolean }) | null
   is_deadline_passed?: boolean
   deadline_cutoff_at?: string | null
 }
 
-export const getCohortTimingWindowStudentApi = (cohortId: string) =>
-  api.get<CohortTimingWindowResponse>(`/competitions/student/cohorts/${cohortId}/timing-window`).then((r) => r.data)
+export interface CohortTimingWindowResponse {
+  windows: SubmissionWindowItem[]
+  all_windows?: SubmissionWindowItem[]
+  active_window: (SubmissionWindowItem & { seconds_remaining: number; is_active: boolean }) | null
+  is_deadline_passed?: boolean
+  deadline_cutoff_at?: string | null
+  checkpoints?: Record<string, CheckpointTimingWindowInfo>
+}
+
+export const getCohortTimingWindowStudentApi = (cohortId: string, checkpointId?: string) =>
+  api.get<CohortTimingWindowResponse>(`/competitions/student/cohorts/${cohortId}/timing-window`, {
+    params: checkpointId ? { checkpoint_id: checkpointId } : undefined,
+  }).then((r) => r.data)
 
 
 
