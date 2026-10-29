@@ -891,7 +891,7 @@ export function TeamAnalysisCard({
           </span>
         )}
 
-        <div className="w-20 sm:w-36 md:w-40 shrink-0">
+        <div className="w-24 sm:w-44 md:w-48 shrink-0">
           <div className="flex items-center justify-between text-[11px] font-semibold tabular-nums mb-1">
             <span className="text-muted-foreground">{team.items_done}/{team.items_total}</span>
             <span className={team.pct === 100 ? "text-emerald-600 dark:text-emerald-400" : "text-foreground"}>
@@ -904,6 +904,15 @@ export function TeamAnalysisCard({
               style={{ width: `${team.pct}%`, backgroundColor: team.pct === 100 ? c.done : c.accent }}
             />
           </div>
+          {(team.optional_total ?? 0) > 0 && (
+            <div className="flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-[10px] text-muted-foreground tabular-nums mt-1 font-medium">
+              <span><span className="font-semibold text-foreground">{team.items_done}/{team.items_total}</span> req</span>
+              <span className="text-border" aria-hidden="true">&bull;</span>
+              <span><span className="font-semibold text-foreground">{team.optional_done}/{team.optional_total}</span> opt</span>
+              <span className="text-border" aria-hidden="true">&bull;</span>
+              <span><span className="font-semibold text-foreground">{team.all_done}/{team.all_total}</span> tot</span>
+            </div>
+          )}
         </div>
       </button>
 
@@ -951,7 +960,11 @@ export function TeamAnalysisCard({
                                 ? "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30"
                                 : "bg-muted text-muted-foreground border border-border/50"
                             }`}
-                            title={`${m.items_done ?? 0}/${m.items_total ?? 0} items completed (${m.pct}%)`}
+                            title={
+                              (m.optional_total ?? 0) > 0
+                                ? `Required: ${m.items_done ?? 0}/${m.items_total ?? 0} · Optional: ${m.optional_done ?? 0}/${m.optional_total ?? 0} · Total: ${m.all_done ?? 0}/${m.all_total ?? 0} (${m.pct}%)`
+                                : `${m.items_done ?? 0}/${m.items_total ?? 0} items completed (${m.pct}%)`
+                            }
                           >
                             {m.pct}%
                           </span>

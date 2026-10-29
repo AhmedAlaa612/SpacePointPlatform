@@ -666,6 +666,10 @@ class CompetitionAnalyticsTeamMemberOut(BaseModel):
     last_login_at: datetime | None = None
     items_total: int | None = None
     items_done: int | None = None
+    optional_total: int | None = None
+    optional_done: int | None = None
+    all_total: int | None = None
+    all_done: int | None = None
     pct: int | None = None
 
 
@@ -695,6 +699,10 @@ class CompetitionAnalyticsTeamOut(BaseModel):
     never_logged_in: int
     items_total: int
     items_done: int
+    optional_total: int = 0
+    optional_done: int = 0
+    all_total: int = 0
+    all_done: int = 0
     awaiting: int
     pct: int
     deliverables: list[CompetitionAnalyticsDeliverableOut] = []

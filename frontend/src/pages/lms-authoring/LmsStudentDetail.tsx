@@ -636,13 +636,17 @@ function CohortChecklistDetail({ cohortId, assignmentId }: { cohortId: string; a
   const list = items ?? []
   if (list.length === 0) return <p className="px-3 pb-3 text-xs text-muted-foreground italic">No checklist items on this assignment.</p>
 
+  const required = list.filter((i) => !i.optional)
+  const optional = list.filter((i) => i.optional)
+  const reqDone = required.filter((i) => i.status === "done").length
+  const optDone = optional.filter((i) => i.status === "done").length
   const done = list.filter((i) => i.status === "done").length
-  const pct = list.length > 0 ? Math.round((done / list.length) * 100) : 0
+  const pct = required.length > 0 ? Math.round((reqDone / required.length) * 100) : 0
   return (
     <div className="p-3 sm:p-5 border-t-2 border-border/60 bg-muted/20 flex flex-col gap-3">
       <div className="flex flex-col gap-1.5 pb-2 border-b border-border/40">
         <div className="flex items-center justify-between text-xs font-mono font-bold">
-          <span className="text-muted-foreground">{done} / {list.length} completed</span>
+          <span className="text-muted-foreground">{reqDone} / {required.length} completed</span>
           <span className={pct === 100 ? "text-emerald-500 font-extrabold" : "text-foreground"}>{pct}%</span>
         </div>
         <div className="h-2 rounded-full bg-muted overflow-hidden">
@@ -651,6 +655,15 @@ function CohortChecklistDetail({ cohortId, assignmentId }: { cohortId: string; a
             style={{ width: `${pct}%` }}
           />
         </div>
+        {optional.length > 0 && (
+          <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[11px] text-muted-foreground mt-0.5">
+            <span><span className="font-semibold text-foreground">{reqDone}/{required.length}</span> required</span>
+            <span className="text-border" aria-hidden="true">&bull;</span>
+            <span><span className="font-semibold text-foreground">{optDone}/{optional.length}</span> optional</span>
+            <span className="text-border" aria-hidden="true">&bull;</span>
+            <span><span className="font-semibold text-foreground">{done}/{list.length}</span> total</span>
+          </div>
+        )}
       </div>
       <div className="flex flex-col gap-2">
         {list.map((item) => (

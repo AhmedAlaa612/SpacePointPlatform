@@ -757,7 +757,7 @@ function ProgressRow({
           )}
         </div>
 
-        <div className="flex flex-col gap-1.5 w-full sm:w-48 md:w-56 shrink-0 pt-2 sm:pt-0 border-t sm:border-t-0 border-border/40">
+        <div className="flex flex-col gap-1.5 w-full sm:w-56 md:w-60 shrink-0 pt-2 sm:pt-0 border-t sm:border-t-0 border-border/40">
           <div className="flex items-center justify-between text-xs font-mono font-bold">
             <span className="text-muted-foreground">{row.items_done} / {row.items_total} completed</span>
             <span className={row.pct === 100 ? "text-emerald-500 font-extrabold" : "text-foreground"}>{row.pct}%</span>
@@ -768,6 +768,15 @@ function ProgressRow({
               style={{ width: `${row.pct}%` }}
             />
           </div>
+          {(row.optional_total ?? 0) > 0 && (
+            <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[11px] text-muted-foreground">
+              <span><span className="font-semibold text-foreground">{row.items_done}/{row.items_total}</span> required</span>
+              <span className="text-border" aria-hidden="true">&bull;</span>
+              <span><span className="font-semibold text-foreground">{row.optional_done}/{row.optional_total}</span> optional</span>
+              <span className="text-border" aria-hidden="true">&bull;</span>
+              <span><span className="font-semibold text-foreground">{row.all_done}/{row.all_total}</span> total</span>
+            </div>
+          )}
         </div>
 
         {row.pending_confirmations.length > 0 && (

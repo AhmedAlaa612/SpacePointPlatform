@@ -73,6 +73,7 @@ class LmsAssignmentItemDetailOut(BaseModel):
     title: str
     item_type: str
     status: str
+    optional: bool = False
     submitted_url: str | None = None
     submission_field_type: Literal["text", "link"] = "link"
     submitted_text: str | None = None
@@ -108,6 +109,10 @@ class LmsProgramRosterRowOut(BaseModel):
     mode: str = "participant"
     items_total: int
     items_done: int
+    optional_total: int = 0
+    optional_done: int = 0
+    all_total: int = 0
+    all_done: int = 0
     pct: int
     next_item_title: str | None = None
     certificate_required: bool

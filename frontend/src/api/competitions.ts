@@ -753,6 +753,10 @@ export interface CompetitionAnalyticsTeamMember {
   last_login_at: string | null
   items_total?: number
   items_done?: number
+  optional_total?: number
+  optional_done?: number
+  all_total?: number
+  all_done?: number
   pct?: number
 }
 
@@ -778,6 +782,10 @@ export interface CompetitionAnalyticsTeam {
   never_logged_in: number
   items_total: number
   items_done: number
+  optional_total?: number
+  optional_done?: number
+  all_total?: number
+  all_done?: number
   awaiting: number
   pct: number
   /** Every required team deliverable — awaiting_confirmation counts as not

@@ -450,8 +450,11 @@ async def cohort_team_analytics(db: AsyncSession, *, cohort_id: uuid.UUID, mode:
 
     # ── per-team progress ───────────────────────────────────────────────
     required_team_items = [i for i in team_items if not i.optional]
+    optional_team_items = [i for i in team_items if i.optional]
     required_individual_items = [i for i in individual_items if not i.optional]
+    optional_individual_items = [i for i in individual_items if i.optional]
     ind_total = len(required_individual_items)
+    ind_opt_total = len(optional_individual_items)
     now = datetime.now(timezone.utc)
     team_rows = []
     for team in teams:
@@ -468,6 +471,15 @@ async def cohort_team_analytics(db: AsyncSession, *, cohort_id: uuid.UUID, mode:
                 done += 1
             elif status == "awaiting_confirmation":
                 awaiting += 1
+
+        opt_done = 0
+        for item in optional_team_items:
+            progress = progress_by_team_item.get((team.id, item.id))
+            status = progress.status if progress is not None else "pending"
+            if item.item_type == "team_setup" and status == "pending" and team.name and (team.roster_team_id is None or team.name != team.roster_team_id):
+                status = "done"
+            if status == "done":
+                opt_done += 1
 
         # Every deliverable (required and optional), not just the missing ones — ops asked
         # to see what a team actually submitted here (link/text), not just
@@ -527,6 +539,13 @@ async def cohort_team_analytics(db: AsyncSession, *, cohort_id: uuid.UUID, mode:
                     "last_login_at": m.last_login_at,
                     "items_total": ind_total,
                     "items_done": sum(1 for item in required_individual_items if m.id in done_users_by_item.get(item.id, set())),
+                    "optional_total": ind_opt_total,
+                    "optional_done": sum(1 for item in optional_individual_items if m.id in done_users_by_item.get(item.id, set())),
+                    "all_total": ind_total + ind_opt_total,
+                    "all_done": (
+                        sum(1 for item in required_individual_items if m.id in done_users_by_item.get(item.id, set()))
+                        + sum(1 for item in optional_individual_items if m.id in done_users_by_item.get(item.id, set()))
+                    ),
                     "pct": _pct(
                         sum(1 for item in required_individual_items if m.id in done_users_by_item.get(item.id, set())),
                         ind_total,
@@ -537,6 +556,10 @@ async def cohort_team_analytics(db: AsyncSession, *, cohort_id: uuid.UUID, mode:
             "never_logged_in": sum(1 for m in members if m.last_login_at is None),
             "items_total": total,
             "items_done": done,
+            "optional_total": len(optional_team_items),
+            "optional_done": opt_done,
+            "all_total": total + len(optional_team_items),
+            "all_done": done + opt_done,
             "awaiting": awaiting,
             "pct": _pct(done, total),
             "deliverables": deliverables,

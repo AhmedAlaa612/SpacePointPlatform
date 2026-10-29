@@ -2368,12 +2368,11 @@ async def _assignment_summary(db: AsyncSession, assignment: LmsProgramAssignment
 
     done = 0
     required_total = 0
+    optional_done = 0
+    optional_total = 0
     next_item_title: str | None = None
     dashboard_cache: dict[uuid.UUID, dict | None] = {}
     for item, progress in pairs:
-        if item.optional:
-            continue
-        required_total += 1
         team_progress = team_progress_by_item.get(item.id) if item.scope == "team" else None
         status = await refresh_item_progress(
             db, progress=team_progress or progress, item=item, user_id=assignment.user_id,
@@ -2387,10 +2386,21 @@ async def _assignment_summary(db: AsyncSession, assignment: LmsProgramAssignment
             )
             if has_team is not None:
                 status = "done"
-        if status == "done":
-            done += 1
-        elif next_item_title is None:
-            next_item_title = item.title
+
+        is_done = (status == "done")
+        if item.optional:
+            optional_total += 1
+            if is_done:
+                optional_done += 1
+        else:
+            required_total += 1
+            if is_done:
+                done += 1
+            elif next_item_title is None:
+                next_item_title = item.title
+
+    all_total = required_total + optional_total
+    all_done = done + optional_done
 
     return {
         "assignment_id": assignment.id, "lms_program_id": program.id,
@@ -2407,6 +2417,8 @@ async def _assignment_summary(db: AsyncSession, assignment: LmsProgramAssignment
         "cohort_id": assignment.cohort_id, "cohort_name": cohort.name if cohort else None,
         "mode": getattr(assignment, "mode", None) or "participant",
         "items_total": required_total, "items_done": done,
+        "optional_total": optional_total, "optional_done": optional_done,
+        "all_total": all_total, "all_done": all_done,
         "pct": round(100 * done / required_total) if required_total else 100,
         "next_item_title": next_item_title,
         "certificate_required": program.certificate_required,
@@ -2619,7 +2631,7 @@ async def assignment_item_detail(db: AsyncSession, *, assignment_id: uuid.UUID) 
 
         out.append({
             "item_id": item.id, "title": item.title, "item_type": item.item_type,
-            "status": status, "submitted_url": submitted_url,
+            "status": status, "optional": item.optional, "submitted_url": submitted_url,
             "submission_field_type": item.submission_field_type,
             "submitted_text": target.submitted_text,
             "submission_multi_link": item.submission_multi_link,

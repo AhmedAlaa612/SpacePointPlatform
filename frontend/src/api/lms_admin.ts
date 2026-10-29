@@ -671,6 +671,10 @@ export interface LmsProgramRosterRow {
   mode: string;
   items_total: number;
   items_done: number;
+  optional_total?: number;
+  optional_done?: number;
+  all_total?: number;
+  all_done?: number;
   pct: number;
   next_item_title: string | null;
   certificate_required: boolean;
@@ -710,6 +714,7 @@ export interface LmsAssignmentItemDetail {
   title: string;
   item_type: LmsProgramItemType;
   status: string;
+  optional?: boolean;
   submitted_url: string | null;
   submission_field_type: "text" | "link";
   submitted_text: string | null;
