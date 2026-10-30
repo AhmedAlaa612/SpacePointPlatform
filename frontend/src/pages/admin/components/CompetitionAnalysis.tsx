@@ -887,6 +887,11 @@ export function TeamAnalysisCard({
             <Lock size={11} /> Locked
           </span>
         )}
+        {team.checkpoints && team.checkpoints.length > 0 && (
+          <span className="hidden sm:flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-lg bg-muted text-muted-foreground border border-border/60 shrink-0">
+            <Flag size={11} /> {team.checkpoints.filter((c) => c.locked).length}/{team.checkpoints.length} checkpoints locked
+          </span>
+        )}
         {team.stalled && (
           <span className="hidden sm:flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-lg bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/30 shrink-0">
             <Clock size={11} /> Stalled
@@ -1072,17 +1077,37 @@ export function TeamAnalysisCard({
                 <Flag size={13} />
                 <span>Checkpoints ({team.checkpoints.filter((c) => c.locked).length}/{team.checkpoints.length} locked)</span>
               </div>
-              <div className="flex flex-col gap-1.5">
-                {team.checkpoints.map((cp) => (
-                  <div key={cp.item_id} className="flex items-center justify-between gap-2 flex-wrap rounded-lg border border-border/60 bg-muted/30 px-2.5 py-1.5 text-xs">
-                    <span className="font-medium text-foreground truncate">{cp.title}</span>
-                    {cp.locked ? (
-                      <span className="text-muted-foreground">
-                        Locked{cp.locked_at ? ` on ${formatDateTime(cp.locked_at)}` : ""}{cp.locked_by_name ? ` by ${cp.locked_by_name}` : ""}
-                      </span>
-                    ) : (
-                      <span className="text-muted-foreground italic">Open</span>
-                    )}
+              <div className="flex flex-col gap-2">
+                {team.checkpoints.map((cp) => cp.locked ? (
+                  <div key={cp.item_id} className="flex items-start sm:items-center gap-2.5 p-3 rounded-xl border border-emerald-500/30 bg-emerald-500/10 text-xs">
+                    <div className="p-1.5 rounded-lg bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 shrink-0 mt-0.5 sm:mt-0">
+                      <Lock size={14} />
+                    </div>
+                    <div className="min-w-0">
+                      <div className="font-semibold text-emerald-700 dark:text-emerald-300 flex items-center gap-1.5 flex-wrap">
+                        <span>{cp.title} locked</span>
+                        {cp.locked_at && (
+                          <span className="text-[11px] font-normal text-muted-foreground">· {relativeTime(cp.locked_at)}</span>
+                        )}
+                      </div>
+                      <p className="text-[11px] text-muted-foreground mt-0.5 flex flex-wrap gap-x-1">
+                        {cp.locked_at && (
+                          <span>Locked on <strong className="text-foreground font-medium">{formatDateTime(cp.locked_at)}</strong></span>
+                        )}
+                        {cp.locked_by_name && (
+                          <span>
+                            by <strong className="text-foreground font-medium">{cp.locked_by_name}</strong>
+                            {cp.locked_by_email ? <span> ({cp.locked_by_email})</span> : ""}
+                          </span>
+                        )}
+                      </p>
+                    </div>
+                  </div>
+                ) : (
+                  <div key={cp.item_id} className="flex items-center gap-2.5 p-3 rounded-xl border border-border/60 bg-muted/30 text-xs">
+                    <div className="p-1.5 rounded-lg bg-muted text-muted-foreground shrink-0"><Flag size={14} /></div>
+                    <span className="font-semibold text-foreground">{cp.title}</span>
+                    <span className="text-muted-foreground italic">· Not locked yet</span>
                   </div>
                 ))}
               </div>
