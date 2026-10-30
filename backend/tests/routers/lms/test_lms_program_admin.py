@@ -830,3 +830,81 @@ async def test_get_program_auto_heals_gaps_in_item_positions(db, client):
     assert [i["title"] for i in items] == ["Gapped 6", "Gapped 7", "Gapped 12", "Gapped 15"]
     assert [i["position"] for i in items] == [1, 2, 3, 4]
 
+
+@pytest.mark.asyncio
+async def test_import_cohort_override_items_from_template(db, client):
+    ops = await _user(db)
+    program = await _program(db)
+    cohort = await _cohort(db, program)
+    await db.commit()
+
+    lms_prog_resp = await client.post(
+        "/lms/admin/programs", headers=_headers(ops), json={"program_id": str(program.id), "name": "Source Program"},
+    )
+    lms_program_id = lms_prog_resp.json()["id"]
+    item1 = (await client.post(
+        f"/lms/admin/programs/{lms_program_id}/items", headers=_headers(ops),
+        json={"item_type": "manual", "title": "Template Step 1"},
+    )).json()
+    item2 = (await client.post(
+        f"/lms/admin/programs/{lms_program_id}/items", headers=_headers(ops),
+        json={"item_type": "manual", "title": "Template Step 2"},
+    )).json()
+
+    resp = await client.post(
+        f"/lms/admin/cohorts/{cohort.id}/program-override/import-items",
+        headers=_headers(ops),
+        json={
+            "source_type": "program",
+            "source_id": lms_program_id,
+            "item_ids": [item2["id"]],
+            "replace_existing": False,
+        },
+    )
+    assert resp.status_code == 200
+    override = resp.json()
+    assert override["is_inherited"] is False
+    titles = [i["title"] for i in override["items"]]
+    assert "Template Step 2" in titles
+
+
+@pytest.mark.asyncio
+async def test_import_cohort_override_items_from_another_cohort(db, client):
+    ops = await _user(db)
+    program = await _program(db)
+    source_cohort = await _cohort(db, program)
+    target_cohort = await _cohort(db, program)
+    await db.commit()
+
+    # Base program checklist
+    await client.post(
+        "/lms/admin/programs", headers=_headers(ops), json={"program_id": str(program.id), "name": "Base"},
+    )
+
+    # Source cohort adds 2 custom items to its override
+    item_a = (await client.post(
+        f"/lms/admin/cohorts/{source_cohort.id}/program-override/items", headers=_headers(ops),
+        json={"item_type": "manual", "title": "Cohort Custom A"},
+    )).json()
+    item_b = (await client.post(
+        f"/lms/admin/cohorts/{source_cohort.id}/program-override/items", headers=_headers(ops),
+        json={"item_type": "manual", "title": "Cohort Custom B"},
+    )).json()
+
+    # Target cohort imports item_a and item_b with replace_existing=True
+    resp = await client.post(
+        f"/lms/admin/cohorts/{target_cohort.id}/program-override/import-items",
+        headers=_headers(ops),
+        json={
+            "source_type": "cohort",
+            "source_id": str(source_cohort.id),
+            "item_ids": [item_a["id"], item_b["id"]],
+            "replace_existing": True,
+        },
+    )
+    assert resp.status_code == 200
+    override = resp.json()
+    assert override["is_inherited"] is False
+    assert [i["title"] for i in override["items"]] == ["Cohort Custom A", "Cohort Custom B"]
+
+

@@ -1,9 +1,10 @@
 import { Fragment, useEffect, useRef, useState } from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { Plus, X, GripVertical, ImagePlus, Users, Crop, ExternalLink, Eye } from "lucide-react"
+import { Plus, X, GripVertical, ImagePlus, Users, Crop, ExternalLink, Eye, Copy } from "lucide-react"
 import { EmptyState, Spinner } from "@/components/ui/primitives"
 import { ImageCropModal } from "@/components/ui/ImageCropModal"
 import { ObserverTeamModal } from "@/components/lms/ObserverTeamModal"
+import { ImportChecklistModal } from "./ImportChecklistModal"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { VideoPlayer } from "@/components/video/VideoPlayer"
 import { useToast } from "@/components/ui/toast"
@@ -257,7 +258,7 @@ export function ProgramTemplateEditor({
       </div>
 
       <div className="flex flex-col gap-2 p-3 bg-card border border-border rounded-xl">
-        <div className="flex items-center justify-between gap-2">
+        <div className="flex flex-wrap items-center justify-between gap-2">
           <div>
             <div className="text-sm font-medium">Mission Poster Template URL</div>
             <div className="text-xs text-muted-foreground mt-0.5">
@@ -360,6 +361,7 @@ export function CohortOverrideEditor({
 
   const [overrideValue, setOverrideValue] = useState("")
   const [showObserverModal, setShowObserverModal] = useState(false)
+  const [showImportModal, setShowImportModal] = useState(false)
 
   useEffect(() => {
     setOverrideValue(storedOverride ?? defaultTitle ?? "")
@@ -416,8 +418,20 @@ export function CohortOverrideEditor({
   return (
     <div className="flex flex-col gap-3">
       {override.is_inherited && (
-        <div className="text-xs text-muted-foreground bg-muted/50 border border-border rounded-xl px-3 py-2">
-          Showing the program's own checklist — {readOnly ? "nothing has been overridden for this cohort yet." : "edit anything below to start this cohort's own override."}
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs text-muted-foreground bg-muted/50 border border-border rounded-xl px-3 py-2">
+          <span>
+            Showing the program's own checklist — {readOnly ? "nothing has been overridden for this cohort yet." : "edit anything below to start this cohort's own override."}
+          </span>
+          {!readOnly && (
+            <button
+              type="button"
+              onClick={() => setShowImportModal(true)}
+              className="text-xs font-semibold text-primary hover:underline shrink-0 inline-flex items-center gap-1 cursor-pointer"
+            >
+              <Copy className="w-3.5 h-3.5" />
+              Import items from another cohort
+            </button>
+          )}
         </div>
       )}
       {isStaff && !readOnly && cohortData && (
@@ -493,7 +507,7 @@ export function CohortOverrideEditor({
       )}
       {isStaff && !readOnly && (
         <div className="flex flex-col gap-2 p-3 bg-card border border-border rounded-xl">
-          <div className="flex items-center justify-between gap-2">
+          <div className="flex flex-wrap items-center justify-between gap-2">
             <div>
               <div className="text-sm font-medium">Cohort Poster Template Override</div>
               <div className="text-xs text-muted-foreground mt-0.5">
@@ -550,7 +564,7 @@ export function CohortOverrideEditor({
         <span className="text-muted-foreground flex-1">
           Test student checklist flows directly or catch up missing items for enrolled students.
         </span>
-        <div className="flex items-center gap-2 shrink-0">
+        <div className="flex flex-wrap items-center gap-2 shrink-0">
           <button
             type="button"
             onClick={() => setShowObserverModal(true)}
@@ -560,6 +574,17 @@ export function CohortOverrideEditor({
             <Eye className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />
             Try as Observer
           </button>
+          {!readOnly && (
+            <button
+              type="button"
+              onClick={() => setShowImportModal(true)}
+              className="h-7 px-3 rounded-full border border-border bg-card text-xs font-semibold text-foreground hover:border-primary/50 hover:bg-primary/5 transition-colors cursor-pointer inline-flex items-center gap-1.5 shadow-sm"
+              title="Import items from another cohort or program template"
+            >
+              <Copy className="w-3.5 h-3.5 text-primary" />
+              Import Items
+            </button>
+          )}
           {isStaff && !readOnly && !hideResync && (
             <button
               type="button"
@@ -578,10 +603,18 @@ export function CohortOverrideEditor({
         open={showObserverModal}
         onClose={() => setShowObserverModal(false)}
       />
+      <ImportChecklistModal
+        open={showImportModal}
+        onClose={() => setShowImportModal(false)}
+        targetCohortId={cohortId}
+        targetProgramId={cohortData?.program_id}
+        onSuccess={invalidate}
+      />
       <ChecklistItemsEditor
         items={override.items}
         readOnly={readOnly}
         cohortId={cohortId}
+        onImportItems={() => setShowImportModal(true)}
         onAdd={(data) => addCohortOverrideItemApi(cohortId, data).then(invalidate)}
         onUpdate={(itemId, data) => updateCohortOverrideItemApi(cohortId, itemId, data).then(invalidate)}
         onDelete={(itemId) => deleteCohortOverrideItemApi(cohortId, itemId).then(invalidate)}
@@ -597,7 +630,7 @@ export function CohortOverrideEditor({
 
 export function ChecklistItemsEditor({
   items, onAdd, onUpdate, onDelete, onUploadPdf, onRemovePdf, onUploadGuidelineVideo, onRemoveGuidelineVideo,
-  onReorder, readOnly, cohortId,
+  onReorder, readOnly, cohortId, onImportItems,
 }: {
   items: LmsProgramItem[]
   onAdd: (data: LmsProgramItemInput) => Promise<unknown>
@@ -614,6 +647,7 @@ export function ChecklistItemsEditor({
   // existing session" picker for a `session` item. A program template can
   // span many cohorts with different session dates, so it's omitted there.
   cohortId?: string
+  onImportItems?: () => void
 }) {
   const [addingType, setAddingType] = useState<LmsProgramItemType | null>(null)
   // Individual vs. team is picked here, at add time, not toggled afterward —
@@ -709,19 +743,48 @@ export function ChecklistItemsEditor({
 
   return (
     <div className="flex flex-col gap-2">
-      {!readOnly && items.length > 1 && (
-        <div className="flex justify-end">
-          <button
-            onClick={() => void gateEverything()}
-            disabled={gatingAll || items.every((i) => i.gated)}
-            className="h-7 px-3 rounded-full border border-dashed border-border text-xs font-medium text-muted-foreground hover:border-primary/50 hover:text-foreground transition-colors disabled:opacity-50 cursor-pointer"
-          >
-            {gatingAll ? "Gating…" : "Gate everything in order"}
-          </button>
+      {!readOnly && (
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          {onImportItems && (
+            <button
+              type="button"
+              onClick={onImportItems}
+              className="h-7 px-3 rounded-full border border-border bg-card text-xs font-semibold text-foreground hover:border-primary/50 hover:bg-primary/5 transition-colors cursor-pointer inline-flex items-center gap-1.5 shadow-sm"
+              title="Import items from another cohort or program template"
+            >
+              <Copy size={12} className="text-primary" />
+              Import Items
+            </button>
+          )}
+          {items.length > 1 && (
+            <div className="ml-auto">
+              <button
+                onClick={() => void gateEverything()}
+                disabled={gatingAll || items.every((i) => i.gated)}
+                className="h-7 px-3 rounded-full border border-dashed border-border text-xs font-medium text-muted-foreground hover:border-primary/50 hover:text-foreground transition-colors disabled:opacity-50 cursor-pointer"
+              >
+                {gatingAll ? "Gating…" : "Gate everything in order"}
+              </button>
+            </div>
+          )}
         </div>
       )}
 
-      {displayItems.length === 0 && addingType === null && <EmptyState title="No steps yet" />}
+      {displayItems.length === 0 && addingType === null && (
+        <div className="flex flex-col items-center justify-center p-8 border border-dashed border-border rounded-xl bg-muted/10 gap-3 text-center">
+          <EmptyState title="No steps yet" />
+          {onImportItems && !readOnly && (
+            <button
+              type="button"
+              onClick={onImportItems}
+              className="h-8 px-4 rounded-xl border border-primary/30 bg-primary/10 text-xs font-semibold text-primary hover:bg-primary/20 transition-colors inline-flex items-center gap-1.5 cursor-pointer shadow-sm"
+            >
+              <Copy className="w-3.5 h-3.5" />
+              Import items from cohort or template
+            </button>
+          )}
+        </div>
+      )}
 
       {displayItems.map((item, index) => (
         <ItemRow
@@ -824,6 +887,16 @@ export function ChecklistItemsEditor({
                 </button>
               )
             })}
+            {onImportItems && (
+              <button
+                type="button"
+                onClick={onImportItems}
+                className="flex items-center gap-1.5 h-8 px-3 rounded-full border border-dashed border-primary/50 text-xs font-semibold text-primary hover:bg-primary/5 transition-colors cursor-pointer"
+                title="Import items from another cohort or program template"
+              >
+                <Copy size={13} /> Import Items
+              </button>
+            )}
           </div>
         </div>
       )}

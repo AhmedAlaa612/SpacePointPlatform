@@ -665,6 +665,14 @@ class LmsProgramItemReorderIn(BaseModel):
     item_ids: list[UUID]
 
 
+class LmsProgramItemImportIn(BaseModel):
+    """Request payload to import/clone items from another cohort or program template."""
+    source_type: Literal["cohort", "program"]
+    source_id: UUID
+    item_ids: list[UUID]
+    replace_existing: bool = False
+
+
 class LmsProgramCreate(BaseModel):
     program_id: UUID | None = None
     name: str

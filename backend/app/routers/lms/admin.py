@@ -83,6 +83,7 @@ from app.schemas.lms_admin import (
     LmsProgramCohortEffectiveOut,
     LmsProgramCreate,
     LmsProgramItemIn,
+    LmsProgramItemImportIn,
     LmsProgramItemOut,
     LmsProgramItemReorderIn,
     LmsProgramOut,
@@ -2730,6 +2731,205 @@ async def reorder_cohort_override_items(
             status.HTTP_400_BAD_REQUEST, detail="item_ids must include every item on this checklist exactly once",
         )
     return await items_out(db, reordered)
+
+
+@router.post("/cohorts/{cohort_id}/program-override/import-items", response_model=LmsProgramCohortEffectiveOut)
+async def import_cohort_override_items(
+    cohort_id: uuid.UUID,
+    body: LmsProgramItemImportIn,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_lms_content),
+):
+    """Imports or clones items from another cohort or program template into this cohort's checklist."""
+    target_cohort = await db.get(Cohort, cohort_id)
+    if target_cohort is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Target cohort not found")
+
+    if not body.item_ids:
+        return await get_cohort_program_override(cohort_id, db=db, _=current_user)
+
+    # 1. Fetch source items
+    raw_items: list[LmsProgramItem] = []
+    if body.source_type == "program":
+        lms_prog = await db.get(LmsProgram, body.source_id)
+        if lms_prog is None:
+            lms_prog = await db.scalar(select(LmsProgram).where(LmsProgram.program_id == body.source_id))
+        if lms_prog is None:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Source program checklist template not found")
+        raw_items = (await db.execute(
+            select(LmsProgramItem).where(
+                LmsProgramItem.owner_type == "program",
+                LmsProgramItem.owner_id == lms_prog.id,
+                LmsProgramItem.id.in_(body.item_ids),
+            ).order_by(LmsProgramItem.position)
+        )).scalars().all()
+    elif body.source_type == "cohort":
+        source_cohort = await db.get(Cohort, body.source_id)
+        if source_cohort is None:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Source cohort not found")
+
+        resolved = await effective_cohort_program_items(db, source_cohort.id)
+        if resolved is not None:
+            _, all_src_items, _ = resolved
+            id_set = set(body.item_ids)
+            raw_items = [i for i in all_src_items if i.id in id_set]
+
+    if not raw_items:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="No matching source checklist items found to import")
+
+    # 2. Ensure target cohort override exists
+    override = await db.scalar(
+        select(LmsProgramCohortOverride).where(LmsProgramCohortOverride.cohort_id == target_cohort.id)
+    )
+
+    if body.replace_existing:
+        if override is not None:
+            old_items = (await db.execute(
+                select(LmsProgramItem).where(
+                    LmsProgramItem.owner_type == "cohort_override",
+                    LmsProgramItem.owner_id == override.id,
+                )
+            )).scalars().all()
+            for oi in old_items:
+                if oi.pdf_path:
+                    try:
+                        await storage.delete_file(PROGRAM_ITEM_PDF_BUCKET, oi.pdf_path)
+                    except Exception:
+                        pass
+                await db.delete(oi)
+            await db.flush()
+        else:
+            target_lms = await db.scalar(
+                select(LmsProgram).where(LmsProgram.program_id == target_cohort.program_id)
+            )
+            if target_lms is None:
+                sp = await db.get(Program, target_cohort.program_id)
+                target_lms = LmsProgram(
+                    id=uuid.uuid4(),
+                    program_id=target_cohort.program_id,
+                    name=f"{sp.name if sp else 'Program'} Checklist",
+                )
+                db.add(target_lms)
+                await db.flush()
+            override = LmsProgramCohortOverride(
+                id=uuid.uuid4(), cohort_id=target_cohort.id, lms_program_id=target_lms.id
+            )
+            db.add(override)
+            await db.flush()
+    else:
+        # Append mode: if override doesn't exist, fork first to preserve current inherited items
+        if override is None:
+            forked = await fork_cohort_override(db, cohort_id=target_cohort.id)
+            if forked is not None:
+                override, _ = forked
+            else:
+                target_lms = await db.scalar(
+                    select(LmsProgram).where(LmsProgram.program_id == target_cohort.program_id)
+                )
+                if target_lms is None:
+                    sp = await db.get(Program, target_cohort.program_id)
+                    target_lms = LmsProgram(
+                        id=uuid.uuid4(),
+                        program_id=target_cohort.program_id,
+                        name=f"{sp.name if sp else 'Program'} Checklist",
+                    )
+                    db.add(target_lms)
+                    await db.flush()
+                override = LmsProgramCohortOverride(
+                    id=uuid.uuid4(), cohort_id=target_cohort.id, lms_program_id=target_lms.id
+                )
+                db.add(override)
+                await db.flush()
+
+    current_max_pos = await db.scalar(
+        select(func.coalesce(func.max(LmsProgramItem.position), 0)).where(
+            LmsProgramItem.owner_type == "cohort_override",
+            LmsProgramItem.owner_id == override.id,
+        )
+    ) or 0
+
+    # 3. Filter course items to avoid duplicate course_id conflict on the same checklist
+    existing_courses = set((await db.execute(
+        select(LmsProgramItem.course_id).where(
+            LmsProgramItem.owner_type == "cohort_override",
+            LmsProgramItem.owner_id == override.id,
+            LmsProgramItem.course_id.isnot(None),
+        )
+    )).scalars().all())
+
+    items_to_add: list[LmsProgramItem] = []
+    seen_courses = set(existing_courses)
+    for src in raw_items:
+        if src.course_id is not None:
+            if src.course_id in seen_courses:
+                continue  # Skip course if already on this checklist
+            seen_courses.add(src.course_id)
+        items_to_add.append(src)
+
+    if not items_to_add:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            detail="The selected course item(s) are already present on this checklist",
+        )
+
+    # 4. Clone each item
+    for idx, src in enumerate(items_to_add):
+        copy_id = uuid.uuid4()
+        copy_pdf_path = None
+        if src.pdf_path:
+            try:
+                data = await storage.download_file(PROGRAM_ITEM_PDF_BUCKET, src.pdf_path)
+                filename = src.pdf_path.rsplit("/", 1)[-1]
+                copy_pdf_path = await storage.upload_to_path(
+                    PROGRAM_ITEM_PDF_BUCKET, f"program-items/{copy_id}/{filename}", data, "application/pdf",
+                )
+            except Exception:
+                copy_pdf_path = src.pdf_path
+
+        new_item = LmsProgramItem(
+            id=copy_id,
+            owner_type="cohort_override",
+            owner_id=override.id,
+            position=current_max_pos + idx + 1,
+            item_type=src.item_type,
+            title=src.title,
+            description=src.description,
+            optional=src.optional,
+            requires_confirmation=src.requires_confirmation,
+            scope=src.scope,
+            course_id=src.course_id,
+            mission_id=src.mission_id,
+            variant_id=src.variant_id,
+            external_url=src.external_url,
+            submission_prompt=src.submission_prompt,
+            submission_field_type=src.submission_field_type,
+            submission_multi_link=src.submission_multi_link,
+            submission_link_labels=src.submission_link_labels,
+            submission_table_config=src.submission_table_config,
+            pdf_path=copy_pdf_path,
+            deadline_at=src.deadline_at,
+            max_team_size=src.max_team_size,
+            session_date=src.session_date,
+            session_starts_at=src.session_starts_at,
+            session_location=src.session_location,
+            session_meeting_url=src.session_meeting_url,
+            mission_step_key=src.mission_step_key,
+            gated=src.gated,
+            guideline_kind=src.guideline_kind,
+            guideline_url=src.guideline_url,
+            checkpoint_label=src.checkpoint_label,
+            cohort_quiz_template_id=src.cohort_quiz_template_id,
+            arcade_game_id=src.arcade_game_id,
+            arcade_game_mode=src.arcade_game_mode,
+        )
+        db.add(new_item)
+
+    await db.flush()
+    await renumber_program_items(db, owner_type="cohort_override", owner_id=override.id)
+    await sync_cohort_assignments(db, cohort_id=target_cohort.id)
+    await db.commit()
+
+    return await get_cohort_program_override(cohort_id, db=db, _=current_user)
 
 
 # ── LMS Program & Cohort CubeSat Component Configuration ─────────────────
