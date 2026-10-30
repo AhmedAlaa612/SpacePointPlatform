@@ -346,13 +346,20 @@ function DeliverableList({ deliverables }: { deliverables: CompetitionAnalyticsD
                 </div>
               )}
 
-              <div className="flex items-center gap-1.5 min-w-0 flex-1">
-                <span className="text-xs sm:text-sm font-semibold text-foreground truncate">
-                  {d.title}
-                </span>
-                {d.optional && (
-                  <span className="text-[10px] font-medium px-1.5 py-0.5 rounded-md bg-muted text-muted-foreground border border-border/50 shrink-0">
-                    Optional
+              <div className="flex flex-col gap-0.5 min-w-0 flex-1">
+                <div className="flex items-center gap-1.5 min-w-0">
+                  <span className="text-xs sm:text-sm font-semibold text-foreground truncate">
+                    {d.title}
+                  </span>
+                  {d.optional && (
+                    <span className="text-[10px] font-medium px-1.5 py-0.5 rounded-md bg-muted text-muted-foreground border border-border/50 shrink-0">
+                      Optional
+                    </span>
+                  )}
+                </div>
+                {hasSubmissions && d.updated_at && (
+                  <span className="text-[11px] text-muted-foreground truncate">
+                    Submitted at {formatDateTime(d.updated_at)}{d.updated_by_name ? ` by ${d.updated_by_name}` : ""}
                   </span>
                 )}
               </div>
