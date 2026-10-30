@@ -176,14 +176,39 @@ function ChecklistRow({
   const [uploading, setUploading] = useState(false)
 
   const toggleMutation = useMutation({
-    mutationFn: (newDone: boolean) =>
-      setInternalChecklistProgressApi(sessionId, item.item_id, {
+    mutationFn: (newDone: boolean) => {
+      const nextSubsDone = newDone ? (item.sub_items || []).map((s) => s.id) : []
+      return setInternalChecklistProgressApi(sessionId, item.item_id, {
         is_done: newDone,
         proof_report_id: item.proof_report_id,
         note: item.note,
-      }),
+        completed_sub_items: (item.sub_items && item.sub_items.length > 0) ? nextSubsDone : item.completed_sub_items,
+      })
+    },
     onSuccess: onChanged,
     onError: (e) => toast.error(getErrorMessage(e, "Could not update status")),
+  })
+
+  const toggleSubItemMutation = useMutation({
+    mutationFn: (subId: string) => {
+      const currentDone = item.completed_sub_items || []
+      const nextDone = currentDone.includes(subId)
+        ? currentDone.filter((id) => id !== subId)
+        : [...currentDone, subId]
+
+      const allRequired = (item.sub_items || []).filter((s) => s.is_required !== false)
+      const allRequiredDone = allRequired.length > 0 && allRequired.every((s) => nextDone.includes(s.id))
+      const autoIsDone = allRequired.length > 0 ? allRequiredDone : item.is_done
+
+      return setInternalChecklistProgressApi(sessionId, item.item_id, {
+        is_done: autoIsDone,
+        proof_report_id: item.proof_report_id,
+        note: item.note,
+        completed_sub_items: nextDone,
+      })
+    },
+    onSuccess: onChanged,
+    onError: (e) => toast.error(getErrorMessage(e, "Could not update sub-topic status")),
   })
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -341,6 +366,40 @@ function ChecklistRow({
                       </span>
                     )}
                   </a>
+                )
+              })}
+            </div>
+          )}
+
+          {/* Sub-topics / Checklist steps */}
+          {item.sub_items && item.sub_items.length > 0 && (
+            <div className="flex flex-col gap-1.5 pt-2 pl-2 border-l-2 border-border/70 ml-0.5 mt-1">
+              <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground flex items-center gap-1">
+                <span className="text-primary font-bold">↳</span> Sub-topics (
+                {(item.completed_sub_items || []).filter((id) => (item.sub_items || []).some((s) => s.id === id)).length} / {item.sub_items.length})
+              </span>
+              {item.sub_items.map((sub, sIdx) => {
+                const isSubDone = (item.completed_sub_items || []).includes(sub.id)
+                return (
+                  <div key={sub.id || sIdx} className="flex items-start gap-2 text-xs">
+                    <button
+                      type="button"
+                      onClick={() => toggleSubItemMutation.mutate(sub.id)}
+                      disabled={toggleSubItemMutation.isPending}
+                      className="text-muted-foreground hover:text-foreground shrink-0 cursor-pointer transition-colors mt-0.5"
+                      title={isSubDone ? "Mark incomplete" : "Mark completed"}
+                    >
+                      {isSubDone ? (
+                        <CheckCircle2 size={15} className="text-emerald-600 dark:text-emerald-400" />
+                      ) : (
+                        <Circle size={15} className="text-muted-foreground hover:text-primary" />
+                      )}
+                    </button>
+                    <span className={cn("transition-colors min-w-0 break-words", isSubDone && "line-through text-muted-foreground")}>
+                      <FormattedText text={sub.title} />
+                      {sub.is_required === false && <span className="text-[10px] text-muted-foreground"> · optional</span>}
+                    </span>
+                  </div>
                 )
               })}
             </div>

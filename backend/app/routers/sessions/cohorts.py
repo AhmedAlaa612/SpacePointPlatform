@@ -320,6 +320,7 @@ async def create_cohort(
                     material_id=ci.material_id,
                     link_url=ci.link_url,
                     attachments=list(ci.attachments or []),
+                    sub_items=list(ci.sub_items or []),
                     created_by=current_user.id,
                 ))
             if t_items:
@@ -343,6 +344,7 @@ async def create_cohort(
                 material_id=ci.material_id,
                 link_url=ci.link_url,
                 attachments=list(ci.attachments or []),
+                sub_items=list(ci.sub_items or []),
                 created_by=current_user.id,
             ))
         if template_cohort_items:
@@ -683,6 +685,7 @@ async def clone_cohort(
                 material_id=ci.material_id,
                 link_url=ci.link_url,
                 attachments=list(ci.attachments or []),
+                sub_items=list(ci.sub_items or []),
                 created_by=current_user.id,
             ))
         if source_checklist_items:

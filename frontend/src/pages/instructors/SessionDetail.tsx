@@ -719,7 +719,37 @@ function ChecklistRow({
   const [error, setError] = useState("")
 
   const tick = useMutation({
-    mutationFn: (isDone: boolean) => setChecklistProgressApi(sessionId, line.item_id, { is_done: isDone }),
+    mutationFn: (isDone: boolean) => {
+      const nextSubsDone = isDone ? (line.sub_items || []).map((s) => s.id) : []
+      return setChecklistProgressApi(sessionId, line.item_id, {
+        is_done: isDone,
+        proof_report_id: line.proof_report_id,
+        note: line.note,
+        completed_sub_items: (line.sub_items && line.sub_items.length > 0) ? nextSubsDone : line.completed_sub_items,
+      })
+    },
+    onSuccess: onChanged,
+    onError: (e) => setError(getErrorMessage(e, "Couldn't save that")),
+  })
+
+  const toggleSubItem = useMutation({
+    mutationFn: (subId: string) => {
+      const currentDone = line.completed_sub_items || []
+      const nextDone = currentDone.includes(subId)
+        ? currentDone.filter((id) => id !== subId)
+        : [...currentDone, subId]
+
+      const allRequired = (line.sub_items || []).filter((s) => s.is_required !== false)
+      const allRequiredDone = allRequired.length > 0 && allRequired.every((s) => nextDone.includes(s.id))
+      const autoIsDone = allRequired.length > 0 ? allRequiredDone : line.is_done
+
+      return setChecklistProgressApi(sessionId, line.item_id, {
+        is_done: autoIsDone,
+        proof_report_id: line.proof_report_id,
+        note: line.note,
+        completed_sub_items: nextDone,
+      })
+    },
     onSuccess: onChanged,
     onError: (e) => setError(getErrorMessage(e, "Couldn't save that")),
   })
@@ -820,6 +850,32 @@ function ChecklistRow({
                   )}
                   <span className="truncate max-w-[160px] sm:max-w-xs">{att.title || "Reference"}</span>
                 </a>
+              )
+            })}
+          </div>
+        )}
+        {line.sub_items && line.sub_items.length > 0 && (
+          <div className="flex flex-col gap-1.5 pt-2 pl-2 border-l-2 border-border/70 ml-0.5 mt-1.5">
+            <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground flex items-center gap-1">
+              <span className="text-primary font-bold">↳</span> Sub-topics (
+              {(line.completed_sub_items || []).filter((id) => (line.sub_items || []).some((s) => s.id === id)).length} / {line.sub_items.length})
+            </span>
+            {line.sub_items.map((sub, sIdx) => {
+              const isSubDone = (line.completed_sub_items || []).includes(sub.id)
+              return (
+                <div key={sub.id || sIdx} className="flex items-start gap-2 text-xs">
+                  <input
+                    type="checkbox"
+                    checked={isSubDone}
+                    disabled={locked || toggleSubItem.isPending}
+                    onChange={() => toggleSubItem.mutate(sub.id)}
+                    className="shrink-0 rounded text-primary focus:ring-primary border-border bg-background size-3.5 cursor-pointer mt-0.5"
+                  />
+                  <span className={cn("transition-colors min-w-0 break-words", isSubDone && "line-through text-muted-foreground")}>
+                    {sub.title}
+                    {sub.is_required === false && <span className="text-[10px] text-muted-foreground"> · optional</span>}
+                  </span>
+                </div>
               )
             })}
           </div>

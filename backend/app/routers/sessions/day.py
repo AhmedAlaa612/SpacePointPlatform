@@ -79,9 +79,30 @@ async def list_checklist_items(
     """One (level, role, target_audience) bucket — the management view, no inheritance applied.
     Omit `role_id` for the general bucket; pass a role to edit that role's own
     list. Use the instructor's day endpoint to see what actually resolves."""
-    return await svc.list_checklist_items(
+    items = await svc.list_checklist_items(
         db, role_id=role_id, target_audience=target_audience, **_scope_kwarg(scope, owner_id)
     )
+    hydrated = await svc.hydrate_checklist_attachments(db, items, is_ops=True)
+    out = []
+    for item in items:
+        out.append({
+            "id": item.id,
+            "program_id": item.program_id,
+            "cohort_id": item.cohort_id,
+            "session_id": item.session_id,
+            "role_id": item.role_id,
+            "title": item.title,
+            "description": item.description,
+            "requires_proof": item.requires_proof,
+            "is_required": item.is_required,
+            "sort_order": item.sort_order,
+            "target_audience": item.target_audience,
+            "material_id": item.material_id,
+            "link_url": item.link_url,
+            "attachments": hydrated.get(item.id, []),
+            "sub_items": item.sub_items or [],
+        })
+    return out
 
 
 @router.put("/{scope}/{owner_id}/checklist-items", response_model=list[ChecklistItemOut])
@@ -104,7 +125,27 @@ async def set_checklist_items(
         **_scope_kwarg(scope, owner_id),
     )
     await db.commit()
-    return items
+    hydrated = await svc.hydrate_checklist_attachments(db, items, is_ops=True)
+    out = []
+    for item in items:
+        out.append({
+            "id": item.id,
+            "program_id": item.program_id,
+            "cohort_id": item.cohort_id,
+            "session_id": item.session_id,
+            "role_id": item.role_id,
+            "title": item.title,
+            "description": item.description,
+            "requires_proof": item.requires_proof,
+            "is_required": item.is_required,
+            "sort_order": item.sort_order,
+            "target_audience": item.target_audience,
+            "material_id": item.material_id,
+            "link_url": item.link_url,
+            "attachments": hydrated.get(item.id, []),
+            "sub_items": item.sub_items or [],
+        })
+    return out
 
 
 @router.get("/{session_id}/internal-checklist", response_model=list[OpsChecklistItemOut])
@@ -129,6 +170,7 @@ async def set_internal_checklist_item_progress(
     await svc.set_internal_checklist_progress(
         db, session_id=session_id, checklist_item_id=item_id, actor_user_id=current_user.id,
         is_done=body.is_done, proof_report_id=body.proof_report_id, note=body.note,
+        completed_sub_items=body.completed_sub_items,
     )
     await db.commit()
     return {"ok": True}
@@ -183,6 +225,7 @@ async def set_checklist_progress(
     await svc.set_checklist_progress(
         db, session_id, current_user, checklist_item_id=item_id,
         is_done=body.is_done, proof_report_id=body.proof_report_id, note=body.note,
+        completed_sub_items=body.completed_sub_items,
     )
     await db.commit()
     return await svc.get_day_detail(db, session_id, current_user)

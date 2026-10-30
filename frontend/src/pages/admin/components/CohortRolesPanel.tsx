@@ -15,6 +15,8 @@ import {
   ChevronUp,
   ClipboardCheck,
   Copy,
+  ExternalLink,
+  Eye,
   FileText,
   GripVertical,
   ImageIcon,
@@ -25,7 +27,7 @@ import {
   Trash2,
   X,
 } from "lucide-react"
-import type { Cohort, ChecklistItem, ChecklistAttachment, Session } from "@/types/sessions"
+import type { Cohort, ChecklistItem, ChecklistAttachment, ChecklistSubItem, Session } from "@/types/sessions"
 import {
   getDeliveryRolesApi,
   getCohortOpeningsApi,
@@ -33,11 +35,13 @@ import {
   getMaterialsApi,
   type DeliveryRole,
   type Material,
+  type MaterialOwner,
 } from "@/api/sessions/openings"
 import { getSessionsApi } from "@/api/sessions/cohorts"
 import { listChecklistItemsApi, setChecklistItemsApi, type ChecklistScope } from "@/api/sessions/day"
 import { useToast } from "@/components/ui/toast"
-import { cn, getErrorMessage } from "@/lib/utils"
+import { cn, ensureAbsoluteUrl, getErrorMessage } from "@/lib/utils"
+import { MediaPreviewModal } from "@/components/media/MediaPreviewModal"
 import { ChecklistAttachmentPicker } from "./ChecklistAttachmentPicker"
 import { PreSessionQuizAssignmentBar } from "./PreSessionQuizAssignmentBar"
 
@@ -50,6 +54,7 @@ export type ChecklistDraftLine = {
   material_id?: string | null
   link_url?: string | null
   attachments?: ChecklistAttachment[]
+  sub_items?: ChecklistSubItem[]
 }
 
 export function toDraftLines(items: ChecklistItem[]): ChecklistDraftLine[] {
@@ -73,6 +78,11 @@ export function toDraftLines(items: ChecklistItem[]): ChecklistDraftLine[] {
         })
       }
     }
+    const sub_items: ChecklistSubItem[] = (i.sub_items ?? []).map((s) => ({
+      id: s.id || `sub-${Math.random().toString(36).substring(2, 9)}`,
+      title: s.title,
+      is_required: s.is_required !== false,
+    }))
     return {
       key: i.id || `item-${Math.random().toString(36).substring(2, 9)}`,
       title: i.title,
@@ -82,6 +92,7 @@ export function toDraftLines(items: ChecklistItem[]): ChecklistDraftLine[] {
       material_id: i.material_id,
       link_url: i.link_url,
       attachments,
+      sub_items,
     }
   })
 }
@@ -205,12 +216,52 @@ function ReorderableChecklistList({
   rows,
   onChange,
   availableMaterials = [],
+  owner,
+  onMaterialUploaded,
 }: {
   rows: ChecklistDraftLine[]
   onChange: (updated: ChecklistDraftLine[]) => void
   availableMaterials?: Material[]
+  owner?: MaterialOwner
+  onMaterialUploaded?: (mat: Material) => void
 }) {
+  const toast = useToast()
   const [dragKey, setDragKey] = useState<string | null>(null)
+  const [expandedKeys, setExpandedKeys] = useState<Set<string>>(new Set())
+  const [previewMedia, setPreviewMedia] = useState<{
+    title: string
+    type: "pdf" | "video"
+    url: string
+  } | null>(null)
+
+  const toggleExpanded = (key: string, hasSubs: boolean, rowIndex: number) => {
+    setExpandedKeys((prev) => {
+      const next = new Set(prev)
+      if (next.has(key)) {
+        next.delete(key)
+      } else {
+        next.add(key)
+        if (!hasSubs) {
+          const current = [...rows]
+          const existingSubs = current[rowIndex].sub_items ?? []
+          if (existingSubs.length === 0) {
+            current[rowIndex] = {
+              ...current[rowIndex],
+              sub_items: [
+                {
+                  id: `sub-${Date.now()}-0`,
+                  title: "",
+                  is_required: true,
+                },
+              ],
+            }
+            onChange(current)
+          }
+        }
+      }
+      return next
+    })
+  }
 
   const dropOnto = (targetKey: string) => {
     if (!dragKey || dragKey === targetKey) {
@@ -283,7 +334,7 @@ function ReorderableChecklistList({
           }`}
         >
           {/* Top bar on mobile / Reorder controls on desktop */}
-          <div className="flex items-center justify-between sm:justify-start gap-1.5 shrink-0 sm:pt-1">
+          <div className="flex items-center justify-between sm:justify-start gap-1.5 shrink-0 sm:pt-1 flex-wrap">
             <div className="flex items-center gap-1 shrink-0 text-muted-foreground" title="Drag to reorder">
               <GripVertical
                 size={15}
@@ -318,7 +369,20 @@ function ReorderableChecklistList({
             </div>
 
             {/* Mobile-only action buttons in top row */}
-            <div className="flex items-center gap-1 sm:hidden">
+            <div className="flex items-center gap-1 sm:hidden flex-wrap">
+              <button
+                type="button"
+                onClick={() => toggleExpanded(line.key, (line.sub_items?.length || 0) > 0, i)}
+                className={cn(
+                  "h-6 px-1.5 rounded text-[11px] font-medium border flex items-center gap-0.5 shrink-0 cursor-pointer",
+                  (line.sub_items?.length || 0) > 0
+                    ? "border-primary/40 text-primary bg-primary/10"
+                    : "border-border text-muted-foreground"
+                )}
+                title={(line.sub_items?.length || 0) > 0 ? "Edit sub-topics" : "Add sub-topics"}
+              >
+                <span>{(line.sub_items?.length || 0) > 0 ? `Subs (${line.sub_items!.length})` : "+ Subs"}</span>
+              </button>
               <label className="flex items-center gap-1 text-[11px] text-muted-foreground cursor-pointer select-none px-1.5 py-0.5 rounded-md hover:bg-muted/50">
                 <input
                   type="checkbox"
@@ -352,7 +416,7 @@ function ReorderableChecklistList({
             </div>
           </div>
 
-          {/* Description input + Attached References tags + Picker */}
+          {/* Description input + Attached References tags + Picker + Sub-topics */}
           <div className="flex flex-col gap-1.5 flex-1 min-w-0 w-full">
             <input
               value={line.title}
@@ -365,44 +429,199 @@ function ReorderableChecklistList({
 
             {/* Attached References Pills + Attach button */}
             <div className="flex items-center gap-1.5 flex-wrap">
-              {(line.attachments ?? []).map((att, attIdx) => (
-                <span
-                  key={att.id || attIdx}
-                  className={cn(
-                    "inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-xs font-medium border transition-colors",
-                    att.is_file
-                      ? "bg-primary/10 text-primary border-primary/20"
-                      : "bg-muted text-foreground border-border"
-                  )}
-                >
-                  {att.is_file ? <FileText size={11} className="shrink-0 text-primary" /> : <Link2 size={11} className="shrink-0 text-muted-foreground" />}
-                  <span className="truncate max-w-[180px] sm:max-w-xs">{att.title || att.url || "Reference"}</span>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      const nextAtts = (line.attachments ?? []).filter((_, idx) => idx !== attIdx)
-                      onChange(rows.map((r, j) => (j === i ? { ...r, attachments: nextAtts } : r)))
-                    }}
-                    className="ml-0.5 text-muted-foreground hover:text-red-500 cursor-pointer"
-                    title="Remove reference"
+              {(line.attachments ?? []).map((att, attIdx) => {
+                const targetMat = att.material_id ? availableMaterials.find((m) => m.id === att.material_id) : null
+                const resolvedUrl = att.url || targetMat?.url
+                const isPdf = Boolean(
+                  (resolvedUrl && (resolvedUrl.toLowerCase().endsWith(".pdf") || resolvedUrl.toLowerCase().includes(".pdf"))) ||
+                  (att.title && att.title.toLowerCase().endsWith(".pdf")) ||
+                  (targetMat?.filename && targetMat.filename.toLowerCase().endsWith(".pdf"))
+                )
+                const isFile = Boolean(att.is_file || targetMat?.filename || isPdf)
+
+                const handleView = (e: React.MouseEvent) => {
+                  e.preventDefault()
+                  e.stopPropagation()
+                  if (!resolvedUrl) {
+                    toast.error("No link or file URL available for this reference")
+                    return
+                  }
+                  if (isPdf) {
+                    setPreviewMedia({
+                      title: att.title || targetMat?.title || "Document Preview",
+                      type: "pdf",
+                      url: ensureAbsoluteUrl(resolvedUrl),
+                    })
+                  } else {
+                    window.open(ensureAbsoluteUrl(resolvedUrl), "_blank", "noopener,noreferrer")
+                  }
+                }
+
+                return (
+                  <div
+                    key={att.id || attIdx}
+                    className={cn(
+                      "inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md text-xs font-medium border transition-colors group max-w-full",
+                      isFile
+                        ? "bg-primary/10 text-primary border-primary/20"
+                        : "bg-muted text-foreground border-border"
+                    )}
                   >
-                    <X size={11} />
-                  </button>
-                </span>
-              ))}
+                    {isFile ? (
+                      <FileText size={11} className="shrink-0 text-primary" />
+                    ) : (
+                      <Link2 size={11} className="shrink-0 text-muted-foreground" />
+                    )}
+
+                    {/* Clickable title */}
+                    <button
+                      type="button"
+                      onClick={handleView}
+                      className="truncate max-w-[120px] sm:max-w-xs hover:underline cursor-pointer text-left font-medium"
+                      title={resolvedUrl ? `View item: ${resolvedUrl}` : "View item"}
+                    >
+                      {att.title || att.url || "Reference"}
+                    </button>
+
+                    {/* Distinct View Item button */}
+                    <button
+                      type="button"
+                      onClick={handleView}
+                      className={cn(
+                        "inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[10px] font-semibold transition-colors cursor-pointer",
+                        isFile
+                          ? "bg-primary/20 hover:bg-primary/30 text-primary"
+                          : "bg-background/90 hover:bg-background text-foreground/80 hover:text-foreground border border-border/60"
+                      )}
+                      title="View item"
+                    >
+                      <Eye size={10} className="shrink-0" />
+                      <span>View</span>
+                      <ExternalLink size={9} className="shrink-0 opacity-70" />
+                    </button>
+
+                    {/* Remove Reference */}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const nextAtts = (line.attachments ?? []).filter((_, idx) => idx !== attIdx)
+                        onChange(rows.map((r, j) => (j === i ? { ...r, attachments: nextAtts } : r)))
+                      }}
+                      className="ml-0.5 text-muted-foreground hover:text-red-500 cursor-pointer p-0.5"
+                      title="Remove reference"
+                    >
+                      <X size={11} />
+                    </button>
+                  </div>
+                )
+              })}
 
               <ChecklistAttachmentPicker
                 availableMaterials={availableMaterials}
+                owner={owner}
+                onMaterialUploaded={onMaterialUploaded}
                 onAdd={(newAtt) => {
                   const nextAtts = [...(line.attachments ?? []), newAtt]
                   onChange(rows.map((r, j) => (j === i ? { ...r, attachments: nextAtts } : r)))
                 }}
               />
             </div>
+
+            {/* Sub-topics list (indented, matching Judging Criteria style) */}
+            {expandedKeys.has(line.key) && (
+              <div className="w-full mt-1.5 pt-2 border-t border-border/60 flex flex-col gap-2 pl-1 sm:pl-3">
+                <div className="flex items-center justify-between">
+                  <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
+                    <span className="text-primary font-bold">↳</span> Sub-topics / Checklist steps
+                  </span>
+                  {(line.sub_items ?? []).length > 0 && (
+                    <span className="text-[10px] text-muted-foreground">
+                      {(line.sub_items ?? []).length} sub-topic{(line.sub_items ?? []).length === 1 ? "" : "s"}
+                    </span>
+                  )}
+                </div>
+
+                {(line.sub_items ?? []).map((sub, subIdx) => (
+                  <div key={sub.id || subIdx} className="flex items-center gap-2 pl-1">
+                    <span className="text-muted-foreground text-xs w-3 shrink-0">↳</span>
+                    <input
+                      value={sub.title}
+                      placeholder="Sub-topic description…"
+                      onChange={(e) => {
+                        const nextSubs = (line.sub_items ?? []).map((s, idx) =>
+                          idx === subIdx ? { ...s, title: e.target.value } : s
+                        )
+                        onChange(rows.map((r, j) => (j === i ? { ...r, sub_items: nextSubs } : r)))
+                      }}
+                      className="flex-1 min-w-0 h-7 px-2.5 border border-border bg-background text-foreground rounded-lg text-xs focus:outline-none focus:border-primary transition-colors"
+                    />
+                    <label className="flex items-center gap-1 text-[11px] text-muted-foreground cursor-pointer select-none px-1.5 py-0.5 rounded hover:bg-muted/50 shrink-0">
+                      <input
+                        type="checkbox"
+                        checked={sub.is_required !== false}
+                        onChange={(e) => {
+                          const nextSubs = (line.sub_items ?? []).map((s, idx) =>
+                            idx === subIdx ? { ...s, is_required: e.target.checked } : s
+                          )
+                          onChange(rows.map((r, j) => (j === i ? { ...r, sub_items: nextSubs } : r)))
+                        }}
+                        className="rounded border-border text-primary focus:ring-primary size-3"
+                      />
+                      <span className="hidden sm:inline">Required</span>
+                      <span className="sm:hidden">Req</span>
+                    </label>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const nextSubs = (line.sub_items ?? []).filter((_, idx) => idx !== subIdx)
+                        onChange(rows.map((r, j) => (j === i ? { ...r, sub_items: nextSubs } : r)))
+                      }}
+                      className="p-1 text-muted-foreground hover:text-red-500 hover:bg-red-500/10 rounded transition-colors shrink-0 cursor-pointer"
+                      title="Remove sub-topic"
+                    >
+                      <Trash2 size={12} />
+                    </button>
+                  </div>
+                ))}
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    const nextSubs = [
+                      ...(line.sub_items ?? []),
+                      {
+                        id: `sub-${Date.now()}-${(line.sub_items ?? []).length}`,
+                        title: "",
+                        is_required: true,
+                      },
+                    ]
+                    onChange(rows.map((r, j) => (j === i ? { ...r, sub_items: nextSubs } : r)))
+                  }}
+                  className="self-start flex items-center gap-1 text-xs font-medium text-primary hover:opacity-80 pl-4 py-0.5 cursor-pointer"
+                >
+                  <Plus size={12} /> Add sub-topic
+                </button>
+              </div>
+            )}
           </div>
 
-          {/* Desktop-only Right section: Required, Photo, and Delete */}
+          {/* Desktop-only Right section: Subs, Required, Photo, and Delete */}
           <div className="hidden sm:flex items-center justify-end gap-1.5 shrink-0 sm:pt-1">
+            <button
+              type="button"
+              onClick={() => toggleExpanded(line.key, (line.sub_items?.length || 0) > 0, i)}
+              title={(line.sub_items?.length || 0) > 0 ? "Edit sub-topics" : "Add sub-topics"}
+              className={cn(
+                "h-7 px-2 rounded-lg text-xs font-medium border transition-colors flex items-center gap-1 shrink-0 cursor-pointer",
+                (line.sub_items?.length || 0) > 0
+                  ? "border-primary/40 text-primary bg-primary/10"
+                  : "border-border text-muted-foreground hover:text-foreground hover:bg-muted/50"
+              )}
+            >
+              <Plus size={11} />
+              <span>{(line.sub_items?.length || 0) > 0 ? `Subs (${line.sub_items!.length})` : "+ Subs"}</span>
+            </button>
+
             <label className="flex items-center gap-1.5 text-xs text-muted-foreground cursor-pointer whitespace-nowrap select-none px-1.5 py-1 rounded-md hover:bg-muted/50">
               <input
                 type="checkbox"
@@ -439,6 +658,14 @@ function ReorderableChecklistList({
           </div>
         </div>
       ))}
+
+      <MediaPreviewModal
+        open={!!previewMedia}
+        onClose={() => setPreviewMedia(null)}
+        title={previewMedia?.title ?? "Document preview"}
+        type={previewMedia?.type ?? "pdf"}
+        url={previewMedia?.url}
+      />
     </div>
   )
 }
@@ -486,16 +713,15 @@ function DayChecklistEditor({
   const { data: availableMaterials = [] } = useQuery({
     queryKey: ["materials-for-cohort-checklist", cohortId, programId],
     queryFn: async () => {
-      try {
-        const cohortMats = await getMaterialsApi({ cohort_id: cohortId })
-        if (cohortMats.length > 0) return cohortMats
-      } catch {}
+      const cohortMats = await getMaterialsApi({ cohort_id: cohortId }).catch(() => [])
+      let progMats: Material[] = []
       if (programId) {
-        try {
-          return await getMaterialsApi({ program_id: programId })
-        } catch {}
+        progMats = await getMaterialsApi({ program_id: programId }).catch(() => [])
       }
-      return []
+      const map = new Map<string, Material>()
+      for (const m of cohortMats) map.set(m.id, m)
+      for (const m of progMats) if (!map.has(m.id)) map.set(m.id, m)
+      return Array.from(map.values())
     },
   })
 
@@ -537,6 +763,7 @@ function DayChecklistEditor({
         material_id: l.material_id,
         link_url: l.link_url,
         attachments: l.attachments ?? [],
+        sub_items: l.sub_items ?? [],
         sort_order: i + 1,
       }))
       return setChecklistItemsApi(scope, ownerId, payload, roleId, targetAudience)
@@ -608,6 +835,7 @@ function DayChecklistEditor({
         material_id: l.material_id,
         link_url: l.link_url,
         attachments: l.attachments ?? [],
+        sub_items: l.sub_items ?? [],
         sort_order: i + 1,
       }))
       await Promise.all(
@@ -714,7 +942,15 @@ function DayChecklistEditor({
       {loading ? (
         <div className="py-8 text-center text-xs text-muted-foreground">Loading checklist…</div>
       ) : (
-        <ReorderableChecklistList rows={rows} onChange={setDraft} availableMaterials={availableMaterials} />
+        <ReorderableChecklistList
+          rows={rows}
+          onChange={setDraft}
+          availableMaterials={availableMaterials}
+          owner={scope === "sessions" ? { session_id: ownerId } : { cohort_id: ownerId }}
+          onMaterialUploaded={() => {
+            qc.invalidateQueries({ queryKey: ["materials-for-cohort-checklist"] })
+          }}
+        />
       )}
     </div>
   )
@@ -974,6 +1210,23 @@ export function ChecklistSection({
     enabled: open,
   })
 
+  const { data: availableMaterials = [] } = useQuery({
+    queryKey: ["materials-for-section-checklist", ownerId, programId],
+    queryFn: async () => {
+      const ownerParam = scope === "sessions" ? { session_id: ownerId } : { cohort_id: ownerId }
+      const directMats = await getMaterialsApi(ownerParam).catch(() => [])
+      let progMats: Material[] = []
+      if (programId) {
+        progMats = await getMaterialsApi({ program_id: programId }).catch(() => [])
+      }
+      const map = new Map<string, Material>()
+      for (const m of directMats) map.set(m.id, m)
+      for (const m of progMats) if (!map.has(m.id)) map.set(m.id, m)
+      return Array.from(map.values())
+    },
+    enabled: open,
+  })
+
   useEffect(() => {
     if (!open || draft !== null || isLoading) return
 
@@ -1008,6 +1261,7 @@ export function ChecklistSection({
           material_id: l.material_id,
           link_url: l.link_url,
           attachments: l.attachments ?? [],
+          sub_items: l.sub_items ?? [],
           sort_order: i + 1,
         })),
         roleId,
@@ -1051,7 +1305,15 @@ export function ChecklistSection({
             <p className="text-xs text-muted-foreground">Loading…</p>
           ) : (
             <>
-              <ReorderableChecklistList rows={rows} onChange={setDraft} />
+              <ReorderableChecklistList
+                rows={rows}
+                onChange={setDraft}
+                availableMaterials={availableMaterials}
+                owner={scope === "sessions" ? { session_id: ownerId } : { cohort_id: ownerId }}
+                onMaterialUploaded={() => {
+                  qc.invalidateQueries({ queryKey: ["materials-for-section-checklist"] })
+                }}
+              />
               <div className="flex items-center gap-2 pt-1">
                 <button
                   type="button"

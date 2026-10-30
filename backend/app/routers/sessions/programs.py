@@ -335,6 +335,7 @@ async def clone_program(
                 material_id=ci.material_id,
                 link_url=ci.link_url,
                 attachments=list(ci.attachments or []),
+                sub_items=list(ci.sub_items or []),
                 created_by=current_user.id,
             ))
         if source_delivery_items:
@@ -394,6 +395,7 @@ async def clone_program(
                         material_id=item.material_id,
                         link_url=item.link_url,
                         attachments=list(item.attachments or []),
+                        sub_items=list(item.sub_items or []),
                         created_by=current_user.id,
                     ))
             if source_template_sessions:

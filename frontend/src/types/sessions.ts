@@ -750,6 +750,12 @@ export interface ChecklistAttachment {
   access_denied_message?: string | null;
 }
 
+export interface ChecklistSubItem {
+  id: string;
+  title: string;
+  is_required?: boolean;
+}
+
 export interface ChecklistItem {
   id: string;
   program_id?: string | null;
@@ -769,6 +775,7 @@ export interface ChecklistItem {
   material_id?: string | null;
   link_url?: string | null;
   attachments?: ChecklistAttachment[];
+  sub_items?: ChecklistSubItem[];
 }
 
 export interface OpsChecklistItem {
@@ -785,6 +792,8 @@ export interface OpsChecklistItem {
   material_is_file?: boolean;
   link_url?: string | null;
   attachments?: ChecklistAttachment[];
+  sub_items?: ChecklistSubItem[];
+  completed_sub_items?: string[];
   is_done: boolean;
   proof_report_id?: string | null;
   proof_url?: string | null;
@@ -811,6 +820,8 @@ export interface ChecklistLine {
   /** Signed URL, minted per request — never stored. */
   proof_url?: string | null;
   attachments?: ChecklistAttachment[];
+  sub_items?: ChecklistSubItem[];
+  completed_sub_items?: string[];
 }
 
 export interface DayDetail {

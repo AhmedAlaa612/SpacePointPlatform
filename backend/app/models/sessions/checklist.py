@@ -66,6 +66,10 @@ class DeliveryChecklistItem(Base):
     material_id = Column(UUID(as_uuid=True), ForeignKey("session_materials.id", ondelete="SET NULL"), nullable=True)
     link_url = Column(Text, nullable=True)
     attachments = Column(JSONB, nullable=False, default=list, server_default="[]")
+    # Sub-topics / sub-tasks (one-level breakdown of a parent checklist item,
+    # matching rubric criteria's sub_criteria pattern).
+    # Each entry: {"id": str, "title": str, "is_required": bool}
+    sub_items = Column(JSONB, nullable=False, default=list, server_default="[]")
 
     title = Column(String(255), nullable=False)
     description = Column(Text, nullable=True)
@@ -165,6 +169,8 @@ class InstructorChecklistProgress(Base):
         UUID(as_uuid=True), ForeignKey("delivery_checklist_items.id", ondelete="CASCADE"), nullable=False
     )
     is_done = Column(Boolean, nullable=False, default=False, server_default="false")
+    # Completed sub-item IDs (list of string IDs)
+    completed_sub_items = Column(JSONB, nullable=False, default=list, server_default="[]")
     proof_report_id = Column(
         UUID(as_uuid=True), ForeignKey("session_reports.id", ondelete="SET NULL"), nullable=True
     )
@@ -195,6 +201,8 @@ class SessionOpsChecklistProgress(Base):
         UUID(as_uuid=True), ForeignKey("delivery_checklist_items.id", ondelete="CASCADE"), nullable=False
     )
     is_done = Column(Boolean, nullable=False, default=False, server_default="false")
+    # Completed sub-item IDs (list of string IDs)
+    completed_sub_items = Column(JSONB, nullable=False, default=list, server_default="[]")
     proof_report_id = Column(
         UUID(as_uuid=True), ForeignKey("session_reports.id", ondelete="SET NULL"), nullable=True
     )

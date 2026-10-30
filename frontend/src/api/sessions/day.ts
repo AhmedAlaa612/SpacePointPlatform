@@ -8,7 +8,9 @@
 
 import { api } from "@/api/client"
 import type {
+  ChecklistAttachment,
   ChecklistItem,
+  ChecklistSubItem,
   DayDetail,
   DayReview,
   InstructorAttendance,
@@ -53,6 +55,8 @@ export const setChecklistItemsApi = (
     sort_order?: number | null
     material_id?: string | null
     link_url?: string | null
+    attachments?: ChecklistAttachment[]
+    sub_items?: ChecklistSubItem[]
   }[],
   roleId?: string | null,
   targetAudience: "instructor" | "internal" = "instructor",
@@ -70,7 +74,12 @@ export const getInternalChecklistApi = (sessionId: string) =>
 export const setInternalChecklistProgressApi = (
   sessionId: string,
   itemId: string,
-  body: { is_done: boolean; proof_report_id?: string | null; note?: string | null },
+  body: {
+    is_done: boolean
+    proof_report_id?: string | null
+    note?: string | null
+    completed_sub_items?: string[]
+  },
 ) =>
   api.post<{ ok: boolean }>(`/sessions/${sessionId}/internal-checklist/${itemId}`, body).then((r) => r.data)
 
@@ -95,6 +104,7 @@ export const setChecklistProgressApi = (sessionId: string, itemId: string, body:
   is_done?: boolean
   proof_report_id?: string | null
   note?: string | null
+  completed_sub_items?: string[]
 }) =>
   api.put<DayDetail>(`/sessions/${sessionId}/delivery/checklist/${itemId}`, body)
     .then((r) => r.data)

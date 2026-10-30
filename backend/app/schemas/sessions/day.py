@@ -39,6 +39,18 @@ class ChecklistAttachmentOut(BaseModel):
     access_denied_message: str | None = None
 
 
+class ChecklistSubItemIn(BaseModel):
+    id: str | None = None
+    title: str
+    is_required: bool = True
+
+
+class ChecklistSubItemOut(BaseModel):
+    id: str
+    title: str
+    is_required: bool = True
+
+
 class ChecklistItemIn(BaseModel):
     title: str
     description: str | None = None
@@ -51,6 +63,7 @@ class ChecklistItemIn(BaseModel):
     material_id: UUID | None = None
     link_url: str | None = None
     attachments: list[ChecklistAttachmentIn] = []
+    sub_items: list[ChecklistSubItemIn] = []
 
 
 class SetChecklistItemsIn(BaseModel):
@@ -73,6 +86,7 @@ class ChecklistItemOut(BaseModel):
     material_id: UUID | None = None
     link_url: str | None = None
     attachments: list[ChecklistAttachmentOut] = []
+    sub_items: list[ChecklistSubItemOut] = []
 
     class Config:
         from_attributes = True
@@ -92,6 +106,8 @@ class OpsChecklistItemOut(BaseModel):
     material_is_file: bool = False
     link_url: str | None = None
     attachments: list[ChecklistAttachmentOut] = []
+    sub_items: list[ChecklistSubItemOut] = []
+    completed_sub_items: list[str] = []
     is_done: bool = False
     proof_report_id: UUID | None = None
     proof_url: str | None = None
@@ -105,6 +121,7 @@ class OpsChecklistProgressIn(BaseModel):
     is_done: bool
     proof_report_id: UUID | None = None
     note: str | None = None
+    completed_sub_items: list[str] | None = None
 
 
 # ── the instructor's day ────────────────────────────────────────────────────
@@ -121,6 +138,7 @@ class ChecklistProgressIn(BaseModel):
     # rather than a second one. Upload first, then point at it.
     proof_report_id: UUID | None = None
     note: str | None = None
+    completed_sub_items: list[str] | None = None
 
 
 class SubmitDayIn(BaseModel):
@@ -141,6 +159,8 @@ class ChecklistLineOut(BaseModel):
     # Signed URL, minted per request — never stored.
     proof_url: str | None = None
     attachments: list[ChecklistAttachmentOut] = []
+    sub_items: list[ChecklistSubItemOut] = []
+    completed_sub_items: list[str] = []
 
 
 class DayDetailOut(BaseModel):

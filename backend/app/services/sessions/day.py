@@ -179,12 +179,23 @@ async def set_checklist_items(
                     primary_link_url = a["url"]
                     break
 
+        sub_items_raw = line.get("sub_items") or []
+        sub_items = []
+        for s in sub_items_raw:
+            if isinstance(s, dict) and s.get("title"):
+                sub_items.append({
+                    "id": str(s.get("id") or uuid4()),
+                    "title": str(s.get("title", "")).strip(),
+                    "is_required": bool(s.get("is_required", True)),
+                })
+
         item = DeliveryChecklistItem(
             id=uuid4(), program_id=program_id, cohort_id=cohort_id, session_id=session_id, role_id=role_id,
             target_audience=target_audience,
             material_id=primary_mat_id,
             link_url=primary_link_url,
             attachments=attachments,
+            sub_items=sub_items,
             title=title, description=line.get("description"),
             requires_proof=bool(line.get("requires_proof")),
             is_required=bool(line.get("is_required", True)),
@@ -526,6 +537,8 @@ async def get_internal_checklist_for_session(
             "material_is_file": mat_info["is_file"] if mat_info else False,
             "link_url": item.link_url,
             "attachments": item_atts,
+            "sub_items": item.sub_items or [],
+            "completed_sub_items": prog.completed_sub_items if prog and prog.completed_sub_items else [],
             "is_done": prog.is_done if prog else False,
             "proof_report_id": prog.proof_report_id if prog else None,
             "proof_url": proof_urls.get(prog.proof_report_id) if prog and prog.proof_report_id else None,
@@ -546,6 +559,7 @@ async def set_internal_checklist_progress(
     is_done: bool,
     proof_report_id: UUID | None = None,
     note: str | None = None,
+    completed_sub_items: list[str] | None = None,
 ) -> SessionOpsChecklistProgress:
     prog = await db.scalar(
         select(SessionOpsChecklistProgress).where(
@@ -561,6 +575,7 @@ async def set_internal_checklist_progress(
             is_done=is_done,
             proof_report_id=proof_report_id,
             note=note,
+            completed_sub_items=completed_sub_items if completed_sub_items is not None else [],
             completed_by=actor_user_id if is_done else None,
             updated_at=datetime.now(timezone.utc),
         )
@@ -571,6 +586,8 @@ async def set_internal_checklist_progress(
             prog.proof_report_id = proof_report_id
         if note is not None:
             prog.note = note
+        if completed_sub_items is not None:
+            prog.completed_sub_items = completed_sub_items
         prog.completed_by = actor_user_id if is_done else None
         prog.updated_at = datetime.now(timezone.utc)
     await db.flush()
@@ -636,6 +653,7 @@ async def set_checklist_progress(
     db: AsyncSession, session_id: UUID, user: User, *,
     checklist_item_id: UUID, is_done: bool | None = None,
     proof_report_id: UUID | None = None, note: str | None = None,
+    completed_sub_items: list[str] | None = None,
 ) -> InstructorChecklistProgress:
     """Tick an item, attach proof to it, or both."""
     session = await _get_deliverable_session(db, session_id, user)
@@ -661,10 +679,13 @@ async def set_checklist_progress(
     if row is None:
         row = InstructorChecklistProgress(
             id=uuid4(), day_id=day.id, checklist_item_id=checklist_item_id,
+            completed_sub_items=completed_sub_items if completed_sub_items is not None else [],
         )
         db.add(row)
     if is_done is not None:
         row.is_done = is_done
+    if completed_sub_items is not None:
+        row.completed_sub_items = completed_sub_items
     if proof_report_id is not None:
         row.proof_report_id = proof_report_id
     if note is not None:
@@ -906,6 +927,8 @@ async def get_day_detail(db: AsyncSession, session_id: UUID, user: User, *, for_
             "proof_report_id": row.proof_report_id if row else None,
             "proof_url": proof_url,
             "attachments": hydrated_attachments.get(item.id, []),
+            "sub_items": item.sub_items or [],
+            "completed_sub_items": row.completed_sub_items if row and row.completed_sub_items else [],
         })
 
     missing = await _missing_requirements(db, session, day)
