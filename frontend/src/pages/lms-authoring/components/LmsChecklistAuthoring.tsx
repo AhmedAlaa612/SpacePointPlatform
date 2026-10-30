@@ -1155,7 +1155,6 @@ export function ItemForm({
   const [submissionFieldType, setSubmissionFieldType] = useState<"text" | "link">(
     initial?.submission_field_type ?? "link",
   )
-  const [submissionMultiLink, setSubmissionMultiLink] = useState(initial?.submission_multi_link ?? false)
   const [submissionFormat, setSubmissionFormat] = useState<"single" | "multi_field" | "tabular">(
     initial?.submission_table_config ? "tabular" : initial?.submission_multi_link ? "multi_field" : "single"
   )
@@ -1286,11 +1285,11 @@ export function ItemForm({
     if (itemType === "course" && !courseId) { setError("Pick a course"); return }
     if (itemType === "mission_run" && !missionId) { setError("Pick a mission"); return }
     if (itemType === "external_link" && !externalUrl.trim()) { setError("A link is required"); return }
-    if (itemType === "submission" && !externalUrl.trim() && !submissionPrompt.trim()) { setError("Add a link or a submission prompt"); return }
-    if (itemType === "submission" && submissionMultiLink && linkLabels.some((l) => !l.label.trim())) {
+    if (itemType === "submission" && !externalUrl.trim() && !submissionPrompt.trim() && submissionFormat !== "tabular") { setError("Add a link or a submission prompt"); return }
+    if (itemType === "submission" && submissionFormat === "multi_field" && linkLabels.some((l) => !l.label.trim())) {
       setError("Every label needs text — remove any blank rows"); return
     }
-    if (itemType === "submission" && submissionMultiLink) {
+    if (itemType === "submission" && submissionFormat === "multi_field") {
       const trimmedLabels = linkLabels.map((l) => l.label.trim().toLowerCase())
       if (new Set(trimmedLabels).size !== trimmedLabels.length) { setError("Labels must be unique"); return }
     }
@@ -1641,12 +1640,6 @@ export function ItemForm({
                     value={presetTagsText}
                     onChange={(e) => setPresetTagsText(e.target.value)}
                     placeholder="e.g. Option A, Option B"
-                    className={inputCls}
-                  />
-                </div>
-              </div>
-                    onChange={(e) => setPresetTagsText(e.target.value)}
-                    placeholder="e.g. Instagram, LinkedIn, YouTube"
                     className={inputCls}
                   />
                 </div>
