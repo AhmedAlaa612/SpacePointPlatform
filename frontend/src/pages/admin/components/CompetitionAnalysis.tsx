@@ -871,6 +871,14 @@ export function TeamAnalysisCard({
                 <Lock size={10} /> Locked
               </span>
             )}
+            {team.checkpoints && team.checkpoints.length > 0 && (
+              <span
+                className="inline-flex items-center text-[10px] sm:text-[11px] font-semibold px-1.5 sm:px-2 py-0.5 rounded-md bg-muted text-muted-foreground border border-border/60 shrink-0"
+                title="Checkpoints locked"
+              >
+                {team.checkpoints.filter((c) => c.locked).length}/{team.checkpoints.length} checkpoints
+              </span>
+            )}
           </div>
           <p className="text-xs text-muted-foreground truncate mt-0.5">
             {cohortName ? `${cohortName} · ` : ""}
@@ -885,11 +893,6 @@ export function TeamAnalysisCard({
             title={team.locked_at ? `Locked on ${formatDateTime(team.locked_at)}${team.locked_by_name ? ` by ${team.locked_by_name}` : ""}` : "Final submission locked"}
           >
             <Lock size={11} /> Locked
-          </span>
-        )}
-        {team.checkpoints && team.checkpoints.length > 0 && (
-          <span className="hidden sm:flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-lg bg-muted text-muted-foreground border border-border/60 shrink-0">
-            <Flag size={11} /> {team.checkpoints.filter((c) => c.locked).length}/{team.checkpoints.length} checkpoints locked
           </span>
         )}
         {team.stalled && (
