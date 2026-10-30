@@ -174,7 +174,7 @@ def validate_item_payload(body: LmsProgramItemIn) -> None:
         "course": body.course_id is not None,
         "mission_run": body.mission_id is not None,
         "external_link": bool(body.external_url),
-        "submission": bool(body.external_url) or bool(body.submission_prompt),
+        "submission": bool(body.external_url) or bool(body.submission_prompt) or bool(getattr(body, "submission_table_config", None)),
         # No required field at creation — the file itself is attached
         # afterward via a separate multipart upload (routers/lms/admin.py),
         # same two-step shape a module `attachment` item already follows.
@@ -262,7 +262,8 @@ def validate_item_payload(body: LmsProgramItemIn) -> None:
         if (
             body.course_id is not None or body.mission_id is not None or body.variant_id is not None
             or body.external_url or body.submission_prompt or body.submission_multi_link
-            or body.submission_link_labels is not None or body.cohort_quiz_template_id is not None
+            or body.submission_link_labels is not None or getattr(body, "submission_table_config", None) is not None
+            or body.cohort_quiz_template_id is not None
             or body.mission_step_key is not None
         ):
             raise HTTPException(
@@ -298,6 +299,25 @@ def validate_item_payload(body: LmsProgramItemIn) -> None:
         labels = [spec.label for spec in body.submission_link_labels]
         if len(set(labels)) != len(labels):
             raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="Labels must be unique")
+    # 2026-10-30 — tabular submission grid config validation
+    if getattr(body, "submission_table_config", None) is not None:
+        if body.item_type != "submission":
+            raise HTTPException(
+                status.HTTP_400_BAD_REQUEST, detail="Only a submission item can configure a tabular grid",
+            )
+        cfg = body.submission_table_config
+        columns = cfg.columns if hasattr(cfg, "columns") else cfg.get("columns", [])
+        col_keys = []
+        for col in columns:
+            k = col.key if hasattr(col, "key") else col.get("key", "")
+            lbl = col.label if hasattr(col, "label") else col.get("label", "")
+            if not (k or "").strip():
+                raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="Column key cannot be blank")
+            if not (lbl or "").strip():
+                raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="Column label cannot be blank")
+            col_keys.append(k.strip())
+        if len(set(col_keys)) != len(col_keys):
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="Column keys must be unique")
     # Roadmap board (2026-09) ─────────────────────────────────────────
     if body.mission_step_key is not None:
         if body.item_type != "mission_run":
@@ -776,6 +796,7 @@ async def fork_cohort_override(
             submission_field_type=item.submission_field_type,
             submission_multi_link=item.submission_multi_link,
             submission_link_labels=item.submission_link_labels,
+            submission_table_config=item.submission_table_config,
             pdf_path=copy_pdf_path, deadline_at=item.deadline_at,
             max_team_size=getattr(item, "max_team_size", None),
             session_date=item.session_date, session_starts_at=item.session_starts_at,
@@ -2120,6 +2141,7 @@ async def get_student_checklist(db: AsyncSession, *, assignment_id: uuid.UUID, u
             "submission_multi_link": item.submission_multi_link,
             "submitted_links": submitted_links,
             "submission_link_labels": item.submission_link_labels,
+            "submission_table_config": item.submission_table_config,
             "deadline_at": item.deadline_at,
             "session_date": item.session_date, "session_starts_at": item.session_starts_at,
             "session_location": item.session_location, "session_meeting_url": item.session_meeting_url,

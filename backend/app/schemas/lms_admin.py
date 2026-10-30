@@ -15,6 +15,8 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from app.schemas.lms import LmsTableColumn, LmsTableConfig
+
 ModuleItemKind = Literal["video", "text", "quiz", "flashcards", "attachment", "mission"]
 
 
@@ -574,6 +576,7 @@ class LmsProgramItemIn(BaseModel):
     # None keeps (or reverts to) the older free-text student-entered-label
     # behavior.
     submission_link_labels: list[LmsProgramItemLinkLabel] | None = None
+    submission_table_config: LmsTableConfig | None = None
     # Cutoff deadline for checklist items (submission, quiz, manual, etc.).
     deadline_at: datetime | None = None
     # session-only fields — always self-contained, never a live FK (see
@@ -623,6 +626,7 @@ class LmsProgramItemOut(BaseModel):
     submission_field_type: Literal["text", "link"] = "link"
     submission_multi_link: bool = False
     submission_link_labels: list[LmsProgramItemLinkLabel] | None = None
+    submission_table_config: LmsTableConfig | None = None
     # True once a `pdf` item has a file uploaded (routers/lms/admin.py's
     # separate upload endpoint) — never the file itself or a URL, same
     # no-baked-in-signed-url posture the Curriculum Library list follows.

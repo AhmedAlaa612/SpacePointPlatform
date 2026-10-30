@@ -987,16 +987,22 @@ export function AssignmentItemRow({
             <div className="flex items-center gap-2 flex-wrap shrink-0 w-full sm:w-auto pt-2 sm:pt-0 border-t sm:border-t-0 border-border/30">
               {item.submission_multi_link ? (
                 item.submitted_links && item.submitted_links.length > 0 ? (
-                  item.submitted_links.map((link, i) => (
-                    link.text ? (
+                  item.submitted_links.map((link, i) => {
+                    const tagOrLabel = link.tag || link.label;
+                    const valSummary = link.values && Object.keys(link.values).length > 0
+                      ? Object.entries(link.values).map(([k, v]) => `${k}: ${v}`).join(", ")
+                      : "";
+                    const tooltip = [tagOrLabel, link.text || link.url, valSummary].filter(Boolean).join(" | ");
+
+                    return link.text && !link.url ? (
                       // Text field (2026-09-16) — no link to open, so this is
                       // a static badge; the full answer is in the title
                       // tooltip since there's no room for it inline here.
                       <span
-                        key={i} title={link.text}
+                        key={i} title={tooltip || link.text}
                         className="h-8 px-3 rounded-lg border border-border/60 bg-muted/40 text-foreground text-xs font-bold flex items-center gap-1.5 shrink-0 max-w-[200px]"
                       >
-                        <span className="truncate">{link.label || `Field ${i + 1}`}: {link.text}</span>
+                        <span className="truncate">{tagOrLabel || `Field ${i + 1}`}: {link.text}</span>
                       </span>
                     ) : (
                       <a
@@ -1004,12 +1010,13 @@ export function AssignmentItemRow({
                         href={ensureAbsoluteUrl(link.url ?? "")}
                         target="_blank"
                         rel="noreferrer"
+                        title={tooltip || link.url || undefined}
                         className="h-8 px-3 rounded-lg border border-primary/30 bg-primary/10 text-primary text-xs font-bold flex items-center gap-1.5 hover:bg-primary/20 transition-colors shrink-0"
                       >
-                        <ExternalLink size={13} /> {link.label || `Link ${i + 1}`}
+                        <ExternalLink size={13} /> {tagOrLabel || `Link ${i + 1}`}
                       </a>
-                    )
-                  ))
+                    );
+                  })
                 ) : (
                   <span className="h-8 px-2.5 rounded-lg border border-border/60 bg-muted/40 text-muted-foreground text-xs font-medium flex items-center gap-1.5 shrink-0">
                     No fields submitted yet

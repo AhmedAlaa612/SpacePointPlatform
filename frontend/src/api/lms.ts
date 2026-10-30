@@ -576,10 +576,27 @@ export type LmsProgramItemScope = "individual" | "team";
  * LmsProgramChecklistItem.submission_multi_link. Exactly one of url/text is
  * ever populated, matching this entry's label's own field_type
  * (2026-09-16) — never both. */
+export interface LmsTableColumn {
+  key: string;
+  label: string;
+  type: "link" | "text" | "select";
+  options?: string[] | null;
+  required?: boolean;
+}
+
+export interface LmsTableConfig {
+  tag_label: string;
+  tags: string[];
+  allow_custom_tags: boolean;
+  columns: LmsTableColumn[];
+}
+
 export interface SubmissionLink {
   label: string | null;
   url: string | null;
   text: string | null;
+  tag?: string | null;
+  values?: Record<string, string | number | null> | null;
 }
 
 /** One entry in ops's own fixed field set for a `submission_multi_link`
@@ -629,6 +646,7 @@ export interface LmsProgramChecklistItem {
    * multi-link item authored before this existed (that one still takes
    * free-text, student-entered labels, none required). */
   submission_link_labels: SubmissionLinkLabel[] | null;
+  submission_table_config?: LmsTableConfig | null;
   /** submission-only cutoff — can no longer submit/replace past this;
    * already-submitted content and its confirmation are unaffected. */
   deadline_at: string | null;

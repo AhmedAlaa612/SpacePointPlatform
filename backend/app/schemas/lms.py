@@ -9,7 +9,7 @@ routes enforce it a second time").
 """
 
 from datetime import date, datetime, time
-from typing import Literal, Union
+from typing import Any, Literal, Union
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -439,20 +439,27 @@ LmsProgramItemStatus = Literal["pending", "done", "awaiting_confirmation"]
 
 
 class LmsSubmissionLink(BaseModel):
-    """One entry in a multi-field submission (2026-09-14, ops's own toggle —
-    see LmsProgramItem.submission_multi_link; field_type added 2026-09-16).
-    `label` is free text (e.g. "Member 1 link", "Team link"), optional so a
-    stray extra entry doesn't need one. Exactly one of `url`/`text` is ever
-    populated, matching the field's own `field_type` — a link isn't
-    validated as a real URL beyond non-empty (same posture the single-link
-    `submitted_url`/`LmsProgramItemSubmitIn.url` has always had), and text
-    is free-form paragraph content, not a link. Both optional at the schema
-    level (routers/lms/student.py::submit_program_item enforces "at least
-    one of them, matching this label's configured type" — the schema can't
-    know which type a given label is on its own)."""
-    label: str | None = Field(default=None, max_length=80)
+    """One entry in a multi-field or tabular submission."""
+    label: str | None = Field(default=None, max_length=120)
     url: str | None = Field(default=None, max_length=512)
     text: str | None = Field(default=None, max_length=4000)
+    tag: str | None = Field(default=None, max_length=120)
+    values: dict[str, Any] | None = None
+
+
+class LmsTableColumn(BaseModel):
+    key: str = Field(min_length=1, max_length=80)
+    label: str = Field(min_length=1, max_length=120)
+    type: Literal["link", "text", "select"] = "text"
+    options: list[str] | None = None
+    required: bool = False
+
+
+class LmsTableConfig(BaseModel):
+    tag_label: str = Field(default="Platform", max_length=80)
+    tags: list[str] = Field(default_factory=list)
+    allow_custom_tags: bool = True
+    columns: list[LmsTableColumn] = Field(default_factory=list)
 
 
 class LmsSubmissionLinkLabel(BaseModel):
@@ -518,6 +525,7 @@ class LmsProgramChecklistItemOut(BaseModel):
     # an older multi-link item authored before this existed (that one
     # still takes free-text, student-entered labels — see submit_program_item).
     submission_link_labels: list[LmsSubmissionLinkLabel] | None = None
+    submission_table_config: LmsTableConfig | None = None
     # submission-only cutoff — students can no longer submit/replace once
     # past; already-submitted content and its confirmation are unaffected.
     deadline_at: datetime | None = None

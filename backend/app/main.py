@@ -124,6 +124,7 @@ async def lifespan(app: FastAPI):
             await db.execute(text("ALTER TABLE learner_teams ADD COLUMN IF NOT EXISTS ops_scored_at TIMESTAMP WITH TIME ZONE;"))
             await db.execute(text("ALTER TABLE mega_events ADD COLUMN IF NOT EXISTS top_banner_url VARCHAR(512);"))
             await db.execute(text("ALTER TABLE website_events ADD COLUMN IF NOT EXISTS top_banner_url VARCHAR(512);"))
+            await db.execute(text("ALTER TABLE lms_program_items ADD COLUMN IF NOT EXISTS submission_table_config JSONB;"))
             await db.execute(text("ALTER TABLE mega_events ADD COLUMN IF NOT EXISTS default_language VARCHAR(8) DEFAULT 'en';"))
             await db.execute(text("ALTER TABLE mega_events ADD COLUMN IF NOT EXISTS ar_content JSONB DEFAULT '{}'::jsonb;"))
             await db.execute(text("ALTER TABLE website_events ADD COLUMN IF NOT EXISTS default_language VARCHAR(8) DEFAULT 'en';"))

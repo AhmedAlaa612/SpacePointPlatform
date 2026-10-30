@@ -1319,6 +1319,55 @@ def test_submission_link_labels_rejects_duplicate_labels():
     assert "unique" in exc_info.value.detail
 
 
+# ── submission_table_config authoring validation (2026-10-30) ──────────────
+
+def test_submission_table_config_is_valid():
+    body = LmsProgramItemIn(
+        item_type="submission", title="Tabular Grid",
+        submission_table_config={
+            "tag_label": "Category",
+            "tags": ["Tag A", "Tag B"],
+            "allow_custom_tags": True,
+            "columns": [
+                {"key": "url", "label": "Link", "type": "link", "required": False},
+                {"key": "score", "label": "Score", "type": "text", "required": False},
+                {"key": "status", "label": "Status", "type": "select", "options": ["Active", "Archived"], "required": False},
+            ],
+        },
+    )
+    validate_item_payload(body)
+    assert body.submission_table_config.tag_label == "Category"
+    assert len(body.submission_table_config.columns) == 3
+
+
+def test_submission_table_config_rejects_non_submission():
+    body = LmsProgramItemIn(
+        item_type="manual", title="Manual Step",
+        submission_table_config={"tag_label": "Tag", "columns": []},
+    )
+    with pytest.raises(HTTPException) as exc_info:
+        validate_item_payload(body)
+    assert exc_info.value.status_code == 400
+    assert "submission" in exc_info.value.detail
+
+
+def test_submission_table_config_rejects_duplicate_column_keys():
+    body = LmsProgramItemIn(
+        item_type="submission", title="Tabular Grid",
+        submission_table_config={
+            "tag_label": "Tag",
+            "columns": [
+                {"key": "url", "label": "Link 1", "type": "link"},
+                {"key": "url", "label": "Link 2", "type": "link"},
+            ],
+        },
+    )
+    with pytest.raises(HTTPException) as exc_info:
+        validate_item_payload(body)
+    assert exc_info.value.status_code == 400
+    assert "unique" in exc_info.value.detail
+
+
 @pytest.mark.asyncio
 async def test_resync_wires_a_team_mission_run_added_after_the_team_was_assigned(db):
     """Regression (found live, 2026-09-19 — team Orbit3): ops added six

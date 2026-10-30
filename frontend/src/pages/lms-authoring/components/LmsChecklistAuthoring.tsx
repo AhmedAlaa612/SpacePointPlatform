@@ -14,6 +14,7 @@ import { listMissionsAdminFullApi } from "@/api/missions_admin"
 import { instructorStepSelectionApi } from "@/api/missionsInstructor"
 import { listCohortQuizTemplatesApi } from "@/api/cohort_quiz"
 import { fetchArcadeGamesApi } from "@/api/arcade"
+import type { LmsTableColumn } from "@/api/lms"
 import { MediaPreviewModal } from "@/components/media/MediaPreviewModal"
 import {
   updateLmsProgramApi, uploadLmsProgramImageApi, updateCohortPosterTemplateApi,
@@ -1155,6 +1156,21 @@ export function ItemForm({
     initial?.submission_field_type ?? "link",
   )
   const [submissionMultiLink, setSubmissionMultiLink] = useState(initial?.submission_multi_link ?? false)
+  const [submissionFormat, setSubmissionFormat] = useState<"single" | "multi_field" | "tabular">(
+    initial?.submission_table_config ? "tabular" : initial?.submission_multi_link ? "multi_field" : "single"
+  )
+  const [tagLabel, setTagLabel] = useState(initial?.submission_table_config?.tag_label ?? "Tag")
+  const [presetTagsText, setPresetTagsText] = useState(
+    initial?.submission_table_config?.tags?.join(", ") ?? ""
+  )
+  const [allowCustomTags, setAllowCustomTags] = useState(initial?.submission_table_config?.allow_custom_tags ?? true)
+  const [tableColumns, setTableColumns] = useState<LmsTableColumn[]>(
+    initial?.submission_table_config?.columns?.length
+      ? initial.submission_table_config.columns
+      : [
+          { key: "url", label: "Link", type: "link", required: false },
+        ]
+  )
   // Ops's own fixed label set for a multi-link submission (2026-09-14) —
   // one row per label, each with its own required checkbox. Empty means
   // "leave it free-text" (students type their own labels), same as
@@ -1306,9 +1322,23 @@ export function ItemForm({
         external_url: (itemType === "external_link" || itemType === "submission") ? (externalUrl.trim() || null) : null,
         submission_prompt: itemType === "submission" ? (submissionPrompt.trim() || null) : null,
         submission_field_type: itemType === "submission" ? submissionFieldType : "link",
-        submission_multi_link: itemType === "submission" ? submissionMultiLink : false,
-        submission_link_labels: itemType === "submission" && submissionMultiLink && linkLabels.length > 0
+        submission_multi_link: itemType === "submission" ? (submissionFormat === "multi_field" || submissionFormat === "tabular") : false,
+        submission_link_labels: itemType === "submission" && submissionFormat === "multi_field" && linkLabels.length > 0
           ? linkLabels.map((l) => ({ label: l.label.trim(), required: l.required, field_type: l.field_type }))
+          : null,
+        submission_table_config: itemType === "submission" && submissionFormat === "tabular"
+          ? {
+              tag_label: tagLabel.trim() || "Tag",
+              tags: presetTagsText.split(",").map((t) => t.trim()).filter(Boolean),
+              allow_custom_tags: allowCustomTags,
+              columns: tableColumns.map((c) => ({
+                key: c.key?.trim() || c.label.toLowerCase().replace(/[^a-z0-9]/g, "_") || "field",
+                label: c.label.trim() || "Field",
+                type: c.type,
+                options: c.options || null,
+                required: Boolean(c.required),
+              })),
+            }
           : null,
         deadline_at: itemType !== "session" && deadlineAt
           ? new Date(deadlineAt).toISOString() : null,
@@ -1484,7 +1514,46 @@ export function ItemForm({
             value={submissionPrompt} onChange={(e) => setSubmissionPrompt(e.target.value)} placeholder="What should the student submit back?"
             rows={2} className={`${inputCls} h-auto py-2 resize-none`}
           />
-          {!submissionMultiLink && (
+          <div className="flex flex-col gap-1.5">
+            <label className="text-xs font-medium text-muted-foreground">Submission Format</label>
+            <div className="flex gap-2 flex-wrap">
+              <button
+                type="button"
+                onClick={() => setSubmissionFormat("single")}
+                className={`px-3 py-1.5 rounded-lg text-xs font-semibold border transition-all ${
+                  submissionFormat === "single"
+                    ? "bg-primary text-primary-foreground border-primary"
+                    : "bg-card text-muted-foreground border-border hover:text-foreground"
+                }`}
+              >
+                Single field
+              </button>
+              <button
+                type="button"
+                onClick={() => setSubmissionFormat("multi_field")}
+                className={`px-3 py-1.5 rounded-lg text-xs font-semibold border transition-all ${
+                  submissionFormat === "multi_field"
+                    ? "bg-primary text-primary-foreground border-primary"
+                    : "bg-card text-muted-foreground border-border hover:text-foreground"
+                }`}
+              >
+                Multiple fields
+              </button>
+              <button
+                type="button"
+                onClick={() => setSubmissionFormat("tabular")}
+                className={`px-3 py-1.5 rounded-lg text-xs font-semibold border transition-all ${
+                  submissionFormat === "tabular"
+                    ? "bg-primary text-primary-foreground border-primary"
+                    : "bg-card text-muted-foreground border-border hover:text-foreground"
+                }`}
+              >
+                Tabular grid
+              </button>
+            </div>
+          </div>
+
+          {submissionFormat === "single" && (
             <div className="flex flex-col gap-1">
               <label className="text-xs font-medium text-muted-foreground">The student submits</label>
               <select
@@ -1497,19 +1566,13 @@ export function ItemForm({
               </select>
             </div>
           )}
-          <label className="flex items-center gap-2 text-sm text-foreground cursor-pointer select-none">
-            <input
-              type="checkbox" checked={submissionMultiLink}
-              onChange={(e) => setSubmissionMultiLink(e.target.checked)}
-            />
-            Allow multiple fields (e.g. Member 1 link, Team link, a text writeup)
-          </label>
-          {submissionMultiLink && (
+
+          {submissionFormat === "multi_field" && (
             <div className="flex flex-col gap-1.5 pl-1 border-l-2 border-border/60 ml-1">
               <span className="text-[11px] text-muted-foreground">
                 Set the fields yourself — each one a link or a text area — and tick "required" for any that must be
                 filled in before the student can submit. Leave this empty to let students type their own link labels
-                instead (the old behavior; text fields need at least one field set here).
+                instead.
               </span>
               {linkLabels.map((l, i) => (
                 <div key={i} className="flex items-center gap-2">
@@ -1551,6 +1614,166 @@ export function ItemForm({
               >
                 <Plus size={14} /> Add a field
               </button>
+            </div>
+          )}
+
+          {submissionFormat === "tabular" && (
+            <div className="flex flex-col gap-3 p-3 rounded-xl border border-primary/20 bg-primary/5">
+              <div className="flex items-center justify-between flex-wrap gap-2">
+                <span className="text-xs font-bold uppercase tracking-wider text-primary">
+                  Tabular Submission Grid
+                </span>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                <div className="flex flex-col gap-1">
+                  <label className="text-xs font-medium text-foreground">Tag Column Title</label>
+                  <input
+                    value={tagLabel}
+                    onChange={(e) => setTagLabel(e.target.value)}
+                    placeholder="e.g. Tag, Category, Type"
+                    className={inputCls}
+                  />
+                </div>
+                <div className="flex flex-col gap-1">
+                  <label className="text-xs font-medium text-foreground">Preset Tags (comma-separated, optional)</label>
+                  <input
+                    value={presetTagsText}
+                    onChange={(e) => setPresetTagsText(e.target.value)}
+                    placeholder="e.g. Option A, Option B"
+                    className={inputCls}
+                  />
+                </div>
+              </div>
+                    onChange={(e) => setPresetTagsText(e.target.value)}
+                    placeholder="e.g. Instagram, LinkedIn, YouTube"
+                    className={inputCls}
+                  />
+                </div>
+              </div>
+
+              <label className="flex items-center gap-2 text-xs text-muted-foreground cursor-pointer select-none">
+                <input
+                  type="checkbox"
+                  checked={allowCustomTags}
+                  onChange={(e) => setAllowCustomTags(e.target.checked)}
+                />
+                Allow students to type custom tags (in addition to preset tags)
+              </label>
+
+              <div className="flex flex-col gap-2 pt-2 border-t border-border/60">
+                <div className="flex items-center justify-between">
+                  <label className="text-xs font-bold text-foreground">Columns for each row</label>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setTableColumns((prev) => [
+                        ...prev,
+                        {
+                          key: `col_${Date.now()}`,
+                          label: "",
+                          type: "text",
+                          required: false,
+                        },
+                      ])
+                    }
+                    className="flex items-center gap-1 text-xs font-medium text-primary hover:underline"
+                  >
+                    <Plus size={13} /> Add Column
+                  </button>
+                </div>
+
+                <div className="flex flex-col gap-2">
+                  {tableColumns.map((col, idx) => (
+                    <div
+                      key={idx}
+                      className="flex flex-col sm:flex-row items-start sm:items-center gap-2 p-2 rounded-lg bg-card border border-border/80"
+                    >
+                      <input
+                        value={col.label}
+                        onChange={(e) =>
+                          setTableColumns((prev) =>
+                            prev.map((c, j) =>
+                              j === idx
+                                ? {
+                                    ...c,
+                                    label: e.target.value,
+                                    key: c.key || e.target.value.toLowerCase().replace(/[^a-z0-9]/g, "_"),
+                                  }
+                                : c
+                            )
+                          )
+                        }
+                        placeholder="Column Name (e.g. Link, Score, Notes)"
+                        className={`${inputCls} flex-1`}
+                      />
+                      <select
+                        value={col.type}
+                        onChange={(e) =>
+                          setTableColumns((prev) =>
+                            prev.map((c, j) =>
+                              j === idx
+                                ? { ...c, type: e.target.value as "link" | "text" | "select" }
+                                : c
+                            )
+                          )
+                        }
+                        className="w-auto shrink-0 h-9 px-2 border border-border bg-background text-foreground rounded-lg text-xs cursor-pointer"
+                      >
+                        <option value="link">Link</option>
+                        <option value="text">Text / Number</option>
+                        <option value="select">Dropdown (Select)</option>
+                      </select>
+
+                      {col.type === "select" && (
+                        <input
+                          value={col.options?.join(", ") ?? ""}
+                          onChange={(e) =>
+                            setTableColumns((prev) =>
+                              prev.map((c, j) =>
+                                j === idx
+                                  ? {
+                                      ...c,
+                                      options: e.target.value
+                                        .split(",")
+                                        .map((o) => o.trim())
+                                        .filter(Boolean),
+                                    }
+                                  : c
+                              )
+                            )
+                          }
+                          placeholder="Options: Option A, Option B"
+                          className={`${inputCls} sm:w-44`}
+                        />
+                      )}
+
+                      <label className="flex items-center gap-1 text-xs text-muted-foreground cursor-pointer select-none shrink-0">
+                        <input
+                          type="checkbox"
+                          checked={col.required}
+                          onChange={(e) =>
+                            setTableColumns((prev) =>
+                              prev.map((c, j) => (j === idx ? { ...c, required: e.target.checked } : c))
+                            )
+                          }
+                        />
+                        Required
+                      </label>
+
+                      <button
+                        type="button"
+                        onClick={() => setTableColumns((prev) => prev.filter((_, j) => j !== idx))}
+                        disabled={tableColumns.length <= 1}
+                        className="text-muted-foreground hover:text-destructive p-1 rounded transition-colors disabled:opacity-30"
+                        title="Remove column"
+                      >
+                        <X size={15} />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              </div>
             </div>
           )}
         </>

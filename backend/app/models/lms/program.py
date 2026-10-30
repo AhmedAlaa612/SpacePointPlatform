@@ -171,6 +171,9 @@ class LmsProgramItem(Base):
     # the student's form shows and which of them block submission — see
     # that same function's required-label check.
     submission_link_labels = Column(JSONB, nullable=True)
+    # 2026-10-30: Tabular grid submission format config — tag column, preset tags,
+    # allow_custom_tags, and custom columns schema.
+    submission_table_config = Column(JSONB, nullable=True)
     # A `pdf` item's hosted file — same two-step shape as a module
     # `attachment` item (create the item, then a separate multipart upload
     # attaches the file): stored path in the `lms-attachments` bucket, NULL

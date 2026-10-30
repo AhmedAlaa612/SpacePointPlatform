@@ -273,9 +273,47 @@ export default function JudgeTeamDetail() {
                     text rather than a broken link. */}
                 {s.submission_multi_link && (
                   s.submitted_links && s.submitted_links.length > 0 ? (
-                    <div className="flex flex-col gap-1 pl-1">
-                      {s.submitted_links.map((link, i) => (
-                        link.text ? (
+                    <div className="flex flex-col gap-1.5 pl-1">
+                      {s.submitted_links.map((link, i) => {
+                        const hasValues = link.values && Object.keys(link.values).length > 0;
+                        const tagOrLabel = link.tag || link.label;
+                        if (hasValues || link.tag) {
+                          return (
+                            <div key={i} className="flex flex-col gap-1 text-sm bg-muted/20 p-2 rounded-md border border-border/40">
+                              <div className="flex items-center gap-2 flex-wrap">
+                                {tagOrLabel && (
+                                  <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-semibold bg-primary/10 text-primary">
+                                    {tagOrLabel}
+                                  </span>
+                                )}
+                                {link.url && (
+                                  <a
+                                    href={ensureAbsoluteUrl(link.url)}
+                                    target="_blank"
+                                    rel="noreferrer"
+                                    className="flex items-center gap-1 font-medium text-primary hover:underline text-xs"
+                                  >
+                                    <span className="truncate max-w-[280px]">{link.url}</span>
+                                    <ExternalLink size={11} className="shrink-0" />
+                                  </a>
+                                )}
+                                {link.text && (
+                                  <span className="text-foreground text-xs whitespace-pre-wrap">{link.text}</span>
+                                )}
+                              </div>
+                              {hasValues && (
+                                <div className="flex items-center gap-2 flex-wrap text-xs text-muted-foreground pt-1 border-t border-border/20">
+                                  {Object.entries(link.values!).map(([k, v]) => (
+                                    <span key={k} className="bg-muted px-1.5 py-0.5 rounded text-[11px]">
+                                      <strong className="text-foreground capitalize">{k.replace(/_/g, " ")}:</strong> {String(v)}
+                                    </span>
+                                  ))}
+                                </div>
+                              )}
+                            </div>
+                          );
+                        }
+                        return link.text ? (
                           <div key={i} className="flex flex-col gap-0.5 text-sm">
                             {link.label && <span className="text-muted-foreground">{link.label}:</span>}
                             <p className="whitespace-pre-wrap max-w-[320px]">{link.text}</p>
@@ -289,8 +327,8 @@ export default function JudgeTeamDetail() {
                             <span className="truncate max-w-[320px]">{link.url}</span>
                             <ExternalLink size={11} className="shrink-0" />
                           </a>
-                        )
-                      ))}
+                        );
+                      })}
                     </div>
                   ) : (
                     <span className="text-sm text-muted-foreground">Not submitted</span>

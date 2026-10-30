@@ -239,7 +239,8 @@ export interface CompetitionSubmissionItem {
   // only for a submission_multi_link item; render these grouped under the
   // one submission instead of a bare link.
   submission_multi_link: boolean
-  submitted_links: { label: string | null; url: string | null; text: string | null }[] | null
+  submission_table_config?: any | null
+  submitted_links: { label: string | null; url: string | null; text: string | null; tag?: string | null; values?: Record<string, any> | null }[] | null
   updated_at: string | null
   updated_by_name: string | null
 }

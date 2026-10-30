@@ -2,6 +2,7 @@
  * the video upload route (LM1-6). Types mirror `schemas/lms_admin.py`. */
 import { api } from "@/api/client";
 import type { VideoPlaybackInfo } from "@/components/video/VideoPlayer";
+import type { LmsTableConfig } from "./lms";
 
 export type CourseKind = "course" | "mission";
 export type CourseLevel = "beginner" | "intermediate" | "advanced";
@@ -456,6 +457,7 @@ export interface LmsProgramItem {
    * ops entered them — null keeps (or reverts to) free-text,
    * student-entered labels. */
   submission_link_labels: LmsProgramItemLinkLabel[] | null;
+  submission_table_config?: LmsTableConfig | null;
   /** True once a `pdf` item has a file uploaded — fetch the actual URL
    * on demand via `getLmsProgramItemPdfUrlApi`, never baked in here. */
   has_pdf: boolean;
@@ -526,6 +528,7 @@ export interface LmsProgramItemInput {
   submission_field_type?: "text" | "link";
   submission_multi_link?: boolean;
   submission_link_labels?: LmsProgramItemLinkLabel[] | null;
+  submission_table_config?: LmsTableConfig | null;
   deadline_at?: string | null;
   session_date?: string | null;
   session_starts_at?: string | null;
@@ -658,7 +661,8 @@ export interface PendingConfirmation {
   submission_field_type: "text" | "link";
   submitted_text: string | null;
   submission_multi_link: boolean;
-  submitted_links: { label: string | null; url: string | null; text: string | null }[] | null;
+  submission_table_config?: LmsTableConfig | null;
+  submitted_links: { label: string | null; url: string | null; text: string | null; tag?: string | null; values?: Record<string, any> | null }[] | null;
 }
 
 export interface LmsProgramRosterRow {
@@ -719,7 +723,8 @@ export interface LmsAssignmentItemDetail {
   submission_field_type: "text" | "link";
   submitted_text: string | null;
   submission_multi_link: boolean;
-  submitted_links: { label: string | null; url: string | null; text: string | null }[] | null;
+  submission_table_config?: LmsTableConfig | null;
+  submitted_links: { label: string | null; url: string | null; text: string | null; tag?: string | null; values?: Record<string, any> | null }[] | null;
   completed_at: string | null;
   mission_attempt_id: string | null;
   confirmed_by_user_id: string | null;

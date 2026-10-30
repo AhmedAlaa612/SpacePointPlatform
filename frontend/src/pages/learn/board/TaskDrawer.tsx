@@ -44,6 +44,16 @@ function hasRowValue(link: SubmissionLink | undefined, spec: SubmissionLinkLabel
   return spec?.field_type === "text" ? !!(link.text ?? "").trim() : !!(link.url ?? "").trim();
 }
 
+function hasTableRowValue(link: SubmissionLink | undefined): boolean {
+  if (!link) return false;
+  if ((link.url ?? "").trim()) return true;
+  if ((link.text ?? "").trim()) return true;
+  if (link.values) {
+    return Object.values(link.values).some((v) => v !== null && v !== undefined && String(v).trim() !== "");
+  }
+  return false;
+}
+
 /** Per-item, per-browser "did they open the guideline yet" flag — the
  * final CTA stays disabled until this is true (design spec: "The guideline
  * must be viewed before the submission/complete step is enabled"). Not
@@ -612,7 +622,59 @@ function DrawerBody({
           guessed at. Editing stays open after done too: every submission
           item is overridable at any time, individual or team-scoped, up
           until the deadline. */}
-      {isSubmission && isMultiLink && item.submitted_links && item.submitted_links.length > 0 && (
+      {isSubmission && item.submission_table_config && item.submitted_links && item.submitted_links.length > 0 && (
+        <div className="flex flex-col gap-2 p-3.5 rounded-xl bg-muted/40 border border-border">
+          <div className="flex items-center gap-1.5 text-xs font-semibold text-foreground">
+            <Check className="size-3.5 shrink-0 text-emerald-600 dark:text-emerald-500" /> Current Submission
+            {item.updated_at && ` · ${new Date(item.updated_at).toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}`}
+            {item.updated_by_name && ` by ${item.updated_by_name}`}
+          </div>
+          <div className="overflow-x-auto rounded-lg border border-border/40">
+            <table className="w-full text-left text-xs border-collapse min-w-[480px]">
+              <thead>
+                <tr className="border-b border-border/60 text-muted-foreground bg-muted/20">
+                  <th className="py-2 px-2.5 font-semibold w-8 text-center shrink-0">#</th>
+                  <th className="py-2 px-2.5 font-semibold min-w-[110px]">{item.submission_table_config.tag_label || "Tag"}</th>
+                  {item.submission_table_config.columns?.map((c) => (
+                    <th key={c.key} className="py-2 px-2.5 font-semibold min-w-[110px]">{c.label}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-border/30">
+                {item.submitted_links.map((link, idx) => (
+                  <tr key={idx} className="hover:bg-muted/30">
+                    <td className="py-2 px-2 font-mono text-center text-muted-foreground">{idx + 1}</td>
+                    <td className="py-2 px-2 font-semibold text-foreground">{link.tag || link.label || "—"}</td>
+                    {item.submission_table_config?.columns?.map((col) => {
+                      if (col.type === "link") {
+                        const url = link.url || link.values?.[col.key];
+                        return (
+                          <td key={col.key} className="py-2 px-2">
+                            {url ? (
+                              <a href={ensureAbsoluteUrl(String(url))} target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()} className="text-primary hover:underline flex items-center gap-1">
+                                <span className="truncate max-w-[180px]">{String(url)}</span>
+                                <ExternalLink size={10} className="shrink-0" />
+                              </a>
+                            ) : <span className="text-muted-foreground">—</span>}
+                          </td>
+                        );
+                      }
+                      const val = link.values?.[col.key];
+                      return (
+                        <td key={col.key} className="py-2 px-2 text-foreground">
+                          {val !== undefined && val !== null && String(val).trim() !== "" ? String(val) : <span className="text-muted-foreground">—</span>}
+                        </td>
+                      );
+                    })}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {isSubmission && !item.submission_table_config && isMultiLink && item.submitted_links && item.submitted_links.length > 0 && (
         <div className="flex flex-col gap-1 text-sm text-muted-foreground bg-muted/50 rounded-lg px-3 py-2">
           <div className="flex items-center gap-1.5 font-medium text-foreground">
             <Check className="size-3.5 shrink-0 text-emerald-600 dark:text-emerald-500" /> Submitted
@@ -708,6 +770,218 @@ function DrawerBody({
           <p className="text-sm font-medium text-amber-600 dark:text-amber-500">
             Deadline passed — no longer accepting submissions
           </p>
+        ) : item.submission_table_config ? (
+          <div className="flex flex-col gap-3" onClick={(e) => e.stopPropagation()}>
+            {item.submission_prompt && <p className="text-sm text-muted-foreground">{item.submission_prompt}</p>}
+            
+            <div className="overflow-x-auto rounded-xl border border-border bg-card shadow-sm">
+              <table className="w-full text-left text-xs border-collapse min-w-[500px]">
+                <thead>
+                  <tr className="border-b border-border bg-muted/40 text-muted-foreground">
+                    <th className="py-2.5 px-3 font-bold w-10 text-center">#</th>
+                    <th className="py-2.5 px-3 font-bold min-w-[140px]">{item.submission_table_config.tag_label || "Tag"}</th>
+                    {item.submission_table_config.columns?.map((col) => (
+                      <th key={col.key} className="py-2.5 px-3 font-bold min-w-[130px]">
+                        {col.label}
+                        {col.required && <span className="text-destructive"> *</span>}
+                      </th>
+                    ))}
+                    <th className="py-2.5 px-2 w-10 text-center" aria-label="Actions" />
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-border/40">
+                  {linksInput.map((row, i) => {
+                    const presetTags = item.submission_table_config?.tags ?? [];
+                    const isCustomTag = Boolean(row.tag && !presetTags.includes(row.tag));
+                    return (
+                      <tr key={i} className="hover:bg-muted/15 transition-colors">
+                        <td className="py-2.5 px-3 font-mono text-center text-muted-foreground font-semibold">
+                          {i + 1}
+                        </td>
+                        <td className="py-2 px-3">
+                          {presetTags.length > 0 ? (
+                            isCustomTag ? (
+                              <div className="flex items-center gap-1">
+                                <input
+                                  value={row.tag ?? ""}
+                                  onChange={(e) =>
+                                    setLinksInput((prev) =>
+                                      prev.map((l, j) => (j === i ? { ...l, tag: e.target.value, label: e.target.value } : l))
+                                    )
+                                  }
+                                  placeholder="Tag name"
+                                  disabled={!canSubmit}
+                                  className="h-10 w-full px-2.5 border border-border bg-background text-foreground rounded-lg text-xs focus:outline-none focus:border-primary"
+                                />
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    setLinksInput((prev) =>
+                                      prev.map((l, j) => (j === i ? { ...l, tag: presetTags[0], label: presetTags[0] } : l))
+                                    )
+                                  }
+                                  className="text-muted-foreground hover:text-foreground text-[10px] px-1"
+                                  title="Reset to preset tag"
+                                >
+                                  ✕
+                                </button>
+                              </div>
+                            ) : (
+                              <select
+                                value={row.tag ?? ""}
+                                onChange={(e) => {
+                                  const val = e.target.value;
+                                  setLinksInput((prev) =>
+                                    prev.map((l, j) =>
+                                      j === i
+                                        ? { ...l, tag: val === "__custom__" ? "Other" : val, label: val === "__custom__" ? "Other" : val }
+                                        : l
+                                    )
+                                  );
+                                }}
+                                disabled={!canSubmit}
+                                className="h-10 w-full px-2.5 border border-border bg-background text-foreground rounded-lg text-xs focus:outline-none focus:border-primary cursor-pointer font-medium"
+                              >
+                                {presetTags.map((t) => (
+                                  <option key={t} value={t}>{t}</option>
+                                ))}
+                                {item.submission_table_config?.allow_custom_tags && (
+                                  <option value="__custom__">+ Custom Tag...</option>
+                                )}
+                              </select>
+                            )
+                          ) : (
+                            <input
+                              value={row.tag ?? row.label ?? ""}
+                              onChange={(e) =>
+                                setLinksInput((prev) =>
+                                  prev.map((l, j) => (j === i ? { ...l, tag: e.target.value, label: e.target.value } : l))
+                                )
+                              }
+                              placeholder="Tag name"
+                              disabled={!canSubmit}
+                              className="h-10 w-full px-2.5 border border-border bg-background text-foreground rounded-lg text-xs focus:outline-none focus:border-primary"
+                            />
+                          )}
+                        </td>
+                        {item.submission_table_config?.columns?.map((col) => {
+                          const val = (col.type === "link" && row.url !== undefined && row.url !== null && row.url !== "")
+                            ? row.url
+                            : (row.values?.[col.key] as string) ?? "";
+                          
+                          if (col.type === "link") {
+                            return (
+                              <td key={col.key} className="py-2 px-3">
+                                <input
+                                  type="url"
+                                  value={val}
+                                  onChange={(e) => {
+                                    const next = e.target.value;
+                                    setLinksInput((prev) =>
+                                      prev.map((l, j) =>
+                                        j === i
+                                          ? {
+                                              ...l,
+                                              url: next,
+                                              values: { ...(l.values || {}), [col.key]: next },
+                                            }
+                                          : l
+                                      )
+                                    );
+                                  }}
+                                  placeholder="https://…"
+                                  disabled={!canSubmit}
+                                  className="h-10 w-full px-2.5 border border-border bg-background text-foreground rounded-lg text-xs focus:outline-none focus:border-primary"
+                                />
+                              </td>
+                            );
+                          }
+                          if (col.type === "select") {
+                            return (
+                              <td key={col.key} className="py-2 px-3">
+                                <select
+                                  value={val}
+                                  onChange={(e) => {
+                                    const next = e.target.value;
+                                    setLinksInput((prev) =>
+                                      prev.map((l, j) =>
+                                        j === i
+                                          ? {
+                                              ...l,
+                                              values: { ...(l.values || {}), [col.key]: next },
+                                            }
+                                          : l
+                                      )
+                                    );
+                                  }}
+                                  disabled={!canSubmit}
+                                  className="h-10 w-full px-2.5 border border-border bg-background text-foreground rounded-lg text-xs focus:outline-none focus:border-primary cursor-pointer"
+                                >
+                                  <option value="">Select...</option>
+                                  {col.options?.map((opt) => (
+                                    <option key={opt} value={opt}>{opt}</option>
+                                  ))}
+                                </select>
+                              </td>
+                            );
+                          }
+                          return (
+                            <td key={col.key} className="py-2 px-3">
+                              <input
+                                type="text"
+                                value={val}
+                                onChange={(e) => {
+                                  const next = e.target.value;
+                                  setLinksInput((prev) =>
+                                    prev.map((l, j) =>
+                                      j === i
+                                        ? {
+                                            ...l,
+                                            values: { ...(l.values || {}), [col.key]: next },
+                                          }
+                                        : l
+                                    )
+                                  );
+                                }}
+                                placeholder={col.label}
+                                disabled={!canSubmit}
+                                className="h-10 w-full px-2.5 border border-border bg-background text-foreground rounded-lg text-xs focus:outline-none focus:border-primary"
+                              />
+                            </td>
+                          );
+                        })}
+                        <td className="py-2 px-2 text-center">
+                          <button
+                            type="button"
+                            disabled={!canSubmit || linksInput.length <= 1}
+                            onClick={() => setLinksInput((prev) => prev.filter((_, j) => j !== i))}
+                            className="p-2 text-muted-foreground hover:text-destructive transition-colors disabled:opacity-20"
+                            title="Delete row"
+                          >
+                            <Trash2 size={15} />
+                          </button>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+
+            <button
+              type="button"
+              disabled={!canSubmit}
+              onClick={() => {
+                const presetTags = item.submission_table_config?.tags ?? [];
+                const usedTags = new Set(linksInput.map((l) => l.tag || l.label));
+                const nextTag = presetTags.find((t) => !usedTags.has(t)) ?? presetTags[0] ?? "";
+                setLinksInput((prev) => [...prev, { tag: nextTag, label: nextTag, url: "", text: "", values: {} }]);
+              }}
+              className="self-start flex items-center gap-1.5 px-3 py-2 rounded-lg border border-primary/25 bg-primary/10 text-primary hover:bg-primary/20 text-xs font-semibold transition-colors disabled:opacity-50"
+            >
+              <Plus size={14} /> Add {item.submission_table_config.tag_label ? `Another ${item.submission_table_config.tag_label}` : "Row"}
+            </button>
+          </div>
         ) : item.submission_link_labels?.length ? (
           // Ops's own fixed label set (2026-09-14) — a fixed row per
           // label, in ops's order; no adding/removing/renaming, only
@@ -882,24 +1156,34 @@ function DrawerBody({
               <Button
                 disabled={
                   !canSubmit || submitLinksMutation.isPending
-                  // A row's "does it have an answer" reads .text for a
-                  // text-type field, .url for everything else (including the
-                  // free-text legacy path, which has no specs and is always
-                  // link-only) — same field-type-aware check the backend does.
-                  || !linksInput.some((l, i) => hasRowValue(l, item.submission_link_labels?.[i]))
-                  // Ops's own required fields (2026-09-14) block submission
-                  // until each has a real answer — optional ones don't.
-                  || (item.submission_link_labels?.some((spec, i) => spec.required && !hasRowValue(linksInput[i], spec)) ?? false)
+                  || (item.submission_table_config
+                    ? !linksInput.some((l) => hasTableRowValue(l))
+                    : (!linksInput.some((l, i) => hasRowValue(l, item.submission_link_labels?.[i]))
+                       || (item.submission_link_labels?.some((spec, i) => spec.required && !hasRowValue(linksInput[i], spec)) ?? false)))
                 }
                 onClick={() => submitLinksMutation.mutate(
-                  linksInput
-                    .map((l, i) => ({ link: l, spec: item.submission_link_labels?.[i] }))
-                    .filter(({ link, spec }) => hasRowValue(link, spec))
-                    .map(({ link, spec }) => (
-                      spec?.field_type === "text"
-                        ? { label: link.label?.trim() || null, url: null, text: (link.text ?? "").trim() }
-                        : { label: link.label?.trim() || null, url: (link.url ?? "").trim(), text: null }
-                    )),
+                  item.submission_table_config
+                    ? linksInput
+                        .filter((l) => hasTableRowValue(l))
+                        .map((l) => {
+                          const tag = (l.tag || l.label || "").trim();
+                          const url = (l.url || (l.values?.url as string) || "").trim();
+                          return {
+                            tag,
+                            label: tag,
+                            url: url || null,
+                            text: l.text || null,
+                            values: l.values || {},
+                          };
+                        })
+                    : linksInput
+                        .map((l, i) => ({ link: l, spec: item.submission_link_labels?.[i] }))
+                        .filter(({ link, spec }) => hasRowValue(link, spec))
+                        .map(({ link, spec }) => (
+                          spec?.field_type === "text"
+                            ? { label: link.label?.trim() || null, url: null, text: (link.text ?? "").trim() }
+                            : { label: link.label?.trim() || null, url: (link.url ?? "").trim(), text: null }
+                        )),
                 )}
                 className="h-[52px] text-base"
               >
@@ -963,6 +1247,27 @@ export function TaskDrawer({
   // item, resets per-item the same way every other drawer state does (via
   // the parent's `key={item?.id}` remount, not an effect).
   const [linksInput, setLinksInput] = useState<SubmissionLink[]>(() => {
+    if (item?.submission_table_config) {
+      if (item.submitted_links?.length) {
+        return item.submitted_links.map((l) => ({
+          tag: l.tag ?? l.label ?? "",
+          label: l.label ?? l.tag ?? "",
+          url: l.url ?? "",
+          text: l.text ?? "",
+          values: l.values ?? {},
+        }));
+      }
+      if (item.submission_table_config.tags?.length) {
+        return item.submission_table_config.tags.map((tag) => ({
+          tag,
+          label: tag,
+          url: "",
+          text: "",
+          values: {},
+        }));
+      }
+      return [{ tag: "", label: "", url: "", text: "", values: {} }];
+    }
     // Ops's own fixed label set (2026-09-14): one row per label, in ops's
     // order, seeded from whatever's already submitted under that exact
     // label — not just positionally, since ops can reorder/add labels

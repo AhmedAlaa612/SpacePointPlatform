@@ -179,6 +179,7 @@ def _copy_lms_item_fields(item: LmsProgramItem, *, owner_type: str, owner_id: uu
         submission_field_type=item.submission_field_type,
         submission_multi_link=item.submission_multi_link,
         submission_link_labels=item.submission_link_labels,
+        submission_table_config=item.submission_table_config,
         pdf_path=None,
         deadline_at=item.deadline_at,
         session_date=item.session_date,

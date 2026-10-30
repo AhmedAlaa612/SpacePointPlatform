@@ -634,6 +634,7 @@ async def clone_cohort(
                         submission_field_type=item.submission_field_type,
                         submission_multi_link=item.submission_multi_link,
                         submission_link_labels=item.submission_link_labels,
+                        submission_table_config=item.submission_table_config,
                         pdf_path=copy_pdf_path,
                         deadline_at=item.deadline_at,
                         session_date=item.session_date,

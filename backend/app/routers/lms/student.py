@@ -729,6 +729,7 @@ async def _checklist_item_out(
         submission_multi_link=item.submission_multi_link,
         submitted_links=target.submitted_links,
         submission_link_labels=item.submission_link_labels,
+        submission_table_config=item.submission_table_config,
         max_team_size=getattr(item, "max_team_size", None),
     )
 
@@ -857,8 +858,59 @@ async def submit_program_item(
         )
     target = await checklist_item_write_target(db, assignment=assignment, item=item, individual=individual, user_id=current.id)
 
+    is_table = item.item_type == "submission" and bool(item.submission_table_config)
     is_multi = item.item_type == "submission" and item.submission_multi_link
-    if is_multi:
+    if is_table:
+        table_config = item.submission_table_config or {}
+        columns = table_config.get("columns", [])
+        allow_custom_tags = table_config.get("allow_custom_tags", True)
+        preset_tags = set(table_config.get("tags", []))
+
+        submitted_rows = body.links or []
+        filled_entries = []
+        for r_idx, row in enumerate(submitted_rows):
+            tag = (row.tag or row.label or "").strip()
+            row_values = dict(row.values or {})
+            row_url = (row.url or "").strip()
+            row_text = (row.text or "").strip()
+
+            has_val = bool(tag) or bool(row_url) or bool(row_text) or any(bool(str(v).strip()) for v in row_values.values() if v is not None)
+            if not has_val:
+                continue
+
+            if not allow_custom_tags and preset_tags and tag not in preset_tags:
+                raise HTTPException(status.HTTP_400_BAD_REQUEST, detail=f"Unrecognized tag '{tag}'")
+
+            for col in columns:
+                if col.get("required"):
+                    col_key = col.get("key")
+                    val = row_values.get(col_key) if row_values else None
+                    if (val is None or not str(val).strip()) and not (col.get("type") == "link" and row_url):
+                        col_lbl = col.get("label") or col_key
+                        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail=f"Row {r_idx + 1}: '{col_lbl}' is required")
+
+            if not row_url:
+                for col in columns:
+                    if col.get("type") == "link":
+                        k = col.get("key")
+                        if row_values.get(k):
+                            row_url = str(row_values[k]).strip()
+                            break
+
+            filled_entries.append({
+                "tag": tag,
+                "label": tag,
+                "url": row_url or None,
+                "text": row_text or None,
+                "values": row_values,
+            })
+
+        if not filled_entries:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="Add at least one entry to submit")
+
+        target.submitted_links = filled_entries
+        target.submitted_url = next((e["url"] for e in filled_entries if e["url"]), None)
+    elif is_multi:
         # 2026-09-14 — ops's own fixed label set (submission_link_labels):
         # once set, it's the one source of truth for which slots this
         # item's form shows, so an entry under any other label is rejected
