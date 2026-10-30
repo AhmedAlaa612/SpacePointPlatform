@@ -1163,11 +1163,14 @@ export function ItemForm({
     initial?.submission_table_config?.tags?.join(", ") ?? ""
   )
   const [allowCustomTags, setAllowCustomTags] = useState(initial?.submission_table_config?.allow_custom_tags ?? true)
-  const [tableColumns, setTableColumns] = useState<LmsTableColumn[]>(
+  const [tableColumns, setTableColumns] = useState<(LmsTableColumn & { options_text?: string })[]>(
     initial?.submission_table_config?.columns?.length
-      ? initial.submission_table_config.columns
+      ? initial.submission_table_config.columns.map((c) => ({
+          ...c,
+          options_text: c.options?.join(", ") ?? "",
+        }))
       : [
-          { key: "url", label: "Link", type: "link", required: false },
+          { key: "url", label: "Link", type: "link", required: false, options_text: "" },
         ]
   )
   // Ops's own fixed label set for a multi-link submission (2026-09-14) —
@@ -1334,7 +1337,12 @@ export function ItemForm({
                 key: c.key?.trim() || c.label.toLowerCase().replace(/[^a-z0-9]/g, "_") || "field",
                 label: c.label.trim() || "Field",
                 type: c.type,
-                options: c.options || null,
+                options: c.type === "select"
+                  ? (c.options_text !== undefined ? c.options_text : (c.options?.join(", ") ?? ""))
+                      .split(",")
+                      .map((o) => o.trim())
+                      .filter(Boolean)
+                  : null,
                 required: Boolean(c.required),
               })),
             }
@@ -1667,6 +1675,7 @@ export function ItemForm({
                           label: "",
                           type: "text",
                           required: false,
+                          options_text: "",
                         },
                       ])
                     }
@@ -1698,7 +1707,7 @@ export function ItemForm({
                           )
                         }
                         placeholder="Column Name (e.g. Link, Score, Notes)"
-                        className={`${inputCls} flex-1`}
+                        className={`${inputCls} ${col.type === "select" ? "w-full sm:w-48 shrink-0" : "flex-1"}`}
                       />
                       <select
                         value={col.type}
@@ -1720,24 +1729,22 @@ export function ItemForm({
 
                       {col.type === "select" && (
                         <input
-                          value={col.options?.join(", ") ?? ""}
-                          onChange={(e) =>
+                          value={col.options_text !== undefined ? col.options_text : (col.options?.join(", ") ?? "")}
+                          onChange={(e) => {
+                            const val = e.target.value;
                             setTableColumns((prev) =>
                               prev.map((c, j) =>
                                 j === idx
                                   ? {
                                       ...c,
-                                      options: e.target.value
-                                        .split(",")
-                                        .map((o) => o.trim())
-                                        .filter(Boolean),
+                                      options_text: val,
                                     }
                                   : c
                               )
-                            )
-                          }
+                            );
+                          }}
                           placeholder="Options: Option A, Option B"
-                          className={`${inputCls} sm:w-44`}
+                          className={`${inputCls} flex-1 min-w-[160px]`}
                         />
                       )}
 

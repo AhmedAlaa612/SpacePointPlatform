@@ -979,7 +979,7 @@ function DrawerBody({
               }}
               className="self-start flex items-center gap-1.5 px-3 py-2 rounded-lg border border-primary/25 bg-primary/10 text-primary hover:bg-primary/20 text-xs font-semibold transition-colors disabled:opacity-50"
             >
-              <Plus size={14} /> Add {item.submission_table_config.tag_label ? `Another ${item.submission_table_config.tag_label}` : "Row"}
+              <Plus size={14} /> Add another
             </button>
           </div>
         ) : item.submission_link_labels?.length ? (
