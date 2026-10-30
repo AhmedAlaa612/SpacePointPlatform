@@ -2511,6 +2511,7 @@ async def cohort_program_roster(
                     team_progress_by_item[item.id].submitted_links if item.id in team_progress_by_item
                     else progress.submitted_links
                 ),
+                "submission_table_config": item.submission_table_config,
             }
             for item, progress in pairs
             if _effective_status(item, progress, team_progress_by_item) == "awaiting_confirmation"
@@ -2571,6 +2572,7 @@ async def program_roster(
                     team_progress_by_item[item.id].submitted_links if item.id in team_progress_by_item
                     else progress.submitted_links
                 ),
+                "submission_table_config": item.submission_table_config,
             }
             for item, progress in pairs
             if _effective_status(item, progress, team_progress_by_item) == "awaiting_confirmation"
@@ -2658,6 +2660,7 @@ async def assignment_item_detail(db: AsyncSession, *, assignment_id: uuid.UUID) 
             "submitted_text": target.submitted_text,
             "submission_multi_link": item.submission_multi_link,
             "submitted_links": target.submitted_links,
+            "submission_table_config": item.submission_table_config,
             "completed_at": completed_at, "mission_attempt_id": attempt_id,
             "confirmed_by_user_id": confirmed_by_user_id,
             "mission_step_key": item.mission_step_key,

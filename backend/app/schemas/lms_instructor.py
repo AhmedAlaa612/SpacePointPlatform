@@ -9,7 +9,7 @@ from uuid import UUID
 
 from pydantic import BaseModel
 
-from app.schemas.lms import LmsSubmissionLink
+from app.schemas.lms import LmsSubmissionLink, LmsTableConfig
 
 
 class ModuleProgressOut(BaseModel):
@@ -61,6 +61,7 @@ class PendingConfirmationOut(BaseModel):
     # 2026-09-14 — see LmsProgramItem.submission_multi_link's own comment.
     submission_multi_link: bool = False
     submitted_links: list[LmsSubmissionLink] | None = None
+    submission_table_config: LmsTableConfig | None = None
 
 
 class LmsAssignmentItemDetailOut(BaseModel):
@@ -79,6 +80,7 @@ class LmsAssignmentItemDetailOut(BaseModel):
     submitted_text: str | None = None
     submission_multi_link: bool = False
     submitted_links: list[LmsSubmissionLink] | None = None
+    submission_table_config: LmsTableConfig | None = None
     completed_at: datetime | None = None
     mission_attempt_id: UUID | None = None
     confirmed_by_user_id: UUID | None = None

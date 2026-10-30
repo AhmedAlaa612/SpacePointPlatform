@@ -3,7 +3,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useNavigate } from "@tanstack/react-router"
 import {
   Plus, X, BookOpen, Rocket, ChevronDown, ChevronRight, RotateCcw, Clock, CheckCircle2, XCircle,
-  Award, Circle, ExternalLink, Eye, Play, Search, Users, Trash2, Gamepad2,
+  Award, Circle, ExternalLink, Eye, Play, Search, Users, Trash2, Gamepad2, Table,
 } from "lucide-react"
 import { EmptyState, Spinner } from "@/components/ui/primitives"
 import { Button } from "@/components/ui/button"
@@ -904,7 +904,40 @@ export function AssignmentItemRow({
   const [showRun, setShowRun] = useState(false)
   const [showQuizReview, setShowQuizReview] = useState(false)
   const [showArcadeRun, setShowArcadeRun] = useState(false)
+  const [showTable, setShowTable] = useState(false)
   const [confirmReset, setConfirmReset] = useState(false)
+
+  const isTable = Boolean(
+    item.submission_table_config
+    || (item.submission_multi_link && item.submitted_links?.some((l) => l.tag || (l.values && Object.keys(l.values).length > 0)))
+  )
+
+  const tagLabel = item.submission_table_config?.tag_label || "Tag"
+  const tableColumns = useMemo(() => {
+    if (item.submission_table_config?.columns?.length) {
+      return item.submission_table_config.columns
+    }
+    const colKeys = new Set<string>()
+    item.submitted_links?.forEach((l) => {
+      if (l.values) {
+        Object.keys(l.values).forEach((k) => colKeys.add(k))
+      }
+    })
+    const cols: { key: string; label: string; type: "link" | "text" | "select" }[] = []
+    const hasAnyUrl = item.submitted_links?.some((l) => l.url)
+    if (hasAnyUrl && !colKeys.has("url")) {
+      cols.push({ key: "url", label: "Link", type: "link" })
+    }
+    colKeys.forEach((k) => {
+      cols.push({
+        key: k,
+        label: k.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase()),
+        type: k.toLowerCase().includes("link") || k.toLowerCase().includes("url") ? "link" : "text",
+      })
+    })
+    return cols
+  }, [item.submission_table_config, item.submitted_links])
+
   const isMissionRun = item.item_type === "mission_run" && !!item.mission_attempt_id
   // DesignRunDetail replicates the Design wizard off a `Design` row that
   // only a design-kind attempt ever has — a Ground Station (or any other
@@ -945,7 +978,8 @@ export function AssignmentItemRow({
   const isPoster = item.mission_step_key === "poster"
   const hasActions = Boolean(
     item.submitted_url || item.submitted_text || (item.submission_multi_link && item.submitted_links?.length)
-    || canViewRun || canOpenConsole || (isQuiz && (isDone || cohortId)) || (isArcadeGame && isDone && cohortId) || isPoster || (isAwaiting && cohortId),
+    || canViewRun || canOpenConsole || (isQuiz && (isDone || cohortId)) || (isArcadeGame && isDone && cohortId) || isPoster || (isAwaiting && cohortId)
+    || (isTable && (item.submitted_links?.length ?? 0) > 0),
   )
 
   return (
@@ -985,7 +1019,17 @@ export function AssignmentItemRow({
         <div className="flex items-center gap-2 flex-wrap shrink-0 justify-end sm:justify-start">
           {hasActions && (
             <div className="flex items-center gap-2 flex-wrap shrink-0 w-full sm:w-auto pt-2 sm:pt-0 border-t sm:border-t-0 border-border/30">
-              {item.submission_multi_link ? (
+              {isTable && item.submitted_links && item.submitted_links.length > 0 ? (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => setShowTable((v) => !v)}
+                  className="h-8 text-xs font-semibold gap-1.5 shrink-0 border-primary/40 bg-primary/10 text-primary hover:bg-primary/20"
+                >
+                  <Table size={13} />
+                  {showTable ? "Hide submission" : `View submission (${item.submitted_links.length})`}
+                </Button>
+              ) : item.submission_multi_link ? (
                 item.submitted_links && item.submitted_links.length > 0 ? (
                   item.submitted_links.map((link, i) => {
                     const tagOrLabel = link.tag || link.label;
@@ -1148,6 +1192,74 @@ export function AssignmentItemRow({
       {isArcadeGame && showArcadeRun && cohortId && (
         <div className="mt-1 border-2 border-border rounded-xl bg-card p-3 shadow-lg">
           <ArcadeRunReview cohortId={cohortId} assignmentId={assignmentId} itemId={item.item_id} />
+        </div>
+      )}
+
+      {isTable && showTable && item.submitted_links && item.submitted_links.length > 0 && (
+        <div className="mt-1 border border-border rounded-xl bg-card p-3 shadow-md overflow-x-auto">
+          <div className="flex items-center justify-between gap-2 mb-2 pb-2 border-b border-border/40">
+            <span className="text-xs font-bold text-foreground">
+              Submitted Data ({item.submitted_links.length} {item.submitted_links.length === 1 ? "entry" : "entries"})
+            </span>
+          </div>
+          <table className="w-full text-left text-xs border-collapse min-w-[480px]">
+            <thead>
+              <tr className="border-b border-border bg-muted/40 text-muted-foreground">
+                <th className="py-2 px-3 font-bold w-10 text-center">#</th>
+                <th className="py-2 px-3 font-bold min-w-[120px]">{tagLabel}</th>
+                {tableColumns.map((col) => (
+                  <th key={col.key} className="py-2 px-3 font-bold min-w-[120px]">
+                    {col.label}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-border/40">
+              {item.submitted_links.map((row, idx) => (
+                <tr key={idx} className="hover:bg-muted/15 transition-colors">
+                  <td className="py-2.5 px-3 font-mono text-center text-muted-foreground font-semibold">
+                    {idx + 1}
+                  </td>
+                  <td className="py-2.5 px-3 font-semibold text-foreground">
+                    <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-semibold bg-primary/10 text-primary">
+                      {row.tag || row.label || "—"}
+                    </span>
+                  </td>
+                  {tableColumns.map((col) => {
+                    const rawVal = col.type === "link"
+                      ? (row.url || (row.values?.[col.key] as string))
+                      : row.values?.[col.key];
+                    const val = rawVal !== undefined && rawVal !== null ? String(rawVal) : "";
+
+                    if (col.type === "link" || val.startsWith("http://") || val.startsWith("https://")) {
+                      return (
+                        <td key={col.key} className="py-2.5 px-3">
+                          {val ? (
+                            <a
+                              href={ensureAbsoluteUrl(val)}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="text-primary hover:underline inline-flex items-center gap-1 font-medium text-xs max-w-[240px]"
+                            >
+                              <span className="truncate">{val}</span>
+                              <ExternalLink size={11} className="shrink-0" />
+                            </a>
+                          ) : (
+                            <span className="text-muted-foreground">—</span>
+                          )}
+                        </td>
+                      );
+                    }
+                    return (
+                      <td key={col.key} className="py-2.5 px-3 text-foreground text-xs whitespace-pre-wrap">
+                        {val.trim() ? val : <span className="text-muted-foreground">—</span>}
+                      </td>
+                    );
+                  })}
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </div>
       )}
 
