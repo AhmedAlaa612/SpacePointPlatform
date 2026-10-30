@@ -663,6 +663,9 @@ export interface PendingConfirmation {
   submission_multi_link: boolean;
   submission_table_config?: LmsTableConfig | null;
   submitted_links: { label: string | null; url: string | null; text: string | null; tag?: string | null; values?: Record<string, any> | null }[] | null;
+  scope?: "individual" | "team";
+  updated_at?: string | null;
+  updated_by_name?: string | null;
 }
 
 export interface LmsProgramRosterRow {
@@ -719,6 +722,7 @@ export interface LmsAssignmentItemDetail {
   item_type: LmsProgramItemType;
   status: string;
   optional?: boolean;
+  scope?: "individual" | "team";
   submitted_url: string | null;
   submission_field_type: "text" | "link";
   submitted_text: string | null;
@@ -726,6 +730,8 @@ export interface LmsAssignmentItemDetail {
   submission_table_config?: LmsTableConfig | null;
   submitted_links: { label: string | null; url: string | null; text: string | null; tag?: string | null; values?: Record<string, any> | null }[] | null;
   completed_at: string | null;
+  updated_at?: string | null;
+  updated_by_name?: string | null;
   mission_attempt_id: string | null;
   confirmed_by_user_id: string | null;
   mission_step_key?: string | null;

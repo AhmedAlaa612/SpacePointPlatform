@@ -34,6 +34,20 @@ function errorDetail(err: unknown, fallback: string): string {
   return fallback;
 }
 
+function formatSubmissionTimestamp(scope?: string, updatedAt?: string | null, updatedByName?: string | null): string | null {
+  if (!updatedAt) return null;
+  const timeStr = new Date(updatedAt).toLocaleString(undefined, {
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  });
+  if (scope === "team" && updatedByName) {
+    return `Submitted at ${timeStr} by ${updatedByName}`;
+  }
+  return `Submitted at ${timeStr}`;
+}
+
 /** Does this multi-field submission row have an answer? Reads .text for a
  * text-type field, .url for everything else — including the free-text
  * legacy path (no spec at all), which predates field_type and is always
@@ -625,9 +639,8 @@ function DrawerBody({
       {isSubmission && item.submission_table_config && item.submitted_links && item.submitted_links.length > 0 && (
         <div className="flex flex-col gap-2 p-3.5 rounded-xl bg-muted/40 border border-border">
           <div className="flex items-center gap-1.5 text-xs font-semibold text-foreground">
-            <Check className="size-3.5 shrink-0 text-emerald-600 dark:text-emerald-500" /> Current Submission
-            {item.updated_at && ` · ${new Date(item.updated_at).toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}`}
-            {item.updated_by_name && ` by ${item.updated_by_name}`}
+            <Check className="size-3.5 shrink-0 text-emerald-600 dark:text-emerald-500" />
+            <span>{formatSubmissionTimestamp(item.scope, item.updated_at, item.updated_by_name) ?? "Current Submission"}</span>
           </div>
           <div className="overflow-x-auto rounded-lg border border-border/40">
             <table className="w-full text-left text-xs border-collapse min-w-[480px]">
@@ -677,10 +690,8 @@ function DrawerBody({
       {isSubmission && !item.submission_table_config && isMultiLink && item.submitted_links && item.submitted_links.length > 0 && (
         <div className="flex flex-col gap-1 text-sm text-muted-foreground bg-muted/50 rounded-lg px-3 py-2">
           <div className="flex items-center gap-1.5 font-medium text-foreground">
-            <Check className="size-3.5 shrink-0 text-emerald-600 dark:text-emerald-500" /> Submitted
-            {item.updated_at &&
-              ` ${new Date(item.updated_at).toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}`}
-            {item.updated_by_name && ` by ${item.updated_by_name}`}
+            <Check className="size-3.5 shrink-0 text-emerald-600 dark:text-emerald-500" />
+            <span>{formatSubmissionTimestamp(item.scope, item.updated_at, item.updated_by_name) ?? "Submitted"}</span>
           </div>
           {item.submitted_links.map((link, i) => (
             <div key={i} className={link.text ? "flex flex-col gap-0.5 pl-5" : "flex items-center gap-1.5 pl-5"}>
@@ -710,10 +721,7 @@ function DrawerBody({
             {item.submitted_url}
           </a>
           <span className="min-w-0">
-            · Submitted
-            {item.updated_at &&
-              ` ${new Date(item.updated_at).toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}`}
-            {item.updated_by_name && ` by ${item.updated_by_name}`}
+            · {formatSubmissionTimestamp(item.scope, item.updated_at, item.updated_by_name) ?? "Submitted"}
           </span>
         </div>
       )}
@@ -721,10 +729,8 @@ function DrawerBody({
       {isTextSubmission && item.submitted_text && (
         <div className="flex flex-col gap-1 text-sm text-muted-foreground bg-muted/50 rounded-lg px-3 py-2">
           <div className="flex items-center gap-1.5 font-medium text-foreground">
-            <Check className="size-3.5 shrink-0 text-emerald-600 dark:text-emerald-500" /> Submitted
-            {item.updated_at &&
-              ` ${new Date(item.updated_at).toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}`}
-            {item.updated_by_name && ` by ${item.updated_by_name}`}
+            <Check className="size-3.5 shrink-0 text-emerald-600 dark:text-emerald-500" />
+            <span>{formatSubmissionTimestamp(item.scope, item.updated_at, item.updated_by_name) ?? "Submitted"}</span>
           </div>
           <p className="whitespace-pre-wrap text-foreground pl-5">{item.submitted_text}</p>
         </div>

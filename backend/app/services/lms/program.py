@@ -2494,6 +2494,11 @@ async def cohort_program_roster(
         team_progress_by_item = await _team_progress_by_item(
             db, pairs=pairs, cohort_id=assignment.cohort_id, user_id=assignment.user_id,
         )
+        updater_ids = {tp.updated_by_user_id for tp in team_progress_by_item.values() if tp and tp.updated_by_user_id}
+        updater_names: dict[uuid.UUID, str] = {}
+        if updater_ids:
+            u_rows = (await db.execute(select(User.id, User.full_name).where(User.id.in_(updater_ids)))).all()
+            updater_names = {r[0]: (r[1] or "") for r in u_rows}
         pending = [
             {
                 "item_id": item.id, "title": item.title,
@@ -2512,6 +2517,16 @@ async def cohort_program_roster(
                     else progress.submitted_links
                 ),
                 "submission_table_config": item.submission_table_config,
+                "scope": item.scope,
+                "updated_at": (
+                    team_progress_by_item[item.id].updated_at if item.id in team_progress_by_item
+                    else progress.updated_at
+                ),
+                "updated_by_name": (
+                    updater_names.get(team_progress_by_item[item.id].updated_by_user_id)
+                    if (item.id in team_progress_by_item and item.scope == "team" and team_progress_by_item[item.id].updated_by_user_id)
+                    else None
+                ),
             }
             for item, progress in pairs
             if _effective_status(item, progress, team_progress_by_item) == "awaiting_confirmation"
@@ -2555,6 +2570,11 @@ async def program_roster(
         team_progress_by_item = await _team_progress_by_item(
             db, pairs=pairs, cohort_id=assignment.cohort_id, user_id=assignment.user_id,
         )
+        updater_ids = {tp.updated_by_user_id for tp in team_progress_by_item.values() if tp and tp.updated_by_user_id}
+        updater_names: dict[uuid.UUID, str] = {}
+        if updater_ids:
+            u_rows = (await db.execute(select(User.id, User.full_name).where(User.id.in_(updater_ids)))).all()
+            updater_names = {r[0]: (r[1] or "") for r in u_rows}
         pending = [
             {
                 "item_id": item.id, "title": item.title,
@@ -2573,6 +2593,16 @@ async def program_roster(
                     else progress.submitted_links
                 ),
                 "submission_table_config": item.submission_table_config,
+                "scope": item.scope,
+                "updated_at": (
+                    team_progress_by_item[item.id].updated_at if item.id in team_progress_by_item
+                    else progress.updated_at
+                ),
+                "updated_by_name": (
+                    updater_names.get(team_progress_by_item[item.id].updated_by_user_id)
+                    if (item.id in team_progress_by_item and item.scope == "team" and team_progress_by_item[item.id].updated_by_user_id)
+                    else None
+                ),
             }
             for item, progress in pairs
             if _effective_status(item, progress, team_progress_by_item) == "awaiting_confirmation"
@@ -2607,6 +2637,11 @@ async def assignment_item_detail(db: AsyncSession, *, assignment_id: uuid.UUID) 
     team_progress_by_item = await _team_progress_by_item(
         db, pairs=pairs, cohort_id=assignment.cohort_id, user_id=assignment.user_id,
     )
+    updater_ids = {tp.updated_by_user_id for tp in team_progress_by_item.values() if tp and tp.updated_by_user_id}
+    updater_names: dict[uuid.UUID, str] = {}
+    if updater_ids:
+        u_rows = (await db.execute(select(User.id, User.full_name).where(User.id.in_(updater_ids)))).all()
+        updater_names = {r[0]: (r[1] or "") for r in u_rows}
     mission_ids = {item.mission_id for item, _ in pairs if item.mission_id}
     mission_kinds = dict((await db.execute(
         select(Mission.id, Mission.kind).where(Mission.id.in_(mission_ids))
@@ -2669,6 +2704,9 @@ async def assignment_item_detail(db: AsyncSession, *, assignment_id: uuid.UUID) 
             "arcade_game_key": arcade_games[item.arcade_game_id].game_key if item.arcade_game_id and item.arcade_game_id in arcade_games else None,
             "arcade_game_mode": item.arcade_game_mode,
             "arcade_best_score": best_scores.get(item.arcade_game_id) if item.arcade_game_id else None,
+            "scope": item.scope,
+            "updated_at": target.updated_at,
+            "updated_by_name": updater_names.get(team_progress.updated_by_user_id) if (item.scope == "team" and team_progress and team_progress.updated_by_user_id) else None,
         })
     return out
 

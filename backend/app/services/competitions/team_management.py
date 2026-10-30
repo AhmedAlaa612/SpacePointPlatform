@@ -348,6 +348,8 @@ async def team_checkpoint_states(db: AsyncSession, *, team_id: uuid.UUID) -> lis
         (i for i in items if i.item_type == "checkpoint"), key=lambda i: i.position,
     )
     states = {c.id: "pending" for c in checkpoints}
+    locked_ats = {}
+    locked_by_user_ids = {}
     if checkpoints:
         rows = (await db.execute(
             select(LmsProgramTeamItemProgress).where(
@@ -355,10 +357,26 @@ async def team_checkpoint_states(db: AsyncSession, *, team_id: uuid.UUID) -> lis
                 LmsProgramTeamItemProgress.item_id.in_([c.id for c in checkpoints]),
             )
         )).scalars().all()
+        updater_ids = {r.updated_by_user_id for r in rows if r.updated_by_user_id}
+        updater_names = {}
+        if updater_ids:
+            u_rows = (await db.execute(select(User.id, User.full_name).where(User.id.in_(updater_ids)))).all()
+            updater_names = {r[0]: (r[1] or "") for r in u_rows}
         for progress in rows:
             states[progress.item_id] = progress.status
+            if progress.status == "done":
+                locked_ats[progress.item_id] = progress.completed_at or progress.updated_at
+                locked_by_user_ids[progress.item_id] = progress.updated_by_user_id
     return [
-        {"item_id": c.id, "title": c.title, "position": c.position, "status": states[c.id]}
+        {
+            "item_id": c.id,
+            "title": c.title,
+            "position": c.position,
+            "status": states[c.id],
+            "locked_at": locked_ats.get(c.id),
+            "locked_by_user_id": locked_by_user_ids.get(c.id),
+            "locked_by_name": updater_names.get(locked_by_user_ids.get(c.id)) if locked_by_user_ids.get(c.id) else None,
+        }
         for c in checkpoints
     ]
 

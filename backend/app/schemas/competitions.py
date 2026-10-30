@@ -45,6 +45,9 @@ class TeamCheckpointStateOut(BaseModel):
     title: str
     position: int
     status: str
+    locked_at: datetime | None = None
+    locked_by_user_id: UUID | None = None
+    locked_by_name: str | None = None
 
 
 class CompetitionTeamRenameIn(BaseModel):
@@ -205,6 +208,7 @@ class CompetitionStudentResultOut(BaseModel):
     status: str  # scored | unscored | pending_publication
     locked: bool = False
     locked_at: datetime | None = None
+    checkpoints: list[CompetitionAnalyticsCheckpointOut] = []
     published: bool = False
     qualification: str | None = None
     timing_adjustment: float | None = None
@@ -403,6 +407,7 @@ class CompetitionJudgeTeamOut(TeamOut):
     # checklist genuinely is.
     locked: bool = False
     locked_at: datetime | None = None
+    checkpoints: list[CompetitionAnalyticsCheckpointOut] = []
     roster_team_id: str | None = None
     member_count: int = 0
     items_done: int = 0
@@ -421,6 +426,7 @@ class CompetitionTeamDetailOut(BaseModel):
     own_score: CompetitionScoreOut | None = None
     locked: bool = False
     locked_at: datetime | None = None
+    checkpoints: list[CompetitionAnalyticsCheckpointOut] = []
     # Operations-graded scores for context — read-only on the judge surface
     # (leaf `parent.sub` keys plus recomputed parent keys, same shape as the
     # operations endpoint stores). Judges never see who scored what, only
@@ -653,10 +659,28 @@ class CompetitionAnalyticsDeliverableOut(BaseModel):
     item_id: UUID
     title: str
     status: str
+    item_type: str = "submission"
     optional: bool = False
     submitted_url: str | None = None
     submitted_text: str | None = None
     submitted_links: list[LmsSubmissionLink] | None = None
+    locked_at: datetime | None = None
+    locked_by_name: str | None = None
+    updated_at: datetime | None = None
+    updated_by_name: str | None = None
+
+
+class CompetitionAnalyticsCheckpointOut(BaseModel):
+    item_id: UUID
+    title: str
+    position: int
+    status: str
+    locked: bool = False
+    locked_at: datetime | None = None
+    checkpoints: list[CompetitionAnalyticsCheckpointOut] = []
+    locked_by_name: str | None = None
+    locked_by_email: str | None = None
+    locked_by_id: UUID | None = None
 
 
 class CompetitionAnalyticsTeamMemberOut(BaseModel):
@@ -705,6 +729,7 @@ class CompetitionAnalyticsTeamOut(BaseModel):
     all_done: int = 0
     awaiting: int
     pct: int
+    checkpoints: list[CompetitionAnalyticsCheckpointOut] = []
     deliverables: list[CompetitionAnalyticsDeliverableOut] = []
     # Team-scoped Design mission runs on this team's checklist, if any —
     # cheap (MissionAttempt.status only, no design-dashboard cascade, see
@@ -719,6 +744,7 @@ class CompetitionAnalyticsTeamOut(BaseModel):
     # set) — read straight off the already-loaded Team row, no new query.
     locked: bool = False
     locked_at: datetime | None = None
+    checkpoints: list[CompetitionAnalyticsCheckpointOut] = []
     locked_by_name: str | None = None
     locked_by_email: str | None = None
     locked_by_id: UUID | None = None

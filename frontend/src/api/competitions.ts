@@ -645,6 +645,9 @@ export interface TeamCheckpointState {
   title: string
   position: number
   status: string
+  locked_at?: string | null
+  locked_by_user_id?: string | null
+  locked_by_name?: string | null
 }
 
 export const getTeamCheckpointsApi = (teamId: string) =>
@@ -741,10 +744,27 @@ export interface CompetitionAnalyticsDeliverable {
   item_id: string
   title: string
   status: string
+  item_type?: string
   optional?: boolean
   submitted_url: string | null
   submitted_text: string | null
-  submitted_links: { label: string | null; url: string | null; text: string | null }[] | null
+  submitted_links: { label: string | null; url: string | null; text: string | null; tag?: string | null; values?: Record<string, string | number | boolean | null> }[] | null
+  locked_at?: string | null
+  locked_by_name?: string | null
+  updated_at?: string | null
+  updated_by_name?: string | null
+}
+
+export interface CompetitionAnalyticsCheckpoint {
+  item_id: string
+  title: string
+  position: number
+  status: string
+  locked: boolean
+  locked_at?: string | null
+  locked_by_name?: string | null
+  locked_by_email?: string | null
+  locked_by_id?: string | null
 }
 
 export interface CompetitionAnalyticsTeamMember {
@@ -789,6 +809,7 @@ export interface CompetitionAnalyticsTeam {
   all_done?: number
   awaiting: number
   pct: number
+  checkpoints?: CompetitionAnalyticsCheckpoint[]
   /** Every required team deliverable — awaiting_confirmation counts as not
    * done, since ops confirming it is the outstanding work, but a done or
    * awaiting item still carries whatever the team actually submitted. */

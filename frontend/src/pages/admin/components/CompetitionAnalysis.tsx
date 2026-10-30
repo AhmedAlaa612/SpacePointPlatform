@@ -7,7 +7,7 @@ import {
   Tooltip, XAxis, YAxis,
 } from "recharts"
 import {
-  AlertTriangle, CheckCircle2, ChevronDown, ChevronRight, Circle, Clock, ExternalLink, Eye, FileSpreadsheet, Loader2, Lock, Search,
+  AlertTriangle, CheckCircle2, ChevronDown, ChevronRight, Circle, Clock, ExternalLink, Eye, FileSpreadsheet, Flag, Loader2, Lock, Search,
   Rocket, UserX, Users, UsersRound, X, Maximize2,
 } from "lucide-react"
 import {
@@ -1053,6 +1053,30 @@ export function TeamAnalysisCard({
                     submission={sub}
                     cohortId={cohortId}
                   />
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Checkpoint locks */}
+          {team.checkpoints && team.checkpoints.length > 0 && (
+            <div>
+              <div className="flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider text-muted-foreground mb-2">
+                <Flag size={13} />
+                <span>Checkpoints ({team.checkpoints.filter((c) => c.locked).length}/{team.checkpoints.length} locked)</span>
+              </div>
+              <div className="flex flex-col gap-1.5">
+                {team.checkpoints.map((cp) => (
+                  <div key={cp.item_id} className="flex items-center justify-between gap-2 flex-wrap rounded-lg border border-border/60 bg-muted/30 px-2.5 py-1.5 text-xs">
+                    <span className="font-medium text-foreground truncate">{cp.title}</span>
+                    {cp.locked ? (
+                      <span className="text-muted-foreground">
+                        Locked{cp.locked_at ? ` on ${formatDateTime(cp.locked_at)}` : ""}{cp.locked_by_name ? ` by ${cp.locked_by_name}` : ""}
+                      </span>
+                    ) : (
+                      <span className="text-muted-foreground italic">Open</span>
+                    )}
+                  </div>
                 ))}
               </div>
             </div>

@@ -66,7 +66,7 @@ export function TeamCheckpointGates({ teamId, cohortId }: { teamId: string; coho
                   key={gate.item_id}
                   className="flex items-center justify-between gap-2 rounded-lg border border-border/60 bg-muted/30 px-2.5 py-1.5"
                 >
-                  <span className="flex items-center gap-1.5 min-w-0 text-xs">
+                  <span className="flex items-center gap-1.5 min-w-0 text-xs flex-wrap">
                     <span
                       className={cn(
                         "text-[10px] font-bold uppercase tracking-wide px-1.5 py-0.5 rounded border shrink-0",
@@ -78,6 +78,12 @@ export function TeamCheckpointGates({ teamId, cohortId }: { teamId: string; coho
                       {isLocked ? "Locked" : "Open"}
                     </span>
                     <span className="truncate text-foreground font-medium">{gate.title}</span>
+                    {isLocked && gate.locked_at && (
+                      <span className="text-[11px] text-muted-foreground">
+                        · Locked at {new Date(gate.locked_at).toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}
+                        {gate.locked_by_name && ` by ${gate.locked_by_name}`}
+                      </span>
+                    )}
                   </span>
                   {isLocked && (
                     <button

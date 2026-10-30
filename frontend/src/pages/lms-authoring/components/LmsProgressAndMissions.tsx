@@ -1000,13 +1000,28 @@ export function AssignmentItemRow({
             </div>
           )}
 
-          <div className="text-sm font-medium sm:font-semibold text-foreground flex-1 min-w-0 break-words sm:truncate flex items-center gap-2">
-            <span>{item.title}</span>
-            {isPoster && (
-              <span className="text-[10px] font-semibold uppercase px-1.5 py-0.5 rounded border border-purple-500/30 bg-purple-500/10 text-purple-400 shrink-0">
-                Poster
-              </span>
-            )}
+          <div className="flex-1 min-w-0 flex flex-col gap-0.5">
+            <div className="text-sm font-medium sm:font-semibold text-foreground break-words sm:truncate flex items-center gap-2">
+              <span>{item.title}</span>
+              {isPoster && (
+                <span className="text-[10px] font-semibold uppercase px-1.5 py-0.5 rounded border border-purple-500/30 bg-purple-500/10 text-purple-400 shrink-0">
+                  Poster
+                </span>
+              )}
+            </div>
+            {item.item_type === "checkpoint" ? (
+              isDone && (item.updated_at || item.completed_at) ? (
+                <p className="text-[11px] text-muted-foreground truncate">
+                  Locked at {new Date((item.updated_at || item.completed_at)!).toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}
+                  {item.updated_by_name ? ` by ${item.updated_by_name}` : ""}
+                </p>
+              ) : null
+            ) : item.updated_at ? (
+              <p className="text-[11px] text-muted-foreground truncate">
+                Submitted at {new Date(item.updated_at).toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}
+                {item.scope === "team" && item.updated_by_name ? ` by ${item.updated_by_name}` : ""}
+              </p>
+            ) : null}
           </div>
 
           <span className={`text-[11px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-md shrink-0 sm:hidden ${
@@ -1201,6 +1216,12 @@ export function AssignmentItemRow({
             <span className="text-xs font-bold text-foreground">
               Submitted Data ({item.submitted_links.length} {item.submitted_links.length === 1 ? "entry" : "entries"})
             </span>
+            {item.updated_at && (
+              <span className="text-[11px] text-muted-foreground font-normal">
+                Submitted at {new Date(item.updated_at).toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}
+                {item.scope === "team" && item.updated_by_name ? ` by ${item.updated_by_name}` : ""}
+              </span>
+            )}
           </div>
           <table className="w-full text-left text-xs border-collapse min-w-[480px]">
             <thead>

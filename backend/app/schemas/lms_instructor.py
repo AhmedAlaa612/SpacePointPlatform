@@ -62,6 +62,9 @@ class PendingConfirmationOut(BaseModel):
     submission_multi_link: bool = False
     submitted_links: list[LmsSubmissionLink] | None = None
     submission_table_config: LmsTableConfig | None = None
+    scope: str = "individual"
+    updated_at: datetime | None = None
+    updated_by_name: str | None = None
 
 
 class LmsAssignmentItemDetailOut(BaseModel):
@@ -75,6 +78,7 @@ class LmsAssignmentItemDetailOut(BaseModel):
     item_type: str
     status: str
     optional: bool = False
+    scope: str = "individual"
     submitted_url: str | None = None
     submission_field_type: Literal["text", "link"] = "link"
     submitted_text: str | None = None
@@ -82,6 +86,8 @@ class LmsAssignmentItemDetailOut(BaseModel):
     submitted_links: list[LmsSubmissionLink] | None = None
     submission_table_config: LmsTableConfig | None = None
     completed_at: datetime | None = None
+    updated_at: datetime | None = None
+    updated_by_name: str | None = None
     mission_attempt_id: UUID | None = None
     confirmed_by_user_id: UUID | None = None
     mission_step_key: str | None = None

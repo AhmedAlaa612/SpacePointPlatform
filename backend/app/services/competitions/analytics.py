@@ -392,6 +392,18 @@ async def cohort_team_analytics(db: AsyncSession, *, cohort_id: uuid.UUID, mode:
     )).scalars().all()) if progress_item_ids and team_ids else []
     progress_by_team_item = {(p.team_id, p.item_id): p for p in team_progress}
 
+    missing_updater_ids = {
+        p.updated_by_user_id for p in team_progress if p.updated_by_user_id and p.updated_by_user_id not in users_by_id
+    }
+    if missing_updater_ids:
+        more_updaters = (await db.execute(select(User).where(User.id.in_(missing_updater_ids)))).scalars().all()
+        for u in more_updaters:
+            users_by_id[u.id] = u
+
+    checkpoint_items = sorted(
+        [i for i in items if i.item_type == "checkpoint"], key=lambda i: i.position,
+    )
+
     done_users_by_item, awaiting_users_by_item, assigned_user_ids, assignment_by_user = await _individual_done_user_ids(
         db, items=individual_items, cohort_id=cohort_id, mode=mode,
     )
@@ -493,18 +505,44 @@ async def cohort_team_analytics(db: AsyncSession, *, cohort_id: uuid.UUID, mode:
             status = progress.status if progress is not None else "pending"
             if item.item_type == "team_setup" and status == "pending" and team.name and (team.roster_team_id is None or team.name != team.roster_team_id):
                 status = "done"
+            updater = users_by_id.get(progress.updated_by_user_id) if (progress and progress.updated_by_user_id) else None
+            is_cp_locked = status == "done" and item.item_type == "checkpoint"
             deliverables.append({
                 "item_id": item.id,
                 "title": item.title,
                 "status": status,
+                "item_type": item.item_type,
                 "optional": item.optional,
                 "submitted_url": progress.submitted_url if progress is not None else None,
                 "submitted_text": progress.submitted_text if progress is not None else None,
                 "submitted_links": progress.submitted_links if progress is not None else None,
+                "locked_at": (progress.completed_at or progress.updated_at) if (progress and is_cp_locked) else None,
+                "locked_by_name": updater.full_name if (updater and is_cp_locked) else None,
+                "updated_at": progress.updated_at if progress is not None else None,
+                "updated_by_name": updater.full_name if (updater and item.scope == "team") else None,
             })
             if progress is not None and progress.updated_at is not None:
                 if last_activity is None or progress.updated_at > last_activity:
                     last_activity = progress.updated_at
+
+        checkpoints_for_team: list[dict] = []
+        for cp in checkpoint_items:
+            cp_prog = progress_by_team_item.get((team.id, cp.id))
+            cp_status = cp_prog.status if cp_prog is not None else "pending"
+            is_locked = cp_status == "done"
+            cp_locked_at = (cp_prog.completed_at or cp_prog.updated_at) if (cp_prog and is_locked) else None
+            cp_updater = users_by_id.get(cp_prog.updated_by_user_id) if (cp_prog and cp_prog.updated_by_user_id) else None
+            checkpoints_for_team.append({
+                "item_id": cp.id,
+                "title": cp.title,
+                "position": cp.position,
+                "status": cp_status,
+                "locked": is_locked,
+                "locked_at": cp_locked_at,
+                "locked_by_name": cp_updater.full_name if cp_updater else None,
+                "locked_by_email": cp_updater.email if cp_updater else None,
+                "locked_by_id": cp_prog.updated_by_user_id if cp_prog else None,
+            })
 
         quiz_subs = []
         for q_item in quiz_items:
@@ -562,6 +600,7 @@ async def cohort_team_analytics(db: AsyncSession, *, cohort_id: uuid.UUID, mode:
             "all_done": done + opt_done,
             "awaiting": awaiting,
             "pct": _pct(done, total),
+            "checkpoints": checkpoints_for_team,
             "deliverables": deliverables,
             "quiz_submissions": quiz_subs,
             "last_activity_at": last_activity,
