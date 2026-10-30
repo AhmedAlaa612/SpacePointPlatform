@@ -11,7 +11,7 @@ import {
   Rocket, UserX, Users, UsersRound, X, Maximize2,
 } from "lucide-react"
 import {
-  getCohortTeamAnalyticsApi, downloadCohortQuizAnswersWorkbookApi, unlockTeamApi,
+  getCohortTeamAnalyticsApi, downloadCohortQuizAnswersWorkbookApi, unlockTeamApi, unlockTeamCheckpointApi,
   type CompetitionAnalytics, type CompetitionAnalyticsItem, type CompetitionAnalyticsTeam,
   type CompetitionAnalyticsDeliverable, type CompetitionMissionRun, type CompetitionTeamQuizSubmission,
   type CompetitionAnalyticsTeamMember,
@@ -833,6 +833,16 @@ export function TeamAnalysisCard({
     },
     onError: (e: unknown) => toast.error(getErrorMessage(e, "Failed to unlock this team")),
   })
+  const unlockCheckpointMutation = useMutation({
+    mutationFn: (args: { teamId: string; checkpointItemId: string }) =>
+      unlockTeamCheckpointApi(args.teamId, args.checkpointItemId),
+    onSuccess: () => {
+      toast.success("Checkpoint reopened — later checkpoints and the final lock reopened too")
+      queryClient.invalidateQueries({ queryKey: ["competitions-team-analytics", cohortId] })
+    },
+    onError: (e: unknown) => toast.error(getErrorMessage(e, "Failed to unlock this checkpoint")),
+  })
+  const checkpointLockedCount = team.checkpoints?.filter((c) => c.locked).length ?? 0
 
   return (
     <div className="rounded-2xl border border-border/70 bg-background/40 overflow-hidden shadow-xs hover:border-border transition-all">
@@ -873,10 +883,15 @@ export function TeamAnalysisCard({
             )}
             {team.checkpoints && team.checkpoints.length > 0 && (
               <span
-                className="inline-flex items-center text-[10px] sm:text-[11px] font-semibold px-1.5 sm:px-2 py-0.5 rounded-md bg-muted text-muted-foreground border border-border/60 shrink-0"
-                title="Checkpoints locked"
+                className={
+                  checkpointLockedCount > 0
+                    ? "inline-flex items-center gap-1 text-[10px] sm:text-[11px] font-semibold px-1.5 sm:px-2 py-0.5 rounded-md bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30 shrink-0"
+                    : "inline-flex items-center text-[10px] sm:text-[11px] font-semibold px-1.5 sm:px-2 py-0.5 rounded-md bg-muted text-muted-foreground border border-border/60 shrink-0"
+                }
+                title={checkpointLockedCount > 0 ? `${checkpointLockedCount} of ${team.checkpoints.length} checkpoints locked` : "Checkpoints"}
               >
-                {team.checkpoints.filter((c) => c.locked).length}/{team.checkpoints.length} checkpoints
+                {checkpointLockedCount > 0 && <Lock size={10} />}
+                {checkpointLockedCount}/{team.checkpoints.length} checkpoints
               </span>
             )}
           </div>
@@ -1082,29 +1097,44 @@ export function TeamAnalysisCard({
               </div>
               <div className="flex flex-col gap-2">
                 {team.checkpoints.map((cp) => cp.locked ? (
-                  <div key={cp.item_id} className="flex items-start sm:items-center gap-2.5 p-3 rounded-xl border border-emerald-500/30 bg-emerald-500/10 text-xs">
-                    <div className="p-1.5 rounded-lg bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 shrink-0 mt-0.5 sm:mt-0">
-                      <Lock size={14} />
-                    </div>
-                    <div className="min-w-0">
-                      <div className="font-semibold text-emerald-700 dark:text-emerald-300 flex items-center gap-1.5 flex-wrap">
-                        <span>{cp.title} locked</span>
-                        {cp.locked_at && (
-                          <span className="text-[11px] font-normal text-muted-foreground">· {relativeTime(cp.locked_at)}</span>
-                        )}
+                  <div key={cp.item_id} className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-3 rounded-xl border border-emerald-500/30 bg-emerald-500/10 text-xs">
+                    <div className="flex items-start sm:items-center gap-2.5 min-w-0">
+                      <div className="p-1.5 rounded-lg bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 shrink-0 mt-0.5 sm:mt-0">
+                        <Lock size={14} />
                       </div>
-                      <p className="text-[11px] text-muted-foreground mt-0.5 flex flex-wrap gap-x-1">
-                        {cp.locked_at && (
-                          <span>Locked on <strong className="text-foreground font-medium">{formatDateTime(cp.locked_at)}</strong></span>
-                        )}
-                        {cp.locked_by_name && (
-                          <span>
-                            by <strong className="text-foreground font-medium">{cp.locked_by_name}</strong>
-                            {cp.locked_by_email ? <span> ({cp.locked_by_email})</span> : ""}
-                          </span>
-                        )}
-                      </p>
+                      <div className="min-w-0">
+                        <div className="font-semibold text-emerald-700 dark:text-emerald-300 flex items-center gap-1.5 flex-wrap">
+                          <span>{cp.title} locked</span>
+                          {cp.locked_at && (
+                            <span className="text-[11px] font-normal text-muted-foreground">· {relativeTime(cp.locked_at)}</span>
+                          )}
+                        </div>
+                        <p className="text-[11px] text-muted-foreground mt-0.5 flex flex-wrap gap-x-1">
+                          {cp.locked_at && (
+                            <span>Locked on <strong className="text-foreground font-medium">{formatDateTime(cp.locked_at)}</strong></span>
+                          )}
+                          {cp.locked_by_name && (
+                            <span>
+                              by <strong className="text-foreground font-medium">{cp.locked_by_name}</strong>
+                              {cp.locked_by_email ? <span> ({cp.locked_by_email})</span> : ""}
+                            </span>
+                          )}
+                        </p>
+                      </div>
                     </div>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => {
+                        if (confirm(`Unlock "${cp.title}" for "${team.team_name}"? Later checkpoints and the final lock reopen too.`)) {
+                          unlockCheckpointMutation.mutate({ teamId: team.team_id, checkpointItemId: cp.item_id })
+                        }
+                      }}
+                      disabled={unlockCheckpointMutation.isPending}
+                      className="h-8 text-xs font-semibold gap-1.5 border-emerald-500/40 text-emerald-600 dark:text-emerald-400 hover:bg-emerald-500/20 shrink-0 self-start sm:self-center cursor-pointer"
+                    >
+                      <Lock size={12} /> Unlock checkpoint
+                    </Button>
                   </div>
                 ) : (
                   <div key={cp.item_id} className="flex items-center gap-2.5 p-3 rounded-xl border border-border/60 bg-muted/30 text-xs">
