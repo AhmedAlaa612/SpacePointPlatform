@@ -107,18 +107,38 @@ export function ConfirmDialog({ title, description, confirmLabel = "Confirm", ca
   )
 }
 
-export function ModalActions({ onCancel, onConfirm, loading, disabled, label }: {
-  onCancel: () => void; onConfirm: () => void; loading: boolean; disabled: boolean; label: string
+export function ModalActions({
+  onCancel,
+  onConfirm,
+  loading = false,
+  disabled = false,
+  label,
+  confirmText,
+}: {
+  onCancel: () => void
+  onConfirm: () => void
+  loading?: boolean
+  disabled?: boolean
+  label?: string
+  confirmText?: string
 }) {
+  const text = label || confirmText || "Save Changes"
   return (
     <div className="flex gap-2 mt-1">
-      <button onClick={onCancel}
-        className="flex-1 h-10 border border-border rounded-xl text-sm font-medium text-muted-foreground hover:bg-muted transition-colors">
+      <button
+        type="button"
+        onClick={onCancel}
+        className="flex-1 h-10 border border-border rounded-xl text-sm font-medium text-muted-foreground hover:bg-muted transition-colors"
+      >
         Cancel
       </button>
-      <button onClick={onConfirm} disabled={disabled || loading}
-        className="flex-1 h-10 bg-primary text-primary-foreground rounded-xl text-sm font-medium hover:opacity-90 transition-colors disabled:opacity-50">
-        {loading ? "…" : label}
+      <button
+        type="button"
+        onClick={onConfirm}
+        disabled={disabled || loading}
+        className="flex-1 h-10 bg-primary text-primary-foreground rounded-xl text-sm font-medium hover:opacity-90 transition-colors disabled:opacity-50"
+      >
+        {loading ? "Saving..." : text}
       </button>
     </div>
   )

@@ -44,5 +44,7 @@ from app.models.website_people import (  # noqa: F401  (Step 6 — people showca
     WebsiteAmbassador,
 )
 from app.models.website_event import MegaEvent, WebsiteEvent  # noqa: F401  (Step 8 — events & mega-events)
+from app.models.website_case_study import WebsiteCaseStudy  # noqa: F401  (Case Studies & Missions)
+from app.models.website_case_studies_header import WebsiteCaseStudiesHeader  # noqa: F401  (Case Studies Header Stats & Partners)
 from app.models import mentors  # noqa: F401  (Mentorship Platform — Satellite & Space Mentors)
 

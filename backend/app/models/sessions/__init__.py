@@ -29,6 +29,7 @@ from app.models.sessions.media_consent import CohortMediaConsent
 from app.models.sessions.pre_session_quiz import (
     PreSessionQuizAssignment,
     PreSessionQuizAttempt,
+    PreSessionQuizPhaseTrial,
     PreSessionQuizPreset,
     PreSessionQuizQuestion,
 )
@@ -70,4 +71,5 @@ __all__ = [
     "PreSessionQuizPreset",
     "PreSessionQuizAssignment",
     "PreSessionQuizAttempt",
+    "PreSessionQuizPhaseTrial",
 ]

@@ -89,8 +89,9 @@ import {
   type WebsiteTeamMember,
 } from "@/api/websitePeople"
 import { WebsiteEventsPanel } from "./WebsiteEventsPanel"
+import { WebsiteCaseStudiesPanel } from "./WebsiteCaseStudiesPanel"
 
-type Tab = "general" | "events" | "programs" | "partners" | "faqs" | "media" | "newsletters" | "articles" | "people" | "labs"
+type Tab = "general" | "events" | "programs" | "case-studies" | "partners" | "faqs" | "media" | "newsletters" | "articles" | "people" | "labs"
 
 const WEBSITE_BASE_URL =
   (import.meta.env.VITE_WEBSITE_URL as string | undefined)?.replace(/\/$/, "") ||
@@ -438,6 +439,8 @@ export default function WebsiteManagement({ initialTab = "general" }: { initialT
       {activeTab === "events" && <WebsiteEventsPanel />}
 
       {activeTab === "programs" && <ProgramsSection />}
+
+      {activeTab === "case-studies" && <WebsiteCaseStudiesPanel />}
 
       {activeTab === "partners" && <SponsorsSection />}
 

@@ -41,7 +41,8 @@ def upgrade() -> None:
     op.create_index('ix_warehouse_boxes_cabin_id', 'warehouse_boxes', ['cabin_id'])
 
     # 3. Update item_cabin_assignments for boxes and multi-placement
-    op.drop_constraint('uq_item_cabin_assignments_warehouse_item', 'item_cabin_assignments', type_='unique')
+    op.execute("ALTER TABLE item_cabin_assignments DROP CONSTRAINT IF EXISTS uq_item_cabin_assignments_warehouse_item")
+    op.execute("ALTER TABLE item_cabin_assignments DROP CONSTRAINT IF EXISTS uq_item_cabin_assignments_cabin_item")
     op.add_column('item_cabin_assignments', sa.Column('box_id', postgresql.UUID(as_uuid=True), sa.ForeignKey('warehouse_boxes.id', ondelete='CASCADE'), nullable=True))
     op.create_index('ix_item_cabin_assignments_box_id', 'item_cabin_assignments', ['box_id'])
 

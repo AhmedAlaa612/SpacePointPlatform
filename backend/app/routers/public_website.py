@@ -111,6 +111,36 @@ async def upload_website_asset(
     stem = re.sub(r"[^A-Za-z0-9._-]+", "_", Path(orig_name).stem).strip("._-")[:40] or "asset"
     stored_name = f"{uuid.uuid4().hex[:12]}-{stem}{ext}"
     dest = _uploads_dir() / stored_name
+
+    # Auto-trim transparent outer padding for PNG / WEBP logos so they don't appear
+    # unexpectedly smaller due to invisible canvas margins.
+    if ext in (".png", ".webp"):
+        try:
+            from io import BytesIO
+            from PIL import Image
+
+            im = Image.open(BytesIO(data))
+            if im.mode in ("RGBA", "LA") or (im.mode == "P" and "transparency" in im.info):
+                rgba = im.convert("RGBA")
+                alpha = rgba.split()[-1]
+                bbox = alpha.getbbox()
+                if bbox:
+                    w, h = rgba.size
+                    pad = 6
+                    crop_box = (
+                        max(0, bbox[0] - pad),
+                        max(0, bbox[1] - pad),
+                        min(w, bbox[2] + pad),
+                        min(h, bbox[3] + pad),
+                    )
+                    if (bbox[2] - bbox[0] < w - 10) or (bbox[3] - bbox[1] < h - 10):
+                        cropped = rgba.crop(crop_box)
+                        out_buf = BytesIO()
+                        cropped.save(out_buf, format="PNG")
+                        data = out_buf.getvalue()
+        except Exception:
+            pass
+
     dest.write_bytes(data)
 
     cfg_base = (settings.BASE_URL or "").rstrip("/")

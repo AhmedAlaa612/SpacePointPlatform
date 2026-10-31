@@ -75,6 +75,7 @@ import FacilitatorPreSessionQuizzes from "@/pages/instructors/facilitator/PreSes
 import InstructorAvailableSessions from "@/pages/instructors/AvailableSessions";
 import InstructorMySessions from "@/pages/instructors/MySessions";
 import InstructorSessionDetail from "@/pages/instructors/SessionDetail";
+import CohortReadinessQuiz from "@/pages/instructors/CohortReadinessQuiz";
 import GameLiveConsole from "@/pages/instructors/GameLiveConsole";
 import InstructorMyHoldings from "@/pages/instructors/MyHoldings";
 import TakeAssessment from "@/pages/instructors/TakeAssessment";
@@ -665,6 +666,7 @@ const instructorsRoutes = [
   createRoute({ getParentRoute: pi, path: "/my-sessions", component: InstructorMySessions }),
   createRoute({ getParentRoute: pi, path: "/my-holdings", component: InstructorMyHoldings }),
   createRoute({ getParentRoute: pi, path: "/sessions/$sessionId", component: InstructorSessionDetail }),
+  createRoute({ getParentRoute: pi, path: "/cohorts/$cohortId/readiness-quiz", component: CohortReadinessQuiz }),
   createRoute({ getParentRoute: pi, path: "/game-runs/$runId", component: GameLiveConsole }),
   createRoute({ getParentRoute: pi, path: "/assessment/$cohortCallId", component: TakeAssessment }),
   createRoute({
@@ -867,6 +869,7 @@ const operationsRoutes = [
   // Programs sidebar groups — one route per section, shared component).
   createRoute({ getParentRoute: po, path: "/website/events", component: () => <WebsiteManagement initialTab="events" /> }),
   createRoute({ getParentRoute: po, path: "/website/programs", component: () => <WebsiteManagement initialTab="programs" /> }),
+  createRoute({ getParentRoute: po, path: "/website/case-studies", component: () => <WebsiteManagement initialTab="case-studies" /> }),
   createRoute({ getParentRoute: po, path: "/website/partners", component: () => <WebsiteManagement initialTab="partners" /> }),
   createRoute({ getParentRoute: po, path: "/website/faqs", component: () => <WebsiteManagement initialTab="faqs" /> }),
   createRoute({ getParentRoute: po, path: "/website/media", component: () => <WebsiteManagement initialTab="media" /> }),
