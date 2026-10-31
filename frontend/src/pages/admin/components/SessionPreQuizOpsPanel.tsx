@@ -76,9 +76,7 @@ export function SessionPreQuizOpsPanel({
               key={attempt.id}
               attempt={attempt}
               questions={preset.questions || []}
-              trials={status.trials ? status.trials.filter((t) => t.attempt_id === attempt.id) : []}
-              sessionId={sessionId}
-              cohortId={cohortId}
+              trials={status?.trials ? status.trials.filter((t) => t.attempt_id === attempt.id) : []}
             />
           ))}
         </div>
@@ -91,14 +89,10 @@ function AttemptReviewCard({
   attempt,
   questions,
   trials,
-  sessionId: _sessionId,
-  cohortId: _cohortId,
 }: {
   attempt: PreSessionQuizAttempt
   questions: PreSessionQuizQuestion[]
   trials: PhaseTrial[]
-  sessionId?: string
-  cohortId?: string
 }) {
   const qc = useQueryClient()
   const toast = useToast()
