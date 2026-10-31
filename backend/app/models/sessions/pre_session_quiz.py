@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime, timezone
 
-from sqlalchemy import Boolean, CheckConstraint, Column, DateTime, ForeignKey, Integer, String, Text
+from sqlalchemy import Boolean, CheckConstraint, Column, DateTime, ForeignKey, Integer, String, Text, UniqueConstraint
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 
 from app.db.base import Base
@@ -10,11 +10,13 @@ from app.db.base import Base
 class PreSessionQuizQuestion(Base):
     """A question in the facilitator-authored Pre-Session Quiz Bank.
 
-    Supports two question types:
+    Supports four question types:
     - `pinout_table`: Interactive hardware connector table where cells are clickable
       and the instructor selects 1 or more cells per pin row (or flags a datasheet error via "Other").
     - `mcq`: Standard multiple-choice / jumper selection (e.g. Leave Open vs Short),
       with optional "Other" text explanation.
+    - `written`: Open-ended technical answer reviewed by Ops.
+    - `subsystem_matching`: Inline or reusable subsystem classification matching.
 
     Both question and explanation support optional images (`image_url`, `explanation_image_url`),
     and the explanation can also include a reference/corrected connector table (`explanation_table`).
@@ -60,18 +62,25 @@ class PreSessionQuizQuestion(Base):
 
 class PreSessionQuizPreset(Base):
     """A reusable Pre-Session Quiz template/preset assembled from questions in the bank,
-    with optional reference datasheet links/documents."""
+    with optional reference datasheet links/documents and ordered pipeline phases."""
 
     __tablename__ = "pre_session_quiz_presets"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     name = Column(String(255), nullable=False)
     description = Column(Text, nullable=True)
-    # Ordered list of question UUID strings
+
+    # Legacy flat question list kept synced with quiz phases for backward compatibility
     question_ids = Column(JSONB, nullable=False, default=list, server_default="[]")
-    # Optional reference documents/links shown at the top of the quiz
-    # [{"id": str, "title": str, "url": str, "is_file": bool}]
+
+    # Datasheet & User Guide Catalog:
+    # [{"id": str, "title": str, "url": str, "doc_type": "datasheet" | "user_guide", "subsystem_tag": str | None, "image_url": str | None, "is_file": bool}]
     reference_attachments = Column(JSONB, nullable=False, default=list, server_default="[]")
+
+    # Ordered Pipeline Phases:
+    # [{"id": str, "phase_type": "explore_datasheets" | "subsystem_matching" | "quiz", "title": str, ...}]
+    phases = Column(JSONB, nullable=False, default=list, server_default="[]")
+
     is_active = Column(Boolean, nullable=False, default=True, server_default="true")
     created_by = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
@@ -104,36 +113,72 @@ class PreSessionQuizAssignment(Base):
 
 
 class PreSessionQuizAttempt(Base):
-    """An instructor's completed pre-session quiz attempt for a session."""
+    """An instructor's cohort-level readiness pipeline state and rollup metrics."""
 
     __tablename__ = "pre_session_quiz_attempts"
+    __table_args__ = (
+        UniqueConstraint("cohort_id", "user_id", name="uq_pre_session_quiz_attempt_cohort_user"),
+    )
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    session_id = Column(UUID(as_uuid=True), ForeignKey("sessions.id", ondelete="CASCADE"), nullable=False, index=True)
+    cohort_id = Column(UUID(as_uuid=True), ForeignKey("cohorts.id", ondelete="CASCADE"), nullable=False, index=True)
+    # Nullable session_id retained for legacy FK / reference links
+    session_id = Column(UUID(as_uuid=True), ForeignKey("sessions.id", ondelete="SET NULL"), nullable=True, index=True)
     preset_id = Column(
         UUID(as_uuid=True), ForeignKey("pre_session_quiz_presets.id", ondelete="SET NULL"), nullable=True, index=True
     )
     user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
 
-    # Per-question answer records:
-    # [
-    #   {
-    #     "question_id": str,
-    #     "selected_option_index": int | None,
-    #     "selected_cells": [[int, ...], ...] | None,
-    #     "chose_other": bool,
-    #     "other_text": str | None,
-    #     "status": "correct" | "incorrect" | "pending_review",
-    #     "reviewed_by": str | None,
-    #     "reviewed_at": str | None,
-    #     "review_comment": str | None
-    #   }
-    # ]
+    # Pipeline State Machine
+    # status: "in_progress" | "cooldown_locked" | "completed"
+    status = Column(String(32), nullable=False, default="in_progress", server_default="in_progress")
+    current_phase_index = Column(Integer, nullable=False, default=0, server_default="0")
+    phase_started_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+    locked_until = Column(DateTime(timezone=True), nullable=True)
+
+    # Timing & Score Rollups
+    started_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+    submitted_at = Column(DateTime(timezone=True), nullable=True)
+    total_duration_seconds = Column(Integer, nullable=False, default=0, server_default="0")
+
+    # Latest passing (or latest submitted) answers across all quiz questions for Ops quick review
     answers = Column(JSONB, nullable=False, default=list, server_default="[]")
+    # Latest per-phase summary: {phase_id: {passed, best_score_pct, trials_count, total_duration_seconds, last_trial_id}}
+    phase_states = Column(JSONB, nullable=False, default=dict, server_default="{}")
 
     auto_score = Column(Integer, nullable=False, default=0, server_default="0")
     final_score = Column(Integer, nullable=False, default=0, server_default="0")
     total_questions = Column(Integer, nullable=False, default=0, server_default="0")
     pending_review_count = Column(Integer, nullable=False, default=0, server_default="0")
 
-    submitted_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+
+class PreSessionQuizPhaseTrial(Base):
+    """Append-only record of a single submission/trial for a specific phase in the pipeline."""
+
+    __tablename__ = "pre_session_quiz_phase_trials"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    attempt_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("pre_session_quiz_attempts.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    phase_id = Column(String(64), nullable=False, index=True)
+    phase_index = Column(Integer, nullable=False)
+    phase_type = Column(String(32), nullable=False)
+    trial_number = Column(Integer, nullable=False, default=1)
+
+    started_at = Column(DateTime(timezone=True), nullable=False)
+    submitted_at = Column(DateTime(timezone=True), nullable=False, default=lambda: datetime.now(timezone.utc))
+    duration_seconds = Column(Integer, nullable=False, default=0)
+
+    score = Column(Integer, nullable=False, default=0)
+    total = Column(Integer, nullable=False, default=0)
+    score_pct = Column(Integer, nullable=False, default=100)
+    pass_percentage_required = Column(Integer, nullable=False, default=100)
+    passed = Column(Boolean, nullable=False, default=False)
+    cooldown_until = Column(DateTime(timezone=True), nullable=True)
+
+    # Snapshot of submitted answers + per-item grading status for this trial
+    payload = Column(JSONB, nullable=False, default=dict, server_default="{}")

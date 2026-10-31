@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { createPortal } from "react-dom"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { Link, useParams } from "@tanstack/react-router"
+import { Link, useNavigate, useParams } from "@tanstack/react-router"
 import {
   ArrowLeft, BookOpen, Calendar, Camera, CheckCircle2, ChevronDown,
   Download, ExternalLink, FileText, ImageIcon, Link2, Lock, MapPin, Play, QrCode, Search, Send, UserX, X,
@@ -45,6 +45,7 @@ import { ProgressPanel } from "@/pages/lms-authoring/components/LmsProgressAndMi
 
 export default function SessionDetail() {
   const { sessionId } = useParams({ strict: false }) as { sessionId: string }
+  const navigate = useNavigate()
   const qc = useQueryClient()
   const [scannerOpen, setScannerOpen] = useState(false)
   const [attendanceOpen, setAttendanceOpen] = useState(true)
@@ -228,10 +229,16 @@ export default function SessionDetail() {
           {preQuiz.data?.has_quiz && (
             <button
               type="button"
-              onClick={() => setPreQuizModalOpen(true)}
+              onClick={() => {
+                if (s?.cohort_id) {
+                  ;(navigate as any)({ to: `/instructors/cohorts/${s.cohort_id}/readiness-quiz`, search: { sessionId } })
+                } else {
+                  setPreQuizModalOpen(true)
+                }
+              }}
               className={cn(
                 "h-9 px-3.5 rounded-xl border text-xs font-bold inline-flex items-center gap-1.5 transition-all cursor-pointer",
-                preQuiz.data.my_attempt
+                preQuiz.data.my_attempt?.status === "completed"
                   ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 hover:bg-emerald-500/20"
                   : "border-amber-500/50 bg-amber-500/15 text-amber-600 dark:text-amber-400 hover:bg-amber-500/25",
               )}
@@ -239,7 +246,7 @@ export default function SessionDetail() {
               {preQuiz.data.my_attempt ? (
                 <>
                   <span>
-                    Pre-Quiz: {preQuiz.data.my_attempt.final_score}/{preQuiz.data.my_attempt.total_questions}
+                    Readiness: {preQuiz.data.my_attempt.status === "completed" ? "Passed" : `Phase ${(preQuiz.data.my_attempt.current_phase_index ?? 0) + 1}`}
                   </span>
                   {preQuiz.data.my_attempt.pending_review_count > 0 && (
                     <span className="inline-flex items-center text-[10px] px-1.5 py-0.5 rounded-full bg-amber-500/20 text-amber-600 dark:text-amber-300">
@@ -248,7 +255,7 @@ export default function SessionDetail() {
                   )}
                 </>
               ) : (
-                <span>Take Pre-Session Quiz</span>
+                <span>Take Cohort Readiness Pipeline</span>
               )}
             </button>
           )}
@@ -257,15 +264,19 @@ export default function SessionDetail() {
               size="default"
               disabled={start.isPending}
               onClick={() => {
-                if (preQuiz.data?.has_quiz && !preQuiz.data.my_attempt) {
-                  setPreQuizModalOpen(true)
+                if (preQuiz.data?.has_quiz && preQuiz.data.my_attempt?.status !== "completed") {
+                  if (s?.cohort_id) {
+                    navigate({ to: `/instructors/cohorts/${s.cohort_id}/readiness-quiz`, search: { sessionId } as any })
+                  } else {
+                    setPreQuizModalOpen(true)
+                  }
                   return
                 }
                 start.mutate()
               }}
               className="h-11 px-6 text-sm font-bold rounded-xl shadow-lg bg-primary text-black hover:opacity-90 transition-all flex items-center gap-2 cursor-pointer"
             >
-              {!(preQuiz.data?.has_quiz && !preQuiz.data.my_attempt) && (
+              {!(preQuiz.data?.has_quiz && preQuiz.data.my_attempt?.status !== "completed") && (
                 <Play size={16} fill="currentColor" />
               )}
               {start.isPending ? "Starting…" : "Start session"}
@@ -275,23 +286,29 @@ export default function SessionDetail() {
       </div>
 
       {/* Pre-Session Quiz Gate Banner when required before starting */}
-      {!isStarted && !isCompleted && preQuiz.data?.has_quiz && !preQuiz.data.my_attempt && (
+      {!isStarted && !isCompleted && preQuiz.data?.has_quiz && preQuiz.data.my_attempt?.status !== "completed" && (
         <div className="p-3.5 sm:p-4 rounded-2xl border border-amber-500/40 bg-amber-500/10 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
           <div>
             <p className="text-xs sm:text-sm font-bold text-foreground">
-              Pre-Session Quiz Required: {preQuiz.data.preset?.name}
+              Instructor Readiness Pipeline Required: {preQuiz.data.preset?.name}
             </p>
             <p className="text-xs text-muted-foreground mt-0.5">
-              Complete this {preQuiz.data.preset?.questions.length ?? 0}-question readiness check to unlock{" "}
-              <strong className="text-foreground">Start session</strong>. Submitting unlocks the session immediately.
+              Complete the {preQuiz.data.preset?.phases?.length ?? 5}-phase technical readiness pipeline to unlock{" "}
+              <strong className="text-foreground">Start session</strong>. Passing unlocks delivery for all sessions in this cohort.
             </p>
           </div>
           <Button
             size="sm"
-            onClick={() => setPreQuizModalOpen(true)}
+            onClick={() => {
+              if (s?.cohort_id) {
+                ;(navigate as any)({ to: `/instructors/cohorts/${s.cohort_id}/readiness-quiz`, search: { sessionId } })
+              } else {
+                setPreQuizModalOpen(true)
+              }
+            }}
             className="h-9 px-4 text-xs font-bold rounded-xl bg-primary text-black hover:opacity-90 shrink-0 cursor-pointer"
           >
-            Open Pre-Session Quiz
+            Open Readiness Pipeline
           </Button>
         </div>
       )}

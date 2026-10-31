@@ -125,7 +125,17 @@ async function renderPage(
   return { renderTask, textLayer }
 }
 
-export function PdfViewer({ url, className }: { url: string; className?: string }) {
+export function PdfViewer({
+  url,
+  className,
+  maxPages,
+  hideControls = false,
+}: {
+  url: string
+  className?: string
+  maxPages?: number
+  hideControls?: boolean
+}) {
   const containerRef = useRef<HTMLDivElement>(null)
   const wrapperRefs = useRef<(HTMLDivElement | null)[]>([])
   const canvasRefs = useRef<(HTMLCanvasElement | null)[]>([])
@@ -240,8 +250,10 @@ export function PdfViewer({ url, className }: { url: string; className?: string 
     }
 
     ;(async () => {
+      const pageCount = maxPages ? Math.min(doc.numPages, maxPages) : doc.numPages
+
       // Pass 1: Immediate CSS dimension update for instant 60fps responsiveness
-      for (let i = 1; i <= doc.numPages; i++) {
+      for (let i = 1; i <= pageCount; i++) {
         if (cancelled) return
         const wrapper = wrapperRefs.current[i - 1]
         const canvas = canvasRefs.current[i - 1]
@@ -265,7 +277,7 @@ export function PdfViewer({ url, className }: { url: string; className?: string 
       }
 
       // Pass 2: High-DPI rasterization and textLayer attachment
-      for (let i = 1; i <= doc.numPages; i++) {
+      for (let i = 1; i <= pageCount; i++) {
         if (cancelled) return
         const wrapper = wrapperRefs.current[i - 1]
         const canvas = canvasRefs.current[i - 1]
@@ -332,51 +344,58 @@ export function PdfViewer({ url, className }: { url: string; className?: string 
     )
   }
 
+  const pageCount = maxPages ? Math.min(doc?.numPages ?? 0, maxPages) : (doc?.numPages ?? 0)
+
   return (
     <div className={cn("flex flex-col gap-3 min-w-0 max-w-full", className)}>
-      <div className="flex items-center justify-between gap-2 flex-wrap">
-        <div className="flex items-center gap-1">
-          <button
-            type="button"
-            disabled={zoom <= MIN_ZOOM}
-            onClick={() => setZoom((z) => Math.max(MIN_ZOOM, +(z - ZOOM_STEP).toFixed(2)))}
-            className="inline-flex items-center justify-center size-8 border border-border text-foreground rounded-lg hover:bg-muted disabled:opacity-40 disabled:pointer-events-none"
-            title="Zoom out"
-          >
-            <ZoomOut className="size-4" />
-          </button>
-          <span className="text-xs text-muted-foreground w-11 text-center tabular-nums">{Math.round(zoom * 100)}%</span>
-          <button
-            type="button"
-            disabled={zoom >= MAX_ZOOM}
-            onClick={() => setZoom((z) => Math.min(MAX_ZOOM, +(z + ZOOM_STEP).toFixed(2)))}
-            className="inline-flex items-center justify-center size-8 border border-border text-foreground rounded-lg hover:bg-muted disabled:opacity-40 disabled:pointer-events-none"
-            title="Zoom in"
-          >
-            <ZoomIn className="size-4" />
-          </button>
-          <button
-            type="button"
-            onClick={() => setZoom(1)}
-            disabled={zoom === 1}
-            className="inline-flex items-center justify-center size-8 border border-border text-foreground rounded-lg hover:bg-muted disabled:opacity-40 disabled:pointer-events-none"
-            title="Fit width"
-          >
-            <Maximize2 className="size-4" />
-          </button>
+      {!hideControls && (
+        <div className="flex items-center justify-between gap-2 flex-wrap">
+          <div className="flex items-center gap-1">
+            <button
+              type="button"
+              disabled={zoom <= MIN_ZOOM}
+              onClick={() => setZoom((z) => Math.max(MIN_ZOOM, +(z - ZOOM_STEP).toFixed(2)))}
+              className="inline-flex items-center justify-center size-8 border border-border text-foreground rounded-lg hover:bg-muted disabled:opacity-40 disabled:pointer-events-none"
+              title="Zoom out"
+            >
+              <ZoomOut className="size-4" />
+            </button>
+            <span className="text-xs text-muted-foreground w-11 text-center tabular-nums">{Math.round(zoom * 100)}%</span>
+            <button
+              type="button"
+              disabled={zoom >= MAX_ZOOM}
+              onClick={() => setZoom((z) => Math.min(MAX_ZOOM, +(z + ZOOM_STEP).toFixed(2)))}
+              className="inline-flex items-center justify-center size-8 border border-border text-foreground rounded-lg hover:bg-muted disabled:opacity-40 disabled:pointer-events-none"
+              title="Zoom in"
+            >
+              <ZoomIn className="size-4" />
+            </button>
+            <button
+              type="button"
+              onClick={() => setZoom(1)}
+              disabled={zoom === 1}
+              className="inline-flex items-center justify-center size-8 border border-border text-foreground rounded-lg hover:bg-muted disabled:opacity-40 disabled:pointer-events-none"
+              title="Fit width"
+            >
+              <Maximize2 className="size-4" />
+            </button>
+          </div>
+          {doc && doc.numPages > 1 && (
+            <p className="text-xs text-muted-foreground whitespace-nowrap">{doc.numPages} pages</p>
+          )}
         </div>
-        {doc && doc.numPages > 1 && (
-          <p className="text-xs text-muted-foreground whitespace-nowrap">{doc.numPages} pages</p>
-        )}
-      </div>
+      )}
       <div
         ref={containerRef}
-        className="w-full flex-1 min-h-0 max-h-[80vh] overflow-auto rounded-2xl ring-1 ring-border bg-card p-3 min-w-0"
+        className={cn(
+          "w-full flex-1 min-h-0 overflow-auto rounded-2xl ring-1 ring-border bg-card p-3 min-w-0",
+          hideControls ? "max-h-full" : "max-h-[80vh]"
+        )}
       >
         {!doc && <p className="text-sm text-muted-foreground py-16 text-center">Loading document...</p>}
         {doc && (
           <div className="flex flex-col items-center min-w-full w-fit gap-3 mx-auto">
-            {Array.from({ length: doc.numPages }, (_, i) => (
+            {Array.from({ length: pageCount }, (_, i) => (
               <div
                 key={i}
                 ref={(el) => { wrapperRefs.current[i] = el }}

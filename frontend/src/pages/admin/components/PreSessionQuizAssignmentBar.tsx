@@ -140,8 +140,10 @@ export function PreSessionQuizAssignmentBar({
           isPreview
           quizStatus={{
             has_quiz: true,
+            assignment_level: "cohort",
             preset: selectedPreset,
             my_attempt: null,
+            trials: [],
             all_attempts: [],
           }}
         />

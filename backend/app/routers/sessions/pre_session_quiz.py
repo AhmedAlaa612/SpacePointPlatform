@@ -1,9 +1,11 @@
 from pathlib import Path
 import re
 import uuid
+from typing import Any
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, status
+from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.dependencies import (
@@ -13,6 +15,9 @@ from app.core.dependencies import (
 )
 from app.models.user import User
 from app.schemas.sessions.pre_session_quiz import (
+    CohortPreQuizStatusOut,
+    PhaseTrialOut,
+    PhaseTrialSubmitIn,
     PreSessionQuizAssignmentIn,
     PreSessionQuizAssignmentOut,
     PreSessionQuizAttemptOut,
@@ -30,7 +35,12 @@ from app.services.sessions import pre_session_quiz as svc
 router = APIRouter(prefix="/sessions", tags=["sessions - pre-session quiz"])
 
 QUIZ_IMAGE_BUCKET = "lms-quiz-images"
-MAX_QUIZ_IMAGE_BYTES = 10 * 1024 * 1024  # 10 MB
+MAX_QUIZ_IMAGE_BYTES = 20 * 1024 * 1024  # 20 MB (to support multi-page datasheet PDFs)
+
+
+class PhaseSubmitResponse(BaseModel):
+    trial: PhaseTrialOut
+    attempt: PreSessionQuizAttemptOut
 
 
 # ── Question Bank Endpoints ─────────────────────────────────────────────────
@@ -82,18 +92,28 @@ async def upload_pre_quiz_image(
     file: UploadFile,
     current_user: User = Depends(require_materials_manager),
 ) -> dict:
-    """Upload a diagram/image for a pre-session quiz question or explanation."""
+    """Upload a diagram/image or datasheet PDF for a pre-session quiz question or catalog."""
     data = await file.read()
     if not data:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="Empty upload")
     if len(data) > MAX_QUIZ_IMAGE_BYTES:
-        raise HTTPException(status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, detail="Image exceeds the 10MB limit")
+        raise HTTPException(status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, detail="File exceeds 20MB limit")
 
-    filename = Path(file.filename or "image.png").name
+    filename = Path(file.filename or "file.pdf").name
     clean_name = re.sub(r"[^\w\.-]", "_", filename)
     path = f"prequiz_{uuid.uuid4().hex[:8]}_{clean_name}"
-    url = await storage.upload_file(QUIZ_IMAGE_BUCKET, path, data, file.content_type or "image/png")
+    content_type = file.content_type or ("application/pdf" if filename.lower().endswith(".pdf") else "image/png")
+    url = await storage.upload_file(QUIZ_IMAGE_BUCKET, path, data, content_type)
     return {"url": url, "path": path}
+
+
+@router.post("/pre-quiz/datasheets")
+async def upload_pre_quiz_datasheet(
+    file: UploadFile,
+    current_user: User = Depends(require_materials_manager),
+) -> dict:
+    """Dedicated upload endpoint for module datasheet PDFs."""
+    return await upload_pre_quiz_image(file, current_user)
 
 
 # ── Presets / Templates Endpoints ───────────────────────────────────────────
@@ -171,7 +191,45 @@ async def set_pre_quiz_assignment(
     )
 
 
-# ── Session Delivery & Ops Review Endpoints ─────────────────────────────────
+# ── Cohort Readiness Pipeline Delivery Endpoints ────────────────────────────
+
+@router.get("/cohorts/{cohort_id}/pre-quiz", response_model=CohortPreQuizStatusOut)
+async def get_cohort_pre_quiz(
+    cohort_id: UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_session_delivery),
+):
+    return await svc.get_cohort_pre_quiz_status(db, cohort_id, current_user)
+
+
+@router.post(
+    "/cohorts/{cohort_id}/pre-quiz/phases/{phase_id}/start",
+    response_model=PreSessionQuizAttemptOut,
+)
+async def start_cohort_phase(
+    cohort_id: UUID,
+    phase_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_session_delivery),
+):
+    return await svc.start_cohort_phase(db, cohort_id, phase_id, current_user)
+
+
+@router.post(
+    "/cohorts/{cohort_id}/pre-quiz/phases/{phase_id}/submit",
+    response_model=PhaseSubmitResponse,
+)
+async def submit_cohort_phase(
+    cohort_id: UUID,
+    phase_id: str,
+    body: PhaseTrialSubmitIn,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_session_delivery),
+):
+    return await svc.submit_cohort_phase(db, cohort_id, phase_id, current_user, body)
+
+
+# ── Legacy Session Pre-Quiz & Ops Review Endpoints ──────────────────────────
 
 @router.get("/{session_id}/pre-quiz", response_model=SessionPreQuizStatusOut)
 async def get_session_pre_quiz(
@@ -203,3 +261,15 @@ async def review_pre_quiz_attempt_question(
     current_user: User = Depends(require_materials_manager),
 ):
     return await svc.review_attempt_question(db, attempt_id, body, current_user)
+
+
+@router.post(
+    "/pre-quiz/attempts/{attempt_id}/unlock-cooldown",
+    response_model=PreSessionQuizAttemptOut,
+)
+async def unlock_quiz_attempt_cooldown(
+    attempt_id: UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_materials_manager),
+):
+    return await svc.unlock_cooldown(db, attempt_id, current_user)

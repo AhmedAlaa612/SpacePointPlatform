@@ -214,6 +214,7 @@ const WEBSITE_GROUP = mkGroup("Website", undefined, [
   mk("General Config", "/operations/website"),
   mk("Events", "/operations/website/events"),
   mk("Programs & Pricing", "/operations/website/programs"),
+  mk("Case Studies", "/operations/website/case-studies"),
   mk("Partners & Clients", "/operations/website/partners"),
   mk("FAQs", "/operations/website/faqs"),
   mk("Media & Press", "/operations/website/media"),
