@@ -1,15 +1,22 @@
 import { useEffect, useState } from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { MapPin } from "lucide-react"
-import type { ItemCabinAssignment, StockLevel, WarehouseCabin } from "@/types/inventory"
+import { MapPin, Plus, Trash2 } from "lucide-react"
+import type { ItemCabinAssignment, StockLevel, WarehouseBox, WarehouseCabin } from "@/types/inventory"
 import {
   getItemCabinsApi,
   getStockApi,
+  getWarehouseBoxesApi,
   getWarehouseCabinsApi,
   getWarehousesApi,
   setItemCabinsApi,
 } from "@/api/inventory"
 import { Field, Modal } from "@/pages/admin/components/common"
+
+interface PlacementRow {
+  cabin_id: string
+  box_id: string
+  notes: string
+}
 
 export function ItemCabinsModal({
   item,
@@ -22,8 +29,7 @@ export function ItemCabinsModal({
 }) {
   const queryClient = useQueryClient()
   const [warehouseId, setWarehouseId] = useState(defaultWarehouseId || "")
-  const [cabinId, setCabinId] = useState("")
-  const [notes, setNotes] = useState("")
+  const [placements, setPlacements] = useState<PlacementRow[]>([])
   const [error, setError] = useState("")
 
   const { data: warehouses } = useQuery({
@@ -31,7 +37,6 @@ export function ItemCabinsModal({
     queryFn: () => getWarehousesApi(),
   })
 
-  // Pick first warehouse if none selected
   useEffect(() => {
     if (!warehouseId && warehouses && warehouses.length > 0) {
       setWarehouseId(defaultWarehouseId || warehouses[0].id)
@@ -44,46 +49,75 @@ export function ItemCabinsModal({
     enabled: !!warehouseId && !!item.id,
   })
 
-  const { data: cabins } = useQuery<WarehouseCabin[]>({
+  const { data: cabins = [] } = useQuery<WarehouseCabin[]>({
     queryKey: ["inv-warehouse-cabins", warehouseId],
     queryFn: () => getWarehouseCabinsApi(warehouseId),
     enabled: !!warehouseId,
   })
 
-  const { data: currentAssignments, isLoading: loadingAssignments } = useQuery<
-    ItemCabinAssignment[]
-  >({
+  const { data: boxes = [] } = useQuery<WarehouseBox[]>({
+    queryKey: ["inv-warehouse-boxes", warehouseId],
+    queryFn: () => getWarehouseBoxesApi(warehouseId),
+    enabled: !!warehouseId,
+  })
+
+  const { data: currentAssignments, isLoading: loadingAssignments } = useQuery<ItemCabinAssignment[]>({
     queryKey: ["inv-item-cabins", warehouseId, item.id],
     queryFn: () => getItemCabinsApi(warehouseId, item.id),
     enabled: !!warehouseId,
   })
 
-  // Reset selection when warehouse changes
-  useEffect(() => {
-    setCabinId("")
-    setNotes("")
-  }, [warehouseId])
-
   useEffect(() => {
     if (currentAssignments) {
-      setCabinId(currentAssignments[0]?.cabin_id ?? "")
-      setNotes(currentAssignments[0]?.notes ?? "")
+      setPlacements(
+        currentAssignments.map((a) => ({
+          cabin_id: a.cabin_id,
+          box_id: a.box_id ?? "",
+          notes: a.notes ?? "",
+        }))
+      )
     }
   }, [currentAssignments])
 
-  const cabinList = cabins ?? []
-  const warehouseList = warehouses ?? []
+  const addPlacement = () => {
+    const defaultCabinId = cabins[0]?.id ?? ""
+    setPlacements((prev) => [...prev, { cabin_id: defaultCabinId, box_id: "", notes: "" }])
+  }
+
+  const updatePlacement = (index: number, patch: Partial<PlacementRow>) => {
+    setPlacements((prev) => {
+      const next = [...prev]
+      next[index] = { ...next[index], ...patch }
+      // If cabin changed, clear box if it doesn't belong to the new cabin
+      if (patch.cabin_id && patch.cabin_id !== prev[index].cabin_id) {
+        const cabinBoxes = boxes.filter((b) => b.cabin_id === patch.cabin_id)
+        if (!cabinBoxes.some((b) => b.id === next[index].box_id)) {
+          next[index].box_id = ""
+        }
+      }
+      return next
+    })
+  }
+
+  const removePlacement = (index: number) => {
+    setPlacements((prev) => prev.filter((_, i) => i !== index))
+  }
 
   const saveMutation = useMutation({
     mutationFn: () => {
-      const payload = cabinId
-        ? [{ cabin_id: cabinId, notes: notes.trim() || null }]
-        : []
-      return setItemCabinsApi(warehouseId, item.id, payload)
+      const valid = placements
+        .filter((p) => !!p.cabin_id)
+        .map((p) => ({
+          cabin_id: p.cabin_id,
+          box_id: p.box_id || null,
+          notes: p.notes.trim() || null,
+        }))
+      return setItemCabinsApi(warehouseId, item.id, valid)
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["inv-stock"] })
       queryClient.invalidateQueries({ queryKey: ["inv-warehouse-cabins", warehouseId] })
+      queryClient.invalidateQueries({ queryKey: ["inv-warehouse-boxes", warehouseId] })
       queryClient.invalidateQueries({ queryKey: ["inv-item-cabins"] })
       onClose()
     },
@@ -92,15 +126,13 @@ export function ItemCabinsModal({
     },
   })
 
-  const selectedWarehouse = warehouseList.find((w) => w.id === warehouseId)
   const currentWarehouseStock = stockLevels?.[0]?.qty
-  const isAssigned = (currentAssignments?.length ?? 0) > 0
 
   return (
     <Modal
-      title={`Cabin Placement · ${item.name}`}
+      title={`Placement · ${item.name}`}
       onClose={onClose}
-      maxWidth="sm:max-w-lg max-w-lg"
+      maxWidth="sm:max-w-xl max-w-xl"
     >
       <div className="flex flex-col gap-4">
         {error && (
@@ -109,15 +141,14 @@ export function ItemCabinsModal({
           </p>
         )}
 
-        {/* Warehouse Selector */}
-        {warehouseList.length > 1 && (
+        {warehouses && warehouses.length > 1 && (
           <Field label="Warehouse">
             <select
               value={warehouseId}
               onChange={(e) => setWarehouseId(e.target.value)}
-              className="h-9 px-3 border border-border bg-card text-foreground rounded-xl text-sm w-full cursor-pointer focus:outline-none focus:border-primary"
+              className="h-9 px-3 border border-border bg-card text-foreground rounded-xl text-xs w-full cursor-pointer focus:outline-none focus:border-primary"
             >
-              {warehouseList.map((w) => (
+              {warehouses.map((w) => (
                 <option key={w.id} value={w.id}>
                   {w.name}
                 </option>
@@ -126,67 +157,100 @@ export function ItemCabinsModal({
           </Field>
         )}
 
-        {/* Stock status — quantity lives on stock, cabin is location only */}
         <div className="p-3 rounded-xl bg-muted/40 border border-border flex items-center justify-between gap-2 text-xs">
           <div>
             <span className="text-muted-foreground">Warehouse stock: </span>
             <strong className="text-foreground">
-              {currentWarehouseStock !== undefined ? `${currentWarehouseStock} pcs` : "0 pcs (uncounted)"}
+              {currentWarehouseStock !== undefined ? `${currentWarehouseStock} pcs` : "0 pcs"}
             </strong>
           </div>
           <div>
-            <span className="text-muted-foreground">Cabin: </span>
-            <strong className="text-primary">
-              {isAssigned ? (currentAssignments?.[0]?.cabin_name ?? "Assigned") : "Unassigned"}
-            </strong>
+            <span className="text-muted-foreground">Placements: </span>
+            <strong className="text-primary">{placements.length}</strong>
           </div>
         </div>
 
-        <div className="flex flex-col gap-2">
-          <p className="text-sm font-semibold text-foreground flex items-center gap-1.5">
-            <MapPin size={15} className="text-primary" />
-            <span>Home cabin</span>
-          </p>
-          <p className="text-xs text-muted-foreground -mt-1">
-            One home per item in {selectedWarehouse?.name ?? "the warehouse"}. Counting stock never changes this — moving it changes where it lives, not how many there are.
-          </p>
+        <div className="flex flex-col gap-2.5">
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-bold text-foreground flex items-center gap-1.5">
+              <MapPin size={14} className="text-primary" /> Placements
+            </span>
+            <button
+              type="button"
+              onClick={addPlacement}
+              disabled={cabins.length === 0}
+              className="inline-flex items-center gap-1 text-xs font-semibold px-2.5 py-1 bg-primary text-primary-foreground rounded-lg hover:opacity-90 disabled:opacity-50 cursor-pointer"
+            >
+              <Plus size={12} /> Add placement
+            </button>
+          </div>
 
-          {cabinList.length === 0 ? (
-            <div className="py-6 border border-dashed border-border rounded-xl text-center text-xs text-muted-foreground">
-              <p>No cabins have been defined for {selectedWarehouse?.name ?? "this warehouse"} yet.</p>
-              <p className="mt-1 text-[11px]">
-                Create cabins in Warehouses settings or the layout view first.
-              </p>
-            </div>
+          {cabins.length === 0 ? (
+            <p className="py-6 border border-dashed border-border rounded-xl text-center text-xs text-muted-foreground">
+              No cabins configured for this warehouse.
+            </p>
           ) : loadingAssignments ? (
-            <div className="py-6 text-center text-xs text-muted-foreground">
-              Loading current assignment…
-            </div>
+            <p className="py-6 text-center text-xs text-muted-foreground">Loading…</p>
+          ) : placements.length === 0 ? (
+            <p className="py-6 border border-dashed border-border rounded-xl text-center text-xs text-muted-foreground">
+              Item is unassigned.
+            </p>
           ) : (
-            <div className="flex flex-col gap-2.5 mt-1">
-              <Field label="Cabin">
-                <select
-                  value={cabinId}
-                  onChange={(e) => setCabinId(e.target.value)}
-                  className="h-9 px-3 border border-border bg-card text-foreground rounded-xl text-sm w-full cursor-pointer focus:outline-none focus:border-primary"
-                >
-                  <option value="">Unassigned — no cabin</option>
-                  {cabinList.map((c) => (
-                    <option key={c.id} value={c.id}>
-                      {c.name}
-                    </option>
-                  ))}
-                </select>
-              </Field>
-              <Field label="Note / shelf (optional)">
-                <input
-                  type="text"
-                  value={notes}
-                  onChange={(e) => setNotes(e.target.value)}
-                  placeholder="Top tray, back shelf…"
-                  className="h-9 px-3 text-sm border border-border bg-background text-foreground rounded-xl w-full"
-                />
-              </Field>
+            <div className="flex flex-col gap-2 max-h-72 overflow-y-auto pr-1">
+              {placements.map((p, idx) => {
+                const cabinBoxes = boxes.filter((b) => b.cabin_id === p.cabin_id)
+                return (
+                  <div
+                    key={idx}
+                    className="p-2.5 rounded-xl border border-border bg-card/60 flex flex-col sm:flex-row sm:items-center gap-2"
+                  >
+                    <div className="grid grid-cols-2 gap-2 flex-1 w-full sm:w-auto">
+                      <select
+                        value={p.cabin_id}
+                        onChange={(e) => updatePlacement(idx, { cabin_id: e.target.value })}
+                        className="h-8 px-2 border border-border bg-background text-foreground rounded-lg text-xs w-full"
+                      >
+                        {cabins.map((c) => (
+                          <option key={c.id} value={c.id}>
+                            {c.name}
+                          </option>
+                        ))}
+                      </select>
+
+                      <select
+                        value={p.box_id}
+                        onChange={(e) => updatePlacement(idx, { box_id: e.target.value })}
+                        className="h-8 px-2 border border-border bg-background text-foreground rounded-lg text-xs w-full"
+                      >
+                        <option value="">Loose in cabin</option>
+                        {cabinBoxes.map((b) => (
+                          <option key={b.id} value={b.id}>
+                            📦 {b.name}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+
+                    <div className="flex items-center gap-2 w-full sm:w-auto">
+                      <input
+                        type="text"
+                        value={p.notes}
+                        onChange={(e) => updatePlacement(idx, { notes: e.target.value })}
+                        placeholder="Note (optional)"
+                        className="h-8 px-2 text-xs border border-border bg-background text-foreground rounded-lg flex-1 sm:w-32"
+                      />
+
+                      <button
+                        type="button"
+                        onClick={() => removePlacement(idx)}
+                        className="p-1.5 text-muted-foreground hover:text-red-600 rounded-lg cursor-pointer shrink-0"
+                      >
+                        <Trash2 size={13} />
+                      </button>
+                    </div>
+                  </div>
+                )
+              })}
             </div>
           )}
         </div>
@@ -195,15 +259,15 @@ export function ItemCabinsModal({
           <button
             type="button"
             onClick={onClose}
-            className="h-9 px-4 border border-border rounded-xl text-xs font-medium text-foreground hover:bg-muted transition-colors cursor-pointer"
+            className="h-8 px-3 border border-border rounded-xl text-xs font-medium text-foreground hover:bg-muted transition-colors cursor-pointer"
           >
             Cancel
           </button>
           <button
             type="button"
             onClick={() => saveMutation.mutate()}
-            disabled={saveMutation.isPending || cabinList.length === 0}
-            className="h-9 px-4 bg-primary text-primary-foreground text-xs font-medium rounded-xl hover:opacity-90 disabled:opacity-50 transition-opacity cursor-pointer"
+            disabled={saveMutation.isPending || cabins.length === 0}
+            className="h-8 px-4 bg-primary text-primary-foreground text-xs font-semibold rounded-xl hover:opacity-90 disabled:opacity-50 transition-opacity cursor-pointer"
           >
             {saveMutation.isPending ? "Saving…" : "Save"}
           </button>

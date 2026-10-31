@@ -8,6 +8,7 @@ import {
   getLocationsApi,
   getOverdueApi,
   getStockApi,
+  getWarehouseBoxesApi,
   getWarehouseCabinsApi,
   getWarehousesApi,
 } from "@/api/inventory"
@@ -28,6 +29,7 @@ export default function Stock() {
   const [locationId, setLocationId] = useState("")
   const [warehouseId, setWarehouseId] = useState("")
   const [cabinId, setCabinId] = useState("")
+  const [boxId, setBoxId] = useState("")
   const [category, setCategory] = useState("")
   const [subcategory, setSubcategory] = useState("")
   const [search, setSearch] = useState("")
@@ -47,6 +49,11 @@ export default function Stock() {
   const { data: warehouseCabins = [] } = useQuery({
     queryKey: ["inv-warehouse-cabins", warehouseId],
     queryFn: () => getWarehouseCabinsApi(warehouseId),
+    enabled: !!warehouseId,
+  })
+  const { data: warehouseBoxes = [] } = useQuery({
+    queryKey: ["inv-warehouse-boxes", warehouseId],
+    queryFn: () => getWarehouseBoxesApi(warehouseId),
     enabled: !!warehouseId,
   })
   const { data: categories = [] } = useQuery({ queryKey: ["inv-categories"], queryFn: () => getItemCategoriesApi() })
@@ -77,12 +84,26 @@ export default function Stock() {
     const inScope = (level: StockLevel) => {
       if (warehouseId) {
         if (level.warehouse_id !== warehouseId) return false
+        const itemCabins = level.cabins ?? []
         if (cabinId) {
-          const itemCabins = level.cabins ?? []
           if (cabinId === "unassigned") {
             return itemCabins.length === 0
           }
-          return itemCabins.some((c) => c.cabin_id === cabinId)
+          const matchesCabin = itemCabins.some((c) => c.cabin_id === cabinId)
+          if (!matchesCabin) return false
+          if (boxId) {
+            if (boxId === "loose") {
+              return itemCabins.some((c) => c.cabin_id === cabinId && !c.box_id)
+            }
+            return itemCabins.some((c) => c.cabin_id === cabinId && c.box_id === boxId)
+          }
+          return true
+        }
+        if (boxId) {
+          if (boxId === "loose") {
+            return itemCabins.some((c) => !c.box_id)
+          }
+          return itemCabins.some((c) => c.box_id === boxId)
         }
         return true
       }
@@ -103,11 +124,12 @@ export default function Stock() {
           entry.qty += r.qty
           byLocation.set(r.location_id, entry)
         }
-        const cabinSummary: { name: string }[] = []
+        const cabinSummary: { name: string; box_name?: string | null }[] = []
         for (const r of scopedRows) {
           for (const c of r.cabins ?? []) {
-            if (!cabinSummary.some((existing) => existing.name === c.cabin_name)) {
-              cabinSummary.push({ name: c.cabin_name })
+            const key = c.box_name ? `${c.cabin_name} › ${c.box_name}` : c.cabin_name
+            if (!cabinSummary.some((existing) => (existing.box_name ? `${existing.name} › ${existing.box_name}` : existing.name) === key)) {
+              cabinSummary.push({ name: c.cabin_name, box_name: c.box_name })
             }
           }
         }
@@ -144,10 +166,11 @@ export default function Stock() {
         entry.qty += b.qty
         byLocation.set(b.name, entry)
       }
-      const cabinSummary: { name: string }[] = []
+      const cabinSummary: { name: string; box_name?: string | null }[] = []
       for (const m of sorted) {
         for (const c of m.cabins) {
-          if (!cabinSummary.some((existing) => existing.name === c.name)) {
+          const key = c.box_name ? `${c.name} › ${c.box_name}` : c.name
+          if (!cabinSummary.some((existing) => (existing.box_name ? `${existing.name} › ${existing.box_name}` : existing.name) === key)) {
             cabinSummary.push(c)
           }
         }
@@ -179,7 +202,7 @@ export default function Stock() {
         const nameB = b.kind === "group" ? b.groupName : b.item.name
         return nameA.localeCompare(nameB)
       })
-  }, [items, stock, category, subcategory, search, locationId, warehouseId, cabinId, onlyInStock, onlyOutOfStock, onlyUnstocked])
+  }, [items, stock, category, subcategory, search, locationId, warehouseId, cabinId, boxId, onlyInStock, onlyOutOfStock, onlyUnstocked])
 
   return (
     <div className="flex flex-col gap-6">
@@ -268,7 +291,12 @@ export default function Stock() {
             <Field label="Location" className="w-full sm:w-44">
               <select
                 value={locationId}
-                onChange={(e) => { setLocationId(e.target.value); setWarehouseId(""); setCabinId("") }}
+                onChange={(e) => {
+                  setLocationId(e.target.value)
+                  setWarehouseId("")
+                  setCabinId("")
+                  setBoxId("")
+                }}
                 className="h-9 px-3 border border-border bg-card text-foreground rounded-xl text-sm w-full cursor-pointer focus:outline-none focus:border-primary"
               >
                 <option value="">All locations</option>
@@ -278,7 +306,11 @@ export default function Stock() {
             <Field label="Warehouse" className="w-full sm:w-44">
               <select
                 value={warehouseId}
-                onChange={(e) => { setWarehouseId(e.target.value); setCabinId("") }}
+                onChange={(e) => {
+                  setWarehouseId(e.target.value)
+                  setCabinId("")
+                  setBoxId("")
+                }}
                 className="h-9 px-3 border border-border bg-card text-foreground rounded-xl text-sm w-full cursor-pointer focus:outline-none focus:border-primary"
               >
                 <option value="">All warehouses</option>
@@ -286,19 +318,40 @@ export default function Stock() {
               </select>
             </Field>
             {warehouseId && (
-              <Field label="Cabin" className="w-full sm:w-40">
-                <select
-                  value={cabinId}
-                  onChange={(e) => setCabinId(e.target.value)}
-                  className="h-9 px-3 border border-border bg-card text-foreground rounded-xl text-sm w-full cursor-pointer focus:outline-none focus:border-primary"
-                >
-                  <option value="">All cabins</option>
-                  <option value="unassigned">Unassigned</option>
-                  {warehouseCabins.map((c) => (
-                    <option key={c.id} value={c.id}>{c.name}</option>
-                  ))}
-                </select>
-              </Field>
+              <>
+                <Field label="Cabin" className="w-full sm:w-36">
+                  <select
+                    value={cabinId}
+                    onChange={(e) => {
+                      setCabinId(e.target.value)
+                      setBoxId("")
+                    }}
+                    className="h-9 px-3 border border-border bg-card text-foreground rounded-xl text-sm w-full cursor-pointer focus:outline-none focus:border-primary"
+                  >
+                    <option value="">All cabins</option>
+                    <option value="unassigned">Unassigned</option>
+                    {warehouseCabins.map((c) => (
+                      <option key={c.id} value={c.id}>{c.name}</option>
+                    ))}
+                  </select>
+                </Field>
+                <Field label="Box" className="w-full sm:w-36">
+                  <select
+                    value={boxId}
+                    onChange={(e) => setBoxId(e.target.value)}
+                    disabled={cabinId === "unassigned"}
+                    className="h-9 px-3 border border-border bg-card text-foreground rounded-xl text-sm w-full cursor-pointer focus:outline-none focus:border-primary disabled:opacity-50"
+                  >
+                    <option value="">All boxes</option>
+                    {cabinId && <option value="loose">Loose (no box)</option>}
+                    {(cabinId ? warehouseBoxes.filter((b) => b.cabin_id === cabinId) : warehouseBoxes).map((b) => (
+                      <option key={b.id} value={b.id}>
+                        📦 {b.name}
+                      </option>
+                    ))}
+                  </select>
+                </Field>
+              </>
             )}
           </div>
         </div>
@@ -410,7 +463,7 @@ function StockCard({ item, displayName, memberCount, total, breakdown, cabins, o
   memberCount?: number
   total: number
   breakdown: { name: string; qty: number }[]
-  cabins?: { name: string; qty?: number | null }[]
+  cabins?: { name: string; box_name?: string | null; qty?: number | null }[]
   onEdit: () => void
   onManageCabins?: () => void
   onViewDatasheet?: () => void
@@ -447,16 +500,19 @@ function StockCard({ item, displayName, memberCount, total, breakdown, cabins, o
           </div>
           {cabins && cabins.length > 0 && (
             <div className="flex items-center gap-1 flex-wrap mt-2">
-              {cabins.map((c) => (
-                <span
-                  key={c.name}
-                  className="inline-flex items-center gap-1 text-[11px] font-medium px-2 py-0.5 rounded-md bg-primary/10 text-primary border border-primary/20"
-                >
-                  <MapPin size={10} />
-                  <span>{c.name}</span>
-                  {c.qty != null && <span className="opacity-75 font-mono">({c.qty})</span>}
-                </span>
-              ))}
+              {cabins.map((c, idx) => {
+                const label = c.box_name ? `${c.name} › 📦 ${c.box_name}` : c.name
+                return (
+                  <span
+                    key={`${label}-${idx}`}
+                    className="inline-flex items-center gap-1 text-[11px] font-medium px-2 py-0.5 rounded-md bg-primary/10 text-primary border border-primary/20"
+                  >
+                    <MapPin size={10} />
+                    <span>{label}</span>
+                    {c.qty != null && <span className="opacity-75 font-mono">({c.qty})</span>}
+                  </span>
+                )
+              })}
             </div>
           )}
         </div>

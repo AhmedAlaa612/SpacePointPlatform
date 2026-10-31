@@ -6,6 +6,7 @@ import {
   ImageOff,
   ImagePlus,
   MapPin,
+  Package,
   PackageCheck,
   Pencil,
   Search,
@@ -15,10 +16,11 @@ import {
   getItemCategoriesApi,
   getItemsApi,
   getStockApi,
+  getWarehouseBoxesApi,
   getWarehouseCabinsApi,
   getWarehousesApi,
 } from "@/api/inventory"
-import type { Item, StockLevel, WarehouseCabin } from "@/types/inventory"
+import type { Item, StockLevel, WarehouseBox, WarehouseCabin } from "@/types/inventory"
 import { Field, Spinner } from "@/pages/admin/components/common"
 import { cn } from "@/lib/utils"
 
@@ -52,6 +54,7 @@ export default function WarehousesPage() {
     setSelectedWarehouseId(id)
     localStorage.setItem("inv_selected_warehouse", id)
     setCabinId("") // reset cabin filter on warehouse switch
+    setBoxId("")
   }
 
   const currentWarehouse = warehouses.find((w) => w.id === selectedWarehouseId)
@@ -60,6 +63,13 @@ export default function WarehousesPage() {
   const { data: cabins = [] } = useQuery<WarehouseCabin[]>({
     queryKey: ["inv-warehouse-cabins", selectedWarehouseId],
     queryFn: () => getWarehouseCabinsApi(selectedWarehouseId),
+    enabled: !!selectedWarehouseId,
+  })
+
+  // Boxes for the selected warehouse
+  const { data: boxes = [] } = useQuery<WarehouseBox[]>({
+    queryKey: ["inv-warehouse-boxes", selectedWarehouseId],
+    queryFn: () => getWarehouseBoxesApi(selectedWarehouseId),
     enabled: !!selectedWarehouseId,
   })
 
@@ -84,6 +94,7 @@ export default function WarehousesPage() {
   const [category, setCategory] = useState("")
   const [subcategory, setSubcategory] = useState("")
   const [cabinId, setCabinId] = useState("")
+  const [boxId, setBoxId] = useState("")
   const [onlyInStock, setOnlyInStock] = useState(false)
   const [onlyOutOfStock, setOnlyOutOfStock] = useState(false)
   const [onlyUnstocked, setOnlyUnstocked] = useState(false)
@@ -119,12 +130,27 @@ export default function WarehousesPage() {
 
     const inScope = (level: StockLevel) => {
       if (level.warehouse_id !== selectedWarehouseId) return false
+      const itemCabins = level.cabins ?? []
       if (cabinId) {
-        const itemCabins = level.cabins ?? []
         if (cabinId === "unassigned") {
           return itemCabins.length === 0
         }
-        return itemCabins.some((c) => c.cabin_id === cabinId)
+        const matchesCabin = itemCabins.some((c) => c.cabin_id === cabinId)
+        if (!matchesCabin) return false
+
+        if (boxId) {
+          if (boxId === "loose") {
+            return itemCabins.some((c) => c.cabin_id === cabinId && !c.box_id)
+          }
+          return itemCabins.some((c) => c.cabin_id === cabinId && c.box_id === boxId)
+        }
+        return true
+      }
+      if (boxId) {
+        if (boxId === "loose") {
+          return itemCabins.some((c) => !c.box_id)
+        }
+        return itemCabins.some((c) => c.box_id === boxId)
       }
       return true
     }
@@ -136,13 +162,12 @@ export default function WarehousesPage() {
       .map((item) => {
         const allRows = rowsByItem.get(item.id) ?? []
         const scopedRows = allRows.filter(inScope)
-        // 1:1 location-only: a cabin is a name tag on the stock row.
-        // Quantity lives solely on the stock row (r.qty).
-        const cabinSummary: { name: string }[] = []
+        const cabinSummary: { name: string; box_name?: string | null }[] = []
         for (const r of scopedRows) {
           for (const c of r.cabins ?? []) {
-            if (!cabinSummary.some((existing) => existing.name === c.cabin_name)) {
-              cabinSummary.push({ name: c.cabin_name })
+            const key = c.box_name ? `${c.cabin_name} › ${c.box_name}` : c.cabin_name
+            if (!cabinSummary.some((existing) => (existing.box_name ? `${existing.name} › ${existing.box_name}` : existing.name) === key)) {
+              cabinSummary.push({ name: c.cabin_name, box_name: c.box_name })
             }
           }
         }
@@ -173,10 +198,11 @@ export default function WarehousesPage() {
 
     const groupCards = Array.from(byGroup.entries()).map(([groupName, members]) => {
       const sorted = [...members].sort((a, b) => a.item.name.localeCompare(b.item.name))
-      const cabinSummary: { name: string }[] = []
+      const cabinSummary: { name: string; box_name?: string | null }[] = []
       for (const m of sorted) {
         for (const c of m.cabins) {
-          if (!cabinSummary.some((existing) => existing.name === c.name)) {
+          const key = c.box_name ? `${c.name} › ${c.box_name}` : c.name
+          if (!cabinSummary.some((existing) => (existing.box_name ? `${existing.name} › ${existing.box_name}` : existing.name) === key)) {
             cabinSummary.push(c)
           }
         }
@@ -200,7 +226,6 @@ export default function WarehousesPage() {
         if (onlyUnstocked) return !c.hasRowsInScope
         if (onlyInStock) return c.total > 0
         if (onlyOutOfStock) return c.hasRowsInScope && c.total === 0
-        // By default, show items that are stocked in this warehouse
         return c.hasRowsInScope
       })
       .sort((a, b) => {
@@ -208,7 +233,7 @@ export default function WarehousesPage() {
         const nameB = b.kind === "group" ? b.groupName : b.item.name
         return nameA.localeCompare(nameB)
       })
-  }, [items, stock, selectedWarehouseId, category, subcategory, search, cabinId, onlyInStock, onlyOutOfStock, onlyUnstocked])
+  }, [items, stock, selectedWarehouseId, category, subcategory, search, cabinId, boxId, onlyInStock, onlyOutOfStock, onlyUnstocked])
 
   if (loadingWarehouses) {
     return (
@@ -334,7 +359,10 @@ export default function WarehousesPage() {
               {cabinId && (
                 <button
                   type="button"
-                  onClick={() => setCabinId("")}
+                  onClick={() => {
+                    setCabinId("")
+                    setBoxId("")
+                  }}
                   className="text-xs text-primary hover:underline font-medium cursor-pointer shrink-0"
                 >
                   Clear filter
@@ -350,7 +378,7 @@ export default function WarehousesPage() {
                 alt={currentWarehouse.name}
                 className="max-h-[360px] max-w-full w-auto h-auto block pointer-events-none select-none"
               />
-              {/* Clickable Cabin Pins */}
+      {/* Clickable Cabin Pins */}
               {cabins.map((c) => {
                 if (c.pin_x == null || c.pin_y == null) return null
                 const isSelected = cabinId === c.id
@@ -358,7 +386,10 @@ export default function WarehousesPage() {
                   <button
                     key={c.id}
                     type="button"
-                    onClick={() => setCabinId(isSelected ? "" : c.id)}
+                    onClick={() => {
+                      setCabinId(isSelected ? "" : c.id)
+                      setBoxId("")
+                    }}
                     style={{ left: `${c.pin_x}%`, top: `${c.pin_y}%` }}
                     className={cn(
                       "absolute -translate-x-1/2 -translate-y-1/2 flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold shadow-lg transition-all cursor-pointer z-10 whitespace-nowrap",
@@ -411,7 +442,86 @@ export default function WarehousesPage() {
         </div>
       )}
 
-      {/* 4. Filters & Controls (Identical structure to Stock.tsx) */}
+      {/* 4. Boxes Strip inside Selected Cabin */}
+      {cabinId && cabinId !== "unassigned" && (
+        <div className="bg-card border border-border rounded-2xl p-4 flex flex-col gap-3">
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-bold text-foreground flex items-center gap-1.5">
+              <Boxes size={15} className="text-primary" /> Boxes in {cabins.find((c) => c.id === cabinId)?.name}
+            </span>
+            {boxId && (
+              <button
+                type="button"
+                onClick={() => setBoxId("")}
+                className="text-xs text-primary hover:underline font-medium cursor-pointer"
+              >
+                Show all in cabin
+              </button>
+            )}
+          </div>
+
+          <div className="flex items-center gap-2 overflow-x-auto pb-1">
+            <button
+              type="button"
+              onClick={() => setBoxId("")}
+              className={cn(
+                "flex items-center gap-2 px-3 py-2 rounded-xl border text-xs font-semibold cursor-pointer shrink-0 transition-all",
+                !boxId ? "bg-primary text-primary-foreground border-primary" : "bg-card border-border hover:bg-muted/50 text-foreground",
+              )}
+            >
+              <Package size={14} />
+              <span>All in Cabin</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setBoxId(boxId === "loose" ? "" : "loose")}
+              className={cn(
+                "flex items-center gap-2 px-3 py-2 rounded-xl border text-xs font-semibold cursor-pointer shrink-0 transition-all",
+                boxId === "loose" ? "bg-primary text-primary-foreground border-primary" : "bg-card border-border hover:bg-muted/50 text-foreground",
+              )}
+            >
+              <span>Loose on shelf</span>
+            </button>
+
+            {boxes
+              .filter((b) => b.cabin_id === cabinId)
+              .map((b) => {
+                const isSelected = boxId === b.id
+                return (
+                  <button
+                    key={b.id}
+                    type="button"
+                    onClick={() => setBoxId(isSelected ? "" : b.id)}
+                    className={cn(
+                      "flex items-center gap-2 px-3 py-2 rounded-xl border text-xs font-semibold cursor-pointer shrink-0 transition-all",
+                      isSelected
+                        ? "bg-primary text-primary-foreground border-primary shadow-xs"
+                        : "bg-card border-border hover:bg-muted/50 text-foreground",
+                    )}
+                  >
+                    {b.image_url ? (
+                      <img src={b.image_url} alt="" className="w-5 h-5 rounded object-cover border border-white/20 shrink-0" />
+                    ) : (
+                      <Boxes size={14} className={isSelected ? "text-primary-foreground" : "text-primary"} />
+                    )}
+                    <span>{b.name}</span>
+                    <span
+                      className={cn(
+                        "text-[10px] px-1.5 py-0.2 rounded-full",
+                        isSelected ? "bg-white/20 text-white" : "bg-secondary text-secondary-foreground",
+                      )}
+                    >
+                      {b.item_count ?? 0}
+                    </span>
+                  </button>
+                )
+              })}
+          </div>
+        </div>
+      )}
+
+      {/* 5. Filters & Controls (Identical structure to Stock.tsx) */}
       <div className="flex flex-col gap-3">
         <div className="flex items-end gap-3 flex-wrap">
           {/* 1. Search */}
@@ -463,22 +573,44 @@ export default function WarehousesPage() {
             </Field>
           </div>
 
-          {/* 3. Cabin Dropdown */}
-          <Field label="Cabin" className="w-full sm:w-48">
-            <select
-              value={cabinId}
-              onChange={(e) => setCabinId(e.target.value)}
-              className="h-9 px-3 border border-border bg-card text-foreground rounded-xl text-sm w-full cursor-pointer focus:outline-none focus:border-primary"
-            >
-              <option value="">All cabins</option>
-              <option value="unassigned">Unassigned</option>
-              {cabins.map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.name} {c.item_count ? `(${c.item_count})` : ""}
-                </option>
-              ))}
-            </select>
-          </Field>
+          {/* 3. Cabin and Box Dropdowns */}
+          <div className="grid grid-cols-2 gap-3 w-full sm:w-auto sm:flex sm:items-end">
+            <Field label="Cabin" className="w-full sm:w-44">
+              <select
+                value={cabinId}
+                onChange={(e) => {
+                  setCabinId(e.target.value)
+                  setBoxId("")
+                }}
+                className="h-9 px-3 border border-border bg-card text-foreground rounded-xl text-sm w-full cursor-pointer focus:outline-none focus:border-primary"
+              >
+                <option value="">All cabins</option>
+                <option value="unassigned">Unassigned</option>
+                {cabins.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.name} {c.item_count ? `(${c.item_count})` : ""}
+                  </option>
+                ))}
+              </select>
+            </Field>
+
+            <Field label="Box" className="w-full sm:w-44">
+              <select
+                value={boxId}
+                onChange={(e) => setBoxId(e.target.value)}
+                disabled={cabinId === "unassigned"}
+                className="h-9 px-3 border border-border bg-card text-foreground rounded-xl text-sm w-full cursor-pointer focus:outline-none focus:border-primary disabled:opacity-50"
+              >
+                <option value="">All boxes</option>
+                {cabinId && <option value="loose">Loose (no box)</option>}
+                {(cabinId ? boxes.filter((b) => b.cabin_id === cabinId) : boxes).map((b) => (
+                  <option key={b.id} value={b.id}>
+                    📦 {b.name} {b.item_count ? `(${b.item_count})` : ""}
+                  </option>
+                ))}
+              </select>
+            </Field>
+          </div>
         </div>
 
         {/* 4. Checkboxes (In stock only, Not stocked, Out of stock) */}
@@ -626,7 +758,7 @@ function StockCard({
   memberCount?: number
   total: number
   breakdown: { name: string; qty: number }[]
-  cabins?: { name: string; qty?: number | null }[]
+  cabins?: { name: string; box_name?: string | null; qty?: number | null }[]
   onEdit: () => void
   onManageCabins?: () => void
 }) {
@@ -664,16 +796,19 @@ function StockCard({
           </div>
           {cabins && cabins.length > 0 ? (
             <div className="flex items-center gap-1 flex-wrap mt-2">
-              {cabins.map((c) => (
-                <span
-                  key={c.name}
-                  className="inline-flex items-center gap-1 text-[11px] font-medium px-2 py-0.5 rounded-md bg-primary/10 text-primary border border-primary/20"
-                >
-                  <MapPin size={10} />
-                  <span>{c.name}</span>
-                  {c.qty != null && <span className="opacity-75 font-mono">({c.qty})</span>}
-                </span>
-              ))}
+              {cabins.map((c, idx) => {
+                const label = c.box_name ? `${c.name} › 📦 ${c.box_name}` : c.name
+                return (
+                  <span
+                    key={`${label}-${idx}`}
+                    className="inline-flex items-center gap-1 text-[11px] font-medium px-2 py-0.5 rounded-md bg-primary/10 text-primary border border-primary/20"
+                  >
+                    <MapPin size={10} />
+                    <span>{label}</span>
+                    {c.qty != null && <span className="opacity-75 font-mono">({c.qty})</span>}
+                  </span>
+                )
+              })}
             </div>
           ) : total > 0 ? (
             <div className="flex items-center gap-1 flex-wrap mt-2">

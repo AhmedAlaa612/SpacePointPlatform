@@ -188,6 +188,8 @@ class KitCountIn(BaseModel):
 class ItemCabinBriefOut(BaseModel):
     cabin_id: uuid.UUID
     cabin_name: str
+    box_id: uuid.UUID | None = None
+    box_name: str | None = None
     notes: str | None = None
 
 

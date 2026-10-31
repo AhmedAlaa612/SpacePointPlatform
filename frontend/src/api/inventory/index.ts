@@ -13,6 +13,7 @@ import type {
   Location,
   Warehouse,
   WarehouseCabin,
+  WarehouseBox,
   ItemCabinAssignment,
   Movement,
   MovementReason,
@@ -87,13 +88,50 @@ export const updateWarehouseCabinApi = (warehouseId: string, cabinId: string, bo
 export const deleteWarehouseCabinApi = (warehouseId: string, cabinId: string) =>
   api.delete(`/inventory/warehouses/${warehouseId}/cabins/${cabinId}`).then((r) => r.data)
 
+export const setWarehouseCabinImageApi = (warehouseId: string, cabinId: string, file: File) => {
+  const form = new FormData()
+  form.append("file", file)
+  return api.put<WarehouseCabin>(`/inventory/warehouses/${warehouseId}/cabins/${cabinId}/image`, form).then((r) => r.data)
+}
+
+export const removeWarehouseCabinImageApi = (warehouseId: string, cabinId: string) =>
+  api.delete<WarehouseCabin>(`/inventory/warehouses/${warehouseId}/cabins/${cabinId}/image`).then((r) => r.data)
+
+export const getWarehouseBoxesApi = (warehouseId: string, cabinId?: string) =>
+  api.get<WarehouseBox[]>(`/inventory/warehouses/${warehouseId}/boxes`, { params: cabinId ? { cabin_id: cabinId } : {} }).then((r) => r.data)
+
+export const createWarehouseBoxApi = (warehouseId: string, body: {
+  cabin_id: string
+  name: string
+  description?: string | null
+  sort_order?: number
+}) => api.post<WarehouseBox>(`/inventory/warehouses/${warehouseId}/boxes`, body).then((r) => r.data)
+
+export const updateWarehouseBoxApi = (warehouseId: string, boxId: string, body: Partial<WarehouseBox>) =>
+  api.patch<WarehouseBox>(`/inventory/warehouses/${warehouseId}/boxes/${boxId}`, body).then((r) => r.data)
+
+export const deleteWarehouseBoxApi = (warehouseId: string, boxId: string) =>
+  api.delete(`/inventory/warehouses/${warehouseId}/boxes/${boxId}`).then((r) => r.data)
+
+export const setWarehouseBoxImageApi = (warehouseId: string, boxId: string, file: File) => {
+  const form = new FormData()
+  form.append("file", file)
+  return api.put<WarehouseBox>(`/inventory/warehouses/${warehouseId}/boxes/${boxId}/image`, form).then((r) => r.data)
+}
+
+export const removeWarehouseBoxImageApi = (warehouseId: string, boxId: string) =>
+  api.delete<WarehouseBox>(`/inventory/warehouses/${warehouseId}/boxes/${boxId}/image`).then((r) => r.data)
+
+export const setWarehouseBoxItemsApi = (warehouseId: string, boxId: string, itemIds: string[]) =>
+  api.put<WarehouseBox>(`/inventory/warehouses/${warehouseId}/boxes/${boxId}/items`, { item_ids: itemIds }).then((r) => r.data)
+
 export const getItemCabinsApi = (warehouseId: string, itemId: string) =>
   api.get<ItemCabinAssignment[]>(`/inventory/warehouses/${warehouseId}/items/${itemId}/cabins`).then((r) => r.data)
 
 export const setItemCabinsApi = (
   warehouseId: string,
   itemId: string,
-  assignments: { cabin_id: string; notes?: string | null }[]
+  assignments: { cabin_id: string; box_id?: string | null; notes?: string | null }[]
 ) =>
   api.put<ItemCabinAssignment[]>(`/inventory/warehouses/${warehouseId}/items/${itemId}/cabins`, assignments).then((r) => r.data)
 

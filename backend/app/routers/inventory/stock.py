@@ -42,7 +42,7 @@ from app.db.session import get_db
 from app.models.inventory.item import Item
 from app.models.inventory.location import Location
 from app.models.inventory.warehouse import Warehouse
-from app.models.inventory.warehouse_cabin import ItemCabinAssignment, WarehouseCabin
+from app.models.inventory.warehouse_cabin import ItemCabinAssignment, WarehouseBox, WarehouseCabin
 from app.models.inventory.movement import Movement
 from app.models.inventory.stock import StockLevel
 from app.models.user import User
@@ -87,17 +87,20 @@ async def list_stock(
 
     rows = (await db.execute(stmt)).all()
 
-    # Load cabin assignments for the matching scope (0-1 per stock row)
+    # Load cabin & box assignments for the matching scope
     cabins_stmt = (
         select(
             ItemCabinAssignment.warehouse_id,
             ItemCabinAssignment.item_id,
             ItemCabinAssignment.cabin_id,
             WarehouseCabin.name.label("cabin_name"),
+            ItemCabinAssignment.box_id,
+            WarehouseBox.name.label("box_name"),
             ItemCabinAssignment.notes,
         )
         .join(WarehouseCabin, WarehouseCabin.id == ItemCabinAssignment.cabin_id)
-        .order_by(WarehouseCabin.sort_order, WarehouseCabin.name)
+        .outerjoin(WarehouseBox, WarehouseBox.id == ItemCabinAssignment.box_id)
+        .order_by(WarehouseCabin.sort_order, WarehouseCabin.name, WarehouseBox.sort_order.nullslast())
     )
     if warehouse_id:
         cabins_stmt = cabins_stmt.where(ItemCabinAssignment.warehouse_id == warehouse_id)
@@ -106,11 +109,13 @@ async def list_stock(
 
     cabin_rows = (await db.execute(cabins_stmt)).all()
     cabins_by_stock: dict[tuple[uuid.UUID, uuid.UUID], list[ItemCabinBriefOut]] = {}
-    for wh_id, it_id, cab_id, cab_name, c_notes in cabin_rows:
+    for wh_id, it_id, cab_id, cab_name, b_id, b_name, c_notes in cabin_rows:
         cabins_by_stock.setdefault((wh_id, it_id), []).append(
             ItemCabinBriefOut(
                 cabin_id=cab_id,
                 cabin_name=cab_name,
+                box_id=b_id,
+                box_name=b_name,
                 notes=c_notes,
             )
         )

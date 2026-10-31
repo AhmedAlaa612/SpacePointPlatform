@@ -35,6 +35,20 @@ export interface Location {
   created_at: string | null
 }
 
+export interface WarehouseBox {
+  id: string
+  warehouse_id: string
+  cabin_id: string
+  cabin_name?: string | null
+  name: string
+  description?: string | null
+  image_url?: string | null
+  sort_order: number
+  item_count?: number
+  item_ids?: string[]
+  created_at?: string | null
+}
+
 export interface WarehouseCabin {
   id: string
   warehouse_id: string
@@ -43,6 +57,9 @@ export interface WarehouseCabin {
   pin_x?: number | null
   pin_y?: number | null
   sort_order: number
+  image_url?: string | null
+  box_count?: number
+  boxes?: WarehouseBox[]
   item_count?: number
   created_at?: string | null
 }
@@ -51,6 +68,8 @@ export interface ItemCabinAssignment {
   id?: string
   cabin_id: string
   cabin_name: string
+  box_id?: string | null
+  box_name?: string | null
   notes?: string | null
 }
 
