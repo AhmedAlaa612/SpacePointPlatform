@@ -18,7 +18,6 @@ import {
 
 import {
   getCohortPreQuizStatusApi,
-  startCohortPhaseApi,
   submitCohortPhaseApi,
   type CohortPreQuizStatus,
   type PhaseTrial,
@@ -32,6 +31,7 @@ import { PdfViewer } from "@/components/documents/PdfViewer"
 import { ConnectorTableWidget } from "@/components/quiz/ConnectorTableWidget"
 import { Button } from "@/components/ui/button"
 import { Spinner } from "@/components/ui/primitives"
+import { useToast } from "@/components/ui/toast"
 import { cn, ensureAbsoluteUrl, getErrorMessage } from "@/lib/utils"
 
 export default function CohortReadinessQuiz() {
@@ -501,7 +501,7 @@ function PhasePlayer({
   preset,
   phase,
   phaseIndex,
-  attempt,
+  attempt: _attempt,
   trials,
   cooldownRemaining,
   onOpenPdf,
