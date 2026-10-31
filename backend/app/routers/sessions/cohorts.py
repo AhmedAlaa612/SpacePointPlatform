@@ -498,6 +498,10 @@ async def clone_cohort(
     target_program = await db.get(Program, body.program_id)
     if target_program is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Program not found")
+    source_program = await db.get(Program, source.program_id)
+
+    is_source_comp = source_program is not None and source_program.is_competition
+    is_target_comp = target_program.is_competition
 
     new_cohort = Cohort(
         id=uuid.uuid4(),
@@ -517,8 +521,10 @@ async def clone_cohort(
         new_cohort.organization_id = source.organization_id
         new_cohort.poster_template_url = source.poster_template_url
         new_cohort.keep_course_access_after_completion = source.keep_course_access_after_completion
-    if "windows" in body.carry:
+    if "windows" in body.carry and is_target_comp and is_source_comp:
         new_cohort.submission_windows = [dict(w) if isinstance(w, dict) else w for w in (source.submission_windows or [])]
+    else:
+        new_cohort.submission_windows = []
     db.add(new_cohort)
     await db.flush()
 
@@ -653,7 +659,7 @@ async def clone_cohort(
                 await db.flush()
 
                 # Remap checkpoint IDs in cloned submission windows if windows were also carried
-                if "windows" in body.carry and new_cohort.submission_windows:
+                if "windows" in body.carry and is_target_comp and is_source_comp and new_cohort.submission_windows:
                     from sqlalchemy.orm.attributes import flag_modified
                     remapped_windows = []
                     for w in new_cohort.submission_windows:
@@ -694,36 +700,36 @@ async def clone_cohort(
     # program's default checklist.
 
     # ── Competition rubric ──
-    if "rubric" in body.carry:
-        source_program = await db.get(Program, source.program_id)
-        if (source_program is not None and source_program.is_competition) or target_program.is_competition:
-            found = await judging_svc.get_rubric(db, cohort_id=source.id)
-            if found is not None:
-                source_rubric, source_criteria = found
-                new_rubric = CompetitionRubric(
+    # Only copy if both source and target are competitions
+    if "rubric" in body.carry and is_target_comp and is_source_comp:
+        found = await judging_svc.get_rubric(db, cohort_id=source.id)
+        if found is not None:
+            source_rubric, source_criteria = found
+            new_rubric = CompetitionRubric(
+                id=uuid.uuid4(),
+                program_id=target_program.id,
+                cohort_id=new_cohort.id,
+                name=source_rubric.name,
+            )
+            db.add(new_rubric)
+            await db.flush()
+            for crit in source_criteria:
+                db.add(CompetitionRubricCriterion(
                     id=uuid.uuid4(),
-                    program_id=target_program.id,
-                    cohort_id=new_cohort.id,
-                    name=source_rubric.name,
-                )
-                db.add(new_rubric)
+                    rubric_id=new_rubric.id,
+                    key=crit.key,
+                    label=crit.label,
+                    max_points=crit.max_points,
+                    position=crit.position,
+                    scored_by=crit.scored_by,
+                    sub_criteria=crit.sub_criteria,
+                ))
+            if source_criteria:
                 await db.flush()
-                for crit in source_criteria:
-                    db.add(CompetitionRubricCriterion(
-                        id=uuid.uuid4(),
-                        rubric_id=new_rubric.id,
-                        key=crit.key,
-                        label=crit.label,
-                        max_points=crit.max_points,
-                        position=crit.position,
-                        scored_by=crit.scored_by,
-                        sub_criteria=crit.sub_criteria,
-                    ))
-                if source_criteria:
-                    await db.flush()
 
     # ── Competition judges (SILENT — zero notifications) ──
-    if "judges" in body.carry and target_program.is_competition:
+    # Only copy if both source and target are competitions
+    if "judges" in body.carry and is_target_comp and is_source_comp:
         source_judges = (await db.execute(
             select(CompetitionJudge).where(CompetitionJudge.cohort_id == source.id)
         )).scalars().all()

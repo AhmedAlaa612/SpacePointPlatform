@@ -14,7 +14,7 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useNavigate } from "@tanstack/react-router"
-import { Check, ChevronLeft, ChevronRight, Clock, Lock, Mail, Pencil, Phone, Plus, Trash2, X } from "lucide-react"
+import { Check, ChevronLeft, ChevronRight, Clock, Info, Lock, Mail, Pencil, Phone, Plus, Trash2, X } from "lucide-react"
 import type { Cohort, CohortAssignment, CohortVisibility, Program, Registration, Session } from "@/types/sessions"
 import type { City, Location, Warehouse } from "@/types/inventory"
 import { getProgramsApi } from "@/api/sessions/programs"
@@ -384,7 +384,7 @@ function StepDots({ steps, current, skipped, onGo }: {
 
 const COHORT_CARRY_OPTIONS: { key: string; label: string; competitionOnly?: boolean }[] = [
   { key: "basics", label: "Basics (location, capacity, duration, visibility, poster URL)" },
-  { key: "windows", label: "Submission windows / timing brackets" },
+  { key: "windows", label: "Submission windows / timing brackets", competitionOnly: true },
   { key: "roles", label: "Delivery roles defaults" },
   { key: "materials", label: "Materials override" },
   { key: "assessment", label: "Assessment assignment" },
@@ -411,26 +411,25 @@ function TemplateStep({ programs, cohort, onCloned, onFresh, onFormChange }: {
   const { data: allCohorts = [] } = useQuery({ queryKey: ["sessions-cohorts-all"], queryFn: () => getCohortsApi() })
   const targetProgram = programs.find((p) => p.id === targetProgramId)
   const isTargetCompetition = Boolean(targetProgram?.is_competition)
-  const showCompetition = isTargetCompetition
 
-  // Strictly filter templates: competition cohorts for competition targets, standard cohorts for standard targets
-  const filteredCohorts = useMemo(() => {
-    if (!targetProgramId) return allCohorts
-    return allCohorts.filter((c) => {
-      const prog = programs.find((p) => p.id === c.program_id)
-      const isComp = Boolean(prog?.is_competition || c.program_is_competition)
-      return isTargetCompetition ? isComp : !isComp
+  const source = allCohorts.find((c) => c.id === sourceId)
+  const sourceProgram = programs.find((p) => p.id === source?.program_id)
+  const isSourceCompetition = Boolean(sourceProgram?.is_competition || source?.program_is_competition)
+
+  // Competition features (rubric, judges, submission windows) can only carry over
+  // when both source and target are competitions.
+  const allowCompetitionCarry = Boolean(source && targetProgram && isSourceCompetition && isTargetCompetition)
+
+  // Sort cohorts so they are easy to find: by program name then cohort name
+  const sortedCohorts = useMemo(() => {
+    return [...allCohorts].sort((a, b) => {
+      const pA = programs.find((p) => p.id === a.program_id)?.name ?? a.program_name ?? ""
+      const pB = programs.find((p) => p.id === b.program_id)?.name ?? b.program_name ?? ""
+      const cmpProg = pA.localeCompare(pB)
+      if (cmpProg !== 0) return cmpProg
+      return a.name.localeCompare(b.name)
     })
-  }, [allCohorts, targetProgramId, isTargetCompetition, programs])
-
-  const source = filteredCohorts.find((c) => c.id === sourceId)
-
-  useEffect(() => {
-    if (sourceId && !filteredCohorts.some((c) => c.id === sourceId)) {
-      setSourceId("")
-      setName("")
-    }
-  }, [filteredCohorts, sourceId])
+  }, [allCohorts, programs])
 
   useEffect(() => {
     if (source && !name) setName(`${source.name} (Copy)`)
@@ -438,12 +437,12 @@ function TemplateStep({ programs, cohort, onCloned, onFresh, onFormChange }: {
   }, [sourceId])
 
   useEffect(() => {
-    if (!isTargetCompetition) {
-      setCarry((prev) => prev.filter((k) => k !== "rubric" && k !== "judges"))
+    if (!allowCompetitionCarry) {
+      setCarry((prev) => prev.filter((k) => k !== "rubric" && k !== "judges" && k !== "windows"))
     } else {
       setCarry(["basics", "windows", "roles", "materials", "assessment", "checklist", "rubric", "judges"])
     }
-  }, [isTargetCompetition])
+  }, [allowCompetitionCarry])
 
   const clone = useMutation({
     mutationFn: () => cloneCohortApi(sourceId, {
@@ -478,13 +477,13 @@ function TemplateStep({ programs, cohort, onCloned, onFresh, onFormChange }: {
     })
   }, [mode, sourceId, targetProgramId, name, startsOn, endsOn, carry, clone.isPending, canSubmit])
 
-  const visibleOptions = COHORT_CARRY_OPTIONS.filter((o) => !o.competitionOnly || showCompetition)
+  const visibleOptions = COHORT_CARRY_OPTIONS.filter((o) => !o.competitionOnly || allowCompetitionCarry)
 
   return (
     <div className="flex flex-col" style={{ gap: 28 }}>
       <StepIntro
         eyebrow="Template or scratch" title="Start fresh or clone a template?"
-        lede="Clone an existing cohort — even from another program — to carry its settings into a new cohort. You can edit everything after cloning."
+        lede="Clone an existing cohort — even from another program or between different program types — to carry its settings into a new cohort. You can edit everything after cloning."
       />
       <div className="flex flex-col sm:flex-row gap-2 sm:gap-3">
         <button
@@ -501,7 +500,51 @@ function TemplateStep({ programs, cohort, onCloned, onFresh, onFormChange }: {
 
       {mode === "clone" && (
         <div className="flex flex-col" style={{ gap: 16 }}>
-          <BigField label="Target program" hint={targetProgram ? `Selected type: ${targetProgram.is_competition ? "Competition" : "Standard Workshop/Course"}` : undefined}>
+          <BigField
+            label="Template cohort"
+            hint={
+              source
+                ? `Template type: ${isSourceCompetition ? "Competition" : "Standard Workshop/Course"}`
+                : "Select any existing cohort across programs as template"
+            }
+          >
+            <select
+              value={sourceId}
+              onChange={(e) => {
+                const newSourceId = e.target.value
+                setSourceId(newSourceId)
+                if (!targetProgramId && newSourceId) {
+                  const picked = allCohorts.find((c) => c.id === newSourceId)
+                  if (picked) setTargetProgramId(picked.program_id)
+                }
+              }}
+              style={{ ...bigInput, cursor: "pointer" }}
+              className="border border-border bg-background text-foreground focus:outline-none focus:border-primary transition-colors"
+            >
+              <option value="">
+                {allCohorts.length === 0 ? "— No cohorts available —" : "— Select a template cohort —"}
+              </option>
+              {sortedCohorts.map((c) => {
+                const prog = programs.find((p) => p.id === c.program_id)
+                const pname = prog?.name ?? c.program_name ?? "Unknown program"
+                const isComp = Boolean(prog?.is_competition || c.program_is_competition)
+                return (
+                  <option key={c.id} value={c.id}>
+                    [{isComp ? "Competition" : "Standard"}] [{pname}] — {c.name}
+                  </option>
+                )
+              })}
+            </select>
+          </BigField>
+
+          <BigField
+            label="Target program"
+            hint={
+              targetProgram
+                ? `Selected target type: ${targetProgram.is_competition ? "Competition" : "Standard Workshop/Course"}`
+                : "Choose the target program the cloned cohort belongs to"
+            }
+          >
             <select
               value={targetProgramId} onChange={(e) => setTargetProgramId(e.target.value)}
               style={{ ...bigInput, cursor: "pointer" }}
@@ -515,35 +558,30 @@ function TemplateStep({ programs, cohort, onCloned, onFresh, onFormChange }: {
               ))}
             </select>
           </BigField>
-          <BigField
-            label="Template cohort"
-            hint={
-              targetProgramId
-                ? isTargetCompetition
-                  ? "Filtered: showing competition cohorts only"
-                  : "Filtered: showing standard workshop/course cohorts only"
-                : "Select target program first to filter templates"
-            }
-          >
-            <select
-              value={sourceId} onChange={(e) => setSourceId(e.target.value)}
-              disabled={!targetProgramId}
-              style={{ ...bigInput, cursor: targetProgramId ? "pointer" : "not-allowed" }}
-              className="border border-border bg-background text-foreground focus:outline-none focus:border-primary transition-colors disabled:opacity-50"
-            >
-              <option value="">
-                {!targetProgramId
-                  ? "— Select a target program first —"
-                  : filteredCohorts.length === 0
-                  ? "— No matching templates found —"
-                  : "— Select a cohort —"}
-              </option>
-              {filteredCohorts.map((c) => {
-                const pname = programs.find((p) => p.id === c.program_id)?.name ?? c.program_name ?? "Unknown program"
-                return <option key={c.id} value={c.id}>[{pname}] — {c.name}</option>
-              })}
-            </select>
-          </BigField>
+
+          {source && targetProgram && isSourceCompetition !== isTargetCompetition && (
+            <div className="p-3.5 rounded-xl border border-border bg-muted/40 text-sm flex items-start gap-2.5">
+              <Info size={16} className="text-primary mt-0.5 shrink-0" />
+              <div>
+                {isSourceCompetition && !isTargetCompetition ? (
+                  <>
+                    <span className="font-medium text-foreground">Cloning Competition into Standard Workshop:</span>{" "}
+                    <span className="text-muted-foreground">
+                      All general settings, checklist, materials, and roles will be cloned. Competition-specific features (rubric, judges, submission windows) are excluded.
+                    </span>
+                  </>
+                ) : (
+                  <>
+                    <span className="font-medium text-foreground">Cloning Standard Workshop into Competition:</span>{" "}
+                    <span className="text-muted-foreground">
+                      All settings, checklist, materials, and roles will be cloned. You can set up competition features (rubric, judges, submission windows) in the subsequent steps.
+                    </span>
+                  </>
+                )}
+              </div>
+            </div>
+          )}
+
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 sm:gap-6">
             <BigField label="New cohort name">
               <input

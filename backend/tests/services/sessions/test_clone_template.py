@@ -314,3 +314,109 @@ async def test_clone_competition_cohort_silent_judges(db, client, monkeypatch):
         select(AssessmentCohortAssignment).where(AssessmentCohortAssignment.cohort_id == new_id)
     )).scalars().all()
     assert assignments == []
+
+
+@pytest.mark.asyncio
+async def test_clone_cohort_competition_to_workshop(db, client):
+    """Cloning a competition cohort into a standard workshop clones standard
+    items, but strictly omits competition-specific features (rubric, judges,
+    submission windows)."""
+    ops = await _ops(db)
+    comp_program = await _program(db, program_type="competition")
+    workshop_program = await _program(db, program_type="workshop")
+
+    source = await _cohort(db, comp_program.id, name="Comp Cohort")
+    source.submission_windows = [{"id": "window-1", "name": "Early Bird"}]
+    await db.flush()
+
+    rubric = CompetitionRubric(
+        id=uuid.uuid4(), program_id=comp_program.id, cohort_id=source.id, name="Comp Rubric",
+    )
+    db.add(rubric)
+    await db.flush()
+    db.add(CompetitionRubricCriterion(
+        id=uuid.uuid4(), rubric_id=rubric.id, key="creativity",
+        label="Creativity", max_points=20, position=0,
+    ))
+    judge_user = User(
+        id=uuid.uuid4(), full_name="Judge Comp", email=f"judge-{uuid.uuid4().hex[:8]}@example.com",
+        password_hash="x", roles=["judge"], status="active",
+    )
+    db.add(judge_user)
+    await db.flush()
+    db.add(CompetitionJudge(id=uuid.uuid4(), cohort_id=source.id, user_id=judge_user.id))
+    await db.flush()
+
+    resp = await client.post(
+        f"/sessions/cohorts/{source.id}/clone",
+        json={
+            "name": "Workshop Cloned from Comp",
+            "program_id": str(workshop_program.id),
+            "carry": ["basics", "windows", "roles", "materials", "assessment", "checklist", "rubric", "judges"],
+        },
+        headers=_headers(ops),
+    )
+    assert resp.status_code == 201, resp.text
+    body = resp.json()
+    assert body["program_id"] == str(workshop_program.id)
+    new_id = uuid.UUID(body["id"])
+
+    # Submission windows must be empty for standard workshop
+    cloned_cohort = await db.get(Cohort, new_id)
+    assert cloned_cohort.submission_windows == []
+
+    # Rubric must NOT be created
+    new_rubric = await db.scalar(
+        select(CompetitionRubric).where(CompetitionRubric.cohort_id == new_id)
+    )
+    assert new_rubric is None
+
+    # Judges must NOT be created
+    judges = (await db.execute(
+        select(CompetitionJudge).where(CompetitionJudge.cohort_id == new_id)
+    )).scalars().all()
+    assert judges == []
+
+
+@pytest.mark.asyncio
+async def test_clone_cohort_workshop_to_competition(db, client):
+    """Cloning a workshop cohort into a competition succeeds, carrying standard
+    cohort features without inventing competition data."""
+    ops = await _ops(db)
+    workshop_program = await _program(db, program_type="workshop")
+    comp_program = await _program(db, program_type="competition")
+
+    source = await _cohort(db, workshop_program.id, name="Workshop Cohort")
+    source.capacity = 25
+    await db.flush()
+
+    resp = await client.post(
+        f"/sessions/cohorts/{source.id}/clone",
+        json={
+            "name": "Comp Cloned from Workshop",
+            "program_id": str(comp_program.id),
+            "carry": ["basics", "windows", "roles", "materials", "assessment", "checklist", "rubric", "judges"],
+        },
+        headers=_headers(ops),
+    )
+    assert resp.status_code == 201, resp.text
+    body = resp.json()
+    assert body["program_id"] == str(comp_program.id)
+    assert body["capacity"] == 25
+    new_id = uuid.UUID(body["id"])
+
+    # Cloned cohort has empty windows since source had none
+    cloned_cohort = await db.get(Cohort, new_id)
+    assert cloned_cohort.submission_windows == []
+
+    # Rubric is None since source had none
+    new_rubric = await db.scalar(
+        select(CompetitionRubric).where(CompetitionRubric.cohort_id == new_id)
+    )
+    assert new_rubric is None
+
+    # Judges are empty
+    judges = (await db.execute(
+        select(CompetitionJudge).where(CompetitionJudge.cohort_id == new_id)
+    )).scalars().all()
+    assert judges == []
