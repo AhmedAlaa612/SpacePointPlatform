@@ -638,7 +638,8 @@ async def start_cohort_phase(
         )
 
     # Cooldown passed or phase reopened
-    attempt.status = "in_progress"
+    if attempt.status != "completed":
+        attempt.status = "in_progress"
     attempt.locked_until = None
     attempt.phase_started_at = now
     await db.commit()
@@ -855,18 +856,22 @@ async def submit_cohort_phase(
     cooldown_until = None
     if not passed and cooldown_sec > 0:
         cooldown_until = now + timedelta(seconds=cooldown_sec)
-        attempt.status = "cooldown_locked"
-        attempt.locked_until = cooldown_until
+        if attempt.status != "completed":
+            attempt.status = "cooldown_locked"
+            attempt.locked_until = cooldown_until
     elif passed:
         attempt.locked_until = None
-        if target_idx + 1 < len(phases):
-            attempt.current_phase_index = target_idx + 1
-            attempt.phase_started_at = now
-            attempt.status = "in_progress"
+        if attempt.status != "completed":
+            if target_idx + 1 < len(phases):
+                attempt.current_phase_index = max(attempt.current_phase_index, target_idx + 1)
+                attempt.phase_started_at = now
+                attempt.status = "in_progress"
+            else:
+                attempt.current_phase_index = len(phases)
+                attempt.status = "completed"
+                attempt.submitted_at = now
         else:
-            attempt.current_phase_index = len(phases)
-            attempt.status = "completed"
-            attempt.submitted_at = now
+            attempt.current_phase_index = max(attempt.current_phase_index, len(phases))
 
     trial = PreSessionQuizPhaseTrial(
         attempt_id=attempt.id,
@@ -966,7 +971,8 @@ async def unlock_cooldown(db: AsyncSession, attempt_id: UUID, user: User) -> dic
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Attempt not found")
 
     attempt.locked_until = None
-    attempt.status = "in_progress"
+    if attempt.status != "completed":
+        attempt.status = "in_progress"
     attempt.phase_started_at = datetime.now(timezone.utc)
     await db.commit()
     await db.refresh(attempt)

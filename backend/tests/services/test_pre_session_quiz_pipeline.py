@@ -300,3 +300,13 @@ async def test_full_readiness_pipeline_and_session_gate(
     # 6. Verify Session 2 in the same cohort can also start without re-taking the quiz!
     started_s2 = await delivery_svc.start_session(db, s2.id, sample_user)
     assert started_s2.started_at is not None
+
+    # 7. Verify revisiting an earlier phase does NOT regress progress or revert "completed" status
+    revisit_start = await svc.start_cohort_phase(db, cohort.id, "phase-explore", sample_user)
+    assert revisit_start["status"] == "completed"
+
+    revisit_sub = await svc.submit_cohort_phase(
+        db, cohort.id, "phase-explore", sample_user, PhaseTrialSubmitIn(client_duration_seconds=5)
+    )
+    assert revisit_sub["attempt"]["status"] == "completed"
+    assert revisit_sub["attempt"]["current_phase_index"] >= 3

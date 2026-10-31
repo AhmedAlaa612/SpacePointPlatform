@@ -388,11 +388,17 @@ export function PdfViewer({
       <div
         ref={containerRef}
         className={cn(
-          "w-full flex-1 min-h-0 overflow-auto rounded-2xl ring-1 ring-border bg-card p-3 min-w-0",
-          hideControls ? "max-h-full" : "max-h-[80vh]"
+          "w-full flex-1 min-h-0 overflow-auto min-w-0",
+          hideControls
+            ? "max-h-full p-0 rounded-none ring-0 border-0 bg-transparent overflow-hidden"
+            : "max-h-[80vh] p-3 rounded-2xl ring-1 ring-border bg-card"
         )}
       >
-        {!doc && <p className="text-sm text-muted-foreground py-16 text-center">Loading document...</p>}
+        {!doc && (
+          <p className={cn("text-muted-foreground text-center", hideControls ? "py-8 text-xs" : "py-16 text-sm")}>
+            Loading document...
+          </p>
+        )}
         {doc && (
           <div className="flex flex-col items-center min-w-full w-fit gap-3 mx-auto">
             {Array.from({ length: pageCount }, (_, i) => (

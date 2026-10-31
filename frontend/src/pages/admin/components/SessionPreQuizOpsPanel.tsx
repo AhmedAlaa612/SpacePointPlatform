@@ -194,7 +194,7 @@ function AttemptReviewCard({
         </div>
 
         {/* Action Controls */}
-        <div className="flex items-center gap-2 shrink-0">
+        <div className="flex items-center gap-2 shrink-0 flex-wrap">
           {isLocked && (
             <Button
               size="sm"
@@ -231,7 +231,7 @@ function AttemptReviewCard({
               </span>
 
               <div className="overflow-x-auto rounded-xl border border-border">
-                <table className="w-full text-left text-xs">
+                <table className="w-full text-left text-xs min-w-[540px]">
                   <thead className="bg-muted/40 border-b border-border text-[11px] font-bold text-muted-foreground uppercase tracking-wider">
                     <tr>
                       <th className="px-3 py-2">Phase</th>

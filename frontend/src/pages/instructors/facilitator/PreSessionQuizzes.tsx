@@ -1455,8 +1455,8 @@ function PresetBuilderModal({
         </div>
 
         {/* Modal Tabs */}
-        <div className="flex items-center justify-between gap-2 border-b border-border pb-1">
-          <div className="flex gap-2">
+        <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border pb-2">
+          <div className="flex flex-wrap gap-2">
             <button
               type="button"
               onClick={() => setModalTab("phases")}
@@ -1502,7 +1502,7 @@ function PresetBuilderModal({
               <span className="text-xs text-muted-foreground">
                 Define the ordered sequence of phases instructors must complete before session delivery.
               </span>
-              <div className="flex items-center gap-1.5">
+              <div className="flex flex-wrap items-center gap-1.5">
                 <button
                   type="button"
                   onClick={() => addPhase("explore_datasheets")}

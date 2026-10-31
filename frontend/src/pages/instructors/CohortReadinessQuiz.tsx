@@ -557,13 +557,13 @@ function PhasePlayer({
         </div>
 
         {/* Phase Requirements Pill */}
-        <div className="flex items-center gap-3 shrink-0 flex-wrap">
-          <div className="text-right">
+        <div className="flex items-center gap-3 shrink-0 flex-wrap text-left md:text-right">
+          <div className="text-left md:text-right">
             <p className="text-[11px] text-muted-foreground">Required Pass Score</p>
             <p className="text-sm font-bold text-foreground">{phase.pass_percentage}%</p>
           </div>
           {phase.cooldown_seconds > 0 && (
-            <div className="text-right pl-3 border-l border-border">
+            <div className="text-left md:text-right pl-3 border-l border-border">
               <p className="text-[11px] text-muted-foreground">Review Delay on Fail</p>
               <p className="text-sm font-bold text-amber-600 dark:text-amber-400">
                 {Math.round(phase.cooldown_seconds / 60)} min
@@ -1004,20 +1004,20 @@ function SubsystemMatchingPhase({
                             <button
                               type="button"
                               onClick={() => onOpenPdf(doc)}
-                              className="p-1 text-muted-foreground hover:text-foreground"
+                              className="p-1.5 sm:p-1 text-muted-foreground hover:text-foreground rounded-lg hover:bg-muted"
                               title="View PDF"
                             >
-                              <Eye className="size-3.5" />
+                              <Eye className="size-4 sm:size-3.5" />
                             </button>
                           )}
                           {!isCooldownLocked && (
                             <button
                               type="button"
                               onClick={() => handleRemove(dsId)}
-                              className="p-1 text-muted-foreground hover:text-destructive"
+                              className="p-1.5 sm:p-1 text-muted-foreground hover:text-destructive rounded-lg hover:bg-destructive/10"
                               title="Remove from bucket"
                             >
-                              <X className="size-3.5" />
+                              <X className="size-4 sm:size-3.5" />
                             </button>
                           )}
                         </div>
