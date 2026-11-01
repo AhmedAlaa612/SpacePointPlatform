@@ -219,3 +219,65 @@ async def test_submitting_early_returns_409_listing_what_is_missing(
     )
     assert resp.status_code == 409
     assert "Kits distributed" in resp.json()["detail"]
+
+
+@pytest.mark.asyncio
+async def test_import_delivery_checklist_items(
+    db, client, operations_headers
+):
+    cohort_src, _ = await _make(db)
+    cohort_dest, _ = await _make(db)
+    await db.commit()
+
+    # Source cohort puts 2 items
+    src_resp = await client.put(
+        f"/sessions/cohorts/{cohort_src.id}/checklist-items",
+        json={"items": [
+            {"title": "Source Step 1", "is_required": True},
+            {"title": "Source Step 2", "requires_proof": True},
+        ]},
+        headers=operations_headers,
+    )
+    assert src_resp.status_code == 200
+    src_items = src_resp.json()
+    assert len(src_items) == 2
+
+    # Target cohort already has 1 item
+    await client.put(
+        f"/sessions/cohorts/{cohort_dest.id}/checklist-items",
+        json={"items": [{"title": "Existing Step 1", "is_required": False}]},
+        headers=operations_headers,
+    )
+
+    # 1. Import with replace_existing=False (append)
+    import_resp = await client.post(
+        f"/sessions/cohorts/{cohort_dest.id}/checklist-items/import",
+        json={
+            "source_scope": "cohorts",
+            "source_owner_id": str(cohort_src.id),
+            "item_ids": [src_items[0]["id"]],
+            "replace_existing": False,
+        },
+        headers=operations_headers,
+    )
+    assert import_resp.status_code == 200
+    dest_items = import_resp.json()
+    assert len(dest_items) == 2
+    assert [i["title"] for i in dest_items] == ["Existing Step 1", "Source Step 1"]
+
+    # 2. Import with replace_existing=True (replace)
+    replace_resp = await client.post(
+        f"/sessions/cohorts/{cohort_dest.id}/checklist-items/import",
+        json={
+            "source_scope": "cohorts",
+            "source_owner_id": str(cohort_src.id),
+            "item_ids": [src_items[0]["id"], src_items[1]["id"]],
+            "replace_existing": True,
+        },
+        headers=operations_headers,
+    )
+    assert replace_resp.status_code == 200
+    replaced_items = replace_resp.json()
+    assert len(replaced_items) == 2
+    assert [i["title"] for i in replaced_items] == ["Source Step 1", "Source Step 2"]
+

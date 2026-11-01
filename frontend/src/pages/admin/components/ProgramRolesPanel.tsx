@@ -12,6 +12,7 @@ import {
   ChevronDown,
   ChevronUp,
   ClipboardCheck,
+  Copy,
   ExternalLink,
   Eye,
   FileText,
@@ -48,6 +49,7 @@ import { cn, ensureAbsoluteUrl, getErrorMessage } from "@/lib/utils"
 import { MediaPreviewModal } from "@/components/media/MediaPreviewModal"
 import { ChecklistAttachmentPicker } from "./ChecklistAttachmentPicker"
 import { PreSessionQuizAssignmentBar } from "./PreSessionQuizAssignmentBar"
+import { ImportInstructorChecklistModal } from "./ImportInstructorChecklistModal"
 
 interface RoleDraft {
   role_id: string
@@ -539,6 +541,7 @@ function ProgramDayChecklistEditor({
   const toast = useToast()
   const [draft, setDraft] = useState<ChecklistDraftLine[] | null>(null)
   const [error, setError] = useState("")
+  const [showImportModal, setShowImportModal] = useState(false)
 
   const audienceKey = targetAudience === "internal" ? "internal" : (roleId ?? "general")
   const queryKey = ["checklist-items", scope, ownerId, audienceKey]
@@ -602,6 +605,15 @@ function ProgramDayChecklistEditor({
         <div className="flex items-center gap-1.5 flex-wrap">
           <button
             type="button"
+            onClick={() => setShowImportModal(true)}
+            className="flex items-center gap-1 h-8 px-2.5 border border-border bg-card rounded-lg text-xs font-semibold text-foreground hover:border-primary/50 hover:bg-primary/5 transition-colors cursor-pointer shadow-sm"
+            title="Import items from another program template or cohort"
+          >
+            <Copy size={13} className="text-primary" /> Import Items
+          </button>
+
+          <button
+            type="button"
             onClick={() =>
               setDraft([
                 ...rows,
@@ -644,6 +656,20 @@ function ProgramDayChecklistEditor({
           }}
         />
       )}
+
+      <ImportInstructorChecklistModal
+        open={showImportModal}
+        onClose={() => setShowImportModal(false)}
+        targetScope={scope}
+        targetOwnerId={ownerId}
+        targetProgramId={programId}
+        targetRoleId={roleId}
+        targetAudience={targetAudience}
+        onImportSuccess={(newItems) => {
+          setDraft(toDraftLines(newItems))
+          qc.invalidateQueries({ queryKey })
+        }}
+      />
     </div>
   )
 }

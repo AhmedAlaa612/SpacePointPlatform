@@ -14,11 +14,12 @@
  */
 import { useEffect, useState } from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { ImageIcon, Plus, Trash2 } from "lucide-react"
+import { Copy, ImageIcon, Plus, Trash2 } from "lucide-react"
 import type { ChecklistItem } from "@/types/sessions"
 import { listChecklistItemsApi, setChecklistItemsApi } from "@/api/sessions/day"
 import { useToast } from "@/components/ui/toast"
 import { cn, getErrorMessage } from "@/lib/utils"
+import { ImportInstructorChecklistModal } from "./ImportInstructorChecklistModal"
 
 const OUTFIT = "'Outfit', ui-sans-serif, system-ui, sans-serif"
 
@@ -55,6 +56,7 @@ export function SessionChecklistPanel({ sessionId, cohortId, programId, large = 
   const [isInherited, setIsInherited] = useState(false)
   const [loadingFallback, setLoadingFallback] = useState(false)
   const [error, setError] = useState("")
+  const [showImportModal, setShowImportModal] = useState(false)
 
   const queryKey = ["checklist-items", "sessions", sessionId]
   const { data: items = [], isLoading } = useQuery({
@@ -156,7 +158,15 @@ export function SessionChecklistPanel({ sessionId, cohortId, programId, large = 
               </div>
             ))}
 
-            <div className="flex items-center gap-2 pt-1">
+            <div className="flex items-center gap-2 pt-1 flex-wrap">
+              <button
+                type="button"
+                onClick={() => setShowImportModal(true)}
+                className="h-8 px-2.5 flex items-center gap-1 text-xs font-semibold text-foreground hover:border-primary/50 hover:bg-primary/5 border border-border bg-card rounded-lg transition-colors cursor-pointer shadow-sm"
+                title="Import items from another cohort or program template"
+              >
+                <Copy size={12} className="text-primary" /> Import Items
+              </button>
               <button
                 type="button"
                 onClick={() => setDraft([...rows, { key: `new-${Date.now()}-${rows.length}`, title: "", requires_proof: false, is_required: true }])}
@@ -170,6 +180,20 @@ export function SessionChecklistPanel({ sessionId, cohortId, programId, large = 
               >{save.isPending ? "Saving…" : "Save checklist"}</button>
             </div>
             {error && <p className="text-[11px] text-red-600 dark:text-red-400">{error}</p>}
+
+            <ImportInstructorChecklistModal
+              open={showImportModal}
+              onClose={() => setShowImportModal(false)}
+              targetScope="sessions"
+              targetOwnerId={sessionId}
+              targetCohortId={cohortId}
+              targetProgramId={programId}
+              onImportSuccess={(newItems) => {
+                setDraft(toDraft(newItems))
+                setIsInherited(false)
+                qc.invalidateQueries({ queryKey })
+              }}
+            />
           </>
         )}
       </div>
@@ -235,22 +259,45 @@ export function SessionChecklistPanel({ sessionId, cohortId, programId, large = 
             </div>
           ))}
 
-          <div className="flex items-center" style={{ gap: 12, paddingTop: 4 }}>
+          <div className="flex items-center gap-3 flex-wrap" style={{ paddingTop: 4 }}>
+            <button
+              type="button"
+              onClick={() => setShowImportModal(true)}
+              style={{ height: 44, padding: "0 20px", borderRadius: 14, fontSize: 15, fontWeight: 600 }}
+              className="flex items-center gap-2 text-foreground hover:bg-muted border border-border bg-card shadow-sm transition-colors cursor-pointer"
+              title="Import items from another cohort or program template"
+            >
+              <Copy size={16} className="text-primary" /> Import Items
+            </button>
             <button
               type="button"
               onClick={() => setDraft([...rows, { key: `new-${Date.now()}-${rows.length}`, title: "", requires_proof: false, is_required: true }])}
               style={{ height: 44, padding: "0 20px", borderRadius: 14, fontSize: 15, fontWeight: 500 }}
-              className="flex items-center gap-2 text-muted-foreground hover:text-foreground hover:bg-muted border border-dashed border-border transition-colors"
+              className="flex items-center gap-2 text-muted-foreground hover:text-foreground hover:bg-muted border border-dashed border-border transition-colors cursor-pointer"
             ><Plus size={15} /> Add item</button>
             <button
               type="button"
               onClick={() => { setError(""); save.mutate() }}
               disabled={save.isPending}
               style={{ height: 44, padding: "0 22px", borderRadius: 14, fontFamily: OUTFIT, fontSize: 15, fontWeight: 600 }}
-              className="bg-primary text-primary-foreground hover:opacity-90 disabled:opacity-40 transition-opacity"
+              className="bg-primary text-primary-foreground hover:opacity-90 disabled:opacity-40 transition-opacity cursor-pointer"
             >{save.isPending ? "Saving…" : "Save checklist"}</button>
           </div>
           {error && <p style={{ fontSize: 14 }} className="text-red-600 dark:text-red-400">{error}</p>}
+
+          <ImportInstructorChecklistModal
+            open={showImportModal}
+            onClose={() => setShowImportModal(false)}
+            targetScope="sessions"
+            targetOwnerId={sessionId}
+            targetCohortId={cohortId}
+            targetProgramId={programId}
+            onImportSuccess={(newItems) => {
+              setDraft(toDraft(newItems))
+              setIsInherited(false)
+              qc.invalidateQueries({ queryKey })
+            }}
+          />
         </>
       )}
     </div>

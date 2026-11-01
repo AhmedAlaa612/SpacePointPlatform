@@ -71,6 +71,18 @@ class SetChecklistItemsIn(BaseModel):
     items: list[ChecklistItemIn] = []
 
 
+class ImportChecklistItemsIn(BaseModel):
+    """Import selected delivery checklist items from another program, cohort, or session."""
+    source_scope: Literal["programs", "cohorts", "sessions"]
+    source_owner_id: UUID
+    source_role_id: UUID | None = None
+    source_target_audience: str = "instructor"
+    item_ids: list[UUID]
+    replace_existing: bool = False
+    role_id: UUID | None = None
+    target_audience: str = "instructor"
+
+
 class ChecklistItemOut(BaseModel):
     id: UUID
     program_id: UUID | None = None

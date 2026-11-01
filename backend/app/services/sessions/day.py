@@ -208,6 +208,136 @@ async def set_checklist_items(
     return out
 
 
+async def import_checklist_items(
+    db: AsyncSession, *,
+    source_scope: str,
+    source_owner_id: UUID,
+    source_role_id: UUID | None = None,
+    source_target_audience: str = "instructor",
+    item_ids: list[UUID],
+    replace_existing: bool = False,
+    actor_user_id: UUID,
+    program_id: UUID | None = None,
+    cohort_id: UUID | None = None,
+    session_id: UUID | None = None,
+    role_id: UUID | None = None,
+    target_audience: str = "instructor",
+) -> list[DeliveryChecklistItem]:
+    """Import selected delivery checklist items from a source program, cohort, or session."""
+    owners = [program_id, cohort_id, session_id]
+    if sum(1 for o in owners if o is not None) != 1:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            detail="A checklist belongs to exactly one of a program, a cohort or a session",
+        )
+
+    target_kwargs = dict(program_id=program_id, cohort_id=cohort_id, session_id=session_id)
+    if not item_ids:
+        return await list_checklist_items(
+            db, role_id=role_id, target_audience=target_audience, **target_kwargs
+        )
+
+    # 1. Fetch source items
+    source_col = (
+        DeliveryChecklistItem.program_id if source_scope == "programs"
+        else DeliveryChecklistItem.cohort_id if source_scope == "cohorts"
+        else DeliveryChecklistItem.session_id if source_scope == "sessions"
+        else None
+    )
+    if source_col is None:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="Invalid source scope")
+
+    raw_items = list((await db.execute(
+        select(DeliveryChecklistItem).where(
+            source_col == source_owner_id,
+            DeliveryChecklistItem.target_audience == source_target_audience,
+            DeliveryChecklistItem.id.in_(item_ids),
+        ).order_by(DeliveryChecklistItem.sort_order, DeliveryChecklistItem.created_at)
+    )).scalars().all())
+
+    # Fallback if source had no items saved directly at that level
+    if not raw_items and source_scope == "sessions":
+        session = await db.get(Session, source_owner_id)
+        if session:
+            resolved = await resolve_checklist(db, session, role_id=source_role_id)
+            id_set = set(item_ids)
+            raw_items = [i for i in resolved if i.id in id_set]
+    elif not raw_items and source_scope == "cohorts":
+        cohort = await db.get(Cohort, source_owner_id)
+        if cohort and cohort.program_id:
+            prog_items = await _items_at_level(
+                db, program_id=cohort.program_id, target_audience=source_target_audience
+            )
+            id_set = set(item_ids)
+            raw_items = [i for i in prog_items if i.id in id_set]
+
+    if not raw_items:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="No matching checklist items found to import")
+
+    # 2. Existing items on target
+    existing = await list_checklist_items(
+        db, role_id=role_id, target_audience=target_audience, **target_kwargs
+    )
+    if replace_existing:
+        for item in existing:
+            await db.delete(item)
+        await db.flush()
+        next_sort_order = 1
+    else:
+        next_sort_order = max([i.sort_order for i in existing], default=0) + 1
+
+    # 3. Create cloned items with fresh child IDs for sub-items and attachments
+    for offset, src in enumerate(raw_items):
+        cloned_attachments = []
+        for att in (src.attachments or []):
+            if isinstance(att, dict):
+                cloned_attachments.append({
+                    "id": str(uuid4()),
+                    "type": att.get("type") or "link",
+                    "material_id": att.get("material_id"),
+                    "title": att.get("title"),
+                    "url": att.get("url"),
+                })
+            else:
+                cloned_attachments.append(att)
+
+        cloned_sub_items = []
+        for s in (src.sub_items or []):
+            if isinstance(s, dict):
+                cloned_sub_items.append({
+                    "id": str(uuid4()),
+                    "title": s.get("title", ""),
+                    "is_required": bool(s.get("is_required", True)),
+                })
+            else:
+                cloned_sub_items.append(s)
+
+        new_item = DeliveryChecklistItem(
+            id=uuid4(),
+            program_id=program_id,
+            cohort_id=cohort_id,
+            session_id=session_id,
+            role_id=role_id,
+            target_audience=target_audience,
+            title=src.title,
+            description=src.description,
+            requires_proof=src.requires_proof,
+            is_required=src.is_required,
+            sort_order=next_sort_order + offset,
+            material_id=src.material_id,
+            link_url=src.link_url,
+            attachments=cloned_attachments,
+            sub_items=cloned_sub_items,
+            created_by=actor_user_id,
+        )
+        db.add(new_item)
+
+    await db.flush()
+    return await list_checklist_items(
+        db, role_id=role_id, target_audience=target_audience, **target_kwargs
+    )
+
+
 async def _instructor_role(db: AsyncSession, session_id: UUID, user_id: UUID) -> UUID | None:
     """Which role this instructor holds on this session — what `resolve_checklist`
     needs to pick their bucket over the general one. `None` for someone with no

@@ -68,6 +68,29 @@ export const setChecklistItemsApi = (
     },
   }).then((r) => r.data)
 
+export interface ImportChecklistItemsInput {
+  source_scope: ChecklistScope
+  source_owner_id: string
+  source_role_id?: string | null
+  source_target_audience?: "instructor" | "internal"
+  item_ids: string[]
+  replace_existing?: boolean
+  role_id?: string | null
+  target_audience?: "instructor" | "internal"
+}
+
+export const importChecklistItemsApi = (
+  scope: ChecklistScope,
+  ownerId: string,
+  data: ImportChecklistItemsInput,
+) =>
+  api.post<ChecklistItem[]>(`/sessions/${scope}/${ownerId}/checklist-items/import`, data, {
+    params: {
+      ...(data.role_id ? { role_id: data.role_id } : {}),
+      target_audience: data.target_audience || "instructor",
+    },
+  }).then((r) => r.data)
+
 export const getInternalChecklistApi = (sessionId: string) =>
   api.get<OpsChecklistItem[]>(`/sessions/${sessionId}/internal-checklist`).then((r) => r.data)
 

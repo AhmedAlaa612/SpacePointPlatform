@@ -45,6 +45,7 @@ import { MediaPreviewModal } from "@/components/media/MediaPreviewModal"
 import { ChecklistAttachmentPicker } from "./ChecklistAttachmentPicker"
 import { PreSessionQuizAssignmentBar } from "./PreSessionQuizAssignmentBar"
 import { SessionPreQuizOpsPanel } from "./SessionPreQuizOpsPanel"
+import { ImportInstructorChecklistModal } from "./ImportInstructorChecklistModal"
 
 export type ChecklistDraftLine = {
   key: string
@@ -683,6 +684,7 @@ function DayChecklistEditor({
   isDefaultScope,
   allSessions,
   targetAudience = "instructor",
+  roles = [],
 }: {
   scope: ChecklistScope
   ownerId: string
@@ -694,6 +696,7 @@ function DayChecklistEditor({
   isDefaultScope: boolean
   allSessions: Session[]
   targetAudience?: "instructor" | "internal"
+  roles?: DeliveryRole[]
 }) {
   const qc = useQueryClient()
   const toast = useToast()
@@ -702,6 +705,7 @@ function DayChecklistEditor({
   const [isLoadingFallback, setIsLoadingFallback] = useState(false)
   const [error, setError] = useState("")
   const [isApplyingAll, setIsApplyingAll] = useState(false)
+  const [showImportModal, setShowImportModal] = useState(false)
 
   const audienceKey = targetAudience === "internal" ? "internal" : (roleId ?? "general")
   const queryKey = ["checklist-items", scope, ownerId, audienceKey]
@@ -911,6 +915,15 @@ function DayChecklistEditor({
 
           <button
             type="button"
+            onClick={() => setShowImportModal(true)}
+            className="flex items-center gap-1 h-8 px-2.5 border border-border bg-card rounded-lg text-xs font-semibold text-foreground hover:border-primary/50 hover:bg-primary/5 transition-colors cursor-pointer shadow-sm"
+            title="Import items from another cohort or program template"
+          >
+            <Copy size={13} className="text-primary" /> Import Items
+          </button>
+
+          <button
+            type="button"
             onClick={() =>
               setDraft([
                 ...rows,
@@ -953,6 +966,23 @@ function DayChecklistEditor({
           }}
         />
       )}
+
+      <ImportInstructorChecklistModal
+        open={showImportModal}
+        onClose={() => setShowImportModal(false)}
+        targetScope={scope}
+        targetOwnerId={ownerId}
+        targetProgramId={programId}
+        targetCohortId={cohortId}
+        targetRoleId={roleId}
+        targetAudience={targetAudience}
+        roles={roles}
+        onImportSuccess={(newItems) => {
+          setDraft(toDraftLines(newItems))
+          setIsInherited(false)
+          qc.invalidateQueries({ queryKey })
+        }}
+      />
     </div>
   )
 }
@@ -1175,6 +1205,7 @@ export function CohortDayChecklistManager({
           isDefaultScope={isDefaultScope}
           allSessions={sortedSessions}
           targetAudience={isInternalChecklist ? "internal" : "instructor"}
+          roles={roles}
         />
       </div>
     </div>
@@ -1209,6 +1240,7 @@ export function ChecklistSection({
   const [isInherited, setIsInherited] = useState(false)
   const [isLoadingFallback, setIsLoadingFallback] = useState(false)
   const [error, setError] = useState("")
+  const [showImportModal, setShowImportModal] = useState(false)
 
   const queryKey = ["checklist-items", scope, ownerId, roleId ?? "general"]
   const { data: items = [], isLoading } = useQuery({
@@ -1321,7 +1353,15 @@ export function ChecklistSection({
                   qc.invalidateQueries({ queryKey: ["materials-for-section-checklist"] })
                 }}
               />
-              <div className="flex items-center gap-2 pt-1">
+              <div className="flex items-center gap-2 pt-1 flex-wrap">
+                <button
+                  type="button"
+                  onClick={() => setShowImportModal(true)}
+                  className="h-8 px-2.5 flex items-center gap-1 text-xs font-semibold text-foreground hover:border-primary/50 hover:bg-primary/5 border border-border bg-card rounded-lg transition-colors cursor-pointer shadow-sm"
+                  title="Import items from another cohort or program template"
+                >
+                  <Copy size={12} className="text-primary" /> Import Items
+                </button>
                 <button
                   type="button"
                   onClick={() =>
@@ -1352,6 +1392,20 @@ export function ChecklistSection({
                 </button>
               </div>
               {error && <p className="text-xs text-red-500">{error}</p>}
+
+              <ImportInstructorChecklistModal
+                open={showImportModal}
+                onClose={() => setShowImportModal(false)}
+                targetScope={scope}
+                targetOwnerId={ownerId}
+                targetProgramId={programId}
+                targetRoleId={roleId}
+                onImportSuccess={(newItems) => {
+                  setDraft(toDraftLines(newItems))
+                  setIsInherited(false)
+                  qc.invalidateQueries({ queryKey })
+                }}
+              />
             </>
           )}
         </div>

@@ -39,6 +39,7 @@ from app.schemas.sessions.day import (
     DayActionOut,
     DayDetailOut,
     DayReviewOut,
+    ImportChecklistItemsIn,
     OpsChecklistItemOut,
     OpsChecklistProgressIn,
     ReturnDayIn,
@@ -122,6 +123,56 @@ async def set_checklist_items(
     items = await svc.set_checklist_items(
         db, lines=[i.model_dump() for i in body.items], actor_user_id=current_user.id, role_id=role_id,
         target_audience=target_audience,
+        **_scope_kwarg(scope, owner_id),
+    )
+    await db.commit()
+    hydrated = await svc.hydrate_checklist_attachments(db, items, is_ops=True)
+    out = []
+    for item in items:
+        out.append({
+            "id": item.id,
+            "program_id": item.program_id,
+            "cohort_id": item.cohort_id,
+            "session_id": item.session_id,
+            "role_id": item.role_id,
+            "title": item.title,
+            "description": item.description,
+            "requires_proof": item.requires_proof,
+            "is_required": item.is_required,
+            "sort_order": item.sort_order,
+            "target_audience": item.target_audience,
+            "material_id": item.material_id,
+            "link_url": item.link_url,
+            "attachments": hydrated.get(item.id, []),
+            "sub_items": item.sub_items or [],
+        })
+    return out
+
+
+@router.post("/{scope}/{owner_id}/checklist-items/import", response_model=list[ChecklistItemOut])
+async def import_checklist_items(
+    scope: str,
+    owner_id: uuid.UUID,
+    body: ImportChecklistItemsIn,
+    role_id: uuid.UUID | None = None,
+    target_audience: str = "instructor",
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_operations),
+):
+    """Import selected delivery checklist items from another program, cohort, or session."""
+    effective_role_id = body.role_id if body.role_id is not None else role_id
+    effective_target_audience = body.target_audience or target_audience
+    items = await svc.import_checklist_items(
+        db,
+        source_scope=body.source_scope,
+        source_owner_id=body.source_owner_id,
+        source_role_id=body.source_role_id,
+        source_target_audience=body.source_target_audience,
+        item_ids=body.item_ids,
+        replace_existing=body.replace_existing,
+        actor_user_id=current_user.id,
+        role_id=effective_role_id,
+        target_audience=effective_target_audience,
         **_scope_kwarg(scope, owner_id),
     )
     await db.commit()
