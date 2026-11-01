@@ -310,3 +310,88 @@ async def test_full_readiness_pipeline_and_session_gate(
     )
     assert revisit_sub["attempt"]["status"] == "completed"
     assert revisit_sub["attempt"]["current_phase_index"] >= 3
+
+
+@pytest.mark.asyncio
+async def test_datasheet_library_crud_and_preset_attachment(db, sample_user):
+    from app.schemas.sessions.pre_session_quiz import (
+        PreSessionQuizDatasheetIn,
+        PreSessionQuizDatasheetUpdateIn,
+        PreSessionQuizPresetIn,
+    )
+
+    # 1. Create datasheets in the central library
+    ds1 = await svc.create_datasheet(
+        db,
+        PreSessionQuizDatasheetIn(
+            title="ESP32-WROOM-32D Technical Reference",
+            url="/storage/esp32.pdf",
+            doc_type="datasheet",
+            subsystem_tag="CDHS",
+            description="CDHS compute module datasheet",
+        ),
+        sample_user,
+    )
+    ds2 = await svc.create_datasheet(
+        db,
+        PreSessionQuizDatasheetIn(
+            title="INA219 Power Monitor IC",
+            url="/storage/ina219.pdf",
+            doc_type="datasheet",
+            subsystem_tag="EPS",
+            description="EPS power and current sensor",
+        ),
+        sample_user,
+    )
+
+    assert ds1.id is not None
+    assert ds1.subsystem_tag == "CDHS"
+
+    # 2. List and filter datasheets
+    cdhs_list = await svc.list_datasheets(db, subsystem="CDHS")
+    assert any(d.id == ds1.id for d in cdhs_list)
+
+    eps_list = await svc.list_datasheets(db, subsystem="EPS")
+    assert any(d.id == ds2.id for d in eps_list)
+
+    search_list = await svc.list_datasheets(db, search="WROOM")
+    assert any(d.id == ds1.id for d in search_list)
+    assert not any(d.id == ds2.id for d in search_list)
+
+    # 3. Update a datasheet in the library
+    updated = await svc.update_datasheet(
+        db, ds1.id, PreSessionQuizDatasheetUpdateIn(title="ESP32-WROOM-32D Revised Datasheet")
+    )
+    assert updated.title == "ESP32-WROOM-32D Revised Datasheet"
+
+    # 4. Attach library datasheets to a preset
+    preset_data = PreSessionQuizPresetIn(
+        name="Pipeline with Library Datasheets",
+        reference_attachments=[
+            {
+                "id": str(ds1.id),
+                "title": ds1.title,
+                "url": ds1.url,
+                "doc_type": ds1.doc_type,
+                "subsystem_tag": ds1.subsystem_tag,
+                "is_file": True,
+            },
+            {
+                "id": str(ds2.id),
+                "title": ds2.title,
+                "url": ds2.url,
+                "doc_type": ds2.doc_type,
+                "subsystem_tag": ds2.subsystem_tag,
+                "is_file": True,
+            },
+        ],
+        phases=[],
+    )
+    preset = await svc.create_preset(db, preset_data, sample_user)
+    assert len(preset["reference_attachments"]) == 2
+    assert preset["reference_attachments"][0]["id"] == str(ds1.id)
+
+    # 5. Delete / deactivate a datasheet
+    await svc.delete_datasheet(db, ds1.id)
+    active_datasheets = await svc.list_datasheets(db, active_only=True)
+    assert not any(d.id == ds1.id for d in active_datasheets)

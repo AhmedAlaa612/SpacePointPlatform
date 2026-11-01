@@ -26,14 +26,14 @@ from app.services import storage_local
 router = APIRouter(prefix="/files", tags=["files"])
 
 
-PUBLIC_BUCKETS: set[str] = {"website-assets", "lms-quiz-images"}
+PUBLIC_BUCKETS: set[str] = {"website-assets", "lms-quiz-images", "datasheets", "item-datasheets"}
 
 # Buckets whose PDFs are strictly rendered inside the in-app PdfViewer (never
 # opened as raw browser tab links like certificates or contracts). PDFs in
 # these buckets — or any PDF requested with ?enc=1 by PdfViewer — are wrapped
 # in a per-request AES-256-GCM envelope so download managers (IDM, etc.) only
 # ever capture unreadable ciphertext.
-ENCRYPTED_PDF_BUCKETS: set[str] = {"lms-attachments", "library-resources"}
+ENCRYPTED_PDF_BUCKETS: set[str] = {"lms-attachments", "library-resources", "datasheets", "item-datasheets"}
 
 
 @router.options("/{bucket}/{path:path}")

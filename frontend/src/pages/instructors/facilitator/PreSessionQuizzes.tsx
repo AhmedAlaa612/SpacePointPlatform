@@ -4,21 +4,29 @@ import {
   BookOpen,
   ChevronDown,
   ChevronUp,
+  ExternalLink,
+  Eye,
   FileText,
   Layers,
   Plus,
-  Sparkles,
+  Search,
   Trash2,
+  Unlink,
   Upload,
+  X,
 } from "lucide-react"
 import { resolveQuizImageUrl } from "@/api/lms"
 import {
+  createPreQuizDatasheetApi,
   createPreQuizPresetApi,
   createPreQuizQuestionApi,
+  deletePreQuizDatasheetApi,
   deletePreQuizPresetApi,
   deletePreQuizQuestionApi,
+  listPreQuizDatasheetsApi,
   listPreQuizPresetsApi,
   listPreQuizQuestionsApi,
+  updatePreQuizDatasheetApi,
   updatePreQuizPresetApi,
   updatePreQuizQuestionApi,
   uploadPreQuizDatasheetApi,
@@ -27,6 +35,7 @@ import {
   type MatchingPhaseConfig,
   type McqOption,
   type PinoutTableConfig,
+  type PreSessionQuizDatasheet,
   type PreSessionQuizPreset,
   type PreSessionQuizPresetIn,
   type PreSessionQuizQuestion,
@@ -35,6 +44,8 @@ import {
   type ReferenceAttachment,
 } from "@/api/sessions/pre_session_quiz"
 import { ConnectorTableWidget } from "@/components/quiz/ConnectorTableWidget"
+import CohortReadinessQuiz from "@/pages/instructors/CohortReadinessQuiz"
+import { PdfViewer } from "@/components/documents/PdfViewer"
 import { SessionPreQuizModal } from "@/pages/instructors/components/SessionPreQuizModal"
 import { EmptyState, PageHeader, Spinner } from "@/components/ui/primitives"
 import { useToast } from "@/components/ui/toast"
@@ -71,13 +82,18 @@ const DEFAULT_MCQ_OPTIONS: McqOption[] = [
 ]
 
 export default function PreSessionQuizzes() {
-  const [tab, setTab] = useState<"bank" | "presets">("presets")
+  const [tab, setTab] = useState<"presets" | "datasheets" | "bank">("presets")
+
+  const { data: datasheets = [] } = useQuery({
+    queryKey: ["pre-quiz-datasheets"],
+    queryFn: () => listPreQuizDatasheetsApi(),
+  })
 
   return (
     <div className="flex flex-col gap-6">
       <PageHeader
         title="Instructor Pre-Session Quizzes &amp; Readiness Pipeline"
-        subtitle="Build multi-phase cohort readiness pipelines, configure interactive connector pinouts, MCQ checks, and written scenarios."
+        subtitle="Build multi-phase cohort readiness pipelines, configure interactive connector pinouts, manage centralized datasheets, and test observer mode."
       />
 
       <div className="flex gap-1 border-b border-border overflow-x-auto scrollbar-none no-scrollbar">
@@ -96,6 +112,24 @@ export default function PreSessionQuizzes() {
         </button>
         <button
           type="button"
+          onClick={() => setTab("datasheets")}
+          className={cn(
+            "px-4 py-2.5 text-sm font-semibold border-b-2 -mb-px transition-colors cursor-pointer shrink-0 flex items-center gap-2",
+            tab === "datasheets"
+              ? "border-primary text-primary"
+              : "border-transparent text-muted-foreground hover:text-foreground"
+          )}
+        >
+          <FileText size={15} />
+          Datasheet Library
+          {datasheets.length > 0 && (
+            <span className="px-1.5 py-0.2 rounded-full text-[10px] font-bold bg-primary/10 text-primary border border-primary/20">
+              {datasheets.length}
+            </span>
+          )}
+        </button>
+        <button
+          type="button"
           onClick={() => setTab("bank")}
           className={cn(
             "px-4 py-2.5 text-sm font-semibold border-b-2 -mb-px transition-colors cursor-pointer shrink-0 flex items-center gap-2",
@@ -109,7 +143,13 @@ export default function PreSessionQuizzes() {
         </button>
       </div>
 
-      {tab === "presets" ? <PresetsTab /> : <QuestionBankTab />}
+      {tab === "presets" ? (
+        <PresetsTab />
+      ) : tab === "datasheets" ? (
+        <DatasheetLibraryTab />
+      ) : (
+        <QuestionBankTab />
+      )}
     </div>
   )
 }
@@ -839,6 +879,737 @@ function ImageUploaderBox({
   )
 }
 
+/* ── Centralized Datasheet Library Helpers & Modals ────────────────────────── */
+
+export function getSubsystemColor(tag?: string | null) {
+  const norm = (tag || "").toUpperCase()
+  if (norm.includes("CDHS")) {
+    return {
+      bg: "bg-purple-500/10",
+      border: "border-purple-500/30",
+      text: "text-purple-600 dark:text-purple-400",
+      dot: "bg-purple-500",
+    }
+  }
+  if (norm.includes("EPS")) {
+    return {
+      bg: "bg-emerald-500/10",
+      border: "border-emerald-500/30",
+      text: "text-emerald-600 dark:text-emerald-400",
+      dot: "bg-emerald-500",
+    }
+  }
+  if (norm.includes("ADCS") || norm.includes("APC")) {
+    return {
+      bg: "bg-blue-500/10",
+      border: "border-blue-500/30",
+      text: "text-blue-600 dark:text-blue-400",
+      dot: "bg-blue-500",
+    }
+  }
+  if (norm.includes("COMM")) {
+    return {
+      bg: "bg-amber-500/10",
+      border: "border-amber-500/30",
+      text: "text-amber-600 dark:text-amber-400",
+      dot: "bg-amber-500",
+    }
+  }
+  if (norm.includes("PAYLOAD")) {
+    return {
+      bg: "bg-rose-500/10",
+      border: "border-rose-500/30",
+      text: "text-rose-600 dark:text-rose-400",
+      dot: "bg-rose-500",
+    }
+  }
+  return {
+    bg: "bg-primary/10",
+    border: "border-primary/20",
+    text: "text-primary",
+    dot: "bg-primary",
+  }
+}
+
+function DatasheetPreviewModal({
+  datasheet,
+  onClose,
+}: {
+  datasheet: { title: string; url: string; subsystem_tag?: string | null; doc_type?: string } | null
+  onClose: () => void
+}) {
+  if (!datasheet) return null
+  const subStyle = getSubsystemColor(datasheet.subsystem_tag)
+  const fullUrl = ensureAbsoluteUrl(datasheet.url)
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-2 sm:p-4 bg-background/80 backdrop-blur-sm">
+      <div className="flex flex-col w-full max-w-5xl h-[90vh] rounded-2xl border border-border bg-card shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-150">
+        <div className="flex items-center justify-between px-4 py-3 border-b border-border bg-muted/40 shrink-0">
+          <div className="flex items-center gap-2.5 min-w-0">
+            <FileText size={18} className="text-primary shrink-0" />
+            <div className="flex items-center gap-2 min-w-0">
+              <h2 className="text-sm sm:text-base font-bold text-foreground truncate">{datasheet.title}</h2>
+              {datasheet.subsystem_tag && (
+                <span
+                  className={cn(
+                    "px-2 py-0.5 rounded-full text-[10px] font-bold border shrink-0",
+                    subStyle.bg,
+                    subStyle.border,
+                    subStyle.text
+                  )}
+                >
+                  {datasheet.subsystem_tag}
+                </span>
+              )}
+              {datasheet.doc_type && (
+                <span className="px-2 py-0.5 rounded-full text-[10px] font-medium bg-muted text-muted-foreground border border-border shrink-0">
+                  {datasheet.doc_type === "user_guide"
+                    ? "User Guide"
+                    : datasheet.doc_type === "schematic"
+                    ? "Schematic"
+                    : datasheet.doc_type === "application_note"
+                    ? "Application Note"
+                    : "Data Sheet"}
+                </span>
+              )}
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2 shrink-0">
+            <a
+              href={fullUrl}
+              target="_blank"
+              rel="noreferrer"
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-border bg-background hover:bg-muted text-xs font-semibold text-foreground transition-colors"
+            >
+              <ExternalLink size={13} />
+              Open in New Tab
+            </a>
+            <button
+              type="button"
+              onClick={onClose}
+              className="p-1.5 rounded-lg hover:bg-muted text-muted-foreground hover:text-foreground cursor-pointer transition-colors"
+              title="Close Preview"
+            >
+              <X size={18} />
+            </button>
+          </div>
+        </div>
+
+        <div className="flex-1 min-h-0 bg-muted/20 p-2 overflow-auto">
+          <PdfViewer url={fullUrl} className="h-full flex flex-col" />
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function DatasheetFormModal({
+  datasheet,
+  onClose,
+  onSaved,
+}: {
+  datasheet: PreSessionQuizDatasheet | null
+  onClose: () => void
+  onSaved: (savedDoc: PreSessionQuizDatasheet) => void
+}) {
+  const toast = useToast()
+  const [title, setTitle] = useState(datasheet?.title ?? "")
+  const [subsystemTag, setSubsystemTag] = useState(datasheet?.subsystem_tag ?? "CDHS")
+  const [docType, setDocType] = useState<"datasheet" | "user_guide" | "schematic" | "application_note">(
+    datasheet?.doc_type ?? "datasheet"
+  )
+  const [description, setDescription] = useState(datasheet?.description ?? "")
+  const [url, setUrl] = useState(datasheet?.url ?? "")
+  const [uploadingPdf, setUploadingPdf] = useState(false)
+  const [error, setError] = useState("")
+
+  const handleUpload = async (file: File) => {
+    try {
+      setUploadingPdf(true)
+      setError("")
+      const res = await uploadPreQuizDatasheetApi(file)
+      setUrl(res.url)
+      if (!title.trim()) {
+        setTitle(file.name.replace(/\.pdf$/i, "").replace(/[_-]+/g, " "))
+      }
+      toast.success("PDF uploaded successfully")
+    } catch (e) {
+      setError(getErrorMessage(e, "PDF upload failed"))
+    } finally {
+      setUploadingPdf(false)
+    }
+  }
+
+  const saveMut = useMutation({
+    mutationFn: async () => {
+      if (!title.trim()) throw new Error("Title is required")
+      if (!url.trim()) throw new Error("Document URL or PDF file is required")
+      if (datasheet) {
+        return updatePreQuizDatasheetApi(datasheet.id, {
+          title: title.trim(),
+          url: url.trim(),
+          subsystem_tag: subsystemTag.trim() || null,
+          doc_type: docType,
+          description: description.trim() || null,
+        })
+      } else {
+        return createPreQuizDatasheetApi({
+          title: title.trim(),
+          url: url.trim(),
+          subsystem_tag: subsystemTag.trim() || null,
+          doc_type: docType,
+          description: description.trim() || null,
+          is_active: true,
+        })
+      }
+    },
+    onSuccess: (saved) => {
+      toast.success(datasheet ? "Datasheet updated" : "Datasheet added to library")
+      onSaved(saved)
+    },
+    onError: (e) => setError(getErrorMessage(e, "Could not save datasheet")),
+  })
+
+  return (
+    <Modal
+      title={datasheet ? `Edit Datasheet: ${datasheet.title}` : "Add Document to Datasheet Library"}
+      onClose={onClose}
+      maxWidth="sm:max-w-xl max-w-xl"
+    >
+      <div className="flex flex-col gap-4">
+        <Field label="Document Title *">
+          <input
+            value={title}
+            onChange={(e) => setTitle(e.target.value)}
+            placeholder="e.g. ESP32-WROOM-32D Datasheet, INA219 Power Monitor Guide..."
+            className="w-full h-10 px-3 border border-border bg-card text-foreground rounded-xl text-sm focus:outline-none focus:border-primary"
+          />
+        </Field>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <Field label="Subsystem">
+            <select
+              value={subsystemTag}
+              onChange={(e) => setSubsystemTag(e.target.value)}
+              className="w-full h-10 px-3 border border-border bg-card text-foreground rounded-xl text-sm focus:outline-none focus:border-primary"
+            >
+              <option value="CDHS">CDHS (Command &amp; Data Handling)</option>
+              <option value="EPS">EPS (Electrical Power System)</option>
+              <option value="ADCS/APC">ADCS/APC (Attitude &amp; Control)</option>
+              <option value="COMMS">COMMS (Communications)</option>
+              <option value="PAYLOAD">PAYLOAD (Scientific Payload)</option>
+              <option value="GENERAL">General / Integration</option>
+            </select>
+          </Field>
+
+          <Field label="Document Type">
+            <select
+              value={docType}
+              onChange={(e) => setDocType(e.target.value as any)}
+              className="w-full h-10 px-3 border border-border bg-card text-foreground rounded-xl text-sm focus:outline-none focus:border-primary"
+            >
+              <option value="datasheet">Datasheet</option>
+              <option value="user_guide">User Guide</option>
+              <option value="schematic">Schematic</option>
+              <option value="application_note">Application Note</option>
+            </select>
+          </Field>
+        </div>
+
+        <Field label="Description (optional)">
+          <textarea
+            value={description}
+            onChange={(e) => setDescription(e.target.value)}
+            placeholder="Brief notes, operating voltage, bus addresses or subsystem role..."
+            rows={2}
+            className="w-full p-2.5 border border-border bg-card text-foreground rounded-xl text-xs focus:outline-none focus:border-primary resize-none"
+          />
+        </Field>
+
+        <Field label="Document PDF File or URL *">
+          <div className="flex flex-col gap-2 p-3 rounded-xl border border-border bg-muted/20">
+            <div className="flex items-center gap-2 flex-wrap">
+              <label className="inline-flex items-center justify-center h-9 px-3.5 rounded-xl border border-primary/40 bg-primary/10 hover:bg-primary/20 text-xs font-semibold text-primary cursor-pointer transition-colors shrink-0">
+                <span>{uploadingPdf ? "Uploading PDF…" : "Upload PDF Document"}</span>
+                <input
+                  type="file"
+                  accept="application/pdf"
+                  disabled={uploadingPdf}
+                  className="hidden"
+                  onChange={(e) => {
+                    const f = e.target.files?.[0]
+                    if (f) {
+                      void handleUpload(f)
+                      e.target.value = ""
+                    }
+                  }}
+                />
+              </label>
+              <span className="text-xs text-muted-foreground">or provide hosted path / URL</span>
+            </div>
+
+            <input
+              value={url}
+              onChange={(e) => setUrl(e.target.value)}
+              placeholder="/files/datasheets/my_doc.pdf or https://..."
+              className="w-full h-9 px-3 border border-border bg-card text-foreground rounded-lg text-xs focus:outline-none focus:border-primary font-mono"
+            />
+          </div>
+        </Field>
+
+        {error && <p className="text-xs text-red-500 bg-red-500/10 p-2.5 rounded-xl">{error}</p>}
+
+        <ModalActions
+          onCancel={onClose}
+          onConfirm={() => saveMut.mutate()}
+          loading={saveMut.isPending}
+          disabled={!title.trim() || !url.trim()}
+          label={datasheet ? "Save Changes" : "Add to Library"}
+        />
+      </div>
+    </Modal>
+  )
+}
+
+function AttachFromLibraryModal({
+  currentReferences,
+  onClose,
+  onAttach,
+}: {
+  currentReferences: ReferenceAttachment[]
+  onClose: () => void
+  onAttach: (selectedRefs: ReferenceAttachment[]) => void
+}) {
+  const [search, setSearch] = useState("")
+  const [subsystemFilter, setSubsystemFilter] = useState("all")
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(() => {
+    const s = new Set<string>()
+    currentReferences.forEach((r) => {
+      if (r.id) s.add(r.id)
+      s.add(r.title)
+    })
+    return s
+  })
+
+  const { data: datasheets = [], isLoading } = useQuery({
+    queryKey: ["pre-quiz-datasheets"],
+    queryFn: () => listPreQuizDatasheetsApi(),
+  })
+
+  const filtered = useMemo(() => {
+    return datasheets.filter((ds) => {
+      if (subsystemFilter !== "all" && ds.subsystem_tag !== subsystemFilter) return false
+      if (!search.trim()) return true
+      const q = search.toLowerCase()
+      return (
+        ds.title.toLowerCase().includes(q) ||
+        (ds.subsystem_tag && ds.subsystem_tag.toLowerCase().includes(q)) ||
+        (ds.description && ds.description.toLowerCase().includes(q))
+      )
+    })
+  }, [datasheets, subsystemFilter, search])
+
+  const toggleDoc = (ds: PreSessionQuizDatasheet) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev)
+      if (next.has(ds.id) || next.has(ds.title)) {
+        next.delete(ds.id)
+        next.delete(ds.title)
+      } else {
+        next.add(ds.id)
+        next.add(ds.title)
+      }
+      return next
+    })
+  }
+
+  const handleConfirm = () => {
+    // Preserve any existing references that might have been custom/external and not in library
+    const preservedCustom = currentReferences.filter((r) => {
+      return !datasheets.some((d) => d.id === r.id || d.title === r.title)
+    })
+
+    // Selected library items
+    const selectedLibraryDocs: ReferenceAttachment[] = datasheets
+      .filter((ds) => selectedIds.has(ds.id) || selectedIds.has(ds.title))
+      .map((ds) => ({
+        id: ds.id,
+        title: ds.title,
+        url: ds.url,
+        doc_type: ds.doc_type,
+        subsystem_tag: ds.subsystem_tag,
+        description: ds.description,
+        image_url: ds.image_url,
+        is_file: ds.url.toLowerCase().endsWith(".pdf") || ds.url.includes("/files/"),
+      }))
+
+    onAttach([...preservedCustom, ...selectedLibraryDocs])
+    onClose()
+  }
+
+  return (
+    <Modal
+      title="Attach Technical Documents from Datasheet Library"
+      onClose={onClose}
+      maxWidth="sm:max-w-2xl max-w-2xl"
+    >
+      <div className="flex flex-col gap-3">
+        <p className="text-xs text-muted-foreground">
+          Select datasheets and user guides from the central library to attach to this readiness pipeline.
+          Attached documents will be available to instructors during exploration, matching, and quiz phases.
+        </p>
+
+        {/* Filters */}
+        <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
+          <div className="relative flex-1">
+            <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
+            <input
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Search library documents..."
+              className="w-full h-8 pl-8 pr-3 border border-border bg-card rounded-lg text-xs focus:outline-none focus:border-primary"
+            />
+          </div>
+          <div className="flex items-center gap-1 overflow-x-auto pb-0.5">
+            {["all", "CDHS", "EPS", "ADCS/APC", "COMMS", "PAYLOAD"].map((sub) => (
+              <button
+                key={sub}
+                type="button"
+                onClick={() => setSubsystemFilter(sub)}
+                className={cn(
+                  "px-2.5 py-1 rounded-lg text-[11px] font-semibold cursor-pointer shrink-0 transition-colors",
+                  subsystemFilter === sub
+                    ? "bg-primary text-primary-foreground"
+                    : "bg-muted text-muted-foreground hover:text-foreground"
+                )}
+              >
+                {sub === "all" ? "All" : sub}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* List of library documents with checkboxes */}
+        {isLoading ? (
+          <div className="py-12 flex justify-center"><Spinner /></div>
+        ) : filtered.length === 0 ? (
+          <div className="py-8 text-center text-xs text-muted-foreground border border-dashed border-border rounded-xl">
+            No matching documents found in library.
+          </div>
+        ) : (
+          <div className="flex flex-col gap-1.5 max-h-80 overflow-y-auto p-1 rounded-xl border border-border bg-card">
+            {filtered.map((ds) => {
+              const isChecked = selectedIds.has(ds.id) || selectedIds.has(ds.title)
+              const subStyle = getSubsystemColor(ds.subsystem_tag)
+              return (
+                <label
+                  key={ds.id}
+                  className={cn(
+                    "flex items-center justify-between gap-3 p-2.5 rounded-lg border text-xs cursor-pointer transition-colors select-none",
+                    isChecked
+                      ? "bg-primary/10 border-primary/40"
+                      : "bg-background border-border hover:bg-muted/40"
+                  )}
+                >
+                  <div className="flex items-center gap-2.5 min-w-0">
+                    <input
+                      type="checkbox"
+                      checked={isChecked}
+                      onChange={() => toggleDoc(ds)}
+                      className="rounded border-border text-primary size-4"
+                    />
+                    <FileText size={16} className="text-primary shrink-0" />
+                    <div className="min-w-0">
+                      <p className="font-semibold text-foreground truncate">{ds.title}</p>
+                      {ds.description && (
+                        <p className="text-[11px] text-muted-foreground truncate">{ds.description}</p>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    <span className="px-1.5 py-0.5 rounded text-[10px] bg-muted text-muted-foreground font-medium">
+                      {ds.doc_type === "user_guide" ? "User Guide" : ds.doc_type === "schematic" ? "Schematic" : "Data Sheet"}
+                    </span>
+                    {ds.subsystem_tag && (
+                      <span className={cn("px-1.5 py-0.5 rounded text-[10px] font-bold border", subStyle.bg, subStyle.border, subStyle.text)}>
+                        {ds.subsystem_tag}
+                      </span>
+                    )}
+                  </div>
+                </label>
+              )
+            })}
+          </div>
+        )}
+
+        <ModalActions
+          onCancel={onClose}
+          onConfirm={handleConfirm}
+          label={`Attach Selected (${Array.from(selectedIds).filter((id) => datasheets.some((d) => d.id === id || d.title === id)).length})`}
+        />
+      </div>
+    </Modal>
+  )
+}
+
+function DatasheetLibraryTab() {
+  const qc = useQueryClient()
+  const toast = useToast()
+  const [subsystemFilter, setSubsystemFilter] = useState("all")
+  const [docTypeFilter, setDocTypeFilter] = useState("all")
+  const [search, setSearch] = useState("")
+  const [editingDoc, setEditingDoc] = useState<PreSessionQuizDatasheet | null>(null)
+  const [creating, setCreating] = useState(false)
+  const [deletingDoc, setDeletingDoc] = useState<PreSessionQuizDatasheet | null>(null)
+  const [previewingDoc, setPreviewingDoc] = useState<PreSessionQuizDatasheet | null>(null)
+
+  const { data: datasheets = [], isLoading } = useQuery({
+    queryKey: ["pre-quiz-datasheets"],
+    queryFn: () => listPreQuizDatasheetsApi(),
+  })
+
+  const deleteMut = useMutation({
+    mutationFn: (id: string) => deletePreQuizDatasheetApi(id),
+    onSuccess: () => {
+      toast.success("Document removed from library")
+      setDeletingDoc(null)
+      qc.invalidateQueries({ queryKey: ["pre-quiz-datasheets"] })
+    },
+    onError: (e) => toast.error(getErrorMessage(e, "Could not delete document")),
+  })
+
+  const filtered = useMemo(() => {
+    return datasheets.filter((ds) => {
+      if (subsystemFilter !== "all" && ds.subsystem_tag !== subsystemFilter) return false
+      if (docTypeFilter !== "all" && ds.doc_type !== docTypeFilter) return false
+      if (!search.trim()) return true
+      const q = search.toLowerCase()
+      return (
+        ds.title.toLowerCase().includes(q) ||
+        (ds.subsystem_tag && ds.subsystem_tag.toLowerCase().includes(q)) ||
+        (ds.description && ds.description.toLowerCase().includes(q))
+      )
+    })
+  }, [datasheets, subsystemFilter, docTypeFilter, search])
+
+  const subsystems = useMemo(() => {
+    const defaultSubs = ["CDHS", "EPS", "ADCS/APC", "COMMS", "PAYLOAD"]
+    const dynamicSubs = Array.from(new Set(datasheets.map((d) => d.subsystem_tag).filter(Boolean))) as string[]
+    return Array.from(new Set([...defaultSubs, ...dynamicSubs]))
+  }, [datasheets])
+
+  if (isLoading) return <Spinner />
+
+  return (
+    <div className="flex flex-col gap-4">
+      {/* Search, Filters, and New Button */}
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
+        <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 flex-1">
+          <div className="relative flex-1 min-w-[220px]">
+            <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
+            <input
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Search datasheets &amp; guides..."
+              className="w-full h-9 pl-8 pr-3 border border-border bg-card rounded-xl text-xs focus:outline-none focus:border-primary"
+            />
+          </div>
+
+          <div className="flex items-center gap-1 overflow-x-auto pb-0.5">
+            <button
+              type="button"
+              onClick={() => setSubsystemFilter("all")}
+              className={cn(
+                "h-8 px-3 rounded-full text-xs font-semibold transition-colors cursor-pointer shrink-0",
+                subsystemFilter === "all"
+                  ? "bg-primary text-primary-foreground"
+                  : "bg-muted text-muted-foreground hover:text-foreground"
+              )}
+            >
+              All Subsystems ({datasheets.length})
+            </button>
+            {subsystems.map((sub) => {
+              const count = datasheets.filter((d) => d.subsystem_tag === sub).length
+              return (
+                <button
+                  key={sub}
+                  type="button"
+                  onClick={() => setSubsystemFilter(sub)}
+                  className={cn(
+                    "h-8 px-3 rounded-full text-xs font-semibold transition-colors cursor-pointer shrink-0",
+                    subsystemFilter === sub
+                      ? "bg-primary text-primary-foreground"
+                      : "bg-muted text-muted-foreground hover:text-foreground"
+                  )}
+                >
+                  {sub} {count > 0 && `(${count})`}
+                </button>
+              )
+            })}
+          </div>
+        </div>
+
+        <div className="flex items-center gap-2 shrink-0">
+          <select
+            value={docTypeFilter}
+            onChange={(e) => setDocTypeFilter(e.target.value)}
+            className="h-9 px-3 border border-border bg-card text-foreground rounded-xl text-xs font-semibold focus:outline-none focus:border-primary cursor-pointer"
+          >
+            <option value="all">All Document Types</option>
+            <option value="datasheet">Data Sheets</option>
+            <option value="user_guide">User Guides</option>
+            <option value="schematic">Schematics</option>
+            <option value="application_note">App Notes</option>
+          </select>
+
+          <button
+            type="button"
+            onClick={() => setCreating(true)}
+            className="flex items-center h-9 px-4 bg-primary text-primary-foreground rounded-xl text-xs sm:text-sm font-semibold hover:opacity-90 transition-opacity cursor-pointer shrink-0 shadow-xs gap-1.5"
+          >
+            <Plus size={15} /> Add Document
+          </button>
+        </div>
+      </div>
+
+      {/* Grid of Documents */}
+      {filtered.length === 0 ? (
+        <EmptyState
+          title="No technical documents found"
+          hint="Add hardware datasheets, user guides, or schematics to the central library. They can be attached to any readiness pipeline preset."
+        />
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          {filtered.map((doc) => {
+            const subStyle = getSubsystemColor(doc.subsystem_tag)
+            return (
+              <div
+                key={doc.id}
+                className="p-4 rounded-2xl border border-border bg-card/90 flex flex-col justify-between gap-3 shadow-xs hover:border-primary/40 transition-colors"
+              >
+                <div className="flex flex-col gap-2">
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                      {doc.subsystem_tag && (
+                        <span
+                          className={cn(
+                            "px-2.5 py-0.5 rounded-full text-[11px] font-bold border",
+                            subStyle.bg,
+                            subStyle.border,
+                            subStyle.text
+                          )}
+                        >
+                          {doc.subsystem_tag}
+                        </span>
+                      )}
+                      <span className="px-2.5 py-0.5 rounded-full text-[11px] font-medium bg-muted text-muted-foreground border border-border">
+                        {doc.doc_type === "user_guide"
+                          ? "User Guide"
+                          : doc.doc_type === "schematic"
+                          ? "Schematic"
+                          : doc.doc_type === "application_note"
+                          ? "Application Note"
+                          : "Data Sheet"}
+                      </span>
+                    </div>
+
+                    <div className="flex items-center gap-1">
+                      <button
+                        type="button"
+                        onClick={() => setEditingDoc(doc)}
+                        className="p-1 rounded-md hover:bg-muted text-muted-foreground hover:text-foreground text-xs font-medium cursor-pointer"
+                        title="Edit Document"
+                      >
+                        Edit
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setDeletingDoc(doc)}
+                        className="p-1 rounded-md hover:bg-red-500/10 text-muted-foreground hover:text-red-500 cursor-pointer"
+                        title="Delete Document"
+                      >
+                        <Trash2 size={13} />
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="flex items-start gap-2.5 mt-0.5">
+                    <div className="p-2 rounded-xl bg-primary/10 text-primary shrink-0 mt-0.5">
+                      <FileText size={18} />
+                    </div>
+                    <div className="min-w-0">
+                      <h3 className="text-sm font-bold text-foreground line-clamp-2 leading-snug">
+                        {doc.title}
+                      </h3>
+                      {doc.description && (
+                        <p className="text-xs text-muted-foreground line-clamp-2 mt-1">
+                          {doc.description}
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                </div>
+
+                <div className="flex items-center justify-between gap-2 pt-2 border-t border-border/60">
+                  <span className="text-[11px] text-muted-foreground truncate max-w-[150px] font-mono">
+                    {doc.url.split("/").pop() || doc.url}
+                  </span>
+
+                  <button
+                    type="button"
+                    onClick={() => setPreviewingDoc(doc)}
+                    className="inline-flex items-center gap-1.5 h-8 px-3 rounded-lg border border-primary/40 bg-primary/10 hover:bg-primary/20 text-xs font-semibold text-primary transition-colors cursor-pointer"
+                  >
+                    <Eye size={12} /> View Document
+                  </button>
+                </div>
+              </div>
+            )
+          })}
+        </div>
+      )}
+
+      {/* Modals */}
+      {(creating || editingDoc) && (
+        <DatasheetFormModal
+          datasheet={editingDoc}
+          onClose={() => {
+            setCreating(false)
+            setEditingDoc(null)
+          }}
+          onSaved={() => {
+            setCreating(false)
+            setEditingDoc(null)
+            qc.invalidateQueries({ queryKey: ["pre-quiz-datasheets"] })
+          }}
+        />
+      )}
+
+      {deletingDoc && (
+        <ConfirmDialog
+          title="Delete Datasheet from Library"
+          description={`Are you sure you want to remove "${deletingDoc.title}" from the centralized library? Pipelines that reference this document will retain their copy unless detached.`}
+          confirmLabel="Delete Document"
+          destructive
+          pending={deleteMut.isPending}
+          onConfirm={() => deleteMut.mutate(deletingDoc.id)}
+          onCancel={() => setDeletingDoc(null)}
+        />
+      )}
+
+      {previewingDoc && (
+        <DatasheetPreviewModal
+          datasheet={previewingDoc}
+          onClose={() => setPreviewingDoc(null)}
+        />
+      )}
+    </div>
+  )
+}
+
 /* ── Tab 2: Quiz Presets & Pipeline Templates ──────────────────────────────── */
 
 function PresetsTab() {
@@ -923,9 +1694,11 @@ function PresetsTab() {
                   <button
                     type="button"
                     onClick={() => setPreviewPreset(preset)}
-                    className="flex items-center h-8 px-3 rounded-lg border border-primary/40 bg-primary/10 hover:bg-primary/20 text-xs font-semibold text-primary transition-colors cursor-pointer"
+                    className="flex items-center gap-1.5 h-8 px-3 rounded-lg border border-primary/40 bg-primary/10 hover:bg-primary/20 text-xs font-semibold text-primary transition-colors cursor-pointer"
+                    title="Preview entire 5-phase pipeline in LMS Observer Mode"
                   >
-                    Preview
+                    <Eye size={13} />
+                    Preview Pipeline (Observer Mode)
                   </button>
                   <button
                     type="button"
@@ -1023,19 +1796,13 @@ function PresetsTab() {
       )}
 
       {previewPreset && (
-        <SessionPreQuizModal
-          open={Boolean(previewPreset)}
-          onClose={() => setPreviewPreset(null)}
-          isPreview
-          quizStatus={{
-            has_quiz: true,
-            assignment_level: "preview",
-            preset: previewPreset,
-            my_attempt: null,
-            trials: [],
-            all_attempts: [],
-          }}
-        />
+        <div className="fixed inset-0 z-50 bg-background overflow-y-auto">
+          <CohortReadinessQuiz
+            presetOverride={previewPreset}
+            isObserverMode={true}
+            onExitObserver={() => setPreviewPreset(null)}
+          />
+        </div>
       )}
     </div>
   )
@@ -1064,12 +1831,11 @@ function PresetBuilderModal({
   const [phases, setPhases] = useState<QuizPipelinePhase[]>(preset?.phases ?? [])
   const [expandedPhaseIndex, setExpandedPhaseIndex] = useState<number | null>(0)
 
-  // Datasheet upload state
-  const [newDocTitle, setNewDocTitle] = useState("")
-  const [newDocUrl, setNewDocUrl] = useState("")
-  const [newDocType, setNewDocType] = useState<"datasheet" | "user_guide">("datasheet")
-  const [newDocSubsystem, setNewDocSubsystem] = useState("CDHS")
-  const [uploadingPdf, setUploadingPdf] = useState(false)
+  // Observer preview & Datasheet library modals
+  const [showObserverPreview, setShowObserverPreview] = useState(false)
+  const [showAttachLibrary, setShowAttachLibrary] = useState(false)
+  const [showCreateNewLibraryDoc, setShowCreateNewLibraryDoc] = useState(false)
+  const [viewingPdf, setViewingPdf] = useState<ReferenceAttachment | null>(null)
   const [error, setError] = useState("")
 
   // Quick seed standard 5-phase pipeline
@@ -1307,45 +2073,6 @@ function PresetBuilderModal({
     toast.success("Standard 5-Phase Pipeline loaded!")
   }
 
-  const handleUploadPdf = async (file: File) => {
-    try {
-      setUploadingPdf(true)
-      const res = await uploadPreQuizDatasheetApi(file)
-      const title = newDocTitle.trim() || file.name.replace(/\.pdf$/i, "")
-      const newItem: ReferenceAttachment = {
-        id: `ds-${Date.now()}`,
-        title,
-        url: res.url,
-        doc_type: newDocType,
-        subsystem_tag: newDocSubsystem,
-        is_file: true,
-      }
-      setReferences([...references, newItem])
-      setNewDocTitle("")
-      setNewDocUrl("")
-      toast.success(`Uploaded ${newItem.title}`)
-    } catch (e) {
-      toast.error(getErrorMessage(e, "PDF upload failed"))
-    } finally {
-      setUploadingPdf(false)
-    }
-  }
-
-  const addManualDatasheet = () => {
-    if (!newDocUrl.trim() && !newDocTitle.trim()) return
-    const newItem: ReferenceAttachment = {
-      id: `ds-${Date.now()}`,
-      title: newDocTitle.trim() || newDocUrl.trim(),
-      url: newDocUrl.trim(),
-      doc_type: newDocType,
-      subsystem_tag: newDocSubsystem,
-      is_file: newDocUrl.toLowerCase().endsWith(".pdf"),
-    }
-    setReferences([...references, newItem])
-    setNewDocTitle("")
-    setNewDocUrl("")
-  }
-
   const addPhase = (type: "explore_datasheets" | "subsystem_matching" | "quiz") => {
     const newPhase: QuizPipelinePhase = {
       id: `phase-${Date.now()}`,
@@ -1485,14 +2212,27 @@ function PresetBuilderModal({
             </button>
           </div>
 
-          <button
-            type="button"
-            onClick={quickSeedStandardPipeline}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-primary/40 bg-primary/10 hover:bg-primary/20 text-xs font-bold text-primary transition-colors cursor-pointer"
-          >
-            <Sparkles size={13} />
-            Quick-Seed Standard 5-Phase Pipeline
-          </button>
+          <div className="flex items-center gap-2 flex-wrap">
+            <button
+              type="button"
+              onClick={() => setShowObserverPreview(true)}
+              disabled={phases.length === 0}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-primary/40 bg-primary/10 hover:bg-primary/20 text-xs font-bold text-primary transition-colors cursor-pointer disabled:opacity-40"
+              title="Test current pipeline configuration in LMS Observer Mode"
+            >
+              <Eye size={13} />
+              Preview Pipeline (Observer Mode)
+            </button>
+
+            <button
+              type="button"
+              onClick={quickSeedStandardPipeline}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-border bg-card hover:bg-muted text-xs font-bold text-foreground transition-colors cursor-pointer"
+            >
+              <Layers size={13} />
+              Quick-Seed Standard 5-Phase Pipeline
+            </button>
+          </div>
         </div>
 
         {/* ── TAB 1: PHASES EDITOR ─────────────────────────────────────────── */}
@@ -1782,124 +2522,114 @@ function PresetBuilderModal({
         {/* ── TAB 2: DATASHEET CATALOG ─────────────────────────────────────── */}
         {modalTab === "datasheets" && (
           <div className="flex flex-col gap-4">
-            <div className="p-3.5 rounded-2xl border border-primary/25 bg-primary/5 flex flex-col gap-3">
-              <span className="text-xs font-bold text-foreground flex items-center gap-1.5">
-                <Upload size={14} className="text-primary" />
-                Upload New Module Datasheet or User Guide (PDF)
-              </span>
-
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-                <input
-                  value={newDocTitle}
-                  onChange={(e) => setNewDocTitle(e.target.value)}
-                  placeholder="Doc Title (e.g. TMP102 Temp Sensor Data Sheet)"
-                  className="h-8 px-2.5 border border-border bg-card rounded-lg text-xs"
-                />
-                <select
-                  value={newDocType}
-                  onChange={(e) => setNewDocType(e.target.value as any)}
-                  className="h-8 px-2.5 border border-border bg-card rounded-lg text-xs"
-                >
-                  <option value="datasheet">Data Sheet</option>
-                  <option value="user_guide">User Guide</option>
-                </select>
-                <input
-                  value={newDocSubsystem}
-                  onChange={(e) => setNewDocSubsystem(e.target.value)}
-                  placeholder="Subsystem Tag (CDHS, EPS, ADCS/APC...)"
-                  className="h-8 px-2.5 border border-border bg-card rounded-lg text-xs"
-                />
+            <div className="p-3.5 rounded-2xl border border-primary/25 bg-primary/5 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <div className="flex flex-col gap-0.5">
+                <span className="text-xs font-bold text-foreground flex items-center gap-1.5">
+                  <FileText size={14} className="text-primary" />
+                  Datasheet Library Integration
+                </span>
+                <p className="text-[11px] text-muted-foreground">
+                  Attach technical datasheets and guides from your centralized library to this pipeline. Detaching removes them from this pipeline without deleting them from the library.
+                </p>
               </div>
 
-              <div className="flex items-center gap-2 flex-wrap">
-                <label className="inline-flex items-center justify-center h-8 px-3 rounded-lg border border-primary/40 bg-primary/10 hover:bg-primary/20 text-xs font-semibold text-primary cursor-pointer transition-colors">
-                  <span>{uploadingPdf ? "Uploading PDF…" : "Choose PDF File & Upload"}</span>
-                  <input
-                    type="file"
-                    accept="application/pdf"
-                    disabled={uploadingPdf}
-                    className="hidden"
-                    onChange={(e) => {
-                      const f = e.target.files?.[0]
-                      if (f) {
-                        void handleUploadPdf(f)
-                        e.target.value = ""
-                      }
-                    }}
-                  />
-                </label>
-                <span className="text-[11px] text-muted-foreground">or</span>
-                <input
-                  value={newDocUrl}
-                  onChange={(e) => setNewDocUrl(e.target.value)}
-                  placeholder="Paste URL (/files/... or https://...)"
-                  className="flex-1 h-8 px-2.5 border border-border bg-card rounded-lg text-xs min-w-[200px]"
-                />
+              <div className="flex items-center gap-2 shrink-0">
                 <button
                   type="button"
-                  onClick={addManualDatasheet}
-                  disabled={!newDocUrl.trim() && !newDocTitle.trim()}
-                  className="h-8 px-3 bg-primary text-primary-foreground rounded-lg text-xs font-semibold hover:opacity-90 disabled:opacity-40 cursor-pointer"
+                  onClick={() => setShowAttachLibrary(true)}
+                  className="flex items-center gap-1.5 h-8 px-3 bg-primary text-primary-foreground rounded-lg text-xs font-semibold hover:opacity-90 cursor-pointer shadow-xs"
                 >
-                  Add
+                  <Plus size={13} />
+                  Attach from Library
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setShowCreateNewLibraryDoc(true)}
+                  className="flex items-center gap-1.5 h-8 px-3 border border-border bg-card hover:bg-muted text-xs font-semibold text-foreground rounded-lg cursor-pointer"
+                >
+                  <Upload size={13} />
+                  + New Library Document
                 </button>
               </div>
             </div>
 
             {/* List of Datasheets */}
             <div className="flex flex-col gap-2">
-              <span className="text-xs font-bold text-foreground">
-                Configured Catalog ({references.length} documents)
-              </span>
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-bold text-foreground">
+                  Attached Technical Documents ({references.length})
+                </span>
+                <span className="text-[11px] text-muted-foreground">
+                  Available in Phase 1 (Explore), Phase 2 (Matching), and in-quiz reference drawer
+                </span>
+              </div>
 
               {references.length === 0 ? (
-                <p className="text-xs text-muted-foreground italic py-2">
-                  No reference datasheets configured yet. Upload PDFs or click Quick-Seed Standard Pipeline above.
-                </p>
+                <div className="p-8 text-center border border-dashed border-border rounded-2xl bg-muted/20 flex flex-col items-center gap-2">
+                  <p className="text-xs font-semibold text-foreground">No datasheets attached to this pipeline yet</p>
+                  <p className="text-[11px] text-muted-foreground max-w-sm">
+                    Click &ldquo;Attach from Library&rdquo; to select documents from your centralized catalog, or click Quick-Seed Standard Pipeline above.
+                  </p>
+                </div>
               ) : (
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-72 overflow-y-auto p-1">
-                  {references.map((r, i) => (
-                    <div
-                      key={i}
-                      className="p-2.5 rounded-xl border border-border bg-card flex items-center justify-between gap-2 text-xs"
-                    >
-                      <div className="flex items-center gap-2 min-w-0">
-                        <FileText size={16} className="text-primary shrink-0" />
-                        <div className="min-w-0">
-                          <p className="font-semibold text-foreground truncate">{r.title}</p>
-                          <div className="flex items-center gap-1.5 mt-0.5">
-                            <span className="px-1.5 py-0.2 rounded bg-muted text-[10px] font-bold text-muted-foreground">
-                              {r.doc_type === "user_guide" ? "User Guide" : "Data Sheet"}
-                            </span>
-                            {r.subsystem_tag && (
-                              <span className="px-1.5 py-0.2 rounded bg-primary/10 text-[10px] font-bold text-primary">
-                                {r.subsystem_tag}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-80 overflow-y-auto p-1">
+                  {references.map((r, i) => {
+                    const subStyle = getSubsystemColor(r.subsystem_tag)
+                    return (
+                      <div
+                        key={i}
+                        className="p-3 rounded-xl border border-border bg-card flex items-center justify-between gap-2 text-xs hover:border-primary/30 transition-colors"
+                      >
+                        <div className="flex items-center gap-2.5 min-w-0">
+                          <FileText size={16} className="text-primary shrink-0" />
+                          <div className="min-w-0">
+                            <p className="font-semibold text-foreground truncate">{r.title}</p>
+                            <div className="flex items-center gap-1.5 mt-0.5">
+                              <span className="px-1.5 py-0.2 rounded bg-muted text-[10px] font-bold text-muted-foreground">
+                                {r.doc_type === "user_guide"
+                                  ? "User Guide"
+                                  : r.doc_type === "schematic"
+                                  ? "Schematic"
+                                  : r.doc_type === "application_note"
+                                  ? "App Note"
+                                  : "Data Sheet"}
                               </span>
-                            )}
+                              {r.subsystem_tag && (
+                                <span
+                                  className={cn(
+                                    "px-1.5 py-0.2 rounded text-[10px] font-bold border",
+                                    subStyle.bg,
+                                    subStyle.border,
+                                    subStyle.text
+                                  )}
+                                >
+                                  {r.subsystem_tag}
+                                </span>
+                              )}
+                            </div>
                           </div>
                         </div>
-                      </div>
 
-                      <div className="flex items-center gap-1 shrink-0">
-                        <a
-                          href={ensureAbsoluteUrl(r.url)}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="px-2 py-1 rounded bg-muted text-[11px] font-medium text-foreground hover:bg-muted/80"
-                        >
-                          View
-                        </a>
-                        <button
-                          type="button"
-                          onClick={() => setReferences(references.filter((_, idx) => idx !== i))}
-                          className="p-1 text-muted-foreground hover:text-red-500 cursor-pointer"
-                          title="Remove"
-                        >
-                          <Trash2 size={13} />
-                        </button>
+                        <div className="flex items-center gap-1 shrink-0">
+                          <button
+                            type="button"
+                            onClick={() => setViewingPdf(r)}
+                            className="px-2 py-1 rounded bg-primary/10 text-primary hover:bg-primary/20 text-[11px] font-semibold cursor-pointer"
+                          >
+                            View
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setReferences(references.filter((_, idx) => idx !== i))}
+                            className="p-1 text-muted-foreground hover:text-red-500 cursor-pointer"
+                            title="Detach from pipeline (keeps document in library)"
+                          >
+                            <Unlink size={13} />
+                          </button>
+                        </div>
                       </div>
-                    </div>
-                  ))}
+                    )
+                  })}
                 </div>
               )}
             </div>
@@ -1916,6 +2646,94 @@ function PresetBuilderModal({
           label={preset ? "Save Changes" : "Create Pipeline Preset"}
         />
       </div>
+
+      {showAttachLibrary && (
+        <AttachFromLibraryModal
+          currentReferences={references}
+          onClose={() => setShowAttachLibrary(false)}
+          onAttach={(newRefs) => {
+            setReferences(newRefs)
+            // If matching phase exists, auto-sync items
+            setPhases((prevPhases) =>
+              prevPhases.map((ph) => {
+                if (ph.phase_type !== "subsystem_matching" || !ph.matching_config) return ph
+                const existingItems = ph.matching_config.items || []
+                const updatedItems: MatchingItemRule[] = newRefs.map((r) => {
+                  const match = existingItems.find((it) => it.datasheet_id === (r.id || r.title))
+                  return (
+                    match || {
+                      datasheet_id: r.id || r.title,
+                      correct_bucket_id: r.subsystem_tag || "CDHS",
+                      explanation: `${r.title} belongs to ${r.subsystem_tag || "CDHS"}.`,
+                    }
+                  )
+                })
+                return {
+                  ...ph,
+                  matching_config: {
+                    ...ph.matching_config,
+                    items: updatedItems,
+                  },
+                }
+              })
+            )
+          }}
+        />
+      )}
+
+      {showCreateNewLibraryDoc && (
+        <DatasheetFormModal
+          datasheet={null}
+          onClose={() => setShowCreateNewLibraryDoc(false)}
+          onSaved={(saved) => {
+            const newRef: ReferenceAttachment = {
+              id: saved.id,
+              title: saved.title,
+              url: saved.url,
+              doc_type: saved.doc_type,
+              subsystem_tag: saved.subsystem_tag,
+              description: saved.description,
+              is_file: true,
+            }
+            setReferences([...references, newRef])
+            setShowCreateNewLibraryDoc(false)
+          }}
+        />
+      )}
+
+      {viewingPdf && (
+        <DatasheetPreviewModal
+          datasheet={viewingPdf}
+          onClose={() => setViewingPdf(null)}
+        />
+      )}
+
+      {showObserverPreview && (
+        <div className="fixed inset-0 z-50 bg-background overflow-y-auto">
+          <CohortReadinessQuiz
+            presetOverride={{
+              id: preset?.id || "preview-builder-preset",
+              name: name.trim() || "Pipeline Preview",
+              description: description.trim() || null,
+              question_ids: Array.from(
+                new Set(
+                  phases
+                    .filter((p) => p.phase_type === "quiz")
+                    .flatMap((p) => p.question_ids || [])
+                )
+              ),
+              reference_attachments: references,
+              phases: phases,
+              questions: allQuestions.filter((q) =>
+                phases.some((p) => p.question_ids?.includes(q.id))
+              ),
+              is_active: true,
+            }}
+            isObserverMode={true}
+            onExitObserver={() => setShowObserverPreview(false)}
+          />
+        </div>
+      )}
     </Modal>
   )
 }

@@ -1,5 +1,6 @@
 import { clsx, type ClassValue } from "clsx";
 import { twMerge } from "tailwind-merge";
+import { apiBaseUrl } from "@/api/client";
 
 /** Merge Tailwind class names, resolving conflicts. */
 export function cn(...inputs: ClassValue[]) {
@@ -8,11 +9,16 @@ export function cn(...inputs: ClassValue[]) {
 
 /** A pasted-back link ("test.com", "www.test.com") has no scheme, so a
  * plain `href` treats it as a path relative to the current page instead
- * of an external site (e.g. `/judge/teams/test.com`). Submission/external
+ * of an external site (e.g. `/judge/teams/test.com`). Root-relative paths
+ * (e.g. `/files/...`) resolve to the backend API server. Submission/external
  * links are free text typed by students and judges, never validated as
  * full URLs — this is the one place that decides what "open it" means,
  * rather than every `<a href>` site guessing differently. */
 export function ensureAbsoluteUrl(url: string): string {
+  if (!url) return "";
+  if (url.startsWith("/")) {
+    return `${apiBaseUrl.replace(/\/$/, "")}${url}`;
+  }
   return /^[a-z][a-z0-9+.-]*:/i.test(url) ? url : `https://${url}`;
 }
 

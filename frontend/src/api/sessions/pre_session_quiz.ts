@@ -60,10 +60,47 @@ export interface ReferenceAttachment {
   id?: string
   title: string
   url: string
-  doc_type?: "datasheet" | "user_guide"
+  doc_type?: "datasheet" | "user_guide" | "schematic" | "application_note"
   subsystem_tag?: string | null
+  description?: string | null
   image_url?: string | null
   is_file: boolean
+}
+
+export interface PreSessionQuizDatasheet {
+  id: string
+  title: string
+  url: string
+  doc_type: "datasheet" | "user_guide" | "schematic" | "application_note"
+  subsystem_tag?: string | null
+  description?: string | null
+  image_url?: string | null
+  page_count?: number | null
+  is_active: boolean
+  created_at?: string | null
+  updated_at?: string | null
+}
+
+export interface PreSessionQuizDatasheetIn {
+  title: string
+  url: string
+  doc_type: "datasheet" | "user_guide" | "schematic" | "application_note"
+  subsystem_tag?: string | null
+  description?: string | null
+  image_url?: string | null
+  page_count?: number | null
+  is_active?: boolean
+}
+
+export interface PreSessionQuizDatasheetUpdateIn {
+  title?: string
+  url?: string
+  doc_type?: "datasheet" | "user_guide" | "schematic" | "application_note"
+  subsystem_tag?: string | null
+  description?: string | null
+  image_url?: string | null
+  page_count?: number | null
+  is_active?: boolean
 }
 
 export interface MatchingBucket {
@@ -236,8 +273,29 @@ export const uploadPreQuizImageApi = (file: File) => {
 export const uploadPreQuizDatasheetApi = (file: File) => {
   const form = new FormData()
   form.append("file", file)
-  return api.post<{ url: string; path: string }>("/sessions/pre-quiz/datasheets", form).then((r) => r.data)
+  return api.post<{ url: string; path: string }>("/sessions/pre-quiz/datasheets/upload", form).then((r) => r.data)
 }
+
+/* ── Datasheet Library API ─────────────────────────────────────────────────── */
+
+export const listPreQuizDatasheetsApi = (params?: {
+  subsystem?: string
+  doc_type?: string
+  search?: string
+  active_only?: boolean
+}) =>
+  api
+    .get<PreSessionQuizDatasheet[]>("/sessions/pre-quiz/datasheets", { params })
+    .then((r) => r.data)
+
+export const createPreQuizDatasheetApi = (body: PreSessionQuizDatasheetIn) =>
+  api.post<PreSessionQuizDatasheet>("/sessions/pre-quiz/datasheets", body).then((r) => r.data)
+
+export const updatePreQuizDatasheetApi = (id: string, body: PreSessionQuizDatasheetUpdateIn) =>
+  api.put<PreSessionQuizDatasheet>(`/sessions/pre-quiz/datasheets/${id}`, body).then((r) => r.data)
+
+export const deletePreQuizDatasheetApi = (id: string) =>
+  api.delete(`/sessions/pre-quiz/datasheets/${id}`).then((r) => r.data)
 
 /* ── Presets API ───────────────────────────────────────────────────────────── */
 

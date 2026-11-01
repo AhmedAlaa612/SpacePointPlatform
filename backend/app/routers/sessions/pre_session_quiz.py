@@ -21,6 +21,9 @@ from app.schemas.sessions.pre_session_quiz import (
     PreSessionQuizAssignmentIn,
     PreSessionQuizAssignmentOut,
     PreSessionQuizAttemptOut,
+    PreSessionQuizDatasheetIn,
+    PreSessionQuizDatasheetOut,
+    PreSessionQuizDatasheetUpdateIn,
     PreSessionQuizPresetIn,
     PreSessionQuizPresetOut,
     PreSessionQuizQuestionIn,
@@ -107,12 +110,64 @@ async def upload_pre_quiz_image(
     return {"url": url, "path": path}
 
 
-@router.post("/pre-quiz/datasheets")
-async def upload_pre_quiz_datasheet(
+# ── Datasheet Library Endpoints ─────────────────────────────────────────────
+
+@router.get("/pre-quiz/datasheets", response_model=list[PreSessionQuizDatasheetOut])
+async def list_pre_quiz_datasheets(
+    subsystem: str | None = Query(None),
+    doc_type: str | None = Query(None),
+    search: str | None = Query(None),
+    active_only: bool = Query(True),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_materials_manager),
+):
+    """List all technical datasheets in the centralized library."""
+    return await svc.list_datasheets(
+        db, subsystem=subsystem, doc_type=doc_type, search=search, active_only=active_only
+    )
+
+
+@router.post(
+    "/pre-quiz/datasheets",
+    response_model=PreSessionQuizDatasheetOut,
+    status_code=status.HTTP_201_CREATED,
+)
+async def create_pre_quiz_datasheet(
+    body: PreSessionQuizDatasheetIn,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_materials_manager),
+):
+    """Add a new technical datasheet or reference document to the library."""
+    return await svc.create_datasheet(db, body, current_user)
+
+
+@router.put("/pre-quiz/datasheets/{datasheet_id}", response_model=PreSessionQuizDatasheetOut)
+async def update_pre_quiz_datasheet(
+    datasheet_id: UUID,
+    body: PreSessionQuizDatasheetUpdateIn,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_materials_manager),
+):
+    """Update a datasheet in the library."""
+    return await svc.update_datasheet(db, datasheet_id, body)
+
+
+@router.delete("/pre-quiz/datasheets/{datasheet_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_pre_quiz_datasheet(
+    datasheet_id: UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_materials_manager),
+):
+    """Deactivate/remove a datasheet from the library."""
+    await svc.delete_datasheet(db, datasheet_id)
+
+
+@router.post("/pre-quiz/datasheets/upload")
+async def upload_pre_quiz_datasheet_pdf(
     file: UploadFile,
     current_user: User = Depends(require_materials_manager),
 ) -> dict:
-    """Dedicated upload endpoint for module datasheet PDFs."""
+    """Upload a module datasheet PDF into storage."""
     return await upload_pre_quiz_image(file, current_user)
 
 

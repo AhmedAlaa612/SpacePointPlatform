@@ -10,6 +10,7 @@ from app.models.sessions.cohort import Cohort
 from app.models.sessions.pre_session_quiz import (
     PreSessionQuizAssignment,
     PreSessionQuizAttempt,
+    PreSessionQuizDatasheet,
     PreSessionQuizPhaseTrial,
     PreSessionQuizPreset,
     PreSessionQuizQuestion,
@@ -20,6 +21,8 @@ from app.models.user import User
 from app.schemas.sessions.pre_session_quiz import (
     PhaseTrialSubmitIn,
     PreSessionQuizAnswerIn,
+    PreSessionQuizDatasheetIn,
+    PreSessionQuizDatasheetUpdateIn,
     PreSessionQuizPresetIn,
     PreSessionQuizQuestionIn,
     PreSessionQuizReviewQuestionIn,
@@ -95,6 +98,91 @@ async def delete_question(db: AsyncSession, question_id: UUID) -> None:
     if row is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Question not found")
     await db.delete(row)
+    await db.commit()
+
+
+# ── Datasheet Library CRUD ──────────────────────────────────────────────────
+
+async def list_datasheets(
+    db: AsyncSession,
+    *,
+    subsystem: str | None = None,
+    doc_type: str | None = None,
+    search: str | None = None,
+    active_only: bool = True,
+) -> list[PreSessionQuizDatasheet]:
+    q = select(PreSessionQuizDatasheet)
+    if active_only:
+        q = q.where(PreSessionQuizDatasheet.is_active.is_(True))
+    if subsystem and subsystem != "all":
+        q = q.where(PreSessionQuizDatasheet.subsystem_tag == subsystem)
+    if doc_type and doc_type != "all":
+        q = q.where(PreSessionQuizDatasheet.doc_type == doc_type)
+    if search and search.strip():
+        term = f"%{search.strip().lower()}%"
+        q = q.where(
+            func.lower(PreSessionQuizDatasheet.title).like(term)
+            | func.lower(PreSessionQuizDatasheet.description).like(term)
+        )
+    q = q.order_by(PreSessionQuizDatasheet.created_at.desc())
+    return list((await db.execute(q)).scalars().all())
+
+
+async def get_datasheet(db: AsyncSession, datasheet_id: UUID) -> PreSessionQuizDatasheet:
+    ds = await db.get(PreSessionQuizDatasheet, datasheet_id)
+    if not ds:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Datasheet not found")
+    return ds
+
+
+async def create_datasheet(
+    db: AsyncSession, body: PreSessionQuizDatasheetIn, user: User
+) -> PreSessionQuizDatasheet:
+    row = PreSessionQuizDatasheet(
+        title=body.title.strip(),
+        url=body.url.strip(),
+        doc_type=body.doc_type,
+        subsystem_tag=body.subsystem_tag.strip() if body.subsystem_tag else None,
+        description=body.description.strip() if body.description else None,
+        image_url=body.image_url.strip() if body.image_url else None,
+        page_count=body.page_count,
+        is_active=body.is_active,
+        created_by=user.id,
+    )
+    db.add(row)
+    await db.commit()
+    await db.refresh(row)
+    return row
+
+
+async def update_datasheet(
+    db: AsyncSession, datasheet_id: UUID, body: PreSessionQuizDatasheetUpdateIn
+) -> PreSessionQuizDatasheet:
+    ds = await get_datasheet(db, datasheet_id)
+    if body.title is not None:
+        ds.title = body.title.strip()
+    if body.url is not None:
+        ds.url = body.url.strip()
+    if body.doc_type is not None:
+        ds.doc_type = body.doc_type
+    if body.subsystem_tag is not None:
+        ds.subsystem_tag = body.subsystem_tag.strip() if body.subsystem_tag else None
+    if body.description is not None:
+        ds.description = body.description.strip() if body.description else None
+    if body.image_url is not None:
+        ds.image_url = body.image_url.strip() if body.image_url else None
+    if body.page_count is not None:
+        ds.page_count = body.page_count
+    if body.is_active is not None:
+        ds.is_active = body.is_active
+    await db.commit()
+    await db.refresh(ds)
+    return ds
+
+
+async def delete_datasheet(db: AsyncSession, datasheet_id: UUID) -> None:
+    ds = await get_datasheet(db, datasheet_id)
+    ds.is_active = False
     await db.commit()
 
 
@@ -800,15 +888,24 @@ async def submit_cohort_phase(
                 table_cfg = q.table_config or {}
                 rows = table_cfg.get("rows") or []
                 selected_cells = ans_in.get("selected_cells") or []
-                is_ok = True
-                for r_idx, row in enumerate(rows):
-                    cells = row.get("cells") or []
-                    expected = {c_idx for c_idx, cell in enumerate(cells) if cell.get("is_correct")}
-                    actual = set(selected_cells[r_idx]) if r_idx < len(selected_cells) and isinstance(selected_cells[r_idx], list) else set()
-                    if expected != actual:
-                        is_ok = False
-                        break
-                q_status = "correct" if is_ok else "incorrect"
+                has_any_selection = any(
+                    isinstance(r, list) and len(r) > 0 for r in selected_cells
+                )
+                if not rows or not has_any_selection:
+                    q_status = "incorrect"
+                else:
+                    is_ok = True
+                    has_expected = False
+                    for r_idx, row in enumerate(rows):
+                        cells = row.get("cells") or []
+                        expected = {c_idx for c_idx, cell in enumerate(cells) if cell.get("is_correct")}
+                        if expected:
+                            has_expected = True
+                        actual = set(selected_cells[r_idx]) if r_idx < len(selected_cells) and isinstance(selected_cells[r_idx], list) else set()
+                        if expected != actual:
+                            is_ok = False
+                            break
+                    q_status = "correct" if (is_ok and has_expected) else "incorrect"
 
             # Case E: Standard MCQ
             else:

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react"
-import { FileWarning, Maximize2, ZoomIn, ZoomOut } from "lucide-react"
+import { FileText, FileWarning, Maximize2, ZoomIn, ZoomOut } from "lucide-react"
 import * as pdfjsLib from "pdfjs-dist"
 import type { PDFDocumentProxy, PDFPageProxy, RenderTask } from "pdfjs-dist"
 import { cn } from "@/lib/utils"
@@ -337,6 +337,15 @@ export function PdfViewer({
   }, [doc, containerWidth, zoom])
 
   if (pdfError) {
+    if (hideControls) {
+      return (
+        <div className="w-full h-full min-h-[140px] flex flex-col items-center justify-center p-3 text-center bg-muted/20 text-muted-foreground select-none">
+          <FileText className="size-8 mb-1.5 text-muted-foreground/60" />
+          <span className="text-xs font-semibold text-foreground">Document Preview</span>
+          <span className="text-[10px] text-muted-foreground">Click below to open PDF</span>
+        </div>
+      )
+    }
     return (
       <div className="flex items-center gap-2 p-4 rounded-2xl ring-1 ring-destructive/30 bg-destructive/5 text-destructive text-sm">
         <FileWarning className="size-4 shrink-0" /> Couldn't load this document.

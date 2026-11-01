@@ -63,14 +63,55 @@ class PreSessionQuizQuestionOut(BaseModel):
     created_at: datetime | None = None
 
 
+# ── Datasheet Library Schemas ───────────────────────────────────────────────
+
+class PreSessionQuizDatasheetIn(BaseModel):
+    title: str
+    url: str
+    doc_type: Literal["datasheet", "user_guide", "schematic", "application_note"] = "datasheet"
+    subsystem_tag: str | None = None
+    description: str | None = None
+    image_url: str | None = None
+    page_count: int | None = None
+    is_active: bool = True
+
+
+class PreSessionQuizDatasheetUpdateIn(BaseModel):
+    title: str | None = None
+    url: str | None = None
+    doc_type: Literal["datasheet", "user_guide", "schematic", "application_note"] | None = None
+    subsystem_tag: str | None = None
+    description: str | None = None
+    image_url: str | None = None
+    page_count: int | None = None
+    is_active: bool | None = None
+
+
+class PreSessionQuizDatasheetOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    title: str
+    url: str
+    doc_type: str
+    subsystem_tag: str | None = None
+    description: str | None = None
+    image_url: str | None = None
+    page_count: int | None = None
+    is_active: bool
+    created_at: datetime | None = None
+    updated_at: datetime | None = None
+
+
 # ── Pipeline Schemas (Datasheet Catalog, Matching & Phases) ─────────────────
 
 class ReferenceAttachmentSchema(BaseModel):
     id: str = Field(default_factory=lambda: f"ds-{uuid4().hex[:8]}")
     title: str
     url: str
-    doc_type: Literal["datasheet", "user_guide"] = "datasheet"
+    doc_type: str = "datasheet"
     subsystem_tag: str | None = None
+    description: str | None = None
     image_url: str | None = None
     is_file: bool = True
 

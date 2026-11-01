@@ -60,6 +60,27 @@ class PreSessionQuizQuestion(Base):
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
 
 
+class PreSessionQuizDatasheet(Base):
+    """A technical datasheet or reference document in the centralized Datasheet Library.
+    Can be attached to multiple readiness pipeline presets across cohorts and programs.
+    """
+
+    __tablename__ = "pre_session_quiz_datasheets"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    title = Column(String(255), nullable=False)
+    url = Column(String(512), nullable=False)
+    doc_type = Column(String(64), nullable=False, default="datasheet", server_default="datasheet")
+    subsystem_tag = Column(String(64), nullable=True, index=True)
+    description = Column(Text, nullable=True)
+    image_url = Column(String(512), nullable=True)
+    page_count = Column(Integer, nullable=True)
+    is_active = Column(Boolean, nullable=False, default=True, server_default="true")
+    created_by = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+    updated_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
+
+
 class PreSessionQuizPreset(Base):
     """A reusable Pre-Session Quiz template/preset assembled from questions in the bank,
     with optional reference datasheet links/documents and ordered pipeline phases."""

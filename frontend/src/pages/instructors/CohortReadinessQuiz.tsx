@@ -11,9 +11,10 @@ import {
   GripVertical,
   HelpCircle,
   Lock,
+  RotateCcw,
   Search,
-  Sparkles,
   X,
+  XCircle,
 } from "lucide-react"
 
 import {
@@ -34,25 +35,64 @@ import { Spinner } from "@/components/ui/primitives"
 import { useToast } from "@/components/ui/toast"
 import { cn, ensureAbsoluteUrl, getErrorMessage } from "@/lib/utils"
 
-export default function CohortReadinessQuiz() {
-  const { cohortId } = useParams({ strict: false }) as { cohortId: string }
+export interface CohortReadinessQuizProps {
+  presetOverride?: PreSessionQuizPreset
+  isObserverMode?: boolean
+  onExitObserver?: () => void
+}
+
+export default function CohortReadinessQuiz({
+  presetOverride,
+  isObserverMode = false,
+  onExitObserver,
+}: CohortReadinessQuizProps = {}) {
+  const { cohortId } = (useParams({ strict: false }) || {}) as { cohortId?: string }
   const searchParams = typeof window !== "undefined" ? new URLSearchParams(window.location.search) : null
   const sessionId = searchParams?.get("sessionId") || undefined
   const navigate = useNavigate()
   const qc = useQueryClient()
+  const toast = useToast()
 
-  const { data: status, isLoading } = useQuery({
+  const isSimulated = isObserverMode || Boolean(presetOverride)
+
+  // Simulated state for LMS Observer / Preview Mode
+  const [observerAttempt, setObserverAttempt] = useState<CohortPreQuizStatus["my_attempt"]>(() => {
+    if (!isSimulated) return null
+    return {
+      id: "observer-simulated-attempt",
+      cohort_id: "observer-cohort",
+      preset_id: presetOverride?.id || "preview-preset",
+      user_id: "observer-user",
+      status: "in_progress",
+      current_phase_index: 0,
+      phase_started_at: new Date().toISOString(),
+      total_duration_seconds: 0,
+      final_score: 0,
+      total_questions: presetOverride?.questions?.length || 0,
+      answers: [],
+      phase_states: {},
+      locked_until: null,
+      started_at: new Date().toISOString(),
+      submitted_at: null,
+    } as any
+  })
+  const [observerTrials, setObserverTrials] = useState<PhaseTrial[]>([])
+
+  const { data: status, isLoading: queryLoading } = useQuery({
     queryKey: ["cohort-pre-quiz-status", cohortId],
-    queryFn: () => getCohortPreQuizStatusApi(cohortId),
+    queryFn: () => getCohortPreQuizStatusApi(cohortId!),
+    enabled: !isSimulated && Boolean(cohortId),
     refetchInterval: (query) => {
-      const attempt = query.state.data?.my_attempt
-      return attempt?.status === "cooldown_locked" ? 2000 : false
+      const att = query.state.data?.my_attempt
+      return att?.status === "cooldown_locked" ? 2000 : false
     },
   })
 
-  const preset = status?.preset
-  const attempt = status?.my_attempt
+  const preset = isSimulated ? presetOverride : status?.preset
+  const attempt = isSimulated ? observerAttempt : status?.my_attempt
+  const trials = isSimulated ? observerTrials : (status?.trials ?? [])
   const phases = preset?.phases ?? []
+  const isLoading = !isSimulated ? queryLoading : false
 
   // Active viewing phase index (allows clicking back to review completed phases)
   const [viewingPhaseIndex, setViewingPhaseIndex] = useState<number>(0)
@@ -96,13 +136,19 @@ export default function CohortReadinessQuiz() {
       )
       setCooldownRemaining(remaining)
       if (remaining === 0) {
-        qc.invalidateQueries({ queryKey: ["cohort-pre-quiz-status", cohortId] })
+        if (!isSimulated && cohortId) {
+          qc.invalidateQueries({ queryKey: ["cohort-pre-quiz-status", cohortId] })
+        } else if (isSimulated) {
+          setObserverAttempt((prev) =>
+            prev ? { ...prev, status: "in_progress", locked_until: null } : null
+          )
+        }
       }
     }
     updateCountdown()
     const timer = setInterval(updateCountdown, 1000)
     return () => clearInterval(timer)
-  }, [attempt?.locked_until, cohortId, qc])
+  }, [attempt?.locked_until, cohortId, qc, isSimulated])
 
   if (isLoading) {
     return (
@@ -113,18 +159,24 @@ export default function CohortReadinessQuiz() {
     )
   }
 
-  if (!status?.has_quiz || !preset) {
+  if (!preset) {
     return (
       <div className="max-w-xl mx-auto py-16 px-4 text-center space-y-4">
-        <p className="text-base font-semibold">No Readiness Pipeline Assigned</p>
-        <p className="text-sm text-muted-foreground mt-1 max-w-xs mx-auto">
-          There is no active pre-session quiz or readiness pipeline assigned to this cohort.
+        <p className="text-base font-semibold">
+          {isSimulated ? "Observer Mode: Pipeline Preset Missing" : "No Readiness Pipeline Assigned"}
         </p>
-        {sessionId && (
+        <p className="text-sm text-muted-foreground mt-1 max-w-xs mx-auto">
+          {isSimulated
+            ? "No pipeline preset was passed to preview."
+            : "There is no active pre-session quiz or readiness pipeline assigned to this cohort."}
+        </p>
+        {isSimulated && onExitObserver ? (
+          <Button onClick={onExitObserver}>Exit Observer Mode</Button>
+        ) : sessionId ? (
           <Button onClick={() => navigate({ to: `/instructors/sessions/${sessionId}` })}>
             Return to Session
           </Button>
-        )}
+        ) : null}
       </div>
     )
   }
@@ -132,6 +184,222 @@ export default function CohortReadinessQuiz() {
   const isCompleted = attempt?.status === "completed"
   const currentPhase = phases[viewingPhaseIndex]
   const isViewingCompleteStep = viewingPhaseIndex >= phases.length
+
+  const handleObserverSubmit = (body: PhaseTrialSubmitIn) => {
+    if (!currentPhase) return
+    const now = new Date()
+    const nowIso = now.toISOString()
+    const trialNumber = observerTrials.filter((t) => t.phase_id === currentPhase.id).length + 1
+    let passed = false
+    let score = 0
+    let total = 1
+    let scorePct = 100
+    let trialPayload: Record<string, any> = {}
+
+    if (currentPhase.phase_type === "explore_datasheets") {
+      passed = true
+      score = 1
+      total = 1
+      scorePct = 100
+    } else if (currentPhase.phase_type === "subsystem_matching") {
+      const items = currentPhase.matching_config?.items || []
+      total = items.length || 1
+      score = 0
+      const placements = body.matching_placements || {}
+      const results: Record<string, any> = {}
+      items.forEach((it) => {
+        const userBucket = placements[it.datasheet_id]
+        const isOk = userBucket === it.correct_bucket_id
+        if (isOk) score++
+        results[it.datasheet_id] = { is_correct: isOk }
+      })
+      scorePct = total > 0 ? Math.round((score / total) * 100) : 100
+      passed = scorePct >= (currentPhase.pass_percentage ?? 100)
+      trialPayload = { results, placements }
+    } else if (currentPhase.phase_type === "quiz") {
+      const phaseQIds = new Set(currentPhase.question_ids || [])
+      const questions = (preset?.questions || []).filter((q) => phaseQIds.has(q.id))
+      total = questions.length || 1
+      score = 0
+      const gradedAnswers: any[] = []
+      questions.forEach((q) => {
+        const ans = body.answers?.find((a) => a.question_id === q.id)
+        let isCorrect = false
+        if (ans) {
+          if (q.is_other_correct && ans.chose_other) {
+            isCorrect = true
+          } else if (q.question_type === "mcq" && ans.selected_option_index != null) {
+            const opt = q.options?.[ans.selected_option_index]
+            isCorrect = Boolean(opt?.is_correct)
+          } else if (q.question_type === "pinout_table" && q.table_config?.rows?.length) {
+            const selectedCells = ans.selected_cells || []
+            const hasAnySelection = selectedCells.some((r) => Array.isArray(r) && r.length > 0)
+            if (!hasAnySelection) {
+              isCorrect = false
+            } else {
+              isCorrect = true
+              for (let rIdx = 0; rIdx < q.table_config.rows.length; rIdx++) {
+                const row = q.table_config.rows[rIdx]
+                const expectedIndices = new Set(
+                  (row.cells || [])
+                    .map((c: any, cIdx: number) => (c.is_correct ? cIdx : -1))
+                    .filter((idx: number) => idx >= 0)
+                )
+                const userRow = new Set(selectedCells[rIdx] || [])
+                if (
+                  expectedIndices.size !== userRow.size ||
+                  ![...expectedIndices].every((idx) => userRow.has(idx))
+                ) {
+                  isCorrect = false
+                  break
+                }
+              }
+            }
+          } else if (q.question_type === "written") {
+            isCorrect = Boolean(ans.written_text && ans.written_text.trim().length > 0)
+          } else {
+            isCorrect = false
+          }
+        }
+        if (isCorrect) score++
+        gradedAnswers.push({
+          question_id: q.id,
+          status: isCorrect ? "correct" : "incorrect",
+          score: isCorrect ? 1 : 0,
+        })
+      })
+      scorePct = total > 0 ? Math.round((score / total) * 100) : 100
+      passed = scorePct >= (currentPhase.pass_percentage ?? 100)
+      trialPayload = { answers: gradedAnswers }
+    }
+
+    const newTrial: PhaseTrial = {
+      id: `sim-trial-${Date.now()}`,
+      attempt_id: "observer-simulated-attempt",
+      phase_id: currentPhase.id,
+      phase_index: viewingPhaseIndex,
+      phase_type: currentPhase.phase_type,
+      trial_number: trialNumber,
+      started_at: nowIso,
+      submitted_at: nowIso,
+      duration_seconds: body.client_duration_seconds || 15,
+      score,
+      total,
+      score_pct: scorePct,
+      pass_percentage_required: currentPhase.pass_percentage ?? 100,
+      passed,
+      cooldown_until: null,
+      payload: trialPayload,
+    }
+    setObserverTrials((prev) => [...prev, newTrial])
+
+    if (passed) {
+      toast.success(`Passed ${currentPhase.title}! Score: ${scorePct}%`)
+      const nextIdx = viewingPhaseIndex + 1
+      const isAllDone = nextIdx >= phases.length
+      setObserverAttempt((prev) => ({
+        ...prev!,
+        current_phase_index: Math.max(prev?.current_phase_index ?? 0, nextIdx),
+        status: isAllDone ? "completed" : "in_progress",
+        final_score: (prev!.final_score || 0) + score,
+        total_questions: (prev!.total_questions || 0) + total,
+        submitted_at: isAllDone ? nowIso : prev!.submitted_at,
+        locked_until: null,
+      }))
+      if (nextIdx < phases.length) {
+        setViewingPhaseIndex(nextIdx)
+      } else {
+        setViewingPhaseIndex(phases.length)
+      }
+    } else {
+      toast.error(
+        `Did not meet ${currentPhase.pass_percentage}% passing score. Review delay applied.`
+      )
+      if (currentPhase.cooldown_seconds > 0) {
+        const lockUntil = new Date(Date.now() + currentPhase.cooldown_seconds * 1000).toISOString()
+        setObserverAttempt((prev) => ({
+          ...prev!,
+          status: "cooldown_locked",
+          locked_until: lockUntil,
+        }))
+      }
+    }
+  }
+
+  const handleObserverForcePass = () => {
+    if (!currentPhase || viewingPhaseIndex >= phases.length) return
+    const nowIso = new Date().toISOString()
+    const trialNumber = observerTrials.filter((t) => t.phase_id === currentPhase.id).length + 1
+    const newTrial: PhaseTrial = {
+      id: `sim-trial-pass-${Date.now()}`,
+      attempt_id: "observer-simulated-attempt",
+      phase_id: currentPhase.id,
+      phase_index: viewingPhaseIndex,
+      phase_type: currentPhase.phase_type,
+      trial_number: trialNumber,
+      started_at: nowIso,
+      submitted_at: nowIso,
+      duration_seconds: 5,
+      score: 1,
+      total: 1,
+      score_pct: 100,
+      pass_percentage_required: currentPhase.pass_percentage ?? 100,
+      passed: true,
+      cooldown_until: null,
+      payload: { forced_observer_pass: true },
+    }
+    setObserverTrials((prev) => [...prev, newTrial])
+    const nextIdx = viewingPhaseIndex + 1
+    const isAllDone = nextIdx >= phases.length
+    setObserverAttempt((prev) => ({
+      ...prev!,
+      current_phase_index: Math.max(prev?.current_phase_index ?? 0, nextIdx),
+      status: isAllDone ? "completed" : "in_progress",
+      final_score: (prev?.final_score || 0) + 1,
+      total_questions: (prev?.total_questions || 0) + 1,
+      submitted_at: isAllDone ? nowIso : prev?.submitted_at ?? null,
+      locked_until: null,
+    }))
+    setCooldownRemaining(null)
+    setViewingPhaseIndex(nextIdx < phases.length ? nextIdx : phases.length)
+    toast.success(`Observer: Phase ${viewingPhaseIndex + 1} (${currentPhase.title}) passed with 100%!`)
+  }
+
+  const handleObserverForceFail = () => {
+    if (!currentPhase || viewingPhaseIndex >= phases.length) return
+    const nowIso = new Date().toISOString()
+    const trialNumber = observerTrials.filter((t) => t.phase_id === currentPhase.id).length + 1
+    const cooldownSec = currentPhase.cooldown_seconds || 0
+    const lockUntil = cooldownSec > 0 ? new Date(Date.now() + cooldownSec * 1000).toISOString() : null
+    const newTrial: PhaseTrial = {
+      id: `sim-trial-fail-${Date.now()}`,
+      attempt_id: "observer-simulated-attempt",
+      phase_id: currentPhase.id,
+      phase_index: viewingPhaseIndex,
+      phase_type: currentPhase.phase_type,
+      trial_number: trialNumber,
+      started_at: nowIso,
+      submitted_at: nowIso,
+      duration_seconds: 5,
+      score: 0,
+      total: 1,
+      score_pct: 0,
+      pass_percentage_required: currentPhase.pass_percentage ?? 100,
+      passed: false,
+      cooldown_until: lockUntil,
+      payload: { forced_observer_fail: true },
+    }
+    setObserverTrials((prev) => [...prev, newTrial])
+    if (lockUntil) {
+      setObserverAttempt((prev) => ({
+        ...prev!,
+        status: "cooldown_locked",
+        locked_until: lockUntil,
+      }))
+      setCooldownRemaining(cooldownSec)
+    }
+    toast.error(`Observer: Phase ${viewingPhaseIndex + 1} (${currentPhase.title}) failed with 0%. ${cooldownSec > 0 ? `Cooldown applied: ${cooldownSec}s.` : ""}`)
+  }
 
   const formatTimer = (totalSec: number) => {
     const mins = Math.floor(totalSec / 60)
@@ -141,11 +409,147 @@ export default function CohortReadinessQuiz() {
 
   return (
     <div className="min-h-screen bg-background flex flex-col">
+      {/* ── LMS Observer Mode Header Bar (Flat, No Gradients) ───────────────────── */}
+      {isSimulated && (
+        <div className="bg-card text-foreground px-4 py-2.5 sticky top-0 z-40 border-b border-border shadow-xs flex flex-wrap items-center justify-between gap-3">
+          <div className="flex items-center gap-2.5">
+            <span className="px-2.5 py-0.5 rounded-full text-[11px] font-bold tracking-wider uppercase bg-amber-500/15 text-amber-600 dark:text-amber-400 border border-amber-500/30 flex items-center gap-1.5 shrink-0">
+              <Eye className="size-3" />
+              Observer Mode
+            </span>
+            <span className="text-xs sm:text-sm text-muted-foreground">
+              Instructor View Simulation &bull; <strong className="text-foreground">{preset.name}</strong>
+            </span>
+          </div>
+
+          <div className="flex items-center gap-2 flex-wrap">
+            {/* Quick jump to phase */}
+            <select
+              value={viewingPhaseIndex}
+              onChange={(e) => {
+                const idx = Number(e.target.value)
+                setViewingPhaseIndex(idx)
+                setObserverAttempt((prev) => ({
+                  ...prev!,
+                  current_phase_index: Math.max(prev?.current_phase_index ?? 0, idx),
+                }))
+              }}
+              className="h-8 px-2.5 rounded-lg bg-background border border-border text-xs font-semibold text-foreground focus:outline-none focus:border-primary cursor-pointer"
+            >
+              {phases.map((ph, idx) => (
+                <option key={ph.id || idx} value={idx}>
+                  Phase {idx + 1}: {ph.title}
+                </option>
+              ))}
+              <option value={phases.length}>
+                Completion Summary
+              </option>
+            </select>
+
+            {/* Quick Simulation Shortcuts: Force Pass (100%) & Force Fail (0%) */}
+            {!isViewingCompleteStep && (
+              <div className="flex items-center gap-1.5">
+                <button
+                  type="button"
+                  onClick={handleObserverForcePass}
+                  className="h-8 px-2.5 rounded-lg bg-emerald-500/15 border border-emerald-500/30 hover:bg-emerald-500/25 text-xs font-bold text-emerald-600 dark:text-emerald-400 transition-colors cursor-pointer flex items-center gap-1.5"
+                  title="Simulate passing this step with 100%"
+                >
+                  <CheckCircle2 className="size-3.5" />
+                  Pass Step (100%)
+                </button>
+                <button
+                  type="button"
+                  onClick={handleObserverForceFail}
+                  className="h-8 px-2.5 rounded-lg bg-destructive/15 border border-destructive/30 hover:bg-destructive/25 text-xs font-bold text-destructive transition-colors cursor-pointer flex items-center gap-1.5"
+                  title="Simulate failing this step with 0% (triggers cooldown)"
+                >
+                  <XCircle className="size-3.5" />
+                  Fail Step (0%)
+                </button>
+              </div>
+            )}
+
+            {/* Reset Simulation */}
+            <button
+              type="button"
+              onClick={() => {
+                setObserverAttempt({
+                  id: "observer-simulated-attempt",
+                  cohort_id: "observer-cohort",
+                  preset_id: preset.id,
+                  user_id: "observer-user",
+                  status: "in_progress",
+                  current_phase_index: 0,
+                  phase_started_at: new Date().toISOString(),
+                  total_duration_seconds: 0,
+                  final_score: 0,
+                  total_questions: preset.questions?.length || 0,
+                  answers: [],
+                  phase_states: {},
+                  locked_until: null,
+                  started_at: new Date().toISOString(),
+                  submitted_at: null,
+                } as any)
+                setObserverTrials([])
+                setViewingPhaseIndex(0)
+                setCooldownRemaining(null)
+                toast.success("Observer simulation reset to Phase 1")
+              }}
+              className="h-8 px-2.5 rounded-lg bg-muted hover:bg-muted/80 text-xs font-semibold text-foreground transition-colors cursor-pointer border border-border flex items-center gap-1.5"
+            >
+              <RotateCcw className="size-3.5" />
+              Reset Simulation
+            </button>
+
+            {/* Bypass Cooldown if locked */}
+            {observerAttempt?.locked_until && (
+              <button
+                type="button"
+                onClick={() => {
+                  setObserverAttempt((prev) => ({
+                    ...prev!,
+                    status: "in_progress",
+                    locked_until: null,
+                  }))
+                  setCooldownRemaining(null)
+                  toast.success("Observer: Cooldown bypassed")
+                }}
+                className="h-8 px-2.5 rounded-lg bg-amber-500/15 border border-amber-500/30 hover:bg-amber-500/25 text-xs font-bold text-amber-600 dark:text-amber-400 transition-colors cursor-pointer flex items-center gap-1.5"
+              >
+                <Clock className="size-3.5" />
+                Bypass Cooldown
+              </button>
+            )}
+
+            {/* Exit Observer View */}
+            {onExitObserver && (
+              <button
+                type="button"
+                onClick={onExitObserver}
+                className="h-8 px-3 rounded-lg border border-border bg-background hover:bg-muted text-xs font-semibold text-muted-foreground hover:text-foreground transition-colors cursor-pointer flex items-center gap-1.5"
+              >
+                <X className="size-3.5" />
+                Exit Observer
+              </button>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* ── Top Header Navigation Bar ────────────────────────────────────────── */}
       <header className="sticky top-0 z-30 border-b border-border bg-card/95 backdrop-blur px-4 sm:px-6 py-3">
         <div className="max-w-7xl mx-auto flex items-center justify-between gap-4">
           <div className="flex items-center gap-3 min-w-0">
-            {sessionId ? (
+            {isSimulated && onExitObserver ? (
+              <button
+                type="button"
+                onClick={onExitObserver}
+                className="inline-flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground font-medium shrink-0 cursor-pointer"
+              >
+                <ArrowLeft className="size-3.5" /> Exit Observer
+              </button>
+            ) : sessionId ? (
               <Link
                 to="/instructors/sessions/$sessionId"
                 params={{ sessionId }}
@@ -273,7 +677,7 @@ export default function CohortReadinessQuiz() {
                     : "bg-muted text-muted-foreground opacity-40 cursor-not-allowed"
                 )}
               >
-                <Sparkles className="size-3.5" />
+                <CheckCircle2 className="size-3.5" />
                 <span>Complete</span>
               </button>
             </div>
@@ -302,10 +706,10 @@ export default function CohortReadinessQuiz() {
                     disabled={isLocked}
                     onClick={() => setViewingPhaseIndex(idx)}
                     className={cn(
-                      "w-full text-left p-2.5 rounded-lg text-xs transition-colors flex items-start gap-2.5",
+                      "w-full text-left p-2.5 rounded-lg text-xs transition-colors flex items-start gap-2.5 border",
                       isViewing
-                        ? "bg-primary/10 border-l-4 border-primary text-foreground font-bold"
-                        : "hover:bg-muted/50 text-muted-foreground hover:text-foreground",
+                        ? "bg-primary/10 border-primary/40 text-foreground font-bold"
+                        : "border-transparent hover:bg-muted/50 text-muted-foreground hover:text-foreground",
                       isLocked && "opacity-40 cursor-not-allowed"
                     )}
                   >
@@ -335,15 +739,15 @@ export default function CohortReadinessQuiz() {
                 disabled={!isCompleted}
                 onClick={() => setViewingPhaseIndex(phases.length)}
                 className={cn(
-                  "w-full text-left p-2.5 rounded-lg text-xs transition-colors flex items-center gap-2.5",
+                  "w-full text-left p-2.5 rounded-lg text-xs transition-colors flex items-center gap-2.5 border",
                   viewingPhaseIndex >= phases.length
-                    ? "bg-emerald-500/15 border-l-4 border-emerald-600 text-emerald-700 dark:text-emerald-300 font-bold"
+                    ? "bg-emerald-500/10 border-emerald-500/40 text-emerald-700 dark:text-emerald-300 font-bold"
                     : isCompleted
-                    ? "text-emerald-600 hover:bg-emerald-500/10"
-                    : "opacity-40 cursor-not-allowed text-muted-foreground"
+                    ? "border-transparent text-emerald-600 hover:bg-emerald-500/10"
+                    : "border-transparent opacity-40 cursor-not-allowed text-muted-foreground"
                 )}
               >
-                <Sparkles className="size-4 text-emerald-600" />
+                <CheckCircle2 className="size-4 text-emerald-600" />
                 <span className="font-medium">Completion Summary</span>
               </button>
             </nav>
@@ -386,8 +790,10 @@ export default function CohortReadinessQuiz() {
             <CompleteStep
               preset={preset}
               attempt={attempt}
-              cohortId={cohortId}
+              cohortId={cohortId || "observer-cohort"}
               sessionId={sessionId}
+              isObserverMode={isSimulated}
+              onExitObserver={onExitObserver}
             />
           ) : currentPhase ? (
             <PhasePlayer
@@ -396,7 +802,7 @@ export default function CohortReadinessQuiz() {
               phase={currentPhase}
               phaseIndex={viewingPhaseIndex}
               attempt={attempt}
-              trials={status?.trials ? status.trials.filter((t) => t.phase_id === currentPhase.id) : []}
+              trials={trials.filter((t) => t.phase_id === currentPhase.id)}
               cooldownRemaining={cooldownRemaining}
               onOpenPdf={(doc) => setPdfModalDoc(doc)}
               onAdvancingNext={() => {
@@ -406,6 +812,8 @@ export default function CohortReadinessQuiz() {
                   setViewingPhaseIndex(phases.length)
                 }
               }}
+              isObserverMode={isSimulated}
+              onObserverSubmit={handleObserverSubmit}
             />
           ) : null}
         </main>
@@ -506,8 +914,10 @@ function PhasePlayer({
   cooldownRemaining,
   onOpenPdf,
   onAdvancingNext,
+  isObserverMode = false,
+  onObserverSubmit,
 }: {
-  cohortId: string
+  cohortId?: string
   preset: PreSessionQuizPreset
   phase: QuizPipelinePhase
   phaseIndex: number
@@ -516,14 +926,19 @@ function PhasePlayer({
   cooldownRemaining: number | null
   onOpenPdf: (doc: ReferenceAttachment) => void
   onAdvancingNext: () => void
+  isObserverMode?: boolean
+  onObserverSubmit?: (body: PhaseTrialSubmitIn) => void
 }) {
   const qc = useQueryClient()
   const toast = useToast()
 
   const submitMut = useMutation({
-    mutationFn: (body: PhaseTrialSubmitIn) => submitCohortPhaseApi(cohortId, phase.id, body),
+    mutationFn: (body: PhaseTrialSubmitIn) => {
+      if (!cohortId) throw new Error("No cohort id")
+      return submitCohortPhaseApi(cohortId, phase.id, body)
+    },
     onSuccess: (data) => {
-      qc.invalidateQueries({ queryKey: ["cohort-pre-quiz-status", cohortId] })
+      if (cohortId) qc.invalidateQueries({ queryKey: ["cohort-pre-quiz-status", cohortId] })
       if (data.trial.passed) {
         toast.success(`Passed ${phase.title}! Score: ${data.trial.score_pct}%`)
         onAdvancingNext()
@@ -534,6 +949,15 @@ function PhasePlayer({
     onError: (err) => toast.error(getErrorMessage(err, "Failed to submit phase trial")),
   })
 
+  const handleSubmit = (body: PhaseTrialSubmitIn) => {
+    if (isObserverMode && onObserverSubmit) {
+      onObserverSubmit(body)
+    } else {
+      submitMut.mutate(body)
+    }
+  }
+
+  const isSubmitting = isObserverMode ? false : submitMut.isPending
   const isPassed = trials.some((t) => t.passed)
   const isCooldownLocked = cooldownRemaining !== null && cooldownRemaining > 0
 
@@ -576,8 +1000,8 @@ function PhasePlayer({
       {/* Instructions list if present */}
       {phase.instructions && phase.instructions.length > 0 && (
         <div className="p-4 rounded-xl border border-border bg-muted/20 space-y-2">
-          <p className="text-xs font-bold text-foreground flex items-center gap-1.5">
-            <Sparkles className="size-3.5 text-primary" /> What to do in this phase:
+          <p className="text-xs font-bold text-foreground">
+            What to do in this phase:
           </p>
           <ul className="text-xs text-muted-foreground space-y-1 list-disc list-inside">
             {phase.instructions.map((inst, i) => (
@@ -593,8 +1017,8 @@ function PhasePlayer({
           preset={preset}
           onOpenPdf={onOpenPdf}
           isPassed={isPassed}
-          isSubmitting={submitMut.isPending}
-          onContinue={() => submitMut.mutate({ client_duration_seconds: 10 })}
+          isSubmitting={isSubmitting}
+          onContinue={() => handleSubmit({ client_duration_seconds: 10 })}
         />
       )}
 
@@ -604,11 +1028,11 @@ function PhasePlayer({
           preset={preset}
           isPassed={isPassed}
           isCooldownLocked={isCooldownLocked}
-          isSubmitting={submitMut.isPending}
+          isSubmitting={isSubmitting}
           lastTrial={trials[trials.length - 1]}
           onOpenPdf={onOpenPdf}
           onSubmit={(placements, clientDuration) =>
-            submitMut.mutate({
+            handleSubmit({
               matching_placements: placements,
               client_duration_seconds: clientDuration,
             })
@@ -622,11 +1046,11 @@ function PhasePlayer({
           preset={preset}
           isPassed={isPassed}
           isCooldownLocked={isCooldownLocked}
-          isSubmitting={submitMut.isPending}
+          isSubmitting={isSubmitting}
           lastTrial={trials[trials.length - 1]}
           onOpenPdf={onOpenPdf}
           onSubmit={(answers, clientDuration) =>
-            submitMut.mutate({
+            handleSubmit({
               answers,
               client_duration_seconds: clientDuration,
             })
@@ -715,11 +1139,11 @@ function ExploreDatasheetsPhase({
                 hideControls
                 className="w-full h-full pointer-events-none"
               />
-              <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity flex items-end p-3">
+              <div className="absolute inset-0 bg-background/80 backdrop-blur-xs opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center p-3">
                 <Button
                   size="sm"
                   onClick={() => onOpenPdf(doc)}
-                  className="w-full gap-1.5 text-xs shadow-lg"
+                  className="w-full gap-1.5 text-xs shadow-md"
                 >
                   <Eye className="size-3.5" /> Open Full PDF
                 </Button>
@@ -1344,28 +1768,32 @@ function CompleteStep({
   attempt,
   cohortId: _cohortId,
   sessionId,
+  isObserverMode = false,
+  onExitObserver,
 }: {
   preset: PreSessionQuizPreset
   attempt: CohortPreQuizStatus["my_attempt"]
   cohortId: string
   sessionId?: string
+  isObserverMode?: boolean
+  onExitObserver?: () => void
 }) {
   const navigate = useNavigate()
 
   return (
     <div className="max-w-2xl mx-auto py-12 px-4 text-center space-y-6">
       <div className="size-16 rounded-full bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 mx-auto flex items-center justify-center">
-        <Sparkles className="size-8" />
+        <CheckCircle2 className="size-8" />
       </div>
 
       <div className="space-y-2">
         <h2 className="text-2xl font-extrabold text-foreground">
-          Cohort Readiness Pipeline Passed!
+          {isObserverMode ? "Observer Preview: Pipeline Completed!" : "Cohort Readiness Pipeline Passed!"}
         </h2>
         <p className="text-sm text-muted-foreground max-w-lg mx-auto">
-          Congratulations! You have satisfied all prerequisite phases of{" "}
-          <strong className="text-foreground">{preset.name}</strong>. Delivery access has been
-          unlocked for all sessions in this cohort.
+          {isObserverMode
+            ? `You have successfully tested and completed all phases of ${preset.name}. In live delivery, completing this unlocks session start for the entire cohort.`
+            : `Congratulations! You have satisfied all prerequisite phases of ${preset.name}. Delivery access has been unlocked for all sessions in this cohort.`}
         </p>
       </div>
 
@@ -1390,7 +1818,16 @@ function CompleteStep({
       </div>
 
       <div className="pt-4 flex justify-center gap-3">
-        {sessionId ? (
+        {isObserverMode && onExitObserver ? (
+          <Button
+            size="lg"
+            onClick={onExitObserver}
+            className="gap-2 px-8 font-bold bg-primary text-primary-foreground"
+          >
+            <span>Exit Observer Mode</span>
+            <ChevronRight className="size-4" />
+          </Button>
+        ) : sessionId ? (
           <Button
             size="lg"
             onClick={() => navigate({ to: `/instructors/sessions/${sessionId}` })}
