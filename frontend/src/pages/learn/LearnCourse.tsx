@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useState } from "react";
 import { useNavigate, useParams, useSearch, Link } from "@tanstack/react-router";
 import { isAxiosError } from "axios";
-import { Check, CheckCircle2, ChevronDown, ChevronRight, Circle, Lock, PlayCircle } from "lucide-react";
+import { Check, CheckCircle2, ChevronDown, ChevronRight, Circle, Lock, PlayCircle, Star } from "lucide-react";
+
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import {
@@ -149,11 +150,21 @@ export default function LearnCourse() {
       <div className="grid lg:grid-cols-[1fr_380px] gap-10 items-start">
         <div className="flex flex-col gap-8 min-w-0">
           <div className="flex flex-col gap-4">
-            {course.level && (
-              <span className="w-fit text-xs font-semibold uppercase tracking-wide px-3 py-1.5 rounded-md bg-primary/10 text-primary capitalize">
-                {course.level}
-              </span>
-            )}
+            <div className="flex items-center gap-2 flex-wrap">
+              {course.level && (
+                <span className="w-fit text-xs font-semibold uppercase tracking-wide px-3 py-1.5 rounded-md bg-primary/10 text-primary capitalize">
+                  {course.level}
+                </span>
+              )}
+              {course.average_rating !== undefined && course.average_rating !== null && (
+                <span className="w-fit text-xs font-semibold px-3 py-1.5 rounded-md bg-amber-500/15 text-amber-600 dark:text-amber-400 flex items-center gap-1.5">
+                  <Star className="size-3.5 fill-amber-500" />
+                  <span>{course.average_rating.toFixed(1)}</span>
+                  {course.ratings_count ? <span className="opacity-75 font-normal">({course.ratings_count})</span> : null}
+                </span>
+              )}
+            </div>
+
             <h1 className="font-display text-3xl sm:text-4xl font-extrabold tracking-tight leading-tight">{course.title}</h1>
             {course.description && <p className="text-base sm:text-lg leading-relaxed text-muted-foreground max-w-xl">{course.description}</p>}
             <div className="flex items-center gap-6 pt-1">

@@ -232,7 +232,11 @@ export default function LearnLanding() {
                 <div className="flex items-center gap-2 text-xs text-muted-foreground">
                   {course.kind === "mission" ? "Mission" : "Course"}
                   {course.level && <span className="capitalize">· {course.level}</span>}
+                  {course.average_rating !== undefined && course.average_rating !== null && (
+                    <span className="text-amber-600 dark:text-amber-400 font-medium">· ★ {course.average_rating.toFixed(1)}</span>
+                  )}
                   {course.locked && <span className="text-amber-600 dark:text-amber-400">· Locked</span>}
+
                   {course.access_mode === "paid" && course.price_cents != null && (
                     <span className="text-primary font-semibold">· {formatPrice(course.price_cents, course.currency)}</span>
                   )}

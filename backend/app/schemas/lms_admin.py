@@ -423,15 +423,12 @@ class CourseCreate(BaseModel):
     # endpoint is what actually enforces "paid must have a positive price".
     price_cents: int | None = Field(default=None, ge=1)
     currency: str = "usd"
-    organization_id: UUID | None = None
-    organization_name: str | None = None
-    submitted_for_review_at: datetime | None = None
     certificate_enabled: bool = True
-    average_rating: float | None = None
-    ratings_count: int = 0
+    show_rating: bool = True
 
 
 class CourseUpdate(BaseModel):
+
     title: str | None = None
     description: str | None = None
     kind: Literal["course", "mission"] | None = None
@@ -445,6 +442,8 @@ class CourseUpdate(BaseModel):
     price_cents: int | None = Field(default=None, ge=1)
     currency: str | None = None
     certificate_enabled: bool | None = None
+    show_rating: bool | None = None
+
 
 
 class CourseAdminOut(BaseModel):
@@ -473,6 +472,12 @@ class CourseAdminOut(BaseModel):
     organization_name: str | None = None
     submitted_for_review_at: datetime | None = None
     certificate_enabled: bool = True
+    show_rating: bool = True
+    rating_auto_hidden: bool = False
+    average_rating: float | None = None
+    ratings_count: int = 0
+
+
 
 
 # ── modules ──────────────────────────────────────────────────────────────────
@@ -872,4 +877,7 @@ class CourseRatingsSummaryOut(BaseModel):
         default_factory=lambda: {"1": 0, "2": 0, "3": 0, "4": 0, "5": 0}
     )
     ratings: list[CourseRatingDetailOut] = []
+    show_rating: bool = True
+    rating_auto_hidden: bool = False
+
 

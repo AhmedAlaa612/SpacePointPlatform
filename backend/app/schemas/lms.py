@@ -144,6 +144,11 @@ class CourseCatalogOut(BaseModel):
     # convention as CourseDetailOut. NULL unless access_mode == "paid".
     price_cents: int | None = None
     currency: str = "usd"
+    average_rating: float | None = None
+    ratings_count: int = 0
+    show_rating: bool = True
+
+
 
 
 # ── my-courses dashboard (student, LMS redesign 2026-08-06) ────────────────
@@ -221,6 +226,11 @@ class CourseDetailOut(BaseModel):
     # unless access_mode == "paid".
     price_cents: int | None = None
     currency: str = "usd"
+    average_rating: float | None = None
+    ratings_count: int = 0
+    show_rating: bool = True
+
+
     is_published: bool = True
     is_preview: bool = False
 
@@ -354,6 +364,7 @@ class LearningPathCatalogOut(BaseModel):
     fully_owned: bool = False
 
 
+
 class MyCertificateOut(BaseModel):
     """One earned LMS certificate (2026-08-13). `url` is signed at query
     time from bucket/file_path, the resolve_url pattern — never stored."""
@@ -396,6 +407,7 @@ class LearningPathDetailOut(BaseModel):
     price_cents: int | None = None
     currency: str = "usd"
     fully_owned: bool = False
+
 
 
 # ── leaderboard (P2-4) — not wired into any student-facing page yet, D6 is

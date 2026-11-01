@@ -22,11 +22,12 @@ behind `/lms/*` auth — browsing is free, enrolling costs a login.
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy import or_, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.session import get_db
-from app.models.lms import Course
+from app.models.lms import Course, CourseRating
+
 from app.models.lms.learning_path import LearningPath, LearningPathStep
 from app.models.user import User
 from app.schemas.curriculum import PrerequisiteItemOut
@@ -57,6 +58,22 @@ async def public_courses(
         stmt = stmt.where(or_(Course.title.ilike(pattern), Course.description.ilike(pattern)))
     rows = (await db.execute(stmt.order_by(Course.title))).scalars().all()
     rows = [c for c in rows if c.access_mode != "invite"]
+
+    visible_rating_cids = [c.id for c in rows if getattr(c, "show_rating", True)]
+    ratings_map: dict[uuid.UUID, tuple[float | None, int]] = {}
+    if visible_rating_cids:
+        r_rows = (await db.execute(
+            select(
+                CourseRating.course_id,
+                func.avg(CourseRating.rating),
+                func.count(CourseRating.id),
+            )
+            .where(CourseRating.course_id.in_(visible_rating_cids))
+            .group_by(CourseRating.course_id)
+        )).all()
+        for cid, avg_val, count_val in r_rows:
+            ratings_map[cid] = (round(float(avg_val), 1) if avg_val is not None else None, int(count_val))
+
     return [
         CourseCatalogOut(
             id=c.id, title=c.title, description=c.description, kind=c.kind,
@@ -64,9 +81,14 @@ async def public_courses(
             level=c.level, track=c.track,
             access_mode=c.access_mode, enrolled=False, locked=False,
             price_cents=c.price_cents, currency=c.currency,
+            average_rating=ratings_map.get(c.id, (None, 0))[0] if getattr(c, "show_rating", True) else None,
+            ratings_count=ratings_map.get(c.id, (None, 0))[1] if getattr(c, "show_rating", True) else 0,
+            show_rating=getattr(c, "show_rating", True),
         )
+
         for c in rows
     ]
+
 
 
 @router.get("/courses/{course_id}", response_model=CourseDetailOut)
@@ -92,6 +114,16 @@ async def public_course_detail(
             instructor_name = instructor.full_name
             instructor_photo_url = instructor.photo_url
 
+    average_rating = None
+    ratings_count = 0
+    if getattr(course, "show_rating", True):
+        rating_row = (await db.execute(
+            select(func.avg(CourseRating.rating), func.count(CourseRating.id))
+            .where(CourseRating.course_id == course.id)
+        )).first()
+        average_rating = round(float(rating_row[0]), 1) if rating_row and rating_row[0] is not None else None
+        ratings_count = int(rating_row[1]) if rating_row and rating_row[1] is not None else 0
+
     return CourseDetailOut(
         id=course.id,
         title=course.title,
@@ -101,7 +133,11 @@ async def public_course_detail(
         is_published=course.is_published,
         is_preview=False,
         completed=False,
+        average_rating=average_rating,
+        ratings_count=ratings_count,
+        show_rating=getattr(course, "show_rating", True),
         image_url=await storage.resolve_url(course.image_bucket, course.image_path),
+
         outcomes=course.outcomes or [],
         level=course.level,
         track=course.track,

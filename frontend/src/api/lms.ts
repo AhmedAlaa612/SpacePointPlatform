@@ -18,7 +18,10 @@ export interface CourseCatalogItem {
   // Storefront pricing — integer minor units, null unless paid.
   price_cents: number | null;
   currency: string;
+  average_rating?: number | null;
+  ratings_count?: number;
 }
+
 
 /** 7B-2 — a unified course/mission prerequisite edge, evaluated for the
  * caller. `item_type: "mission"` has no course-side page to link to, so
@@ -65,7 +68,11 @@ export interface CourseDetail {
   currency: string;
   is_published?: boolean;
   is_preview?: boolean;
+  average_rating?: number | null;
+  ratings_count?: number;
+  show_rating?: boolean;
 }
+
 
 export interface QuizOption {
   text: string;

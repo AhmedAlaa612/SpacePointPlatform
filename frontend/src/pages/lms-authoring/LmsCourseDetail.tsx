@@ -124,8 +124,9 @@ export default function LmsCourseDetail() {
 
 
   return (
-    <div className="flex flex-col gap-6">
+    <div className="flex flex-col gap-6 max-w-full overflow-hidden">
       <button
+
         onClick={() => void navigate({ to: "/lms-authoring/courses" })}
         className="flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground transition-colors w-fit"
       >
@@ -254,6 +255,12 @@ export default function LmsCourseDetail() {
                 {course.ratings_count ? <span className="opacity-75 font-normal">({course.ratings_count})</span> : null}
               </span>
             )}
+            {course.show_rating === false && (
+              <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/30">
+                Ratings Hidden
+              </span>
+            )}
+
             {course.level && (
               <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-muted text-muted-foreground capitalize">{course.level}</span>
             )}
@@ -447,6 +454,7 @@ function EditCourseModal({ courseId, course, onClose, onSuccess }: {
     course.price_cents != null ? String(course.price_cents / 100) : ""
   )
   const [certificateEnabled, setCertificateEnabled] = useState(course.certificate_enabled)
+  const [showRating, setShowRating] = useState(course.show_rating ?? true)
   const [error, setError] = useState("")
 
   const { data: instructors = [] } = useQuery({ queryKey: ["lms-admin-instructors"], queryFn: listInstructorOptionsApi })
@@ -462,10 +470,12 @@ function EditCourseModal({ courseId, course, onClose, onSuccess }: {
         ? Math.round(Number(priceDollars) * 100)
         : null,
       certificate_enabled: certificateEnabled,
+      show_rating: showRating,
     }),
     onSuccess,
     onError: (e: any) => setError(e?.response?.data?.detail ?? "Failed to save course"),
   })
+
 
   return (
     <Modal title="Edit course" onClose={onClose} maxWidth="sm:max-w-xl max-w-xl">
@@ -573,6 +583,15 @@ function EditCourseModal({ courseId, course, onClose, onSuccess }: {
           />
           Issue a completion certificate for this course
         </label>
+        <label className="flex items-center gap-2 text-sm text-foreground cursor-pointer">
+          <input
+            type="checkbox" checked={showRating}
+            onChange={(e) => setShowRating(e.target.checked)}
+            className="h-4 w-4 rounded border-border accent-primary cursor-pointer"
+          />
+          Show rating score to students (auto-hides if average falls below 4.0)
+        </label>
+
         {error && <p className="text-xs text-red-500">{error}</p>}
         <ModalActions
           onCancel={onClose} onConfirm={() => mutation.mutate()} loading={mutation.isPending}

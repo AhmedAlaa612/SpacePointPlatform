@@ -202,7 +202,10 @@ async def _course_admin_out(db: AsyncSession, course: Course, current: User | No
         access_mode=course.access_mode, access_days=course.access_days,
         price_cents=course.price_cents, currency=course.currency,
         certificate_enabled=course.certificate_enabled,
+        show_rating=course.show_rating,
+        rating_auto_hidden=course.rating_auto_hidden,
         average_rating=average_rating,
+
         ratings_count=ratings_count,
         organization_id=course.organization_id,
         organization_name=org_name,
@@ -1289,8 +1292,11 @@ async def update_course(
     changes = body.model_dump(exclude_unset=True)
     if "instructor_id" in changes:
         await _check_instructor(db, changes["instructor_id"])
+    if changes.get("show_rating") is True:
+        course.rating_auto_hidden = False
     for field, value in changes.items():
         setattr(course, field, value)
+
     await db.commit()
     await db.refresh(course)
     return await _course_admin_out(db, course, current)
@@ -3413,7 +3419,10 @@ async def course_ratings_summary(
         total_count=count,
         distribution=distribution,
         ratings=rating_details,
+        show_rating=course.show_rating,
+        rating_auto_hidden=course.rating_auto_hidden,
     )
+
 
 
 @router.post(

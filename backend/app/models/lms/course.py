@@ -98,6 +98,13 @@ class Course(Base):
     # tracking itself is untouched, only certificate issuance is skipped.
     certificate_enabled = Column(Boolean, nullable=False, default=True, server_default="true")
 
+    # Course rating visibility (2026-11-01). Defaults to true.
+    # Automatically set to False and rating_auto_hidden=True if overall average drops below 4.0.
+    # Can be toggled back on by admin/operations.
+    show_rating = Column(Boolean, nullable=False, default=True, server_default="true")
+    rating_auto_hidden = Column(Boolean, nullable=False, default=False, server_default="false")
+
+
 
 class CourseModule(Base):
     """An ordered lesson inside a course. Position is the order; reordering is

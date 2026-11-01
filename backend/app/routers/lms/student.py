@@ -273,6 +273,21 @@ async def catalog(
     if not ({"student", "admin", "operations"} & set(current.roles)):
         rows = [c for c in rows if c.id in enrolled_course_ids]
 
+    visible_rating_cids = [c.id for c in rows if getattr(c, "show_rating", True)]
+    ratings_map: dict[uuid.UUID, tuple[float | None, int]] = {}
+    if visible_rating_cids:
+        r_rows = (await db.execute(
+            select(
+                CourseRating.course_id,
+                func.avg(CourseRating.rating),
+                func.count(CourseRating.id),
+            )
+            .where(CourseRating.course_id.in_(visible_rating_cids))
+            .group_by(CourseRating.course_id)
+        )).all()
+        for cid, avg_val, count_val in r_rows:
+            ratings_map[cid] = (round(float(avg_val), 1) if avg_val is not None else None, int(count_val))
+
     return [
         CourseCatalogOut(
             id=c.id, title=c.title, description=c.description, kind=c.kind,
@@ -281,9 +296,14 @@ async def catalog(
             access_mode=c.access_mode, enrolled=c.id in enrolled_course_ids,
             locked=not await is_unlocked(db, item_type="course", item_id=c.id, user_id=current.id),
             price_cents=c.price_cents, currency=c.currency,
+            average_rating=ratings_map.get(c.id, (None, 0))[0] if getattr(c, "show_rating", True) else None,
+            ratings_count=ratings_map.get(c.id, (None, 0))[1] if getattr(c, "show_rating", True) else 0,
+            show_rating=getattr(c, "show_rating", True),
         )
+
         for c in rows
     ]
+
 
 
 @router.get("/courses/{course_id}", response_model=CourseDetailOut)
@@ -327,6 +347,16 @@ async def course_detail(
             instructor_name = instructor.full_name
             instructor_photo_url = instructor.photo_url
 
+    average_rating = None
+    ratings_count = 0
+    if getattr(course, "show_rating", True):
+        rating_row = (await db.execute(
+            select(func.avg(CourseRating.rating), func.count(CourseRating.id))
+            .where(CourseRating.course_id == course.id)
+        )).first()
+        average_rating = round(float(rating_row[0]), 1) if rating_row and rating_row[0] is not None else None
+        ratings_count = int(rating_row[1]) if rating_row and rating_row[1] is not None else 0
+
     return CourseDetailOut(
         id=course.id,
         title=course.title,
@@ -336,7 +366,11 @@ async def course_detail(
         is_published=course.is_published,
         is_preview=is_preview,
         completed=completion["completed"],
+        average_rating=average_rating,
+        ratings_count=ratings_count,
+        show_rating=getattr(course, "show_rating", True),
         image_url=await storage.resolve_url(course.image_bucket, course.image_path),
+
         outcomes=course.outcomes or [],
         level=course.level,
         track=course.track,
@@ -400,6 +434,13 @@ async def upsert_course_rating(
     if not course:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Course not found")
 
+    completion = await course_completion(db, user_id=current.id, course_id=course_id)
+    if not completion.get("completed", False):
+        raise HTTPException(
+            status.HTTP_403_FORBIDDEN,
+            detail="You can only rate this course after completing all required lessons and modules.",
+        )
+
     row = (await db.execute(
         select(CourseRating).where(
             CourseRating.course_id == course_id,
@@ -426,6 +467,43 @@ async def upsert_course_rating(
 
     await db.commit()
     await db.refresh(row)
+
+    # Re-evaluate course average rating; auto-hide and alert if below 4.0
+    rating_row = (await db.execute(
+        select(func.avg(CourseRating.rating), func.count(CourseRating.id))
+        .where(CourseRating.course_id == course_id)
+    )).first()
+    new_avg = round(float(rating_row[0]), 1) if rating_row and rating_row[0] is not None else None
+    ratings_count = int(rating_row[1]) if rating_row and rating_row[1] is not None else 0
+
+    if new_avg is not None and new_avg < 4.0:
+        was_visible = getattr(course, "show_rating", True)
+        course.show_rating = False
+        course.rating_auto_hidden = True
+        await db.commit()
+        await db.refresh(course)
+
+        if was_visible:
+            from app.core.config import settings
+            from app.services.email import send_email
+
+            admin_email = settings.ADMIN_EMAIL
+            subject = f"[Alert] Low Rating for Course: {course.title} ({new_avg:.1f}/5.0)"
+            body = (
+                f"Course Rating Alert: Rating Fell Below 4.0\n\n"
+                f"Course: {course.title} (ID: {course.id})\n"
+                f"New Overall Rating: {new_avg:.1f} / 5.0 (Total ratings: {ratings_count})\n"
+                f"Latest Rating: {body.rating} / 5.0 by {current.full_name or current.email}\n"
+                f"Review Comment: {review_val or '(No written review)'}\n\n"
+                f"Action Taken: The rating for this course has been automatically hidden from student landing pages and the catalog.\n"
+                f"You can review this feedback and re-enable visibility in the Authoring dashboard:\n"
+                f"{settings.FRONTEND_URL}/lms-authoring/courses/{course.id}\n"
+            )
+            try:
+                await send_email(to=admin_email, subject=subject, body=body)
+            except Exception:
+                logger.exception("Failed to send low rating alert email to %s", admin_email)
+
     return CourseRatingOut(
         rating=row.rating,
         review_text=row.review_text,

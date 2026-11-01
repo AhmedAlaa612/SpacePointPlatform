@@ -39,9 +39,12 @@ export interface AdminCourse {
   // a new completion certificate from being issued for this course; never
   // revokes one already issued, never blocks a learning-path certificate.
   certificate_enabled: boolean;
+  show_rating?: boolean;
+  rating_auto_hidden?: boolean;
   average_rating?: number | null;
   ratings_count?: number;
 }
+
 
 export interface CourseRatingDetail {
   id: string;
@@ -61,7 +64,10 @@ export interface CourseRatingsSummary {
   total_count: number;
   distribution: Record<string, number>;
   ratings: CourseRatingDetail[];
+  show_rating?: boolean;
+  rating_auto_hidden?: boolean;
 }
+
 
 export interface InstructorOption {
   id: string;
@@ -196,7 +202,9 @@ export interface CourseMetadataInput {
   price_cents?: number | null;
   currency?: string;
   certificate_enabled?: boolean;
+  show_rating?: boolean;
 }
+
 
 export interface AdminModule {
   id: string;

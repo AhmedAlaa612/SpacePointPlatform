@@ -132,11 +132,17 @@ export default function LearnCatalog() {
                     ) : null}
                   </div>
                   <div className="p-4 flex flex-col gap-2">
-                    <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                    <div className="flex items-center gap-2 text-xs text-muted-foreground flex-wrap">
                       <BookOpen className="size-3.5" />
                       {course.kind === "mission" ? "Mission" : "Course"}
                       {course.level && <span className="capitalize">· {course.level}</span>}
+                      {course.average_rating !== undefined && course.average_rating !== null && (
+                        <span className="flex items-center gap-1 font-medium text-amber-600 dark:text-amber-400 ml-auto">
+                          ★ {course.average_rating.toFixed(1)}
+                        </span>
+                      )}
                     </div>
+
                     <div className="font-display text-base font-semibold leading-snug">{course.title}</div>
                     {course.description && <div className="text-sm text-muted-foreground line-clamp-2">{course.description}</div>}
                   </div>
