@@ -101,6 +101,7 @@ async def lifespan(app: FastAPI):
         from app.db.session import AsyncSessionLocal, engine
         from app.models.website_event import MegaEvent, WebsiteEvent
         from app.models.website_case_study import WebsiteCaseStudy
+        from app.models.sessions.pre_session_quiz import PreSessionQuizDatasheet
         from app.services.website_events import ensure_default_events_seeded
         from app.services.website_case_studies import seed_default_case_studies
         from sqlalchemy import text
@@ -114,6 +115,9 @@ async def lifespan(app: FastAPI):
             )
             await conn.run_sync(
                 lambda sync_conn: WebsiteCaseStudy.__table__.create(sync_conn, checkfirst=True)
+            )
+            await conn.run_sync(
+                lambda sync_conn: PreSessionQuizDatasheet.__table__.create(sync_conn, checkfirst=True)
             )
         async with AsyncSessionLocal() as db:
             await db.execute(text("ALTER TABLE cohorts ADD COLUMN IF NOT EXISTS checklist_title_override VARCHAR(255);"))
@@ -135,6 +139,7 @@ async def lifespan(app: FastAPI):
             await db.execute(text("ALTER TABLE mega_events ADD COLUMN IF NOT EXISTS ar_content JSONB DEFAULT '{}'::jsonb;"))
             await db.execute(text("ALTER TABLE website_events ADD COLUMN IF NOT EXISTS default_language VARCHAR(8) DEFAULT 'en';"))
             await db.execute(text("ALTER TABLE website_events ADD COLUMN IF NOT EXISTS ar_content JSONB DEFAULT '{}'::jsonb;"))
+            await db.execute(text("ALTER TABLE pre_session_quiz_presets ADD COLUMN IF NOT EXISTS phases JSONB DEFAULT '[]'::jsonb;"))
             await db.execute(text("UPDATE cohorts SET checklist_title_override = 'testcohortname', name = 'Cohort Test' WHERE name = 'testcohortname';"))
             await db.commit()
             await ensure_default_events_seeded(db)
@@ -144,6 +149,11 @@ async def lifespan(app: FastAPI):
                 await ensure_arcade_games_seeded(db)
             except Exception:
                 logger.warning("Could not auto-seed arcade games at startup", exc_info=True)
+            try:
+                from app.services.sessions.datasheet_seeder import ensure_default_datasheets_seeded
+                await ensure_default_datasheets_seeded(db)
+            except Exception:
+                logger.warning("Could not auto-seed hardware datasheets at startup", exc_info=True)
     except Exception:
         logger.warning("Could not auto-add schema updates or seed events at startup", exc_info=True)
 
