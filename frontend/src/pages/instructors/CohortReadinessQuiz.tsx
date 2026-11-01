@@ -448,15 +448,16 @@ export default function CohortReadinessQuiz({
 
             {/* Quick Simulation Shortcuts: Force Pass (100%) & Force Fail (0%) */}
             {!isViewingCompleteStep && (
-              <div className="flex items-center gap-1.5">
+              <div className="flex items-center gap-1.5 flex-wrap">
                 <button
                   type="button"
                   onClick={handleObserverForcePass}
                   className="h-8 px-2.5 rounded-lg bg-emerald-500/15 border border-emerald-500/30 hover:bg-emerald-500/25 text-xs font-bold text-emerald-600 dark:text-emerald-400 transition-colors cursor-pointer flex items-center gap-1.5"
                   title="Simulate passing this step with 100%"
                 >
-                  <CheckCircle2 className="size-3.5" />
-                  Pass Step (100%)
+                  <CheckCircle2 className="size-3.5 shrink-0" />
+                  <span className="sm:hidden">Pass (100%)</span>
+                  <span className="hidden sm:inline">Pass Step (100%)</span>
                 </button>
                 <button
                   type="button"
@@ -464,8 +465,9 @@ export default function CohortReadinessQuiz({
                   className="h-8 px-2.5 rounded-lg bg-destructive/15 border border-destructive/30 hover:bg-destructive/25 text-xs font-bold text-destructive transition-colors cursor-pointer flex items-center gap-1.5"
                   title="Simulate failing this step with 0% (triggers cooldown)"
                 >
-                  <XCircle className="size-3.5" />
-                  Fail Step (0%)
+                  <XCircle className="size-3.5 shrink-0" />
+                  <span className="sm:hidden">Fail (0%)</span>
+                  <span className="hidden sm:inline">Fail Step (0%)</span>
                 </button>
               </div>
             )}

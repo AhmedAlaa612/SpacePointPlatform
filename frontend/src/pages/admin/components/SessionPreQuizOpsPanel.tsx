@@ -194,17 +194,17 @@ function AttemptReviewCard({
         </div>
 
         {/* Action Controls */}
-        <div className="flex items-center gap-2 shrink-0 flex-wrap">
+        <div className="flex items-center gap-2 flex-wrap w-full sm:w-auto justify-start sm:justify-end">
           {isLocked && (
             <Button
               size="sm"
               variant="outline"
               disabled={unlockMut.isPending}
               onClick={() => unlockMut.mutate()}
-              className="h-8 px-3 text-xs font-bold border-amber-500/40 text-amber-600 dark:text-amber-400 hover:bg-amber-500/10 cursor-pointer flex items-center gap-1.5"
+              className="flex-1 sm:flex-initial h-8 px-3 text-xs font-bold border-amber-500/40 text-amber-600 dark:text-amber-400 hover:bg-amber-500/10 cursor-pointer flex items-center justify-center gap-1.5"
             >
               <Unlock size={13} />
-              {unlockMut.isPending ? "Unlocking…" : "Unlock Cooldown Now"}
+              {unlockMut.isPending ? "Unlocking…" : "Unlock Cooldown"}
             </Button>
           )}
 
@@ -212,7 +212,7 @@ function AttemptReviewCard({
             size="sm"
             variant="ghost"
             onClick={() => setExpanded((v) => !v)}
-            className="h-8 px-3 text-xs font-semibold cursor-pointer"
+            className="flex-1 sm:flex-initial h-8 px-3 text-xs font-semibold cursor-pointer justify-center"
           >
             {expanded ? "Hide Details" : "View Trials & Answers"}
           </Button>

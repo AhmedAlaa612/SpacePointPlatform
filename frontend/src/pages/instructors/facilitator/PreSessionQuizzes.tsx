@@ -296,25 +296,25 @@ function QuestionBankTab() {
                   <p className="text-xs sm:text-sm text-muted-foreground whitespace-pre-wrap">{q.prompt}</p>
                 </div>
 
-                <div className="flex items-center gap-1.5 shrink-0">
+                <div className="flex items-center gap-1.5 flex-wrap w-full sm:w-auto mt-2 sm:mt-0">
                   <button
                     type="button"
                     onClick={() => setPreviewQuestions([q])}
-                    className="flex items-center h-8 px-3 rounded-lg border border-primary/35 bg-primary/10 hover:bg-primary/20 text-xs font-semibold text-primary transition-colors cursor-pointer"
+                    className="flex-1 sm:flex-initial inline-flex items-center justify-center h-8 px-3 rounded-lg border border-primary/35 bg-primary/10 hover:bg-primary/20 text-xs font-semibold text-primary transition-colors cursor-pointer"
                   >
                     Preview
                   </button>
                   <button
                     type="button"
                     onClick={() => setEditingQuestion(q)}
-                    className="flex items-center h-8 px-3 rounded-lg border border-border bg-background hover:bg-muted text-xs font-medium text-foreground transition-colors cursor-pointer"
+                    className="flex-1 sm:flex-initial inline-flex items-center justify-center h-8 px-3 rounded-lg border border-border bg-background hover:bg-muted text-xs font-medium text-foreground transition-colors cursor-pointer"
                   >
                     Edit
                   </button>
                   <button
                     type="button"
                     onClick={() => setDeletingQuestion(q)}
-                    className="h-8 px-2.5 rounded-lg border border-border bg-background hover:bg-red-500/10 text-xs font-medium text-muted-foreground hover:text-red-500 transition-colors cursor-pointer"
+                    className="inline-flex items-center justify-center h-8 px-2.5 rounded-lg border border-border bg-background hover:bg-red-500/10 text-xs font-medium text-muted-foreground hover:text-red-500 transition-colors cursor-pointer shrink-0"
                     title="Delete question"
                   >
                     Delete
@@ -1690,27 +1690,29 @@ function PresetsTab() {
                   )}
                 </div>
 
-                <div className="flex items-center gap-1.5 shrink-0">
+                <div className="flex items-center gap-1.5 flex-wrap w-full sm:w-auto mt-2 sm:mt-0">
                   <button
                     type="button"
                     onClick={() => setPreviewPreset(preset)}
-                    className="flex items-center gap-1.5 h-8 px-3 rounded-lg border border-primary/40 bg-primary/10 hover:bg-primary/20 text-xs font-semibold text-primary transition-colors cursor-pointer"
+                    className="flex-1 sm:flex-initial inline-flex items-center justify-center gap-1.5 h-8 px-2.5 sm:px-3 rounded-lg border border-primary/40 bg-primary/10 hover:bg-primary/20 text-xs font-semibold text-primary transition-colors cursor-pointer min-w-0"
                     title="Preview entire 5-phase pipeline in LMS Observer Mode"
                   >
-                    <Eye size={13} />
-                    Preview Pipeline (Observer Mode)
+                    <Eye size={13} className="shrink-0" />
+                    <span className="sm:hidden">Observer Preview</span>
+                    <span className="hidden sm:inline">Preview Pipeline (Observer Mode)</span>
                   </button>
                   <button
                     type="button"
                     onClick={() => setEditingPreset(preset)}
-                    className="flex items-center h-8 px-3 rounded-lg border border-border bg-background hover:bg-muted text-xs font-medium text-foreground transition-colors cursor-pointer"
+                    className="flex-1 sm:flex-initial inline-flex items-center justify-center h-8 px-2.5 sm:px-3 rounded-lg border border-border bg-background hover:bg-muted text-xs font-medium text-foreground transition-colors cursor-pointer min-w-0"
                   >
-                    Configure Pipeline
+                    <span className="sm:hidden">Configure</span>
+                    <span className="hidden sm:inline">Configure Pipeline</span>
                   </button>
                   <button
                     type="button"
                     onClick={() => setDeletingPreset(preset)}
-                    className="h-8 px-2.5 rounded-lg border border-border bg-background hover:bg-red-500/10 text-xs font-medium text-muted-foreground hover:text-red-500 transition-colors cursor-pointer"
+                    className="inline-flex items-center justify-center h-8 px-2.5 rounded-lg border border-border bg-background hover:bg-red-500/10 text-xs font-medium text-muted-foreground hover:text-red-500 transition-colors cursor-pointer shrink-0"
                     title="Delete preset"
                   >
                     Delete
@@ -2212,25 +2214,27 @@ function PresetBuilderModal({
             </button>
           </div>
 
-          <div className="flex items-center gap-2 flex-wrap">
+          <div className="flex items-stretch sm:items-center gap-2 flex-wrap w-full sm:w-auto">
             <button
               type="button"
               onClick={() => setShowObserverPreview(true)}
               disabled={phases.length === 0}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-primary/40 bg-primary/10 hover:bg-primary/20 text-xs font-bold text-primary transition-colors cursor-pointer disabled:opacity-40"
+              className="flex-1 sm:flex-initial inline-flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg border border-primary/40 bg-primary/10 hover:bg-primary/20 text-xs font-bold text-primary transition-colors cursor-pointer disabled:opacity-40"
               title="Test current pipeline configuration in LMS Observer Mode"
             >
-              <Eye size={13} />
-              Preview Pipeline (Observer Mode)
+              <Eye size={13} className="shrink-0" />
+              <span className="sm:hidden">Observer Preview</span>
+              <span className="hidden sm:inline">Preview Pipeline (Observer Mode)</span>
             </button>
 
             <button
               type="button"
               onClick={quickSeedStandardPipeline}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-border bg-card hover:bg-muted text-xs font-bold text-foreground transition-colors cursor-pointer"
+              className="flex-1 sm:flex-initial inline-flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg border border-border bg-card hover:bg-muted text-xs font-bold text-foreground transition-colors cursor-pointer"
             >
-              <Layers size={13} />
-              Quick-Seed Standard 5-Phase Pipeline
+              <Layers size={13} className="shrink-0" />
+              <span className="sm:hidden">Quick-Seed Standard</span>
+              <span className="hidden sm:inline">Quick-Seed Standard 5-Phase Pipeline</span>
             </button>
           </div>
         </div>
@@ -2286,32 +2290,36 @@ function PresetBuilderModal({
                       {/* Phase Item Header */}
                       <div className="p-3 bg-muted/30 flex items-center justify-between gap-2">
                         <div
-                          className="flex items-center gap-2 min-w-0 cursor-pointer flex-1"
+                          className="flex items-center gap-2 min-w-0 cursor-pointer flex-1 flex-wrap"
                           onClick={() => setExpandedPhaseIndex(isExpanded ? null : idx)}
                         >
-                          <span className="flex items-center justify-center size-6 rounded-full bg-primary/10 text-primary text-xs font-bold shrink-0">
-                            {idx + 1}
-                          </span>
-                          <span className="font-bold text-xs sm:text-sm text-foreground truncate">
-                            {ph.title || `Phase ${idx + 1}`}
-                          </span>
-                          <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-muted text-foreground border border-border shrink-0">
-                            {ph.phase_type === "explore_datasheets"
-                              ? "Explore Datasheets"
-                              : ph.phase_type === "subsystem_matching"
-                              ? "Subsystem Matching"
-                              : "Question Bank Quiz"}
-                          </span>
-                          {ph.cooldown_seconds > 0 && (
-                            <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20 shrink-0">
-                              {Math.round(ph.cooldown_seconds / 60)}m Cooldown
+                          <div className="flex items-center gap-2 min-w-0">
+                            <span className="flex items-center justify-center size-6 rounded-full bg-primary/10 text-primary text-xs font-bold shrink-0">
+                              {idx + 1}
                             </span>
-                          )}
-                          {ph.phase_type === "quiz" && (
-                            <span className="text-[11px] text-muted-foreground font-medium shrink-0">
-                              ({ph.question_ids?.length || 0} Qs)
+                            <span className="font-bold text-xs sm:text-sm text-foreground truncate">
+                              {ph.title || `Phase ${idx + 1}`}
                             </span>
-                          )}
+                          </div>
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-muted text-foreground border border-border shrink-0">
+                              {ph.phase_type === "explore_datasheets"
+                                ? "Explore Datasheets"
+                                : ph.phase_type === "subsystem_matching"
+                                ? "Subsystem Matching"
+                                : "Question Bank Quiz"}
+                            </span>
+                            {ph.cooldown_seconds > 0 && (
+                              <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20 shrink-0">
+                                {Math.round(ph.cooldown_seconds / 60)}m Cooldown
+                              </span>
+                            )}
+                            {ph.phase_type === "quiz" && (
+                              <span className="text-[11px] text-muted-foreground font-medium shrink-0">
+                                ({ph.question_ids?.length || 0} Qs)
+                              </span>
+                            )}
+                          </div>
                         </div>
 
                         <div className="flex items-center gap-1 shrink-0">

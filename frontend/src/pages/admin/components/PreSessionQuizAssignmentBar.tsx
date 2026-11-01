@@ -84,7 +84,7 @@ export function PreSessionQuizAssignmentBar({
         </p>
       </div>
 
-      <div className="flex items-center gap-2 flex-wrap sm:shrink-0">
+      <div className="flex items-center gap-2 flex-wrap w-full sm:w-auto">
         <select
           disabled={isLoading || saveMut.isPending}
           value={assignment?.preset_id ?? ""}
@@ -92,7 +92,7 @@ export function PreSessionQuizAssignmentBar({
             const val = e.target.value
             saveMut.mutate({ preset_id: val ? val : null, clear_override: false })
           }}
-          className="h-8 px-2.5 rounded-lg border border-border bg-background text-xs font-medium text-foreground focus:outline-none focus:border-primary max-w-[260px]"
+          className="h-8 px-2.5 rounded-lg border border-border bg-background text-xs font-medium text-foreground focus:outline-none focus:border-primary w-full sm:w-auto max-w-full sm:max-w-[260px]"
         >
           <option value="">None (No pre-session quiz)</option>
           {presets.map((p) => (
@@ -102,35 +102,37 @@ export function PreSessionQuizAssignmentBar({
           ))}
         </select>
 
-        {selectedPreset && (
-          <button
-            type="button"
-            onClick={() => setPreviewOpen(true)}
-            title="Preview exact instructor quiz experience"
-            className="h-8 px-2.5 rounded-lg border border-primary/40 bg-primary/10 hover:bg-primary/20 text-[11px] font-semibold text-primary inline-flex items-center cursor-pointer shrink-0"
-          >
-            Preview Quiz
-          </button>
-        )}
+        <div className="flex items-center gap-2 flex-wrap w-full sm:w-auto">
+          {selectedPreset && (
+            <button
+              type="button"
+              onClick={() => setPreviewOpen(true)}
+              title="Preview exact instructor quiz experience"
+              className="flex-1 sm:flex-initial h-8 px-2.5 rounded-lg border border-primary/40 bg-primary/10 hover:bg-primary/20 text-[11px] font-semibold text-primary inline-flex items-center justify-center cursor-pointer shrink-0"
+            >
+              Preview Quiz
+            </button>
+          )}
 
-        {assignment && !assignment.inherited && scope !== "programs" && (
-          <button
-            type="button"
-            disabled={saveMut.isPending}
-            onClick={() => saveMut.mutate({ preset_id: null, clear_override: true })}
-            title="Reset to inherited Program / Cohort setting"
-            className="h-8 px-2.5 rounded-lg border border-border bg-card hover:bg-muted text-[11px] font-medium text-muted-foreground hover:text-foreground inline-flex items-center cursor-pointer"
-          >
-            Reset to Inherited
-          </button>
-        )}
+          {assignment && !assignment.inherited && scope !== "programs" && (
+            <button
+              type="button"
+              disabled={saveMut.isPending}
+              onClick={() => saveMut.mutate({ preset_id: null, clear_override: true })}
+              title="Reset to inherited Program / Cohort setting"
+              className="flex-1 sm:flex-initial h-8 px-2.5 rounded-lg border border-border bg-card hover:bg-muted text-[11px] font-medium text-muted-foreground hover:text-foreground inline-flex items-center justify-center cursor-pointer"
+            >
+              Reset to Inherited
+            </button>
+          )}
 
-        <Link
-          to="/instructors/facilitator/quizzes"
-          className="h-8 px-2.5 rounded-lg border border-border bg-card hover:bg-muted text-[11px] font-semibold text-primary inline-flex items-center shrink-0"
-        >
-          Quiz Bank
-        </Link>
+          <Link
+            to="/instructors/facilitator/quizzes"
+            className="flex-1 sm:flex-initial h-8 px-2.5 rounded-lg border border-border bg-card hover:bg-muted text-[11px] font-semibold text-primary inline-flex items-center justify-center shrink-0"
+          >
+            Quiz Bank
+          </Link>
+        </div>
       </div>
 
       {selectedPreset && (
