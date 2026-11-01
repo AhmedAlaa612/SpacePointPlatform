@@ -636,6 +636,17 @@ async def get_cohort_pre_quiz_status(
         for r in rows:
             all_attempts.append(await _serialize_attempt(db, r, user_names.get(r.user_id, "Instructor")))
 
+        attempt_ids = [r.id for r in rows]
+        if attempt_ids:
+            all_trial_rows = (
+                await db.execute(
+                    select(PreSessionQuizPhaseTrial)
+                    .where(PreSessionQuizPhaseTrial.attempt_id.in_(attempt_ids))
+                    .order_by(PreSessionQuizPhaseTrial.submitted_at.asc())
+                )
+            ).scalars().all()
+            trials_data = [_serialize_trial(tr) for tr in all_trial_rows]
+
     return {
         "has_quiz": True,
         "assignment_level": assign_info.get("level", "cohort"),

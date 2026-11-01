@@ -44,6 +44,7 @@ import { cn, ensureAbsoluteUrl, getErrorMessage } from "@/lib/utils"
 import { MediaPreviewModal } from "@/components/media/MediaPreviewModal"
 import { ChecklistAttachmentPicker } from "./ChecklistAttachmentPicker"
 import { PreSessionQuizAssignmentBar } from "./PreSessionQuizAssignmentBar"
+import { SessionPreQuizOpsPanel } from "./SessionPreQuizOpsPanel"
 
 export type ChecklistDraftLine = {
   key: string
@@ -1148,12 +1149,18 @@ export function CohortDayChecklistManager({
         </button>
       </div>
 
-      {/* 2.5. Pre-Session Quiz Preset Assignment (Cohort / Session) */}
-      <PreSessionQuizAssignmentBar
-        scope={isDefaultScope ? "cohorts" : "sessions"}
-        ownerId={isDefaultScope ? cohort.id : selectedDay}
-        dayTitle={dayTitle}
-      />
+      {/* 2.5. Pre-Session Quiz Preset Assignment & Submissions Review */}
+      <div className="space-y-3">
+        <PreSessionQuizAssignmentBar
+          scope={isDefaultScope ? "cohorts" : "sessions"}
+          ownerId={isDefaultScope ? cohort.id : selectedDay}
+          dayTitle={dayTitle}
+        />
+        <SessionPreQuizOpsPanel
+          cohortId={isDefaultScope ? cohort.id : undefined}
+          sessionId={!isDefaultScope ? selectedDay : undefined}
+        />
+      </div>
 
       {/* 3. Active Day & Role Checklist Editor */}
       <div className="p-3 sm:p-4 rounded-xl border border-border bg-card/60">
