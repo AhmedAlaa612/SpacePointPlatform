@@ -84,8 +84,21 @@ async def create_config(
     body: AssessmentConfigCreate, db: AsyncSession = Depends(get_db),
     current: User = Depends(require_materials_manager),
 ):
+    from app.models.sessions.pre_session_quiz import PreSessionQuizPreset
     config = AssessmentConfig(id=uuid.uuid4(), created_by=current.id, **body.model_dump())
     db.add(config)
+    preset = PreSessionQuizPreset(
+        id=config.id,
+        name=config.name,
+        description=config.description,
+        preset_type="pre_assessment",
+        draw_size=config.draw_size,
+        critical_floor=config.critical_floor,
+        passing_score_percent=80,
+        is_active=config.is_active,
+        created_by=current.id,
+    )
+    db.add(preset)
     await db.commit()
     await db.refresh(config)
     return await _config_out(db, config)
@@ -148,12 +161,26 @@ async def delete_config(config_id: uuid.UUID, db: AsyncSession = Depends(get_db)
 
 @router.post("/configs/{config_id}/questions", response_model=AssessmentQuestionOut, status_code=status.HTTP_201_CREATED)
 async def create_question(config_id: uuid.UUID, body: AssessmentQuestionIn, db: AsyncSession = Depends(get_db)):
+    from app.models.sessions.pre_session_quiz import PreSessionQuizQuestion
     await _config_or_404(db, config_id)
     question = AssessmentQuestion(
         id=uuid.uuid4(), config_id=config_id, category=body.category, prompt=body.prompt,
         options=[o.model_dump() for o in body.options], critical=body.critical, rationale=body.rationale,
     )
     db.add(question)
+    psq = PreSessionQuizQuestion(
+        id=question.id,
+        topic=body.category,
+        question_type="mcq",
+        title=f"{body.prompt[:60]}...",
+        prompt=body.prompt,
+        options=[o.model_dump() for o in body.options],
+        critical=body.critical,
+        points=1,
+        explanation=body.rationale,
+        is_active=True,
+    )
+    db.add(psq)
     await db.commit()
     await db.refresh(question)
     return _question_out(question)
@@ -161,12 +188,28 @@ async def create_question(config_id: uuid.UUID, body: AssessmentQuestionIn, db: 
 
 @router.patch("/questions/{question_id}", response_model=AssessmentQuestionOut)
 async def update_question(question_id: uuid.UUID, body: AssessmentQuestionUpdate, db: AsyncSession = Depends(get_db)):
+    from app.models.sessions.pre_session_quiz import PreSessionQuizQuestion
     question = await db.get(AssessmentQuestion, question_id)
     if question is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Question not found")
     changes = body.model_dump(exclude_unset=True)
     for field, value in changes.items():
         setattr(question, field, value)
+    psq = await db.get(PreSessionQuizQuestion, question_id)
+    if psq:
+        if "category" in changes:
+            psq.topic = changes["category"]
+        if "prompt" in changes:
+            psq.prompt = changes["prompt"]
+            psq.title = f"{changes['prompt'][:60]}..."
+        if "options" in changes:
+            psq.options = [o.model_dump() if hasattr(o, "model_dump") else o for o in changes["options"]]
+        if "critical" in changes:
+            psq.critical = changes["critical"]
+        if "rationale" in changes:
+            psq.explanation = changes["rationale"]
+        if "is_active" in changes:
+            psq.is_active = changes["is_active"]
     await db.commit()
     await db.refresh(question)
     return _question_out(question)
@@ -174,9 +217,13 @@ async def update_question(question_id: uuid.UUID, body: AssessmentQuestionUpdate
 
 @router.delete("/questions/{question_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_question(question_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
+    from app.models.sessions.pre_session_quiz import PreSessionQuizQuestion
     question = await db.get(AssessmentQuestion, question_id)
     if question is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Question not found")
+    psq = await db.get(PreSessionQuizQuestion, question_id)
+    if psq:
+        await db.delete(psq)
     await db.delete(question)
     await db.commit()
 
@@ -196,6 +243,7 @@ async def download_question_import_template():
 async def import_questions(config_id: uuid.UUID, file: UploadFile, db: AsyncSession = Depends(get_db)):
     """Bad rows are skipped and reported, not fatal — same posture as the
     games question importer and the payments bulk importer."""
+    from app.models.sessions.pre_session_quiz import PreSessionQuizQuestion
     await _config_or_404(db, config_id)
     data = await file.read()
     parsed, errors = parse_assessment_question_import(data)
@@ -207,6 +255,19 @@ async def import_questions(config_id: uuid.UUID, file: UploadFile, db: AsyncSess
             options=[o.model_dump() for o in body.options], critical=body.critical, rationale=body.rationale,
         )
         db.add(question)
+        psq = PreSessionQuizQuestion(
+            id=question.id,
+            topic=body.category,
+            question_type="mcq",
+            title=f"{body.prompt[:60]}...",
+            prompt=body.prompt,
+            options=[o.model_dump() for o in body.options],
+            critical=body.critical,
+            points=1,
+            explanation=body.rationale,
+            is_active=True,
+        )
+        db.add(psq)
         created.append(question)
     await db.commit()
     for question in created:

@@ -48,6 +48,7 @@ async def create_question(
     db: AsyncSession, body: PreSessionQuizQuestionIn, user: User
 ) -> PreSessionQuizQuestion:
     row = PreSessionQuizQuestion(
+        code=body.code.strip() if body.code else None,
         topic=body.topic.strip() or "General",
         question_type=body.question_type,
         title=body.title.strip(),
@@ -57,6 +58,8 @@ async def create_question(
         table_config=body.table_config.model_dump() if body.table_config else None,
         allow_other=body.allow_other,
         is_other_correct=body.is_other_correct,
+        critical=body.critical,
+        points=body.points,
         explanation=body.explanation,
         explanation_image_url=body.explanation_image_url,
         explanation_table=body.explanation_table.model_dump() if body.explanation_table else None,
@@ -75,6 +78,7 @@ async def update_question(
     row = await db.get(PreSessionQuizQuestion, question_id)
     if row is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Question not found")
+    row.code = body.code.strip() if body.code else None
     row.topic = body.topic.strip() or "General"
     row.question_type = body.question_type
     row.title = body.title.strip()
@@ -84,6 +88,8 @@ async def update_question(
     row.table_config = body.table_config.model_dump() if body.table_config else None
     row.allow_other = body.allow_other
     row.is_other_correct = body.is_other_correct
+    row.critical = body.critical
+    row.points = body.points
     row.explanation = body.explanation
     row.explanation_image_url = body.explanation_image_url
     row.explanation_table = body.explanation_table.model_dump() if body.explanation_table else None
@@ -225,6 +231,10 @@ async def _hydrate_presets(
             "id": p.id,
             "name": p.name,
             "description": p.description,
+            "preset_type": getattr(p, "preset_type", "readiness_pipeline"),
+            "draw_size": getattr(p, "draw_size", 15),
+            "critical_floor": getattr(p, "critical_floor", 3),
+            "passing_score_percent": getattr(p, "passing_score_percent", 80),
             "question_ids": [str(qid) for qid in (p.question_ids or []) if str(qid) in questions_by_id],
             "reference_attachments": list(p.reference_attachments or []),
             "phases": list(p.phases or []),
@@ -233,6 +243,80 @@ async def _hydrate_presets(
             "created_at": p.created_at,
         })
     return out
+
+
+async def _sync_preset_to_assessment_config(db: AsyncSession, preset: PreSessionQuizPreset) -> None:
+    """When a preset is marked as `pre_assessment` or `universal`, ensure
+    an AssessmentConfig and its AssessmentQuestion rows exist so that
+    cohort applicant screening (AssessmentCohortAssignment and AssessmentAttempt)
+    works seamlessly from the unified question bank."""
+    if preset.preset_type not in ("pre_assessment", "universal"):
+        return
+
+    from app.models.instructor_assessment.config import AssessmentConfig, AssessmentQuestion
+
+    ac = await db.get(AssessmentConfig, preset.id)
+    if not ac:
+        ac = AssessmentConfig(
+            id=preset.id,
+            name=preset.name,
+            description=preset.description,
+            draw_size=preset.draw_size or 15,
+            critical_floor=preset.critical_floor or 3,
+            is_active=preset.is_active,
+            created_by=preset.created_by,
+        )
+        db.add(ac)
+    else:
+        ac.name = preset.name
+        ac.description = preset.description
+        ac.draw_size = preset.draw_size or 15
+        ac.critical_floor = preset.critical_floor or 3
+        ac.is_active = preset.is_active
+
+    await db.flush()
+
+    # Sync questions for this config
+    q_ids = [UUID(str(qid)) for qid in (preset.question_ids or [])]
+    if q_ids:
+        source_questions = (
+            await db.execute(select(PreSessionQuizQuestion).where(PreSessionQuizQuestion.id.in_(q_ids)))
+        ).scalars().all()
+    else:
+        source_questions = (
+            await db.execute(select(PreSessionQuizQuestion).where(PreSessionQuizQuestion.is_active.is_(True)))
+        ).scalars().all()
+
+    existing_aqs = {
+        aq.id: aq
+        for aq in (
+            await db.execute(select(AssessmentQuestion).where(AssessmentQuestion.config_id == preset.id))
+        ).scalars().all()
+    }
+
+    for sq in source_questions:
+        if sq.id in existing_aqs:
+            aq = existing_aqs[sq.id]
+            aq.category = sq.topic
+            aq.prompt = sq.prompt
+            aq.options = sq.options
+            aq.critical = sq.critical
+            aq.rationale = sq.explanation
+            aq.is_active = sq.is_active
+        else:
+            new_aq = AssessmentQuestion(
+                id=sq.id,
+                config_id=preset.id,
+                category=sq.topic,
+                prompt=sq.prompt,
+                options=sq.options,
+                critical=sq.critical,
+                rationale=sq.explanation,
+                is_active=sq.is_active,
+            )
+            db.add(new_aq)
+
+    await db.flush()
 
 
 async def list_presets(db: AsyncSession, *, active_only: bool = True) -> list[dict]:
@@ -268,6 +352,10 @@ async def create_preset(
     row = PreSessionQuizPreset(
         name=body.name.strip(),
         description=body.description,
+        preset_type=body.preset_type,
+        draw_size=body.draw_size,
+        critical_floor=body.critical_floor,
+        passing_score_percent=body.passing_score_percent,
         question_ids=question_ids,
         reference_attachments=[a.model_dump() for a in (body.reference_attachments or [])],
         phases=[ph.model_dump() for ph in (body.phases or [])],
@@ -277,6 +365,8 @@ async def create_preset(
     db.add(row)
     await db.commit()
     await db.refresh(row)
+    await _sync_preset_to_assessment_config(db, row)
+    await db.commit()
     hydrated = await _hydrate_presets(db, [row])
     return hydrated[0]
 
@@ -289,6 +379,10 @@ async def update_preset(
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Preset not found")
     row.name = body.name.strip()
     row.description = body.description
+    row.preset_type = body.preset_type
+    row.draw_size = body.draw_size
+    row.critical_floor = body.critical_floor
+    row.passing_score_percent = body.passing_score_percent
 
     question_ids = list(body.question_ids or [])
     if not question_ids and body.phases:
@@ -305,6 +399,8 @@ async def update_preset(
     row.is_active = body.is_active
     await db.commit()
     await db.refresh(row)
+    await _sync_preset_to_assessment_config(db, row)
+    await db.commit()
     hydrated = await _hydrate_presets(db, [row])
     return hydrated[0]
 
@@ -313,8 +409,61 @@ async def delete_preset(db: AsyncSession, preset_id: UUID) -> None:
     row = await db.get(PreSessionQuizPreset, preset_id)
     if row is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Preset not found")
+    from app.models.instructor_assessment.config import AssessmentConfig
+    ac = await db.get(AssessmentConfig, preset_id)
+    if ac:
+        await db.delete(ac)
     await db.delete(row)
     await db.commit()
+
+
+async def import_questions_from_file(
+    db: AsyncSession,
+    file_bytes: bytes,
+    filename: str,
+    user: User,
+    topic_override: str | None = None,
+    preset_id: UUID | None = None,
+) -> tuple[int, list[str], list[PreSessionQuizQuestion]]:
+    from app.services.sessions.pre_session_quiz_importer import parse_question_import_bytes
+    parsed_items, errors = parse_question_import_bytes(file_bytes, filename, topic_override)
+
+    created_questions: list[PreSessionQuizQuestion] = []
+    for item in parsed_items:
+        row = PreSessionQuizQuestion(
+            code=item.code,
+            topic=item.topic,
+            question_type=item.question_type,
+            title=item.title,
+            prompt=item.prompt,
+            options=item.options,
+            critical=item.critical,
+            points=item.points,
+            explanation=item.explanation,
+            image_url=item.image_url,
+            is_active=True,
+            created_by=user.id,
+        )
+        db.add(row)
+        created_questions.append(row)
+
+    await db.commit()
+    for row in created_questions:
+        await db.refresh(row)
+
+    # If preset_id provided, append to the preset
+    if preset_id and created_questions:
+        preset = await db.get(PreSessionQuizPreset, preset_id)
+        if preset:
+            curr_q_ids = list(preset.question_ids or [])
+            for q in created_questions:
+                if str(q.id) not in curr_q_ids:
+                    curr_q_ids.append(str(q.id))
+            preset.question_ids = curr_q_ids
+            await _sync_preset_to_assessment_config(db, preset)
+            await db.commit()
+
+    return len(created_questions), errors, created_questions
 
 
 # ── Assignment & Inheritance (Program -> Cohort -> Session) ─────────────────

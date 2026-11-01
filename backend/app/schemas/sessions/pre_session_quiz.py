@@ -28,6 +28,7 @@ class McqOptionSchema(BaseModel):
 
 
 class PreSessionQuizQuestionIn(BaseModel):
+    code: str | None = None
     topic: str = "General"
     question_type: Literal["pinout_table", "mcq", "written", "subsystem_matching"] = "pinout_table"
     title: str
@@ -37,6 +38,8 @@ class PreSessionQuizQuestionIn(BaseModel):
     table_config: PinoutTableConfigSchema | None = None
     allow_other: bool = False
     is_other_correct: bool = False
+    critical: bool = False
+    points: int = 1
     explanation: str | None = None
     explanation_image_url: str | None = None
     explanation_table: PinoutTableConfigSchema | None = None
@@ -47,6 +50,7 @@ class PreSessionQuizQuestionOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: UUID
+    code: str | None = None
     topic: str
     question_type: str
     title: str
@@ -56,6 +60,8 @@ class PreSessionQuizQuestionOut(BaseModel):
     table_config: dict[str, Any] | None = None
     allow_other: bool = False
     is_other_correct: bool = False
+    critical: bool = False
+    points: int = 1
     explanation: str | None = None
     explanation_image_url: str | None = None
     explanation_table: dict[str, Any] | None = None
@@ -155,6 +161,10 @@ class QuizPipelinePhaseSchema(BaseModel):
 class PreSessionQuizPresetIn(BaseModel):
     name: str
     description: str | None = None
+    preset_type: Literal["readiness_pipeline", "pre_assessment", "universal"] = "readiness_pipeline"
+    draw_size: int | None = 15
+    critical_floor: int | None = 3
+    passing_score_percent: int | None = 80
     question_ids: list[str] = Field(default_factory=list)
     reference_attachments: list[ReferenceAttachmentSchema] = Field(default_factory=list)
     phases: list[QuizPipelinePhaseSchema] = Field(default_factory=list)
@@ -167,12 +177,22 @@ class PreSessionQuizPresetOut(BaseModel):
     id: UUID
     name: str
     description: str | None = None
+    preset_type: str = "readiness_pipeline"
+    draw_size: int | None = None
+    critical_floor: int | None = None
+    passing_score_percent: int | None = None
     question_ids: list[str] = Field(default_factory=list)
     reference_attachments: list[dict[str, Any]] = Field(default_factory=list)
     phases: list[dict[str, Any]] = Field(default_factory=list)
     questions: list[PreSessionQuizQuestionOut] = Field(default_factory=list)
     is_active: bool = True
     created_at: datetime | None = None
+
+
+class PreSessionQuizImportOut(BaseModel):
+    created: int
+    errors: list[str] = Field(default_factory=list)
+    questions: list[PreSessionQuizQuestionOut] = Field(default_factory=list)
 
 
 # ── Assignment Schemas ──────────────────────────────────────────────────────

@@ -1,15 +1,20 @@
 import { useMemo, useState } from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import {
+  AlertTriangle,
   BookOpen,
+  CheckCircle,
   ChevronDown,
   ChevronUp,
+  Download,
   ExternalLink,
   Eye,
+  FileSpreadsheet,
   FileText,
   Layers,
   Plus,
   Search,
+  ShieldAlert,
   Trash2,
   Unlink,
   Upload,
@@ -23,6 +28,7 @@ import {
   deletePreQuizDatasheetApi,
   deletePreQuizPresetApi,
   deletePreQuizQuestionApi,
+  downloadPreQuizTemplateApi,
   listPreQuizDatasheetsApi,
   listPreQuizPresetsApi,
   listPreQuizQuestionsApi,
@@ -51,6 +57,7 @@ import { EmptyState, PageHeader, Spinner } from "@/components/ui/primitives"
 import { useToast } from "@/components/ui/toast"
 import { cn, ensureAbsoluteUrl, getErrorMessage } from "@/lib/utils"
 import { ConfirmDialog, Field, Modal, ModalActions } from "@/pages/admin/components/common"
+import { ImportQuestionsModal } from "./components/ImportQuestionsModal"
 
 const DEFAULT_TABLE_CONFIG: PinoutTableConfig = {
   connector_name: "J3",
@@ -160,14 +167,24 @@ function QuestionBankTab() {
   const qc = useQueryClient()
   const toast = useToast()
   const [topicFilter, setTopicFilter] = useState<string>("all")
+  const [typeFilter, setTypeFilter] = useState<string>("all")
+  const [criticalOnly, setCriticalOnly] = useState(false)
+  const [searchQuery, setSearchQuery] = useState("")
   const [editingQuestion, setEditingQuestion] = useState<PreSessionQuizQuestion | null>(null)
   const [creating, setCreating] = useState(false)
+  const [importing, setImporting] = useState(false)
+  const [downloadingTemplate, setDownloadingTemplate] = useState(false)
   const [deletingQuestion, setDeletingQuestion] = useState<PreSessionQuizQuestion | null>(null)
   const [previewQuestions, setPreviewQuestions] = useState<PreSessionQuizQuestion[] | null>(null)
 
   const { data: questions = [], isLoading } = useQuery({
     queryKey: ["pre-quiz-questions"],
     queryFn: () => listPreQuizQuestionsApi({ active_only: false }),
+  })
+
+  const { data: presets = [] } = useQuery({
+    queryKey: ["pre-quiz-presets"],
+    queryFn: () => listPreQuizPresetsApi(false),
   })
 
   const topics = useMemo(() => {
@@ -179,9 +196,33 @@ function QuestionBankTab() {
   }, [questions])
 
   const filtered = useMemo(() => {
-    if (topicFilter === "all") return questions
-    return questions.filter((q) => q.topic === topicFilter)
-  }, [questions, topicFilter])
+    return questions.filter((q) => {
+      if (topicFilter !== "all" && q.topic !== topicFilter) return false
+      if (typeFilter !== "all" && q.question_type !== typeFilter) return false
+      if (criticalOnly && !q.critical) return false
+      if (searchQuery.trim()) {
+        const qry = searchQuery.toLowerCase()
+        const matchesPrompt = q.prompt.toLowerCase().includes(qry)
+        const matchesTitle = q.title.toLowerCase().includes(qry)
+        const matchesCode = q.code ? q.code.toLowerCase().includes(qry) : false
+        const matchesTopic = q.topic.toLowerCase().includes(qry)
+        if (!matchesPrompt && !matchesTitle && !matchesCode && !matchesTopic) return false
+      }
+      return true
+    })
+  }, [questions, topicFilter, typeFilter, criticalOnly, searchQuery])
+
+  const handleDownloadTemplate = async () => {
+    try {
+      setDownloadingTemplate(true)
+      await downloadPreQuizTemplateApi()
+      toast.success("Excel template downloaded")
+    } catch (e) {
+      toast.error(getErrorMessage(e, "Could not download template"))
+    } finally {
+      setDownloadingTemplate(false)
+    }
+  }
 
   const deleteMut = useMutation({
     mutationFn: (id: string) => deletePreQuizQuestionApi(id),
@@ -198,6 +239,7 @@ function QuestionBankTab() {
 
   return (
     <div className="flex flex-col gap-4">
+      {/* Top Action Bar */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div className="flex items-center gap-1.5 flex-wrap">
           <button
@@ -229,7 +271,25 @@ function QuestionBankTab() {
           ))}
         </div>
 
-        <div className="flex items-center gap-2 shrink-0">
+        <div className="flex items-center gap-2 shrink-0 flex-wrap">
+          <button
+            type="button"
+            onClick={handleDownloadTemplate}
+            disabled={downloadingTemplate}
+            className="flex items-center gap-1.5 h-9 px-3 border border-border bg-card hover:bg-muted text-xs sm:text-sm font-semibold text-foreground rounded-xl transition-colors cursor-pointer shrink-0"
+            title="Download blank Excel spreadsheet template with examples"
+          >
+            <Download size={14} />
+            <span className="hidden sm:inline">{downloadingTemplate ? "Downloading..." : "Template"}</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => setImporting(true)}
+            className="flex items-center gap-1.5 h-9 px-3 border border-primary/30 bg-primary/10 hover:bg-primary/20 text-xs sm:text-sm font-semibold text-primary rounded-xl transition-colors cursor-pointer shrink-0"
+          >
+            <Upload size={14} />
+            <span>Import Excel / CSV</span>
+          </button>
           {filtered.length > 0 && (
             <button
               type="button"
@@ -249,6 +309,61 @@ function QuestionBankTab() {
         </div>
       </div>
 
+      {/* Search & Filter Toolbar */}
+      <div className="flex items-center gap-2.5 flex-wrap p-2.5 rounded-2xl border border-border bg-card">
+        <div className="relative flex-1 min-w-[200px]">
+          <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
+          <input
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            placeholder="Search questions by code, prompt, or topic..."
+            className="w-full h-8 pl-8 pr-3 text-xs bg-muted/40 border border-border rounded-lg text-foreground focus:outline-none focus:border-primary"
+          />
+        </div>
+
+        <div className="flex items-center gap-2 flex-wrap">
+          <select
+            value={typeFilter}
+            onChange={(e) => setTypeFilter(e.target.value)}
+            className="h-8 px-2.5 text-xs bg-muted/40 border border-border rounded-lg text-foreground focus:outline-none focus:border-primary"
+          >
+            <option value="all">All Formats</option>
+            <option value="mcq">Multiple Choice</option>
+            <option value="pinout_table">Connector Pinout Table</option>
+            <option value="written">Written Scenario</option>
+            <option value="subsystem_matching">Subsystem Matching</option>
+          </select>
+
+          <button
+            type="button"
+            onClick={() => setCriticalOnly(!criticalOnly)}
+            className={cn(
+              "h-8 px-2.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer border",
+              criticalOnly
+                ? "bg-rose-500/15 border-rose-500/40 text-rose-600 dark:text-rose-400"
+                : "bg-muted/40 border-border text-muted-foreground hover:text-foreground"
+            )}
+          >
+            <ShieldAlert size={13} />
+            <span>Critical Only ({questions.filter((q) => q.critical).length})</span>
+          </button>
+
+          {(searchQuery || typeFilter !== "all" || criticalOnly) && (
+            <button
+              type="button"
+              onClick={() => {
+                setSearchQuery("")
+                setTypeFilter("all")
+                setCriticalOnly(false)
+              }}
+              className="text-xs text-muted-foreground hover:text-foreground underline cursor-pointer"
+            >
+              Reset Filters
+            </button>
+          )}
+        </div>
+      </div>
+
       {filtered.length === 0 ? (
         <EmptyState
           title="No questions in this topic yet"
@@ -264,6 +379,11 @@ function QuestionBankTab() {
               <div className="flex items-start justify-between gap-3 flex-wrap">
                 <div className="flex flex-col gap-1 min-w-0">
                   <div className="flex items-center gap-2 flex-wrap">
+                    {q.code && (
+                      <span className="px-2 py-0.5 rounded-md font-mono text-[11px] font-bold bg-muted text-foreground border border-border">
+                        {q.code}
+                      </span>
+                    )}
                     <span className="px-2 py-0.5 rounded-full text-[11px] font-bold bg-primary/10 text-primary border border-primary/20">
                       {q.topic}
                     </span>
@@ -275,6 +395,14 @@ function QuestionBankTab() {
                         : q.question_type === "subsystem_matching"
                         ? "Subsystem Matching"
                         : "Multiple Choice"}
+                    </span>
+                    {q.critical && (
+                      <span className="px-2 py-0.5 rounded-full text-[11px] font-bold bg-rose-500/15 text-rose-600 dark:text-rose-400 border border-rose-500/30 flex items-center gap-1">
+                        <ShieldAlert size={11} /> Critical Safety
+                      </span>
+                    )}
+                    <span className="text-[11px] text-muted-foreground font-medium">
+                      ({q.points || 1} pt)
                     </span>
                     {q.is_other_correct && (
                       <span className="px-2 py-0.5 rounded-full text-[11px] font-semibold bg-amber-500/15 text-amber-600 dark:text-amber-400 border border-amber-500/30">
@@ -411,6 +539,17 @@ function QuestionBankTab() {
         />
       )}
 
+      {importing && (
+        <ImportQuestionsModal
+          existingPresets={presets}
+          onClose={() => setImporting(false)}
+          onImportSuccess={() => {
+            qc.invalidateQueries({ queryKey: ["pre-quiz-questions"] })
+            qc.invalidateQueries({ queryKey: ["pre-quiz-presets"] })
+          }}
+        />
+      )}
+
       {deletingQuestion && (
         <ConfirmDialog
           title="Delete Question"
@@ -468,6 +607,7 @@ function QuestionBuilderModal({
   onSaved: () => void
 }) {
   const toast = useToast()
+  const [code, setCode] = useState(question?.code ?? "")
   const [topic, setTopic] = useState(question?.topic ?? "CDHS")
   const [questionType, setQuestionType] = useState<"pinout_table" | "mcq" | "written">(() => {
     if (question?.question_type === "written") return "written"
@@ -488,6 +628,8 @@ function QuestionBuilderModal({
   )
   const [allowOther, setAllowOther] = useState(question?.allow_other ?? false)
   const [isOtherCorrect, setIsOtherCorrect] = useState(question?.is_other_correct ?? false)
+  const [critical, setCritical] = useState(question?.critical ?? false)
+  const [points, setPoints] = useState(question?.points ?? 1)
   const [explanation, setExplanation] = useState(question?.explanation ?? "")
   const [explanationImageUrl, setExplanationImageUrl] = useState(
     question?.explanation_image_url ?? ""
@@ -521,6 +663,7 @@ function QuestionBuilderModal({
   const saveMut = useMutation({
     mutationFn: () => {
       const payload: PreSessionQuizQuestionIn = {
+        code: code.trim() || null,
         topic: topic.trim() || "General",
         question_type: questionType,
         title: title.trim(),
@@ -530,6 +673,8 @@ function QuestionBuilderModal({
         table_config: questionType === "pinout_table" ? tableConfig : null,
         allow_other: allowOther || isOtherCorrect,
         is_other_correct: isOtherCorrect,
+        critical,
+        points: Number(points) || 1,
         explanation: explanation.trim() || null,
         explanation_image_url: explanationImageUrl.trim() || null,
         explanation_table: hasExplanationTable ? explanationTable : null,
@@ -614,6 +759,40 @@ function QuestionBuilderModal({
               </datalist>
             </div>
           </Field>
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+          <Field label="Question Code / ID (optional)">
+            <input
+              value={code}
+              onChange={(e) => setCode(e.target.value)}
+              placeholder="e.g. A01, B01, 14"
+              className="w-full h-10 px-3 border border-border bg-card text-foreground rounded-xl text-sm focus:outline-none focus:border-primary font-mono"
+            />
+          </Field>
+          <Field label="Scoring Points">
+            <input
+              type="number"
+              min={1}
+              value={points}
+              onChange={(e) => setPoints(parseInt(e.target.value) || 1)}
+              className="w-full h-10 px-3 border border-border bg-card text-foreground rounded-xl text-sm focus:outline-none focus:border-primary"
+            />
+          </Field>
+          <div className="flex flex-col justify-end">
+            <label className="flex items-center gap-2.5 h-10 px-3 border border-border bg-card rounded-xl cursor-pointer hover:bg-muted/40 transition-colors">
+              <input
+                type="checkbox"
+                checked={critical}
+                onChange={(e) => setCritical(e.target.checked)}
+                className="w-4 h-4 rounded text-rose-600 focus:ring-rose-500 cursor-pointer"
+              />
+              <span className="text-xs font-semibold text-foreground flex items-center gap-1">
+                <ShieldAlert size={13} className="text-rose-500" />
+                Safety-Critical
+              </span>
+            </label>
+          </div>
         </div>
 
         <Field label="Question Title">
@@ -1673,16 +1852,46 @@ function PresetsTab() {
                 <div className="flex flex-col gap-1">
                   <div className="flex items-center gap-2 flex-wrap">
                     <h3 className="text-base font-bold text-foreground">{preset.name}</h3>
-                    <span className="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-primary/10 text-primary border border-primary/20">
-                      {preset.phases?.length || 0} Phase{preset.phases?.length === 1 ? "" : "s"}
-                    </span>
-                    <span className="px-2.5 py-0.5 rounded-full text-xs font-medium bg-muted text-foreground border border-border">
-                      {preset.questions?.length || 0} Questions
-                    </span>
-                    {preset.reference_attachments?.length > 0 && (
-                      <span className="px-2.5 py-0.5 rounded-full text-xs font-medium bg-muted text-foreground border border-border">
-                        {preset.reference_attachments.length} Datasheets
+                    {preset.preset_type === "pre_assessment" ? (
+                      <span className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-blue-500/15 text-blue-600 dark:text-blue-400 border border-blue-500/30">
+                        Applicant Pre-Assessment
                       </span>
+                    ) : preset.preset_type === "universal" ? (
+                      <span className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-purple-500/15 text-purple-600 dark:text-purple-400 border border-purple-500/30">
+                        Universal (Dual Mode)
+                      </span>
+                    ) : (
+                      <span className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30">
+                        Readiness Pipeline
+                      </span>
+                    )}
+
+                    {preset.preset_type === "pre_assessment" ? (
+                      <>
+                        <span className="px-2.5 py-0.5 rounded-full text-xs font-medium bg-muted text-foreground border border-border">
+                          Draw: {preset.draw_size || 15} Qs
+                        </span>
+                        <span className="px-2.5 py-0.5 rounded-full text-xs font-medium bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-500/20">
+                          Critical Floor: ≥{preset.critical_floor || 3}
+                        </span>
+                        <span className="px-2.5 py-0.5 rounded-full text-xs font-medium bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">
+                          Pass: {preset.passing_score_percent || 80}%
+                        </span>
+                      </>
+                    ) : (
+                      <>
+                        <span className="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-primary/10 text-primary border border-primary/20">
+                          {preset.phases?.length || 0} Phase{preset.phases?.length === 1 ? "" : "s"}
+                        </span>
+                        <span className="px-2.5 py-0.5 rounded-full text-xs font-medium bg-muted text-foreground border border-border">
+                          {preset.questions?.length || 0} Questions
+                        </span>
+                        {preset.reference_attachments?.length > 0 && (
+                          <span className="px-2.5 py-0.5 rounded-full text-xs font-medium bg-muted text-foreground border border-border">
+                            {preset.reference_attachments.length} Datasheets
+                          </span>
+                        )}
+                      </>
                     )}
                   </div>
                   {preset.description && (
@@ -1825,6 +2034,12 @@ function PresetBuilderModal({
 }) {
   const toast = useToast()
   const [modalTab, setModalTab] = useState<"phases" | "datasheets" | "settings">("phases")
+  const [presetType, setPresetType] = useState<"readiness_pipeline" | "pre_assessment" | "universal">(
+    preset?.preset_type ?? "readiness_pipeline"
+  )
+  const [drawSize, setDrawSize] = useState<number>(preset?.draw_size ?? 15)
+  const [criticalFloor, setCriticalFloor] = useState<number>(preset?.critical_floor ?? 3)
+  const [passingScorePercent, setPassingScorePercent] = useState<number>(preset?.passing_score_percent ?? 80)
   const [name, setName] = useState(preset?.name ?? "")
   const [description, setDescription] = useState(preset?.description ?? "")
   const [references, setReferences] = useState<ReferenceAttachment[]>(
@@ -2142,6 +2357,10 @@ function PresetBuilderModal({
       const payload: PreSessionQuizPresetIn = {
         name: name.trim(),
         description: description.trim() || null,
+        preset_type: presetType,
+        draw_size: presetType !== "readiness_pipeline" ? drawSize : null,
+        critical_floor: presetType !== "readiness_pipeline" ? criticalFloor : null,
+        passing_score_percent: presetType !== "readiness_pipeline" ? passingScorePercent : null,
         question_ids: allQuizQIds.length > 0 ? allQuizQIds : preset?.question_ids || [],
         reference_attachments: references,
         phases: phases,
@@ -2158,18 +2377,63 @@ function PresetBuilderModal({
 
   return (
     <Modal
-      title={preset ? `Configure Pipeline Preset: ${preset.name}` : "New Readiness Pipeline Preset"}
+      title={preset ? `Configure Preset: ${preset.name}` : "New Quiz & Pipeline Preset"}
       onClose={onClose}
       maxWidth="sm:max-w-4xl max-w-4xl"
     >
       <div className="flex flex-col gap-4">
+        {/* Preset Usage Mode */}
+        <Field label="Preset Target Usage Mode">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+            <button
+              type="button"
+              onClick={() => setPresetType("readiness_pipeline")}
+              className={cn(
+                "p-2.5 rounded-xl border text-left flex flex-col gap-1 transition-all cursor-pointer",
+                presetType === "readiness_pipeline"
+                  ? "border-emerald-500 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 font-semibold"
+                  : "border-border bg-card text-muted-foreground hover:text-foreground"
+              )}
+            >
+              <span className="text-xs font-bold">Readiness Pipeline</span>
+              <span className="text-[10px] opacity-80">Phased pre-flight readiness gate with datasheets & pinouts</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setPresetType("pre_assessment")}
+              className={cn(
+                "p-2.5 rounded-xl border text-left flex flex-col gap-1 transition-all cursor-pointer",
+                presetType === "pre_assessment"
+                  ? "border-blue-500 bg-blue-500/10 text-blue-600 dark:text-blue-400 font-semibold"
+                  : "border-border bg-card text-muted-foreground hover:text-foreground"
+              )}
+            >
+              <span className="text-xs font-bold">Applicant Pre-Assessment</span>
+              <span className="text-[10px] opacity-80">Screening test for instructor candidates with draw rules</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setPresetType("universal")}
+              className={cn(
+                "p-2.5 rounded-xl border text-left flex flex-col gap-1 transition-all cursor-pointer",
+                presetType === "universal"
+                  ? "border-purple-500 bg-purple-500/10 text-purple-600 dark:text-purple-400 font-semibold"
+                  : "border-border bg-card text-muted-foreground hover:text-foreground"
+              )}
+            >
+              <span className="text-xs font-bold">Universal (Dual Mode)</span>
+              <span className="text-[10px] opacity-80">Usable as screening assessment & readiness pipeline</span>
+            </button>
+          </div>
+        </Field>
+
         {/* Name & Description Bar */}
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-          <Field label="Pipeline Preset Name">
+          <Field label="Preset Name">
             <input
               value={name}
               onChange={(e) => setName(e.target.value)}
-              placeholder="e.g. Standard SpacePoint Hardware Delivery Pipeline"
+              placeholder="e.g. Standard SpacePoint Instructor Assessment"
               className="w-full h-10 px-3 border border-border bg-card text-foreground rounded-xl text-sm focus:outline-none focus:border-primary"
             />
           </Field>
@@ -2177,11 +2441,57 @@ function PresetBuilderModal({
             <input
               value={description}
               onChange={(e) => setDescription(e.target.value)}
-              placeholder="Summary of this readiness pipeline..."
+              placeholder="Summary of this preset..."
               className="w-full h-10 px-3 border border-border bg-card text-foreground rounded-xl text-sm focus:outline-none focus:border-primary"
             />
           </Field>
         </div>
+
+        {/* Pre-Assessment Screening Settings */}
+        {(presetType === "pre_assessment" || presetType === "universal") && (
+          <div className="p-3.5 rounded-2xl border border-blue-500/30 bg-blue-500/5 flex flex-col gap-3">
+            <div className="flex items-center gap-2">
+              <span className="text-xs font-bold text-foreground">Applicant Pre-Assessment Screening Rules</span>
+              <span className="text-[10px] px-2 py-0.5 rounded-full font-semibold bg-blue-500/15 text-blue-600 dark:text-blue-400">
+                Gated Applicants
+              </span>
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              <Field label="Total Questions Drawn">
+                <input
+                  type="number"
+                  min={1}
+                  value={drawSize}
+                  onChange={(e) => setDrawSize(parseInt(e.target.value) || 15)}
+                  className="w-full h-9 px-3 border border-border bg-card text-foreground rounded-xl text-xs focus:outline-none focus:border-primary"
+                />
+              </Field>
+              <Field label="Critical Safety Questions Floor">
+                <input
+                  type="number"
+                  min={0}
+                  max={drawSize}
+                  value={criticalFloor}
+                  onChange={(e) => setCriticalFloor(parseInt(e.target.value) || 3)}
+                  className="w-full h-9 px-3 border border-border bg-card text-foreground rounded-xl text-xs focus:outline-none focus:border-primary"
+                />
+              </Field>
+              <Field label="Passing Score Threshold (%)">
+                <input
+                  type="number"
+                  min={1}
+                  max={100}
+                  value={passingScorePercent}
+                  onChange={(e) => setPassingScorePercent(parseInt(e.target.value) || 80)}
+                  className="w-full h-9 px-3 border border-border bg-card text-foreground rounded-xl text-xs focus:outline-none focus:border-primary"
+                />
+              </Field>
+            </div>
+            <p className="text-[11px] text-muted-foreground">
+              When candidates take this assessment, the system draws a balanced set of {drawSize} questions with at least {criticalFloor} safety-critical questions.
+            </p>
+          </div>
+        )}
 
         {/* Modal Tabs */}
         <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border pb-2">
@@ -2650,8 +2960,14 @@ function PresetBuilderModal({
           onCancel={onClose}
           onConfirm={() => saveMut.mutate()}
           loading={saveMut.isPending}
-          disabled={!name.trim() || phases.length === 0}
-          label={preset ? "Save Changes" : "Create Pipeline Preset"}
+          disabled={!name.trim() || (presetType === "readiness_pipeline" && phases.length === 0)}
+          label={
+            preset
+              ? "Save Changes"
+              : presetType === "pre_assessment"
+              ? "Create Pre-Assessment Preset"
+              : "Create Pipeline Preset"
+          }
         />
       </div>
 

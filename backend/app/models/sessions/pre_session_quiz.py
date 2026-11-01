@@ -25,6 +25,7 @@ class PreSessionQuizQuestion(Base):
     __tablename__ = "pre_session_quiz_questions"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    code = Column(String(64), nullable=True, index=True)
     topic = Column(String(128), nullable=False, default="General", server_default="General", index=True)
     question_type = Column(String(32), nullable=False, default="pinout_table", server_default="pinout_table")
     title = Column(String(255), nullable=False)
@@ -49,6 +50,11 @@ class PreSessionQuizQuestion(Base):
     allow_other = Column(Boolean, nullable=False, default=False, server_default="false")
     # Whether "Other" is the expected path (e.g. tricky datasheet error question like Connector J6)
     is_other_correct = Column(Boolean, nullable=False, default=False, server_default="false")
+
+    # Critical question flag (e.g. safety-critical questions with mandatory passing thresholds)
+    critical = Column(Boolean, nullable=False, default=False, server_default="false", index=True)
+    # Scoring points / weight
+    points = Column(Integer, nullable=False, default=1, server_default="1")
 
     explanation = Column(Text, nullable=True)
     explanation_image_url = Column(String(512), nullable=True)
@@ -90,6 +96,14 @@ class PreSessionQuizPreset(Base):
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     name = Column(String(255), nullable=False)
     description = Column(Text, nullable=True)
+
+    # Preset usage type: "readiness_pipeline" | "pre_assessment" | "universal"
+    preset_type = Column(String(32), nullable=False, default="readiness_pipeline", server_default="readiness_pipeline", index=True)
+
+    # Pre-Assessment draw rules (when used for applicant screening)
+    draw_size = Column(Integer, nullable=True, default=15, server_default="15")
+    critical_floor = Column(Integer, nullable=True, default=3, server_default="3")
+    passing_score_percent = Column(Integer, nullable=True, default=80, server_default="80")
 
     # Legacy flat question list kept synced with quiz phases for backward compatibility
     question_ids = Column(JSONB, nullable=False, default=list, server_default="[]")

@@ -59,10 +59,10 @@ export function ProgramAssessmentDefaultPanel({ program, onUpdated }: {
       <div>
         <div className="flex items-center justify-between mb-1">
           <label className="text-xs font-medium uppercase tracking-wider text-muted-foreground block">
-            Default instructor assessment
+            Default instructor assessment preset
           </label>
-          <Link to="/instructors/admin/assessment-questions" className="text-xs text-primary hover:underline">
-            Manage question bank →
+          <Link to="/instructors/facilitator/quizzes" className="text-xs text-primary hover:underline">
+            Manage question bank &amp; presets →
           </Link>
         </div>
         <select

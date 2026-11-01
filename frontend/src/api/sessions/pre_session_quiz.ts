@@ -24,6 +24,7 @@ export interface McqOption {
 
 export interface PreSessionQuizQuestion {
   id: string
+  code?: string | null
   topic: string
   question_type: "pinout_table" | "mcq" | "written" | "subsystem_matching"
   title: string
@@ -33,6 +34,8 @@ export interface PreSessionQuizQuestion {
   table_config?: PinoutTableConfig | null
   allow_other: boolean
   is_other_correct: boolean
+  critical?: boolean
+  points?: number
   explanation?: string | null
   explanation_image_url?: string | null
   explanation_table?: PinoutTableConfig | null
@@ -41,6 +44,7 @@ export interface PreSessionQuizQuestion {
 }
 
 export interface PreSessionQuizQuestionIn {
+  code?: string | null
   topic: string
   question_type: "pinout_table" | "mcq" | "written" | "subsystem_matching"
   title: string
@@ -50,6 +54,8 @@ export interface PreSessionQuizQuestionIn {
   table_config?: PinoutTableConfig | null
   allow_other: boolean
   is_other_correct: boolean
+  critical?: boolean
+  points?: number
   explanation?: string | null
   explanation_image_url?: string | null
   explanation_table?: PinoutTableConfig | null
@@ -141,6 +147,10 @@ export interface PreSessionQuizPreset {
   id: string
   name: string
   description?: string | null
+  preset_type?: "readiness_pipeline" | "pre_assessment" | "universal"
+  draw_size?: number | null
+  critical_floor?: number | null
+  passing_score_percent?: number | null
   question_ids: string[]
   reference_attachments: ReferenceAttachment[]
   phases?: QuizPipelinePhase[]
@@ -152,10 +162,20 @@ export interface PreSessionQuizPreset {
 export interface PreSessionQuizPresetIn {
   name: string
   description?: string | null
+  preset_type?: "readiness_pipeline" | "pre_assessment" | "universal"
+  draw_size?: number | null
+  critical_floor?: number | null
+  passing_score_percent?: number | null
   question_ids?: string[]
   reference_attachments?: ReferenceAttachment[]
   phases?: QuizPipelinePhase[]
   is_active?: boolean
+}
+
+export interface PreSessionQuizImportResult {
+  created: number
+  errors: string[]
+  questions: PreSessionQuizQuestion[]
 }
 
 export interface PreSessionQuizAssignment {
@@ -263,6 +283,33 @@ export const updatePreQuizQuestionApi = (questionId: string, body: PreSessionQui
 
 export const deletePreQuizQuestionApi = (questionId: string) =>
   api.delete(`/sessions/pre-quiz/questions/${questionId}`).then((r) => r.data)
+
+export const downloadPreQuizTemplateApi = async () => {
+  const resp = await api.get("/sessions/pre-quiz/questions/import/template", {
+    responseType: "blob",
+  })
+  const url = window.URL.createObjectURL(new Blob([resp.data]))
+  const link = document.createElement("a")
+  link.href = url
+  link.setAttribute("download", "spacepoint_question_bank_template.xlsx")
+  document.body.appendChild(link)
+  link.click()
+  link.remove()
+  window.URL.revokeObjectURL(url)
+}
+
+export const importPreQuizQuestionsApi = (file: File, topic?: string, presetId?: string) => {
+  const form = new FormData()
+  form.append("file", file)
+  return api
+    .post<PreSessionQuizImportResult>("/sessions/pre-quiz/questions/import", form, {
+      params: {
+        ...(topic ? { topic } : {}),
+        ...(presetId ? { preset_id: presetId } : {}),
+      },
+    })
+    .then((r) => r.data)
+}
 
 export const uploadPreQuizImageApi = (file: File) => {
   const form = new FormData()

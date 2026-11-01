@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react"
 import { isAxiosError } from "axios"
+import { Link } from "@tanstack/react-router"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { AlertTriangle, Download, Pencil, Plus, Trash2, Upload } from "lucide-react"
 import { PageHeader, EmptyState, Spinner, StatCard } from "@/components/ui/primitives"
@@ -105,12 +106,20 @@ export default function AssessmentQuestions() {
         title="Instructor Assessment — Question Bank"
         subtitle="Category-tagged, critical-flagged scenario questions. Each config is a reusable bank ops assigns to a cohort."
         action={
-          <button
-            onClick={openCreateConfig}
-            className="flex items-center gap-1.5 h-9 px-4 bg-primary text-primary-foreground text-sm font-medium rounded-xl hover:opacity-90 transition-colors shrink-0"
-          >
-            <Plus size={14} /> New assessment
-          </button>
+          <div className="flex items-center gap-2 flex-wrap">
+            <Link
+              to="/instructors/facilitator/quizzes"
+              className="flex items-center gap-1.5 h-9 px-3.5 border border-primary/30 bg-primary/10 text-primary text-xs sm:text-sm font-semibold rounded-xl hover:bg-primary/20 transition-colors shrink-0"
+            >
+              Open Unified Bank &amp; Presets →
+            </Link>
+            <button
+              onClick={openCreateConfig}
+              className="flex items-center gap-1.5 h-9 px-4 bg-primary text-primary-foreground text-sm font-medium rounded-xl hover:opacity-90 transition-colors shrink-0"
+            >
+              <Plus size={14} /> New assessment
+            </button>
+          </div>
         }
       />
 

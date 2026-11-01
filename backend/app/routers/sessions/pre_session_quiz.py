@@ -4,7 +4,7 @@ import uuid
 from typing import Any
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, UploadFile, status
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -24,6 +24,7 @@ from app.schemas.sessions.pre_session_quiz import (
     PreSessionQuizDatasheetIn,
     PreSessionQuizDatasheetOut,
     PreSessionQuizDatasheetUpdateIn,
+    PreSessionQuizImportOut,
     PreSessionQuizPresetIn,
     PreSessionQuizPresetOut,
     PreSessionQuizQuestionIn,
@@ -88,6 +89,44 @@ async def delete_pre_quiz_question(
     current_user: User = Depends(require_materials_manager),
 ):
     await svc.delete_question(db, question_id)
+
+
+@router.get("/pre-quiz/questions/import/template")
+async def download_pre_quiz_import_template(
+    current_user: User = Depends(require_materials_manager),
+):
+    """Download official SpacePoint question bank import template."""
+    from app.services.sessions.pre_session_quiz_importer import generate_question_template_xlsx
+    content = generate_question_template_xlsx()
+    return Response(
+        content=content,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": "attachment; filename=spacepoint_question_bank_template.xlsx"},
+    )
+
+
+@router.post("/pre-quiz/questions/import", response_model=PreSessionQuizImportOut)
+async def import_pre_quiz_questions(
+    file: UploadFile,
+    topic: str | None = Query(None),
+    preset_id: UUID | None = Query(None),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_materials_manager),
+):
+    """Bulk import questions from Excel (.xlsx) or CSV (.csv)."""
+    data = await file.read()
+    if not data:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="Empty upload file")
+
+    filename = file.filename or "questions.xlsx"
+    created_count, errors, created_questions = await svc.import_questions_from_file(
+        db, data, filename, current_user, topic_override=topic, preset_id=preset_id
+    )
+    return PreSessionQuizImportOut(
+        created=created_count,
+        errors=errors,
+        questions=[PreSessionQuizQuestionOut.model_validate(q) for q in created_questions],
+    )
 
 
 @router.post("/pre-quiz/images")
