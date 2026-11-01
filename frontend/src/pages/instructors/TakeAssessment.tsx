@@ -5,12 +5,13 @@ import { AlertTriangle, CheckCircle2 } from "lucide-react"
 import { Spinner } from "@/components/ui/primitives"
 import { Progress } from "@/components/ui/progress"
 import { QuestionReviewList } from "@/components/AssessmentReview"
+import { resolveQuizImageUrl } from "@/api/lms"
 import {
   getMyAssessmentAttemptApi,
   startAssessmentAttemptApi,
   submitAssessmentAttemptApi,
 } from "@/api/instructor_assessment"
-import type { AttemptResult } from "@/types/instructor_assessment"
+import type { AttemptQuestion, AttemptResult } from "@/types/instructor_assessment"
 
 /** Instructor-facing assessment flow (2026-09) — start -> question-by-
  *  question -> results. One randomized 15-question draw per opportunity
@@ -92,7 +93,7 @@ function progressKey(attemptId: string) {
 
 function QuestionFlow({ attemptId, questions, onFinished }: {
   attemptId: string
-  questions: { question_id: string; category: string; prompt: string; options: string[]; critical: boolean }[]
+  questions: AttemptQuestion[]
   onFinished: () => void
 }) {
   const [index, setIndex] = useState<number>(() => {
@@ -109,6 +110,7 @@ function QuestionFlow({ attemptId, questions, onFinished }: {
     } catch { return {} }
   })
   const [result, setResult] = useState<AttemptResult | null>(null)
+  const [zoomUrl, setZoomUrl] = useState<string | null>(null)
 
   useEffect(() => {
     try {
@@ -129,6 +131,7 @@ function QuestionFlow({ attemptId, questions, onFinished }: {
   const current = questions[index]
   const selected = answers[current.question_id] ?? null
   const isLast = index === questions.length - 1
+  const resolvedImg = resolveQuizImageUrl(current.image_url)
 
   return (
     <div className="max-w-3xl lg:max-w-4xl mx-auto flex flex-col gap-4 py-2 sm:py-4 px-5">
@@ -152,6 +155,18 @@ function QuestionFlow({ attemptId, questions, onFinished }: {
         </div>
 
         <p className="font-display text-lg font-semibold leading-snug">{current.prompt}</p>
+
+        {resolvedImg && (
+          <div className="rounded-xl overflow-hidden border border-border bg-muted/20 p-2 flex flex-col items-center">
+            <img
+              src={resolvedImg}
+              alt="Inspection reference"
+              onClick={() => setZoomUrl(resolvedImg)}
+              className="max-h-72 object-contain rounded-lg cursor-zoom-in hover:opacity-95 transition-opacity"
+            />
+            <span className="text-[10px] text-muted-foreground mt-1">Click image to enlarge</span>
+          </div>
+        )}
 
         <div className="flex flex-col gap-2">
           {current.options.map((text, i) => (
@@ -183,6 +198,28 @@ function QuestionFlow({ attemptId, questions, onFinished }: {
           {isLast ? (submitMutation.isPending ? "Submitting…" : "Submit") : "Next"}
         </button>
       </div>
+
+      {zoomUrl && (
+        <div
+          className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center p-4 backdrop-blur-sm cursor-zoom-out"
+          onClick={() => setZoomUrl(null)}
+        >
+          <div className="relative max-w-4xl max-h-[90vh] flex flex-col items-center" onClick={(e) => e.stopPropagation()}>
+            <img
+              src={zoomUrl}
+              alt="Enlarged inspection reference"
+              className="max-w-full max-h-[85vh] object-contain rounded-xl shadow-2xl border border-white/20"
+            />
+            <button
+              type="button"
+              onClick={() => setZoomUrl(null)}
+              className="mt-3 px-4 py-1.5 rounded-full bg-white/20 hover:bg-white/30 text-white text-xs font-semibold backdrop-blur-sm transition-colors"
+            >
+              Close
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

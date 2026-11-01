@@ -15,6 +15,7 @@ export interface AssessmentQuestion {
   options: AssessmentQuestionOption[];
   critical: boolean;
   rationale?: string | null;
+  image_url?: string | null;
   is_active: boolean;
 }
 
@@ -59,6 +60,7 @@ export interface AttemptQuestion {
   prompt: string;
   options: string[];
   critical: boolean;
+  image_url?: string | null;
 }
 
 export interface Attempt {
@@ -81,6 +83,7 @@ export interface AttemptQuestionReview {
   is_correct: boolean;
   critical: boolean;
   rationale?: string | null;
+  image_url?: string | null;
 }
 
 export interface AttemptResult {

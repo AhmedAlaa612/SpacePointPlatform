@@ -53,6 +53,8 @@ class ImportedQuestionItem(BaseModel):
     points: int = 1
     explanation: str | None = None
     image_url: str | None = None
+    raw_image_bytes: bytes | None = None
+    raw_image_ext: str = "png"
 
 
 def _find_header_mapping(row: list[Any]) -> dict[str, int] | None:
@@ -83,11 +85,18 @@ def _find_header_mapping(row: list[Any]) -> dict[str, int] | None:
     return None
 
 
-def _parse_raw_rows(raw_rows: list[list[Any]], topic_override: str | None = None) -> Tuple[list[ImportedQuestionItem], list[str]]:
+def _parse_raw_rows(
+    raw_rows: list[list[Any]],
+    topic_override: str | None = None,
+    row_images: dict[int, tuple[bytes, str]] | None = None,
+    code_images_cache: dict[str, tuple[bytes, str]] | None = None,
+) -> Tuple[list[ImportedQuestionItem], list[str]]:
     questions: list[ImportedQuestionItem] = []
     errors: list[str] = []
 
     current_mapping: dict[str, int] | None = None
+    row_imgs = row_images or {}
+    code_imgs = code_images_cache if code_images_cache is not None else {}
 
     for row_idx, row in enumerate(raw_rows, start=1):
         if not row or not any(str(c).strip() for c in row if c is not None):
@@ -186,6 +195,19 @@ def _parse_raw_rows(raw_rows: list[list[Any]], topic_override: str | None = None
 
         explanation = get_cell("rationale") or None
         image_url = get_cell("image") or None
+        if image_url and not (image_url.startswith("http://") or image_url.startswith("https://") or image_url.startswith("/")):
+            # Non-URL filename or label (e.g. "Figure_01.jpg") — don't treat as a broken HTTP URL
+            image_url = None
+
+        raw_image_bytes = None
+        raw_image_ext = "png"
+        if row_idx in row_imgs:
+            raw_image_bytes, raw_image_ext = row_imgs[row_idx]
+        elif code and code.strip().upper() in code_imgs:
+            raw_image_bytes, raw_image_ext = code_imgs[code.strip().upper()]
+
+        if code and raw_image_bytes:
+            code_imgs[code.strip().upper()] = (raw_image_bytes, raw_image_ext)
 
         title = f"[{code}] {prompt[:50]}..." if code else f"{prompt[:60]}..."
 
@@ -201,6 +223,8 @@ def _parse_raw_rows(raw_rows: list[list[Any]], topic_override: str | None = None
                 points=max(1, points),
                 explanation=explanation,
                 image_url=image_url,
+                raw_image_bytes=raw_image_bytes,
+                raw_image_ext=raw_image_ext,
             )
         )
 
@@ -212,7 +236,7 @@ def parse_question_import_bytes(
     filename: str,
     topic_override: str | None = None,
 ) -> Tuple[list[ImportedQuestionItem], list[str]]:
-    """Universal parser for .xlsx and .csv files."""
+    """Universal parser for .xlsx and .csv files with embedded drawing support."""
     is_csv = filename.lower().endswith(".csv")
 
     if is_csv:
@@ -235,9 +259,38 @@ def parse_question_import_bytes(
     # Otherwise assume openpyxl / Excel
     try:
         import openpyxl
-        wb = openpyxl.load_workbook(io.BytesIO(file_bytes), read_only=True, data_only=True)
+        wb = openpyxl.load_workbook(io.BytesIO(file_bytes), data_only=True)
     except Exception as e:
         return [], [f"Cannot open Excel file: {e}"]
+
+    # Pass 1: Extract embedded images across all worksheets and build code lookup
+    code_images_cache: dict[str, tuple[bytes, str]] = {}
+    sheet_row_images: dict[str, dict[int, tuple[bytes, str]]] = {}
+
+    for sheetname in wb.sheetnames:
+        ws = wb[sheetname]
+        row_map: dict[int, tuple[bytes, str]] = {}
+        for img in getattr(ws, "_images", []):
+            try:
+                anchor = getattr(img, "anchor", None)
+                if hasattr(anchor, "_from"):
+                    r = anchor._from.row + 1
+                elif hasattr(anchor, "row"):
+                    r = anchor.row + 1
+                else:
+                    continue
+                img_data = img._data()
+                fmt = getattr(img, "format", "png").lower()
+                if fmt == "jpeg":
+                    fmt = "jpg"
+                row_map[r] = (img_data, fmt)
+
+                code_val = ws.cell(r, 1).value or ws.cell(r, 2).value
+                if code_val and str(code_val).strip():
+                    code_images_cache[str(code_val).strip().upper()] = (img_data, fmt)
+            except Exception:
+                continue
+        sheet_row_images[sheetname] = row_map
 
     all_questions: list[ImportedQuestionItem] = []
     all_errors: list[str] = []
@@ -245,12 +298,38 @@ def parse_question_import_bytes(
     for sheetname in wb.sheetnames:
         ws = wb[sheetname]
         raw_rows = list(ws.iter_rows(values_only=True))
-        qs, errs = _parse_raw_rows(raw_rows, topic_override)
+        qs, errs = _parse_raw_rows(
+            raw_rows,
+            topic_override=topic_override,
+            row_images=sheet_row_images.get(sheetname),
+            code_images_cache=code_images_cache,
+        )
         all_questions.extend(qs)
         for err in errs:
             all_errors.append(f"[{sheetname}] {err}")
 
-    return all_questions, all_errors
+    # Pass 2: Deduplicate identical questions across sheets (e.g. summary sheet vs section sheet)
+    # Merges images and rationale if present on one copy
+    deduped: list[ImportedQuestionItem] = []
+    seen: dict[str, int] = {}
+
+    for q in all_questions:
+        key = q.code.strip().upper() if q.code else q.prompt.strip().lower()
+        if key in seen:
+            idx = seen[key]
+            existing = deduped[idx]
+            if q.raw_image_bytes and not existing.raw_image_bytes:
+                existing.raw_image_bytes = q.raw_image_bytes
+                existing.raw_image_ext = q.raw_image_ext
+            if q.image_url and not existing.image_url:
+                existing.image_url = q.image_url
+            if q.explanation and not existing.explanation:
+                existing.explanation = q.explanation
+            continue
+        seen[key] = len(deduped)
+        deduped.append(q)
+
+    return deduped, all_errors
 
 
 def generate_question_template_xlsx() -> bytes:

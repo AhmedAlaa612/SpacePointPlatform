@@ -41,6 +41,7 @@ def _question_out(q: AssessmentQuestion) -> AssessmentQuestionOut:
     return AssessmentQuestionOut(
         id=q.id, category=q.category, prompt=q.prompt, options=q.options,
         critical=q.critical, rationale=q.rationale, is_active=q.is_active,
+        image_url=q.image_url,
     )
 
 
@@ -166,6 +167,7 @@ async def create_question(config_id: uuid.UUID, body: AssessmentQuestionIn, db: 
     question = AssessmentQuestion(
         id=uuid.uuid4(), config_id=config_id, category=body.category, prompt=body.prompt,
         options=[o.model_dump() for o in body.options], critical=body.critical, rationale=body.rationale,
+        image_url=body.image_url,
     )
     db.add(question)
     psq = PreSessionQuizQuestion(
@@ -178,6 +180,7 @@ async def create_question(config_id: uuid.UUID, body: AssessmentQuestionIn, db: 
         critical=body.critical,
         points=1,
         explanation=body.rationale,
+        image_url=body.image_url,
         is_active=True,
     )
     db.add(psq)
@@ -208,6 +211,8 @@ async def update_question(question_id: uuid.UUID, body: AssessmentQuestionUpdate
             psq.critical = changes["critical"]
         if "rationale" in changes:
             psq.explanation = changes["rationale"]
+        if "image_url" in changes:
+            psq.image_url = changes["image_url"]
         if "is_active" in changes:
             psq.is_active = changes["is_active"]
     await db.commit()
@@ -250,9 +255,11 @@ async def import_questions(config_id: uuid.UUID, file: UploadFile, db: AsyncSess
 
     created: list[AssessmentQuestion] = []
     for body in parsed:
+        img_url = getattr(body, "image_url", None)
         question = AssessmentQuestion(
             id=uuid.uuid4(), config_id=config_id, category=body.category, prompt=body.prompt,
             options=[o.model_dump() for o in body.options], critical=body.critical, rationale=body.rationale,
+            image_url=img_url,
         )
         db.add(question)
         psq = PreSessionQuizQuestion(
@@ -265,6 +272,7 @@ async def import_questions(config_id: uuid.UUID, file: UploadFile, db: AsyncSess
             critical=body.critical,
             points=1,
             explanation=body.rationale,
+            image_url=img_url,
             is_active=True,
         )
         db.add(psq)

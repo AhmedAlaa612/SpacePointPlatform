@@ -4,10 +4,7 @@ import {
   AlertTriangle,
   Camera,
   Check,
-  CheckSquare,
-  ClipboardCheck,
   Copy,
-  FileText,
   Layers,
   ListChecks,
   Loader2,
@@ -626,13 +623,13 @@ export function ImportInstructorChecklistModal({
                                     <Camera className="w-3 h-3" /> Photo Proof
                                   </span>
                                 )}
-                                {hasAttachments && (
+                                {hasAttachments && item.attachments && (
                                   <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium bg-blue-500/10 text-blue-600 dark:text-blue-400">
                                     <Paperclip className="w-3 h-3" /> {item.attachments.length} attachment
                                     {item.attachments.length === 1 ? "" : "s"}
                                   </span>
                                 )}
-                                {hasSubs && (
+                                {hasSubs && item.sub_items && (
                                   <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium bg-indigo-500/10 text-indigo-600 dark:text-indigo-400">
                                     <ListChecks className="w-3 h-3" /> {item.sub_items.length} sub-topic
                                     {item.sub_items.length === 1 ? "" : "s"}
@@ -644,7 +641,7 @@ export function ImportInstructorChecklistModal({
                                   {item.description}
                                 </p>
                               )}
-                              {hasSubs && (
+                              {hasSubs && item.sub_items && (
                                 <div className="mt-1 flex flex-wrap gap-1">
                                   {item.sub_items.map((sub, sIdx) => (
                                     <span

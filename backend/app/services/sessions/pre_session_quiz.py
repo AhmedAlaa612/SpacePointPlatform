@@ -302,6 +302,7 @@ async def _sync_preset_to_assessment_config(db: AsyncSession, preset: PreSession
             aq.options = sq.options
             aq.critical = sq.critical
             aq.rationale = sq.explanation
+            aq.image_url = sq.image_url
             aq.is_active = sq.is_active
         else:
             new_aq = AssessmentQuestion(
@@ -312,6 +313,7 @@ async def _sync_preset_to_assessment_config(db: AsyncSession, preset: PreSession
                 options=sq.options,
                 critical=sq.critical,
                 rationale=sq.explanation,
+                image_url=sq.image_url,
                 is_active=sq.is_active,
             )
             db.add(new_aq)
@@ -425,11 +427,23 @@ async def import_questions_from_file(
     topic_override: str | None = None,
     preset_id: UUID | None = None,
 ) -> tuple[int, list[str], list[PreSessionQuizQuestion]]:
+    from app.services import storage
     from app.services.sessions.pre_session_quiz_importer import parse_question_import_bytes
     parsed_items, errors = parse_question_import_bytes(file_bytes, filename, topic_override)
 
     created_questions: list[PreSessionQuizQuestion] = []
     for item in parsed_items:
+        image_url = item.image_url
+        if item.raw_image_bytes and not image_url:
+            try:
+                import uuid as _uuid
+                img_name = f"q_{_uuid.uuid4().hex[:12]}.{item.raw_image_ext}"
+                storage_path = f"quiz/{img_name}"
+                c_type = f"image/{'jpeg' if item.raw_image_ext == 'jpg' else item.raw_image_ext}"
+                image_url = await storage.upload_file("lms-quiz-images", storage_path, item.raw_image_bytes, c_type)
+            except Exception as e:
+                errors.append(f"Failed to upload embedded image for question '{item.code or item.prompt[:30]}': {e}")
+
         row = PreSessionQuizQuestion(
             code=item.code,
             topic=item.topic,
@@ -440,7 +454,7 @@ async def import_questions_from_file(
             critical=item.critical,
             points=item.points,
             explanation=item.explanation,
-            image_url=item.image_url,
+            image_url=image_url,
             is_active=True,
             created_by=user.id,
         )

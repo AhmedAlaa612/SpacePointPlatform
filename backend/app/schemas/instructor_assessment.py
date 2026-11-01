@@ -27,6 +27,7 @@ class AssessmentQuestionIn(BaseModel):
     options: list[AssessmentQuestionOptionIn] = Field(min_length=2)
     critical: bool = False
     rationale: str | None = None
+    image_url: str | None = None
 
     @model_validator(mode="after")
     def _validate_correct_option(self) -> "AssessmentQuestionIn":
@@ -42,6 +43,7 @@ class AssessmentQuestionUpdate(BaseModel):
     options: list[AssessmentQuestionOptionIn] | None = Field(default=None, min_length=2)
     critical: bool | None = None
     rationale: str | None = None
+    image_url: str | None = None
     is_active: bool | None = None
 
     @model_validator(mode="after")
@@ -60,6 +62,7 @@ class AssessmentQuestionOut(BaseModel):
     options: list[AssessmentQuestionOptionIn]
     critical: bool
     rationale: str | None
+    image_url: str | None = None
     is_active: bool
 
 
@@ -137,6 +140,7 @@ class AttemptQuestionOut(BaseModel):
     prompt: str
     options: list[str]
     critical: bool
+    image_url: str | None = None
 
 
 class AttemptOut(BaseModel):
@@ -165,6 +169,7 @@ class AttemptQuestionReviewOut(BaseModel):
     is_correct: bool
     critical: bool
     rationale: str | None
+    image_url: str | None = None
 
 
 class AttemptResultOut(BaseModel):

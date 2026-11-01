@@ -59,5 +59,6 @@ class AssessmentQuestion(Base):
     options = Column(JSONB, nullable=False)  # [{"text": str, "is_correct": bool}, ...]
     critical = Column(Boolean, nullable=False, default=False, server_default="false")
     rationale = Column(Text, nullable=True)
+    image_url = Column(String(512), nullable=True)
     is_active = Column(Boolean, nullable=False, default=True)
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))

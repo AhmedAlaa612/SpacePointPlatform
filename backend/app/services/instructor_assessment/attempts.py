@@ -204,6 +204,7 @@ async def get_attempt_questions(db: AsyncSession, attempt: AssessmentAttempt) ->
         out.append({
             "question_id": q.id, "category": q.category, "prompt": q.prompt,
             "options": ordered_options, "critical": q.critical,
+            "image_url": q.image_url,
         })
     return out
 
@@ -302,5 +303,6 @@ async def get_attempt_review(db: AsyncSession, attempt: AssessmentAttempt) -> li
             "correct_index": option_order.index(correct_original_index),
             "is_correct": bool(answer and answer.is_correct),
             "critical": q.critical, "rationale": q.rationale,
+            "image_url": q.image_url,
         })
     return out
