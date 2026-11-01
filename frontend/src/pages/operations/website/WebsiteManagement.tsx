@@ -90,8 +90,9 @@ import {
 } from "@/api/websitePeople"
 import { WebsiteEventsPanel } from "./WebsiteEventsPanel"
 import { WebsiteCaseStudiesPanel } from "./WebsiteCaseStudiesPanel"
+import { WebsitePoliciesPanel } from "./WebsitePoliciesPanel"
 
-type Tab = "general" | "events" | "programs" | "case-studies" | "partners" | "faqs" | "media" | "newsletters" | "articles" | "people" | "labs"
+type Tab = "general" | "events" | "programs" | "case-studies" | "partners" | "faqs" | "media" | "newsletters" | "articles" | "people" | "labs" | "policies"
 
 const WEBSITE_BASE_URL =
   (import.meta.env.VITE_WEBSITE_URL as string | undefined)?.replace(/\/$/, "") ||
@@ -455,6 +456,8 @@ export default function WebsiteManagement({ initialTab = "general" }: { initialT
       {activeTab === "people" && <PeopleSection />}
 
       {activeTab === "labs" && <LabsSection />}
+
+      {activeTab === "policies" && <WebsitePoliciesPanel />}
     </div>
   )
 }

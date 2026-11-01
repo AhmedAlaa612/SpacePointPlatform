@@ -13,6 +13,7 @@ from app.routers.admin.website_people import router as website_people_router
 from app.routers.admin.website_labs import router as website_labs_router
 from app.routers.admin.website_events import router as website_events_router
 from app.routers.admin.website_case_studies import router as website_case_studies_router
+from app.routers.admin.website_policies import router as website_policies_router
 from app.routers.shop_admin import router as shop_admin_router
 
 # Aggregate all admin sub-routers under a single router that main.py mounts under /admin
@@ -30,4 +31,5 @@ router.include_router(website_people_router)
 router.include_router(website_labs_router)
 router.include_router(website_events_router)
 router.include_router(website_case_studies_router)
+router.include_router(website_policies_router)
 router.include_router(shop_admin_router)

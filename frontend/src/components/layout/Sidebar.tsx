@@ -222,6 +222,7 @@ const WEBSITE_GROUP = mkGroup("Website", undefined, [
   mk("Articles & Queue", "/operations/website/articles"),
   mk("People & Showcase", "/operations/website/people"),
   mk("Labs R&D", "/operations/website/labs"),
+  mk("Policies & Legal", "/operations/website/policies"),
 ]);
 
 const MENTORS_GROUP = mkGroup("Mentors", undefined, [

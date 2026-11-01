@@ -877,6 +877,7 @@ const operationsRoutes = [
   createRoute({ getParentRoute: po, path: "/website/articles", component: () => <WebsiteManagement initialTab="articles" /> }),
   createRoute({ getParentRoute: po, path: "/website/people", component: () => <WebsiteManagement initialTab="people" /> }),
   createRoute({ getParentRoute: po, path: "/website/labs", component: () => <WebsiteManagement initialTab="labs" /> }),
+  createRoute({ getParentRoute: po, path: "/website/policies", component: () => <WebsiteManagement initialTab="policies" /> }),
   createRoute({
     getParentRoute: po,
     path: "/birthdays",

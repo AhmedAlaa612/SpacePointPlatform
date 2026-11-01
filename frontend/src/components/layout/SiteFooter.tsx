@@ -1,13 +1,30 @@
+import { useQuery } from "@tanstack/react-query";
 import { PLAIN_LOGO } from "@/lib/logos";
 import { GLASS } from "@/lib/theme";
+import { getPublicWebsitePolicies } from "@/api/websitePolicies";
+
+const WEBSITE_BASE_URL =
+  (import.meta.env.VITE_WEBSITE_URL as string | undefined)?.replace(/\/$/, "") ||
+  (typeof window !== "undefined" &&
+  window.location.hostname !== "localhost" &&
+  window.location.hostname !== "127.0.0.1"
+    ? "https://spacepoint.ae"
+    : "http://localhost:4321");
 
 /**
  * Verbatim port of base.html's global footer (Contact Us / Follow Our Mission /
- * copyright) — shared across the public landing page, the apply flow, and the
- * authenticated applicant shell, matching the reference app's base.html which
- * renders this on every page.
+ * copyright / policies) — shared across the public landing page, the apply flow, and the
+ * authenticated applicant shell.
  */
 export function SiteFooter() {
+  const { data: policies = [] } = useQuery({
+    queryKey: ["public-website-policies"],
+    queryFn: getPublicWebsitePolicies,
+    staleTime: 60_000,
+  });
+
+  const footerPolicies = policies.filter((p) => p.show_in_footer && p.is_active);
+
   return (
     <footer className={`border-t border-white/10 ${GLASS}`}>
       <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-12 grid grid-cols-1 md:grid-cols-3 gap-10">
@@ -74,8 +91,26 @@ export function SiteFooter() {
           </div>
         </div>
       </div>
-      <div className="border-t border-white/5 px-4 sm:px-6 lg:px-8 py-5 max-w-6xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-2 text-xs text-gray-500">
-        <span>© copyright SpacePoint 2026. All rights reserved.</span>
+      <div className="border-t border-white/5 px-4 sm:px-6 lg:px-8 py-5 max-w-6xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-4 text-xs text-gray-500">
+        <div className="flex flex-col sm:flex-row items-center gap-3 flex-wrap">
+          <span>© copyright SpacePoint 2026. All rights reserved.</span>
+          {footerPolicies.length > 0 && (
+            <div className="flex items-center gap-3 flex-wrap">
+              <span className="hidden sm:inline opacity-40">•</span>
+              {footerPolicies.map((p) => (
+                <a
+                  key={p.id}
+                  href={`${WEBSITE_BASE_URL}/policies/${p.slug}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="hover:text-space-accent transition-colors underline-offset-2 hover:underline"
+                >
+                  {p.title}
+                </a>
+              ))}
+            </div>
+          )}
+        </div>
         <span>Built for Explorers ♥</span>
       </div>
     </footer>
