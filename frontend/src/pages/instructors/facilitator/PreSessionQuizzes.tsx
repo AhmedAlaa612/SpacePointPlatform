@@ -12,6 +12,7 @@ import {
   Plus,
   Search,
   ShieldAlert,
+  Sparkles,
   Trash2,
   Unlink,
   Upload,
@@ -22,6 +23,7 @@ import {
   createPreQuizDatasheetApi,
   createPreQuizPresetApi,
   createPreQuizQuestionApi,
+  deduplicatePreQuizQuestionsApi,
   deletePreQuizDatasheetApi,
   deletePreQuizPresetApi,
   deletePreQuizQuestionApi,
@@ -170,6 +172,7 @@ function QuestionBankTab() {
   const [editingQuestion, setEditingQuestion] = useState<PreSessionQuizQuestion | null>(null)
   const [creating, setCreating] = useState(false)
   const [importing, setImporting] = useState(false)
+  const [deduplicating, setDeduplicating] = useState(false)
   const [downloadingTemplate, setDownloadingTemplate] = useState(false)
   const [deletingQuestion, setDeletingQuestion] = useState<PreSessionQuizQuestion | null>(null)
   const [previewQuestions, setPreviewQuestions] = useState<PreSessionQuizQuestion[] | null>(null)
@@ -218,6 +221,24 @@ function QuestionBankTab() {
       toast.error(getErrorMessage(e, "Could not download template"))
     } finally {
       setDownloadingTemplate(false)
+    }
+  }
+
+  const handleDeduplicate = async () => {
+    try {
+      setDeduplicating(true)
+      const res = await deduplicatePreQuizQuestionsApi()
+      if (res.deleted_count > 0) {
+        toast.success(`Cleaned ${res.deleted_count} duplicate question${res.deleted_count === 1 ? "" : "s"}! ${res.remaining_count} unique questions remaining.`)
+      } else {
+        toast.info("No duplicates found — Question bank is clean.")
+      }
+      qc.invalidateQueries({ queryKey: ["pre-quiz-questions"] })
+      qc.invalidateQueries({ queryKey: ["pre-quiz-presets"] })
+    } catch (e) {
+      toast.error(getErrorMessage(e, "Could not clean duplicates"))
+    } finally {
+      setDeduplicating(false)
     }
   }
 
@@ -286,6 +307,16 @@ function QuestionBankTab() {
           >
             <Upload size={14} />
             <span>Import Excel / CSV</span>
+          </button>
+          <button
+            type="button"
+            onClick={handleDeduplicate}
+            disabled={deduplicating}
+            className="flex items-center gap-1.5 h-9 px-3 border border-border bg-card hover:bg-muted text-xs sm:text-sm font-semibold text-muted-foreground hover:text-foreground rounded-xl transition-colors cursor-pointer shrink-0"
+            title="Clean duplicate questions by matching unique scenarios"
+          >
+            <Sparkles size={14} />
+            <span className="hidden sm:inline">{deduplicating ? "Cleaning..." : "Clean Duplicates"}</span>
           </button>
           {filtered.length > 0 && (
             <button

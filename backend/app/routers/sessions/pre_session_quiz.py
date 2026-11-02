@@ -129,6 +129,15 @@ async def import_pre_quiz_questions(
     )
 
 
+@router.post("/pre-quiz/questions/deduplicate")
+async def deduplicate_pre_quiz_questions(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_materials_manager),
+) -> dict:
+    """Finds duplicate questions, cleans float IDs (1.0 -> 1), and keeps single canonical instances."""
+    return await svc.deduplicate_bank_questions(db)
+
+
 @router.post("/pre-quiz/images")
 async def upload_pre_quiz_image(
     file: UploadFile,

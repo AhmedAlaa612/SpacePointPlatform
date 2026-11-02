@@ -134,7 +134,12 @@ def _parse_raw_rows(
             if idx is not None and idx < len(row):
                 val = row[idx]
                 if val is not None:
-                    return str(val).strip()
+                    if isinstance(val, float) and val.is_integer():
+                        return str(int(val))
+                    s = str(val).strip()
+                    if key in ("code", "points") and re.match(r"^\d+\.0$", s):
+                        return s[:-2]
+                    return s
             return ""
 
         prompt = get_cell("prompt")

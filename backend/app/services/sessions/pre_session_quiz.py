@@ -419,6 +419,60 @@ async def delete_preset(db: AsyncSession, preset_id: UUID) -> None:
     await db.commit()
 
 
+async def deduplicate_bank_questions(db: AsyncSession) -> dict[str, int]:
+    """Finds duplicate questions grouped by normalized prompt, keeps the best
+    canonical question row (preserving image_url, code, and assessment links), and
+    removes redundant duplicate rows."""
+    all_qs = list((await db.execute(select(PreSessionQuizQuestion))).scalars().all())
+    from app.models.instructor_assessment.config import AssessmentQuestion
+
+    aq_ids = set((await db.execute(select(AssessmentQuestion.id))).scalars().all())
+
+    # Format float codes
+    for q in all_qs:
+        if q.code and re.match(r"^\d+\.0$", q.code.strip()):
+            q.code = q.code.strip()[:-2]
+            if q.title and q.title.startswith(f"[{q.code}.0]"):
+                q.title = f"[{q.code}]" + q.title[len(f"[{q.code}.0]"): ]
+
+    # Group by prompt
+    grouped: dict[str, list[PreSessionQuizQuestion]] = {}
+    for q in all_qs:
+        key = q.prompt.strip().lower()
+        grouped.setdefault(key, []).append(q)
+
+    deleted_count = 0
+    for key, group in grouped.items():
+        if len(group) <= 1:
+            continue
+
+        group.sort(
+            key=lambda item: (
+                1 if item.id in aq_ids else 0,
+                1 if item.image_url else 0,
+                1 if item.code else 0,
+                1 if item.explanation else 0,
+                -(item.created_at.timestamp() if item.created_at else 0),
+            ),
+            reverse=True,
+        )
+        canonical = group[0]
+        duplicates = group[1:]
+
+        for dup in duplicates:
+            if not canonical.image_url and dup.image_url:
+                canonical.image_url = dup.image_url
+            if not canonical.code and dup.code:
+                canonical.code = dup.code
+            if not canonical.explanation and dup.explanation:
+                canonical.explanation = dup.explanation
+            await db.delete(dup)
+            deleted_count += 1
+
+    await db.commit()
+    return {"deleted_count": deleted_count, "remaining_count": len(all_qs) - deleted_count}
+
+
 async def import_questions_from_file(
     db: AsyncSession,
     file_bytes: bytes,
@@ -430,6 +484,15 @@ async def import_questions_from_file(
     from app.services import storage
     from app.services.sessions.pre_session_quiz_importer import parse_question_import_bytes
     parsed_items, errors = parse_question_import_bytes(file_bytes, filename, topic_override)
+
+    # Pre-load existing questions to enable idempotent re-import without duplicates
+    existing_all = list((await db.execute(select(PreSessionQuizQuestion))).scalars().all())
+    existing_by_code: dict[str, PreSessionQuizQuestion] = {
+        q.code.strip().upper(): q for q in existing_all if q.code and q.code.strip()
+    }
+    existing_by_prompt: dict[str, PreSessionQuizQuestion] = {
+        q.prompt.strip().lower(): q for q in existing_all if q.prompt
+    }
 
     created_questions: list[PreSessionQuizQuestion] = []
     for item in parsed_items:
@@ -444,22 +507,51 @@ async def import_questions_from_file(
             except Exception as e:
                 errors.append(f"Failed to upload embedded image for question '{item.code or item.prompt[:30]}': {e}")
 
-        row = PreSessionQuizQuestion(
-            code=item.code,
-            topic=item.topic,
-            question_type=item.question_type,
-            title=item.title,
-            prompt=item.prompt,
-            options=item.options,
-            critical=item.critical,
-            points=item.points,
-            explanation=item.explanation,
-            image_url=image_url,
-            is_active=True,
-            created_by=user.id,
-        )
-        db.add(row)
-        created_questions.append(row)
+        # Idempotent match: check if question already exists by code or prompt
+        existing = None
+        clean_code = item.code.strip().upper() if item.code else None
+        clean_prompt = item.prompt.strip().lower()
+        if clean_code and clean_code in existing_by_code:
+            existing = existing_by_code[clean_code]
+        elif clean_prompt in existing_by_prompt:
+            existing = existing_by_prompt[clean_prompt]
+
+        if existing:
+            # Update existing question in-place — never duplicate!
+            existing.code = item.code or existing.code
+            existing.topic = item.topic
+            existing.question_type = item.question_type
+            existing.title = item.title
+            existing.prompt = item.prompt
+            existing.options = item.options
+            existing.critical = item.critical
+            existing.points = item.points
+            if item.explanation:
+                existing.explanation = item.explanation
+            if image_url:
+                existing.image_url = image_url
+            target_row = existing
+        else:
+            target_row = PreSessionQuizQuestion(
+                code=item.code,
+                topic=item.topic,
+                question_type=item.question_type,
+                title=item.title,
+                prompt=item.prompt,
+                options=item.options,
+                critical=item.critical,
+                points=item.points,
+                explanation=item.explanation,
+                image_url=image_url,
+                is_active=True,
+                created_by=user.id,
+            )
+            db.add(target_row)
+            if clean_code:
+                existing_by_code[clean_code] = target_row
+            existing_by_prompt[clean_prompt] = target_row
+
+        created_questions.append(target_row)
 
     await db.commit()
     for row in created_questions:

@@ -311,6 +311,12 @@ export const importPreQuizQuestionsApi = (file: File, topic?: string, presetId?:
     .then((r) => r.data)
 }
 
+export const deduplicatePreQuizQuestionsApi = () => {
+  return api
+    .post<{ deleted_count: number; remaining_count: number }>("/sessions/pre-quiz/questions/deduplicate")
+    .then((r) => r.data)
+}
+
 export const uploadPreQuizImageApi = (file: File) => {
   const form = new FormData()
   form.append("file", file)

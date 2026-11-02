@@ -172,8 +172,8 @@ export function ImportQuestionsModal({
           onCancel={onClose}
           onConfirm={handleImport}
           loading={loading}
-          disabled={!file}
-          label="Start Import"
+          disabled={!file || loading}
+          label={loading ? "Importing questions..." : "Start Import"}
         />
       </div>
     </Modal>
