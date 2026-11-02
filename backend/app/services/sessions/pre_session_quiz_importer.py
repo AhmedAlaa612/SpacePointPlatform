@@ -27,12 +27,12 @@ OPTION_LETTERS = ["A", "B", "C", "D"]
 # Standard column aliases (all lowercase stripped)
 ALIAS_MAP = {
     "code": ["question id", "question_id", "id", "code", "q_id", "number", "#"],
-    "topic": ["category", "topic", "section", "inspection", "subsystem"],
+    "topic": ["category / topic", "category", "topic", "section", "inspection", "subsystem"],
     "prompt": ["scenario / question", "question", "prompt", "scenario", "title"],
-    "option_a": ["option a", "a", "choice a", "option 1", "opt a"],
-    "option_b": ["option b", "b", "choice b", "option 2", "opt b"],
-    "option_c": ["option c", "c", "choice c", "option 3", "opt c"],
-    "option_d": ["option d", "d", "choice d", "option 4", "opt d"],
+    "option_a": ["option a", "choice a", "option 1", "opt a", "a"],
+    "option_b": ["option b", "choice b", "option 2", "opt b", "b"],
+    "option_c": ["option c", "choice c", "option 3", "opt c", "c"],
+    "option_d": ["option d", "choice d", "option 4", "opt d", "d"],
     "correct_letter": ["correct letter", "answer letter", "letter"],
     "correct_answer": ["correct answer", "answer", "correct", "key", "correct option"],
     "rationale": ["rationale / instructor standard", "rationale", "explanation", "standard", "notes"],
@@ -57,19 +57,36 @@ class ImportedQuestionItem(BaseModel):
     raw_image_ext: str = "png"
 
 
+def _normalize_header_str(val: Any) -> str:
+    if val is None:
+        return ""
+    s = str(val).strip().lower()
+    s = re.sub(r"[^a-z0-9/ ?#]", "", s)
+    return " ".join(s.split())
+
+
 def _find_header_mapping(row: list[Any]) -> dict[str, int] | None:
     """Attempts to match a row to recognized question bank column headers."""
-    normalized = [str(cell).strip().lower() if cell is not None else "" for cell in row]
+    if not row or not any(row):
+        return None
+    # Header cells must be concise labels, not full question scenarios (> 60 chars)
+    if any(len(str(c)) > 60 for c in row if c is not None):
+        return None
+
+    normalized = [_normalize_header_str(c) for c in row]
     if not any(normalized):
         return None
 
     mapping: dict[str, int] = {}
     for canonical, aliases in ALIAS_MAP.items():
         for idx, val in enumerate(normalized):
-            if not val:
+            if not val or len(val) > 40:
                 continue
             for alias in aliases:
-                if val == alias or val.startswith(alias):
+                norm_alias = _normalize_header_str(alias)
+                # Exact match or prefix with space boundary (e.g. "option a (text)")
+                # Single-letter or very short aliases (<= 3 chars) MUST match exactly
+                if val == norm_alias or (len(norm_alias) > 3 and val.startswith(norm_alias + " ")):
                     mapping[canonical] = idx
                     break
             if canonical in mapping:
