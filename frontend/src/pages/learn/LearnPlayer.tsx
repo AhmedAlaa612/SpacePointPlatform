@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams, useSearch } from "@tanstack/react-router";
-import { CheckCircle2, Check } from "lucide-react";
+import { CheckCircle2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   fetchCourse, fetchModule, recordProgress, type CourseDetail, type ModuleDetail, type ModuleItem,
@@ -8,8 +8,7 @@ import {
 import { PlayerLayout } from "./PlayerLayout";
 import { ItemPane } from "./ItemPane";
 import { CompletionCelebration } from "./CompletionCelebration";
-import { EmojiRating } from "@/components/ui/EmojiRating";
-import { useCourseRating } from "@/api/course_ratings";
+import { CourseRatingWidget } from "@/components/ui/CourseRatingWidget";
 
 const COMPLETED = new Set(["completed", "skipped"]);
 const ITEM_KIND_LABEL: Record<ModuleItem["kind"], string> = {
@@ -35,14 +34,6 @@ export default function LearnPlayer() {
   const { courseId } = useParams({ strict: false }) as { courseId: string };
   const search = useSearch({ strict: false }) as { program?: string };
   const navigate = useNavigate();
-  const [rating, setRating, { reviewText, saveReview, isSubmitting }] = useCourseRating(courseId);
-  const [playerReviewOpen, setPlayerReviewOpen] = useState(false);
-  const [playerReviewDraft, setPlayerReviewDraft] = useState(reviewText);
-  const [playerReviewSaved, setPlayerReviewSaved] = useState(false);
-
-  useEffect(() => {
-    setPlayerReviewDraft(reviewText);
-  }, [reviewText]);
 
   const [course, setCourse] = useState<CourseDetail | null>(null);
   const [modulesData, setModulesData] = useState<Record<string, ModuleDetail>>({});
@@ -244,65 +235,11 @@ export default function LearnPlayer() {
             <h2 className="font-['Outfit'] text-3xl font-extrabold text-foreground">Course complete!</h2>
             <p className="text-base text-muted-foreground">Nice work — every module is done.</p>
 
-            <div className="flex flex-col items-center gap-1.5 p-5 rounded-2xl border border-border/80 dark:border-lms-accent-border/30 bg-muted/20 dark:bg-[#0d0915] w-full my-1 shadow-lg shadow-black/10">
-              <p className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
-                {rating ? "Your rating" : "Rate this course"}
-              </p>
-              <EmojiRating value={rating} onChange={setRating} />
-              {rating && (
-                <>
-                  <p className="text-xs text-muted-foreground font-medium mt-1">
-                    Rated {rating}/5 · Click to edit anytime
-                  </p>
-                  {!playerReviewOpen && !reviewText && (
-                    <button
-                      type="button"
-                      onClick={() => setPlayerReviewOpen(true)}
-                      className="text-xs text-primary hover:underline mt-1 cursor-pointer"
-                    >
-                      + Add a written review (optional)
-                    </button>
-                  )}
-                  {(playerReviewOpen || reviewText) && (
-                    <div className="w-full flex flex-col gap-1.5 mt-2.5 text-left">
-                      <textarea
-                        value={playerReviewDraft}
-                        onChange={(e) => {
-                          setPlayerReviewDraft(e.target.value);
-                          setPlayerReviewSaved(false);
-                        }}
-                        placeholder="Share your feedback for the instructor (optional)..."
-                        rows={2}
-                        className="w-full text-xs p-2.5 rounded-lg bg-background border border-border resize-none focus:outline-none focus:ring-1 focus:ring-primary text-foreground"
-                      />
-                      <div className="flex items-center justify-between">
-                        {playerReviewSaved ? (
-                          <span className="text-xs text-emerald-500 font-medium flex items-center gap-1">
-                            <Check className="size-3.5" /> Review saved!
-                          </span>
-                        ) : (
-                          <span />
-                        )}
-                        {playerReviewDraft !== reviewText && (
-                          <button
-                            type="button"
-                            disabled={isSubmitting}
-                            onClick={async () => {
-                              await saveReview(playerReviewDraft);
-                              setPlayerReviewSaved(true);
-                              setTimeout(() => setPlayerReviewSaved(false), 2500);
-                            }}
-                            className="text-xs font-medium px-3 py-1 rounded bg-primary text-primary-foreground hover:opacity-90 transition-opacity cursor-pointer disabled:opacity-50"
-                          >
-                            {isSubmitting ? "Saving..." : "Save review"}
-                          </button>
-                        )}
-                      </div>
-                    </div>
-                  )}
-                </>
-              )}
-            </div>
+            <CourseRatingWidget
+              courseId={courseId}
+              size="md"
+              className="p-5 rounded-2xl bg-muted/20 dark:bg-[#0d0915] my-1 shadow-lg shadow-black/10"
+            />
 
             <Button size="xl" className="w-full mt-2" onClick={() => void navigate({ to: `/learn/courses/${courseId}` })}>
               Back to course

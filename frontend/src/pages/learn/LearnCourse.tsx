@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { useNavigate, useParams, useSearch, Link } from "@tanstack/react-router";
 import { isAxiosError } from "axios";
-import { Check, CheckCircle2, ChevronDown, ChevronRight, Circle, Lock, PlayCircle, Star } from "lucide-react";
+import { CheckCircle2, ChevronDown, ChevronRight, Circle, Lock, PlayCircle, Star } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -11,8 +11,7 @@ import {
 } from "@/api/lms";
 import { useAuth } from "@/context/AuthContext";
 import { CourseProgress } from "./CourseProgress";
-import { EmojiRating } from "@/components/ui/EmojiRating";
-import { useCourseRating } from "@/api/course_ratings";
+import { CourseRatingWidget } from "@/components/ui/CourseRatingWidget";
 
 function errorDetail(err: unknown, fallback: string): string {
   if (isAxiosError(err) && typeof err.response?.data?.detail === "string") return err.response.data.detail;
@@ -40,14 +39,6 @@ export default function LearnCourse() {
   // as-is into the player below, not read for anything on this page itself.
   const search = useSearch({ strict: false }) as { program?: string };
   const navigate = useNavigate();
-  const [rating, setRating, { reviewText, saveReview, isSubmitting }] = useCourseRating(courseId);
-  const [reviewOpen, setReviewOpen] = useState(false);
-  const [reviewDraft, setReviewDraft] = useState(reviewText);
-  const [courseReviewSaved, setCourseReviewSaved] = useState(false);
-
-  useEffect(() => {
-    setReviewDraft(reviewText);
-  }, [reviewText]);
   // Logged-out visitors get the public outline (same shape, prices
   // included, module-1-open/rest-locked). Enrolling costs a login.
   const { user } = useAuth();
@@ -233,65 +224,7 @@ export default function LearnCourse() {
                   )}
                   <CourseProgress value={pct} label={`${modulesDone} of ${course.modules.length} modules`} />
                   {isFinished && (
-                    <div className="flex flex-col items-center gap-1.5 p-3.5 rounded-xl border border-border/80 dark:border-lms-accent-border/30 bg-muted/20 dark:bg-[#12091f]/60 text-center w-full">
-                      <p className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
-                        {rating ? "Your rating" : "Rate this course"}
-                      </p>
-                      <EmojiRating value={rating} onChange={setRating} size="sm" />
-                      {rating && (
-                        <>
-                          <p className="text-[11px] text-muted-foreground font-medium">
-                            Rated {rating}/5 · Click to edit
-                          </p>
-                          {!reviewOpen && !reviewText && (
-                            <button
-                              type="button"
-                              onClick={() => setReviewOpen(true)}
-                              className="text-xs text-primary hover:underline mt-0.5 cursor-pointer"
-                            >
-                              + Add a written review (optional)
-                            </button>
-                          )}
-                          {(reviewOpen || reviewText) && (
-                            <div className="w-full flex flex-col gap-1.5 mt-2 text-left">
-                              <textarea
-                                value={reviewDraft}
-                                onChange={(e) => {
-                                  setReviewDraft(e.target.value);
-                                  setCourseReviewSaved(false);
-                                }}
-                                placeholder="Share your experience with future students and the author (optional)..."
-                                rows={2}
-                                className="w-full text-xs p-2.5 rounded-lg bg-background border border-border resize-none focus:outline-none focus:ring-1 focus:ring-primary text-foreground"
-                              />
-                              <div className="flex items-center justify-between">
-                                {courseReviewSaved ? (
-                                  <span className="text-xs text-emerald-500 font-medium flex items-center gap-1">
-                                    <Check className="size-3.5" /> Review saved!
-                                  </span>
-                                ) : (
-                                  <span />
-                                )}
-                                {reviewDraft !== reviewText && (
-                                  <button
-                                    type="button"
-                                    disabled={isSubmitting}
-                                    onClick={async () => {
-                                      await saveReview(reviewDraft);
-                                      setCourseReviewSaved(true);
-                                      setTimeout(() => setCourseReviewSaved(false), 2500);
-                                    }}
-                                    className="text-xs font-medium px-3 py-1 rounded bg-primary text-primary-foreground hover:opacity-90 transition-opacity cursor-pointer disabled:opacity-50"
-                                  >
-                                    {isSubmitting ? "Saving..." : "Save review"}
-                                  </button>
-                                )}
-                              </div>
-                            </div>
-                          )}
-                        </>
-                      )}
-                    </div>
+                    <CourseRatingWidget courseId={courseId} size="sm" />
                   )}
                   <Button
                     size="xl" className="w-full"

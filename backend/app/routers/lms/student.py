@@ -450,7 +450,14 @@ async def upsert_course_rating(
 
     now = datetime.now(timezone.utc)
     review_val = body.review_text.strip() if body.review_text else None
+    if body.rating < 3 and not review_val:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            detail="Written feedback is required for ratings below 3 stars.",
+        )
+
     if row is None:
+
         row = CourseRating(
             user_id=current.id,
             course_id=course_id,

@@ -114,19 +114,23 @@ export function useCourseRating(courseId: string | undefined | null) {
   const submitRating = useCallback(
     async (newRating: number, newReviewText?: string | null) => {
       if (!courseId) return
-      setRatingState(newRating)
       const reviewVal = newReviewText !== undefined ? newReviewText : reviewText
-      if (newReviewText !== undefined) setReviewTextState(newReviewText || "")
-      setCourseRating(courseId, newRating, reviewVal)
 
       setIsSubmitting(true)
       try {
-        await submitCourseRatingApi(courseId, {
+        const data = await submitCourseRatingApi(courseId, {
           rating: newRating,
           review_text: reviewVal ? reviewVal.trim() : null,
         })
+        setRatingState(data.rating)
+        setReviewTextState(data.review_text || "")
+        if (data.rating != null) {
+          setCourseRating(courseId, data.rating, data.review_text)
+        }
+        return data
       } catch (err) {
         console.error("Failed to persist course rating:", err)
+        throw err
       } finally {
         setIsSubmitting(false)
       }
