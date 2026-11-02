@@ -112,7 +112,7 @@ export function CourseRatingWidget({
       <div className="w-full flex flex-col gap-1.5 mt-2 text-left">
         <label
           htmlFor={`course-feedback-${courseId}`}
-          className="text-xs font-semibold text-foreground flex items-center justify-between"
+          className="text-xs font-semibold text-foreground flex items-center justify-between flex-wrap gap-1"
         >
           <span className="flex items-center">
             Your feedback
@@ -138,7 +138,7 @@ export function CourseRatingWidget({
           }}
           placeholder="Share your thoughts and experience with this course..."
           rows={3}
-          className={`w-full text-xs p-2.5 rounded-lg bg-background border ${
+          className={`w-full text-xs sm:text-sm p-2.5 rounded-lg bg-background border ${
             isMandatory && isFeedbackEmpty && isDirty
               ? "border-amber-500/70 focus:border-amber-500"
               : "border-border"
@@ -169,7 +169,7 @@ export function CourseRatingWidget({
         type="button"
         disabled={!selectedRating || isSavedUnchanged || isSubmitting}
         onClick={() => void handleSubmit()}
-        className="w-full mt-1 text-xs font-semibold py-2 px-3.5 rounded-lg bg-primary text-primary-foreground hover:opacity-90 transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-1.5 shadow-sm"
+        className="w-full mt-1 text-xs sm:text-sm font-semibold py-2.5 px-3.5 rounded-lg bg-primary text-primary-foreground hover:opacity-90 transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-1.5 shadow-sm min-h-[38px] active:scale-[0.99]"
       >
         {isSubmitting ? (
           <>

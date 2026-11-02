@@ -73,16 +73,16 @@ export function EmojiRating({
   const activeRating = hovered ?? value
 
   const sizeClasses = {
-    sm: "w-9 h-9 p-1.5",
-    md: "w-11 h-11 p-2",
-    lg: "w-14 h-14 p-2.5",
+    sm: "w-8 h-8 sm:w-9 sm:h-9 p-1 sm:p-1.5",
+    md: "w-9 h-9 sm:w-11 sm:h-11 p-1.5 sm:p-2",
+    lg: "w-12 h-12 sm:w-14 sm:h-14 p-2 sm:p-2.5",
   }[size]
 
   return (
     <div
       role="radiogroup"
       aria-label="Rating out of 5 stars"
-      className={`inline-flex items-center gap-3.5 pt-8 pb-2 select-none ${className}`}
+      className={`inline-flex items-center justify-center gap-2 sm:gap-3.5 pt-8 pb-2 select-none max-w-full ${className}`}
     >
       {([1, 2, 3, 4, 5] as const).map((level) => {
         const isSelected = value === level

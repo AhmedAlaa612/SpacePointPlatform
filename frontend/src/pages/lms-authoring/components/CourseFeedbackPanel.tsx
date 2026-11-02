@@ -355,9 +355,20 @@ function ReviewItem({
           </div>
         </div>
 
-        {/* Rating Emoji + Star Badge */}
+        {/* Rating Stars + Badge */}
         <div className="flex items-center gap-2 self-start sm:self-auto shrink-0 pl-11 sm:pl-0">
-          <EmojiRating value={review.rating} readOnly size="sm" />
+          <div className="flex items-center gap-0.5" aria-label={`Rating: ${review.rating} out of 5 stars`}>
+            {[1, 2, 3, 4, 5].map((star) => (
+              <Star
+                key={star}
+                className={`size-3.5 ${
+                  star <= review.rating
+                    ? "fill-amber-400 text-amber-400"
+                    : "text-muted-foreground/30 fill-transparent"
+                }`}
+              />
+            ))}
+          </div>
           <span className="text-xs font-semibold px-2 py-0.5 rounded-md bg-muted text-foreground">
             {review.rating}/5
           </span>

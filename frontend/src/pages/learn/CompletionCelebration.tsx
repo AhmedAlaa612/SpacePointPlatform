@@ -30,7 +30,7 @@ export function CompletionCelebration({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-[420px]">
+      <DialogContent className="sm:max-w-[420px] max-h-[92vh] overflow-y-auto">
         <div className="flex flex-col items-center gap-4 py-3 text-center">
           <div className="flex h-16 w-16 items-center justify-center rounded-full bg-emerald-500/15 text-emerald-500 animate-check-pop">
             <CheckCircle2 className="size-9" />
