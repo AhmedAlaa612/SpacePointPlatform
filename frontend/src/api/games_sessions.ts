@@ -64,3 +64,11 @@ export const deleteAssignmentQuestionApi = (questionId: string) =>
 
 export const reorderAssignmentQuestionsApi = (assignmentId: string, questionIds: string[]) =>
   api.post<GameQuestion[]>(`/games/sessions/assignments/${assignmentId}/questions/reorder`, { question_ids: questionIds }).then((r) => r.data);
+
+export const uploadSessionGameQuestionImageApi = (file: File) => {
+  const form = new FormData();
+  form.append("file", file);
+  return api.post<{ url: string; path: string }>("/games/sessions/quiz-images", form, {
+    headers: { "Content-Type": "multipart/form-data" },
+  }).then((r) => r.data);
+};

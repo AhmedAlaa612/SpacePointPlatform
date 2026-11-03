@@ -13,6 +13,7 @@ export interface GameQuestion {
   id: string;
   position: number;
   prompt: string;
+  image_url?: string | null;
   options: GameQuestionOption[];
   time_limit_seconds: number | null;
   points_mode: PointsMode;
@@ -47,6 +48,7 @@ export type GameUpdateInput = Partial<GameCreateInput>;
 
 export interface GameQuestionInput {
   prompt: string;
+  image_url?: string | null;
   options: GameQuestionOption[];
   time_limit_seconds?: number | null;
   points_mode?: PointsMode;
@@ -104,4 +106,12 @@ export const downloadGameQuestionsTemplateApi = async () => {
   a.download = "game_questions_template.xlsx";
   a.click();
   URL.revokeObjectURL(url);
+};
+
+export const uploadGameQuestionImageApi = (file: File) => {
+  const form = new FormData();
+  form.append("file", file);
+  return api.post<{ url: string; path: string }>("/games/admin/quiz-images", form, {
+    headers: { "Content-Type": "multipart/form-data" },
+  }).then((r) => r.data);
 };

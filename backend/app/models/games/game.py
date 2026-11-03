@@ -58,6 +58,7 @@ class GameQuestion(Base):
     game_id = Column(UUID(as_uuid=True), ForeignKey("games.id", ondelete="CASCADE"), nullable=False)
     position = Column(Integer, nullable=False)
     prompt = Column(Text, nullable=False)
+    image_url = Column(String(512), nullable=True)
     # [{"text": str, "is_correct": bool}, ...] — same shape LMS quiz options
     # already use, exactly-one-correct validated at the schema layer.
     options = Column(JSONB, nullable=False)

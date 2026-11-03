@@ -9,6 +9,8 @@ handling (auto-append, collision check, negative-offset reorder) mirrors
 `routers/lms/admin.py`'s items section exactly — same shape, new domain.
 """
 
+from pathlib import Path
+import re
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, Response, UploadFile, status
@@ -33,13 +35,17 @@ from app.schemas.games_admin import (
 )
 from app.services.games.importer import generate_game_question_template_xlsx, parse_game_question_import
 from app.services.games.points import max_points_for
+from app.services.storage import storage
 
 router = APIRouter(prefix="/games/admin", tags=["games-admin"], dependencies=[Depends(require_lms_content)])
+
+QUIZ_IMAGE_BUCKET = "lms-quiz-images"
+MAX_QUIZ_IMAGE_BYTES = 10 * 1024 * 1024  # 10 MB
 
 
 def _question_out(q: GameQuestion) -> GameQuestionOut:
     return GameQuestionOut(
-        id=q.id, position=q.position, prompt=q.prompt, options=q.options,
+        id=q.id, position=q.position, prompt=q.prompt, image_url=q.image_url, options=q.options,
         time_limit_seconds=q.time_limit_seconds, points_mode=q.points_mode,
         max_points=max_points_for(q.points_mode),
     )
@@ -143,6 +149,7 @@ async def create_question(game_id: uuid.UUID, body: GameQuestionIn, db: AsyncSes
 
     question = GameQuestion(
         id=uuid.uuid4(), game_id=game_id, position=position, prompt=body.prompt,
+        image_url=body.image_url,
         options=[o.model_dump() for o in body.options],
         time_limit_seconds=body.time_limit_seconds, points_mode=body.points_mode,
     )
@@ -183,6 +190,7 @@ async def duplicate_question(question_id: uuid.UUID, db: AsyncSession = Depends(
     max_pos = await db.scalar(select(func.max(GameQuestion.position)).where(GameQuestion.game_id == source.game_id))
     copy = GameQuestion(
         id=uuid.uuid4(), game_id=source.game_id, position=(max_pos or 0) + 1, prompt=source.prompt,
+        image_url=source.image_url,
         options=source.options, time_limit_seconds=source.time_limit_seconds, points_mode=source.points_mode,
     )
     db.add(copy)
@@ -248,6 +256,7 @@ async def import_questions(game_id: uuid.UUID, file: UploadFile, db: AsyncSessio
     for body in parsed:
         question = GameQuestion(
             id=uuid.uuid4(), game_id=game_id, position=next_position, prompt=body.prompt,
+            image_url=body.image_url,
             options=[o.model_dump() for o in body.options],
             time_limit_seconds=body.time_limit_seconds, points_mode=body.points_mode,
         )
@@ -261,3 +270,22 @@ async def import_questions(game_id: uuid.UUID, file: UploadFile, db: AsyncSessio
     return GameQuestionImportOut(
         created=len(created), errors=errors, questions=[_question_out(q) for q in created],
     )
+
+
+@router.post("/quiz-images")
+async def upload_quiz_image(
+    file: UploadFile,
+    current: User = Depends(require_lms_content),
+) -> dict:
+    """Upload a diagram/image to be embedded in a live quiz question."""
+    data = await file.read()
+    if not data:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="Empty upload")
+    if len(data) > MAX_QUIZ_IMAGE_BYTES:
+        raise HTTPException(status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, detail="Image exceeds the 10MB limit")
+
+    filename = Path(file.filename or "image.png").name
+    clean_name = re.sub(r"[^\w\.-]", "_", filename)
+    path = f"livequiz_{uuid.uuid4().hex[:8]}_{clean_name}"
+    url = await storage.upload_file(QUIZ_IMAGE_BUCKET, path, data, file.content_type or "image/png")
+    return {"url": url, "path": path}

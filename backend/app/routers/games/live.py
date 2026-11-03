@@ -79,6 +79,7 @@ async def _run_or_404(db: AsyncSession, run_id: uuid.UUID) -> GameRun:
 def _public_question(question: GameSessionQuestion, assignment: GameSessionAssignment) -> PublicQuestionOut:
     return PublicQuestionOut(
         id=question.id, position=question.position, prompt=question.prompt,
+        image_url=question.image_url,
         options=[PublicQuestionOptionOut(text=o["text"]) for o in question.options],
         time_limit_seconds=question.time_limit_seconds or assignment.time_limit_seconds,
         max_points=max_points_for(question.points_mode),
@@ -98,6 +99,7 @@ def _question_started_payload(question: GameSessionQuestion, assignment: GameSes
 def _live_question(question: GameSessionQuestion, assignment: GameSessionAssignment) -> LiveQuestionOut:
     return LiveQuestionOut(
         id=question.id, position=question.position, prompt=question.prompt,
+        image_url=question.image_url,
         options=[LiveQuestionOptionOut(text=o["text"], is_correct=o["is_correct"]) for o in question.options],
         time_limit_seconds=question.time_limit_seconds or assignment.time_limit_seconds,
         max_points=max_points_for(question.points_mode),

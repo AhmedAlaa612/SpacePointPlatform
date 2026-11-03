@@ -3,21 +3,26 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
 import { useParams, useNavigate } from "@tanstack/react-router"
 import {
   ArrowLeft, ArrowUp, ArrowDown, ArrowRight, Plus, Pencil, Copy, Trash2, Sparkle, Timer, CheckCircle2,
-  SlidersHorizontal, Eye, FileUp,
+  SlidersHorizontal, Eye, FileUp, Upload, Image as ImageIcon, Loader2,
 } from "lucide-react"
 import { PageHeader, EmptyState, Spinner } from "@/components/ui/primitives"
 import { Modal, Field, ModalActions, ConfirmDialog } from "@/pages/admin/components/common"
 import {
   getGameApi, updateGameApi, createGameQuestionApi, updateGameQuestionApi, duplicateGameQuestionApi,
   deleteGameQuestionApi, reorderGameQuestionsApi, importGameQuestionsApi, downloadGameQuestionsTemplateApi,
+  uploadGameQuestionImageApi,
   type GameDetail, type GameQuestion, type GameQuestionOption, type GameQuestionImportResult, type PointsMode,
 } from "@/api/games_admin"
+import { resolveQuizImageUrl } from "@/api/lms"
 
 function QuestionEditor({
   gameId, question, onClose,
 }: { gameId: string; question: GameQuestion | null; onClose: () => void }) {
   const queryClient = useQueryClient()
   const [prompt, setPrompt] = useState(question?.prompt ?? "")
+  const [imageUrl, setImageUrl] = useState(question?.image_url ?? "")
+  const [uploadingImage, setUploadingImage] = useState(false)
+  const [imageError, setImageError] = useState("")
   const [options, setOptions] = useState<GameQuestionOption[]>(
     question?.options ?? [{ text: "", is_correct: true }, { text: "", is_correct: false }],
   )
@@ -27,10 +32,25 @@ function QuestionEditor({
 
   const invalidate = () => queryClient.invalidateQueries({ queryKey: ["games-admin", gameId] })
 
+  const handleImageUpload = async (file: File) => {
+    setUploadingImage(true)
+    setImageError("")
+    try {
+      const res = await uploadGameQuestionImageApi(file)
+      setImageUrl(res.url)
+    } catch (err: any) {
+      const msg = err?.response?.data?.detail || err?.message || "Failed to upload image"
+      setImageError(typeof msg === "string" ? msg : "Upload failed")
+    } finally {
+      setUploadingImage(false)
+    }
+  }
+
   const saveMutation = useMutation({
     mutationFn: () => {
       const body = {
         prompt: prompt.trim(),
+        image_url: imageUrl.trim() || null,
         options,
         time_limit_seconds: timeLimit.trim() ? Number(timeLimit) : null,
         points_mode: pointsMode,
@@ -53,6 +73,113 @@ function QuestionEditor({
             className="w-full px-3 py-2 border border-border bg-card text-foreground rounded-xl text-sm focus:outline-none focus:border-primary resize-none"
           />
         </Field>
+
+        {/* Question Image Section */}
+        <div className="flex flex-col gap-2 p-3 rounded-xl bg-muted/20 border border-border">
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-semibold text-foreground flex items-center gap-1.5">
+              <ImageIcon size={14} className="text-muted-foreground" /> Image / Diagram (optional)
+            </span>
+            {imageUrl && (
+              <button
+                type="button"
+                onClick={() => setImageUrl("")}
+                className="text-[11px] text-destructive hover:underline cursor-pointer"
+              >
+                Remove image
+              </button>
+            )}
+          </div>
+
+          {imageUrl ? (
+            <div className="flex flex-col gap-2">
+              <div className="max-h-48 overflow-hidden rounded-lg border border-border bg-card/60 flex items-center justify-center p-2 relative">
+                <img
+                  src={resolveQuizImageUrl(imageUrl)}
+                  alt="Question diagram"
+                  className="max-h-44 max-w-full object-contain rounded"
+                  onError={(e) => {
+                    (e.target as HTMLElement).classList.add("opacity-40")
+                  }}
+                />
+              </div>
+              <div className="flex items-center gap-2">
+                <label className="inline-flex items-center gap-1.5 h-8 px-3 rounded-lg border border-border bg-card hover:bg-muted text-xs font-medium text-foreground cursor-pointer transition-colors shrink-0">
+                  {uploadingImage ? (
+                    <>
+                      <Loader2 size={12} className="animate-spin text-primary" />
+                      <span>Uploading…</span>
+                    </>
+                  ) : (
+                    <>
+                      <Upload size={12} />
+                      <span>Replace image</span>
+                    </>
+                  )}
+                  <input
+                    type="file"
+                    accept="image/*"
+                    disabled={uploadingImage}
+                    className="hidden"
+                    onChange={(e) => {
+                      const f = e.target.files?.[0]
+                      if (f) {
+                        void handleImageUpload(f)
+                        e.target.value = ""
+                      }
+                    }}
+                  />
+                </label>
+                <input
+                  value={imageUrl}
+                  placeholder="Image path or URL"
+                  onChange={(e) => setImageUrl(e.target.value)}
+                  className="flex-1 h-8 px-2.5 border border-border bg-card text-foreground rounded-lg text-xs font-mono focus:outline-none focus:border-primary transition-colors"
+                />
+              </div>
+            </div>
+          ) : (
+            <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
+              <label className="inline-flex items-center justify-center gap-1.5 h-9 px-3 rounded-xl border border-primary/40 bg-primary/5 hover:bg-primary/10 text-xs font-semibold text-primary cursor-pointer transition-colors shrink-0">
+                {uploadingImage ? (
+                  <>
+                    <Loader2 size={13} className="animate-spin" />
+                    <span>Uploading image…</span>
+                  </>
+                ) : (
+                  <>
+                    <Upload size={13} />
+                    <span>Upload image</span>
+                  </>
+                )}
+                <input
+                  type="file"
+                  accept="image/*"
+                  disabled={uploadingImage}
+                  className="hidden"
+                  onChange={(e) => {
+                    const f = e.target.files?.[0]
+                    if (f) {
+                      void handleImageUpload(f)
+                      e.target.value = ""
+                    }
+                  }}
+                />
+              </label>
+              <span className="text-xs text-muted-foreground text-center sm:text-left">or link:</span>
+              <input
+                value={imageUrl}
+                placeholder="Paste URL or /files/... path"
+                onChange={(e) => setImageUrl(e.target.value)}
+                className="flex-1 h-9 px-3 border border-border bg-card text-foreground rounded-xl text-xs focus:outline-none focus:border-primary transition-colors"
+              />
+            </div>
+          )}
+
+          {imageError && (
+            <p className="text-[11px] text-destructive">{imageError}</p>
+          )}
+        </div>
 
         <Field label={`Options (mark the one correct answer)`}>
           <div className="flex flex-col gap-2">
@@ -157,6 +284,15 @@ function PreviewModal({ game, onClose }: { game: GameDetail; onClose: () => void
           </span>
         </div>
         <p className="text-base font-semibold text-foreground">{q.prompt}</p>
+        {q.image_url && (
+          <div className="overflow-hidden rounded-xl border border-border bg-card/60 flex items-center justify-center p-2 max-h-48">
+            <img
+              src={resolveQuizImageUrl(q.image_url)}
+              alt="Question diagram"
+              className="max-h-44 max-w-full object-contain rounded"
+            />
+          </div>
+        )}
         <div className="grid grid-cols-1 gap-2">
           {q.options.map((opt, i) => (
             <div
@@ -440,8 +576,24 @@ export default function LmsGameDetail() {
                     </div>
                   </div>
                   <div className="min-w-0 flex-1">
-                    <p className="text-sm font-medium text-foreground leading-snug break-words">{q.prompt}</p>
+                    <div className="flex items-start gap-3">
+                      {q.image_url && (
+                        <div className="shrink-0 w-12 h-12 rounded-xl border border-border/80 overflow-hidden bg-black/10 flex items-center justify-center p-0.5">
+                          <img
+                            src={resolveQuizImageUrl(q.image_url)}
+                            alt=""
+                            className="w-full h-full object-contain rounded-lg"
+                          />
+                        </div>
+                      )}
+                      <p className="text-sm font-medium text-foreground leading-snug break-words flex-1">{q.prompt}</p>
+                    </div>
                     <div className="flex items-center gap-x-3 gap-y-1 mt-1.5 text-xs text-muted-foreground flex-wrap">
+                      {q.image_url && (
+                        <span className="inline-flex items-center gap-1 font-medium text-primary">
+                          <ImageIcon size={12} className="shrink-0" /> Has image
+                        </span>
+                      )}
                       {correct && (
                         <span className="inline-flex items-center gap-1 font-medium text-emerald-600 dark:text-emerald-400">
                           <CheckCircle2 size={12} className="text-emerald-500 shrink-0" />

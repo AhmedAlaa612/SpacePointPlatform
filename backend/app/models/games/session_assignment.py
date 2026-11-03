@@ -65,6 +65,7 @@ class GameSessionQuestion(Base):
     assignment_id = Column(UUID(as_uuid=True), ForeignKey("game_session_assignments.id", ondelete="CASCADE"), nullable=False, index=True)
     position = Column(Integer, nullable=False)
     prompt = Column(Text, nullable=False)
+    image_url = Column(String(512), nullable=True)
     options = Column(JSONB, nullable=False)
     time_limit_seconds = Column(Integer, nullable=True)
     points_mode = Column(String(8), nullable=False, default="normal", server_default="normal")

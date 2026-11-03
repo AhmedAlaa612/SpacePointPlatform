@@ -13,6 +13,7 @@ import { PodiumBoard } from "@/components/games/PodiumBoard"
 import { AvatarBadge } from "@/components/games/AvatarBadge"
 import { AvatarNicknamePicker } from "@/components/games/AvatarNicknamePicker"
 import { CountdownLeadIn } from "@/components/games/CountdownLeadIn"
+import { resolveQuizImageUrl } from "@/api/lms"
 
 /** Student play screen (Live Games Phase 2C, 8-8; world-class rework).
  * Phases: join → lobby (named roster + avatar/nickname picker, D18) →
@@ -318,6 +319,15 @@ export default function GamePlay() {
             )}
           </div>
           <h1 className="font-display text-2xl sm:text-3xl lg:text-4xl font-semibold leading-tight tracking-normal text-foreground">{question.prompt}</h1>
+          {question.image_url && (
+            <div className="overflow-hidden rounded-2xl border border-border/50 bg-black/20 flex justify-center p-2.5 max-h-72">
+              <img
+                src={resolveQuizImageUrl(question.image_url)}
+                alt="Question diagram"
+                className="max-h-64 sm:max-h-68 w-auto object-contain rounded-xl"
+              />
+            </div>
+          )}
           <div className="grid grid-cols-1 gap-3">
             {question.options.map((o, i) => {
               const result = revealResults?.[i]

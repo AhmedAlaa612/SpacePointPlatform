@@ -15,6 +15,7 @@ import { useToast } from "@/components/ui/toast"
 import { PodiumBoard } from "@/components/games/PodiumBoard"
 import { AvatarBadge } from "@/components/games/AvatarBadge"
 import { CountdownLeadIn } from "@/components/games/CountdownLeadIn"
+import { resolveQuizImageUrl } from "@/api/lms"
 
 /** Instructor live console (Live Games Phase 2C, 8-7) — Claude Design
  * spec Frame 02: 2a "question" (prompt, countdown, roster grid ticking
@@ -423,6 +424,15 @@ export default function GameLiveConsole() {
                 </button>
               </div>
               <p className="font-display text-2xl sm:text-3xl font-bold text-foreground leading-snug">{question.prompt}</p>
+              {question.image_url && (
+                <div className="overflow-hidden rounded-2xl border border-border/50 bg-black/20 flex justify-center p-3 max-h-72 sm:max-h-96">
+                  <img
+                    src={resolveQuizImageUrl(question.image_url)}
+                    alt="Question diagram"
+                    className="max-h-68 sm:max-h-88 w-auto object-contain rounded-xl"
+                  />
+                </div>
+              )}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 {question.options.map((o, i) => {
                   const showCorrect = showAnswersOnBoard && o.is_correct

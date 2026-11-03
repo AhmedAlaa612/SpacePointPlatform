@@ -25,6 +25,7 @@ class PublicQuestionOut(BaseModel):
     id: UUID
     position: int
     prompt: str
+    image_url: str | None = None
     options: list[PublicQuestionOptionOut]
     time_limit_seconds: int
     max_points: int
@@ -40,6 +41,7 @@ class LiveQuestionOut(BaseModel):
     id: UUID
     position: int
     prompt: str
+    image_url: str | None = None
     options: list[LiveQuestionOptionOut]
     time_limit_seconds: int
     max_points: int

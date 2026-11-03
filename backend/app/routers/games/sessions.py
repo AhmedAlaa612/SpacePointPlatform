@@ -28,9 +28,11 @@ points first (D16) — `services/games/runs.py::reverse_question_points`
 `question_id`) actually goes away.
 """
 
+from pathlib import Path
+import re
 import uuid
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, status
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -53,8 +55,12 @@ from app.schemas.games_admin import (
 )
 from app.services.games.points import max_points_for
 from app.services.games.runs import reverse_question_points
+from app.services.storage import storage
 
 router = APIRouter(prefix="/games/sessions", tags=["games-sessions"], dependencies=[Depends(require_session_delivery)])
+
+QUIZ_IMAGE_BUCKET = "lms-quiz-images"
+MAX_QUIZ_IMAGE_BYTES = 10 * 1024 * 1024  # 10 MB
 
 
 async def _live_run(db: AsyncSession, assignment_id: uuid.UUID) -> GameRun | None:
@@ -63,7 +69,7 @@ async def _live_run(db: AsyncSession, assignment_id: uuid.UUID) -> GameRun | Non
 
 def _question_out(q: GameSessionQuestion) -> GameQuestionOut:
     return GameQuestionOut(
-        id=q.id, position=q.position, prompt=q.prompt, options=q.options,
+        id=q.id, position=q.position, prompt=q.prompt, image_url=q.image_url, options=q.options,
         time_limit_seconds=q.time_limit_seconds, points_mode=q.points_mode,
         max_points=max_points_for(q.points_mode),
     )
@@ -128,6 +134,7 @@ async def create_assignment(
     for q in template_questions:
         db.add(GameSessionQuestion(
             id=uuid.uuid4(), assignment_id=assignment.id, position=q.position, prompt=q.prompt,
+            image_url=q.image_url,
             options=q.options, time_limit_seconds=q.time_limit_seconds, points_mode=q.points_mode,
         ))
 
@@ -184,6 +191,7 @@ async def create_assignment_question(assignment_id: uuid.UUID, body: GameQuestio
 
     question = GameSessionQuestion(
         id=uuid.uuid4(), assignment_id=assignment_id, position=position, prompt=body.prompt,
+        image_url=body.image_url,
         options=[o.model_dump() for o in body.options],
         time_limit_seconds=body.time_limit_seconds, points_mode=body.points_mode,
     )
@@ -226,6 +234,7 @@ async def duplicate_assignment_question(question_id: uuid.UUID, db: AsyncSession
     max_pos = await db.scalar(select(func.max(GameSessionQuestion.position)).where(GameSessionQuestion.assignment_id == source.assignment_id))
     copy = GameSessionQuestion(
         id=uuid.uuid4(), assignment_id=source.assignment_id, position=(max_pos or 0) + 1, prompt=source.prompt,
+        image_url=source.image_url,
         options=source.options, time_limit_seconds=source.time_limit_seconds, points_mode=source.points_mode,
     )
     db.add(copy)
@@ -270,3 +279,22 @@ async def delete_assignment_question(question_id: uuid.UUID, db: AsyncSession = 
         await reverse_question_points(db, run=live_run, question_id=question.id)
     await db.delete(question)
     await db.commit()
+
+
+@router.post("/quiz-images")
+async def upload_quiz_image(
+    file: UploadFile,
+    current: User = Depends(require_session_delivery),
+) -> dict:
+    """Upload a diagram/image to be embedded in a session live quiz question."""
+    data = await file.read()
+    if not data:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="Empty upload")
+    if len(data) > MAX_QUIZ_IMAGE_BYTES:
+        raise HTTPException(status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, detail="Image exceeds the 10MB limit")
+
+    filename = Path(file.filename or "image.png").name
+    clean_name = re.sub(r"[^\w\.-]", "_", filename)
+    path = f"session_livequiz_{uuid.uuid4().hex[:8]}_{clean_name}"
+    url = await storage.upload_file(QUIZ_IMAGE_BUCKET, path, data, file.content_type or "image/png")
+    return {"url": url, "path": path}

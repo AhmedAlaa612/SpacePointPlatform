@@ -189,6 +189,7 @@ async def current_question(run_id: uuid.UUID, db: AsyncSession = Depends(get_db)
     assignment = await db.get(GameSessionAssignment, run.assignment_id)
     return PublicQuestionOut(
         id=question.id, position=question.position, prompt=question.prompt,
+        image_url=question.image_url,
         options=[PublicQuestionOptionOut(text=o["text"]) for o in question.options],
         time_limit_seconds=question.time_limit_seconds or assignment.time_limit_seconds,
         max_points=max_points_for(question.points_mode),

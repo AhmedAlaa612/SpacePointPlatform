@@ -6,6 +6,7 @@ export interface PublicQuestion {
   id: string;
   position: number;
   prompt: string;
+  image_url?: string | null;
   options: { text: string }[];
   time_limit_seconds: number;
   max_points: number;
@@ -15,6 +16,7 @@ export interface LiveQuestion {
   id: string;
   position: number;
   prompt: string;
+  image_url?: string | null;
   options: { text: string; is_correct: boolean }[];
   time_limit_seconds: number;
   max_points: number;

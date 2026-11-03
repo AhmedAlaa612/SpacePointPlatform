@@ -19,12 +19,14 @@ OPTION_LETTERS = "ABCD"
 TEMPLATE_HEADERS = [
     "Prompt", "Option A", "Option B", "Option C", "Option D",
     "Correct Option (A-D)", "Time Limit (seconds)", "Points Mode (normal/double)",
+    "Image URL",
 ]
 
 
 def parse_game_question_import(file_bytes: bytes) -> tuple[list[GameQuestionIn], list[str]]:
     """One row per question. Option A/B are required, C/D optional. Time
-    limit blank = the game's own default; points mode blank = 'normal'."""
+    limit blank = the game's own default; points mode blank = 'normal'.
+    Image URL is optional."""
     import openpyxl
 
     questions: list[GameQuestionIn] = []
@@ -50,6 +52,9 @@ def parse_game_question_import(file_bytes: bytes) -> tuple[list[GameQuestionIn],
             return None
 
     prompt_col = col("Prompt")
+    image_url_col = col("Image URL")
+    if image_url_col is None:
+        image_url_col = col("Image")
     option_cols = [col(f"Option {letter}") for letter in OPTION_LETTERS]
     correct_col = col("Correct Option (A-D)")
     time_limit_col = col("Time Limit (seconds)")
@@ -67,6 +72,9 @@ def parse_game_question_import(file_bytes: bytes) -> tuple[list[GameQuestionIn],
         prompt = str(prompt_raw).strip() if prompt_raw is not None else ""
         if not prompt:
             continue  # blank row — skip silently, same as a blank email in the payments importer
+
+        image_url_raw = cell(row, image_url_col)
+        image_url = str(image_url_raw).strip() if image_url_raw not in (None, "") else None
 
         filled = []
         for letter, idx in zip(OPTION_LETTERS, option_cols):
@@ -103,6 +111,7 @@ def parse_game_question_import(file_bytes: bytes) -> tuple[list[GameQuestionIn],
         try:
             questions.append(GameQuestionIn(
                 prompt=prompt,
+                image_url=image_url,
                 options=[GameQuestionOptionIn(text=text, is_correct=letter == correct_letter) for letter, text in filled],
                 time_limit_seconds=time_limit,
                 points_mode=points_mode,
@@ -129,7 +138,7 @@ def generate_game_question_template_xlsx() -> bytes:
         ws.column_dimensions[get_column_letter(col_idx)].width = 22
     example = [
         "Which burn raises apoapsis?", "Prograde burn at periapsis", "Retrograde burn at periapsis",
-        "Radial burn", "Normal burn", "A", 20, "normal",
+        "Radial burn", "Normal burn", "A", 20, "normal", "",
     ]
     for col_idx, val in enumerate(example, 1):
         ws.cell(row=2, column=col_idx, value=val)

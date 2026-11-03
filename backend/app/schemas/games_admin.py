@@ -16,6 +16,7 @@ class GameQuestionOptionIn(BaseModel):
 
 class GameQuestionIn(BaseModel):
     prompt: str
+    image_url: str | None = None
     options: list[GameQuestionOptionIn] = Field(min_length=2)
     time_limit_seconds: int | None = None  # None = use the game's default
     points_mode: Literal["normal", "double"] = "normal"
@@ -31,6 +32,7 @@ class GameQuestionIn(BaseModel):
 
 class GameQuestionUpdate(BaseModel):
     prompt: str | None = None
+    image_url: str | None = None
     options: list[GameQuestionOptionIn] | None = None
     time_limit_seconds: int | None = None
     points_mode: Literal["normal", "double"] | None = None
@@ -49,6 +51,7 @@ class GameQuestionOut(BaseModel):
     id: UUID
     position: int
     prompt: str
+    image_url: str | None = None
     options: list[GameQuestionOptionIn]
     time_limit_seconds: int | None
     points_mode: str
