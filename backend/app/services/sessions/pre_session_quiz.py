@@ -1030,10 +1030,21 @@ async def submit_cohort_phase(
             )
         )
     ).scalars().first()
-    if attempt is None:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="Phase has not been started yet")
-
     now = datetime.now(timezone.utc)
+    if attempt is None:
+        attempt = PreSessionQuizAttempt(
+            cohort_id=cohort_id,
+            preset_id=preset_id,
+            user_id=user.id,
+            status="in_progress",
+            current_phase_index=target_idx,
+            phase_started_at=now,
+            started_at=now,
+            total_questions=len(preset_hydrated.get("questions") or []),
+        )
+        db.add(attempt)
+        await db.commit()
+        await db.refresh(attempt)
     # Check cooldown lock
     if attempt.locked_until and now < attempt.locked_until:
         remaining = int((attempt.locked_until - now).total_seconds())

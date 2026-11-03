@@ -19,6 +19,7 @@ import {
 
 import {
   getCohortPreQuizStatusApi,
+  startCohortPhaseApi,
   submitCohortPhaseApi,
   type CohortPreQuizStatus,
   type PhaseTrial,
@@ -111,6 +112,16 @@ export default function CohortReadinessQuiz({
       })
     }
   }, [attempt?.current_phase_index])
+
+  // Automatically start phase attempt on backend if not started yet
+  useEffect(() => {
+    if (isSimulated || !cohortId || !preset?.phases) return
+    const activePhase = preset.phases[viewingPhaseIndex]
+    if (!activePhase) return
+    if (!attempt || (attempt.current_phase_index === viewingPhaseIndex && attempt.status !== "completed" && attempt.status !== "cooldown_locked")) {
+      startCohortPhaseApi(cohortId, activePhase.id).catch(() => {})
+    }
+  }, [cohortId, preset?.phases, viewingPhaseIndex, attempt, isSimulated])
 
   // Current phase active timer (tracks active duration on phase)
   const [phaseSeconds, setPhaseSeconds] = useState(0)
