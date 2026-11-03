@@ -39,6 +39,12 @@ interface SourceSelection {
   cohortId?: string
 }
 
+const EMPTY_PROGRAMS: Program[] = []
+const EMPTY_COHORTS: Cohort[] = []
+const EMPTY_SESSIONS: Session[] = []
+const EMPTY_ITEMS: ChecklistItem[] = []
+const EMPTY_ROLES: DeliveryRole[] = []
+
 export function ImportInstructorChecklistModal({
   open,
   onClose,
@@ -48,7 +54,7 @@ export function ImportInstructorChecklistModal({
   targetCohortId,
   targetRoleId,
   targetAudience = "instructor",
-  roles = [],
+  roles = EMPTY_ROLES,
   onImportSuccess,
 }: {
   open: boolean
@@ -66,11 +72,12 @@ export function ImportInstructorChecklistModal({
   const queryClient = useQueryClient()
 
   // ── Programs Query ────────────────────────────────────────────────────────
-  const { data: programs = [], isLoading: loadingPrograms } = useQuery<Program[]>({
+  const { data: rawPrograms, isLoading: loadingPrograms } = useQuery<Program[]>({
     queryKey: ["sessions-programs"],
     queryFn: getProgramsApi,
     enabled: open,
   })
+  const programs = rawPrograms ?? EMPTY_PROGRAMS
 
   const [selectedProgramId, setSelectedProgramId] = useState<string>(targetProgramId || "")
   const [source, setSource] = useState<SourceSelection | null>(null)
@@ -83,42 +90,46 @@ export function ImportInstructorChecklistModal({
   // Default to targetProgramId or first program if not set, and reset state on open
   useEffect(() => {
     if (open) {
-      if (targetProgramId) {
-        setSelectedProgramId(targetProgramId)
-      } else if (programs.length > 0 && !selectedProgramId) {
-        setSelectedProgramId(programs[0].id)
-      }
+      setSelectedProgramId(targetProgramId || (programs[0]?.id ?? ""))
       setSource(null)
       setSelectedCohortSessionId("default")
       setSourceRoleId(targetRoleId || null)
-      setSelectedItemIds(new Set())
+      setSelectedItemIds((prev) => (prev.size === 0 ? prev : new Set()))
       setReplaceExisting(false)
       setSearchItemFilter("")
     }
   }, [open, targetProgramId, targetRoleId])
 
+  useEffect(() => {
+    if (open && !selectedProgramId && programs.length > 0) {
+      setSelectedProgramId(targetProgramId || programs[0].id)
+    }
+  }, [open, selectedProgramId, programs, targetProgramId])
+
   // ── Program Cohorts Query ──────────────────────────────────────────────────
-  const { data: cohorts = [], isLoading: loadingCohorts } = useQuery<Cohort[]>({
+  const { data: rawCohorts, isLoading: loadingCohorts } = useQuery<Cohort[]>({
     queryKey: ["sessions-cohorts-for-prog", selectedProgramId],
     queryFn: () => getCohortsApi(selectedProgramId),
     enabled: open && !!selectedProgramId,
   })
+  const cohorts = rawCohorts ?? EMPTY_COHORTS
 
   // When program changes, reset source and selection
   const handleProgramChange = (progId: string) => {
     setSelectedProgramId(progId)
     setSource(null)
     setSelectedCohortSessionId("default")
-    setSelectedItemIds(new Set())
+    setSelectedItemIds((prev) => (prev.size === 0 ? prev : new Set()))
   }
 
   // ── Sessions Query for selected source cohort ──────────────────────────────
   const selectedCohortId = source?.cohortId || (source?.scope === "cohorts" ? source.ownerId : null)
-  const { data: sourceCohortSessions = [] } = useQuery<Session[]>({
+  const { data: rawSessions } = useQuery<Session[]>({
     queryKey: ["sessions-for-cohort-import", selectedCohortId],
     queryFn: () => getSessionsApi(selectedCohortId!),
     enabled: open && !!selectedCohortId,
   })
+  const sourceCohortSessions = rawSessions ?? EMPTY_SESSIONS
 
   const sortedSessions = useMemo(() => {
     return [...sourceCohortSessions].sort((a, b) => {
@@ -143,7 +154,7 @@ export function ImportInstructorChecklistModal({
   }, [source, selectedCohortSessionId])
 
   // ── Source Items Query ─────────────────────────────────────────────────────
-  const { data: sourceItems = [], isLoading: loadingItems } = useQuery<ChecklistItem[]>({
+  const { data: rawSourceItems, isLoading: loadingItems } = useQuery<ChecklistItem[]>({
     queryKey: [
       "checklist-items-for-import",
       effectiveSource?.scope,
@@ -197,13 +208,14 @@ export function ImportInstructorChecklistModal({
     },
     enabled: open && !!effectiveSource,
   })
+  const sourceItems = rawSourceItems ?? EMPTY_ITEMS
 
   // Automatically select all items when source items load
   useEffect(() => {
     if (sourceItems.length > 0) {
       setSelectedItemIds(new Set(sourceItems.map((i) => i.id)))
     } else {
-      setSelectedItemIds(new Set())
+      setSelectedItemIds((prev) => (prev.size === 0 ? prev : new Set()))
     }
   }, [sourceItems])
 

@@ -172,7 +172,7 @@ export function ImportChecklistModal({
     if (sourceItems.length > 0) {
       setSelectedItemIds(new Set(sourceItems.map((i) => i.id)))
     } else {
-      setSelectedItemIds(new Set())
+      setSelectedItemIds((prev) => (prev.size === 0 ? prev : new Set()))
     }
   }, [sourceItems])
 
