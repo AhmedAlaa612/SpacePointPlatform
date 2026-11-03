@@ -1,8 +1,10 @@
+import { useState } from "react";
 import { CheckCircle2 } from "lucide-react";
 import { useNavigate } from "@tanstack/react-router";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { CourseRatingWidget } from "@/components/ui/CourseRatingWidget";
+import { useCourseRating } from "@/api/course_ratings";
 
 /** The "you're done, here's the way back" popup (2026-09) — fires from
  * Madar (confirming a phase, in `MadarPhaseDrawer`) and a finished course.
@@ -27,6 +29,9 @@ export function CompletionCelebration({
   courseId?: string;
 }) {
   const navigate = useNavigate();
+  const [existingRating] = useCourseRating(courseId);
+  const [ratingSubmitted, setRatingSubmitted] = useState(false);
+  const isRatingSubmitted = !courseId || ratingSubmitted || existingRating !== null;
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -46,25 +51,28 @@ export function CompletionCelebration({
               title="Rate your experience"
               size="sm"
               className="border-y border-border/80 dark:border-lms-accent-border/30 my-1 bg-muted/10 dark:bg-[#12091f]/40"
+              onSubmitted={() => setRatingSubmitted(true)}
             />
           )}
 
-          <Button
-            size="xl"
-            className="w-full mt-1"
-            onClick={() => {
-              onOpenChange(false);
-              if (assignmentId) void navigate({ to: "/learn/checklists/$assignmentId", params: { assignmentId } });
-            }}
-          >
-            {assignmentId ? "Back to your program" : "Back to board"}
-          </Button>
+          {isRatingSubmitted && (
+            <Button
+              size="xl"
+              className="w-full mt-1 animate-in fade-in slide-in-from-bottom-2 duration-300"
+              onClick={() => {
+                onOpenChange(false);
+                if (assignmentId) void navigate({ to: "/learn/checklists/$assignmentId", params: { assignmentId } });
+              }}
+            >
+              {assignmentId ? "Back to your program" : "Back to board"}
+            </Button>
+          )}
           <button
             type="button"
             onClick={() => onOpenChange(false)}
             className="text-xs text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
           >
-            Stay here
+            {isRatingSubmitted ? "Stay here" : "Skip for now"}
           </button>
         </div>
       </DialogContent>

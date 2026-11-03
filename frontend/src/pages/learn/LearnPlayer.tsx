@@ -9,6 +9,7 @@ import { PlayerLayout } from "./PlayerLayout";
 import { ItemPane } from "./ItemPane";
 import { CompletionCelebration } from "./CompletionCelebration";
 import { CourseRatingWidget } from "@/components/ui/CourseRatingWidget";
+import { useCourseRating } from "@/api/course_ratings";
 
 const COMPLETED = new Set(["completed", "skipped"]);
 const ITEM_KIND_LABEL: Record<ModuleItem["kind"], string> = {
@@ -35,6 +36,10 @@ export default function LearnPlayer() {
   const { courseId } = useParams({ strict: false }) as { courseId: string };
   const search = useSearch({ strict: false }) as { program?: string };
   const navigate = useNavigate();
+
+  const [existingRating] = useCourseRating(courseId);
+  const [ratingSubmitted, setRatingSubmitted] = useState(false);
+  const isRatingSubmitted = ratingSubmitted || existingRating !== null;
 
   const [course, setCourse] = useState<CourseDetail | null>(null);
   const [modulesData, setModulesData] = useState<Record<string, ModuleDetail>>({});
@@ -240,11 +245,18 @@ export default function LearnPlayer() {
               courseId={courseId}
               size="md"
               className="p-5 rounded-2xl bg-muted/20 dark:bg-[#0d0915] my-1 shadow-lg shadow-black/10"
+              onSubmitted={() => setRatingSubmitted(true)}
             />
 
-            <Button size="xl" className="w-full mt-2" onClick={() => void navigate({ to: `/learn/courses/${courseId}` })}>
-              Back to course
-            </Button>
+            {isRatingSubmitted && (
+              <Button
+                size="xl"
+                className="w-full mt-2 animate-in fade-in slide-in-from-bottom-2 duration-300"
+                onClick={() => void navigate({ to: `/learn/courses/${courseId}` })}
+              >
+                Back to course
+              </Button>
+            )}
           </div>
         )}
       </PlayerLayout>
