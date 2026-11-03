@@ -17,7 +17,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from app.schemas.lms import LmsTableColumn, LmsTableConfig
 
-ModuleItemKind = Literal["video", "text", "quiz", "flashcards", "attachment", "mission"]
+ModuleItemKind = Literal["video", "text", "quiz", "flashcards", "attachment", "mission", "practice", "lab"]
 
 
 class LmsProgramItemLinkLabel(BaseModel):
@@ -330,9 +330,40 @@ class AdminContentMission(BaseModel):
     variant_id: UUID | None = None
 
 
+class AdminPracticeBlankIn(BaseModel):
+    token: str
+    label: str | None = None
+    hint: str | None = None
+    validator_pattern: str | None = None
+    correct_answer: str | None = None
+
+
+class AdminHardwareSelectorIn(BaseModel):
+    enabled: bool = False
+    default_address: str = "0x49"
+    addresses: list[str] = []
+
+
+class AdminContentPractice(BaseModel):
+    template: str
+    markdown: str | None = None
+    instructions: str | None = None
+    blanks: list[AdminPracticeBlankIn] = []
+    max_attempts: int = 3
+    hardware_selector: AdminHardwareSelectorIn | None = None
+
+
+class AdminContentLab(BaseModel):
+    lab_type: Literal["uart", "i2c", "can", "spi"]
+    title: str | None = None
+    markdown: str | None = None
+    instructions: str | None = None
+    config: dict = Field(default_factory=dict)
+
+
 AdminModuleContent = Union[
     AdminContentQuiz, AdminContentFlashcards, AdminContentText, AdminContentVideo, AdminContentAttachment,
-    AdminContentMission,
+    AdminContentMission, AdminContentPractice, AdminContentLab,
 ]
 
 

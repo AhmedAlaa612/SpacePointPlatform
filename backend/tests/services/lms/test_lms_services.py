@@ -643,3 +643,75 @@ async def test_student_view_leaks_no_answers_for_any_kind(db):
     img_quiz_item.content["questions"][0]["image_url"] = "https://portal.spacepoint.ae/files/lms-quiz-images/Q03.png"
     img_quiz_view = student_view(img_quiz_item)
     assert img_quiz_view["content"]["questions"][0]["image_url"] == "https://portal.spacepoint.ae/files/lms-quiz-images/Q03.png"
+
+
+@pytest.mark.asyncio
+async def test_student_view_practice_and_lab(db):
+    """Practice and lab content is sanitized and properly exposed to students."""
+    course = await _course(db)
+    m = await _module(db, course)
+    practice_item = await _item(
+        db, m, position=1, kind="practice",
+        content={
+            "template": "int x = {{VAL}};",
+            "instructions": "Declare a variable.",
+            "max_attempts": 3,
+            "blanks": [{"token": "{{VAL}}", "label": "val", "validator_pattern": "^\\d+$", "correct_answer": "42", "hint": "42"}],
+            "hardware_selector": {"enabled": True, "default_address": "0x49", "addresses": ["0x48", "0x49"]},
+            "unauthorized_secret": "top_secret_do_not_leak",
+        }
+    )
+    lab_item = await _item(
+        db, m, position=2, kind="lab",
+        content={
+            "lab_type": "uart",
+            "title": "UART Test",
+            "instructions": "Cross-connect TX and RX.",
+            "config": {"left_name": "MCU", "left_pins": ["TX", "RX"]},
+            "unauthorized_secret": "top_secret_do_not_leak",
+        }
+    )
+
+    p_view = student_view(practice_item)
+    assert p_view["kind"] == "practice"
+    assert p_view["content"]["template"] == "int x = {{VAL}};"
+    assert p_view["content"]["blanks"][0]["token"] == "{{VAL}}"
+    assert p_view["content"]["hardware_selector"]["default_address"] == "0x49"
+    assert "unauthorized_secret" not in p_view["content"]
+
+    l_view = student_view(lab_item)
+    assert l_view["kind"] == "lab"
+    assert l_view["content"]["lab_type"] == "uart"
+    assert l_view["content"]["config"]["left_name"] == "MCU"
+    assert "unauthorized_secret" not in l_view["content"]
+
+
+@pytest.mark.asyncio
+async def test_practice_and_lab_item_progress_completion(db):
+    """Students can complete practice and lab items via valid action strings."""
+    course = await _course(db)
+    m = await _module(db, course)
+    practice_item = await _item(
+        db, m, position=1, kind="practice",
+        content={"template": "code", "blanks": []}
+    )
+    lab_item = await _item(
+        db, m, position=2, kind="lab",
+        content={"lab_type": "uart", "config": {}}
+    )
+    student = await _user(db)
+
+    # Reject mismatched action
+    with pytest.raises(HTTPException) as exc:
+        await item_progress(db, user_id=student.id, item_id=practice_item.id, action="lab-completed")
+    assert exc.value.status_code == 400
+
+    # Practice completed
+    p_prog = await item_progress(db, user_id=student.id, item_id=practice_item.id, action="practice-completed")
+    assert p_prog.status == "completed"
+    assert p_prog.completed_at is not None
+
+    # Lab completed
+    l_prog = await item_progress(db, user_id=student.id, item_id=lab_item.id, action="lab-completed")
+    assert l_prog.status == "completed"
+    assert l_prog.completed_at is not None

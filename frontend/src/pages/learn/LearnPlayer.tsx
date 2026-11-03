@@ -13,6 +13,7 @@ import { CourseRatingWidget } from "@/components/ui/CourseRatingWidget";
 const COMPLETED = new Set(["completed", "skipped"]);
 const ITEM_KIND_LABEL: Record<ModuleItem["kind"], string> = {
   video: "Video", text: "Reading", quiz: "Quiz", flashcards: "Flashcards", attachment: "Attachment", mission: "Mission",
+  practice: "Code Practice", lab: "Hardware Lab",
 };
 
 /** Ordered items across every unlocked module — module position, then item

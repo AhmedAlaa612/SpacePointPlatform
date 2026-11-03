@@ -84,7 +84,45 @@ class ContentMission(BaseModel):
     attempt_status: str | None = None
 
 
-ModuleContent = Union[ContentQuiz, ContentText, ContentFlashcards, ContentVideo, ContentAttachment, ContentMission]
+class PracticeBlankOut(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    token: str
+    label: str | None = None
+    hint: str | None = None
+    validator_pattern: str | None = None
+    correct_answer: str | None = None
+
+
+class HardwareSelectorOut(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    enabled: bool = False
+    default_address: str = "0x49"
+    addresses: list[str] = []
+
+
+class ContentPractice(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    template: str
+    markdown: str | None = None
+    instructions: str | None = None
+    blanks: list[PracticeBlankOut] = []
+    max_attempts: int = 3
+    hardware_selector: HardwareSelectorOut | None = None
+
+
+class ContentLab(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    lab_type: Literal["uart", "i2c", "can", "spi"]
+    title: str | None = None
+    markdown: str | None = None
+    instructions: str | None = None
+    config: dict = Field(default_factory=dict)
+
+
+ModuleContent = Union[
+    ContentQuiz, ContentText, ContentFlashcards, ContentVideo, ContentAttachment, ContentMission,
+    ContentPractice, ContentLab
+]
 
 
 # ── video checkpoints (timeline notes + mid-video quizzes, 2026-08-07) ───────
@@ -266,7 +304,7 @@ class CheckoutFulfillOut(BaseModel):
 
 class ModuleItemOut(BaseModel):
     id: UUID
-    kind: Literal["video", "text", "quiz", "flashcards", "attachment", "mission"]
+    kind: Literal["video", "text", "quiz", "flashcards", "attachment", "mission", "practice", "lab"]
     title: str | None = None
     position: int
     content: ModuleContent
@@ -285,7 +323,10 @@ class ModuleOut(BaseModel):
 # ── progress + quiz submission ──────────────────────────────────────────────
 
 class ProgressIn(BaseModel):
-    action: Literal["video-watched", "text-viewed", "quiz-attempt", "flashcards-skipped", "attachment-viewed"]
+    action: Literal[
+        "video-watched", "text-viewed", "quiz-attempt", "flashcards-skipped", "attachment-viewed",
+        "practice-completed", "lab-completed"
+    ]
 
 
 class ProgressOut(BaseModel):

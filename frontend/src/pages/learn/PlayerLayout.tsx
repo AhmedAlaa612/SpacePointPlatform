@@ -1,7 +1,7 @@
 import { useState, useEffect, type ReactNode } from "react";
 import { Link, useSearch } from "@tanstack/react-router";
 import {
-  ArrowLeft, CheckCircle2, ChevronDown, FileText, HelpCircle, Layers, Lock, PanelLeftClose, PanelLeftOpen,
+  ArrowLeft, CheckCircle2, ChevronDown, Code2, Cpu, FileText, HelpCircle, Layers, Lock, PanelLeftClose, PanelLeftOpen,
   Paperclip, PlayCircle, Rocket, Video as VideoIcon,
 } from "lucide-react";
 import { fetchModule, type CourseDetail, type ModuleDetail, type ModuleItem, type ModuleLock } from "@/api/lms";
@@ -9,6 +9,7 @@ import { cn } from "@/lib/utils";
 
 const KIND_ICON: Record<ModuleItem["kind"], typeof VideoIcon> = {
   video: VideoIcon, text: FileText, quiz: HelpCircle, flashcards: Layers, attachment: Paperclip, mission: Rocket,
+  practice: Code2, lab: Cpu,
 };
 
 /** The sidebar + content-pane split (design 1h) — owns which item is

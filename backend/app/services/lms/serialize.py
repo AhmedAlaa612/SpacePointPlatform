@@ -73,6 +73,38 @@ def _sanitize_mission(content: dict) -> dict:
     return {"mission_id": content.get("mission_id"), "variant_id": content.get("variant_id")}
 
 
+def _sanitize_practice(content: dict) -> dict:
+    blanks = content.get("blanks") or []
+    sanitized_blanks = []
+    for b in blanks:
+        if isinstance(b, dict):
+            sanitized_blanks.append({
+                "token": b.get("token", ""),
+                "label": b.get("label"),
+                "hint": b.get("hint"),
+                "validator_pattern": b.get("validator_pattern"),
+                "correct_answer": b.get("correct_answer"),
+            })
+    return {
+        "template": content.get("template", ""),
+        "markdown": content.get("markdown") or content.get("instructions"),
+        "instructions": content.get("instructions"),
+        "blanks": sanitized_blanks,
+        "max_attempts": content.get("max_attempts", 3),
+        "hardware_selector": content.get("hardware_selector"),
+    }
+
+
+def _sanitize_lab(content: dict) -> dict:
+    return {
+        "lab_type": content.get("lab_type", "uart"),
+        "title": content.get("title"),
+        "markdown": content.get("markdown") or content.get("instructions"),
+        "instructions": content.get("instructions"),
+        "config": content.get("config") or {},
+    }
+
+
 def _sanitize(kind: str, content: dict | None, quiz_order: list[int] | None = None) -> dict:
     content = content or {}
     if kind == "quiz":
@@ -85,6 +117,10 @@ def _sanitize(kind: str, content: dict | None, quiz_order: list[int] | None = No
         return _sanitize_attachment(content)
     if kind == "mission":
         return _sanitize_mission(content)
+    if kind == "practice":
+        return _sanitize_practice(content)
+    if kind == "lab":
+        return _sanitize_lab(content)
     # video (and any unknown kind) exposes nothing from the JSONB at all —
     # it carries `{}` by design and everything real lives in module_videos.
     return {}

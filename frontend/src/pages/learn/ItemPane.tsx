@@ -12,8 +12,11 @@ import {
   type ModuleItem, type QuizAnswerCheck, type QuizReview,
 } from "@/api/lms";
 import { VideoPlayer } from "./VideoPlayer";
+import { CodePracticeBlock } from "@/components/lms/interactive/CodePracticeBlock";
+import { HardwareLabBlock } from "@/components/lms/interactive/HardwareLabBlock";
+import { MarkdownContent } from "@/components/lms/MarkdownContent";
 
-/** One switch on item.kind → the five content panes (design 1i). Net-new,
+/** One switch on item.kind → the content panes (design 1i). Net-new,
  * replacing the inline switch that used to live directly in the module
  * route — this version has no route of its own, PlayerLayout swaps it in.
  */
@@ -69,6 +72,28 @@ export function ItemPane({
     return <MissionEmbedBlock content={item.content} />;
   }
 
+  if (item.kind === "practice" && "template" in item.content) {
+    return (
+      <CodePracticeBlock
+        key={item.id}
+        content={item.content}
+        isCompleted={item.status === "completed"}
+        onComplete={() => recordProgress(item.id, "practice-completed").finally(onProgressed)}
+      />
+    );
+  }
+
+  if (item.kind === "lab" && "lab_type" in item.content) {
+    return (
+      <HardwareLabBlock
+        key={item.id}
+        content={item.content}
+        isCompleted={item.status === "completed"}
+        onComplete={() => recordProgress(item.id, "lab-completed").finally(onProgressed)}
+      />
+    );
+  }
+
   return null;
 }
 
@@ -113,15 +138,15 @@ function readingMinutes(body: string): number {
 
 function TextBlock({ body, onContinue }: { body: string; onContinue: () => void }) {
   return (
-    <div>
-      <p className="text-xs font-semibold uppercase tracking-wide text-primary mb-2.5">
+    <div className="flex flex-col gap-4">
+      <p className="text-xs font-semibold uppercase tracking-wide text-primary">
         Reading · {readingMinutes(body)} min
       </p>
-      <div className="p-6 rounded-2xl ring-1 ring-border bg-card/60 whitespace-pre-wrap text-base leading-relaxed">
-        {body}
+      <div className="p-4 sm:p-6 rounded-2xl ring-1 ring-border bg-card/60 overflow-hidden shadow-xs">
+        <MarkdownContent content={body} />
       </div>
-      <div className="mt-5 flex justify-end">
-        <Button size="xl" onClick={onContinue}>
+      <div className="mt-2 flex justify-end">
+        <Button size="xl" onClick={onContinue} className="w-full sm:w-auto">
           <CheckCircle2 className="size-4" /> Got it!
         </Button>
       </div>

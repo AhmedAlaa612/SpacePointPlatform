@@ -6,7 +6,7 @@ import type { LmsTableConfig } from "./lms";
 
 export type CourseKind = "course" | "mission";
 export type CourseLevel = "beginner" | "intermediate" | "advanced";
-export type ModuleItemKind = "video" | "text" | "quiz" | "flashcards" | "attachment";
+export type ModuleItemKind = "video" | "text" | "quiz" | "flashcards" | "attachment" | "practice" | "lab";
 
 export interface AdminCourse {
   id: string;
@@ -227,11 +227,44 @@ export interface AdminQuizQuestion {
 
 export type VideoTranscodeStatus = "pending" | "processing" | "ready" | "failed";
 
+export interface AdminPracticeBlank {
+  token: string;
+  label?: string;
+  hint?: string;
+  validator_pattern?: string;
+  correct_answer?: string;
+}
+
+export interface AdminHardwareSelector {
+  enabled: boolean;
+  default_address: string;
+  addresses: string[];
+}
+
+export interface AdminContentPractice {
+  template: string;
+  markdown?: string;
+  instructions?: string;
+  blanks: AdminPracticeBlank[];
+  max_attempts: number;
+  hardware_selector?: AdminHardwareSelector;
+}
+
+export interface AdminContentLab {
+  lab_type: "uart" | "i2c" | "can" | "spi";
+  title?: string;
+  markdown?: string;
+  instructions?: string;
+  config: Record<string, any>;
+}
+
 export type AdminItemContent =
   | { body: string }
   | { pass_threshold: number; questions: AdminQuizQuestion[]; random_count?: number | null }
   | { title: string | null; cards: { term: string; definition: string }[] }
   | { transcode_status: VideoTranscodeStatus | null; transcode_error: string | null; duration_seconds: number | null }
+  | AdminContentPractice
+  | AdminContentLab
   // Empty until uploaded (same two-step shape as video) — every field optional
   // rather than a second union member, since {} and the populated shape are
   // both valid at different points in the same item's life.

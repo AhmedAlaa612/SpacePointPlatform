@@ -24,6 +24,7 @@ function formatPrice(cents: number, currency: string): string {
 
 const ITEM_KIND_LABEL: Record<ModuleItem["kind"], string> = {
   video: "Video", text: "Reading", quiz: "Quiz", flashcards: "Flashcards", attachment: "Attachment", mission: "Mission",
+  practice: "Code Practice", lab: "Hardware Lab",
 };
 
 /** Course landing (design 1g) — orient & enrol only; in-progress state lives

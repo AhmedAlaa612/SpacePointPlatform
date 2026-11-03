@@ -147,9 +147,8 @@ class ModuleItem(Base):
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     module_id = Column(UUID(as_uuid=True), ForeignKey("course_modules.id", ondelete="CASCADE"), nullable=False)
     position = Column(Integer, nullable=False)
-    # video|text|quiz|flashcards|attachment|mission (P5-5 — content =
-    # {mission_id, variant_id?}, points at a standalone `missions` row)
-    kind = Column(String(10), nullable=False)
+    # video|text|quiz|flashcards|attachment|mission|practice|lab
+    kind = Column(String(32), nullable=False)
     is_required = Column(Boolean, nullable=False, default=True)
     title = Column(String(128), nullable=True)
     # Authored payload, shapes documented in LMS_EXECUTION_PLAN.md §2.

@@ -84,12 +84,45 @@ export interface QuizQuestion {
   options: QuizOption[];
 }
 
+export interface PracticeBlank {
+  token: string;
+  label?: string;
+  hint?: string;
+  validator_pattern?: string;
+  correct_answer?: string;
+}
+
+export interface HardwareSelector {
+  enabled: boolean;
+  default_address: string;
+  addresses: string[];
+}
+
+export interface ContentPractice {
+  template: string;
+  markdown?: string;
+  instructions?: string;
+  blanks: PracticeBlank[];
+  max_attempts: number;
+  hardware_selector?: HardwareSelector;
+}
+
+export interface ContentLab {
+  lab_type: "uart" | "i2c" | "can" | "spi";
+  title?: string;
+  markdown?: string;
+  instructions?: string;
+  config: Record<string, any>;
+}
+
 export type ModuleItemContent =
   | { body: string } // text
   | { pass_threshold: number; questions: QuizQuestion[] } // quiz
   | { title: string | null; cards: { term: string; definition: string }[] } // flashcards
   | { transcode_status: string | null; duration_seconds: number | null; video_id: string | null } // video
   | { filename: string | null; size_bytes: number | null } // attachment
+  | ContentPractice
+  | ContentLab
   | {
       // mission (P5-5) — mission_title/mission_kind/points/attempt_status
       // are enriched by the backend per request, not authored content.
@@ -103,7 +136,7 @@ export type ModuleItemContent =
 
 export interface ModuleItem {
   id: string;
-  kind: "video" | "text" | "quiz" | "flashcards" | "attachment" | "mission";
+  kind: "video" | "text" | "quiz" | "flashcards" | "attachment" | "mission" | "practice" | "lab";
   title: string | null;
   position: number;
   content: ModuleItemContent;
@@ -492,7 +525,14 @@ export async function getAttachmentUrl(itemId: string): Promise<AttachmentUrl> {
   return data;
 }
 
-export type ProgressAction = "video-watched" | "text-viewed" | "quiz-attempt" | "flashcards-skipped" | "attachment-viewed";
+export type ProgressAction =
+  | "video-watched"
+  | "text-viewed"
+  | "quiz-attempt"
+  | "flashcards-skipped"
+  | "attachment-viewed"
+  | "practice-completed"
+  | "lab-completed";
 
 export async function recordProgress(itemId: string, action: ProgressAction): Promise<ProgressResult> {
   const { data } = await api.post<ProgressResult>(`/lms/items/${itemId}/progress`, { action });
