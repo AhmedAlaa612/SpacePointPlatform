@@ -35,7 +35,7 @@ from app.schemas.games_admin import (
 )
 from app.services.games.importer import generate_game_question_template_xlsx, parse_game_question_import
 from app.services.games.points import max_points_for
-from app.services.storage import storage
+from app.services import storage
 
 router = APIRouter(prefix="/games/admin", tags=["games-admin"], dependencies=[Depends(require_lms_content)])
 

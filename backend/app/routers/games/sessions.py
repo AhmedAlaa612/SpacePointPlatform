@@ -55,7 +55,7 @@ from app.schemas.games_admin import (
 )
 from app.services.games.points import max_points_for
 from app.services.games.runs import reverse_question_points
-from app.services.storage import storage
+from app.services import storage
 
 router = APIRouter(prefix="/games/sessions", tags=["games-sessions"], dependencies=[Depends(require_session_delivery)])
 
