@@ -1144,22 +1144,17 @@ function ExploreDatasheetsPhase({
             key={doc.id || doc.url}
             className="rounded-2xl border border-border bg-card overflow-hidden hover:border-primary/40 transition-all flex flex-col group shadow-sm"
           >
-            {/* Top 1st-Page Thumbnail Preview Frame */}
-            <div className="h-48 w-full bg-muted/40 relative overflow-hidden border-b border-border flex items-center justify-center">
-              <PdfViewer
-                url={ensureAbsoluteUrl(doc.url)}
-                maxPages={1}
-                hideControls
-                className="w-full h-full pointer-events-none"
-              />
-              <div className="absolute inset-0 bg-background/80 backdrop-blur-xs opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center p-3">
-                <Button
-                  size="sm"
-                  onClick={() => onOpenPdf(doc)}
-                  className="w-full gap-1.5 text-xs shadow-md"
-                >
-                  <Eye className="size-3.5" /> Open Full PDF
-                </Button>
+            {/* Top Document Preview Banner */}
+            <div
+              onClick={() => onOpenPdf(doc)}
+              className="h-44 w-full bg-gradient-to-b from-muted/60 to-muted/20 relative overflow-hidden border-b border-border flex flex-col items-center justify-center p-4 cursor-pointer select-none group-hover:from-primary/10 group-hover:to-muted/30 transition-all"
+            >
+              <div className="size-14 rounded-2xl bg-card border border-border/80 shadow-xs flex items-center justify-center text-primary group-hover:scale-110 group-hover:border-primary/40 transition-transform">
+                <FileText className="size-7 text-primary/80" />
+              </div>
+              <div className="mt-3 flex items-center gap-1.5 text-xs font-semibold text-muted-foreground group-hover:text-primary transition-colors">
+                <Eye className="size-3.5" />
+                <span>Click to view PDF</span>
               </div>
             </div>
 
