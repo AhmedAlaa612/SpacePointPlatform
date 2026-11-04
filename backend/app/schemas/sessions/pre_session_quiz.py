@@ -126,7 +126,7 @@ class MatchingBucketSchema(BaseModel):
     id: str
     label: str
     subtitle: str = ""
-    color: Literal["purple", "emerald", "blue", "amber", "rose", "cyan"] = "purple"
+    color: str = "purple"
 
 
 class MatchingItemRuleSchema(BaseModel):

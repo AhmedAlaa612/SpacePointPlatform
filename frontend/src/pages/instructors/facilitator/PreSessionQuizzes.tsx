@@ -36,6 +36,7 @@ import {
   updatePreQuizQuestionApi,
   uploadPreQuizDatasheetApi,
   uploadPreQuizImageApi,
+  type MatchingBucket,
   type MatchingItemRule,
   type MatchingPhaseConfig,
   type McqOption,
@@ -3250,6 +3251,19 @@ function PhaseQuestionSelector({
 
 /* ── Phase Matching Editor Helper ─────────────────────────────────────────── */
 
+const BUCKET_PALETTE = [
+  { id: "purple", label: "Purple", dot: "bg-purple-500", border: "border-purple-500/40", text: "text-purple-600 dark:text-purple-400" },
+  { id: "emerald", label: "Emerald", dot: "bg-emerald-500", border: "border-emerald-500/40", text: "text-emerald-600 dark:text-emerald-400" },
+  { id: "blue", label: "Blue", dot: "bg-blue-500", border: "border-blue-500/40", text: "text-blue-600 dark:text-blue-400" },
+  { id: "amber", label: "Amber", dot: "bg-amber-500", border: "border-amber-500/40", text: "text-amber-600 dark:text-amber-400" },
+  { id: "rose", label: "Rose", dot: "bg-rose-500", border: "border-rose-500/40", text: "text-rose-600 dark:text-rose-400" },
+  { id: "cyan", label: "Cyan", dot: "bg-cyan-500", border: "border-cyan-500/40", text: "text-cyan-600 dark:text-cyan-400" },
+  { id: "indigo", label: "Indigo", dot: "bg-indigo-500", border: "border-indigo-500/40", text: "text-indigo-600 dark:text-indigo-400" },
+  { id: "orange", label: "Orange", dot: "bg-orange-500", border: "border-orange-500/40", text: "text-orange-600 dark:text-orange-400" },
+  { id: "teal", label: "Teal", dot: "bg-teal-500", border: "border-teal-500/40", text: "text-teal-600 dark:text-teal-400" },
+  { id: "slate", label: "Slate", dot: "bg-slate-500", border: "border-slate-500/40", text: "text-slate-600 dark:text-slate-400" },
+]
+
 function PhaseMatchingEditor({
   matchingConfig,
   datasheets,
@@ -3261,6 +3275,91 @@ function PhaseMatchingEditor({
 }) {
   const buckets = matchingConfig.buckets || []
   const items = matchingConfig.items || []
+
+  const [isAddingBucket, setIsAddingBucket] = useState(false)
+  const [newLabel, setNewLabel] = useState("")
+  const [newSubtitle, setNewSubtitle] = useState("")
+  const [newColor, setNewColor] = useState("indigo")
+
+  const [editingBucketId, setEditingBucketId] = useState<string | null>(null)
+  const [editLabel, setEditLabel] = useState("")
+  const [editSubtitle, setEditSubtitle] = useState("")
+  const [editColor, setEditColor] = useState("purple")
+
+  const handleStartAdd = () => {
+    setNewLabel("")
+    setNewSubtitle("")
+    const usedColors = new Set(buckets.map((b) => b.color))
+    const nextColor = BUCKET_PALETTE.find((c) => !usedColors.has(c.id))?.id || "indigo"
+    setNewColor(nextColor)
+    setIsAddingBucket(true)
+  }
+
+  const handleAddBucket = () => {
+    const trimmed = newLabel.trim()
+    if (!trimmed) return
+    const id = trimmed.toUpperCase().replace(/\s+/g, "_")
+    let uniqueId = id
+    let counter = 1
+    while (buckets.some((b) => b.id === uniqueId)) {
+      uniqueId = `${id}_${counter++}`
+    }
+    const newBucket: MatchingBucket = {
+      id: uniqueId,
+      label: trimmed,
+      subtitle: newSubtitle.trim(),
+      color: newColor,
+    }
+    onChangeMatchingConfig({
+      ...matchingConfig,
+      buckets: [...buckets, newBucket],
+    })
+    setIsAddingBucket(false)
+  }
+
+  const handleDeleteBucket = (bucketId: string) => {
+    if (buckets.length <= 1) {
+      alert("At least one bucket is required for the matching phase.")
+      return
+    }
+    const nextBuckets = buckets.filter((b) => b.id !== bucketId)
+    const fallbackId = nextBuckets[0]?.id || ""
+    const nextItems = items.map((it) =>
+      it.correct_bucket_id === bucketId ? { ...it, correct_bucket_id: fallbackId } : it
+    )
+    onChangeMatchingConfig({
+      ...matchingConfig,
+      buckets: nextBuckets,
+      items: nextItems,
+    })
+  }
+
+  const handleStartEdit = (b: MatchingBucket) => {
+    setEditingBucketId(b.id)
+    setEditLabel(b.label)
+    setEditSubtitle(b.subtitle || "")
+    setEditColor(b.color)
+  }
+
+  const handleSaveEdit = (bucketId: string) => {
+    const trimmed = editLabel.trim()
+    if (!trimmed) return
+    const nextBuckets = buckets.map((b) =>
+      b.id === bucketId
+        ? {
+            ...b,
+            label: trimmed,
+            subtitle: editSubtitle.trim(),
+            color: editColor,
+          }
+        : b
+    )
+    onChangeMatchingConfig({
+      ...matchingConfig,
+      buckets: nextBuckets,
+    })
+    setEditingBucketId(null)
+  }
 
   const updateItemTarget = (datasheetId: string, bucketId: string) => {
     const existing = items.find((it) => it.datasheet_id === datasheetId)
@@ -3275,61 +3374,269 @@ function PhaseMatchingEditor({
     onChangeMatchingConfig({ ...matchingConfig, items: nextItems })
   }
 
+  const getDotColor = (color: string) => {
+    return BUCKET_PALETTE.find((c) => c.id === color)?.dot || "bg-purple-500"
+  }
+
   return (
-    <div className="flex flex-col gap-3 p-3 rounded-xl border border-border bg-muted/10">
-      <div className="flex items-center justify-between gap-2">
-        <span className="text-xs font-bold text-foreground">
-          Subsystem Buckets &amp; Module Matching Rules
-        </span>
+    <div className="flex flex-col gap-4 p-4 rounded-2xl border border-border bg-card/60 shadow-xs">
+      {/* ── Header & Add Bucket Button ── */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-border">
+        <div>
+          <span className="text-xs font-bold text-foreground flex items-center gap-1.5">
+            <Layers size={14} className="text-primary" />
+            Subsystem Buckets ({buckets.length})
+          </span>
+          <p className="text-[11px] text-muted-foreground mt-0.5">
+            Configure the categories that instructors will drag modules into. You can add, edit, or remove buckets dynamically.
+          </p>
+        </div>
+
+        <button
+          type="button"
+          onClick={handleStartAdd}
+          className="flex items-center gap-1.5 h-8 px-3 bg-primary text-primary-foreground rounded-lg text-xs font-semibold hover:opacity-90 cursor-pointer shadow-xs self-start sm:self-auto shrink-0"
+        >
+          <Plus size={13} />
+          Add Bucket
+        </button>
       </div>
 
-      {/* Subsystem Buckets Summary */}
-      <div className="flex flex-wrap gap-2">
-        {buckets.map((b) => (
-          <div
-            key={b.id}
-            className="px-2.5 py-1.5 rounded-lg border bg-card text-xs flex items-center gap-2"
-          >
-            <span
-              className={cn(
-                "size-2 rounded-full",
-                b.color === "purple" && "bg-purple-500",
-                b.color === "emerald" && "bg-emerald-500",
-                b.color === "blue" && "bg-blue-500",
-                b.color === "amber" && "bg-amber-500",
-                b.color === "rose" && "bg-rose-500"
-              )}
-            />
-            <span className="font-bold text-foreground">{b.label}</span>
-            {b.subtitle && <span className="text-[10px] text-muted-foreground">({b.subtitle})</span>}
+      {/* ── Add Bucket Inline Form ── */}
+      {isAddingBucket && (
+        <div className="p-3.5 rounded-xl border border-primary/30 bg-primary/5 flex flex-col gap-3">
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-bold text-foreground">Create New Subsystem Bucket</span>
+            <button
+              type="button"
+              onClick={() => setIsAddingBucket(false)}
+              className="p-1 text-muted-foreground hover:text-foreground"
+            >
+              <X size={14} />
+            </button>
           </div>
-        ))}
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+            <div>
+              <label className="text-[10px] font-bold text-muted-foreground uppercase">Bucket Name / Tag *</label>
+              <input
+                type="text"
+                placeholder="e.g. COMMS, PAYLOAD, OBC..."
+                value={newLabel}
+                onChange={(e) => setNewLabel(e.target.value)}
+                className="w-full mt-1 px-3 py-1.5 rounded-lg border border-border bg-card text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary"
+                autoFocus
+              />
+            </div>
+            <div>
+              <label className="text-[10px] font-bold text-muted-foreground uppercase">Subtitle (Optional)</label>
+              <input
+                type="text"
+                placeholder="e.g. Communications & Telemetry System"
+                value={newSubtitle}
+                onChange={(e) => setNewSubtitle(e.target.value)}
+                className="w-full mt-1 px-3 py-1.5 rounded-lg border border-border bg-card text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary"
+              />
+            </div>
+          </div>
+
+          <div>
+            <label className="text-[10px] font-bold text-muted-foreground uppercase mb-1.5 block">Theme Color</label>
+            <div className="flex items-center gap-2 flex-wrap">
+              {BUCKET_PALETTE.map((pal) => (
+                <button
+                  key={pal.id}
+                  type="button"
+                  onClick={() => setNewColor(pal.id)}
+                  className={cn(
+                    "flex items-center gap-1.5 px-2.5 py-1 rounded-lg border text-xs font-semibold cursor-pointer transition-all",
+                    newColor === pal.id
+                      ? "border-primary bg-primary/10 text-foreground ring-1 ring-primary"
+                      : "border-border bg-card text-muted-foreground hover:text-foreground"
+                  )}
+                >
+                  <span className={cn("size-2.5 rounded-full shrink-0", pal.dot)} />
+                  <span className="capitalize">{pal.label}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div className="flex justify-end gap-2 pt-1 border-t border-border/60">
+            <button
+              type="button"
+              onClick={() => setIsAddingBucket(false)}
+              className="px-3 py-1.5 rounded-lg border border-border text-xs text-foreground hover:bg-muted"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              disabled={!newLabel.trim()}
+              onClick={handleAddBucket}
+              className="px-3.5 py-1.5 rounded-lg bg-primary text-primary-foreground text-xs font-bold hover:opacity-90 disabled:opacity-50"
+            >
+              Save Bucket
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* ── Subsystem Buckets Grid ── */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2.5">
+        {buckets.map((b) => {
+          const assignedCount = datasheets.filter((ds) => {
+            const rule = items.find((it) => it.datasheet_id === (ds.id || ds.title))
+            const currentBucket = rule?.correct_bucket_id || ds.subsystem_tag || buckets[0]?.id || ""
+            return currentBucket === b.id
+          }).length
+
+          const isEditing = editingBucketId === b.id
+
+          if (isEditing) {
+            return (
+              <div
+                key={b.id}
+                className="p-3 rounded-xl border border-primary/40 bg-card flex flex-col gap-2.5 shadow-sm"
+              >
+                <div className="flex items-center justify-between">
+                  <span className="text-[11px] font-bold text-foreground">Edit Bucket</span>
+                  <button
+                    type="button"
+                    onClick={() => setEditingBucketId(null)}
+                    className="p-0.5 text-muted-foreground hover:text-foreground"
+                  >
+                    <X size={13} />
+                  </button>
+                </div>
+                <input
+                  type="text"
+                  value={editLabel}
+                  onChange={(e) => setEditLabel(e.target.value)}
+                  placeholder="Bucket Name"
+                  className="px-2.5 py-1 rounded border border-border bg-background text-xs font-bold"
+                />
+                <input
+                  type="text"
+                  value={editSubtitle}
+                  onChange={(e) => setEditSubtitle(e.target.value)}
+                  placeholder="Subtitle (Optional)"
+                  className="px-2.5 py-1 rounded border border-border bg-background text-xs"
+                />
+                <select
+                  value={editColor}
+                  onChange={(e) => setEditColor(e.target.value)}
+                  className="px-2 py-1 rounded border border-border bg-background text-xs capitalize"
+                >
+                  {BUCKET_PALETTE.map((pal) => (
+                    <option key={pal.id} value={pal.id}>
+                      {pal.label}
+                    </option>
+                  ))}
+                </select>
+                <div className="flex justify-end gap-1.5 pt-1">
+                  <button
+                    type="button"
+                    onClick={() => setEditingBucketId(null)}
+                    className="px-2.5 py-1 rounded border text-[11px]"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleSaveEdit(b.id)}
+                    className="px-3 py-1 rounded bg-primary text-primary-foreground text-[11px] font-bold"
+                  >
+                    Apply
+                  </button>
+                </div>
+              </div>
+            )
+          }
+
+          return (
+            <div
+              key={b.id}
+              className="p-3 rounded-xl border border-border bg-card hover:border-primary/30 transition-all flex flex-col justify-between gap-2 shadow-xs group"
+            >
+              <div className="flex items-start justify-between gap-2">
+                <div className="flex items-center gap-2 min-w-0">
+                  <span className={cn("size-2.5 rounded-full shrink-0", getDotColor(b.color))} />
+                  <div className="min-w-0">
+                    <span className="font-bold text-xs text-foreground truncate block">{b.label}</span>
+                    {b.subtitle && (
+                      <span className="text-[10px] text-muted-foreground truncate block">{b.subtitle}</span>
+                    )}
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-1 shrink-0 opacity-80 group-hover:opacity-100 transition-opacity">
+                  <button
+                    type="button"
+                    onClick={() => handleStartEdit(b)}
+                    className="p-1 rounded text-muted-foreground hover:text-foreground hover:bg-muted text-[11px]"
+                    title="Edit bucket label/color"
+                  >
+                    Edit
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleDeleteBucket(b.id)}
+                    className="p-1 rounded text-muted-foreground hover:text-destructive hover:bg-destructive/10"
+                    title="Delete bucket"
+                  >
+                    <Trash2 size={13} />
+                  </button>
+                </div>
+              </div>
+
+              <div className="flex items-center justify-between text-[11px] pt-1.5 border-t border-border/50 text-muted-foreground">
+                <span>Modules Assigned</span>
+                <span className="font-bold font-mono text-foreground">{assignedCount}</span>
+              </div>
+            </div>
+          )
+        })}
       </div>
 
-      {/* Datasheets Mapping */}
-      <div className="flex flex-col gap-1.5 pt-1">
-        <span className="text-[11px] font-semibold text-muted-foreground">
-          Assign each datasheet to its correct subsystem bucket:
-        </span>
+      {/* ── Datasheet Mapping Rules ── */}
+      <div className="flex flex-col gap-2 pt-2 border-t border-border">
+        <div className="flex items-center justify-between">
+          <span className="text-xs font-bold text-foreground">
+            Assign Datasheets to Subsystem ({datasheets.length})
+          </span>
+          <span className="text-[11px] text-muted-foreground">
+            Sets the correct answer bucket required to score 100%
+          </span>
+        </div>
+
         {datasheets.length === 0 ? (
-          <p className="text-xs text-muted-foreground italic">
+          <p className="text-xs text-muted-foreground italic py-3">
             Add datasheets in the Datasheet Catalog tab to configure matching rules.
           </p>
         ) : (
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-56 overflow-y-auto p-1">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-64 overflow-y-auto p-1 border border-border/40 rounded-xl bg-background/50">
             {datasheets.map((ds) => {
               const rule = items.find((it) => it.datasheet_id === (ds.id || ds.title))
               const currentBucket = rule?.correct_bucket_id || ds.subsystem_tag || buckets[0]?.id || ""
+              const selectedBucketObj = buckets.find((b) => b.id === currentBucket)
+
               return (
                 <div
                   key={ds.id || ds.title}
-                  className="p-2 rounded-lg border border-border bg-card flex items-center justify-between gap-2 text-xs"
+                  className="p-2.5 rounded-lg border border-border bg-card flex items-center justify-between gap-2 text-xs shadow-2xs"
                 >
-                  <span className="font-medium truncate flex-1">{ds.title}</span>
+                  <div className="min-w-0 flex-1">
+                    <span className="font-semibold text-foreground truncate block">{ds.title}</span>
+                    {ds.subsystem_tag && (
+                      <span className="text-[10px] text-muted-foreground">Default: {ds.subsystem_tag}</span>
+                    )}
+                  </div>
+
                   <select
                     value={currentBucket}
                     onChange={(e) => updateItemTarget(ds.id || ds.title, e.target.value)}
-                    className="h-7 px-2 border border-border bg-background rounded text-[11px] font-bold"
+                    className="h-8 px-2 border border-border bg-background rounded-lg text-xs font-bold text-foreground max-w-[140px] truncate"
                   >
                     {buckets.map((b) => (
                       <option key={b.id} value={b.id}>

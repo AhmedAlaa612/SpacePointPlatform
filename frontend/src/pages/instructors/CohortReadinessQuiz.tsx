@@ -1287,6 +1287,16 @@ function SubsystemMatchingPhase({
         return "border-amber-500/40 bg-amber-500/5 text-amber-800 dark:text-amber-300"
       case "cyan":
         return "border-cyan-500/40 bg-cyan-500/5 text-cyan-800 dark:text-cyan-300"
+      case "rose":
+        return "border-rose-500/40 bg-rose-500/5 text-rose-800 dark:text-rose-300"
+      case "indigo":
+        return "border-indigo-500/40 bg-indigo-500/5 text-indigo-800 dark:text-indigo-300"
+      case "orange":
+        return "border-orange-500/40 bg-orange-500/5 text-orange-800 dark:text-orange-300"
+      case "teal":
+        return "border-teal-500/40 bg-teal-500/5 text-teal-800 dark:text-teal-300"
+      case "slate":
+        return "border-slate-500/40 bg-slate-500/5 text-slate-800 dark:text-slate-300"
       case "purple":
       default:
         return "border-purple-500/40 bg-purple-500/5 text-purple-800 dark:text-purple-300"
@@ -1380,7 +1390,21 @@ function SubsystemMatchingPhase({
       </div>
 
       {/* ── Subsystem Drop Zones ────────────────────────────────────────────── */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+      {buckets.length === 0 ? (
+        <div className="p-8 text-center text-xs text-muted-foreground border border-dashed border-border rounded-2xl bg-muted/10">
+          No subsystem buckets configured for this phase.
+        </div>
+      ) : (
+        <div
+          className={cn(
+            "grid gap-4 w-full",
+            buckets.length === 1 && "grid-cols-1 max-w-xl mx-auto",
+            buckets.length === 2 && "grid-cols-1 sm:grid-cols-2",
+            buckets.length === 3 && "grid-cols-1 sm:grid-cols-2 lg:grid-cols-3",
+            buckets.length === 4 && "grid-cols-1 sm:grid-cols-2 lg:grid-cols-4",
+            buckets.length >= 5 && "grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4"
+          )}
+        >
         {buckets.map((b) => {
           const droppedIds = Object.keys(placements).filter((dsId) => placements[dsId] === b.id)
           const targetCount = items.filter((it) => it.correct_bucket_id === b.id).length
@@ -1468,6 +1492,7 @@ function SubsystemMatchingPhase({
           )
         })}
       </div>
+      )}
 
       {/* Bottom Submit Footer */}
       <div className="pt-4 border-t border-border flex items-center justify-between gap-4">

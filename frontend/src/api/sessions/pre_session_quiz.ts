@@ -113,7 +113,7 @@ export interface MatchingBucket {
   id: string
   label: string
   subtitle?: string
-  color: "purple" | "emerald" | "blue" | "amber" | "rose" | "cyan"
+  color: string
 }
 
 export interface MatchingItemRule {
