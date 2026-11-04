@@ -3619,7 +3619,6 @@ function PhaseMatchingEditor({
             {datasheets.map((ds) => {
               const rule = items.find((it) => it.datasheet_id === (ds.id || ds.title))
               const currentBucket = rule?.correct_bucket_id || ds.subsystem_tag || buckets[0]?.id || ""
-              const selectedBucketObj = buckets.find((b) => b.id === currentBucket)
 
               return (
                 <div
