@@ -584,7 +584,7 @@ function DrawerBody({
           className="flex items-center justify-between gap-3 rounded-xl ring-1 ring-border p-4 text-left hover:bg-foreground/5 transition-colors cursor-pointer disabled:opacity-50"
         >
           <span className="text-base font-semibold text-foreground">
-            {teamFinalLocked ? "Go to Mission (View only)" : "Go to Mission"}
+            {teamFinalLocked || frozen ? "Go to Mission (View only)" : "Go to Mission"}
           </span>
           <ExternalLink size={17} className="text-muted-foreground shrink-0" />
         </button>
@@ -1500,11 +1500,14 @@ export function TaskDrawer({
     }
   } : undefined;
 
+  const sectionFrozen = !!items?.length && isSectionFrozen(items, item, !!teamName);
+  const isViewOnly = teamFinalLocked || sectionFrozen;
+
   const workLabel =
     target.kind === "course" ? "Open the course" :
-    target.kind === "design" ? (teamFinalLocked ? `View Mission in Madar${item.mission_step_key ? ` · ${MISSION_STEP_LABELS[item.mission_step_key as MissionStepKey]}` : ""}` : `Open Madar${item.mission_step_key ? ` · ${MISSION_STEP_LABELS[item.mission_step_key as MissionStepKey]}` : ""}`) :
-    target.kind === "operate" ? (teamFinalLocked ? "View Mission" : "Open the mission") :
-    target.kind === "mission" ? (teamFinalLocked ? "View Mission" : "Open the mission") :
+    target.kind === "design" ? (isViewOnly ? `View Mission in Madar${item.mission_step_key ? ` · ${MISSION_STEP_LABELS[item.mission_step_key as MissionStepKey]}` : ""}` : `Open Madar${item.mission_step_key ? ` · ${MISSION_STEP_LABELS[item.mission_step_key as MissionStepKey]}` : ""}`) :
+    target.kind === "operate" ? (isViewOnly ? "View Mission" : "Open the mission") :
+    target.kind === "mission" ? (isViewOnly ? "View Mission" : "Open the mission") :
     target.kind === "quiz" ? (done ? "View results" : "Start the quiz") :
     target.kind === "arcade_game" ? (done ? "Replay game" : "Play game") :
     target.kind === "external" ? "Open the link" : "Open";
@@ -1515,7 +1518,6 @@ export function TaskDrawer({
   // (Team formation handles its own server-confirmed deadline inside its panel.)
   const pastDeadline = !isPoster && !!item.deadline_at && new Date(item.deadline_at) < new Date();
   const Icon = iconForItem(item);
-  const sectionFrozen = !!items?.length && isSectionFrozen(items, item, !!teamName);
 
   const bodyProps: DrawerBodyProps = {
     item, onClose, hasGuideline, effectiveGuidelineKind, guidelineOpened, openGuideline, workLabel, doWork,
