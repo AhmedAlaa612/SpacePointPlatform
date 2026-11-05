@@ -1,5 +1,5 @@
 import { useEffect } from "react";
-import { CheckCircle2, X } from "lucide-react";
+import { CheckCircle2, Lock, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import type { DesignHandbook, DesignState } from "@/api/missionsDesign";
 import {
@@ -86,14 +86,24 @@ export function MadarPhaseDrawer({
   const footer = !isDashboard && (
     <div className="shrink-0 pt-2 flex flex-col items-center gap-1.5 border-t border-border bg-card print:hidden">
       {confirmError && <p className="text-xs text-destructive text-center">{confirmError}</p>}
-      <Button
-        variant={confirmed ? "outline" : "default"}
-        disabled={!ready || confirmed || confirmingTab === tab}
-        onClick={() => onConfirm(tab)}
-        className="h-11 px-16 text-base font-semibold rounded-lg transition-transform duration-150 hover:scale-[1.03] active:scale-[0.97] hover:shadow-[0_10px_28px_-10px_hsl(var(--primary)/0.55)]"
-      >
-        {confirmed ? <><CheckCircle2 className="size-5" /> Completed</> : confirmingTab === tab ? "Confirming..." : "Complete this step"}
-      </Button>
+      {state.team_final_locked ? (
+        <Button
+          variant="outline"
+          disabled
+          className="h-11 px-16 text-base font-semibold rounded-lg opacity-60 cursor-not-allowed"
+        >
+          <Lock className="size-4 mr-2" /> Locked for review
+        </Button>
+      ) : (
+        <Button
+          variant={confirmed ? "outline" : "default"}
+          disabled={!ready || confirmed || confirmingTab === tab}
+          onClick={() => onConfirm(tab)}
+          className="h-11 px-16 text-base font-semibold rounded-lg transition-transform duration-150 hover:scale-[1.03] active:scale-[0.97] hover:shadow-[0_10px_28px_-10px_hsl(var(--primary)/0.55)]"
+        >
+          {confirmed ? <><CheckCircle2 className="size-5" /> Completed</> : confirmingTab === tab ? "Confirming..." : "Complete this step"}
+        </Button>
+      )}
     </div>
   );
 

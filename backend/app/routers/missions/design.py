@@ -299,6 +299,8 @@ async def design_state_out(db: AsyncSession, *, attempt: MissionAttempt, design:
                 if program is not None:
                     poster_template_url = program.poster_template_url
 
+    team_final_locked = await team_final_locked_for_attempt(db, attempt_id=attempt.id)
+
     return DesignStateOut(
         id=design.id, attempt_id=attempt.id, mission_id=mission.id, variant_id=variant.id,
         variant_label=variant.label, attempt_status=attempt.status,
@@ -316,6 +318,7 @@ async def design_state_out(db: AsyncSession, *, attempt: MissionAttempt, design:
         step_gates=step_gates,
         included_steps=included_steps,
         confirmed_steps=list(design.confirmed_steps or []),
+        team_final_locked=team_final_locked,
     )
 
 

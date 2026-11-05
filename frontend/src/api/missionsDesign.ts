@@ -310,6 +310,8 @@ export interface DesignState {
   poster_template_url: string | null;
   /** The team's own working-copy link — editable until the cohort ends. */
   poster_url: string | null;
+  /** True when the team's final submissions are locked. */
+  team_final_locked?: boolean;
 }
 
 /** The 4-prompt guided objective, concatenated into one `design_objective`

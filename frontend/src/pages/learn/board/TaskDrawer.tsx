@@ -572,6 +572,24 @@ function DrawerBody({
         </button>
       )}
 
+      {/* Mission shortcut — always allows students to click and view their mission */}
+      {item.item_type === "mission_run" && !isPoster && (
+        <button
+          type="button"
+          onClick={() => {
+            if (!item.mission_attempt_id && item.scope === "team" && !teamName) return;
+            doWork();
+          }}
+          disabled={item.scope === "team" && !teamName}
+          className="flex items-center justify-between gap-3 rounded-xl ring-1 ring-border p-4 text-left hover:bg-foreground/5 transition-colors cursor-pointer disabled:opacity-50"
+        >
+          <span className="text-base font-semibold text-foreground">
+            {teamFinalLocked ? "Go to Mission (View only)" : "Go to Mission"}
+          </span>
+          <ExternalLink size={17} className="text-muted-foreground shrink-0" />
+        </button>
+      )}
+
       {/* The item itself — what it actually is, distinct from its guide. */}
       {item.item_type === "external_link" && (
         <button
@@ -1080,13 +1098,47 @@ function DrawerBody({
           just the neutral lock notice, so the write can never 409. */}
       <div className="mt-auto pt-3 flex flex-col gap-2.5 border-t border-border">
         {frozen ? (
-          <div className="flex items-center justify-center gap-2 p-3.5 rounded-xl bg-primary/10 border border-primary/25 text-primary text-sm font-semibold">
-            <Lock size={16} className="shrink-0 text-muted-foreground" /> This checkpoint is now locked for your team
-          </div>
+          <>
+            <div className="flex items-center justify-center gap-2 p-3.5 rounded-xl bg-primary/10 border border-primary/25 text-primary text-sm font-semibold">
+              <Lock size={16} className="shrink-0 text-muted-foreground" /> This checkpoint is now locked for your team
+            </div>
+            {isAutoTracked && (
+              <Button
+                disabled={item.item_type === "mission_run" && item.scope === "team" && !teamName}
+                onClick={() => {
+                  if (item.item_type === "mission_run" && !item.mission_attempt_id) {
+                    onChanged();
+                    return;
+                  }
+                  doWork();
+                }}
+                className="h-[52px] text-base gap-2"
+              >
+                {workLabel}
+              </Button>
+            )}
+          </>
         ) : teamFinalLocked && item.scope === "team" ? (
-          <div className="flex items-center justify-center gap-2 p-3.5 rounded-xl bg-primary/10 border border-primary/25 text-primary text-sm font-semibold">
-            <Lock size={16} /> Final submission locked · Sealed for review
-          </div>
+          <>
+            <div className="flex items-center justify-center gap-2 p-3.5 rounded-xl bg-primary/10 border border-primary/25 text-primary text-sm font-semibold">
+              <Lock size={16} /> Final submission locked · Sealed for review
+            </div>
+            {isAutoTracked && (
+              <Button
+                disabled={item.item_type === "mission_run" && item.scope === "team" && !teamName}
+                onClick={() => {
+                  if (item.item_type === "mission_run" && !item.mission_attempt_id) {
+                    onChanged();
+                    return;
+                  }
+                  doWork();
+                }}
+                className="h-[52px] text-base gap-2"
+              >
+                {workLabel}
+              </Button>
+            )}
+          </>
         ) : (
           <>
             {!canSubmit && (isSubmission || isSelfCheck || isTeamSetup) && !done && !awaiting && (
@@ -1450,9 +1502,9 @@ export function TaskDrawer({
 
   const workLabel =
     target.kind === "course" ? "Open the course" :
-    target.kind === "design" ? `Open Madar${item.mission_step_key ? ` · ${MISSION_STEP_LABELS[item.mission_step_key as MissionStepKey]}` : ""}` :
-    target.kind === "operate" ? "Open the mission" :
-    target.kind === "mission" ? "Open the mission" :
+    target.kind === "design" ? (teamFinalLocked ? `View Mission in Madar${item.mission_step_key ? ` · ${MISSION_STEP_LABELS[item.mission_step_key as MissionStepKey]}` : ""}` : `Open Madar${item.mission_step_key ? ` · ${MISSION_STEP_LABELS[item.mission_step_key as MissionStepKey]}` : ""}`) :
+    target.kind === "operate" ? (teamFinalLocked ? "View Mission" : "Open the mission") :
+    target.kind === "mission" ? (teamFinalLocked ? "View Mission" : "Open the mission") :
     target.kind === "quiz" ? (done ? "View results" : "Start the quiz") :
     target.kind === "arcade_game" ? (done ? "Replay game" : "Play game") :
     target.kind === "external" ? "Open the link" : "Open";

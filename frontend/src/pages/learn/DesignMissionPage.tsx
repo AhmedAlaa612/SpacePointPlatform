@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useSearch, useNavigate, Link } from "@tanstack/react-router";
 import { isAxiosError } from "axios";
-import { AlertTriangle, Box, CheckCircle2, ChevronRight, Clock, FileText, Layers, Minus, Orbit, Pencil, Plus, Rocket, Search, ShoppingCart, Trash2, XCircle, Zap } from "lucide-react";
+import { AlertTriangle, Box, CheckCircle2, ChevronRight, Clock, FileText, Layers, Lock, Minus, Orbit, Pencil, Plus, Rocket, Search, ShoppingCart, Trash2, XCircle, Zap } from "lucide-react";
 import { Bar, BarChart, CartesianGrid, Cell, Legend, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -280,6 +280,13 @@ export default function DesignMissionPage() {
         <ChevronRight className="size-3.5" />
         <span className="text-foreground">{state.design_name || "My CubeSat"}</span>
       </div>
+
+      {state.team_final_locked && (
+        <div className="flex items-center gap-2 p-3.5 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-700 dark:text-amber-400 text-sm font-semibold print:hidden">
+          <Lock size={16} className="shrink-0" />
+          Your team&apos;s final submission is locked. Viewing mission in read-only mode.
+        </div>
+      )}
 
       <div className="flex flex-wrap items-center justify-between gap-3 print:hidden">
         <div className="flex flex-col gap-4">

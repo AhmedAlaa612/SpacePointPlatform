@@ -574,6 +574,8 @@ class DesignStateOut(BaseModel):
     # DesignMissionPage.tsx's per-step Complete button/checkmark instead of
     # the old client-only localStorage flag.
     confirmed_steps: list[str] = []
+    # True if the attempt's learner team has locked its final submissions (read-only view).
+    team_final_locked: bool = False
 
 
 # ── Teaching surfaces (Design v2, 7D-4 / 7D-5) ──────────────────────────

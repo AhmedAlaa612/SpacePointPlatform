@@ -109,15 +109,10 @@ export default function RoadmapBoard() {
   // A team-scoped tile that isn't done yet reads locked once the team has
   // hit "Final Submit" (checklist.team_final_locked_at) — a done tile
   // stays "cleared" and reviewable, not styled "Not powered" like a tile
-  // that was never reachable to begin with. Only the not-done case needs
-  // the override: TaskTile already renders "cleared" for a done item
-  // regardless of item.locked (found live, 2026-09-19: an earlier version
-  // of this fix locked every team-scoped item unconditionally, which made
-  // already-completed ones look broken instead of finished; this version
-  // dropped the override entirely instead, which left a still-open
-  // team-scoped item clickable after the team had already locked).
+  // that was never reachable to begin with. Mission runs are always kept
+  // openable so students can view their work in read-only mode after lock.
   const items = (checklist?.items ?? []).map((item) => (
-    item.scope === "team" && item.status !== "done" && checklist?.team_final_locked_at
+    item.scope === "team" && item.status !== "done" && checklist?.team_final_locked_at && item.item_type !== "mission_run"
       ? { ...item, locked: true }
       : item
   ));
@@ -151,7 +146,7 @@ export default function RoadmapBoard() {
   if (isLoading || !checklist) return <div className="mx-auto max-w-[900px] px-5 py-10"><p className="text-sm text-muted-foreground">Loading...</p></div>;
 
   const openItemById = (item: LmsProgramChecklistItem) => {
-    if (item.locked && item.status !== "done") {
+    if (item.locked && item.status !== "done" && item.item_type !== "mission_run") {
       setLockedItem(item);
       return;
     }
