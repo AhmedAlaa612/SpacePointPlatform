@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { useNavigate, useParams } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { LogOut, RotateCcw, Users } from "lucide-react";
+import { Lightbulb, LogOut, RotateCcw, Users } from "lucide-react";
 import {
   fetchChecklist, observerResetProgressApi, observerResetTeamApi, observerUnassignApi,
   type LmsProgramChecklistItem,
@@ -228,27 +228,38 @@ export default function RoadmapBoard() {
         </div>
 
         <div className="px-5 sm:px-8 lg:px-8 xl:px-14 py-6 sm:py-8 flex flex-col gap-6 sm:gap-8 max-w-[1180px] mx-auto w-full">
-          <div className="flex flex-col gap-1.5">
-            <h1 className="font-display text-[19px] sm:text-2xl font-extrabold tracking-tight leading-none">
-              {checklist.name}
-            </h1>
-            {checklist.program_name && (
-              <p className="text-xs sm:text-sm font-medium text-muted-foreground">
-                {checklist.program_name}
-              </p>
-            )}
-            {checklist.team_name && (
-              <div className="flex flex-wrap items-center gap-2">
-                <div className="inline-flex w-fit items-center gap-1.5 rounded-full border border-primary/30 bg-primary/10 px-3 py-1 text-sm font-semibold text-primary">
-                  <Users className="size-4" /> Team {checklist.team_name}
+          <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
+            <div className="flex flex-col gap-1.5">
+              <h1 className="font-display text-[19px] sm:text-2xl font-extrabold tracking-tight leading-none">
+                {checklist.name}
+              </h1>
+              {checklist.program_name && (
+                <p className="text-xs sm:text-sm font-medium text-muted-foreground">
+                  {checklist.program_name}
+                </p>
+              )}
+              {checklist.team_name && (
+                <div className="flex flex-wrap items-center gap-2">
+                  <div className="inline-flex w-fit items-center gap-1.5 rounded-full border border-primary/30 bg-primary/10 px-3 py-1 text-sm font-semibold text-primary">
+                    <Users className="size-4" /> Team {checklist.team_name}
+                  </div>
+                  {checklist.team_code && (
+                    <span className="inline-flex w-fit items-center gap-1 rounded-full border border-border px-2.5 py-1 text-xs font-mono font-bold tracking-[0.15em] text-muted-foreground">
+                      {checklist.team_code}
+                    </span>
+                  )}
                 </div>
-                {checklist.team_code && (
-                  <span className="inline-flex w-fit items-center gap-1 rounded-full border border-border px-2.5 py-1 text-xs font-mono font-bold tracking-[0.15em] text-muted-foreground">
-                    {checklist.team_code}
-                  </span>
-                )}
-              </div>
-            )}
+              )}
+            </div>
+
+            <button
+              onClick={() => void navigate({ to: `/learn/checklists/${assignmentId}/hints` as never })}
+              className="inline-flex items-center gap-2 px-3.5 py-2 rounded-xl bg-amber-500/10 hover:bg-amber-500/20 text-amber-700 dark:text-amber-300 border border-amber-500/30 transition-all font-semibold text-xs sm:text-sm cursor-pointer shadow-sm w-fit self-start shrink-0 active:scale-95"
+              title="Open interactive challenge hint station"
+            >
+              <Lightbulb className="size-4 text-amber-500 animate-pulse" />
+              <span>Hint Station</span>
+            </button>
           </div>
 
           <div className="flex flex-col gap-2.5">

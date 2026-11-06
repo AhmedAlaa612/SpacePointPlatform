@@ -6,9 +6,11 @@ Aggregate so main.py mounts one set of `/lms` routes.
 from fastapi import APIRouter
 
 from app.routers.lms.admin import router as admin_router
+from app.routers.lms.admin_hints import router as admin_hints_router
 from app.routers.lms.arcade import router as arcade_router
 from app.routers.lms.checkout import router as checkout_router
 from app.routers.lms.cohort_quiz_admin import router as cohort_quiz_admin_router
+from app.routers.lms.hints import router as hints_router
 from app.routers.lms.instructor import router as instructor_router
 from app.routers.lms.public import router as public_router
 from app.routers.lms.student import router as student_router
@@ -18,7 +20,9 @@ from app.routers.lms.video import router as video_router
 router = APIRouter()
 router.include_router(public_router)
 router.include_router(student_router)
+router.include_router(hints_router)
 router.include_router(admin_router)
+router.include_router(admin_hints_router)
 router.include_router(cohort_quiz_admin_router)
 router.include_router(instructor_router)
 router.include_router(arcade_router)

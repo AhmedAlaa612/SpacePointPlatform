@@ -4,11 +4,12 @@ import { CohortOverrideEditor } from "./LmsChecklistAuthoring"
 import { CohortMissionsPanel, ProgressPanel } from "./LmsProgressAndMissions"
 import { LmsComponentConfigPanel } from "./LmsComponentConfigPanel"
 import { CohortQuizAnalysisPanel } from "./CohortQuizAnalysisPanel"
+import { LmsHintStationAuthoring } from "./LmsHintStationAuthoring"
 import { ObserverTeamModal } from "@/components/lms/ObserverTeamModal"
 
-type SubTab = "checklist" | "missions" | "components" | "progress" | "analysis"
+type SubTab = "checklist" | "missions" | "components" | "hints" | "progress" | "analysis"
 const SUBTAB_LABEL: Record<SubTab, string> = {
-  checklist: "Checklist", missions: "Missions", components: "Components", progress: "Progress", analysis: "Analysis",
+  checklist: "Checklist", missions: "Missions", components: "Components", hints: "Hints", progress: "Progress", analysis: "Analysis",
 }
 
 /** The cohort-scope quarter of `LmsProgramAdmin.tsx`'s own workspace
@@ -42,7 +43,7 @@ export function LmsCohortSection({ cohortId, cohortName }: { cohortId: string; c
       </div>
 
       <div className="flex gap-1 border-b border-border overflow-x-auto scrollbar-none no-scrollbar">
-        {(["checklist", "missions", "components", "progress", "analysis"] as const).map((t) => (
+        {(["checklist", "missions", "components", "hints", "progress", "analysis"] as const).map((t) => (
           <button
             key={t}
             onClick={() => setSubtab(t)}
@@ -57,6 +58,9 @@ export function LmsCohortSection({ cohortId, cohortName }: { cohortId: string; c
       {subtab === "checklist" && <CohortOverrideEditor cohortId={cohortId} isStaff readOnly={false} />}
       {subtab === "missions" && <CohortMissionsPanel cohortId={cohortId} isStaff />}
       {subtab === "components" && <LmsComponentConfigPanel ownerType="cohort" ownerId={cohortId} isStaff />}
+      {subtab === "hints" && (
+        <LmsHintStationAuthoring programId="" scope={{ cohortId, cohortName }} />
+      )}
       {subtab === "progress" && <ProgressPanel cohortId={cohortId} scopeLabel={cohortName} />}
       {subtab === "analysis" && <CohortQuizAnalysisPanel cohortId={cohortId} />}
 

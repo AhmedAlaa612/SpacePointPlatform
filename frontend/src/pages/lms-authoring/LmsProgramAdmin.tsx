@@ -16,12 +16,13 @@ import { CreateChecklistPrompt, ProgramTemplateEditor, CohortOverrideEditor } fr
 import { ProgramMissionsPanel, CohortMissionsPanel, ProgressPanel } from "./components/LmsProgressAndMissions"
 import { CohortQuizAnalysisPanel } from "./components/CohortQuizAnalysisPanel"
 import { LmsComponentConfigPanel } from "./components/LmsComponentConfigPanel"
+import { LmsHintStationAuthoring } from "./components/LmsHintStationAuthoring"
 import { ObserverTeamModal } from "@/components/lms/ObserverTeamModal"
 
 type Scope = "program" | { cohortId: string; cohortName: string }
-type SubTab = "checklist" | "missions" | "components" | "progress" | "analysis"
+type SubTab = "checklist" | "missions" | "components" | "hints" | "progress" | "analysis"
 const SUBTAB_LABEL: Record<SubTab, string> = {
-  checklist: "Checklist", missions: "Missions", components: "Components", progress: "Progress", analysis: "Analysis",
+  checklist: "Checklist", missions: "Missions", components: "Components", hints: "Hints", progress: "Progress", analysis: "Analysis",
 }
 
 /** The one LMS Programs page (2026-08-22 merge) — absorbs what used to be
@@ -133,7 +134,7 @@ function ProgramWorkspace({
     tab?: SubTab
   }
 
-  const VALID_SUBTABS: SubTab[] = ["checklist", "missions", "components", "progress", "analysis"]
+  const VALID_SUBTABS: SubTab[] = ["checklist", "missions", "components", "hints", "progress", "analysis"]
   const rawTab = search.tab as SubTab | undefined
   const subtab: SubTab = (rawTab && VALID_SUBTABS.includes(rawTab)) ? rawTab : "checklist"
 
@@ -287,7 +288,7 @@ function ProgramWorkspace({
       )}
 
       <div className="flex gap-1 border-b border-border overflow-x-auto scrollbar-none no-scrollbar">
-        {(["checklist", "missions", "components", "progress", "analysis"] as const).map((t) => (
+        {(["checklist", "missions", "components", "hints", "progress", "analysis"] as const).map((t) => (
           <button
             key={t}
             onClick={() => setSubtab(t)}
@@ -313,6 +314,9 @@ function ProgramWorkspace({
         scope === "program"
           ? <LmsComponentConfigPanel ownerType="program" ownerId={effective.id} isStaff={isStaff} />
           : <LmsComponentConfigPanel ownerType="cohort" ownerId={scope.cohortId} isStaff={isStaff} />
+      )}
+      {subtab === "hints" && (
+        <LmsHintStationAuthoring programId={programId} scope={scope} />
       )}
       {subtab === "progress" && (
         scope === "program"

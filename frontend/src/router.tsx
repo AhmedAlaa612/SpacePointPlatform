@@ -171,6 +171,7 @@ import LearnProgram from "@/pages/learn/LearnProgram";
 import LearnChecklists from "@/pages/learn/LearnChecklists";
 import RoadmapBoard from "@/pages/learn/board/RoadmapBoard";
 import CohortQuizPage from "@/pages/learn/CohortQuizPage";
+import HintStationPage from "@/pages/learn/hints/HintStationPage";
 import MissionCatalog from "@/pages/learn/MissionCatalog";
 import MissionPage from "@/pages/learn/MissionPage";
 import DesignMissionPage from "@/pages/learn/DesignMissionPage";
@@ -1271,6 +1272,18 @@ const learnCohortQuizRoute = createRoute({
   component: CohortQuizPage,
 });
 
+// Interactive Card Hint Station (2026-11) — progressive assistance for onsite challenges
+const learnHintStationRoute = createRoute({
+  getParentRoute: () => learnLayoutRoute,
+  path: "/checklists/$assignmentId/hints",
+  beforeLoad: () => {
+    if (!tokens.access) {
+      throw redirect({ to: "/learn/login" });
+    }
+  },
+  component: HintStationPage,
+});
+
 // Student profile (design 2a/2b, 2026-08-08).
 const learnProfileRoute = createRoute({
   getParentRoute: () => learnLayoutRoute,
@@ -1425,7 +1438,7 @@ const routeTree = rootRoute.addChildren([
   learnLayoutRoute.addChildren([
     learnLandingRoute, learnHomeRoute, learnCatalogRoute, learnMyCoursesRoute, learnCourseRoute, learnPlayerRoute,
     learnCheckoutSuccessRoute,
-    learnPathsRoute, learnPathRoute, learnChecklistsRoute, learnChecklistRoute, learnCohortQuizRoute,
+    learnPathsRoute, learnPathRoute, learnChecklistsRoute, learnChecklistRoute, learnCohortQuizRoute, learnHintStationRoute,
     learnProfileRoute, learnProgramRoute, learnLeaderboardRoute,
     learnGamesRoute, learnGamePlayRoute,
     learnArcadeRoute, learnArcadeGameRoute,

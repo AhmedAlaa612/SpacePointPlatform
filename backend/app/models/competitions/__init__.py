@@ -17,6 +17,9 @@ from app.models.competitions.judging import (
     CompetitionJudge, CompetitionResultPublication, CompetitionRubric, CompetitionRubricCriterion,
     CompetitionScore,
 )
+from app.models.competitions.hint_station import (
+    CohortHintChallenge, CohortHintCard, CohortTeamHintReveal,
+)
 
 __all__ = [
     "CompetitionRubric",
@@ -24,4 +27,7 @@ __all__ = [
     "CompetitionScore",
     "CompetitionResultPublication",
     "CompetitionJudge",
+    "CohortHintChallenge",
+    "CohortHintCard",
+    "CohortTeamHintReveal",
 ]

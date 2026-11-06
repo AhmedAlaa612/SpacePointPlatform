@@ -15,6 +15,7 @@ domains exist.
 from fastapi import APIRouter
 
 from app.routers.competitions.admin import router as admin_router
+from app.routers.competitions.hints import router as hints_router
 from app.routers.competitions.judge import router as judge_router
 from app.routers.competitions.student import router as student_router
 
@@ -22,3 +23,4 @@ router = APIRouter()
 router.include_router(admin_router)
 router.include_router(judge_router)
 router.include_router(student_router)
+router.include_router(hints_router)

@@ -103,6 +103,7 @@ async def lifespan(app: FastAPI):
         from app.models.website_event import MegaEvent, WebsiteEvent
         from app.models.website_case_study import WebsiteCaseStudy
         from app.models.website_policy import WebsitePolicy
+        from app.models.competitions.hint_station import CohortHintChallenge, CohortHintCard, CohortTeamHintReveal
         from app.services.website_events import ensure_default_events_seeded
         from app.services.website_case_studies import seed_default_case_studies
         from app.services.website_policies import seed_default_policies
@@ -120,6 +121,15 @@ async def lifespan(app: FastAPI):
             )
             await conn.run_sync(
                 lambda sync_conn: WebsitePolicy.__table__.create(sync_conn, checkfirst=True)
+            )
+            await conn.run_sync(
+                lambda sync_conn: CohortHintChallenge.__table__.create(sync_conn, checkfirst=True)
+            )
+            await conn.run_sync(
+                lambda sync_conn: CohortHintCard.__table__.create(sync_conn, checkfirst=True)
+            )
+            await conn.run_sync(
+                lambda sync_conn: CohortTeamHintReveal.__table__.create(sync_conn, checkfirst=True)
             )
         async with AsyncSessionLocal() as db:
             await db.execute(text("ALTER TABLE cohorts ADD COLUMN IF NOT EXISTS checklist_title_override VARCHAR(255);"))

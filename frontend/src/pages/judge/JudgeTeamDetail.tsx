@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState } from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { ArrowLeft, ChevronDown, ChevronRight, ExternalLink, Lock } from "lucide-react"
+import { ArrowLeft, ChevronDown, ChevronRight, ExternalLink, Lightbulb, Lock } from "lucide-react"
 import { Link, useParams } from "@tanstack/react-router"
 import { getMyJudgeTeamApi, getMyJudgeTeamMissionRunDetailApi, submitMyJudgeScoreApi, type CompetitionMissionRun } from "@/api/competitions"
+import { getTeamHintSummaryApi } from "@/api/hint_station"
 import { PageHeader, Spinner, EmptyState } from "@/components/ui/primitives"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { useToast } from "@/components/ui/toast"
@@ -70,6 +71,12 @@ export default function JudgeTeamDetail() {
   const { data: detail, isLoading } = useQuery({
     queryKey: ["judge-team-detail", teamId],
     queryFn: () => getMyJudgeTeamApi(teamId),
+  })
+
+  const { data: hintSummary } = useQuery({
+    queryKey: ["judge-team-hints", teamId],
+    queryFn: () => getTeamHintSummaryApi(teamId),
+    enabled: !!teamId,
   })
 
   const [scores, setScores] = useState<Record<string, number>>({})
@@ -351,6 +358,48 @@ export default function JudgeTeamDetail() {
         </section>
       )}
 
+      {hintSummary && (
+        <section className="flex flex-col gap-2">
+          <div className="flex items-center justify-between">
+            <h2 className="text-lg font-bold text-foreground flex items-center gap-2">
+              <Lightbulb size={18} className="text-amber-500" />
+              <span>Hint Station Assistance</span>
+            </h2>
+            <span className="text-xs font-bold px-2.5 py-1 rounded-full bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-500/20">
+              {hintSummary.hints_used} {hintSummary.hints_used === 1 ? "hint" : "hints"} • -{hintSummary.total_points_deducted} pts
+            </span>
+          </div>
+
+          {hintSummary.reveals.length === 0 ? (
+            <p className="text-sm text-muted-foreground p-3 rounded-xl border border-border bg-card">
+              No hints unlocked by this team during the onsite challenges.
+            </p>
+          ) : (
+            <div className="flex flex-col gap-2 p-3 rounded-xl border border-border bg-card">
+              {hintSummary.reveals.map((rev) => (
+                <div
+                  key={rev.id}
+                  className="flex items-center justify-between gap-2 text-sm py-1.5 border-b border-border/60 last:border-0"
+                >
+                  <div className="flex flex-col min-w-0">
+                    <span className="font-semibold text-foreground truncate">
+                      {rev.challenge_title} — {rev.level_label}
+                    </span>
+                    <span className="text-xs text-muted-foreground">
+                      Unlocked {formatSubmittedAt(rev.revealed_at)}
+                      {rev.revealed_by_name ? ` by ${rev.revealed_by_name}` : ""}
+                    </span>
+                  </div>
+                  <span className="font-bold text-rose-600 dark:text-rose-400 shrink-0">
+                    -{rev.points_deducted} pts
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+        </section>
+      )}
+
         </div>
         <div className="min-w-0 lg:sticky lg:top-4 lg:order-1">
       <section className="flex flex-col gap-3">
@@ -482,11 +531,25 @@ export default function JudgeTeamDetail() {
                 </div>
               )
             })}
+            {hintSummary && hintSummary.total_points_deducted > 0 && (
+              <div className="flex items-center justify-between px-3 py-2.5 rounded-xl border border-rose-500/20 bg-rose-500/5 text-sm">
+                <span className="font-medium text-rose-700 dark:text-rose-300 flex items-center gap-1.5">
+                  <Lightbulb size={14} className="text-amber-500" />
+                  Hint Station Deduction ({hintSummary.hints_used} {hintSummary.hints_used === 1 ? "hint" : "hints"})
+                </span>
+                <span className="font-bold text-rose-600 dark:text-rose-400">
+                  -{hintSummary.total_points_deducted} pts
+                </span>
+              </div>
+            )}
             <div className="flex items-center justify-between pt-2 border-t border-border">
               <span className="text-lg font-bold text-foreground">
                 Total: {total}
                 {operationsCriteria.length > 0 && (
                   <span className="font-normal text-muted-foreground text-sm"> + {operationsTotal} (SpacePoint team)</span>
+                )}
+                {hintSummary && hintSummary.total_points_deducted > 0 && (
+                  <span className="font-semibold text-rose-600 dark:text-rose-400 text-sm"> - {hintSummary.total_points_deducted} (hints)</span>
                 )}
               </span>
               <button
