@@ -72,9 +72,9 @@ export function TeamScoreBreakdownModal({ cohortId, teamId, open, onClose }: Tea
                   <div className="text-[10px] uppercase font-bold text-primary">Final</div>
                   <div className="text-lg font-black text-foreground tabular-nums">
                     {breakdown.final_score ?? "—"}
-                    {breakdown.score_percent !== null && (
-                      <span className="text-xs text-muted-foreground ml-1 font-normal font-sans">
-                        ({breakdown.score_percent}%)
+                    {breakdown.z_score !== null && breakdown.z_score !== undefined && (
+                      <span className="text-xs text-muted-foreground ml-1 font-normal font-sans" title="Standardized Judge Z-Score">
+                        (Z: {breakdown.z_score > 0 ? `+${breakdown.z_score.toFixed(2)}` : breakdown.z_score.toFixed(2)})
                       </span>
                     )}
                   </div>

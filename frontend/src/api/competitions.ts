@@ -46,6 +46,7 @@ export interface CompetitionJudgeScore {
   judge_user_id: string
   judge_name: string
   total_points: number
+  z_score?: number | null
 }
 
 export interface CompetitionLeaderboardRow {
@@ -54,7 +55,7 @@ export interface CompetitionLeaderboardRow {
   team_name: string
   is_observer?: boolean
   score: number | null
-  score_percent?: number | null
+  z_score?: number | null
   qualification?: string | null
   judges_scored: number
   status: "scored" | "unscored"
@@ -111,7 +112,6 @@ export interface CompetitionStudentResult {
   timing_badge?: string | null
 
   final_score?: number | null
-  score_percent?: number | null
   raw_judge_score?: number | null
   rank?: number | null
   total_teams?: number | null
@@ -172,6 +172,7 @@ export interface CriterionSubScoreItem {
   awarded_points?: number | null
 }
 
+/** TeamScoreBreakdown's per-judge evaluation. */
 export interface JudgeEvaluationDetail {
   judge_user_id: string
   judge_name: string
@@ -181,6 +182,7 @@ export interface JudgeEvaluationDetail {
   bonus_points: number
   timing_adjustment: number
   notes?: string | null
+  z_score?: number | null
   criteria: CriterionScoreItem[]
 }
 
@@ -191,7 +193,7 @@ export interface TeamScoreBreakdown {
   status: string
   qualification?: string | null
   final_score?: number | null
-  score_percent?: number | null
+  z_score?: number | null
   raw_judge_score?: number | null
   timing_adjustment?: number | null
   timing_badge?: string | null
@@ -492,6 +494,20 @@ export const downloadCohortResultsWorkbookApi = async (cohortId: string, cohortN
   const a = document.createElement("a")
   a.href = url
   a.download = `${cohortName.replace(/[^a-z0-9]+/gi, "_")}_results.xlsx`
+  a.click()
+  URL.revokeObjectURL(url)
+}
+
+/** Detailed .xlsx: a unified 'Detailed Breakdown' sheet (one row per
+ * Team × Judge with every criterion & sub-criterion score, comments, bonus
+ * points, judge notes, operations breakdown, timing details, Total Score and
+ * Z-Score) alongside the summary Scores and Submissions sheets. */
+export const downloadCohortDetailedResultsWorkbookApi = async (cohortId: string, cohortName: string) => {
+  const res = await api.get(`/competitions/admin/cohorts/${cohortId}/export-detailed.xlsx`, { responseType: "blob" })
+  const url = URL.createObjectURL(res.data as Blob)
+  const a = document.createElement("a")
+  a.href = url
+  a.download = `${cohortName.replace(/[^a-z0-9]+/gi, "_")}_detailed_results.xlsx`
   a.click()
   URL.revokeObjectURL(url)
 }

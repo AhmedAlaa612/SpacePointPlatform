@@ -769,10 +769,14 @@ async def test_export_workbook_has_a_scores_sheet_and_a_submissions_sheet(db, cl
 
     scores = wb["Scores"]
     header = [c.value for c in scores[1]]
-    assert header[:5] == ["Rank", "Team", "Avg Score", "Status", "Advanced To"]
-    assert judge.full_name in header
+    assert header[:4] == ["Rank", "Team", judge.full_name, "Judges Avg"]
+    for expected in ["Operations Score", "Timing Adjustment", "Total Score", "Z-Score", "Status", "Qualification", "Advanced To"]:
+        assert expected in header
     team_row = next(r for r in scores.iter_rows(min_row=2, values_only=True) if r[1] == "Falcon Eye")
-    assert team_row[2] == 50.0  # 30 + 20
+    assert team_row[2] == 50.0  # this judge's total (30 + 20)
+    assert team_row[3] == 50.0  # Judges Avg
+    assert team_row[header.index("Total Score")] == 50.0
+    assert team_row[header.index("Z-Score")] == 0.0  # single judge → std 0 → z 0
 
     submissions = wb["Submissions"]
     assert [c.value for c in submissions[1]] == ["Team", "Item", "Type", "Status", "Link", "Submitted At", "Submitted By"]
@@ -780,6 +784,27 @@ async def test_export_workbook_has_a_scores_sheet_and_a_submissions_sheet(db, cl
     assert sub_row[1] == "Poster"
     assert sub_row[4] == "https://canva.com/design/poster-v1"
     assert sub_row[6] == judge.full_name
+
+    # Detailed export: unified Team × Judge breakdown + the summary sheets.
+    dresp = await client.get(f"/competitions/admin/cohorts/{cohort.id}/export-detailed.xlsx", headers=_headers(ops))
+    assert dresp.status_code == 200, dresp.text
+    assert "attachment" in dresp.headers["content-disposition"]
+
+    dwb = openpyxl.load_workbook(io.BytesIO(dresp.content))
+    assert dwb.sheetnames == ["Detailed Breakdown", "Scores", "Submissions"]
+
+    detailed = dwb["Detailed Breakdown"]
+    dheader = [c.value for c in detailed[1]]
+    for expected in ["Total Score", "Z-Score", "Judges Avg", "Operations Score", "Judge", "Judge Score",
+                     "Judge Z-Score", "Bonus Points", "Judge Notes"]:
+        assert expected in dheader
+    drow = next(r for r in detailed.iter_rows(min_row=2, values_only=True) if r[1] == "Falcon Eye")
+    assert drow[dheader.index("Total Score")] == 50.0
+    assert drow[dheader.index("Judge")] == judge.full_name
+    assert drow[dheader.index("Judge Score")] == 50.0
+    assert drow[dheader.index("Judge Z-Score")] == 0.0
+    assert drow[dheader.index("Design Quality (/30)")] == 30
+    assert drow[dheader.index("Execution (/25)")] == 20
 
 
 @pytest.mark.asyncio

@@ -681,6 +681,21 @@ async def export_cohort_results_workbook(cohort_id: uuid.UUID, db: AsyncSession 
     )
 
 
+@router.get("/cohorts/{cohort_id}/export-detailed.xlsx")
+async def export_cohort_detailed_results_workbook(cohort_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
+    """Detailed judging spreadsheet: unified breakdown sheet with every team's
+    per-judge criterion/sub-criterion scores, criterion comments, bonus points,
+    overall judge notes, operations breakdown, timing adjustments, total score,
+    and Z-scores, alongside the summary Scores and Submissions sheets."""
+    cohort = await _get_cohort_or_404(db, cohort_id)
+    content = await export_service.export_detailed_results_workbook(db, cohort_id=cohort_id)
+    safe_name = "".join(c if c.isalnum() or c in " -_" else "_" for c in cohort.name).strip() or cohort_id
+    return Response(
+        content=content, media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f'attachment; filename="{safe_name} detailed results.xlsx"'},
+    )
+
+
 @router.get("/cohorts/{cohort_id}/quiz-answers.xlsx")
 async def export_cohort_quiz_answers_workbook(cohort_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
     """Exports all quiz answers for the cohort, grouped by team and quiz,

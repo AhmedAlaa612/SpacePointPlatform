@@ -16,7 +16,7 @@ import { SubmissionWindowsModal } from "@/components/competitions/SubmissionWind
 import { listProgramCertificateTemplatesApi } from "@/api/sessions/programCertificateTemplates"
 import {
   advanceCohortTeamsApi, createCohortTeamApi, deleteTeamApi, downloadCohortResultsWorkbookApi,
-  downloadCohortTeamsWorkbookApi, registerUsersToCohortApi,
+  downloadCohortDetailedResultsWorkbookApi, downloadCohortTeamsWorkbookApi, registerUsersToCohortApi,
   downloadCompetitionCertificatesApi,
   downloadCompetitionRosterTemplateApi,
   getCohortExportTop20Api,
@@ -2151,6 +2151,7 @@ function ResultsTab({
   const [sendTicketOnAdvance, setSendTicketOnAdvance] = useState(true)
   const [sendWelcomeOnAdvance, setSendWelcomeOnAdvance] = useState(true)
   const [exporting, setExporting] = useState(false)
+  const [exportingDetailed, setExportingDetailed] = useState(false)
   const [downloadingCertificates, setDownloadingCertificates] = useState(false)
 
   const { data: programTemplates = [] } = useQuery<ProgramCertificateTemplate[]>({
@@ -2370,9 +2371,27 @@ function ResultsTab({
             }
           }}
           disabled={exporting}
+          title="Summary workbook: Scores sheet (every judge's score, Judges Avg, operations breakdown, timing, Total Score and Z-Score) + Submissions sheet"
           className="flex items-center gap-1.5 h-9 px-4 border border-border rounded-xl text-sm font-medium text-foreground hover:bg-muted transition-colors disabled:opacity-50"
         >
-          <Download size={14} /> {exporting ? "Exporting…" : "Export spreadsheet"}
+          <Download size={14} /> {exporting ? "Exporting…" : "Export summary"}
+        </button>
+        <button
+          onClick={async () => {
+            setExportingDetailed(true)
+            try {
+              await downloadCohortDetailedResultsWorkbookApi(cohortId, cohortName)
+            } catch (e: any) {
+              toast.error(getErrorMessage(e, "Failed to export detailed results"))
+            } finally {
+              setExportingDetailed(false)
+            }
+          }}
+          disabled={exportingDetailed}
+          title="Detailed workbook: one row per Team × Judge with every criterion & sub-criterion score, comments, bonus points, judge notes, operations breakdown, timing, Total Score and Z-Score"
+          className="flex items-center gap-1.5 h-9 px-4 border border-border rounded-xl text-sm font-medium text-foreground hover:bg-muted transition-colors disabled:opacity-50"
+        >
+          <Download size={14} /> {exportingDetailed ? "Exporting…" : "Export detailed"}
         </button>
         {onOpenCertificates && (
           <button
@@ -2645,8 +2664,10 @@ function LeaderboardTable({
               <td className="py-2 pr-3 tabular-nums align-top">
                 <div className="flex flex-col">
                   <span className="font-bold text-foreground">{r.score ?? "—"}</span>
-                  {r.score_percent !== null && r.score_percent !== undefined && (
-                    <span className="text-xs text-muted-foreground font-normal">{r.score_percent}%</span>
+                  {r.z_score !== null && r.z_score !== undefined && (
+                    <span className="text-xs text-muted-foreground font-normal" title="Standardized Judge Z-Score">
+                      Z: {r.z_score > 0 ? `+${r.z_score.toFixed(2)}` : r.z_score.toFixed(2)}
+                    </span>
                   )}
                 </div>
               </td>

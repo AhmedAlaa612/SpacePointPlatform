@@ -1,10 +1,17 @@
-"""Results export (2026-08-27) — one .xlsx with everything ops needs to
-review a cohort's judging round off-platform: a Scores sheet (rank,
-average, every judge's own score) and a Submissions sheet (every team's
-link-only deliverables, who submitted them, and when). Reuses
-`judging.leaderboard` and `lms.program.team_submission_items` rather than
-re-querying — same numbers the Results tab and judge team-detail view
-already show, never a second source of truth for either.
+"""Results exports (2026-11-06) — two .xlsx flavors the Results tab offers:
+
+- Summary (`export_results_workbook`): a Scores sheet (rank, every judge's
+  own score, Judges Avg, operations breakdown, timing adjustments, Total
+  Score and Z-Score) plus a Submissions sheet.
+- Detailed (`export_detailed_results_workbook`): a unified Detailed
+  Breakdown sheet, one row per Team × Judge, with every criterion &
+  sub-criterion score, per-criterion judge comments, bonus points, overall
+  judge notes, operations breakdown, timing details, Total Score and
+  Z-Score — alongside the same summary Scores and Submissions sheets.
+
+Both reuse `judging.leaderboard` and `lms.program.team_submission_items`
+rather than re-querying the leaderboard — same numbers the Results tab and
+judge team-detail view already show, never a second source of truth.
 """
 
 import io
@@ -15,6 +22,7 @@ from openpyxl.worksheet.worksheet import Worksheet
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.models.competitions.judging import CompetitionScore
 from app.models.lms.cohort_quiz import CohortQuizAnswer, CohortQuizAttempt, CohortQuizQuestion
 from app.models.sessions.cohort import Cohort
 from app.models.sessions.registration import Registration
@@ -22,7 +30,7 @@ from app.models.spine.contact import Contact
 from app.models.spine.organization import Organization
 from app.models.team import Team, TeamMember
 from app.models.user import User
-from app.services.competitions.judging import leaderboard
+from app.services.competitions.judging import _criterion_subs, _leaf_key, get_rubric, leaderboard
 from app.services.lms.program import effective_cohort_program_items, team_submission_items
 
 MAX_COLUMN_WIDTH = 60
@@ -45,28 +53,72 @@ def _autosize(sheet: Worksheet) -> None:
         sheet.column_dimensions[col_cells[0].column_letter].width = min(length + 2, MAX_COLUMN_WIDTH)
 
 
-async def export_results_workbook(db: AsyncSession, *, cohort_id: uuid.UUID) -> bytes:
-    board = await leaderboard(db, cohort_id=cohort_id)
-    # Stable column order across runs, not insertion order off a set.
-    judge_names = sorted({js["judge_name"] for row in board for js in row["judge_scores"]})
+def _extract_criterion_awarded(scores_dict: dict, criterion) -> float | str:
+    """Returns parent criterion score, falling back to sum of sub-criteria leaves if needed."""
+    val = scores_dict.get(criterion.key)
+    if val is None:
+        subs = _criterion_subs(criterion)
+        if subs:
+            leaf_vals = [scores_dict.get(_leaf_key(criterion.key, s["key"])) for s in subs]
+            if all(isinstance(v, (int, float)) for v in leaf_vals):
+                val = float(sum(leaf_vals))
+    return val if val is not None else ""
 
-    wb = openpyxl.Workbook()
-    scores = wb.active
-    scores.title = "Scores"
-    scores.append(["Rank", "Team", "Avg Score", "Status", "Advanced To", "Score %", "Qualification", *judge_names])
+
+def _populate_scores_summary_sheet(sheet: Worksheet, board: list[dict], ops_criteria: list) -> None:
+    judge_names = sorted({js["judge_name"] for row in board for js in row["judge_scores"]})
+    ops_headers = [f"Ops: {c.label} (/{c.max_points})" for c in ops_criteria]
+
+    sheet.append([
+        "Rank",
+        "Team",
+        *judge_names,
+        "Judges Avg",
+        *ops_headers,
+        "Operations Score",
+        "Timing Adjustment",
+        "Total Score",
+        "Z-Score",
+        "Status",
+        "Qualification",
+        "Advanced To",
+    ])
+
     for row in board:
         by_judge = {js["judge_name"]: js["total_points"] for js in row["judge_scores"]}
-        scores.append([
-            row["rank"], row["team_name"], row["score"],
-            row["status"], row["advanced_to"] or "",
-            f"{row['score_percent']}%" if row.get("score_percent") is not None else "",
-            row.get("qualification") or "",
+        ops_scores = row.get("ops_criterion_scores") or {}
+        ops_vals = [_extract_criterion_awarded(ops_scores, c) for c in ops_criteria]
+        ops_total = (
+            row["ops_score"]
+            if row.get("ops_score") is not None
+            else (0.0 if row["status"] == "scored" else "")
+        )
+        timing_val = (
+            row["timing_adjustment"]
+            if row.get("timing_adjustment") is not None
+            else (0.0 if row["status"] == "scored" else "")
+        )
+        sheet.append([
+            row["rank"],
+            row["team_name"],
             *[by_judge.get(name, "") for name in judge_names],
+            row["raw_judge_score"] if row.get("raw_judge_score") is not None else "",
+            *ops_vals,
+            ops_total,
+            timing_val,
+            row["score"] if row.get("score") is not None else "",
+            row["z_score"] if row.get("z_score") is not None else "",
+            row["status"],
+            row.get("qualification") or "",
+            row["advanced_to"] or "",
         ])
-    _autosize(scores)
 
-    submissions = wb.create_sheet("Submissions")
-    submissions.append(["Team", "Item", "Type", "Status", "Link", "Submitted At", "Submitted By"])
+    _style_header(sheet)
+    _autosize(sheet)
+
+
+async def _populate_submissions_sheet(db: AsyncSession, sheet: Worksheet, cohort_id: uuid.UUID) -> None:
+    sheet.append(["Team", "Item", "Type", "Status", "Link", "Submitted At", "Submitted By"])
     teams = (await db.execute(select(Team).where(Team.cohort_id == cohort_id).order_by(Team.name))).scalars().all()
     for team in teams:
         for item in await team_submission_items(db, team_id=team.id):
@@ -87,13 +139,189 @@ async def export_results_workbook(db: AsyncSession, *, cohort_id: uuid.UUID) -> 
                 # A plain (non-multi) item can itself be a text field
                 # (2026-09-16) — same cell either way.
                 link_text = item["submitted_url"] or item.get("submitted_text") or ""
-            submissions.append([
+            sheet.append([
                 team.name, item["title"], item["item_type"], item["status"],
                 link_text,
                 item["updated_at"].strftime("%Y-%m-%d %H:%M") if item["updated_at"] else "",
                 item["updated_by_name"] or "",
             ])
-    _autosize(submissions)
+    _style_header(sheet)
+    _autosize(sheet)
+
+
+async def export_results_workbook(db: AsyncSession, *, cohort_id: uuid.UUID) -> bytes:
+    board = await leaderboard(db, cohort_id=cohort_id)
+    rubric_tuple = await get_rubric(db, cohort_id=cohort_id)
+    ops_criteria = [
+        c for c in (rubric_tuple[1] if rubric_tuple else [])
+        if getattr(c, "scored_by", "judge") == "operations"
+    ]
+
+    wb = openpyxl.Workbook()
+    scores = wb.active
+    scores.title = "Scores"
+    _populate_scores_summary_sheet(scores, board, ops_criteria)
+
+    submissions = wb.create_sheet("Submissions")
+    await _populate_submissions_sheet(db, submissions, cohort_id)
+
+    buf = io.BytesIO()
+    wb.save(buf)
+    return buf.getvalue()
+
+
+async def export_detailed_results_workbook(db: AsyncSession, *, cohort_id: uuid.UUID) -> bytes:
+    board = await leaderboard(db, cohort_id=cohort_id)
+    rubric_tuple = await get_rubric(db, cohort_id=cohort_id)
+    rubric_criteria = rubric_tuple[1] if rubric_tuple else []
+    judge_criteria = [c for c in rubric_criteria if getattr(c, "scored_by", "judge") != "operations"]
+    ops_criteria = [c for c in rubric_criteria if getattr(c, "scored_by", "judge") == "operations"]
+
+    score_rows = (await db.execute(
+        select(CompetitionScore, User)
+        .outerjoin(User, User.id == CompetitionScore.judge_user_id)
+        .where(
+            CompetitionScore.cohort_id == cohort_id,
+            CompetitionScore.submitted.is_(True),
+        )
+        .order_by(User.full_name)
+    )).all()
+
+    scores_by_team: dict[uuid.UUID, list[tuple[CompetitionScore, User | None]]] = {}
+    for comp_score, judge_user in score_rows:
+        scores_by_team.setdefault(comp_score.team_id, []).append((comp_score, judge_user))
+
+    ops_col_headers: list[str] = []
+    for c in ops_criteria:
+        for s in _criterion_subs(c):
+            ops_col_headers.append(f"Ops: {c.label} - {s['label']} (/{s['max_points']})")
+        ops_col_headers.append(f"Ops: {c.label} (/{c.max_points})")
+
+    judge_crit_headers: list[str] = []
+    for c in judge_criteria:
+        for s in _criterion_subs(c):
+            judge_crit_headers.append(f"{c.label} - {s['label']} (/{s['max_points']})")
+        judge_crit_headers.append(f"{c.label} (/{c.max_points})")
+        judge_crit_headers.append(f"{c.label} Comment")
+
+    wb = openpyxl.Workbook()
+    detailed = wb.active
+    detailed.title = "Detailed Breakdown"
+
+    detailed.append([
+        "Rank",
+        "Team",
+        "Status",
+        "Qualification",
+        "Advanced To",
+        "Total Score",
+        "Z-Score",
+        "Judges Avg",
+        "Operations Score",
+        *ops_col_headers,
+        "Operations Notes",
+        "Timing Adjustment",
+        "Timing Tier",
+        "Timing Notes",
+        "Judge",
+        "Judge Email",
+        "Judge Score",
+        "Judge Z-Score",
+        *judge_crit_headers,
+        "Bonus Points",
+        "Bonus Comment",
+        "Judge Notes",
+        "Submitted At",
+    ])
+
+    for row in board:
+        ops_scores = row.get("ops_criterion_scores") or {}
+        ops_vals: list[float | str] = []
+        for c in ops_criteria:
+            for s in _criterion_subs(c):
+                sv = ops_scores.get(_leaf_key(c.key, s["key"]))
+                ops_vals.append(sv if sv is not None else "")
+            ops_vals.append(_extract_criterion_awarded(ops_scores, c))
+
+        ops_total = (
+            row["ops_score"]
+            if row.get("ops_score") is not None
+            else (0.0 if row["status"] == "scored" else "")
+        )
+        timing_val = (
+            row["timing_adjustment"]
+            if row.get("timing_adjustment") is not None
+            else (0.0 if row["status"] == "scored" else "")
+        )
+
+        team_prefix = [
+            row["rank"],
+            row["team_name"],
+            row["status"],
+            row.get("qualification") or "",
+            row["advanced_to"] or "",
+            row["score"] if row.get("score") is not None else "",
+            row["z_score"] if row.get("z_score") is not None else "",
+            row["raw_judge_score"] if row.get("raw_judge_score") is not None else "",
+            ops_total,
+            *ops_vals,
+            row.get("ops_criterion_notes") or "",
+            timing_val,
+            row.get("timing_badge") or row.get("timing_tier_name") or "",
+            row.get("timing_override_notes") or "",
+        ]
+
+        team_evals = scores_by_team.get(row["team_id"], [])
+        judge_z_by_id = {
+            js["judge_user_id"]: js.get("z_score")
+            for js in row.get("judge_scores", [])
+        }
+
+        if not team_evals:
+            empty_judge_cols = [""] * (4 + len(judge_crit_headers) + 4)
+            detailed.append([*team_prefix, *empty_judge_cols])
+            continue
+
+        for comp_score, judge_user in team_evals:
+            j_name = (judge_user.full_name if judge_user and judge_user.full_name else (judge_user.email if judge_user else "Judge")) or "Judge"
+            j_email = (judge_user.email if judge_user else "") or ""
+            j_z = judge_z_by_id.get(comp_score.judge_user_id)
+
+            c_scores = comp_score.criterion_scores or {}
+            c_comments = comp_score.criterion_comments or {}
+
+            crit_cells: list[float | str] = []
+            for c in judge_criteria:
+                for s in _criterion_subs(c):
+                    sv = c_scores.get(_leaf_key(c.key, s["key"]))
+                    crit_cells.append(sv if sv is not None else "")
+                crit_cells.append(_extract_criterion_awarded(c_scores, c))
+                crit_cells.append(c_comments.get(c.key) or "")
+
+            bonus_comment = c_comments.get("report_bonus") or c_comments.get("bonus") or ""
+            sub_at_str = comp_score.submitted_at.strftime("%Y-%m-%d %H:%M") if comp_score.submitted_at else ""
+
+            detailed.append([
+                *team_prefix,
+                j_name,
+                j_email,
+                comp_score.total_points if comp_score.total_points is not None else "",
+                j_z if j_z is not None else "",
+                *crit_cells,
+                comp_score.bonus_points if comp_score.bonus_points is not None else 0.0,
+                bonus_comment,
+                comp_score.notes or "",
+                sub_at_str,
+            ])
+
+    _style_header(detailed)
+    _autosize(detailed)
+
+    scores_sheet = wb.create_sheet("Scores")
+    _populate_scores_summary_sheet(scores_sheet, board, ops_criteria)
+
+    submissions = wb.create_sheet("Submissions")
+    await _populate_submissions_sheet(db, submissions, cohort_id)
 
     buf = io.BytesIO()
     wb.save(buf)

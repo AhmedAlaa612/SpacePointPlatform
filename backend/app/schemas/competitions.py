@@ -144,6 +144,7 @@ class CompetitionJudgeScoreOut(BaseModel):
     judge_user_id: UUID
     judge_name: str = "Judge"
     total_points: float = 0.0
+    z_score: float | None = None
 
 
 class CompetitionLeaderboardRowOut(BaseModel):
@@ -151,7 +152,7 @@ class CompetitionLeaderboardRowOut(BaseModel):
     team_id: UUID
     team_name: str
     score: float | None = None
-    score_percent: float | None = None
+    z_score: float | None = None
     qualification: str | None = None
     judges_scored: int
     status: str  # scored|unscored
@@ -216,7 +217,6 @@ class CompetitionStudentResultOut(BaseModel):
 
     # Visibility-gated fields (null if disabled or unpublished)
     final_score: float | None = None
-    score_percent: float | None = None
     raw_judge_score: float | None = None
     rank: int | None = None
     total_teams: int | None = None
@@ -291,6 +291,7 @@ class JudgeEvaluationDetailOut(BaseModel):
     bonus_points: float = 0.0
     timing_adjustment: float = 0.0
     notes: str | None = None
+    z_score: float | None = None
     criteria: list[CriterionScoreItem] = []
 
 
@@ -301,7 +302,7 @@ class TeamScoreBreakdownOut(BaseModel):
     status: str
     qualification: str | None = None
     final_score: float | None = None
-    score_percent: float | None = None
+    z_score: float | None = None
     raw_judge_score: float | None = None
     timing_adjustment: float | None = None
     timing_badge: str | None = None

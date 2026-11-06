@@ -108,11 +108,6 @@ export function StudentTeamResultCard({ cohortId }: StudentTeamResultCardProps) 
                 </div>
                 <div className="font-display text-2xl sm:text-3xl font-extrabold text-foreground tabular-nums">
                   {result.final_score}
-                  {result.score_percent !== null && result.score_percent !== undefined && (
-                    <span className="text-xs font-semibold text-muted-foreground ml-1.5 font-sans">
-                      ({result.score_percent}%)
-                    </span>
-                  )}
                 </div>
                 {result.timing_adjustment ? (
                   <span className="text-[10px] text-emerald-600 dark:text-emerald-400 font-medium">

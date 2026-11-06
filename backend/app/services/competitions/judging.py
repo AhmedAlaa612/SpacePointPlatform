@@ -10,6 +10,7 @@ aggregate (`leaderboard`) is ever shared, and only once published.
 from __future__ import annotations
 
 import logging
+import math
 import uuid
 from datetime import datetime, timezone
 
@@ -401,6 +402,20 @@ async def _get_team_checkpoint_states(
     return result
 
 
+def _judge_mean_std(judge_points: dict[uuid.UUID, list[float]]) -> dict[uuid.UUID, tuple[float, float]]:
+    """Compute per-judge (mean, population_std) across the teams each judge scored.
+    Used to calculate Z-scores so scoring is fair across different judging styles."""
+    stats: dict[uuid.UUID, tuple[float, float]] = {}
+    for jid, pts_list in judge_points.items():
+        if not pts_list:
+            stats[jid] = (0.0, 0.0)
+            continue
+        mean = sum(pts_list) / len(pts_list)
+        variance = sum((p - mean) ** 2 for p in pts_list) / len(pts_list)
+        stats[jid] = (mean, math.sqrt(variance))
+    return stats
+
+
 async def leaderboard(db: AsyncSession, *, cohort_id: uuid.UUID, mode: str = "participant") -> list[dict]:
     """Standings for a cohort. Returns one row per team with final aggregated
     scores, timing adjustments (dynamic or overridden), and judge details.
@@ -442,30 +457,42 @@ async def leaderboard(db: AsyncSession, *, cohort_id: uuid.UUID, mode: str = "pa
         .where(CompetitionScore.cohort_id == cohort_id, CompetitionScore.submitted.is_(True))
         .order_by(User.full_name)
     )).all()
-    judge_scores_by_team: dict[uuid.UUID, list[dict]] = {}
-    team_normalized_percentages: dict[uuid.UUID, list[float]] = {}
-    team_raw_points: dict[uuid.UUID, list[float]] = {}
+    team_ids_set = {t.id for t in teams}
+    points_by_judge: dict[uuid.UUID, list[float]] = {}
+    parsed_score_rows: list[tuple[uuid.UUID, uuid.UUID, float, str]] = []
 
-    for team_id, judge_user_id, total_points, judge_name, judge_email in score_rows:
+    for team_id, judge_user_id, total_points, judge_name, _judge_email in score_rows:
+        if team_id not in team_ids_set:
+            continue
         try:
             pts = float(total_points) if total_points is not None else 0.0
         except (ValueError, TypeError):
             pts = 0.0
 
         safe_judge_name = (judge_name or "").strip() or "Judge"
+        parsed_score_rows.append((team_id, judge_user_id, pts, safe_judge_name))
+        points_by_judge.setdefault(judge_user_id, []).append(pts)
 
+    # Z-scores replace the old per-judge percentage normalization: each
+    # judge's points are standardized against their own mean/std across all
+    # teams they scored in this mode, so strict and generous judges compare
+    # fairly. Ranking still uses the raw Total Score.
+    judge_stats = _judge_mean_std(points_by_judge)
+    judge_scores_by_team: dict[uuid.UUID, list[dict]] = {}
+    team_z_scores: dict[uuid.UUID, list[float]] = {}
+    team_raw_points: dict[uuid.UUID, list[float]] = {}
+
+    for team_id, judge_user_id, pts, safe_judge_name in parsed_score_rows:
+        mean, std = judge_stats.get(judge_user_id, (0.0, 0.0))
+        z_val = (pts - mean) / std if std > 1e-9 else 0.0
         judge_scores_by_team.setdefault(team_id, []).append({
             "judge_user_id": judge_user_id,
             "judge_name": safe_judge_name,
             "total_points": pts,
+            "z_score": round(z_val, 2),
         })
         team_raw_points.setdefault(team_id, []).append(pts)
-
-        # Normalize each judge to their scale: Judge 1 = 110, Judge 2 = 95 (common 100% scale)
-        email_str = (judge_email or "").lower()
-        scale = 110.0 if "judge1" in email_str else (95.0 if "judge2" in email_str else (110.0 if pts > 100 else 100.0))
-        pct = (pts / scale) * 100.0 if scale > 0 else 0.0
-        team_normalized_percentages.setdefault(team_id, []).append(pct)
+        team_z_scores.setdefault(team_id, []).append(z_val)
 
     out = []
 
@@ -478,10 +505,10 @@ async def leaderboard(db: AsyncSession, *, cohort_id: uuid.UUID, mode: str = "pa
 
     for team in teams:
         pts_list = team_raw_points.get(team.id, [])
-        pct_list = team_normalized_percentages.get(team.id, [])
+        z_list = team_z_scores.get(team.id, [])
         count = len(pts_list)
         raw_judge_score = round(sum(pts_list) / count, 1) if count > 0 else None
-        avg_pct = round(sum(pct_list) / count, 1) if count > 0 else None
+        avg_z = round(sum(z_list) / count, 2) if count > 0 else None
 
         timing_info = resolve_team_timing(cohort, team, checkpoint_states=team_cp_map.get(team.id, []))
         try:
@@ -507,7 +534,7 @@ async def leaderboard(db: AsyncSession, *, cohort_id: uuid.UUID, mode: str = "pa
             "team_name": team.name,
             "score": final_score,
             "raw_judge_score": raw_judge_score,
-            "score_percent": avg_pct,
+            "z_score": avg_z,
             "qualification": getattr(team, "qualification", None),
             "judges_scored": count,
             "status": "unscored" if (count == 0 and not ops_scored) else "scored",
@@ -567,8 +594,34 @@ async def get_team_score_breakdown(
 
     judge_evaluations = []
     judge_totals = []
+    judge_z_list: list[float] = []
+
+    # Z-scores standardized against every submitted score in the cohort for
+    # teams of the same mode, so strict vs. generous judges compare fairly.
+    cohort_score_rows = (await db.execute(
+        select(CompetitionScore.judge_user_id, CompetitionScore.total_points)
+        .join(Team, Team.id == CompetitionScore.team_id)
+        .where(
+            CompetitionScore.cohort_id == cohort_id,
+            CompetitionScore.submitted.is_(True),
+            Team.is_observer.is_(bool(getattr(team, "is_observer", False))),
+        )
+    )).all()
+    points_by_judge: dict[uuid.UUID, list[float]] = {}
+    for j_id, t_pts in cohort_score_rows:
+        try:
+            pts_val = float(t_pts) if t_pts is not None else 0.0
+        except (ValueError, TypeError):
+            pts_val = 0.0
+        points_by_judge.setdefault(j_id, []).append(pts_val)
+    judge_stats = _judge_mean_std(points_by_judge)
+
     for comp_score, judge_user in score_rows:
         judge_totals.append(comp_score.total_points)
+        mean, std = judge_stats.get(judge_user.id, (0.0, 0.0))
+        j_pts = float(comp_score.total_points) if comp_score.total_points is not None else 0.0
+        j_z = (j_pts - mean) / std if std > 1e-9 else 0.0
+        judge_z_list.append(j_z)
         crit_items = []
         crit_scores = comp_score.criterion_scores or {}
         crit_comments = comp_score.criterion_comments or {}
@@ -615,6 +668,7 @@ async def get_team_score_breakdown(
             "judge_email": judge_user.email,
             "submitted_at": comp_score.submitted_at,
             "total_points": comp_score.total_points,
+            "z_score": round(j_z, 2),
             "bonus_points": comp_score.bonus_points or 0.0,
             "timing_adjustment": comp_score.timing_adjustment or 0.0,
             "notes": comp_score.notes,
@@ -671,7 +725,7 @@ async def get_team_score_breakdown(
         "qualification": team.qualification,
         "raw_judge_score": raw_judge_score,
         "final_score": final_score,
-        "score_percent": round(100 * (final_score / 110), 1) if final_score is not None else None,
+        "z_score": round(sum(judge_z_list) / len(judge_z_list), 2) if judge_z_list else None,
         "timing_adjustment": timing_info["points"],
         "timing_badge": timing_info["badge"],
         "timing_breakdown": timing_info.get("breakdown") or [],
@@ -719,7 +773,6 @@ async def get_student_team_result(
             "team_name": team.name,
             "status": "pending_publication",
             "final_score": None,
-            "score_percent": None,
             "raw_judge_score": None,
             "rank": None,
             "total_teams": None,
@@ -765,7 +818,6 @@ async def get_student_team_result(
 
     rank = (my_row["rank"] if my_row else None) if show_rank else None
     final_score = (my_row["score"] if my_row else None) if show_score else None
-    score_percent = (my_row["score_percent"] if my_row else None) if show_score else None
     raw_judge_score = (my_row["raw_judge_score"] if my_row else None) if show_score else None
     status_str = my_row["status"] if my_row else "unscored"
     timing_pts = my_row["timing_adjustment"] if my_row else 0.0
@@ -892,7 +944,6 @@ async def get_student_team_result(
         "team_name": team.name,
         "status": status_str,
         "final_score": final_score,
-        "score_percent": score_percent,
         "raw_judge_score": raw_judge_score,
         "rank": rank,
         "total_teams": total_teams if show_rank else None,
