@@ -185,6 +185,7 @@ async def _user_out(db: AsyncSession, user: User, profile: ApplicantProfile | No
         # by it (bug fix, 2026-08-17).
         "card_number": user.card_number,
         "card_id": format_card_id(user.card_number, user.roles) if user.card_number is not None else None,
+        "student_id": user.student_id or (contact.student_id if contact else None),
         "date_of_birth": user.birthdate or (contact.date_of_birth if contact else None),
         "birthdate": user.birthdate or (contact.date_of_birth if contact else None),
         "grade": contact.grade if contact else None,

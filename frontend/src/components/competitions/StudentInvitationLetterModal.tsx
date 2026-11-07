@@ -7,7 +7,7 @@ import {
   downloadMyExcuseLetterApi,
   type StudentExcuseLetterStatus,
 } from "@/api/competitions"
-import { updateMeApi } from "@/api/auth"
+import { updateMeApi, fetchMe } from "@/api/auth"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { useToast } from "@/components/ui/toast"
 import { useAuth } from "@/context/AuthContext"
@@ -77,6 +77,11 @@ export function StudentInvitationLetterModal({
         }
 
         queryClient.invalidateQueries({ queryKey: ["student-excuse-letter-status", cohortId] })
+        queryClient.invalidateQueries({ queryKey: ["me"] })
+        try {
+          const fresh = await fetchMe()
+          setCurrentUser(fresh)
+        } catch {}
         toast.success("University IDs saved successfully")
       } finally {
         setIsSavingIds(false)
