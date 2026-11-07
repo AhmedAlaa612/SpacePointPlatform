@@ -289,8 +289,8 @@ def generate_excuse_letter_pdf(
     if not entities:
         contacts_line = f"{contact_email or ''} | {contact_phone or ''}".strip(" |")
         entities = [{
-            "name": committee_name or "SpacePoint",
-            "contacts": contacts_line or "info@spacepoint.ae | +971562987005",
+            "name": committee_name or "Abdullah AlSalmani",
+            "contacts": contacts_line or "a.alsalmani@spacepoint.ae | +971562987005",
             "website": contact_website or "www.spacepoint.ae",
         }]
 

@@ -77,8 +77,8 @@ DEFAULT_INVITATION_TEXT = (
 
 DEFAULT_SIGNOFF_ENTITIES = [
     {
-        "name": "SpacePoint",
-        "contacts": "info@spacepoint.ae | +971562987005",
+        "name": "Abdullah AlSalmani",
+        "contacts": "a.alsalmani@spacepoint.ae | +971562987005",
         "website": "www.spacepoint.ae",
     }
 ]
@@ -128,14 +128,14 @@ def resolve_excuse_letter_config(
 
     if not resolved_entities:
         if cfg.get("committee_name"):
-            c_name = cfg.get("committee_name") or "SpacePoint"
+            c_name = cfg.get("committee_name") or "Abdullah AlSalmani"
             email = cfg.get("contact_email")
             phone = cfg.get("contact_phone")
             parts = [p for p in (email, phone) if p]
             resolved_entities = [
                 {
                     "name": c_name,
-                    "contacts": " | ".join(parts) if parts else "info@spacepoint.ae | +971562987005",
+                    "contacts": " | ".join(parts) if parts else "a.alsalmani@spacepoint.ae | +971562987005",
                     "website": cfg.get("contact_website") or "www.spacepoint.ae",
                 }
             ]
@@ -153,8 +153,8 @@ def resolve_excuse_letter_config(
         "participation_mode": cfg.get("participation_mode") or "On-site Exhibition & Technical Demonstration",
         "description_text": cfg.get("description_text") or DEFAULT_DESCRIPTION,
         "signoff_entities": resolved_entities,
-        "committee_name": resolved_entities[0]["name"] if resolved_entities else "SpacePoint",
-        "contact_email": cfg.get("contact_email") or "info@spacepoint.ae",
+        "committee_name": resolved_entities[0]["name"] if resolved_entities else "Abdullah AlSalmani",
+        "contact_email": cfg.get("contact_email") or "a.alsalmani@spacepoint.ae",
         "contact_phone": cfg.get("contact_phone") or "+971562987005",
         "contact_website": cfg.get("contact_website") or "www.spacepoint.ae",
     }

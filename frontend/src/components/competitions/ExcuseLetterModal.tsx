@@ -18,8 +18,8 @@ const DEFAULT_INVITATION_TEXT =
 
 const DEFAULT_SIGNOFF_ENTITIES: SignoffEntity[] = [
   {
-    name: "SpacePoint",
-    contacts: "info@spacepoint.ae | +971562987005",
+    name: "Abdullah AlSalmani",
+    contacts: "a.alsalmani@spacepoint.ae | +971562987005",
     website: "www.spacepoint.ae",
   },
 ]
@@ -83,10 +83,6 @@ export function ExcuseLetterModal({
   const [participationMode, setParticipationMode] = useState("On-site Exhibition & Technical Demonstration")
   const [descriptionText, setDescriptionText] = useState(DEFAULT_DESCRIPTION)
   const [signoffEntities, setSignoffEntities] = useState<SignoffEntity[]>(DEFAULT_SIGNOFF_ENTITIES)
-  const [committeeName, setCommitteeName] = useState("SpacePoint")
-  const [contactEmail, setContactEmail] = useState("info@spacepoint.ae")
-  const [contactPhone, setContactPhone] = useState("+971562987005")
-  const [contactWebsite, setContactWebsite] = useState("www.spacepoint.ae")
 
   // Generation / Attachment version mode
   const [letterVersion, setLetterVersion] = useState<"team" | "individual" | "both">(
@@ -130,10 +126,6 @@ export function ExcuseLetterModal({
     if (template?.student_role) setStudentRole(template.student_role)
     if (template?.participation_mode) setParticipationMode(template.participation_mode)
     if (resolvedDesc) setDescriptionText(resolvedDesc)
-    if (template?.committee_name) setCommitteeName(template.committee_name)
-    if (template?.contact_email) setContactEmail(template.contact_email)
-    if (template?.contact_phone) setContactPhone(template.contact_phone)
-    if (template?.contact_website) setContactWebsite(template.contact_website)
 
     if (template?.signoff_entities && template.signoff_entities.length > 0) {
       setSignoffEntities(template.signoff_entities)
@@ -141,8 +133,8 @@ export function ExcuseLetterModal({
       const parts = [template.contact_email, template.contact_phone].filter(Boolean)
       setSignoffEntities([
         {
-          name: template.committee_name || "SpacePoint",
-          contacts: parts.join(" | ") || "info@spacepoint.ae | +971562987005",
+          name: template.committee_name || "Abdullah AlSalmani",
+          contacts: parts.join(" | ") || "a.alsalmani@spacepoint.ae | +971562987005",
           website: template.contact_website || "www.spacepoint.ae",
         },
       ])
@@ -203,17 +195,6 @@ export function ExcuseLetterModal({
     })
   }
 
-  const handleAddSpacePoint = () => {
-    setSignoffEntities((prev) => [
-      ...prev,
-      {
-        name: "SpacePoint",
-        contacts: "info@spacepoint.ae | +971562987005",
-        website: "www.spacepoint.ae",
-      },
-    ])
-  }
-
   const getPayload = (): ExcuseLetterConfig => {
     const validEntities = signoffEntities
       .map((e) => ({
@@ -224,6 +205,7 @@ export function ExcuseLetterModal({
       .filter((e) => e.name !== "")
 
     const finalEntities = validEntities.length > 0 ? validEntities : DEFAULT_SIGNOFF_ENTITIES
+    const firstEntity = finalEntities[0]
 
     return {
       enabled,
@@ -236,10 +218,10 @@ export function ExcuseLetterModal({
       participation_mode: participationMode.trim() || undefined,
       description_text: descriptionText.trim() || undefined,
       signoff_entities: finalEntities,
-      committee_name: finalEntities[0]?.name || "SpacePoint",
-      contact_email: contactEmail.trim() || undefined,
-      contact_phone: contactPhone.trim() || undefined,
-      contact_website: contactWebsite.trim() || undefined,
+      committee_name: firstEntity?.name || "Abdullah AlSalmani",
+      contact_email: firstEntity?.contacts?.split("|")[0]?.trim() || undefined,
+      contact_phone: firstEntity?.contacts?.split("|")[1]?.trim() || undefined,
+      contact_website: firstEntity?.website || undefined,
     }
   }
 
@@ -496,7 +478,7 @@ export function ExcuseLetterModal({
                   type="text"
                   value={eventName}
                   onChange={(e) => setEventName(e.target.value)}
-                  placeholder="e.g. PlanetX Aerospace Challenge"
+                  placeholder="Competition / Event Name"
                   className="w-full h-9 px-3 rounded-lg border border-border bg-card text-foreground text-xs focus:outline-none focus:border-primary"
                 />
               </div>
@@ -588,7 +570,7 @@ export function ExcuseLetterModal({
                     Sign-off Entities (Letter Footer)
                   </label>
                   <p className="text-[11px] text-muted-foreground">
-                    Add one or more organizing bodies. Each entity can have its own contact line and website. SpacePoint is included by default.
+                    Add one or more organizing bodies or sign-offs. Each entity can have its own contact line and website.
                   </p>
                 </div>
                 <div className="flex items-center gap-1.5 shrink-0 ml-2">
@@ -611,7 +593,7 @@ export function ExcuseLetterModal({
                   >
                     <div className="flex items-center justify-between">
                       <span className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">
-                        Entity #{idx + 1} {entity.name === "SpacePoint" && "(Default)"}
+                        Entity #{idx + 1}
                       </span>
                       <div className="flex items-center gap-1">
                         {idx > 0 && (
@@ -656,7 +638,7 @@ export function ExcuseLetterModal({
                           type="text"
                           value={entity.name}
                           onChange={(e) => handleUpdateEntity(idx, "name", e.target.value)}
-                          placeholder="e.g. PlanetX Organizing Committee"
+                          placeholder="Entity or Sign-off Name"
                           className="w-full h-8 px-2.5 rounded-md border border-border bg-card text-foreground text-xs focus:outline-none focus:border-primary"
                         />
                       </div>
@@ -669,7 +651,7 @@ export function ExcuseLetterModal({
                           type="text"
                           value={entity.contacts || ""}
                           onChange={(e) => handleUpdateEntity(idx, "contacts", e.target.value)}
-                          placeholder="info@spacepoint.ae | +971562987005"
+                          placeholder="Email | Phone"
                           className="w-full h-8 px-2.5 rounded-md border border-border bg-card text-foreground text-xs focus:outline-none focus:border-primary"
                         />
                       </div>
