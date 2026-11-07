@@ -780,6 +780,7 @@ async def post_cohort_excuse_letter_preview(
             participation_mode=resolved["participation_mode"],
             description_text=resolved["description_text"],
             invitation_text=resolved.get("invitation_text"),
+            signoff_entities=resolved.get("signoff_entities"),
             committee_name=resolved["committee_name"],
             contact_email=resolved["contact_email"],
             contact_phone=resolved["contact_phone"],

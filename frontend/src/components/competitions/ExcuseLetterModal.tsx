@@ -1,12 +1,13 @@
 import { useEffect, useState } from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { FileText, Download, Check, Save, Eye } from "lucide-react"
+import { FileText, Download, Check, Save, Eye, Plus, Trash2, ArrowUp, ArrowDown } from "lucide-react"
 import {
   getCohortExcuseLetterTemplateApi,
   updateCohortExcuseLetterTemplateApi,
   downloadCustomTeamExcuseLetterApi,
   downloadExcuseLetterPreviewApi,
   type ExcuseLetterConfig,
+  type SignoffEntity,
 } from "@/api/competitions"
 import { getCohortApi } from "@/api/sessions/cohorts"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
@@ -14,6 +15,14 @@ import { useToast } from "@/components/ui/toast"
 
 const DEFAULT_INVITATION_TEXT =
   "We are pleased to formally invite {student_name} {institution} to represent their team ({team_name}) as finalists in the {event_name}, organized by {organizer}. This prestigious competition will culminate in a live showcase at {location_text}."
+
+const DEFAULT_SIGNOFF_ENTITIES: SignoffEntity[] = [
+  {
+    name: "SpacePoint",
+    contacts: "info@spacepoint.ae | +971562987005",
+    website: "www.spacepoint.ae",
+  },
+]
 
 const DEFAULT_DESCRIPTION =
   "The student has been selected as part of the finalist teams representing top talent across the region. This hands-on experience includes presenting their prototype, engaging with industry experts, and attending key technical sessions, offering an unparalleled educational and professional development opportunity in aerospace engineering and innovation."
@@ -73,6 +82,7 @@ export function ExcuseLetterModal({
   const [studentRole, setStudentRole] = useState("Finalist — Technical Demonstration & Presentation")
   const [participationMode, setParticipationMode] = useState("On-site Exhibition & Technical Demonstration")
   const [descriptionText, setDescriptionText] = useState(DEFAULT_DESCRIPTION)
+  const [signoffEntities, setSignoffEntities] = useState<SignoffEntity[]>(DEFAULT_SIGNOFF_ENTITIES)
   const [committeeName, setCommitteeName] = useState("SpacePoint")
   const [contactEmail, setContactEmail] = useState("info@spacepoint.ae")
   const [contactPhone, setContactPhone] = useState("+971562987005")
@@ -124,6 +134,21 @@ export function ExcuseLetterModal({
     if (template?.contact_email) setContactEmail(template.contact_email)
     if (template?.contact_phone) setContactPhone(template.contact_phone)
     if (template?.contact_website) setContactWebsite(template.contact_website)
+
+    if (template?.signoff_entities && template.signoff_entities.length > 0) {
+      setSignoffEntities(template.signoff_entities)
+    } else if (template?.committee_name) {
+      const parts = [template.contact_email, template.contact_phone].filter(Boolean)
+      setSignoffEntities([
+        {
+          name: template.committee_name || "SpacePoint",
+          contacts: parts.join(" | ") || "info@spacepoint.ae | +971562987005",
+          website: template.contact_website || "www.spacepoint.ae",
+        },
+      ])
+    } else {
+      setSignoffEntities(DEFAULT_SIGNOFF_ENTITIES)
+    }
   }, [template, cohortData])
 
   const saveMutation = useMutation({
@@ -139,21 +164,84 @@ export function ExcuseLetterModal({
 
   if (!open) return null
 
-  const getPayload = (): ExcuseLetterConfig => ({
-    enabled,
-    invitation_text: invitationText.trim() || undefined,
-    event_name: eventName.trim() || undefined,
-    organizer: organizer.trim() || "SpacePoint",
-    dates_text: datesText.trim() || undefined,
-    location_text: locationText.trim() || undefined,
-    student_role: studentRole.trim() || undefined,
-    participation_mode: participationMode.trim() || undefined,
-    description_text: descriptionText.trim() || undefined,
-    committee_name: committeeName.trim() || "SpacePoint",
-    contact_email: contactEmail.trim() || undefined,
-    contact_phone: contactPhone.trim() || undefined,
-    contact_website: contactWebsite.trim() || undefined,
-  })
+  const handleAddEntity = () => {
+    setSignoffEntities((prev) => [
+      ...prev,
+      { name: "", contacts: "", website: "" },
+    ])
+  }
+
+  const handleUpdateEntity = (index: number, field: keyof SignoffEntity, val: string) => {
+    setSignoffEntities((prev) =>
+      prev.map((ent, i) => (i === index ? { ...ent, [field]: val } : ent))
+    )
+  }
+
+  const handleRemoveEntity = (index: number) => {
+    setSignoffEntities((prev) => prev.filter((_, i) => i !== index))
+  }
+
+  const handleMoveUp = (index: number) => {
+    if (index === 0) return
+    setSignoffEntities((prev) => {
+      const copy = [...prev]
+      const temp = copy[index - 1]
+      copy[index - 1] = copy[index]
+      copy[index] = temp
+      return copy
+    })
+  }
+
+  const handleMoveDown = (index: number) => {
+    setSignoffEntities((prev) => {
+      if (index >= prev.length - 1) return prev
+      const copy = [...prev]
+      const temp = copy[index + 1]
+      copy[index + 1] = copy[index]
+      copy[index] = temp
+      return copy
+    })
+  }
+
+  const handleAddSpacePoint = () => {
+    setSignoffEntities((prev) => [
+      ...prev,
+      {
+        name: "SpacePoint",
+        contacts: "info@spacepoint.ae | +971562987005",
+        website: "www.spacepoint.ae",
+      },
+    ])
+  }
+
+  const getPayload = (): ExcuseLetterConfig => {
+    const validEntities = signoffEntities
+      .map((e) => ({
+        name: e.name.trim(),
+        contacts: e.contacts?.trim() || undefined,
+        website: e.website?.trim() || undefined,
+      }))
+      .filter((e) => e.name !== "")
+
+    const finalEntities = validEntities.length > 0 ? validEntities : DEFAULT_SIGNOFF_ENTITIES
+
+    return {
+      enabled,
+      invitation_text: invitationText.trim() || undefined,
+      event_name: eventName.trim() || undefined,
+      organizer: organizer.trim() || "SpacePoint",
+      dates_text: datesText.trim() || undefined,
+      location_text: locationText.trim() || undefined,
+      student_role: studentRole.trim() || undefined,
+      participation_mode: participationMode.trim() || undefined,
+      description_text: descriptionText.trim() || undefined,
+      signoff_entities: finalEntities,
+      committee_name: finalEntities[0]?.name || "SpacePoint",
+      contact_email: contactEmail.trim() || undefined,
+      contact_phone: contactPhone.trim() || undefined,
+      contact_website: contactWebsite.trim() || undefined,
+    }
+  }
 
   const handleDownload = async () => {
     if (!team) return
@@ -492,57 +580,115 @@ export function ExcuseLetterModal({
               />
             </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
-              <div>
-                <label className="text-xs font-medium text-muted-foreground block mb-1">
-                  Sign-off / Committee Name
-                </label>
-                <input
-                  type="text"
-                  value={committeeName}
-                  onChange={(e) => setCommitteeName(e.target.value)}
-                  placeholder="SpacePoint"
-                  className="w-full h-9 px-3 rounded-lg border border-border bg-card text-foreground text-xs focus:outline-none focus:border-primary"
-                />
+            {/* Sign-off & Contact Entities (Footer) */}
+            <div className="p-3.5 rounded-xl border border-border bg-card/60 space-y-3">
+              <div className="flex items-center justify-between">
+                <div>
+                  <label className="text-xs font-semibold text-foreground block">
+                    Sign-off Entities (Letter Footer)
+                  </label>
+                  <p className="text-[11px] text-muted-foreground">
+                    Add one or more organizing bodies. Each entity can have its own contact line and website. SpacePoint is included by default.
+                  </p>
+                </div>
+                <div className="flex items-center gap-1.5 shrink-0 ml-2">
+                  <button
+                    type="button"
+                    onClick={handleAddEntity}
+                    className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg border border-primary/30 bg-primary/10 text-primary text-xs font-medium hover:bg-primary/20 transition cursor-pointer"
+                  >
+                    <Plus size={13} />
+                    <span>Add Entity</span>
+                  </button>
+                </div>
               </div>
 
-              <div>
-                <label className="text-xs font-medium text-muted-foreground block mb-1">
-                  Contact Email
-                </label>
-                <input
-                  type="email"
-                  value={contactEmail}
-                  onChange={(e) => setContactEmail(e.target.value)}
-                  placeholder="info@spacepoint.ae"
-                  className="w-full h-9 px-3 rounded-lg border border-border bg-card text-foreground text-xs focus:outline-none focus:border-primary"
-                />
-              </div>
+              <div className="space-y-3">
+                {signoffEntities.map((entity, idx) => (
+                  <div
+                    key={idx}
+                    className="p-3 rounded-lg border border-border/80 bg-background/50 space-y-2.5 relative group"
+                  >
+                    <div className="flex items-center justify-between">
+                      <span className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">
+                        Entity #{idx + 1} {entity.name === "SpacePoint" && "(Default)"}
+                      </span>
+                      <div className="flex items-center gap-1">
+                        {idx > 0 && (
+                          <button
+                            type="button"
+                            onClick={() => handleMoveUp(idx)}
+                            className="text-muted-foreground hover:text-foreground transition p-1 cursor-pointer"
+                            title="Move Up"
+                          >
+                            <ArrowUp size={13} />
+                          </button>
+                        )}
+                        {idx < signoffEntities.length - 1 && (
+                          <button
+                            type="button"
+                            onClick={() => handleMoveDown(idx)}
+                            className="text-muted-foreground hover:text-foreground transition p-1 cursor-pointer"
+                            title="Move Down"
+                          >
+                            <ArrowDown size={13} />
+                          </button>
+                        )}
+                        {signoffEntities.length > 1 && (
+                          <button
+                            type="button"
+                            onClick={() => handleRemoveEntity(idx)}
+                            className="text-muted-foreground hover:text-destructive transition p-1 cursor-pointer"
+                            title="Remove this entity"
+                          >
+                            <Trash2 size={13} />
+                          </button>
+                        )}
+                      </div>
+                    </div>
 
-              <div>
-                <label className="text-xs font-medium text-muted-foreground block mb-1">
-                  Contact Phone
-                </label>
-                <input
-                  type="text"
-                  value={contactPhone}
-                  onChange={(e) => setContactPhone(e.target.value)}
-                  placeholder="+971562987005"
-                  className="w-full h-9 px-3 rounded-lg border border-border bg-card text-foreground text-xs focus:outline-none focus:border-primary"
-                />
-              </div>
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+                      <div>
+                        <label className="text-[11px] font-medium text-muted-foreground block mb-1">
+                          Entity / Organizing Body Name
+                        </label>
+                        <input
+                          type="text"
+                          value={entity.name}
+                          onChange={(e) => handleUpdateEntity(idx, "name", e.target.value)}
+                          placeholder="e.g. PlanetX Organizing Committee"
+                          className="w-full h-8 px-2.5 rounded-md border border-border bg-card text-foreground text-xs focus:outline-none focus:border-primary"
+                        />
+                      </div>
 
-              <div>
-                <label className="text-xs font-medium text-muted-foreground block mb-1">
-                  Website
-                </label>
-                <input
-                  type="text"
-                  value={contactWebsite}
-                  onChange={(e) => setContactWebsite(e.target.value)}
-                  placeholder="www.spacepoint.ae"
-                  className="w-full h-9 px-3 rounded-lg border border-border bg-card text-foreground text-xs focus:outline-none focus:border-primary"
-                />
+                      <div>
+                        <label className="text-[11px] font-medium text-muted-foreground block mb-1">
+                          Contacts Line <span className="text-[10px] text-muted-foreground/80">(Email | Phone)</span>
+                        </label>
+                        <input
+                          type="text"
+                          value={entity.contacts || ""}
+                          onChange={(e) => handleUpdateEntity(idx, "contacts", e.target.value)}
+                          placeholder="info@spacepoint.ae | +971562987005"
+                          className="w-full h-8 px-2.5 rounded-md border border-border bg-card text-foreground text-xs focus:outline-none focus:border-primary"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="text-[11px] font-medium text-muted-foreground block mb-1">
+                          Website Line
+                        </label>
+                        <input
+                          type="text"
+                          value={entity.website || ""}
+                          onChange={(e) => handleUpdateEntity(idx, "website", e.target.value)}
+                          placeholder="www.spacepoint.ae"
+                          className="w-full h-8 px-2.5 rounded-md border border-border bg-card text-foreground text-xs focus:outline-none focus:border-primary"
+                        />
+                      </div>
+                    </div>
+                  </div>
+                ))}
               </div>
             </div>
 

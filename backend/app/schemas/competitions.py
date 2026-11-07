@@ -601,6 +601,12 @@ class CompetitionAssignStudentsOut(BaseModel):
     rows: list[CompetitionAssignStudentRowOut]
 
 
+class SignoffEntity(BaseModel):
+    name: str = ""
+    contacts: str | None = None
+    website: str | None = None
+
+
 class ExcuseLetterConfig(BaseModel):
     enabled: bool = False
     invitation_text: str | None = None
@@ -611,10 +617,11 @@ class ExcuseLetterConfig(BaseModel):
     student_role: str | None = "Finalist — Technical Demonstration & Presentation"
     participation_mode: str | None = "On-site Exhibition & Technical Demonstration"
     description_text: str | None = None
-    committee_name: str | None = "SpacePoint"
-    contact_email: str | None = "info@spacepoint.ae"
-    contact_phone: str | None = "+971562987005"
-    contact_website: str | None = "www.spacepoint.ae"
+    signoff_entities: list[SignoffEntity] | None = None
+    committee_name: str | None = None
+    contact_email: str | None = None
+    contact_phone: str | None = None
+    contact_website: str | None = None
 
 
 class StudentExcuseLetterMemberOut(BaseModel):

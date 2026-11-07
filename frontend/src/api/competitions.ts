@@ -630,6 +630,12 @@ export const registerUsersToCohortApi = (
     `/competitions/admin/cohorts/${cohortId}/register-users`, { user_ids: userIds, ...options },
   ).then((r) => r.data)
 
+export interface SignoffEntity {
+  name: string
+  contacts?: string | null
+  website?: string | null
+}
+
 export interface ExcuseLetterConfig {
   enabled?: boolean
   invitation_text?: string
@@ -640,6 +646,7 @@ export interface ExcuseLetterConfig {
   student_role?: string
   participation_mode?: string
   description_text?: string
+  signoff_entities?: SignoffEntity[]
   committee_name?: string
   contact_email?: string
   contact_phone?: string

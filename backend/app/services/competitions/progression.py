@@ -75,6 +75,14 @@ DEFAULT_INVITATION_TEXT = (
     "This prestigious competition will culminate in a live showcase at {location_text}."
 )
 
+DEFAULT_SIGNOFF_ENTITIES = [
+    {
+        "name": "SpacePoint",
+        "contacts": "info@spacepoint.ae | +971562987005",
+        "website": "www.spacepoint.ae",
+    }
+]
+
 DEFAULT_DESCRIPTION = (
     "The student has been selected as part of the finalist teams representing top talent across "
     "the region. This hands-on experience includes presenting their prototype, engaging with "
@@ -104,6 +112,36 @@ def resolve_excuse_letter_config(
 
     default_location = cohort.location or "Dubai, United Arab Emirates"
 
+    raw_entities = cfg.get("signoff_entities")
+    resolved_entities = None
+    if raw_entities and isinstance(raw_entities, list) and len(raw_entities) > 0:
+        cleaned = []
+        for e in raw_entities:
+            if isinstance(e, dict):
+                cleaned.append({
+                    "name": e.get("name") or "",
+                    "contacts": e.get("contacts") or None,
+                    "website": e.get("website") or None,
+                })
+        if cleaned:
+            resolved_entities = cleaned
+
+    if not resolved_entities:
+        if cfg.get("committee_name"):
+            c_name = cfg.get("committee_name") or "SpacePoint"
+            email = cfg.get("contact_email")
+            phone = cfg.get("contact_phone")
+            parts = [p for p in (email, phone) if p]
+            resolved_entities = [
+                {
+                    "name": c_name,
+                    "contacts": " | ".join(parts) if parts else "info@spacepoint.ae | +971562987005",
+                    "website": cfg.get("contact_website") or "www.spacepoint.ae",
+                }
+            ]
+        else:
+            resolved_entities = list(DEFAULT_SIGNOFF_ENTITIES)
+
     return {
         "enabled": bool(cfg.get("enabled", False)),
         "invitation_text": cfg.get("invitation_text") or DEFAULT_INVITATION_TEXT,
@@ -114,7 +152,8 @@ def resolve_excuse_letter_config(
         "student_role": cfg.get("student_role") or "Finalist — Technical Demonstration & Presentation",
         "participation_mode": cfg.get("participation_mode") or "On-site Exhibition & Technical Demonstration",
         "description_text": cfg.get("description_text") or DEFAULT_DESCRIPTION,
-        "committee_name": cfg.get("committee_name") or "SpacePoint",
+        "signoff_entities": resolved_entities,
+        "committee_name": resolved_entities[0]["name"] if resolved_entities else "SpacePoint",
         "contact_email": cfg.get("contact_email") or "info@spacepoint.ae",
         "contact_phone": cfg.get("contact_phone") or "+971562987005",
         "contact_website": cfg.get("contact_website") or "www.spacepoint.ae",
@@ -181,6 +220,7 @@ async def build_team_excuse_letter_pdf(
         participation_mode=resolved["participation_mode"],
         description_text=resolved["description_text"],
         invitation_text=resolved.get("invitation_text"),
+        signoff_entities=resolved.get("signoff_entities"),
         committee_name=resolved["committee_name"],
         contact_email=resolved["contact_email"],
         contact_phone=resolved["contact_phone"],

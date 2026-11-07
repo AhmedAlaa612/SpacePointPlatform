@@ -171,6 +171,7 @@ def generate_excuse_letter_pdf(
     participation_mode: str = "On-site Exhibition & Technical Demonstration",
     description_text: str | None = None,
     invitation_text: str | None = None,
+    signoff_entities: list[dict[str, Any]] | None = None,
     committee_name: str = "SpacePoint",
     contact_email: str = "info@spacepoint.ae",
     contact_phone: str = "+971562987005",
@@ -282,14 +283,34 @@ def generate_excuse_letter_pdf(
         ),
         Paragraph("Thank you for your cooperation and support.", _BODY),
         Spacer(1, 3 * mm),
-        Paragraph(
-            f"Sincerely,<br/>"
-            f"<b>{committee_name}</b><br/>"
-            f"{contact_email} | {contact_phone}<br/>"
-            f"{contact_website}",
-            _SIGN_OFF,
-        ),
     ]
+
+    entities = signoff_entities or []
+    if not entities:
+        contacts_line = f"{contact_email or ''} | {contact_phone or ''}".strip(" |")
+        entities = [{
+            "name": committee_name or "SpacePoint",
+            "contacts": contacts_line or "info@spacepoint.ae | +971562987005",
+            "website": contact_website or "www.spacepoint.ae",
+        }]
+
+    signoff_lines = ["Sincerely,"]
+    for ent in entities:
+        ename = (ent.get("name") or "").strip()
+        econtacts = (ent.get("contacts") or "").strip()
+        ewebsite = (ent.get("website") or "").strip()
+
+        if ename:
+            if "<b>" not in ename and "<i>" not in ename:
+                signoff_lines.append(f"<b>{ename}</b>")
+            else:
+                signoff_lines.append(ename)
+        if econtacts:
+            signoff_lines.append(econtacts)
+        if ewebsite:
+            signoff_lines.append(ewebsite)
+
+    closing_elements.append(Paragraph("<br/>".join(signoff_lines), _SIGN_OFF))
 
     story.append(KeepTogether(closing_elements))
 
