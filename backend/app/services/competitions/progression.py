@@ -69,6 +69,12 @@ async def _congrats_email(
     )
 
 
+DEFAULT_INVITATION_TEXT = (
+    "We are pleased to formally invite {student_name} {institution} to represent their team "
+    "({team_name}) as finalists in the {event_name}, organized by {organizer}. "
+    "This prestigious competition will culminate in a live showcase at {location_text}."
+)
+
 DEFAULT_DESCRIPTION = (
     "The student has been selected as part of the finalist teams representing top talent across "
     "the region. This hands-on experience includes presenting their prototype, engaging with "
@@ -100,6 +106,7 @@ def resolve_excuse_letter_config(
 
     return {
         "enabled": bool(cfg.get("enabled", False)),
+        "invitation_text": cfg.get("invitation_text") or DEFAULT_INVITATION_TEXT,
         "event_name": cfg.get("event_name") or cohort.name,
         "organizer": cfg.get("organizer") or "SpacePoint",
         "dates_text": cfg.get("dates_text") or default_dates,
@@ -173,6 +180,7 @@ async def build_team_excuse_letter_pdf(
         student_role=resolved["student_role"],
         participation_mode=resolved["participation_mode"],
         description_text=resolved["description_text"],
+        invitation_text=resolved.get("invitation_text"),
         committee_name=resolved["committee_name"],
         contact_email=resolved["contact_email"],
         contact_phone=resolved["contact_phone"],

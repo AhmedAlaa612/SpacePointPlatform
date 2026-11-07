@@ -632,6 +632,7 @@ export const registerUsersToCohortApi = (
 
 export interface ExcuseLetterConfig {
   enabled?: boolean
+  invitation_text?: string
   event_name?: string
   organizer?: string
   dates_text?: string

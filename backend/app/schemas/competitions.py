@@ -603,6 +603,7 @@ class CompetitionAssignStudentsOut(BaseModel):
 
 class ExcuseLetterConfig(BaseModel):
     enabled: bool = False
+    invitation_text: str | None = None
     event_name: str | None = None
     organizer: str | None = "SpacePoint"
     dates_text: str | None = None

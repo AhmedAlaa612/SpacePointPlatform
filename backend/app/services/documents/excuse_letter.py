@@ -100,6 +100,64 @@ _SIGN_OFF = ParagraphStyle(
 )
 
 
+DEFAULT_INVITATION_TEMPLATE = (
+    "We are pleased to formally invite {student_name} {institution} to represent their team "
+    "({team_name}) as finalists in the {event_name}, organized by {organizer}. "
+    "This prestigious competition will culminate in a live showcase at {location_text}."
+)
+
+
+def _render_invitation_text(
+    template: str | None,
+    *,
+    single_student: dict[str, Any] | None,
+    team_name: str,
+    institution_name: str | None,
+    event_name: str,
+    organizer: str,
+    location_text: str,
+    dates_text: str,
+    student_role: str,
+    participation_mode: str,
+) -> str:
+    raw = (template or "").strip() or DEFAULT_INVITATION_TEMPLATE
+    inst_phrase = f"from {institution_name}" if institution_name else "from your esteemed institution"
+    stud_name = (single_student.get("name") or "the student") if single_student else "the below-mentioned student(s)"
+
+    # Bold-by-default substitution map
+    bold_fields = {
+        "student_name": stud_name,
+        "student": stud_name,
+        "team_name": team_name,
+        "team": team_name,
+        "event_name": event_name,
+        "event": event_name,
+        "organizer": organizer,
+        "location_text": location_text,
+        "location": location_text,
+    }
+    plain_fields = {
+        "institution": inst_phrase,
+        "institution_name": institution_name or "your esteemed institution",
+        "dates_text": dates_text,
+        "dates": dates_text,
+        "student_role": student_role,
+        "role": student_role,
+        "participation_mode": participation_mode,
+    }
+
+    result = raw
+    # If user already wrote <b>{key}</b>, handle that first to avoid <b><b>...</b></b>
+    for k, v in bold_fields.items():
+        result = result.replace(f"<b>{{{k}}}</b>", f"<b>{v}</b>")
+        result = result.replace(f"{{{k}}}", f"<b>{v}</b>")
+
+    for k, v in plain_fields.items():
+        result = result.replace(f"{{{k}}}", str(v))
+
+    return result
+
+
 def generate_excuse_letter_pdf(
     *,
     team_name: str,
@@ -112,6 +170,7 @@ def generate_excuse_letter_pdf(
     student_role: str = "Finalist — Technical Demonstration & Presentation",
     participation_mode: str = "On-site Exhibition & Technical Demonstration",
     description_text: str | None = None,
+    invitation_text: str | None = None,
     committee_name: str = "SpacePoint",
     contact_email: str = "info@spacepoint.ae",
     contact_phone: str = "+971562987005",
@@ -144,20 +203,18 @@ def generate_excuse_letter_pdf(
     story.append(Paragraph("To Whom It May Concern,", _SALUTATION))
 
     # 3. Invitation paragraph
-    inst_phrase = f"from {institution_name}" if institution_name else "from your esteemed institution"
-    if single_student:
-        stud_name = single_student.get("name") or "the student"
-        lead_html = (
-            f"We are pleased to formally invite <b>{stud_name}</b> {inst_phrase} to represent their team "
-            f"(<b>{team_name}</b>) as finalists in the <b>{event_name}</b>, organized by <b>{organizer}</b>. "
-            f"This prestigious competition will culminate in a live showcase at <b>{location_text}</b>."
-        )
-    else:
-        lead_html = (
-            f"We are pleased to formally invite the below-mentioned student(s) {inst_phrase} to represent their team "
-            f"(<b>{team_name}</b>) as finalists in the <b>{event_name}</b>, organized by <b>{organizer}</b>. "
-            f"This prestigious competition will culminate in a live showcase at <b>{location_text}</b>."
-        )
+    lead_html = _render_invitation_text(
+        invitation_text,
+        single_student=single_student,
+        team_name=team_name,
+        institution_name=institution_name,
+        event_name=event_name,
+        organizer=organizer,
+        location_text=location_text,
+        dates_text=dates_text,
+        student_role=student_role,
+        participation_mode=participation_mode,
+    )
     story.append(Paragraph(lead_html, _BODY))
     story.append(Spacer(1, 3 * mm))
 

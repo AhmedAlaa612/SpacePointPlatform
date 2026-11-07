@@ -12,6 +12,9 @@ import { getCohortApi } from "@/api/sessions/cohorts"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { useToast } from "@/components/ui/toast"
 
+const DEFAULT_INVITATION_TEXT =
+  "We are pleased to formally invite {student_name} {institution} to represent their team ({team_name}) as finalists in the {event_name}, organized by {organizer}. This prestigious competition will culminate in a live showcase at {location_text}."
+
 const DEFAULT_DESCRIPTION =
   "The student has been selected as part of the finalist teams representing top talent across the region. This hands-on experience includes presenting their prototype, engaging with industry experts, and attending key technical sessions, offering an unparalleled educational and professional development opportunity in aerospace engineering and innovation."
 
@@ -62,6 +65,7 @@ export function ExcuseLetterModal({
   const isLoading = isTemplateLoading && isCohortLoading
 
   const [enabled, setEnabled] = useState(false)
+  const [invitationText, setInvitationText] = useState(DEFAULT_INVITATION_TEXT)
   const [eventName, setEventName] = useState("")
   const [organizer, setOrganizer] = useState("SpacePoint")
   const [datesText, setDatesText] = useState("")
@@ -99,6 +103,7 @@ export function ExcuseLetterModal({
     const resolvedDates = template?.dates_text || defDates
     const resolvedLocation = template?.location_text || cohortData?.location || "Dubai, United Arab Emirates"
     const resolvedDesc = template?.description_text || DEFAULT_DESCRIPTION
+    const resolvedInvitation = template?.invitation_text || DEFAULT_INVITATION_TEXT
 
     if (template?.enabled !== undefined) {
       setEnabled(template.enabled)
@@ -107,6 +112,7 @@ export function ExcuseLetterModal({
       setEnabled(true)
     }
 
+    if (resolvedInvitation) setInvitationText(resolvedInvitation)
     if (resolvedEventName) setEventName(resolvedEventName)
     if (template?.organizer) setOrganizer(template.organizer)
     if (resolvedDates) setDatesText(resolvedDates)
@@ -135,6 +141,7 @@ export function ExcuseLetterModal({
 
   const getPayload = (): ExcuseLetterConfig => ({
     enabled,
+    invitation_text: invitationText.trim() || undefined,
     event_name: eventName.trim() || undefined,
     organizer: organizer.trim() || "SpacePoint",
     dates_text: datesText.trim() || undefined,
@@ -336,6 +343,60 @@ export function ExcuseLetterModal({
                 </div>
               </div>
             )}
+
+            {/* Opening Invitation Paragraph (Above Roster Table) */}
+            <div className="p-3.5 rounded-xl border border-border bg-card/60 space-y-2">
+              <div className="flex items-center justify-between">
+                <div>
+                  <label className="text-xs font-semibold text-foreground block">
+                    Invitation Opening Text (Above Table)
+                  </label>
+                  <p className="text-[11px] text-muted-foreground">
+                    This text introduces the team/student directly above the roster table. Variables below will replace the placeholders.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setInvitationText(DEFAULT_INVITATION_TEXT)}
+                  className="text-[11px] text-primary hover:underline font-medium cursor-pointer shrink-0 ml-2"
+                >
+                  Reset Text
+                </button>
+              </div>
+
+              <textarea
+                value={invitationText}
+                onChange={(e) => setInvitationText(e.target.value)}
+                rows={3}
+                className="w-full p-2.5 rounded-lg border border-border bg-card text-foreground text-xs leading-relaxed focus:outline-none focus:border-primary resize-y"
+                placeholder="e.g. We are pleased to formally invite {student_name} {institution} to represent their team ({team_name})..."
+              />
+
+              <div className="flex flex-wrap items-center gap-1.5 pt-1">
+                <span className="text-[10px] text-muted-foreground font-medium mr-1">Insert Placeholders:</span>
+                {[
+                  { tag: "{student_name}", desc: "Student Name or 'the below-mentioned student(s)'" },
+                  { tag: "{team_name}", desc: "Team Name" },
+                  { tag: "{event_name}", desc: "Event Name" },
+                  { tag: "{organizer}", desc: "Organizer" },
+                  { tag: "{location_text}", desc: "Location / Venue" },
+                  { tag: "{institution}", desc: "from [University] / from your esteemed institution" },
+                  { tag: "{dates_text}", desc: "Dates & Duration" },
+                ].map((item) => (
+                  <button
+                    key={item.tag}
+                    type="button"
+                    title={item.desc}
+                    onClick={() =>
+                      setInvitationText((prev) => (prev ? `${prev} ${item.tag}` : item.tag))
+                    }
+                    className="inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-mono font-medium bg-primary/10 text-primary border border-primary/20 hover:bg-primary/20 transition cursor-pointer"
+                  >
+                    {item.tag}
+                  </button>
+                ))}
+              </div>
+            </div>
 
             {/* Core Event & Letter Details */}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
