@@ -753,11 +753,17 @@ async def post_cohort_excuse_letter_preview(
         first_team = (await db.execute(select(Team).where(Team.cohort_id == cohort_id).limit(1))).scalars().first()
         target_team = first_team
 
+    pdf_bytes = None
     if target_team:
-        pdf_bytes = await progression_service.build_team_excuse_letter_pdf(
-            db, team=target_team, target_cohort=cohort, overrides=overrides,
-        )
-    else:
+        try:
+            pdf_bytes = await progression_service.build_team_excuse_letter_pdf(
+                db, team=target_team, target_cohort=cohort, overrides=overrides,
+            )
+        except Exception as exc:
+            logger.warning("Failed to build team preview with target_team %s, falling back to sample preview: %s", target_team.id, exc)
+            pdf_bytes = None
+
+    if not pdf_bytes:
         from app.services.documents.excuse_letter import generate_excuse_letter_pdf
         resolved = progression_service.resolve_excuse_letter_config(cohort, overrides)
         pdf_bytes = generate_excuse_letter_pdf(

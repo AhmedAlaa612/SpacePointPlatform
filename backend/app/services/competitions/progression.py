@@ -149,7 +149,7 @@ async def build_team_excuse_letter_pdf(
         if contact and contact.organization_id and not institution_name:
             org = await db.get(Organization, contact.organization_id)
             if org:
-                institution_name = org.name
+                institution_name = org.name_latin or org.name_arabic
 
         m_dict = {
             "name": user.full_name,
