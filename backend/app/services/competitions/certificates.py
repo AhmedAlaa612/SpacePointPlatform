@@ -41,7 +41,9 @@ from app.models.team import Team, TeamMember
 from app.models.user import User
 from app.services import storage
 from app.services.documents.certificate import (
-    format_certificate_program_title, generate_completion_certificate_pdf, merge_certificate_pdfs,
+    STUDENT_COMPLETION_FALLBACK_BODY, STUDENT_PARTICIPATION_FALLBACK_BODY,
+    expand_certificate_body_template, format_certificate_program_title,
+    generate_completion_certificate_pdf, merge_certificate_pdfs,
 )
 from app.services.email import try_send_email
 from app.services.lms.program import effective_cohort_program_items
@@ -676,19 +678,19 @@ async def send_cohort_certificates(
             raw_body_template = layout["body_text_template"]
         else:
             if cert_type == "participation":
-                raw_body_template = "For active participation in<br/>{program_name}<br/>{dates}"
+                raw_body_template = STUDENT_PARTICIPATION_FALLBACK_BODY
             else:
-                raw_body_template = template.body_text if template else "For successfully completing<br/>{program_name}<br/>{dates}"
+                raw_body_template = template.body_text if template else STUDENT_COMPLETION_FALLBACK_BODY
 
-        student_body_text = (
-            raw_body_template
-            .replace("{program_name}", escape(program.name))
-            .replace("{cohort_name}", escape(cohort_title))
-            .replace("{cohort}", escape(cohort_title))
-            .replace("{dates}", escape(dates))
-            .replace("{location}", escape(location.get("name") or ""))
-            .replace("{certificate_type}", type_title)
-            .replace("{type}", type_title)
+        student_body_text = expand_certificate_body_template(
+            raw_body_template,
+            program_name=program.name,
+            cohort_name=cohort_title,
+            dates=dates,
+            starts_on=cohort.starts_on,
+            ends_on=cohort.ends_on,
+            location=location.get("name"),
+            certificate_type_label=type_title,
         )
 
         try:
@@ -871,19 +873,19 @@ async def render_cohort_certificates_pdf(
             raw_body_template = layout["body_text_template"]
         else:
             if cert_type == "participation":
-                raw_body_template = "For active participation in<br/>{program_name}<br/>{dates}"
+                raw_body_template = STUDENT_PARTICIPATION_FALLBACK_BODY
             else:
-                raw_body_template = template.body_text if template else "For successfully completing<br/>{program_name}<br/>{dates}"
+                raw_body_template = template.body_text if template else STUDENT_COMPLETION_FALLBACK_BODY
 
-        student_body = (
-            raw_body_template
-            .replace("{program_name}", escape(program.name))
-            .replace("{cohort_name}", escape(cohort_title))
-            .replace("{cohort}", escape(cohort_title))
-            .replace("{dates}", escape(dates))
-            .replace("{location}", escape(location.get("name") or ""))
-            .replace("{certificate_type}", type_title)
-            .replace("{type}", type_title)
+        student_body = expand_certificate_body_template(
+            raw_body_template,
+            program_name=program.name,
+            cohort_name=cohort_title,
+            dates=dates,
+            starts_on=cohort.starts_on,
+            ends_on=cohort.ends_on,
+            location=location.get("name"),
+            certificate_type_label=type_title,
         )
         pages.append(await asyncio.to_thread(_render, r["student_name"], student_body))
 
@@ -934,19 +936,19 @@ async def send_test_certificate_email(
         raw_body_template = layout["body_text_template"]
     else:
         if certificate_type == "participation":
-            raw_body_template = "For active participation in<br/>{program_name}<br/>{dates}"
+            raw_body_template = STUDENT_PARTICIPATION_FALLBACK_BODY
         else:
-            raw_body_template = template.body_text if template else "For successfully completing<br/>{program_name}<br/>{dates}"
+            raw_body_template = template.body_text if template else STUDENT_COMPLETION_FALLBACK_BODY
 
-    student_body_text = (
-        raw_body_template
-        .replace("{program_name}", escape(program.name))
-        .replace("{cohort_name}", escape(cohort_title))
-        .replace("{cohort}", escape(cohort_title))
-        .replace("{dates}", escape(dates))
-        .replace("{location}", escape(location.get("name") or ""))
-        .replace("{certificate_type}", type_title)
-        .replace("{type}", type_title)
+    student_body_text = expand_certificate_body_template(
+        raw_body_template,
+        program_name=program.name,
+        cohort_name=cohort_title,
+        dates=dates,
+        starts_on=cohort.starts_on,
+        ends_on=cohort.ends_on,
+        location=location.get("name"),
+        certificate_type_label=type_title,
     )
 
     effective_name = recipient_name.strip() if recipient_name and recipient_name.strip() else "Test Recipient"

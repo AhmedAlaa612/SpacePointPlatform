@@ -370,6 +370,7 @@ def _placeholder_set(key: str | None, doc_type: str) -> dict[str, str | None]:
             "program_name": "SatKit Program",
             "cohort_name": "Cohort 1",
             "dates": "3 – 5 August 2026",
+            "dates_line": "Held from 3 August 2026 to 5 August 2026 at Dubai",
             "location": "Dubai",
         }
     if key == "workshop_delivery":

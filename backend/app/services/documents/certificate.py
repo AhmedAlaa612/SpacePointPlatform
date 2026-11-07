@@ -7,6 +7,8 @@ instructor completion).
 import io
 import os
 import re
+from datetime import date
+from html import escape
 
 import arabic_reshaper
 from bidi.algorithm import get_display
@@ -215,4 +217,128 @@ def format_certificate_program_title(program_name: str, cohort_name: str | None 
     if c_name.lower() == program_name.strip().lower():
         return program_name
     return f"{program_name} - {c_name}"
+
+
+# ---------------------------------------------------------------------------
+# Default student certificate bodies (operator wording request 2026-11).
+#
+# Both fallbacks sit behind the `{dates_line}` witness-line token, whose
+# expansion is conditional — see `format_certificate_when_phrase`. These are
+# the exact strings the DB `student_completion` template is seeded with
+# (migration d8a2c94e0035, upgraded by f7a1c93b0050); the hardcoded fallbacks
+# fire only when that row is missing. Participation bodies are hardcoded
+# outright (competition-issued participation certs have no template row).
+STUDENT_COMPLETION_FALLBACK_BODY = (
+    "For successfully completing<br/><b>{program_name}</b><br/>{dates_line}"
+)
+STUDENT_PARTICIPATION_FALLBACK_BODY = "For active participation in<br/>{program_name}<br/>{dates_line}"
+
+# The pre-2026-11 seeded default, exactly as d8a2c94e0035 wrote it — only rows
+# still carrying this text get upgraded; admin-customized bodies are kept.
+LEGACY_STUDENT_COMPLETION_BODY = (
+    "For successfully completing<br/><b>{program_name}</b><br/>{dates}"
+)
+
+
+def _fmt_when_date(value: date | str) -> str:
+    return value if isinstance(value, str) else f"{value:%b %d, %Y}"
+
+
+# format_cohort_dates archives ranges on certificate rows as "a – b" (en dash,
+# spaces). A bare hyphen with spaces is accepted too, defensively.
+_DASH_RANGE_RE = re.compile(r"\s+[–-]\s+")
+
+
+def format_certificate_when_phrase(
+    *,
+    starts_on: date | str | None = None,
+    ends_on: date | str | None = None,
+    location: str | None = None,
+    stored_dates: str | None = None,
+) -> str:
+    """Builds the "Held ..." witness line for default certificate bodies (the
+    `{dates_line}` token), per the operator wording request 2026-11:
+
+    - start + end date  ->  "Held from Feb 10, 2026 to Feb 12, 2026"
+    - start date only   ->  "Held on Feb 10, 2026"
+    - `location` set    ->  " at <location>" appended to whichever of the above
+    - no dates at all but a venue  ->  "Held at <room>"
+    - nothing known     ->  "" — the whole line drops off the certificate.
+
+    `stored_dates` reconstructs the same wording from the date text that
+    `format_cohort_dates` archived on a certificate row ('a – b' or 'a'),
+    used where the cohort row itself is gone (LMS self-heal re-render).
+    Same-day start/end counts as start-only, mirroring format_cohort_dates.
+    """
+    if starts_on is None and stored_dates and stored_dates.strip():
+        text = stored_dates.strip()
+        m = _DASH_RANGE_RE.search(text)
+        if m:
+            starts_on, ends_on = text[: m.start()].strip(), text[m.end():].strip()
+        else:
+            starts_on = text
+
+    phrase = ""
+    if starts_on is not None:
+        start_text = _fmt_when_date(starts_on)
+        end_text = _fmt_when_date(ends_on) if ends_on is not None else None
+        if end_text and end_text != start_text:
+            phrase = f"Held from {start_text} to {end_text}"
+        else:
+            phrase = f"Held on {start_text}"
+    elif (location or "").strip():
+        return f"Held at {location.strip()}"
+
+    if phrase and (location or "").strip():
+        phrase = f"{phrase} at {location.strip()}"
+    return phrase
+
+
+def expand_certificate_body_template(
+    body_text_template: str,
+    *,
+    program_name: str = "",
+    cohort_name: str = "",
+    dates: str = "",
+    location: str | None = None,
+    starts_on: date | None = None,
+    ends_on: date | None = None,
+    when_line: str | None = None,
+    stored_dates: str | None = None,
+    certificate_type_label: str = "Completion",
+) -> str:
+    """One expansion pass for every default-issued certificate body — workshop
+    completion (delivery.py), competition certificates (send / bulk PDF /
+    test email), the cohorts print run, and the LMS self-heal re-render all
+    token-replace identically.
+
+    Fills the long-standing token set ({program_name}, {cohort_name}/{cohort},
+    {dates}, {location}, {certificate_type}/{type}) plus the 2026-11
+    `{dates_line}` conditional witness line — `when_line` lets a caller supply
+    the phrase directly (fake-data preview endpoints and the stored-date
+    self-heal path); otherwise it is derived from `starts_on`/`ends_on`/
+    `location` (or `stored_dates`). See format_certificate_when_phrase.
+
+    `<br/>`-separated segments that end up empty (typically `{dates_line}`
+    with nothing to say) are dropped rather than rendered as blank lines — a
+    deliberately empty spacer line must be written as `&nbsp;` to survive.
+    """
+    dates_line = when_line
+    if dates_line is None:
+        dates_line = format_certificate_when_phrase(
+            starts_on=starts_on, ends_on=ends_on, location=location, stored_dates=stored_dates,
+        )
+    expanded = (
+        body_text_template
+        .replace("{program_name}", escape(program_name))
+        .replace("{cohort_name}", escape(cohort_name))
+        .replace("{cohort}", escape(cohort_name))
+        .replace("{dates}", escape(dates))
+        .replace("{dates_line}", escape(dates_line))
+        .replace("{location}", escape(location or ""))
+        .replace("{certificate_type}", escape(certificate_type_label))
+        .replace("{type}", escape(certificate_type_label))
+    )
+    segments = [segment.strip() for segment in expanded.split("<br/>")]
+    return "<br/>".join(segment for segment in segments if segment)
 

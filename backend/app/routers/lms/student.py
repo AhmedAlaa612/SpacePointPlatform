@@ -25,7 +25,6 @@ import asyncio
 import logging
 import uuid
 from datetime import datetime, timezone
-from html import escape
 from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -1704,7 +1703,10 @@ async def my_certificates(
                 from app.models.sessions.program import Program
                 from app.models.spine.contact import Contact
                 from app.services.competitions.certificates import _resolve_certificate_template
-                from app.services.documents.certificate import generate_completion_certificate_pdf
+                from app.services.documents.certificate import (
+                    STUDENT_COMPLETION_FALLBACK_BODY,
+                    expand_certificate_body_template, format_certificate_when_phrase,
+                )
                 from app.services.sessions.registration import format_cohort_dates
                 from app.models.document_template import DocumentTemplate
 
@@ -1722,16 +1724,25 @@ async def my_certificates(
                 tmpl = (await db.execute(
                     select(DocumentTemplate).where(DocumentTemplate.key == "student_completion")
                 )).scalars().first()
-                raw_body = layout.get("body_text_template") or (tmpl.body_text if tmpl else "For successfully completing<br/>{program_name}<br/>{dates}")
-                body_rendered = (
-                    raw_body
-                    .replace("{program_name}", escape(prog_name))
-                    .replace("{cohort_name}", escape(cohort_name))
-                    .replace("{cohort}", escape(cohort_name))
-                    .replace("{dates}", escape(dates_str))
-                    .replace("{location}", escape(row.location or ""))
-                    .replace("{certificate_type}", "Completion")
-                    .replace("{type}", "Completion")
+                raw_body = layout.get("body_text_template") or (tmpl.body_text if tmpl else STUDENT_COMPLETION_FALLBACK_BODY)
+                # The "Held ..." witness line comes from the live cohort row
+                # when it still exists; for legalese archived certificates
+                # whose cohort was deleted, rebuild the same wording from the
+                # date text format_cohort_dates stored on the row itself
+                # ('a – b' range or single date) plus the row's venue.
+                if cohort_obj is not None:
+                    when_line = format_certificate_when_phrase(
+                        starts_on=cohort_obj.starts_on, ends_on=cohort_obj.ends_on, location=row.location,
+                    )
+                else:
+                    when_line = format_certificate_when_phrase(location=row.location, stored_dates=row.workshop_date)
+                body_rendered = expand_certificate_body_template(
+                    raw_body,
+                    program_name=prog_name,
+                    cohort_name=cohort_name,
+                    dates=dates_str,
+                    location=row.location,
+                    when_line=when_line,
                 )
 
                 cert_pdf = await asyncio.to_thread(

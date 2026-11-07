@@ -77,7 +77,7 @@ export function ProgramCertificateStudioModal({ program, onClose, onUpdated }: P
   const [nameColor, setNameColor] = useState("#9778be")
 
   const [bodyText, setBodyText] = useState(
-    "For successfully completing<br/>{program_name}<br/>{dates}"
+    "For successfully completing<br/>{program_name}<br/>{dates_line}"
   )
   const [bodyFontSize, setBodyFontSize] = useState(20)
   const [bodyY, setBodyY] = useState(260)
@@ -113,7 +113,7 @@ export function ProgramCertificateStudioModal({ program, onClose, onUpdated }: P
       setNameFontSize(34)
       setNameY(298)
       setNameColor("#9778be")
-      setBodyText("For successfully completing<br/>{program_name}<br/>{dates}")
+      setBodyText("For successfully completing<br/>{program_name}<br/>{dates_line}")
       setBodyFontSize(20)
       setBodyY(260)
       setBodyColor("#9778be")
@@ -129,7 +129,7 @@ export function ProgramCertificateStudioModal({ program, onClose, onUpdated }: P
       setNameFontSize(34)
       setNameY(298)
       setNameColor("#67388f")
-      setBodyText("For successfully completing<br/>{program_name}<br/>{dates}")
+      setBodyText("For successfully completing<br/>{program_name}<br/>{dates_line}")
       setBodyFontSize(20)
       setBodyY(260)
       setBodyColor("#67388f")
@@ -145,7 +145,7 @@ export function ProgramCertificateStudioModal({ program, onClose, onUpdated }: P
       setNameFontSize(34)
       setNameY(298)
       setNameColor("#9778be")
-      setBodyText("For successfully completing<br/>{program_name}<br/>{dates}")
+      setBodyText("For successfully completing<br/>{program_name}<br/>{dates_line}")
       setBodyFontSize(20)
       setBodyY(260)
       setBodyColor("#9778be")
@@ -168,7 +168,7 @@ export function ProgramCertificateStudioModal({ program, onClose, onUpdated }: P
         setNameFontSize(existing.name_font_size)
         setNameY(Number(existing.name_y))
         setNameColor(existing.name_color)
-        setBodyText(existing.body_text ?? "For successfully completing<br/>{program_name}<br/>{dates}")
+        setBodyText(existing.body_text ?? "For successfully completing<br/>{program_name}<br/>{dates_line}")
         setBodyFontSize(existing.body_font_size)
         setBodyY(Number(existing.body_y))
         setBodyColor(existing.body_color)
@@ -382,11 +382,13 @@ export function ProgramCertificateStudioModal({ program, onClose, onUpdated }: P
 
   // Formatted preview body text with test values: {program_name} is always the program name,
   // while {cohort} / {cohort_name} is used if explicitly specified.
+  // {dates_line} mirrors the backend's conditional witness phrase (Held on/from ... at ...).
   const previewBodyLines = (bodyText || "")
     .replace(/\{program_name\}/g, program.name)
     .replace(/\{cohort_name\}/g, "Cohort Title")
     .replace(/\{cohort\}/g, "Cohort Title")
     .replace(/\{dates\}/g, "12 – 16 October 2026")
+    .replace(/\{dates_line\}/g, "Held from 12 October 2026 to 16 October 2026 at SpacePoint HQ")
     .replace(/\{location\}/g, "SpacePoint HQ")
     .split("<br/>")
 
@@ -721,13 +723,14 @@ export function ProgramCertificateStudioModal({ program, onClose, onUpdated }: P
                       value={bodyText}
                       onChange={(e) => setBodyText(e.target.value)}
                       className="w-full px-3 py-2 rounded-xl border border-border bg-background text-xs font-mono text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
-                      placeholder="For successfully completing<br/>{program_name}<br/>{dates}"
+                      placeholder="For successfully completing<br/>{program_name}<br/>{dates_line}"
                     />
                     <div className="flex flex-wrap items-center gap-1.5 mt-1 text-[10px] text-muted-foreground">
                       <span>Variables:</span>
                       <code className="bg-muted px-1 rounded text-foreground">&#123;program_name&#125;</code>
                       <code className="bg-muted px-1 rounded text-foreground">&#123;cohort&#125;</code>
                       <code className="bg-muted px-1 rounded text-foreground">&#123;dates&#125;</code>
+                      <code className="bg-muted px-1 rounded text-foreground">&#123;dates_line&#125;</code>
                       <code className="bg-muted px-1 rounded text-foreground">&#123;location&#125;</code>
                     </div>
                   </div>

@@ -7,7 +7,6 @@ preview rendering for program-level custom certificate layouts.
 from __future__ import annotations
 
 import asyncio
-from html import escape
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, Response, UploadFile, status
@@ -28,6 +27,8 @@ from app.schemas.sessions.program_certificate_template import (
 from app.services import storage
 from app.services.documents.certificate import (
     _TEMPLATE_PATHS,
+    STUDENT_COMPLETION_FALLBACK_BODY,
+    expand_certificate_body_template,
     format_certificate_program_title,
     generate_completion_certificate_pdf,
 )
@@ -392,13 +393,19 @@ async def preview_certificate_template(
     cohort_name = body.cohort_name or "Cohort Title"
     dates = body.dates or "12 – 16 October 2026"
     location = body.location or "Muscat, Oman"
-    raw_template = body.body_text or "For successfully completing<br/>{program_name}<br/>{dates}"
-    body_text = (
-        raw_template.replace("{program_name}", escape(prog_name))
-        .replace("{cohort_name}", escape(cohort_name))
-        .replace("{cohort}", escape(cohort_name))
-        .replace("{dates}", escape(dates))
-        .replace("{location}", escape(location))
+    raw_template = body.body_text or STUDENT_COMPLETION_FALLBACK_BODY
+    # Fake-data preview: the canned range phrase mirrors the canned {dates}
+    # value ("12 – 16 October 2026"), with the fake venue appended exactly as
+    # the real expansion would.
+    when_line = "Held from 12 October 2026 to 16 October 2026"
+    if body.location:
+        when_line = f"{when_line} at {body.location}"
+    body_text = expand_certificate_body_template(
+        raw_template,
+        program_name=prog_name,
+        cohort_name=cohort_name,
+        dates=dates,
+        when_line=when_line,
     )
 
     # 1. Background bytes

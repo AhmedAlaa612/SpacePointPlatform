@@ -32,6 +32,7 @@ from app.models.spine.contact import Contact
 from app.models.user import User
 from app.models.lms.program import LmsProgramAssignment
 from app.services.documents.certificate import (
+    STUDENT_COMPLETION_FALLBACK_BODY, expand_certificate_body_template,
     format_certificate_program_title, generate_completion_certificate_pdf,
 )
 from app.services.email import try_send_email
@@ -220,15 +221,16 @@ async def _send_certificate_email(
     template = (await db.execute(
         select(DocumentTemplate).where(DocumentTemplate.key == "student_completion")
     )).scalars().first()
-    template_body = template.body_text if template else "For successfully completing<br/>{program_name}<br/>{dates}"
+    template_body = template.body_text if template else STUDENT_COMPLETION_FALLBACK_BODY
     cohort_title = cohort.name if cohort and cohort.name else ""
-    body_text = (
-        template_body
-        .replace("{program_name}", escape(program.name))
-        .replace("{cohort_name}", escape(cohort_title))
-        .replace("{cohort}", escape(cohort_title))
-        .replace("{dates}", escape(dates))
-        .replace("{location}", escape(location_name or ""))
+    body_text = expand_certificate_body_template(
+        template_body,
+        program_name=program.name,
+        cohort_name=cohort_title,
+        dates=dates,
+        starts_on=cohort.starts_on,
+        ends_on=cohort.ends_on,
+        location=location_name,
     )
     cert_bytes = await asyncio.to_thread(generate_completion_certificate_pdf, contact.full_name, body_text)
     filename = f"SpacePoint_Certificate_{program.name.replace(' ', '_')}.pdf"

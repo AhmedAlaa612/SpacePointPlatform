@@ -39,6 +39,7 @@ from app.models.document_template import DocumentTemplate
 from app.models.instructor_assessment.assignment import AssessmentCohortAssignment
 from app.models.sessions.delivery_role import DeliveryRole
 from app.services.documents.certificate import (
+    STUDENT_COMPLETION_FALLBACK_BODY, expand_certificate_body_template,
     format_certificate_program_title, generate_completion_certificate_pdf, merge_certificate_pdfs,
 )
 from app.services.games.realtime import get_realtime_redis_dep, safe_publish_to_run
@@ -1848,16 +1849,17 @@ async def download_cohort_certificates(
         select(DocumentTemplate).where(DocumentTemplate.key == "student_completion")
     )).scalars().first()
     location = await resolve_session_location_display(db, None, cohort)
-    template_body = layout["body_text_template"] or (template.body_text if template else "For successfully completing<br/>{program_name}<br/>{dates}")
+    template_body = layout["body_text_template"] or (template.body_text if template else STUDENT_COMPLETION_FALLBACK_BODY)
     program_name = program.name if program else ""
     cohort_title = cohort.name if cohort and cohort.name else ""
-    body_text = (
-        template_body
-        .replace("{program_name}", escape(program_name))
-        .replace("{cohort_name}", escape(cohort_title))
-        .replace("{cohort}", escape(cohort_title))
-        .replace("{dates}", escape(format_cohort_dates(cohort)))
-        .replace("{location}", escape(location["name"] or ""))
+    body_text = expand_certificate_body_template(
+        template_body,
+        program_name=program_name,
+        cohort_name=cohort_title,
+        dates=format_cohort_dates(cohort),
+        starts_on=cohort.starts_on,
+        ends_on=cohort.ends_on,
+        location=location["name"],
     )
 
     def _render(name: str, body: str) -> bytes:
