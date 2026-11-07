@@ -99,6 +99,7 @@ from app.services.lms import program as lms_program_svc
 from app.services.lms.program import PROGRAM_ITEM_PDF_BUCKET
 from app.services.notification import create_notification
 from app.services.inventory.cohort_kits import resolve_session_kits
+from app.services.missions.cohort_access import instructor_cohort_ids, is_cohort_lms_editor
 from app.services.sessions import day as day_service
 from app.services.sessions import delivery
 from app.services.sessions import materials as materials_service
@@ -370,6 +371,14 @@ async def get_cohort(
     if not is_ops:
         if "organization" in current_user.role_values and cohort.organization_id == current_user.organization_id:
             pass
+        elif await is_cohort_lms_editor(db, cohort_id=cohort_id, user=current_user):
+            pass
+        elif current_user.role == "instructor":
+            cohort_ids = await instructor_cohort_ids(db, user=current_user)
+            if cohort_ids and cohort_id in cohort_ids:
+                pass
+            else:
+                raise HTTPException(status.HTTP_403_FORBIDDEN, detail="Forbidden")
         else:
             raise HTTPException(status.HTTP_403_FORBIDDEN, detail="Forbidden")
 
@@ -386,28 +395,22 @@ async def update_cohort(
     cohort_id: uuid.UUID,
     body: CohortUpdate,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_operations),
+    current_user: User = Depends(get_current_active_user),
     arq_redis: ArqRedis | None = Depends(get_arq_redis),
 ):
-    """Covers open/close registration too — just set `status` (planned|
-    registration_open|running|cancelled). A planned->registration_open
-    transition also notifies everyone who registered interest (2026-08-07,
-    cohort_interest) — the "we said we'd tell you" half of the Notify-me /
-    Register-now pair.
-
-    `completed` is deliberately NOT settable here (2026-08-31). This endpoint
-    only ever wrote the column, so picking "Completed" from the ops status
-    dropdown produced a cohort that looked finished while its registrations
-    were unsettled, its certificates unissued and its sessions still
-    Scheduled — a silent second door next to POST /cohorts/{id}/complete,
-    which does all of that. Only a transition *into* completed is refused:
-    the cohort edit modal always sends `status`, so editing an
-    already-completed cohort must still work."""
     cohort = await db.get(Cohort, cohort_id)
     if cohort is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Cohort not found")
 
     changes = body.model_dump(exclude_unset=True)
+    is_ops = bool({"operations", "admin", "coo"} & set(current_user.role_values))
+    if not is_ops:
+        is_editor = await is_cohort_lms_editor(db, cohort_id=cohort_id, user=current_user)
+        allowed_editor_fields = {"checklist_title_override", "keep_course_access_after_completion"}
+        if is_editor and set(changes.keys()).issubset(allowed_editor_fields):
+            pass
+        else:
+            raise HTTPException(status.HTTP_403_FORBIDDEN, detail="Forbidden")
     if changes.get("status") == "completed" and cohort.status != "completed":
         raise HTTPException(
             status.HTTP_409_CONFLICT,

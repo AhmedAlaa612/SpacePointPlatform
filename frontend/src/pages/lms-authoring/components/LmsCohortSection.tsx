@@ -84,7 +84,7 @@ export function LmsCohortSection({ cohortId, cohortName }: { cohortId: string; c
 
       {subtab === "checklist" && <CohortOverrideEditor cohortId={cohortId} isStaff={isStaff} readOnly={!canEdit} />}
       {subtab === "missions" && <CohortMissionsPanel cohortId={cohortId} isStaff={canEdit} />}
-      {subtab === "components" && <LmsComponentConfigPanel ownerType="cohort" ownerId={cohortId} isStaff={canEdit} />}
+      {subtab === "components" && <LmsComponentConfigPanel ownerType="cohort" ownerId={cohortId} isStaff={isStaff} />}
       {subtab === "hints" && (
         <LmsHintStationAuthoring programId="" scope={{ cohortId, cohortName }} />
       )}

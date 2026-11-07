@@ -91,6 +91,7 @@ export function LmsComponentConfigPanel({
       ownerType === "cohort"
         ? listAdminCustomComponents({ cohort_id: ownerId })
         : listAdminCustomComponents(),
+    enabled: isStaff,
   })
 
   const filteredCustoms = useMemo(() => {

@@ -38,6 +38,8 @@ from app.models.lms.course import Course as CourseModel
 from app.models.lms.program import LmsProgramAssignment
 from app.models.sessions.registration import Registration
 from app.models.spine.contact import Contact
+from app.services.missions.cohort_access import is_cohort_lms_editor
+from app.services.missions.authorization import is_staff
 from app.models.spine.organization import Organization
 from app.models.user import User
 from app.models.team import Team, TeamMember
@@ -2297,7 +2299,7 @@ async def delete_program_item_pdf(
 
 @router.get("/items/{item_id}/pdf-url")
 async def get_program_item_pdf_url(
-    item_id: uuid.UUID, db: AsyncSession = Depends(get_db), _: User = Depends(require_lms_content),
+    item_id: uuid.UUID, db: AsyncSession = Depends(get_db), _: User = Depends(get_current_active_user),
 ) -> dict[str, str]:
     """Authoring-side preview — same resolve-fresh posture as the student
     endpoint (routers/lms/student.py::program_item_pdf_url)."""
@@ -2381,7 +2383,7 @@ async def delete_program_item_guideline_video(
 
 @router.get("/items/{item_id}/guideline/video/url")
 async def get_program_item_guideline_video_url(
-    item_id: uuid.UUID, db: AsyncSession = Depends(get_db), _: User = Depends(require_lms_content),
+    item_id: uuid.UUID, db: AsyncSession = Depends(get_db), _: User = Depends(get_current_active_user),
 ):
     """Authoring-side preview for an *uploaded* video guideline — same
     resolve-fresh posture as pdf-url above. Not needed for an embed-link
@@ -2418,13 +2420,14 @@ async def reorder_lms_program_items(
 
 @router.get("/cohorts/{cohort_id}/program-override", response_model=LmsProgramCohortEffectiveOut)
 async def get_cohort_program_override(
-    cohort_id: uuid.UUID, db: AsyncSession = Depends(get_db), _: User = Depends(require_lms_content),
+    cohort_id: uuid.UUID, db: AsyncSession = Depends(get_db), current: User = Depends(get_current_active_user),
 ):
     """Always 200s with *something* to edit — the cohort's own override
     once it has real items, else its program's checklist shown as the
     editable starting point (`is_inherited`). Only 404s when there's
     nothing at all to fork from (cohort missing, or its program has no
     checklist)."""
+    await _enforce_cohort_lms_access(db, cohort_id, current)
     resolved = await effective_cohort_program_items(db, cohort_id)
     if resolved is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="This cohort's program has no LMS checklist yet")
@@ -2576,20 +2579,21 @@ async def revoke_cohort_lms_editor(
 @router.patch("/cohorts/{cohort_id}/poster-template", response_model=LmsProgramCohortEffectiveOut)
 async def update_cohort_poster_template(
     cohort_id: uuid.UUID, body: CohortPosterTemplateIn,
-    db: AsyncSession = Depends(get_db), current: User = Depends(require_lms_content),
+    db: AsyncSession = Depends(get_db), current: User = Depends(get_current_active_user),
 ):
     """Ops endpoint to override or clear the cohort-level poster template."""
     cohort = await db.get(Cohort, cohort_id)
     if cohort is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Cohort not found")
+    await _enforce_cohort_lms_access(db, cohort_id, current)
     cohort.poster_template_url = body.poster_template_url
     await db.commit()
-    return await get_cohort_program_override(cohort_id, db=db, _=current)
+    return await get_cohort_program_override(cohort_id, db=db, current=current)
 
 
 @router.post("/cohorts/{cohort_id}/program-override/resync")
 async def resync_cohort_program_assignments(
-    cohort_id: uuid.UUID, db: AsyncSession = Depends(get_db), _: User = Depends(require_lms_content),
+    cohort_id: uuid.UUID, db: AsyncSession = Depends(get_db), current: User = Depends(get_current_active_user),
 ):
     """One-off catch-up for a cohort whose checklist was edited before
     2026-08-27, or whose checklist didn't exist yet when a team advanced
@@ -2599,6 +2603,7 @@ async def resync_cohort_program_assignments(
     any time; a cohort with nothing missing just reports 0."""
     if await db.get(Cohort, cohort_id) is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Cohort not found")
+    await _enforce_cohort_lms_access(db, cohort_id, current)
     added = await sync_cohort_assignments(db, cohort_id=cohort_id)
     await db.commit()
     return {"items_added": added}
@@ -3112,15 +3117,23 @@ async def reset_lms_program_components(
     return await component_config_service.build_component_config_out(db, owner_type="program", owner_id=lms_program_id)
 
 
+async def _enforce_cohort_lms_access(db: AsyncSession, cohort_id: uuid.UUID, user: User) -> None:
+    if is_staff(user):
+        return
+    if not await is_cohort_lms_editor(db, cohort_id=cohort_id, user=user):
+        raise HTTPException(status.HTTP_403_FORBIDDEN, detail="Forbidden")
+
+
 @router.get("/cohorts/{cohort_id}/components", response_model=ComponentConfigOut)
 async def get_cohort_components(
     cohort_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(require_lms_content),
+    current: User = Depends(get_current_active_user),
 ):
     cohort = await db.get(Cohort, cohort_id)
     if cohort is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Cohort not found")
+    await _enforce_cohort_lms_access(db, cohort_id, current)
     return await component_config_service.build_component_config_out(db, owner_type="cohort", owner_id=cohort_id)
 
 
@@ -3129,11 +3142,12 @@ async def update_cohort_components(
     cohort_id: uuid.UUID,
     body: ComponentConfigIn,
     db: AsyncSession = Depends(get_db),
-    current: User = Depends(require_lms_content),
+    current: User = Depends(get_current_active_user),
 ):
     cohort = await db.get(Cohort, cohort_id)
     if cohort is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Cohort not found")
+    await _enforce_cohort_lms_access(db, cohort_id, current)
     await component_config_service.save_component_config(
         db,
         owner_type="cohort",
@@ -3151,11 +3165,12 @@ async def update_cohort_components(
 async def reset_cohort_components(
     cohort_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(require_lms_content),
+    current: User = Depends(get_current_active_user),
 ):
     cohort = await db.get(Cohort, cohort_id)
     if cohort is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Cohort not found")
+    await _enforce_cohort_lms_access(db, cohort_id, current)
     await component_config_service.reset_component_config(db, owner_type="cohort", owner_id=cohort_id)
     await db.commit()
     return await component_config_service.build_component_config_out(db, owner_type="cohort", owner_id=cohort_id)
@@ -3167,7 +3182,7 @@ async def cohort_quiz_analysis(
     include_observers: bool = False,
     mode: str = Query("student"),
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(require_lms_content),
+    current: User = Depends(get_current_active_user),
 ):
     """Live topic strength and weakness analysis across all submitted quizzes for a cohort.
 
@@ -3176,6 +3191,7 @@ async def cohort_quiz_analysis(
     cohort = await db.get(Cohort, cohort_id)
     if cohort is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Cohort not found")
+    await _enforce_cohort_lms_access(db, cohort_id, current)
     effective_mode = "all" if include_observers else mode
     return await cohort_quiz_service.get_cohort_quiz_analysis(
         db, cohort_id=cohort_id, mode=effective_mode,
