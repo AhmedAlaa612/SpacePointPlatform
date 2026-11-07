@@ -611,6 +611,8 @@ class CompetitionAdvanceTeamsIn(BaseModel):
     # a promoted member may still never have set a password, so this isn't
     # covered by the (always-sent) congrats email alone.
     send_welcome_email: bool = True
+    # Attach University Excuse & Formal Invitation Letter PDF to congrats email
+    attach_excuse_letter: bool = False
 
 
 class CompetitionAdvanceResultOut(BaseModel):

@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { Link, useParams } from "@tanstack/react-router"
-import { ArrowLeft, ArrowUpRight, Award, Clock, Copy, Download, Eye, Mail, MessageSquare, Plus, Printer, RefreshCw, Search, Trash2, Trophy, Upload, UserPlus, UserMinus, Pencil, X, Check, RotateCcw } from "lucide-react"
+import { ArrowLeft, ArrowUpRight, Award, Clock, Copy, Download, Eye, FileText, Mail, MessageSquare, Plus, Printer, RefreshCw, Search, Trash2, Trophy, Upload, UserPlus, UserMinus, Pencil, X, Check, RotateCcw } from "lucide-react"
 import { getCohortApi, getCohortsApi } from "@/api/sessions/cohorts"
 import type { Cohort, ProgramCertificateTemplate } from "@/types/sessions"
 import { searchStaffApi, listInviteCodesApi, type StaffOption } from "@/api/lms_admin"
@@ -17,7 +17,7 @@ import { listProgramCertificateTemplatesApi } from "@/api/sessions/programCertif
 import {
   advanceCohortTeamsApi, createCohortTeamApi, deleteTeamApi, downloadCohortResultsWorkbookApi,
   downloadCohortDetailedResultsWorkbookApi, downloadCohortTeamsWorkbookApi, registerUsersToCohortApi,
-  downloadCompetitionCertificatesApi,
+  downloadCompetitionCertificatesApi, downloadTeamExcuseLetterApi,
   downloadCompetitionRosterTemplateApi,
   getCohortExportTop20Api,
   confirmCohortRegistrationImportApi,
@@ -2150,6 +2150,7 @@ function ResultsTab({
   const [toCohortId, setToCohortId] = useState("")
   const [sendTicketOnAdvance, setSendTicketOnAdvance] = useState(true)
   const [sendWelcomeOnAdvance, setSendWelcomeOnAdvance] = useState(true)
+  const [attachExcuseOnAdvance, setAttachExcuseOnAdvance] = useState(false)
   const [exporting, setExporting] = useState(false)
   const [exportingDetailed, setExportingDetailed] = useState(false)
   const [downloadingCertificates, setDownloadingCertificates] = useState(false)
@@ -2229,6 +2230,7 @@ function ResultsTab({
     mutationFn: () => advanceCohortTeamsApi(cohortId, {
       team_ids: [...selected], to_cohort_id: toCohortId,
       send_ticket_email: sendTicketOnAdvance, send_welcome_email: sendWelcomeOnAdvance,
+      attach_excuse_letter: attachExcuseOnAdvance,
     }),
     onSuccess: (results) => {
       const targetName = advanceTargets.find((c) => c.id === toCohortId)?.name ?? "the next stage"
@@ -2236,9 +2238,28 @@ function ResultsTab({
       setSelected(new Set())
       setSendTicketOnAdvance(true)
       setSendWelcomeOnAdvance(true)
+      setAttachExcuseOnAdvance(false)
     },
     onError: (e: any) => toast.error(getErrorMessage(e, "Failed to advance teams")),
   })
+
+  const handleDownloadExcuseLetter = async (teamId: string, teamName: string) => {
+    try {
+      const blob = await downloadTeamExcuseLetterApi(cohortId, teamId)
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement("a")
+      a.href = url
+      const cleanName = teamName.replace(/[^a-zA-Z0-9_-]/g, "_")
+      a.download = `${cleanName}_University_Excuse_Letter.pdf`
+      document.body.appendChild(a)
+      a.click()
+      document.body.removeChild(a)
+      URL.revokeObjectURL(url)
+      toast.success(`Downloaded excuse letter for ${teamName}`)
+    } catch (err) {
+      toast.error(getErrorMessage(err, "Failed to download excuse letter"))
+    }
+  }
 
   const [windowsModalOpen, setWindowsModalOpen] = useState(false)
   const [breakdownTeamId, setBreakdownTeamId] = useState<string | null>(null)
@@ -2503,6 +2524,13 @@ function ResultsTab({
             />
             Send Ticket
           </label>
+          <label className="flex items-center gap-2 text-sm text-foreground cursor-pointer select-none">
+            <input
+              type="checkbox" checked={attachExcuseOnAdvance}
+              onChange={(e) => setAttachExcuseOnAdvance(e.target.checked)}
+            />
+            Attach Excuse Letter
+          </label>
           <button
             onClick={() => advanceMutation.mutate()}
             disabled={advanceMutation.isPending || selected.size === 0 || !toCohortId}
@@ -2526,6 +2554,7 @@ function ResultsTab({
         onEditTiming={(team) => setOverrideTeam(team)}
         hasOperationsCriteria={(rubric?.criteria ?? []).some((c) => (c.scored_by ?? "judge") === "operations")}
         onGradeOperations={(team) => setGradingTeam(team)}
+        onDownloadExcuseLetter={handleDownloadExcuseLetter}
         mode={mode}
       />
 
@@ -2585,6 +2614,7 @@ function LeaderboardTable({
   onEditTiming?: (team: CompetitionLeaderboardRow) => void
   hasOperationsCriteria?: boolean
   onGradeOperations?: (team: CompetitionLeaderboardRow) => void
+  onDownloadExcuseLetter?: (teamId: string, teamName: string) => void
   mode?: "participant" | "observer" | "all"
 }) {
   if (rows.length === 0) {
@@ -2769,17 +2799,28 @@ function LeaderboardTable({
                   </div>
                 )}
               </td>
-              {/* Inspection button */}
+              {/* Inspection & Letter buttons */}
               <td className="py-2 pr-3 text-right align-top">
-                <button
-                  type="button"
-                  onClick={() => onInspectTeam?.(r.team_id)}
-                  title="Inspect criteria breakdown and judge comments"
-                  className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-medium border border-border text-muted-foreground hover:text-foreground hover:bg-muted transition-colors cursor-pointer"
-                >
-                  <Eye size={12} className="text-primary" />
-                  <span>Breakdown</span>
-                </button>
+                <div className="flex items-center justify-end gap-1.5 flex-wrap">
+                  <button
+                    type="button"
+                    onClick={() => onDownloadExcuseLetter?.(r.team_id, r.team_name)}
+                    title="Download official University Excuse & Invitation Letter PDF"
+                    className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-medium border border-border text-muted-foreground hover:text-foreground hover:bg-muted transition-colors cursor-pointer"
+                  >
+                    <FileText size={12} className="text-emerald-500" />
+                    <span>Excuse Letter</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => onInspectTeam?.(r.team_id)}
+                    title="Inspect criteria breakdown and judge comments"
+                    className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-medium border border-border text-muted-foreground hover:text-foreground hover:bg-muted transition-colors cursor-pointer"
+                  >
+                    <Eye size={12} className="text-primary" />
+                    <span>Breakdown</span>
+                  </button>
+                </div>
               </td>
             </tr>
           ))}

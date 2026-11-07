@@ -627,6 +627,7 @@ async def post_cohort_advance_teams(
     results = await progression_service.advance_teams(
         db, team_ids=body.team_ids, from_cohort_id=cohort_id, to_cohort_id=body.to_cohort_id,
         send_welcome_email=body.send_welcome_email,
+        attach_excuse_letter=body.attach_excuse_letter,
     )
     await db.commit()
     # Same "only genuinely new registrations get a ticket job" rule the bulk
@@ -640,6 +641,33 @@ async def post_cohort_advance_teams(
         CompetitionAdvanceResultOut(**{k: v for k, v in r.items() if k != "new_registration_ids"})
         for r in progression_service.results_as_dicts(results)
     ]
+
+
+@router.get("/cohorts/{cohort_id}/teams/{team_id}/excuse-letter")
+async def get_team_excuse_letter(
+    cohort_id: uuid.UUID,
+    team_id: uuid.UUID,
+    student_user_id: uuid.UUID | None = None,
+    db: AsyncSession = Depends(get_db),
+):
+    """Download official University Excuse & Formal Invitation Letter PDF for a team or single student."""
+    cohort = await _get_cohort_or_404(db, cohort_id)
+    team = await db.get(Team, team_id)
+    if team is None or team.cohort_id != cohort_id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Team not found in this cohort")
+
+    pdf_bytes = await progression_service.build_team_excuse_letter_pdf(
+        db, team=team, target_cohort=cohort, single_user_id=student_user_id,
+    )
+    clean_name = "".join(c for c in team.name if c.isalnum() or c in (" ", "-", "_")).strip()
+    suffix = f"_{student_user_id}" if student_user_id else ""
+    filename = f"{clean_name}{suffix}_University_Excuse_Letter.pdf"
+
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
 
 
 # ── Leaderboard, publish, export ────────────────────────────────────────

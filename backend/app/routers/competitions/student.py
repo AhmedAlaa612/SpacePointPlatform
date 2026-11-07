@@ -4,8 +4,11 @@ and qualification status once results are published. Strictly preserves
 judge blindness and peer anonymity.
 """
 import uuid
+from typing import Literal
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi.responses import Response
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.dependencies import get_current_active_user
@@ -94,4 +97,44 @@ async def get_cohort_timing_window(
         "deadline_cutoff_at": deadline_window.get("cutoff_at") if deadline_window else None,
         "checkpoints": checkpoints_map,
     }
+
+
+@router.get("/cohorts/{cohort_id}/my-excuse-letter")
+async def get_my_cohort_excuse_letter(
+    cohort_id: uuid.UUID,
+    mode: Literal["team", "individual"] = "team",
+    db: AsyncSession = Depends(get_db),
+    current: User = Depends(get_current_active_user),
+):
+    """Download official University Excuse Letter for the authenticated student's team."""
+    from app.models.sessions.cohort import Cohort
+    from app.models.team import Team, TeamMember
+    from app.services.competitions import progression as progression_service
+
+    cohort = await db.get(Cohort, cohort_id)
+    if cohort is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Cohort not found")
+
+    team = (await db.execute(
+        select(Team).join(TeamMember, TeamMember.team_id == Team.id).where(
+            Team.cohort_id == cohort_id, TeamMember.user_id == current.id,
+        )
+    )).scalars().first()
+
+    if team is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="You are not part of any team in this cohort")
+
+    single_uid = current.id if mode == "individual" else None
+    pdf_bytes = await progression_service.build_team_excuse_letter_pdf(
+        db, team=team, target_cohort=cohort, single_user_id=single_uid,
+    )
+    clean_name = "".join(c for c in team.name if c.isalnum() or c in (" ", "-", "_")).strip()
+    suffix = f"_{current.full_name}" if single_uid else ""
+    filename = f"{clean_name}{suffix}_University_Excuse_Letter.pdf"
+
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
 

@@ -632,9 +632,38 @@ export const registerUsersToCohortApi = (
 
 export const advanceCohortTeamsApi = (
   cohortId: string,
-  data: { team_ids: string[]; to_cohort_id: string; send_ticket_email?: boolean; send_welcome_email?: boolean },
+  data: {
+    team_ids: string[]
+    to_cohort_id: string
+    send_ticket_email?: boolean
+    send_welcome_email?: boolean
+    attach_excuse_letter?: boolean
+  },
 ) =>
   api.post<CompetitionAdvanceResult[]>(`/competitions/admin/cohorts/${cohortId}/advance-teams`, data).then((r) => r.data)
+
+export const downloadTeamExcuseLetterApi = (
+  cohortId: string,
+  teamId: string,
+  studentUserId?: string,
+): Promise<Blob> =>
+  api
+    .get(`/competitions/admin/cohorts/${cohortId}/teams/${teamId}/excuse-letter`, {
+      params: studentUserId ? { student_user_id: studentUserId } : undefined,
+      responseType: "blob",
+    })
+    .then((r) => r.data)
+
+export const downloadMyExcuseLetterApi = (
+  cohortId: string,
+  mode: "team" | "individual" = "team",
+): Promise<Blob> =>
+  api
+    .get(`/competitions/student/cohorts/${cohortId}/my-excuse-letter`, {
+      params: { mode },
+      responseType: "blob",
+    })
+    .then((r) => r.data)
 
 // ── Teams (manual management) ───────────────────────────────────────────
 

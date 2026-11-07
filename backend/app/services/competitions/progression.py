@@ -49,22 +49,97 @@ class TeamAdvanceResult:
     new_registration_ids: list[uuid.UUID]
 
 
-async def _congrats_email(user: User, *, team_name: str, to_cohort_name: str) -> None:
+async def _congrats_email(
+    user: User, *, team_name: str, to_cohort_name: str,
+    attachments: list[tuple[str, bytes, str]] | None = None,
+) -> None:
+    body = (
+        f"<p>Hi {user.full_name},</p>"
+        f"<p>Congratulations — <b>{team_name}</b> has advanced to <b>{to_cohort_name}</b>! "
+        "Log in to see what's next on your checklist.</p>"
+    )
+    if attachments:
+        body += "<p>Your official University Excuse & Formal Invitation Letter is attached to this email.</p>"
+    body += "<p>— SpacePoint</p>"
     await try_send_email(
         user.email, CONGRATS_SUBJECT,
-        (
-            f"<p>Hi {user.full_name},</p>"
-            f"<p>Congratulations — <b>{team_name}</b> has advanced to <b>{to_cohort_name}</b>! "
-            "Log in to see what's next on your checklist.</p>"
-            "<p>— SpacePoint</p>"
-        ),
+        body,
         html=True,
+        attachments=attachments,
+    )
+
+
+async def build_team_excuse_letter_pdf(
+    db: AsyncSession,
+    *,
+    team: Team,
+    target_cohort: Cohort,
+    single_user_id: uuid.UUID | None = None,
+) -> bytes:
+    from app.models.spine.contact import Contact
+    from app.models.spine.organization import Organization
+    from app.services.documents.excuse_letter import generate_excuse_letter_pdf
+
+    member_ids = await team_member_ids(db, team_id=team.id)
+    members_data = []
+    institution_name = None
+    single_student_data = None
+
+    for uid in member_ids:
+        user = await db.get(User, uid)
+        if user is None:
+            continue
+        contact = await db.get(Contact, user.contact_id) if user.contact_id else None
+
+        sid = user.student_id or (contact.student_id if contact else None)
+        if not sid and user.card_number:
+            sid = f"SP-ST-{user.card_number:04d}-UAE"
+
+        if contact and contact.organization_id and not institution_name:
+            org = await db.get(Organization, contact.organization_id)
+            if org:
+                institution_name = org.name
+
+        m_dict = {
+            "name": user.full_name,
+            "student_id": sid or "—",
+        }
+        members_data.append(m_dict)
+        if single_user_id and user.id == single_user_id:
+            single_student_data = m_dict
+
+    if target_cohort.starts_on and target_cohort.ends_on:
+        days = (target_cohort.ends_on - target_cohort.starts_on).days + 1
+        dates_text = f"{target_cohort.starts_on.strftime('%d %B %Y')} – {target_cohort.ends_on.strftime('%d %B %Y')} (all {days} days)"
+    elif target_cohort.starts_on:
+        dates_text = target_cohort.starts_on.strftime('%d %B %Y')
+    else:
+        dates_text = "Competition On-site Showcase Period"
+
+    location_text = target_cohort.location or "Dubai, United Arab Emirates"
+    if target_cohort.location_id:
+        from app.models.inventory.location import Location
+        loc_obj = await db.get(Location, target_cohort.location_id)
+        if loc_obj:
+            location_text = f"{loc_obj.name}, {location_text}" if target_cohort.location else loc_obj.name
+
+    event_name = target_cohort.name
+
+    return generate_excuse_letter_pdf(
+        team_name=team.name,
+        institution_name=institution_name,
+        members=members_data,
+        event_name=event_name,
+        dates_text=dates_text,
+        location_text=location_text,
+        single_student=single_student_data,
     )
 
 
 async def advance_teams(
     db: AsyncSession, *, team_ids: list[uuid.UUID], from_cohort_id: uuid.UUID, to_cohort_id: uuid.UUID,
     send_welcome_email: bool = True,
+    attach_excuse_letter: bool = False,
 ) -> list[TeamAdvanceResult]:
     """Idempotent per team: re-running with a team that's already advanced
     just re-resolves its existing target-cohort Team/Registrations rather
@@ -95,6 +170,17 @@ async def advance_teams(
         member_ids = await team_member_ids(db, team_id=team.id)
         advanced = 0
         new_registration_ids: list[uuid.UUID] = []
+
+        excuse_attachments = None
+        if attach_excuse_letter:
+            try:
+                letter_bytes = await build_team_excuse_letter_pdf(db, team=team, target_cohort=to_cohort)
+                clean_tname = "".join(c for c in team.name if c.isalnum() or c in (" ", "-", "_")).strip()
+                excuse_attachments = [(f"{clean_tname}_University_Excuse_Letter.pdf", letter_bytes, "pdf")]
+            except Exception as exc:
+                import logging
+                logging.getLogger(__name__).warning("Could not build excuse letter for team %s: %s", team.name, exc)
+
         for user_id in member_ids:
             user = await db.get(User, user_id)
             if user is None:
@@ -128,7 +214,9 @@ async def advance_teams(
             elif user.id not in await team_member_ids(db, team_id=to_team.id):
                 await join_team(db, team_id=to_team.id, user_id=user.id)
 
-            await _congrats_email(user, team_name=team.name, to_cohort_name=to_cohort.name)
+            await _congrats_email(
+                user, team_name=team.name, to_cohort_name=to_cohort.name, attachments=excuse_attachments,
+            )
             advanced += 1
 
         if to_team is None:
