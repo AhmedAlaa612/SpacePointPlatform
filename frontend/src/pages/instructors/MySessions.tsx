@@ -146,6 +146,15 @@ function SessionCard({
               Submit excuse
             </button>
           )}
+          {s.cohort_id && (
+            <Link
+              to="/lms-authoring/curriculum"
+              search={{ cohortId: s.cohort_id, tab: "checklist" } as never}
+              className="text-xs font-semibold text-muted-foreground hover:text-foreground hover:underline flex items-center gap-1"
+            >
+              LMS Workspace
+            </Link>
+          )}
           <Link
             to="/instructors/sessions/$sessionId"
             params={{ sessionId: s.session_id }}

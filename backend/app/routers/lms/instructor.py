@@ -32,8 +32,8 @@ from app.models.sessions.registration import Registration
 from app.models.user import User
 from app.routers.lms.admin import enrollment_admin_out, program_out
 from app.schemas.lms_admin import (
-    EnrollmentAdminOut, LmsProgramCohortEffectiveOut, LmsProgramItemIn, LmsProgramItemOut, LmsProgramOut,
-    StudentProfileOut, StudentProgramOut,
+    EnrollmentAdminOut, LmsProgramCohortEffectiveOut, LmsProgramItemIn, LmsProgramItemOut, LmsProgramItemReorderIn,
+    LmsProgramOut, StudentProfileOut, StudentProgramOut,
 )
 from app.schemas.lms_cohort_quiz import CohortQuizResultOut, CohortQuizTopicBreakdownOut
 from app.schemas.lms_instructor import (
@@ -51,7 +51,7 @@ from app.services.lms.program import (
     effective_cohort_program_items, fork_cohort_override, guard_locked_submission_scope, item_out, items_out,
     next_position, program_roster, renumber_program_items, sync_cohort_assignments, validate_item_payload, validate_item_refs,
 )
-from app.services.missions.cohort_access import instructor_cohort_ids, require_cohort_access
+from app.services.missions.cohort_access import instructor_cohort_ids, is_cohort_lms_editor, require_cohort_access
 from app.services.sessions.registration import ACTIVE_REGISTRATION_STATUSES
 
 router = APIRouter(prefix="/lms/instructor", tags=["lms-instructor"], dependencies=[Depends(require_instructor_missions)])
@@ -254,6 +254,7 @@ async def cohort_program_override(
         if sp2 and sp2.poster_template_url:
             inherited_poster_url = sp2.poster_template_url
 
+    can_edit = await is_cohort_lms_editor(db, cohort_id=cohort_id, user=current)
     return LmsProgramCohortEffectiveOut(
         cohort_id=cohort_id,
         lms_program_id=program.id,
@@ -261,12 +262,15 @@ async def cohort_program_override(
         items=await items_out(db, items),
         poster_template_url=cohort_poster_url,
         inherited_poster_template_url=inherited_poster_url,
+        can_edit=can_edit,
     )
 
 
-async def _enforce_instructor_item_scope(db: AsyncSession, *, current: User, item_type: str) -> None:
+async def _enforce_instructor_item_scope(db: AsyncSession, *, current: User, cohort_id: uuid.UUID, item_type: str) -> None:
     """A plain instructor may only touch `mission_run` items on their
-    cohort's override — every other checklist item type stays ops-only."""
+    cohort's override UNLESS granted LMS editor access for this cohort."""
+    if await is_cohort_lms_editor(db, cohort_id=cohort_id, user=current):
+        return
     restricted = await instructor_cohort_ids(db, user=current)
     if restricted is not None and item_type != "mission_run":
         raise HTTPException(
@@ -283,7 +287,7 @@ async def add_cohort_override_item(
     db: AsyncSession = Depends(get_db), current: User = Depends(get_current_active_user),
 ):
     await require_cohort_access(db, cohort_id=cohort_id, user=current)
-    await _enforce_instructor_item_scope(db, current=current, item_type=body.item_type)
+    await _enforce_instructor_item_scope(db, current=current, cohort_id=cohort_id, item_type=body.item_type)
     forked = await fork_cohort_override(db, cohort_id=cohort_id)
     if forked is None:
         raise HTTPException(
@@ -317,7 +321,7 @@ async def update_cohort_override_item(
     it to the override's own freshly-copied item on exactly the call that
     triggers the fork, same as the ops-side endpoint."""
     await require_cohort_access(db, cohort_id=cohort_id, user=current)
-    await _enforce_instructor_item_scope(db, current=current, item_type=body.item_type)
+    await _enforce_instructor_item_scope(db, current=current, cohort_id=cohort_id, item_type=body.item_type)
     forked = await fork_cohort_override(db, cohort_id=cohort_id)
     if forked is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="This cohort has no checklist to override")
@@ -331,7 +335,7 @@ async def update_cohort_override_item(
     )).scalars().first()
     if item is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Item not found")
-    await _enforce_instructor_item_scope(db, current=current, item_type=item.item_type)
+    await _enforce_instructor_item_scope(db, current=current, cohort_id=cohort_id, item_type=item.item_type)
     guard_locked_submission_scope(item, body)
     validate_item_payload(body)
     await validate_item_refs(db, body, require_active_quiz=False)
@@ -364,11 +368,37 @@ async def delete_cohort_override_item(
     )).scalars().first()
     if item is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Item not found")
-    await _enforce_instructor_item_scope(db, current=current, item_type=item.item_type)
+    await _enforce_instructor_item_scope(db, current=current, cohort_id=cohort_id, item_type=item.item_type)
     await db.delete(item)
     await db.flush()
     await renumber_program_items(db, owner_type="cohort_override", owner_id=override.id)
     await db.commit()
+
+
+@router.post("/cohorts/{cohort_id}/program-override/items/reorder", response_model=list[LmsProgramItemOut])
+async def reorder_cohort_override_items_instructor(
+    cohort_id: uuid.UUID, body: LmsProgramItemReorderIn,
+    db: AsyncSession = Depends(get_db), current: User = Depends(get_current_active_user),
+):
+    await require_cohort_access(db, cohort_id=cohort_id, user=current)
+    if not await is_cohort_lms_editor(db, cohort_id=cohort_id, user=current):
+        raise HTTPException(
+            status.HTTP_403_FORBIDDEN,
+            detail="Only ops or instructors with LMS edit access can reorder checklist items.",
+        )
+    forked = await fork_cohort_override(db, cohort_id=cohort_id)
+    if forked is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="This cohort has no checklist to override")
+    override, id_map = forked
+    resolved_ids = [id_map.get(i, i) for i in body.item_ids]
+    reordered = await reorder_program_items(db, owner_type="cohort_override", owner_id=override.id, item_ids=resolved_ids)
+    if reordered is None:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST, detail="item_ids must include every item on this checklist exactly once",
+        )
+    await db.commit()
+    return await items_out(db, reordered)
+
 
 
 # ── student profile (2026-08-22, Programs/Cohort Missions merge) ────────────

@@ -24,6 +24,7 @@ from fastapi import HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.models.lms.program import CohortLmsEditor
 from app.models.sessions.session import Session, SessionInstructor
 from app.models.user import User
 from app.services.missions.authorization import is_staff
@@ -32,16 +33,33 @@ from app.services.missions.authorization import is_staff
 async def instructor_cohort_ids(db: AsyncSession, *, user: User) -> set[uuid.UUID] | None:
     """`None` means no restriction (staff — operations/facilitator/admin).
     Otherwise the set of cohort_ids this instructor is assigned to via
-    `SessionInstructor`, derived from `Session.cohort_id` — may be empty."""
+    `SessionInstructor` OR granted LMS edit access via `CohortLmsEditor`."""
     if is_staff(user):
         return None
-    rows = (await db.execute(
+    session_cohorts = (await db.execute(
         select(Session.cohort_id)
         .join(SessionInstructor, SessionInstructor.session_id == Session.id)
         .where(SessionInstructor.user_id == user.id)
         .distinct()
     )).scalars().all()
-    return set(rows)
+    editor_cohorts = (await db.execute(
+        select(CohortLmsEditor.cohort_id)
+        .where(CohortLmsEditor.user_id == user.id)
+        .distinct()
+    )).scalars().all()
+    return set(session_cohorts) | set(editor_cohorts)
+
+
+async def is_cohort_lms_editor(db: AsyncSession, *, cohort_id: uuid.UUID, user: User) -> bool:
+    """Return True if user is staff (admin, operations, facilitator) OR an explicitly
+    granted LMS editor on this specific cohort."""
+    if is_staff(user):
+        return True
+    row = (await db.execute(
+        select(CohortLmsEditor.id)
+        .where(CohortLmsEditor.cohort_id == cohort_id, CohortLmsEditor.user_id == user.id)
+    )).scalar_one_or_none()
+    return row is not None
 
 
 async def require_cohort_access(db: AsyncSession, *, cohort_id: uuid.UUID, user: User) -> None:

@@ -384,3 +384,21 @@ class LmsProgramTeamItemProgress(Base):
     # [name]" here instead of the individual table's implicit "you".
     updated_by_user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     updated_at = Column(DateTime(timezone=True), nullable=True)
+
+
+class CohortLmsEditor(Base):
+    """Instructors explicitly granted ops-level authoring access to edit a
+    cohort's LMS program content / checklist override (2026-11).
+    """
+
+    __tablename__ = "cohort_lms_editors"
+    __table_args__ = (
+        UniqueConstraint("cohort_id", "user_id", name="uq_cohort_lms_editors_cohort_user"),
+    )
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    cohort_id = Column(UUID(as_uuid=True), ForeignKey("cohorts.id", ondelete="CASCADE"), nullable=False, index=True)
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False)
+    created_by_user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+

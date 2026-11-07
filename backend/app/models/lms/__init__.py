@@ -42,7 +42,7 @@ from app.models.lms.invite_grant import InvitationCodeGrant, UserInvitationCode
 from app.models.lms.learning_path import LearningPath, LearningPathStep
 from app.models.lms.points import PointEvent
 from app.models.lms.program import (
-    LmsProgram, LmsProgramAssignment, LmsProgramCohortOverride, LmsProgramItem, LmsProgramItemProgress,
+    CohortLmsEditor, LmsProgram, LmsProgramAssignment, LmsProgramCohortOverride, LmsProgramItem, LmsProgramItemProgress,
     LmsProgramTeamItemProgress,
 )
 from app.models.lms.purchase import Purchase
@@ -68,6 +68,7 @@ __all__ = [
     "LearningPath",
     "LearningPathStep",
     "PointEvent",
+    "CohortLmsEditor",
     "LmsProgram",
     "LmsProgramCohortOverride",
     "LmsProgramItem",

@@ -424,7 +424,7 @@ function getNavItems(pathname: string, activeRole: Role | null): NavItem[] {
       mk("Personal Documents", "/instructors/personal-documents"),
       mk("Payments", "/instructors/payments"),
       mk("Learn", "/learn"),
-      mk("Students Progress", "/lms-authoring/curriculum"),
+      mk("LMS Curriculum", "/lms-authoring/curriculum"),
       mk("Instructor ID Card", "/instructors/id-card"),
       mk("My Kits & Items", "/instructors/my-holdings"),
     ];
@@ -492,7 +492,7 @@ function getNavItems(pathname: string, activeRole: Role | null): NavItem[] {
       mk("Personal Documents", "/instructors/personal-documents"),
       mk("Payments", "/instructors/payments"),
       mk("Learn", "/learn"),
-      mk("Students Progress", "/lms-authoring/curriculum"),
+      mk("LMS Curriculum", "/lms-authoring/curriculum"),
       mk("Instructor ID Card", "/instructors/id-card"),
       mk("My Kits & Items", "/instructors/my-holdings"),
     ];

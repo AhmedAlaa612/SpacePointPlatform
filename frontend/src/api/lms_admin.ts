@@ -609,7 +609,38 @@ export interface LmsProgramCohortEffective {
   poster_template_url?: string | null;
   inherited_poster_template_url?: string | null;
   items: LmsProgramItem[];
+  can_edit?: boolean;
 }
+
+export interface CohortLmsEditor {
+  id: string;
+  user_id: string;
+  full_name: string;
+  email: string;
+  photo_url: string | null;
+  created_at: string;
+}
+
+export interface CohortLmsEditorsResponse {
+  cohort_id: string;
+  editors: CohortLmsEditor[];
+  eligible_instructors: {
+    id: string;
+    full_name: string;
+    email?: string | null;
+    photo_url?: string | null;
+  }[];
+}
+
+export const getCohortLmsEditorsApi = (cohortId: string) =>
+  api.get<CohortLmsEditorsResponse>(`/lms/admin/cohorts/${cohortId}/editors`).then((r) => r.data);
+
+export const grantCohortLmsEditorApi = (cohortId: string, userId: string) =>
+  api.post<CohortLmsEditor>(`/lms/admin/cohorts/${cohortId}/editors`, { user_id: userId }).then((r) => r.data);
+
+export const revokeCohortLmsEditorApi = (cohortId: string, userId: string) =>
+  api.delete<void>(`/lms/admin/cohorts/${cohortId}/editors/${userId}`).then((r) => r.data);
+
 
 export const listLmsProgramsApi = (programId?: string) =>
   api.get<LmsProgram[]>("/lms/admin/programs", { params: programId ? { program_id: programId } : undefined }).then((r) => r.data);
@@ -700,6 +731,9 @@ export const updateCohortOverrideItemInstructorApi = (cohortId: string, itemId: 
   api.patch<LmsProgramItem>(`/lms/instructor/cohorts/${cohortId}/program-override/items/${itemId}`, data).then((r) => r.data);
 export const deleteCohortOverrideItemInstructorApi = (cohortId: string, itemId: string) =>
   api.delete<void>(`/lms/instructor/cohorts/${cohortId}/program-override/items/${itemId}`).then((r) => r.data);
+export const reorderCohortOverrideItemsInstructorApi = (cohortId: string, itemIds: string[]) =>
+  api.post<LmsProgramItem[]>(`/lms/instructor/cohorts/${cohortId}/program-override/items/reorder`, { item_ids: itemIds }).then((r) => r.data);
+
 
 // ── instructor progress (cohort-scoped roster + confirm) ────────────────────
 

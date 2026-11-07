@@ -1,13 +1,14 @@
 import { useEffect, useMemo, useState } from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useNavigate, useSearch } from "@tanstack/react-router"
-import { Eye } from "lucide-react"
+import { Eye, Shield } from "lucide-react"
 import { PageHeader, EmptyState, Spinner } from "@/components/ui/primitives"
 import { useAuth } from "@/context/AuthContext"
 import { getProgramsApi } from "@/api/sessions/programs"
 import { getCohortsApi } from "@/api/sessions/cohorts"
 import {
   listLmsProgramsApi, createLmsProgramApi, getLmsProgramApi, getMyReachableProgramsApi,
+  getCohortProgramOverrideInstructorApi, getCohortLmsEditorsApi,
   type LmsProgram,
 } from "@/api/lms_admin"
 import { myInstructorCohortsApi, type InstructorCohort } from "@/api/missionsInstructor"
@@ -18,6 +19,7 @@ import { CohortQuizAnalysisPanel } from "./components/CohortQuizAnalysisPanel"
 import { LmsComponentConfigPanel } from "./components/LmsComponentConfigPanel"
 import { LmsHintStationAuthoring } from "./components/LmsHintStationAuthoring"
 import { ObserverTeamModal } from "@/components/lms/ObserverTeamModal"
+import { CohortLmsEditorsModal } from "./components/CohortLmsEditorsModal"
 
 type Scope = "program" | { cohortId: string; cohortName: string }
 type SubTab = "checklist" | "missions" | "components" | "hints" | "progress" | "analysis"
@@ -207,6 +209,25 @@ function ProgramWorkspace({
   // Observer"): creates/reuses the caller's own mode='observer' assignment
   // for the viewed cohort, then lands on the real student board.
   const [showObserverModal, setShowObserverModal] = useState(false)
+  const [showEditorsModal, setShowEditorsModal] = useState(false)
+
+  const activeCohortId = typeof scope === "object" ? scope.cohortId : undefined
+
+  const { data: cohortOverride } = useQuery({
+    queryKey: ["lms-cohort-override-instructor", activeCohortId],
+    queryFn: () => getCohortProgramOverrideInstructorApi(activeCohortId!),
+    enabled: !isStaff && !!activeCohortId,
+  })
+
+  const { data: editorsData } = useQuery({
+    queryKey: ["cohort-lms-editors", activeCohortId],
+    queryFn: () => getCohortLmsEditorsApi(activeCohortId!),
+    enabled: isStaff && !!activeCohortId,
+  })
+
+  const canEdit = isStaff || Boolean(cohortOverride?.can_edit)
+  const editorCount = editorsData?.editors?.length ?? 0
+
 
   const refresh = async () => {
     if (isStaff && effective) {
@@ -275,15 +296,27 @@ function ProgramWorkspace({
             <span className="font-semibold text-sm text-foreground truncate">{scope.cohortName}</span>
             <span className="text-xs text-muted-foreground whitespace-nowrap">• Cohort LMS Workspace</span>
           </div>
-          <button
-            type="button"
-            onClick={() => setShowObserverModal(true)}
-            className="inline-flex items-center justify-center gap-1.5 h-8 px-3.5 rounded-lg border border-indigo-500/30 bg-indigo-500/10 text-xs font-semibold text-indigo-900 dark:text-indigo-200 hover:bg-indigo-500/20 transition-colors cursor-pointer self-start sm:self-auto shrink-0"
-            title="Open this cohort's student board as an observer to try every item yourself"
-          >
-            <Eye className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />
-            Try as Observer
-          </button>
+          <div className="flex items-center gap-2 shrink-0">
+            {isStaff && (
+              <button
+                type="button"
+                onClick={() => setShowEditorsModal(true)}
+                className="inline-flex items-center justify-center gap-1.5 h-8 px-3 rounded-lg border border-border bg-card text-xs font-semibold text-foreground hover:bg-muted transition-colors cursor-pointer"
+              >
+                <Shield className="w-3.5 h-3.5" />
+                Instructors {editorCount > 0 ? `(${editorCount})` : ""}
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={() => setShowObserverModal(true)}
+              className="inline-flex items-center justify-center gap-1.5 h-8 px-3.5 rounded-lg border border-indigo-500/30 bg-indigo-500/10 text-xs font-semibold text-indigo-900 dark:text-indigo-200 hover:bg-indigo-500/20 transition-colors cursor-pointer self-start sm:self-auto shrink-0"
+              title="Open this cohort's student board as an observer to try every item yourself"
+            >
+              <Eye className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />
+              Try as Observer
+            </button>
+          </div>
         </div>
       )}
 
@@ -303,17 +336,17 @@ function ProgramWorkspace({
       {subtab === "checklist" && (
         scope === "program"
           ? <ProgramTemplateEditor program={effective} onChanged={refresh} readOnly={!isStaff} />
-          : <CohortOverrideEditor cohortId={scope.cohortId} isStaff={isStaff} readOnly={!isStaff} />
+          : <CohortOverrideEditor cohortId={scope.cohortId} isStaff={isStaff} readOnly={!canEdit} />
       )}
       {subtab === "missions" && (
         scope === "program"
           ? <ProgramMissionsPanel program={effective} onChanged={refresh} readOnly={!isStaff} />
-          : <CohortMissionsPanel cohortId={scope.cohortId} isStaff={isStaff} />
+          : <CohortMissionsPanel cohortId={scope.cohortId} isStaff={canEdit} />
       )}
       {subtab === "components" && (
         scope === "program"
           ? <LmsComponentConfigPanel ownerType="program" ownerId={effective.id} isStaff={isStaff} />
-          : <LmsComponentConfigPanel ownerType="cohort" ownerId={scope.cohortId} isStaff={isStaff} />
+          : <LmsComponentConfigPanel ownerType="cohort" ownerId={scope.cohortId} isStaff={canEdit} />
       )}
       {subtab === "hints" && (
         <LmsHintStationAuthoring programId={programId} scope={scope} />
@@ -330,12 +363,22 @@ function ProgramWorkspace({
       )}
 
       {typeof scope === "object" && (
-        <ObserverTeamModal
-          cohortId={scope.cohortId}
-          cohortName={scope.cohortName}
-          open={showObserverModal}
-          onClose={() => setShowObserverModal(false)}
-        />
+        <>
+          <ObserverTeamModal
+            cohortId={scope.cohortId}
+            cohortName={scope.cohortName}
+            open={showObserverModal}
+            onClose={() => setShowObserverModal(false)}
+          />
+          {isStaff && (
+            <CohortLmsEditorsModal
+              cohortId={scope.cohortId}
+              cohortName={scope.cohortName}
+              open={showEditorsModal}
+              onClose={() => setShowEditorsModal(false)}
+            />
+          )}
+        </>
       )}
     </div>
   )

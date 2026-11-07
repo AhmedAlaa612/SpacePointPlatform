@@ -27,7 +27,7 @@ from app.models.enums import UserRole
 from app.models.lms import Course, CourseModule, CourseRating, Enrollment, ModuleItem, VideoCheckpoint
 from app.models.videos import Video
 from app.models.lms.invite_grant import InvitationCodeGrant, UserInvitationCode
-from app.models.lms.program import LmsProgram, LmsProgramItem
+from app.models.lms.program import CohortLmsEditor, LmsProgram, LmsProgramItem
 from app.models.missions.mission import Mission
 from app.models.lms.learning_path import LearningPath, LearningPathStep
 from app.models.instructors.invitation_code import InvitationCode
@@ -53,6 +53,9 @@ from app.schemas.lms_admin import (
     AdminContentVideo,
     BulkGrantIn,
     BulkGrantOut,
+    CohortLmsEditorIn,
+    CohortLmsEditorOut,
+    CohortLmsEditorsResponse,
     CourseAdminOut,
     CourseRatingsSummaryOut,
     CourseRatingDetailOut,
@@ -2447,7 +2450,127 @@ async def get_cohort_program_override(
         items=await items_out(db, items),
         poster_template_url=cohort_poster_url,
         inherited_poster_template_url=inherited_poster_url,
+        can_edit=True,
     )
+
+
+@router.get("/cohorts/{cohort_id}/editors", response_model=CohortLmsEditorsResponse)
+async def list_cohort_lms_editors(
+    cohort_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(require_lms_content),
+):
+    """List instructors currently granted LMS edit access for this cohort,
+    plus eligible instructors to pick from."""
+    cohort = await db.get(Cohort, cohort_id)
+    if cohort is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Cohort not found")
+
+    editors_stmt = (
+        select(CohortLmsEditor, User)
+        .join(User, User.id == CohortLmsEditor.user_id)
+        .where(CohortLmsEditor.cohort_id == cohort_id)
+        .order_by(User.full_name)
+    )
+    editor_rows = (await db.execute(editors_stmt)).all()
+    editors_out = [
+        CohortLmsEditorOut(
+            id=editor.id,
+            user_id=user.id,
+            full_name=user.full_name,
+            email=user.email,
+            photo_url=user.avatar,
+            created_at=editor.created_at,
+        )
+        for editor, user in editor_rows
+    ]
+
+    instructors_stmt = (
+        select(User)
+        .where(User.roles.any("instructor"), User.status == "active")
+        .order_by(User.full_name)
+    )
+    instructors = (await db.execute(instructors_stmt)).scalars().all()
+    eligible_out = [
+        InstructorOptionOut(
+            id=u.id,
+            full_name=u.full_name,
+            email=u.email,
+            photo_url=u.avatar,
+        )
+        for u in instructors
+    ]
+
+    return CohortLmsEditorsResponse(
+        cohort_id=cohort_id,
+        editors=editors_out,
+        eligible_instructors=eligible_out,
+    )
+
+
+@router.post("/cohorts/{cohort_id}/editors", response_model=CohortLmsEditorOut, status_code=status.HTTP_201_CREATED)
+async def grant_cohort_lms_editor(
+    cohort_id: uuid.UUID,
+    body: CohortLmsEditorIn,
+    db: AsyncSession = Depends(get_db),
+    current: User = Depends(require_lms_content),
+):
+    cohort = await db.get(Cohort, cohort_id)
+    if cohort is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Cohort not found")
+    user = await db.get(User, body.user_id)
+    if user is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="User not found")
+
+    existing = (await db.execute(
+        select(CohortLmsEditor).where(
+            CohortLmsEditor.cohort_id == cohort_id,
+            CohortLmsEditor.user_id == body.user_id,
+        )
+    )).scalar_one_or_none()
+
+    if existing is None:
+        editor = CohortLmsEditor(
+            cohort_id=cohort_id,
+            user_id=body.user_id,
+            created_by_user_id=current.id,
+        )
+        db.add(editor)
+        await db.commit()
+        await db.refresh(editor)
+    else:
+        editor = existing
+
+    return CohortLmsEditorOut(
+        id=editor.id,
+        user_id=user.id,
+        full_name=user.full_name,
+        email=user.email,
+        photo_url=user.avatar,
+        created_at=editor.created_at,
+    )
+
+
+@router.delete("/cohorts/{cohort_id}/editors/{user_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def revoke_cohort_lms_editor(
+    cohort_id: uuid.UUID,
+    user_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(require_lms_content),
+):
+    cohort = await db.get(Cohort, cohort_id)
+    if cohort is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Cohort not found")
+    editor = (await db.execute(
+        select(CohortLmsEditor).where(
+            CohortLmsEditor.cohort_id == cohort_id,
+            CohortLmsEditor.user_id == user_id,
+        )
+    )).scalar_one_or_none()
+    if editor is not None:
+        await db.delete(editor)
+        await db.commit()
+
 
 
 @router.patch("/cohorts/{cohort_id}/poster-template", response_model=LmsProgramCohortEffectiveOut)

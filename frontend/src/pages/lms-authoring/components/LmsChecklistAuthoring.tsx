@@ -22,6 +22,8 @@ import {
   addLmsProgramItemApi, updateLmsProgramItemApi, deleteLmsProgramItemApi, reorderLmsProgramItemsApi,
   getCohortProgramOverrideApi, addCohortOverrideItemApi, updateCohortOverrideItemApi, deleteCohortOverrideItemApi,
   reorderCohortOverrideItemsApi, getCohortProgramOverrideInstructorApi, resyncCohortProgramAssignmentsApi,
+  addCohortOverrideItemInstructorApi, updateCohortOverrideItemInstructorApi, deleteCohortOverrideItemInstructorApi,
+  reorderCohortOverrideItemsInstructorApi,
   uploadLmsProgramItemPdfApi, deleteLmsProgramItemPdfApi,
   uploadLmsProgramItemGuidelineVideoApi, deleteLmsProgramItemGuidelineVideoApi,
   getLmsProgramItemGuidelineVideoUrlApi, getLmsProgramItemPdfUrlApi,
@@ -615,14 +617,14 @@ export function CohortOverrideEditor({
         readOnly={readOnly}
         cohortId={cohortId}
         onImportItems={() => setShowImportModal(true)}
-        onAdd={(data) => addCohortOverrideItemApi(cohortId, data).then(invalidate)}
-        onUpdate={(itemId, data) => updateCohortOverrideItemApi(cohortId, itemId, data).then(invalidate)}
-        onDelete={(itemId) => deleteCohortOverrideItemApi(cohortId, itemId).then(invalidate)}
+        onAdd={(data) => (isStaff ? addCohortOverrideItemApi : addCohortOverrideItemInstructorApi)(cohortId, data).then(invalidate)}
+        onUpdate={(itemId, data) => (isStaff ? updateCohortOverrideItemApi : updateCohortOverrideItemInstructorApi)(cohortId, itemId, data).then(invalidate)}
+        onDelete={(itemId) => (isStaff ? deleteCohortOverrideItemApi : deleteCohortOverrideItemInstructorApi)(cohortId, itemId).then(invalidate)}
         onUploadPdf={(itemId, file) => uploadLmsProgramItemPdfApi(itemId, file).then(invalidate)}
         onRemovePdf={(itemId) => deleteLmsProgramItemPdfApi(itemId).then(invalidate)}
         onUploadGuidelineVideo={(itemId, file) => uploadLmsProgramItemGuidelineVideoApi(itemId, file).then(invalidate)}
         onRemoveGuidelineVideo={(itemId) => deleteLmsProgramItemGuidelineVideoApi(itemId).then(invalidate)}
-        onReorder={(itemIds) => reorderCohortOverrideItemsApi(cohortId, itemIds).then(invalidate)}
+        onReorder={(itemIds) => (isStaff ? reorderCohortOverrideItemsApi : reorderCohortOverrideItemsInstructorApi)(cohortId, itemIds).then(invalidate)}
       />
     </div>
   )

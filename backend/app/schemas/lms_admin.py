@@ -39,6 +39,7 @@ class InstructorOptionOut(BaseModel):
     2026-08-06) — deliberately minimal, not the full User shape."""
     id: UUID
     full_name: str
+    email: str | None = None
     photo_url: str | None = None
 
 
@@ -749,6 +750,27 @@ class LmsProgramCohortEffectiveOut(BaseModel):
     poster_template_url: str | None = None
     inherited_poster_template_url: str | None = None
     items: list[LmsProgramItemOut] = []
+    can_edit: bool = True
+
+
+class CohortLmsEditorOut(BaseModel):
+    id: UUID
+    user_id: UUID
+    full_name: str
+    email: str
+    photo_url: str | None = None
+    created_at: datetime
+
+
+class CohortLmsEditorsResponse(BaseModel):
+    cohort_id: UUID
+    editors: list[CohortLmsEditorOut]
+    eligible_instructors: list[InstructorOptionOut]
+
+
+class CohortLmsEditorIn(BaseModel):
+    user_id: UUID
+
 
 
 class CohortPosterTemplateIn(BaseModel):
