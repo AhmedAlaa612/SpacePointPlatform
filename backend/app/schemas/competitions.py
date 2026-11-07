@@ -6,7 +6,7 @@ per-judge scoring, the leaderboard, and judge-roster management. See
 from __future__ import annotations
 
 from datetime import date, datetime
-from typing import Literal
+from typing import Any, Literal
 from uuid import UUID
 
 from pydantic import BaseModel
@@ -601,6 +601,41 @@ class CompetitionAssignStudentsOut(BaseModel):
     rows: list[CompetitionAssignStudentRowOut]
 
 
+class ExcuseLetterConfig(BaseModel):
+    enabled: bool = False
+    event_name: str | None = None
+    organizer: str | None = "SpacePoint"
+    dates_text: str | None = None
+    location_text: str | None = None
+    student_role: str | None = "Finalist — Technical Demonstration & Presentation"
+    participation_mode: str | None = "On-site Exhibition & Technical Demonstration"
+    description_text: str | None = None
+    committee_name: str | None = "SpacePoint"
+    contact_email: str | None = "info@spacepoint.ae"
+    contact_phone: str | None = "+971562987005"
+    contact_website: str | None = "www.spacepoint.ae"
+
+
+class StudentExcuseLetterMemberOut(BaseModel):
+    user_id: str
+    full_name: str
+    student_id: str = ""
+    is_me: bool = False
+
+
+class StudentExcuseLetterStatusOut(BaseModel):
+    enabled: bool
+    cohort_name: str
+    team_id: UUID | None = None
+    team_name: str | None = None
+    my_student_id: str | None = None
+    members: list[StudentExcuseLetterMemberOut] = []
+
+
+class UpdateTeamStudentIdsIn(BaseModel):
+    members: list[dict[str, str]]
+
+
 class CompetitionAdvanceTeamsIn(BaseModel):
     team_ids: list[UUID]
     to_cohort_id: UUID
@@ -613,6 +648,9 @@ class CompetitionAdvanceTeamsIn(BaseModel):
     send_welcome_email: bool = True
     # Attach University Excuse & Formal Invitation Letter PDF to congrats email
     attach_excuse_letter: bool = False
+    excuse_letter_mode: Literal["team", "individual", "both"] = "team"
+    excuse_letter_overrides: ExcuseLetterConfig | None = None
+    save_letter_config_as_default: bool = False
 
 
 class CompetitionAdvanceResultOut(BaseModel):

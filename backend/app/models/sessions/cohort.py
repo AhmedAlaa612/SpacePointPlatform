@@ -65,6 +65,9 @@ class Cohort(Base):
     # On-Time, Late penalties. Array of dicts: [{id, name, cutoff_at, points, badge, ...}].
     submission_windows = Column(JSONB, nullable=False, default=list, server_default="[]")
 
+    # Excuse / invitation letter configuration for qualified finalists
+    excuse_letter_config = Column(JSONB, nullable=False, default=dict, server_default="{}")
+
     keep_course_access_after_completion = Column(
         Boolean, nullable=False, default=True, server_default="true",
     )

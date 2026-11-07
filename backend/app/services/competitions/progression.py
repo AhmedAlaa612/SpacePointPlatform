@@ -69,12 +69,58 @@ async def _congrats_email(
     )
 
 
+DEFAULT_DESCRIPTION = (
+    "The student has been selected as part of the finalist teams representing top talent across "
+    "the region. This hands-on experience includes presenting their prototype, engaging with "
+    "industry experts, and attending key technical sessions, offering an unparalleled educational "
+    "and professional development opportunity in aerospace engineering and innovation."
+)
+
+
+def resolve_excuse_letter_config(
+    cohort: Cohort,
+    overrides: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Resolves excuse letter fields from cohort defaults and optional overrides."""
+    cfg = dict(cohort.excuse_letter_config or {})
+    if overrides:
+        for k, v in overrides.items():
+            if v is not None and v != "":
+                cfg[k] = v
+
+    if cohort.starts_on and cohort.ends_on:
+        days = (cohort.ends_on - cohort.starts_on).days + 1
+        default_dates = f"{cohort.starts_on.strftime('%d %B %Y')} – {cohort.ends_on.strftime('%d %B %Y')} (all {days} days)"
+    elif cohort.starts_on:
+        default_dates = cohort.starts_on.strftime('%d %B %Y')
+    else:
+        default_dates = "Competition On-site Showcase Period"
+
+    default_location = cohort.location or "Dubai, United Arab Emirates"
+
+    return {
+        "enabled": bool(cfg.get("enabled", False)),
+        "event_name": cfg.get("event_name") or cohort.name,
+        "organizer": cfg.get("organizer") or "SpacePoint",
+        "dates_text": cfg.get("dates_text") or default_dates,
+        "location_text": cfg.get("location_text") or default_location,
+        "student_role": cfg.get("student_role") or "Finalist — Technical Demonstration & Presentation",
+        "participation_mode": cfg.get("participation_mode") or "On-site Exhibition & Technical Demonstration",
+        "description_text": cfg.get("description_text") or DEFAULT_DESCRIPTION,
+        "committee_name": cfg.get("committee_name") or "SpacePoint",
+        "contact_email": cfg.get("contact_email") or "info@spacepoint.ae",
+        "contact_phone": cfg.get("contact_phone") or "+971562987005",
+        "contact_website": cfg.get("contact_website") or "www.spacepoint.ae",
+    }
+
+
 async def build_team_excuse_letter_pdf(
     db: AsyncSession,
     *,
     team: Team,
     target_cohort: Cohort,
     single_user_id: uuid.UUID | None = None,
+    overrides: dict[str, Any] | None = None,
 ) -> bytes:
     from app.models.spine.contact import Contact
     from app.models.spine.organization import Organization
@@ -91,9 +137,7 @@ async def build_team_excuse_letter_pdf(
             continue
         contact = await db.get(Contact, user.contact_id) if user.contact_id else None
 
-        sid = user.student_id or (contact.student_id if contact else None)
-        if not sid and user.card_number:
-            sid = f"SP-ST-{user.card_number:04d}-UAE"
+        sid = user.student_id or (contact.student_id if contact else None) or ""
 
         if contact and contact.organization_id and not institution_name:
             org = await db.get(Organization, contact.organization_id)
@@ -102,36 +146,37 @@ async def build_team_excuse_letter_pdf(
 
         m_dict = {
             "name": user.full_name,
-            "student_id": sid or "—",
+            "student_id": sid,
         }
         members_data.append(m_dict)
         if single_user_id and user.id == single_user_id:
             single_student_data = m_dict
 
-    if target_cohort.starts_on and target_cohort.ends_on:
-        days = (target_cohort.ends_on - target_cohort.starts_on).days + 1
-        dates_text = f"{target_cohort.starts_on.strftime('%d %B %Y')} – {target_cohort.ends_on.strftime('%d %B %Y')} (all {days} days)"
-    elif target_cohort.starts_on:
-        dates_text = target_cohort.starts_on.strftime('%d %B %Y')
-    else:
-        dates_text = "Competition On-site Showcase Period"
+    resolved = resolve_excuse_letter_config(target_cohort, overrides)
 
-    location_text = target_cohort.location or "Dubai, United Arab Emirates"
-    if target_cohort.location_id:
+    # If location is an ID and not overridden, resolve location name
+    location_text = resolved["location_text"]
+    if target_cohort.location_id and (not overrides or not overrides.get("location_text")):
         from app.models.inventory.location import Location
         loc_obj = await db.get(Location, target_cohort.location_id)
         if loc_obj:
             location_text = f"{loc_obj.name}, {location_text}" if target_cohort.location else loc_obj.name
 
-    event_name = target_cohort.name
-
     return generate_excuse_letter_pdf(
         team_name=team.name,
         institution_name=institution_name,
         members=members_data,
-        event_name=event_name,
-        dates_text=dates_text,
+        event_name=resolved["event_name"],
+        organizer=resolved["organizer"],
+        dates_text=resolved["dates_text"],
         location_text=location_text,
+        student_role=resolved["student_role"],
+        participation_mode=resolved["participation_mode"],
+        description_text=resolved["description_text"],
+        committee_name=resolved["committee_name"],
+        contact_email=resolved["contact_email"],
+        contact_phone=resolved["contact_phone"],
+        contact_website=resolved["contact_website"],
         single_student=single_student_data,
     )
 
@@ -140,6 +185,9 @@ async def advance_teams(
     db: AsyncSession, *, team_ids: list[uuid.UUID], from_cohort_id: uuid.UUID, to_cohort_id: uuid.UUID,
     send_welcome_email: bool = True,
     attach_excuse_letter: bool = False,
+    excuse_letter_mode: str = "team",
+    excuse_letter_overrides: dict[str, Any] | None = None,
+    save_letter_config_as_default: bool = False,
 ) -> list[TeamAdvanceResult]:
     """Idempotent per team: re-running with a team that's already advanced
     just re-resolves its existing target-cohort Team/Registrations rather
@@ -148,6 +196,10 @@ async def advance_teams(
     to_cohort = await db.get(Cohort, to_cohort_id)
     if to_cohort is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Target cohort not found")
+
+    if save_letter_config_as_default and excuse_letter_overrides:
+        clean_overrides = {k: v for k, v in excuse_letter_overrides.items() if v is not None and v != ""}
+        to_cohort.excuse_letter_config = {**(to_cohort.excuse_letter_config or {}), **clean_overrides}
 
     results = []
     for team_id in team_ids:
@@ -171,15 +223,16 @@ async def advance_teams(
         advanced = 0
         new_registration_ids: list[uuid.UUID] = []
 
-        excuse_attachments = None
-        if attach_excuse_letter:
+        clean_tname = "".join(c for c in team.name if c.isalnum() or c in (" ", "-", "_")).strip()
+        team_letter_bytes = None
+        if attach_excuse_letter and excuse_letter_mode in ("team", "both"):
             try:
-                letter_bytes = await build_team_excuse_letter_pdf(db, team=team, target_cohort=to_cohort)
-                clean_tname = "".join(c for c in team.name if c.isalnum() or c in (" ", "-", "_")).strip()
-                excuse_attachments = [(f"{clean_tname}_University_Excuse_Letter.pdf", letter_bytes, "pdf")]
+                team_letter_bytes = await build_team_excuse_letter_pdf(
+                    db, team=team, target_cohort=to_cohort, overrides=excuse_letter_overrides,
+                )
             except Exception as exc:
                 import logging
-                logging.getLogger(__name__).warning("Could not build excuse letter for team %s: %s", team.name, exc)
+                logging.getLogger(__name__).warning("Could not build team excuse letter for team %s: %s", team.name, exc)
 
         for user_id in member_ids:
             user = await db.get(User, user_id)
@@ -214,8 +267,24 @@ async def advance_teams(
             elif user.id not in await team_member_ids(db, team_id=to_team.id):
                 await join_team(db, team_id=to_team.id, user_id=user.id)
 
+            user_attachments = []
+            if attach_excuse_letter:
+                if excuse_letter_mode in ("individual", "both"):
+                    try:
+                        indiv_bytes = await build_team_excuse_letter_pdf(
+                            db, team=team, target_cohort=to_cohort, single_user_id=user.id, overrides=excuse_letter_overrides,
+                        )
+                        clean_uname = "".join(c for c in user.full_name if c.isalnum() or c in (" ", "-", "_")).strip()
+                        user_attachments.append((f"{clean_uname}_Excuse_Letter.pdf", indiv_bytes, "pdf"))
+                    except Exception as exc:
+                        import logging
+                        logging.getLogger(__name__).warning("Could not build individual excuse letter for %s: %s", user.full_name, exc)
+                if excuse_letter_mode in ("team", "both") and team_letter_bytes:
+                    user_attachments.append((f"{clean_tname}_Team_Excuse_Letter.pdf", team_letter_bytes, "pdf"))
+
             await _congrats_email(
-                user, team_name=team.name, to_cohort_name=to_cohort.name, attachments=excuse_attachments,
+                user, team_name=team.name, to_cohort_name=to_cohort.name,
+                attachments=user_attachments if user_attachments else None,
             )
             advanced += 1
 

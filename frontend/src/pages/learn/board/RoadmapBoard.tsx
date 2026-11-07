@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { useNavigate, useParams } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Lightbulb, LogOut, RotateCcw, Users } from "lucide-react";
+import { FileText, Lightbulb, LogOut, RotateCcw, Users } from "lucide-react";
 import {
   fetchChecklist, observerResetProgressApi, observerResetTeamApi, observerUnassignApi,
   type LmsProgramChecklistItem,
@@ -15,7 +15,8 @@ import { CheckpointDrawer } from "./CheckpointDrawer";
 import { StudentTeamResultCard } from "@/components/competitions/StudentTeamResultCard";
 import { ObserverTeamModal } from "@/components/lms/ObserverTeamModal";
 import { LockedTaskModal } from "./LockedTaskModal";
-import { getCohortTimingWindowStudentApi } from "@/api/competitions";
+import { StudentInvitationLetterModal } from "@/components/competitions/StudentInvitationLetterModal";
+import { getCohortTimingWindowStudentApi, getStudentExcuseLetterStatusApi } from "@/api/competitions";
 import {
   checklistItemToTile, computeLiveTaskId, groupByCheckpoint, readBoardScrollPosition,
 } from "./roadmap";
@@ -33,6 +34,7 @@ export default function RoadmapBoard() {
   const [openItemId, setOpenItemId] = useState<string | null>(null);
   const [lockedItem, setLockedItem] = useState<LmsProgramChecklistItem | null>(null);
   const [showTeamModal, setShowTeamModal] = useState(false);
+  const [showInvitationModal, setShowInvitationModal] = useState(false);
   // Observer mode (2026-10) — which reset is in flight, so its button reads
   // busy and double-clicks can't stack two resets.
   const [observerBusy, setObserverBusy] = useState<"mine" | "team" | "leave" | null>(null);
@@ -58,6 +60,12 @@ export default function RoadmapBoard() {
     queryFn: () => getCohortTimingWindowStudentApi(checklist!.cohort_id!),
     enabled: !!checklist?.cohort_id,
     refetchInterval: 30_000,
+  });
+
+  const { data: letterStatus } = useQuery({
+    queryKey: ["student-excuse-letter-status", checklist?.cohort_id],
+    queryFn: () => getStudentExcuseLetterStatusApi(checklist!.cohort_id!),
+    enabled: !!checklist?.cohort_id,
   });
 
   const invalidate = () => queryClient.invalidateQueries({ queryKey: ["lms-checklist", assignmentId] });
@@ -252,14 +260,28 @@ export default function RoadmapBoard() {
               )}
             </div>
 
-            <button
-              onClick={() => void navigate({ to: `/learn/checklists/${assignmentId}/hints` as never })}
-              className="inline-flex items-center gap-2 px-3.5 py-2 rounded-xl bg-amber-500/10 hover:bg-amber-500/20 text-amber-700 dark:text-amber-300 border border-amber-500/30 transition-all font-semibold text-xs sm:text-sm cursor-pointer shadow-sm w-fit self-start shrink-0 active:scale-95"
-              title="Open interactive challenge hint station"
-            >
-              <Lightbulb className="size-4 text-amber-500 animate-pulse" />
-              <span>Hint Station</span>
-            </button>
+            <div className="flex items-center gap-2 flex-wrap">
+              {letterStatus?.enabled && (
+                <button
+                  type="button"
+                  onClick={() => setShowInvitationModal(true)}
+                  className="inline-flex items-center gap-2 px-3.5 py-2 rounded-xl bg-primary/10 hover:bg-primary/20 text-primary border border-primary/30 transition-all font-semibold text-xs sm:text-sm cursor-pointer shadow-sm w-fit self-start shrink-0 active:scale-95"
+                  title="Download university invitation & excuse letter"
+                >
+                  <FileText className="size-4 text-primary" />
+                  <span>Download Invitation Letter</span>
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={() => void navigate({ to: `/learn/checklists/${assignmentId}/hints` as never })}
+                className="inline-flex items-center gap-2 px-3.5 py-2 rounded-xl bg-amber-500/10 hover:bg-amber-500/20 text-amber-700 dark:text-amber-300 border border-amber-500/30 transition-all font-semibold text-xs sm:text-sm cursor-pointer shadow-sm w-fit self-start shrink-0 active:scale-95"
+                title="Open interactive challenge hint station"
+              >
+                <Lightbulb className="size-4 text-amber-500 animate-pulse" />
+                <span>Hint Station</span>
+              </button>
+            </div>
           </div>
 
           <div className="flex flex-col gap-2.5">
@@ -353,6 +375,14 @@ export default function RoadmapBoard() {
             const blocker = items.find((i) => i.id === blockerId);
             if (blocker) openItemById(blocker);
           }}
+        />
+      )}
+
+      {checklist?.cohort_id && (
+        <StudentInvitationLetterModal
+          cohortId={checklist.cohort_id}
+          open={showInvitationModal}
+          onClose={() => setShowInvitationModal(false)}
         />
       )}
     </div>

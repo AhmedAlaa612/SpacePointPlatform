@@ -36,6 +36,7 @@ export default function Profile() {
   const { data: me } = useQuery({ queryKey: ["me"], queryFn: fetchMe, initialData: user ?? undefined })
 
   const [fullName, setFullName] = useState(user?.full_name ?? "")
+  const [studentId, setStudentId] = useState(user?.student_id ?? "")
   const [phone, setPhone] = useState(user?.phone ?? "")
   const [birthdate, setBirthdate] = useState(user?.birthdate ?? user?.date_of_birth ?? "")
   const [country, setCountry] = useState(user?.country ?? "")
@@ -67,6 +68,7 @@ export default function Profile() {
   useEffect(() => {
     if (!me) return
     setFullName(me.full_name ?? "")
+    setStudentId(me.student_id ?? "")
     setPhone(me.phone ?? "")
     setBirthdate(me.birthdate ?? me.date_of_birth ?? "")
     setCountry(me.country ?? "")
@@ -109,6 +111,7 @@ export default function Profile() {
     mutationFn: async () => {
       const updated = await updateMeApi({
         full_name: fullName,
+        student_id: studentId.trim() || undefined,
         phone: phone || undefined,
         country: country || undefined,
         birthdate: birthdate || undefined,
@@ -316,6 +319,18 @@ export default function Profile() {
               <label className={labelCls}>{isOrganization ? "Contact Person Full Name" : "Full Name"}</label>
               <input value={fullName} onChange={(e) => setFullName(e.target.value)} className={inputCls} />
             </div>
+            <div>
+              <label className={labelCls}>University / Student ID</label>
+              <input
+                value={studentId}
+                onChange={(e) => setStudentId(e.target.value)}
+                placeholder="e.g. H00412345"
+                className={inputCls}
+              />
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
             <div>
               <label className={labelCls}>Phone Number</label>
               <input

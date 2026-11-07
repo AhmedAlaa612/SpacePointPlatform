@@ -630,6 +630,50 @@ export const registerUsersToCohortApi = (
     `/competitions/admin/cohorts/${cohortId}/register-users`, { user_ids: userIds, ...options },
   ).then((r) => r.data)
 
+export interface ExcuseLetterConfig {
+  enabled?: boolean
+  event_name?: string
+  organizer?: string
+  dates_text?: string
+  location_text?: string
+  student_role?: string
+  participation_mode?: string
+  description_text?: string
+  committee_name?: string
+  contact_email?: string
+  contact_phone?: string
+  contact_website?: string
+}
+
+export interface StudentExcuseLetterStatus {
+  enabled: boolean
+  cohort_name: string
+  team_id: string | null
+  team_name: string | null
+  my_student_id: string
+  members: Array<{
+    user_id: string
+    full_name: string
+    student_id: string
+    is_me: boolean
+  }>
+}
+
+export const getStudentExcuseLetterStatusApi = (cohortId: string): Promise<StudentExcuseLetterStatus> =>
+  api.get<StudentExcuseLetterStatus>(`/competitions/student/cohorts/${cohortId}/excuse-letter-status`).then((r) => r.data)
+
+export const updateTeamStudentIdsApi = (
+  cohortId: string,
+  members: Array<{ user_id: string; student_id: string }>,
+): Promise<{ status: string }> =>
+  api.post(`/competitions/student/cohorts/${cohortId}/update-team-student-ids`, { members }).then((r) => r.data)
+
+export const getCohortExcuseLetterTemplateApi = (cohortId: string): Promise<ExcuseLetterConfig> =>
+  api.get<ExcuseLetterConfig>(`/competitions/admin/cohorts/${cohortId}/excuse-letter-template`).then((r) => r.data)
+
+export const updateCohortExcuseLetterTemplateApi = (cohortId: string, data: ExcuseLetterConfig): Promise<ExcuseLetterConfig> =>
+  api.put<ExcuseLetterConfig>(`/competitions/admin/cohorts/${cohortId}/excuse-letter-template`, data).then((r) => r.data)
+
 export const advanceCohortTeamsApi = (
   cohortId: string,
   data: {
@@ -638,6 +682,9 @@ export const advanceCohortTeamsApi = (
     send_ticket_email?: boolean
     send_welcome_email?: boolean
     attach_excuse_letter?: boolean
+    excuse_letter_mode?: "team" | "individual" | "both"
+    excuse_letter_overrides?: ExcuseLetterConfig
+    save_letter_config_as_default?: boolean
   },
 ) =>
   api.post<CompetitionAdvanceResult[]>(`/competitions/admin/cohorts/${cohortId}/advance-teams`, data).then((r) => r.data)
@@ -650,6 +697,35 @@ export const downloadTeamExcuseLetterApi = (
   api
     .get(`/competitions/admin/cohorts/${cohortId}/teams/${teamId}/excuse-letter`, {
       params: studentUserId ? { student_user_id: studentUserId } : undefined,
+      responseType: "blob",
+    })
+    .then((r) => r.data)
+
+export const downloadCustomTeamExcuseLetterApi = (
+  cohortId: string,
+  teamId: string,
+  data?: ExcuseLetterConfig,
+  studentUserId?: string,
+  saveAsDefault?: boolean,
+): Promise<Blob> =>
+  api
+    .post(`/competitions/admin/cohorts/${cohortId}/teams/${teamId}/excuse-letter`, data || {}, {
+      params: {
+        ...(studentUserId ? { student_user_id: studentUserId } : {}),
+        ...(saveAsDefault ? { save_as_default: true } : {}),
+      },
+      responseType: "blob",
+    })
+    .then((r) => r.data)
+
+export const downloadExcuseLetterPreviewApi = (
+  cohortId: string,
+  data: ExcuseLetterConfig,
+  teamId?: string,
+): Promise<Blob> =>
+  api
+    .post(`/competitions/admin/cohorts/${cohortId}/excuse-letter-preview`, data, {
+      params: teamId ? { team_id: teamId } : undefined,
       responseType: "blob",
     })
     .then((r) => r.data)

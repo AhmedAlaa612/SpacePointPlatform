@@ -162,6 +162,7 @@ export async function updatePhotoApi(photo: File): Promise<User> {
 export async function updateMeApi(
   data: Partial<{
     full_name: string
+    student_id: string
     phone: string
     country: string
     birthdate: string

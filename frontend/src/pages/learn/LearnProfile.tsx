@@ -253,6 +253,7 @@ export default function LearnProfile() {
           <div className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Account info</div>
           <div className="flex flex-col gap-3">
             <AccountField label="Email" value={me.email} />
+            <AccountField label="University / Student ID" value={me.student_id || "Not set"} />
             <AccountField label="WhatsApp" value={me.phone || "Not set"} />
             <AccountField
               label="Location"
@@ -352,6 +353,7 @@ function EditProfileForm({ onOpenChange }: { onOpenChange: (v: boolean) => void 
   const queryClient = useQueryClient();
   const photoRef = useRef<HTMLInputElement>(null);
   const [fullName, setFullName] = useState(currentUser?.full_name ?? "");
+  const [studentId, setStudentId] = useState(currentUser?.student_id ?? "");
   const [phone, setPhone] = useState(currentUser?.phone ?? "");
   const [country, setCountry] = useState(currentUser?.country ?? "");
   const [cityId, setCityId] = useState(currentUser?.city_id ?? "");
@@ -373,7 +375,9 @@ function EditProfileForm({ onOpenChange }: { onOpenChange: (v: boolean) => void 
 
   const save = useMutation({
     mutationFn: () => updateMeApi({
-      full_name: fullName, phone: phone || undefined,
+      full_name: fullName,
+      student_id: studentId.trim() || undefined,
+      phone: phone || undefined,
       country: country || undefined, city_id: cityId || undefined, city_other: cityOther || undefined,
     }),
     onSuccess: (updated) => {
@@ -438,6 +442,15 @@ function EditProfileForm({ onOpenChange }: { onOpenChange: (v: boolean) => void 
               <label className="block text-xs font-medium text-muted-foreground mb-1.5">Full name</label>
               <input
                 value={fullName} onChange={(e) => setFullName(e.target.value)}
+                className="w-full h-11 rounded-xl border border-border bg-background px-3.5 text-sm focus:outline-none focus:border-primary transition-colors"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-muted-foreground mb-1.5">
+                University ID / Student ID <span className="normal-case font-normal">(for official letters)</span>
+              </label>
+              <input
+                value={studentId} onChange={(e) => setStudentId(e.target.value)} placeholder="e.g. H00412345"
                 className="w-full h-11 rounded-xl border border-border bg-background px-3.5 text-sm focus:outline-none focus:border-primary transition-colors"
               />
             </div>

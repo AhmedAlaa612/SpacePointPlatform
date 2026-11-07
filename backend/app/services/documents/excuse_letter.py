@@ -106,13 +106,13 @@ def generate_excuse_letter_pdf(
     institution_name: str | None = None,
     members: list[dict[str, Any]],
     event_name: str,
-    organizer: str = "SpacePoint in collaboration with the UAE Space Agency",
+    organizer: str = "SpacePoint",
     dates_text: str,
     location_text: str,
-    student_role: str = "Finalist - Lander Design, Prototyping & Presentation",
-    participation_mode: str = "On-site Exhibition, Technical Demonstration, Industry Engagement",
+    student_role: str = "Finalist — Technical Demonstration & Presentation",
+    participation_mode: str = "On-site Exhibition & Technical Demonstration",
     description_text: str | None = None,
-    committee_name: str = "PlanetX Organizing Committee",
+    committee_name: str = "SpacePoint",
     contact_email: str = "info@spacepoint.ae",
     contact_phone: str = "+971562987005",
     contact_website: str = "www.spacepoint.ae",
@@ -169,10 +169,11 @@ def generate_excuse_letter_pdf(
     ]]
     for m in display_members:
         name = m.get("name") or m.get("full_name") or ""
-        sid = m.get("student_id") or m.get("university_id") or m.get("card_number") or "—"
+        raw_sid = m.get("student_id") or m.get("university_id") or ""
+        sid_str = str(raw_sid).strip() if raw_sid else ""
         table_data.append([
             Paragraph(str(name), _TABLE_CELL),
-            Paragraph(str(sid), _TABLE_CELL),
+            Paragraph(sid_str, _TABLE_CELL),
         ])
 
     table = Table(table_data, colWidths=[105 * mm, 65 * mm])
@@ -227,7 +228,6 @@ def generate_excuse_letter_pdf(
         Paragraph(
             f"Sincerely,<br/>"
             f"<b>{committee_name}</b><br/>"
-            f"<b>SpacePoint</b><br/>"
             f"{contact_email} | {contact_phone}<br/>"
             f"{contact_website}",
             _SIGN_OFF,

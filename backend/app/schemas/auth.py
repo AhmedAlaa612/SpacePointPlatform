@@ -119,7 +119,8 @@ class UserOut(BaseModel):
     # accounts get one from the one-time reset script).
     card_number: int | None = None
     card_id: str | None = None
-    # Demographic fields (date_of_birth/birthdate, grade)
+    # demographic & university identity
+    student_id: str | None = None
     date_of_birth: date | None = None
     birthdate: date | None = None
     grade: str | None = None
@@ -178,6 +179,7 @@ class OrganizationSignupRequest(BaseModel):
 
 class UpdateMeRequest(BaseModel):
     full_name: str | None = None
+    student_id: str | None = None
     phone: str | None = None
     country: str | None = None
     linkedin_url: str | None = None

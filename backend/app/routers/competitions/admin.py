@@ -12,6 +12,7 @@ from typing import Literal
 from arq.connections import ArqRedis
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
 from fastapi.responses import Response
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 logger = logging.getLogger(__name__)
@@ -38,7 +39,7 @@ from app.schemas.competitions import (
     CompetitionRubricIn, CompetitionRubricOut,
     CompetitionTeamCreateIn, CompetitionTeamMemberIn, CompetitionTeamOut, CompetitionTeamRenameIn,
     CohortSubmissionWindowsUpdate, TeamCheckpointStateOut, TeamTimingAdjustmentUpdate, TeamScoreBreakdownOut,
-    OpsScoreIn, OpsScoreOut,
+    OpsScoreIn, OpsScoreOut, ExcuseLetterConfig,
 )
 from app.services.competitions import analytics as analytics_service
 from app.services.competitions import certificates as certificates_service
@@ -628,6 +629,9 @@ async def post_cohort_advance_teams(
         db, team_ids=body.team_ids, from_cohort_id=cohort_id, to_cohort_id=body.to_cohort_id,
         send_welcome_email=body.send_welcome_email,
         attach_excuse_letter=body.attach_excuse_letter,
+        excuse_letter_mode=body.excuse_letter_mode,
+        excuse_letter_overrides=body.excuse_letter_overrides.dict() if body.excuse_letter_overrides else None,
+        save_letter_config_as_default=body.save_letter_config_as_default,
     )
     await db.commit()
     # Same "only genuinely new registrations get a ticket job" rule the bulk
@@ -641,6 +645,32 @@ async def post_cohort_advance_teams(
         CompetitionAdvanceResultOut(**{k: v for k, v in r.items() if k != "new_registration_ids"})
         for r in progression_service.results_as_dicts(results)
     ]
+
+
+@router.get("/cohorts/{cohort_id}/excuse-letter-template", response_model=ExcuseLetterConfig)
+async def get_cohort_excuse_letter_template(
+    cohort_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+):
+    """Retrieve the resolved excuse letter template configuration for this cohort."""
+    cohort = await _get_cohort_or_404(db, cohort_id)
+    resolved = progression_service.resolve_excuse_letter_config(cohort)
+    return ExcuseLetterConfig(**resolved)
+
+
+@router.put("/cohorts/{cohort_id}/excuse-letter-template", response_model=ExcuseLetterConfig)
+async def put_cohort_excuse_letter_template(
+    cohort_id: uuid.UUID,
+    body: ExcuseLetterConfig,
+    db: AsyncSession = Depends(get_db),
+):
+    """Update and persist the excuse letter template configuration for this cohort."""
+    cohort = await _get_cohort_or_404(db, cohort_id)
+    clean = {k: v for k, v in body.dict().items() if v is not None and v != ""}
+    cohort.excuse_letter_config = clean
+    await db.commit()
+    resolved = progression_service.resolve_excuse_letter_config(cohort)
+    return ExcuseLetterConfig(**resolved)
 
 
 @router.get("/cohorts/{cohort_id}/teams/{team_id}/excuse-letter")
@@ -667,6 +697,93 @@ async def get_team_excuse_letter(
         content=pdf_bytes,
         media_type="application/pdf",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+@router.post("/cohorts/{cohort_id}/teams/{team_id}/excuse-letter")
+async def post_team_excuse_letter(
+    cohort_id: uuid.UUID,
+    team_id: uuid.UUID,
+    body: ExcuseLetterConfig | None = None,
+    student_user_id: uuid.UUID | None = None,
+    save_as_default: bool = False,
+    db: AsyncSession = Depends(get_db),
+):
+    """Download PDF with custom overrides reviewed or edited in the modal."""
+    cohort = await _get_cohort_or_404(db, cohort_id)
+    team = await db.get(Team, team_id)
+    if team is None or team.cohort_id != cohort_id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Team not found in this cohort")
+
+    overrides = body.dict() if body else None
+    if save_as_default and overrides:
+        clean = {k: v for k, v in overrides.items() if v is not None and v != ""}
+        cohort.excuse_letter_config = {**(cohort.excuse_letter_config or {}), **clean}
+        await db.commit()
+
+    pdf_bytes = await progression_service.build_team_excuse_letter_pdf(
+        db, team=team, target_cohort=cohort, single_user_id=student_user_id, overrides=overrides,
+    )
+    clean_name = "".join(c for c in team.name if c.isalnum() or c in (" ", "-", "_")).strip()
+    suffix = f"_{student_user_id}" if student_user_id else ""
+    filename = f"{clean_name}{suffix}_University_Excuse_Letter.pdf"
+
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+@router.post("/cohorts/{cohort_id}/excuse-letter-preview")
+async def post_cohort_excuse_letter_preview(
+    cohort_id: uuid.UUID,
+    body: ExcuseLetterConfig,
+    team_id: uuid.UUID | None = None,
+    db: AsyncSession = Depends(get_db),
+):
+    """Download a preview PDF of the excuse / invitation letter using the provided configuration."""
+    cohort = await _get_cohort_or_404(db, cohort_id)
+    overrides = {k: v for k, v in body.dict().items() if v is not None and v != ""}
+
+    target_team = None
+    if team_id:
+        target_team = await db.get(Team, team_id)
+    if not target_team:
+        first_team = (await db.execute(select(Team).where(Team.cohort_id == cohort_id).limit(1))).scalars().first()
+        target_team = first_team
+
+    if target_team:
+        pdf_bytes = await progression_service.build_team_excuse_letter_pdf(
+            db, team=target_team, target_cohort=cohort, overrides=overrides,
+        )
+    else:
+        from app.services.documents.excuse_letter import generate_excuse_letter_pdf
+        resolved = progression_service.resolve_excuse_letter_config(cohort, overrides)
+        pdf_bytes = generate_excuse_letter_pdf(
+            team_name="Sample Finalist Team",
+            members=[
+                {"name": "Sarah Al-Nuaimi", "student_id": "202409812"},
+                {"name": "Omar Mansoor", "student_id": ""},
+            ],
+            event_name=resolved["event_name"],
+            organizer=resolved["organizer"],
+            dates_text=resolved["dates_text"],
+            location_text=resolved["location_text"],
+            student_role=resolved["student_role"],
+            participation_mode=resolved["participation_mode"],
+            description_text=resolved["description_text"],
+            committee_name=resolved["committee_name"],
+            contact_email=resolved["contact_email"],
+            contact_phone=resolved["contact_phone"],
+            contact_website=resolved["contact_website"],
+            institution_name=None,
+        )
+
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={"Content-Disposition": 'attachment; filename="Excuse_Letter_Preview.pdf"'},
     )
 
 

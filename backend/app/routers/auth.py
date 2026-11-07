@@ -876,6 +876,13 @@ async def update_me(
 ):
     if data.full_name:
         current_user.full_name = data.full_name
+    if data.student_id is not None:
+        current_user.student_id = data.student_id.strip() or None
+        if current_user.contact_id:
+            from app.models.spine.contact import Contact
+            contact = await db.get(Contact, current_user.contact_id)
+            if contact:
+                contact.student_id = current_user.student_id
     if data.phone is not None:
         current_user.phone = data.phone or None
     if data.country is not None:

@@ -13,12 +13,14 @@ import { TeamOperationsScoreModal } from "@/components/competitions/TeamOperatio
 import { PublishResultsModal } from "@/components/competitions/PublishResultsModal"
 import { TimingOverrideModal } from "@/components/competitions/TimingOverrideModal"
 import { SubmissionWindowsModal } from "@/components/competitions/SubmissionWindowsModal"
+import { ExcuseLetterModal } from "@/components/competitions/ExcuseLetterModal"
 import { listProgramCertificateTemplatesApi } from "@/api/sessions/programCertificateTemplates"
 import {
   advanceCohortTeamsApi, createCohortTeamApi, deleteTeamApi, downloadCohortResultsWorkbookApi,
   downloadCohortDetailedResultsWorkbookApi, downloadCohortTeamsWorkbookApi, registerUsersToCohortApi,
-  downloadCompetitionCertificatesApi, downloadTeamExcuseLetterApi,
+  downloadCompetitionCertificatesApi, type ExcuseLetterConfig,
   downloadCompetitionRosterTemplateApi,
+  getCohortExcuseLetterTemplateApi,
   getCohortExportTop20Api,
   confirmCohortRegistrationImportApi,
   getCohortRegistrationImportBatchStatusApi,
@@ -2226,38 +2228,58 @@ function ResultsTab({
     onSuccess: () => { toast.success("Results unpublished — judges can score again"); invalidatePublication() },
     onError: (e: any) => toast.error(getErrorMessage(e, "Failed to unpublish results")),
   })
+  const [excuseModalTeam, setExcuseModalTeam] = useState<{ id: string; name: string } | null>(null)
+  const [advanceExcuseModalOpen, setAdvanceExcuseModalOpen] = useState(false)
+
+  // Current cohort's excuse letter config (to gate Excuse Letter download on current teams)
+  const { data: currentCohortTemplate } = useQuery({
+    queryKey: ["competitions-excuse-template", cohortId],
+    queryFn: () => getCohortExcuseLetterTemplateApi(cohortId),
+    enabled: !!cohortId,
+  })
+
+  // Target cohort's excuse letter config (to gate Attach Excuse Letter checkbox on advance)
+  const { data: targetCohortTemplate } = useQuery({
+    queryKey: ["competitions-excuse-template", toCohortId],
+    queryFn: () => getCohortExcuseLetterTemplateApi(toCohortId),
+    enabled: !!toCohortId,
+  })
+
   const advanceMutation = useMutation({
-    mutationFn: () => advanceCohortTeamsApi(cohortId, {
+    mutationFn: (advanceOpts: {
+      mode?: "team" | "individual" | "both"
+      overrides?: ExcuseLetterConfig
+      saveAsDefault?: boolean
+    } | void) => advanceCohortTeamsApi(cohortId, {
       team_ids: [...selected], to_cohort_id: toCohortId,
       send_ticket_email: sendTicketOnAdvance, send_welcome_email: sendWelcomeOnAdvance,
       attach_excuse_letter: attachExcuseOnAdvance,
+      excuse_letter_mode: advanceOpts?.mode || "team",
+      excuse_letter_overrides: advanceOpts?.overrides,
+      save_letter_config_as_default: advanceOpts?.saveAsDefault,
     }),
     onSuccess: (results) => {
       const targetName = advanceTargets.find((c) => c.id === toCohortId)?.name ?? "the next stage"
       toast.success(`Advanced ${results.length} team(s) to ${targetName}`)
       setSelected(new Set())
+      setToCohortId("")
       setSendTicketOnAdvance(true)
       setSendWelcomeOnAdvance(true)
       setAttachExcuseOnAdvance(false)
+      setAdvanceExcuseModalOpen(false)
     },
     onError: (e: any) => toast.error(getErrorMessage(e, "Failed to advance teams")),
   })
 
-  const handleDownloadExcuseLetter = async (teamId: string, teamName: string) => {
-    try {
-      const blob = await downloadTeamExcuseLetterApi(cohortId, teamId)
-      const url = URL.createObjectURL(blob)
-      const a = document.createElement("a")
-      a.href = url
-      const cleanName = teamName.replace(/[^a-zA-Z0-9_-]/g, "_")
-      a.download = `${cleanName}_University_Excuse_Letter.pdf`
-      document.body.appendChild(a)
-      a.click()
-      document.body.removeChild(a)
-      URL.revokeObjectURL(url)
-      toast.success(`Downloaded excuse letter for ${teamName}`)
-    } catch (err) {
-      toast.error(getErrorMessage(err, "Failed to download excuse letter"))
+  const handleDownloadExcuseLetter = (teamId: string, teamName: string) => {
+    setExcuseModalTeam({ id: teamId, name: teamName })
+  }
+
+  const handleAdvanceClick = () => {
+    if (attachExcuseOnAdvance && targetCohortTemplate?.enabled) {
+      setAdvanceExcuseModalOpen(true)
+    } else {
+      advanceMutation.mutate()
     }
   }
 
@@ -2504,7 +2526,11 @@ function ResultsTab({
             {selected.size > 0 ? `${selected.size} team(s) selected` : "Select teams below to advance"}
           </span>
           <select
-            value={toCohortId} onChange={(e) => setToCohortId(e.target.value)}
+            value={toCohortId}
+            onChange={(e) => {
+              setToCohortId(e.target.value)
+              setAttachExcuseOnAdvance(false)
+            }}
             className="h-9 px-3 border border-border bg-card text-foreground rounded-xl text-sm focus:outline-none focus:border-primary cursor-pointer"
           >
             <option value="">Advance to…</option>
@@ -2524,26 +2550,31 @@ function ResultsTab({
             />
             Send Ticket
           </label>
-          <label className="flex items-center gap-2 text-sm text-foreground cursor-pointer select-none">
-            <input
-              type="checkbox" checked={attachExcuseOnAdvance}
-              onChange={(e) => setAttachExcuseOnAdvance(e.target.checked)}
-            />
-            Attach Excuse Letter
-          </label>
+          {toCohortId && targetCohortTemplate?.enabled && (
+            <label className="flex items-center gap-2 text-sm text-foreground cursor-pointer select-none">
+              <input
+                type="checkbox" checked={attachExcuseOnAdvance}
+                onChange={(e) => setAttachExcuseOnAdvance(e.target.checked)}
+              />
+              Attach Excuse Letter
+            </label>
+          )}
           <button
-            onClick={() => advanceMutation.mutate()}
+            type="button"
+            onClick={handleAdvanceClick}
             disabled={advanceMutation.isPending || selected.size === 0 || !toCohortId}
-            className="h-9 px-4 bg-primary text-primary-foreground rounded-xl text-sm font-medium hover:opacity-90 transition-colors disabled:opacity-50"
+            className="h-9 px-4 bg-primary text-primary-foreground rounded-xl text-sm font-medium hover:opacity-90 transition-colors disabled:opacity-50 cursor-pointer"
           >
             {advanceMutation.isPending ? "Advancing…" : "Advance selected teams"}
           </button>
         </div>
       ) : (
-        <p className="text-xs text-muted-foreground p-3 bg-card border border-dashed border-border rounded-xl">
-          No other cohort exists yet under this program to advance teams into — create one (e.g. a Finalist
-          stage) on the Cohorts page first, and this control appears here.
-        </p>
+        <div className="flex items-center justify-between p-3 bg-card border border-dashed border-border rounded-xl">
+          <p className="text-xs text-muted-foreground">
+            No other cohort exists yet under this program to advance teams into — create one (e.g. a Finalist
+            stage) on the Cohorts page first, and this control appears here.
+          </p>
+        </div>
       )}
 
       <LeaderboardTable
@@ -2554,7 +2585,7 @@ function ResultsTab({
         onEditTiming={(team) => setOverrideTeam(team)}
         hasOperationsCriteria={(rubric?.criteria ?? []).some((c) => (c.scored_by ?? "judge") === "operations")}
         onGradeOperations={(team) => setGradingTeam(team)}
-        onDownloadExcuseLetter={handleDownloadExcuseLetter}
+        onDownloadExcuseLetter={currentCohortTemplate?.enabled ? handleDownloadExcuseLetter : undefined}
         mode={mode}
       />
 
@@ -2592,6 +2623,26 @@ function ResultsTab({
         onClose={() => setPublishModalOpen(false)}
         isPublished={publishModalMode === "edit"}
         currentSettings={publication?.visibility_settings}
+      />
+
+      <ExcuseLetterModal
+        cohortId={cohortId}
+        open={!!excuseModalTeam}
+        onClose={() => setExcuseModalTeam(null)}
+        team={excuseModalTeam}
+      />
+
+      <ExcuseLetterModal
+        cohortId={toCohortId || cohortId}
+        open={advanceExcuseModalOpen}
+        onClose={() => setAdvanceExcuseModalOpen(false)}
+        advanceContext={{
+          toCohortId,
+          toCohortName: advanceTargets.find((c) => c.id === toCohortId)?.name ?? "the next stage",
+          teamCount: selected.size,
+          isPending: advanceMutation.isPending,
+          onConfirm: (options) => advanceMutation.mutate(options),
+        }}
       />
     </div>
   )
@@ -2803,15 +2854,17 @@ function LeaderboardTable({
               {/* Inspection & Letter buttons */}
               <td className="py-2 pr-3 text-right align-top">
                 <div className="flex items-center justify-end gap-1.5 flex-wrap">
-                  <button
-                    type="button"
-                    onClick={() => onDownloadExcuseLetter?.(r.team_id, r.team_name)}
-                    title="Download official University Excuse & Invitation Letter PDF"
-                    className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-medium border border-border text-muted-foreground hover:text-foreground hover:bg-muted transition-colors cursor-pointer"
-                  >
-                    <FileText size={12} className="text-emerald-500" />
-                    <span>Excuse Letter</span>
-                  </button>
+                  {onDownloadExcuseLetter && (
+                    <button
+                      type="button"
+                      onClick={() => onDownloadExcuseLetter(r.team_id, r.team_name)}
+                      title="Download official University Excuse & Invitation Letter PDF"
+                      className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-medium border border-border text-muted-foreground hover:text-foreground hover:bg-muted transition-colors cursor-pointer"
+                    >
+                      <FileText size={12} className="text-emerald-500" />
+                      <span>Excuse Letter</span>
+                    </button>
+                  )}
                   <button
                     type="button"
                     onClick={() => onInspectTeam?.(r.team_id)}

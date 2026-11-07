@@ -43,6 +43,7 @@ import { CohortModal, COHORT_STATUS_LABEL, COHORT_STATUS_COLOR, statusOptionsFor
 import { ContactDetailModal } from "@/pages/admin/Contacts"
 import { useToast } from "@/components/ui/toast"
 import { Card } from "@/components/ui/card"
+import { ExcuseLetterModal } from "@/components/competitions/ExcuseLetterModal"
 import { getErrorMessage } from "@/lib/utils"
 import {
   DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator,
@@ -131,6 +132,7 @@ function CohortDetailView({ cohort }: { cohort: Cohort }) {
   const queryClient = useQueryClient()
   const toast = useToast()
   const [editOpen, setEditOpen] = useState(false)
+  const [excuseModalOpen, setExcuseModalOpen] = useState(false)
   const [generateOpen, setGenerateOpen] = useState(false)
   const [addSessionOpen, setAddSessionOpen] = useState(false)
   const [drawerError, setDrawerError] = useState<string | null>(null)
@@ -419,6 +421,13 @@ function CohortDetailView({ cohort }: { cohort: Cohort }) {
               className="flex items-center gap-1.5 h-9 px-3 border border-border rounded-xl text-sm font-medium text-foreground hover:bg-muted transition-colors shrink-0"
             >
               <Pencil size={14} /> Edit
+            </button>
+            <button
+              onClick={() => setExcuseModalOpen(true)}
+              className="flex items-center gap-1.5 h-9 px-3 border border-border rounded-xl text-sm font-medium text-foreground hover:bg-muted transition-colors shrink-0"
+              title="Configure default University Excuse & Invitation Letter for this cohort"
+            >
+              <FileText size={14} className="text-primary" /> Excuse Letter
             </button>
           </div>
         }
@@ -963,6 +972,11 @@ function CohortDetailView({ cohort }: { cohort: Cohort }) {
           onSuccess={() => { invalidateCohort(); setEditOpen(false) }}
         />
       )}
+      <ExcuseLetterModal
+        cohortId={cohort.id}
+        open={excuseModalOpen}
+        onClose={() => setExcuseModalOpen(false)}
+      />
       {generateOpen && (
         <GenerateSessionsModal
           cohort={cohort}

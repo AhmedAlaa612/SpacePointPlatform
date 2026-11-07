@@ -71,6 +71,7 @@ export interface User {
   email: string;
   roles: Role[];
   status: string;
+  student_id?: string | null;
   author_can_publish?: boolean;
   author_scope_all?: boolean;
   organization_id?: string | null;
