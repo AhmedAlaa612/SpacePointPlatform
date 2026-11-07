@@ -2605,6 +2605,7 @@ function LeaderboardTable({
   onEditTiming,
   hasOperationsCriteria,
   onGradeOperations,
+  onDownloadExcuseLetter,
   mode,
 }: {
   rows: CompetitionLeaderboardRow[]
