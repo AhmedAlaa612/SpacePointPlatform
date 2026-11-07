@@ -63,6 +63,7 @@ class CompetitionTeamMemberIn(BaseModel):
     email: str | None = None
     phone: str | None = None
     school: str | None = None
+    student_id: str | None = None
 
     # Only meaningful for the full_name+email (new person) path — user_id
     # just links an existing account, nothing to send. Both default True to
@@ -470,6 +471,7 @@ class CompetitionImportPreviewRowOut(BaseModel):
     gender: str | None = None
     nationality: str | None = None
     school: str | None = None
+    student_id: str | None = None
     issues: list[str] = []
 
 
@@ -491,6 +493,7 @@ class CompetitionImportConfirmRowIn(BaseModel):
     gender: str | None = None
     nationality: str | None = None
     school: str | None = None
+    student_id: str | None = None
 
 
 class CompetitionImportConfirmIn(BaseModel):
@@ -696,6 +699,7 @@ class CompetitionAnalyticsTeamMemberOut(BaseModel):
     all_total: int | None = None
     all_done: int | None = None
     pct: int | None = None
+    student_id: str | None = None
 
 
 class CompetitionTeamQuizSubmissionOut(BaseModel):

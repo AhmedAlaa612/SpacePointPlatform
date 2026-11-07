@@ -63,6 +63,8 @@ class User(Base):
     # distinction. Allocated once, at account-creation time, never per-role
     # and never revisited. See services/documents/id_card.ensure_card_number.
     card_number = Column(Integer, nullable=True)
+    # External student ID or university ID number
+    student_id = Column(String(100), nullable=True)
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
     last_login_at = Column(DateTime(timezone=True), nullable=True)
 

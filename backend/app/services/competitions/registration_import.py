@@ -95,6 +95,7 @@ OPTIONAL_COLUMNS = [
     "nationality",
     "team_name",
     "school",
+    "student_id",
 ]
 
 # Deliberately loose — this only needs to catch "a column shifted and this
@@ -130,6 +131,15 @@ _HEADER_ALIASES = {
     "student_nationality": "nationality",
     "roster_team_id": "team_id",
     "team_code": "team_id",
+    "student_id": "student_id",
+    "university_id": "student_id",
+    "student_id_number": "student_id",
+    "university_id_number": "student_id",
+    "student_number": "student_id",
+    "university_number": "student_id",
+    "id_number": "student_id",
+    "academic_id": "student_id",
+    "student_code": "student_id",
 }
 
 
@@ -162,6 +172,7 @@ class ImportPreviewRow:
     school: str | None
     issues: list[str]
     gender: str | None = None
+    student_id: str | None = None
 
 
 def _normalize_header(raw: object) -> str:
@@ -268,6 +279,7 @@ class CleanedRow:
     nationality: str | None
     school: str | None
     gender: str | None = None
+    student_id: str | None = None
 
 
 def _clean_row(row_number: int, raw: dict) -> CleanedRow:
@@ -281,6 +293,7 @@ def _clean_row(row_number: int, raw: dict) -> CleanedRow:
         gender=_clean_str(raw.get("gender")),
         nationality=_clean_str(raw.get("nationality")),
         school=_clean_str(raw.get("school")),
+        student_id=_clean_str(raw.get("student_id")),
     )
 
 
@@ -427,6 +440,7 @@ def preview_registration_sheet(
             gender=row.gender,
             nationality=row.nationality,
             school=row.school,
+            student_id=row.student_id,
             issues=issues,
         ))
     return out
@@ -564,6 +578,8 @@ async def _register_and_assign_team(
     contact_obj = await db.get(Contact, contact_id)
     if contact_obj is not None and not user.phone and contact_obj.primary_phone_e164:
         user.phone = contact_obj.primary_phone_e164
+    if contact_obj is not None and contact_obj.student_id:
+        user.student_id = contact_obj.student_id
 
     is_obs = "observer" in user.role_values
 
@@ -654,12 +670,16 @@ async def _import_row(
             if school and not contact.organization_id:
                 org = await resolve_or_create_organization(db, school)
                 contact.organization_id = org.id
+            if row.student_id:
+                contact.student_id = row.student_id
     else:
         contact, _evaluation = await resolve_or_create_contact(
             db, full_name=member_name, phone=phone, email=email, contact_roles=["student"],
             role_event_source="import", organization_name=school, gender=gender_trunc,
             nationality=nationality_trunc,
         )
+        if row.student_id:
+            contact.student_id = row.student_id
 
     try:
         team, registration, is_new_registration = await _register_and_assign_team(

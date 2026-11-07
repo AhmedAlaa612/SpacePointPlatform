@@ -574,6 +574,7 @@ async def cohort_team_analytics(db: AsyncSession, *, cohort_id: uuid.UUID, mode:
                     "user_id": m.id,
                     "assignment_id": assignment_by_user.get(m.id),
                     "name": m.full_name,
+                    "student_id": getattr(m, "student_id", None),
                     "last_login_at": m.last_login_at,
                     "items_total": ind_total,
                     "items_done": sum(1 for item in required_individual_items if m.id in done_users_by_item.get(item.id, set())),

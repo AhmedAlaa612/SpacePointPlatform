@@ -60,6 +60,8 @@ class Contact(Base):
     # external authority (NSA) rather than where the student lives. Free
     # text, same posture as `grade` — nothing here validates or acts on it.
     nationality = Column(String(64), nullable=True)
+    # External student ID or university ID number (e.g. from roster import)
+    student_id = Column(String(100), nullable=True)
 
     owner_user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     organization_id = Column(UUID(as_uuid=True), ForeignKey("organizations.id", ondelete="SET NULL"), nullable=True)

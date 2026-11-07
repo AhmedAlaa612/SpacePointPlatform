@@ -292,6 +292,7 @@ export interface CompetitionImportPreviewRow {
   gender: string | null
   nationality: string | null
   school: string | null
+  student_id?: string | null
   issues: string[]
 }
 
@@ -787,6 +788,7 @@ export interface CompetitionAnalyticsTeamMember {
   user_id?: string
   assignment_id?: string | null
   name: string
+  student_id?: string | null
   last_login_at: string | null
   items_total?: number
   items_done?: number
