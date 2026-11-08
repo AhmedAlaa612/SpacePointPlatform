@@ -100,7 +100,7 @@ def _key(bucket: str, path: str) -> str:
     return f"{bucket}/{path}"
 
 
-async def upload_to_path(bucket: str, path: str, data: bytes, content_type: str) -> str:
+async def upload_to_path(bucket: str, path: str, data: bytes, content_type: str, r2_bucket: str | None = None) -> str:
     """Upload bytes and return only the storage path. Caller generates signed
     URLs at query time via get_signed_url().
 
@@ -108,9 +108,11 @@ async def upload_to_path(bucket: str, path: str, data: bytes, content_type: str)
     to the browser as the response's Content-Type, and hls.js/`<video>` are
     served directly by R2 with no app in the middle to re-infer it."""
 
+    target_bucket = r2_bucket or settings.R2_BUCKET
+
     def _do() -> None:
         _client().put_object(
-            Bucket=settings.R2_BUCKET,
+            Bucket=target_bucket,
             Key=_key(bucket, path),
             Body=bytes(data),
             ContentType=content_type or mimetypes.guess_type(path)[0] or "application/octet-stream",
@@ -120,15 +122,15 @@ async def upload_to_path(bucket: str, path: str, data: bytes, content_type: str)
     return path
 
 
-async def upload_file(bucket: str, path: str, data: bytes, content_type: str) -> str:
+async def upload_file(bucket: str, path: str, data: bytes, content_type: str, r2_bucket: str | None = None) -> str:
     """Upload bytes, then return a signed URL (same contract as the other
     backends' upload_file). Capped at R2's 7-day presign maximum — see
     _MAX_PRESIGN_SECONDS."""
-    await upload_to_path(bucket, path, data, content_type)
-    return await get_signed_url(bucket, path, _MAX_PRESIGN_SECONDS)
+    await upload_to_path(bucket, path, data, content_type, r2_bucket=r2_bucket)
+    return await get_signed_url(bucket, path, _MAX_PRESIGN_SECONDS, r2_bucket=r2_bucket)
 
 
-async def get_signed_url(bucket: str, path: str, expires_in: int = 3600) -> str:
+async def get_signed_url(bucket: str, path: str, expires_in: int = 3600, r2_bucket: str | None = None) -> str:
     """A presigned GET URL against the R2 S3 endpoint.
 
     Purely local HMAC computation — no network call, and no R2 operation is
@@ -136,37 +138,41 @@ async def get_signed_url(bucket: str, path: str, expires_in: int = 3600) -> str:
     line when rewriting an HLS playlist per request.
     """
     expires_in = min(int(expires_in), _MAX_PRESIGN_SECONDS)
+    target_bucket = r2_bucket or settings.R2_BUCKET
 
     def _do() -> str:
         return _client().generate_presigned_url(
             "get_object",
-            Params={"Bucket": settings.R2_BUCKET, "Key": _key(bucket, path)},
+            Params={"Bucket": target_bucket, "Key": _key(bucket, path)},
             ExpiresIn=expires_in,
         )
 
     return await anyio.to_thread.run_sync(_do)
 
 
-async def download_file(bucket: str, path: str) -> bytes:
+async def download_file(bucket: str, path: str, r2_bucket: str | None = None) -> bytes:
     """Read an object's bytes. Raises FileNotFoundError when it doesn't exist,
     matching storage_local's contract so callers need no backend-specific
     except clause."""
+    target_bucket = r2_bucket or settings.R2_BUCKET
 
     def _do() -> bytes:
         client = _client()
         try:
-            return client.get_object(Bucket=settings.R2_BUCKET, Key=_key(bucket, path))["Body"].read()
+            return client.get_object(Bucket=target_bucket, Key=_key(bucket, path))["Body"].read()
         except client.exceptions.NoSuchKey as exc:
             raise FileNotFoundError(f"{bucket}/{path}") from exc
 
     return await anyio.to_thread.run_sync(_do)
 
 
-async def delete_file(bucket: str, path: str) -> None:
+async def delete_file(bucket: str, path: str, r2_bucket: str | None = None) -> None:
+    target_bucket = r2_bucket or settings.R2_BUCKET
+
     def _do() -> None:
         # S3 DELETE is idempotent — deleting a missing key succeeds, which
         # matches storage_local's unlink(missing_ok=True).
-        _client().delete_object(Bucket=settings.R2_BUCKET, Key=_key(bucket, path))
+        _client().delete_object(Bucket=target_bucket, Key=_key(bucket, path))
 
     await anyio.to_thread.run_sync(_do)
 

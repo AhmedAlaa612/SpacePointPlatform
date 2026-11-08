@@ -124,6 +124,7 @@ import GroundStationDevices from "@/pages/operations/GroundStationDevices";
 import TestAccounts from "@/pages/operations/TestAccounts";
 import Birthdays from "@/pages/operations/Birthdays";
 import WebsiteManagement from "@/pages/operations/website/WebsiteManagement";
+import OperationsBooth from "@/pages/operations/Booth";
 import OrganizationEvents from "@/pages/organization/OrganizationEvents";
 import OrganizationPrograms from "@/pages/organization/OrganizationPrograms";
 import OrganizationCohortDetail from "@/pages/organization/OrganizationCohortDetail";
@@ -865,6 +866,7 @@ const operationsRoutes = [
   createRoute({ getParentRoute: po, path: "/delivery-settings", component: DeliverySettings }),
   createRoute({ getParentRoute: po, path: "/ground-station-devices", component: GroundStationDevices }),
   createRoute({ getParentRoute: po, path: "/test-accounts", component: TestAccounts }),
+  createRoute({ getParentRoute: po, path: "/booth", component: OperationsBooth }),
   createRoute({ getParentRoute: po, path: "/website", component: WebsiteManagement }),
   // Website hub tabs as deep-linkable routes (same pattern as the LMS and
   // Programs sidebar groups — one route per section, shared component).

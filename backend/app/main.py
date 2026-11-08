@@ -55,6 +55,7 @@ from app.routers.teams import router as teams_router
 from app.routers.video import router as video_router
 from app.routers.mentors import router as mentors_router
 from app.routers.operations_test_accounts import router as operations_test_accounts_router
+from app.routers.booth import public_router as booth_public_router, ops_router as booth_ops_router
 from app.workers.heartbeat import HEARTBEAT_KEY
 from app.workers.settings import redis_settings
 
@@ -288,6 +289,10 @@ app.include_router(mentors_router)
 
 # Operations test accounts management (@spacepoint.local & cascade delete): /operations/test-accounts/*
 app.include_router(operations_test_accounts_router)
+
+# CubeSat Booth: public kiosk capture & operations management
+app.include_router(booth_public_router)
+app.include_router(booth_ops_router)
 
 
 @app.get("/health", tags=["health"])

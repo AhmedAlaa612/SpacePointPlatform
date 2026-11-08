@@ -48,4 +48,5 @@ from app.models.website_case_study import WebsiteCaseStudy  # noqa: F401  (Case 
 from app.models.website_case_studies_header import WebsiteCaseStudiesHeader  # noqa: F401  (Case Studies Header Stats & Partners)
 from app.models.website_policy import WebsitePolicy  # noqa: F401  (Policies & Legal Documents)
 from app.models import mentors  # noqa: F401  (Mentorship Platform — Satellite & Space Mentors)
+from app.models.booth import BoothEvent, BoothPhoto  # noqa: F401  (SpacePoint CubeSat Booth Events & Photos)
 
