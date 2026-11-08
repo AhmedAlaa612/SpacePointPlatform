@@ -308,6 +308,7 @@ async def catalog(
 @router.get("/courses/{course_id}", response_model=CourseDetailOut)
 async def course_detail(
     course_id: uuid.UUID,
+    preview: bool = False,
     db: AsyncSession = Depends(get_db),
     current: User = Depends(get_current_active_user),
 ):
@@ -327,13 +328,13 @@ async def course_detail(
         )
     )).scalars().first()
 
-    locks = await unlock_state(db, user_id=current.id, course_id=course.id)
-    completion = await course_completion(db, user_id=current.id, course_id=course.id)
-    prereqs = await prerequisite_status(db, item_type="course", item_id=course.id, user_id=current.id)
-
     is_author_or_staff = await _is_course_author_or_staff(db, current, course)
-    is_preview = (enrolled_row is None and is_author_or_staff)
+    is_preview = (enrolled_row is None and is_author_or_staff) or (preview and is_author_or_staff)
     is_enrolled = (enrolled_row is not None) or is_preview
+
+    locks = await unlock_state(db, user_id=current.id, course_id=course.id, is_preview=is_preview)
+    completion = await course_completion(db, user_id=current.id, course_id=course.id, is_preview=is_preview)
+    prereqs = await prerequisite_status(db, item_type="course", item_id=course.id, user_id=current.id)
 
     if is_preview:
         for row in locks:
@@ -1945,6 +1946,7 @@ def _preview_content(kind: str, content: dict | None) -> dict:
 @router.get("/modules/{module_id}", response_model=ModuleOut)
 async def module_read(
     module_id: uuid.UUID,
+    preview: bool = False,
     db: AsyncSession = Depends(get_db),
     current: User = Depends(get_current_active_user),
 ):
@@ -1967,7 +1969,9 @@ async def module_read(
             *enrollment_is_active(),
         )
     )).first() is not None
-    if not enrolled and await _is_course_author_or_staff(db, current, course):
+    is_author_or_staff = await _is_course_author_or_staff(db, current, course)
+    is_preview = (not enrolled and is_author_or_staff) or (preview and is_author_or_staff)
+    if not enrolled and is_author_or_staff:
         enrolled = True
 
     items = (await db.execute(
@@ -2010,11 +2014,16 @@ async def module_read(
             if item.kind == "mission":
                 payload["content"].update(await _mission_embed_state(db, item, current.id))
 
+        is_req = item.is_required
+        if is_preview and item.kind == "quiz":
+            is_req = False
+
         item_payloads.append(ModuleItemOut(
             id=item.id,
             kind=item.kind,
             title=item.title,
             position=item.position,
+            is_required=is_req,
             content=payload["content"],
             status=row.status if row else None,
         ))

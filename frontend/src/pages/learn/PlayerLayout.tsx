@@ -62,7 +62,7 @@ export function PlayerLayout({
     setOpenModuleId(isOpen ? null : module.module_id);
     if (!isOpen && module.locked && !modulesData[module.module_id] && !previewData[module.module_id]) {
       setPreviewLoadingId(module.module_id);
-      fetchModule(module.module_id)
+      fetchModule(module.module_id, isPreview)
         .then((m) => setPreviewData((prev) => ({ ...prev, [module.module_id]: m })))
         .catch(() => {})
         .finally(() => setPreviewLoadingId((cur) => (cur === module.module_id ? null : cur)));

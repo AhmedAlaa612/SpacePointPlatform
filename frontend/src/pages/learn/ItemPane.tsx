@@ -21,8 +21,8 @@ import { MarkdownContent } from "@/components/lms/MarkdownContent";
  * route — this version has no route of its own, PlayerLayout swaps it in.
  */
 export function ItemPane({
-  item, onProgressed,
-}: { item: ModuleItem; onProgressed: () => void }) {
+  item, onProgressed, isPreview = false,
+}: { item: ModuleItem; onProgressed: (skipped?: boolean) => void; isPreview?: boolean }) {
   // The Got it! button for a video lives in LearnPlayer.tsx instead of
   // here, in the same row as the title (both sit *under* the player,
   // player-first) — every other content type keeps its action inside its
@@ -55,7 +55,8 @@ export function ItemPane({
   }
 
   if (item.kind === "quiz") {
-    return <QuizBlock item={item} onPassed={onProgressed} />;
+    const isOptional = isPreview || item.is_required === false;
+    return <QuizBlock item={item} onPassed={onProgressed} isOptional={isOptional} />;
   }
 
   if (item.kind === "attachment") {
@@ -280,7 +281,9 @@ function ScoreRing({ score }: { score: number }) {
   );
 }
 
-function QuizBlock({ item, onPassed }: { item: ModuleItem; onPassed: () => void }) {
+function QuizBlock({
+  item, onPassed, isOptional = false,
+}: { item: ModuleItem; onPassed: (skipped?: boolean) => void; isOptional?: boolean }) {
   const content = "questions" in item.content ? item.content : null;
   // Random-N quizzes (2026-09-01): the server samples a fresh subset each
   // time it's fetched fresh (module load, or after a submit clears the
@@ -417,11 +420,25 @@ function QuizBlock({ item, onPassed }: { item: ModuleItem; onPassed: () => void 
           );
         })}
 
-        {!review.passed && (
-          <Button size="xl" onClick={() => void retry()} disabled={retrying} className="w-fit">
-            {retrying ? "Loading..." : "Retry"}
-          </Button>
-        )}
+        <div className="flex items-center gap-3">
+          {!review.passed && (
+            <Button size="xl" onClick={() => void retry()} disabled={retrying} className="w-fit">
+              {retrying ? "Loading..." : "Retry"}
+            </Button>
+          )}
+          {isOptional && (
+            <Button
+              size="xl"
+              variant={review.passed ? "default" : "outline"}
+              onClick={() => {
+                recordProgress(item.id, "quiz-skipped").catch(() => {}).finally(() => onPassed(true));
+              }}
+              className="w-fit"
+            >
+              Continue
+            </Button>
+          )}
+        </div>
       </div>
     );
   }
@@ -499,14 +516,26 @@ function QuizBlock({ item, onPassed }: { item: ModuleItem; onPassed: () => void 
         )}
       </div>
 
-      <div className="flex items-center justify-between gap-2">
-        <Button
-          size="xl" variant="outline" className="w-fit"
-          disabled={currentIndex === 0}
-          onClick={() => setCurrentIndex((i) => i - 1)}
-        >
-          <ChevronLeft className="size-4" /> Previous
-        </Button>
+      <div className="flex items-center justify-between gap-2 flex-wrap">
+        <div className="flex items-center gap-2">
+          <Button
+            size="xl" variant="outline" className="w-fit"
+            disabled={currentIndex === 0}
+            onClick={() => setCurrentIndex((i) => i - 1)}
+          >
+            <ChevronLeft className="size-4" /> Previous
+          </Button>
+          {isOptional && (
+            <Button
+              size="xl" variant="ghost" className="w-fit text-muted-foreground hover:text-foreground cursor-pointer"
+              onClick={() => {
+                recordProgress(item.id, "quiz-skipped").catch(() => {}).finally(() => onPassed(true));
+              }}
+            >
+              Skip quiz
+            </Button>
+          )}
+        </div>
         {!currentCheck ? (
           <Button
             size="xl" className="w-fit"

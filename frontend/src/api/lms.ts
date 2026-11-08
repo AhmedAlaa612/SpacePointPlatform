@@ -139,6 +139,7 @@ export interface ModuleItem {
   kind: "video" | "text" | "quiz" | "flashcards" | "attachment" | "mission" | "practice" | "lab";
   title: string | null;
   position: number;
+  is_required?: boolean;
   content: ModuleItemContent;
   status: "not_started" | "in_progress" | "completed" | "skipped" | null;
 }
@@ -462,8 +463,8 @@ export async function fetchPublicPath(pathId: string): Promise<LearningPathDetai
   return data;
 }
 
-export async function fetchCourse(courseId: string): Promise<CourseDetail> {
-  const { data } = await api.get<CourseDetail>(`/lms/courses/${courseId}`);
+export async function fetchCourse(courseId: string, preview?: boolean): Promise<CourseDetail> {
+  const { data } = await api.get<CourseDetail>(`/lms/courses/${courseId}${preview ? "?preview=true" : ""}`);
   return data;
 }
 
@@ -495,8 +496,8 @@ export async function fulfillCheckoutSession(sessionId: string): Promise<Checkou
   return data;
 }
 
-export async function fetchModule(moduleId: string): Promise<ModuleDetail> {
-  const { data } = await api.get<ModuleDetail>(`/lms/modules/${moduleId}`);
+export async function fetchModule(moduleId: string, preview?: boolean): Promise<ModuleDetail> {
+  const { data } = await api.get<ModuleDetail>(`/lms/modules/${moduleId}${preview ? "?preview=true" : ""}`);
   return data;
 }
 
@@ -529,6 +530,7 @@ export type ProgressAction =
   | "video-watched"
   | "text-viewed"
   | "quiz-attempt"
+  | "quiz-skipped"
   | "flashcards-skipped"
   | "attachment-viewed"
   | "practice-completed"

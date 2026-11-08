@@ -36,6 +36,7 @@ _ACTION_KINDS: dict[str, set[str]] = {
     "video-watched": {"video"},
     "text-viewed": {"text"},
     "quiz-attempt": {"quiz"},
+    "quiz-skipped": {"quiz"},
     "flashcards-skipped": {"flashcards"},
     "attachment-viewed": {"attachment"},
     "practice-completed": {"practice"},
@@ -47,6 +48,7 @@ _ACTION_STATUS: dict[str, str] = {
     "video-watched": "completed",
     "text-viewed": "completed",
     "quiz-attempt": "in_progress",
+    "quiz-skipped": "skipped",
     "flashcards-skipped": "skipped",
     "attachment-viewed": "completed",
     "practice-completed": "completed",
@@ -125,13 +127,14 @@ async def item_progress(
 
 
 async def _module_progress(
-    db: AsyncSession, user_id: uuid.UUID, course_id: uuid.UUID
+    db: AsyncSession, user_id: uuid.UUID, course_id: uuid.UUID, is_preview: bool = False,
 ) -> list[dict]:
     """Ordered modules with their mandatory-item tallies for one student.
 
     `mandatory_completed` counts only required items with a completed status
     (skipped counts too — an optional item that was skipped still counts as
     done, and a mandatory one can't be skipped through this API anyway).
+    In preview mode, all quizzes are treated as optional and do not block.
     """
     modules = (await db.execute(
         select(CourseModule)
@@ -156,7 +159,10 @@ async def _module_progress(
 
     rows = []
     for m in modules:
-        mandatory = [i for i in by_module.get(m.id, []) if i.is_required]
+        mandatory = [
+            i for i in by_module.get(m.id, [])
+            if i.is_required and not (is_preview and i.kind == "quiz")
+        ]
         completed = sum(
             1 for i in mandatory if progress_by_item.get(i.id) is not None
             and progress_by_item[i.id].status in COMPLETED_STATUSES
@@ -173,12 +179,12 @@ async def _module_progress(
 
 
 async def unlock_state(
-    db: AsyncSession, *, user_id: uuid.UUID, course_id: uuid.UUID
+    db: AsyncSession, *, user_id: uuid.UUID, course_id: uuid.UUID, is_preview: bool = False,
 ) -> list[dict]:
     """Which modules are open, in order (D6): the first module whose previous
     module's mandatory items are not all complete is locked, and everything
     after it is locked too — a locked linear sequence per student."""
-    rows = await _module_progress(db, user_id, course_id)
+    rows = await _module_progress(db, user_id, course_id, is_preview=is_preview)
     locked = False
     for row in rows:
         row["locked"] = locked
@@ -189,14 +195,14 @@ async def unlock_state(
 
 
 async def course_completion(
-    db: AsyncSession, *, user_id: uuid.UUID, course_id: uuid.UUID
+    db: AsyncSession, *, user_id: uuid.UUID, course_id: uuid.UUID, is_preview: bool = False,
 ) -> dict:
     """Derived completion: a module is done when every mandatory item in it is
     completed; the course is done when every module is done. An empty module (0
     items) is not completed. Returns the per-module tallies alongside the
     overall flag so the instructor view (LM1-10) can render progress, not just
     the final state."""
-    rows = await _module_progress(db, user_id, course_id)
+    rows = await _module_progress(db, user_id, course_id, is_preview=is_preview)
     for row in rows:
         row["completed"] = row["total_items"] > 0 and (
             row["mandatory_total"] == 0 or (

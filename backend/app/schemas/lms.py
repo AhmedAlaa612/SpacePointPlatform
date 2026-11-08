@@ -307,6 +307,7 @@ class ModuleItemOut(BaseModel):
     kind: Literal["video", "text", "quiz", "flashcards", "attachment", "mission", "practice", "lab"]
     title: str | None = None
     position: int
+    is_required: bool = True
     content: ModuleContent
     # this student's own per-item state, so the player can render progress
     status: str | None = None
@@ -324,7 +325,7 @@ class ModuleOut(BaseModel):
 
 class ProgressIn(BaseModel):
     action: Literal[
-        "video-watched", "text-viewed", "quiz-attempt", "flashcards-skipped", "attachment-viewed",
+        "video-watched", "text-viewed", "quiz-attempt", "quiz-skipped", "flashcards-skipped", "attachment-viewed",
         "practice-completed", "lab-completed"
     ]
 

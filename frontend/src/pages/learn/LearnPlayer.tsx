@@ -34,7 +34,11 @@ function flatItems(course: CourseDetail, modulesData: Record<string, ModuleDetai
  * the old per-module route (LM1-8) entirely. */
 export default function LearnPlayer() {
   const { courseId } = useParams({ strict: false }) as { courseId: string };
-  const search = useSearch({ strict: false }) as { program?: string };
+  const search = useSearch({ strict: false }) as {
+    program?: string;
+    preview?: string | boolean;
+    outline?: string | boolean;
+  };
   const navigate = useNavigate();
 
   const [existingRating] = useCourseRating(courseId);
@@ -47,14 +51,17 @@ export default function LearnPlayer() {
   const [error, setError] = useState("");
   const [initialLoading, setInitialLoading] = useState(true);
 
+  const isPreview = Boolean(course?.is_preview || search.preview === "true" || search.preview === true);
+
   const loadUnlockedModules = useCallback(async (c: CourseDetail, have: Record<string, ModuleDetail>) => {
     const unlocked = c.modules.filter((m) => !m.locked && !have[m.module_id]);
     if (unlocked.length === 0) return have;
-    const fetched = await Promise.all(unlocked.map((m) => fetchModule(m.module_id)));
+    const isP = Boolean(c.is_preview || search.preview === "true" || search.preview === true);
+    const fetched = await Promise.all(unlocked.map((m) => fetchModule(m.module_id, isP)));
     const next = { ...have };
     fetched.forEach((m) => { next[m.id] = m; });
     return next;
-  }, []);
+  }, [search.preview]);
 
   useEffect(() => {
     let cancelled = false;
@@ -62,7 +69,8 @@ export default function LearnPlayer() {
       setInitialLoading(true);
       setError("");
       try {
-        const c = await fetchCourse(courseId);
+        const isP = Boolean(search.preview === "true" || search.preview === true);
+        const c = await fetchCourse(courseId, isP);
         if (cancelled) return;
         if (!c.enrolled) {
           void navigate({ to: `/learn/courses/${courseId}` });
@@ -158,15 +166,41 @@ export default function LearnPlayer() {
     }
   }, [flat.length, selectedItemId, search.program, initialLoading]);
 
-  const handleProgressed = useCallback(async () => {
+  const handleProgressed = useCallback(async (skippedItemId?: string) => {
     if (!course || !selectedModuleId) return;
-    const [freshModule, freshCourse] = await Promise.all([fetchModule(selectedModuleId), fetchCourse(courseId)]);
-    let map = { ...modulesData, [selectedModuleId]: freshModule };
+    const isP = Boolean(course.is_preview || search.preview === "true" || search.preview === true);
+    let map = { ...modulesData };
+    if (skippedItemId) {
+      const curMod = map[selectedModuleId];
+      if (curMod) {
+        map = {
+          ...map,
+          [selectedModuleId]: {
+            ...curMod,
+            items: curMod.items.map((i) => (i.id === skippedItemId ? { ...i, status: "skipped" } : i)),
+          },
+        };
+      }
+    }
+    const [freshModule, freshCourse] = await Promise.all([fetchModule(selectedModuleId, isP), fetchCourse(courseId, isP)]);
+    map = { ...map, [selectedModuleId]: freshModule };
+    if (skippedItemId) {
+      const curMod = map[selectedModuleId];
+      if (curMod) {
+        map = {
+          ...map,
+          [selectedModuleId]: {
+            ...curMod,
+            items: curMod.items.map((i) => (i.id === skippedItemId && !i.status ? { ...i, status: "skipped" } : i)),
+          },
+        };
+      }
+    }
     map = await loadUnlockedModules(freshCourse, map);
     setCourse(freshCourse);
     setModulesData(map);
 
-    const nextInModule = freshModule.items.find(
+    const nextInModule = map[selectedModuleId]?.items.find(
       (i) => i.id !== selectedItemId && !COMPLETED.has(i.status ?? "not_started"),
     );
     if (nextInModule) {
@@ -175,7 +209,7 @@ export default function LearnPlayer() {
     }
     const next = findFirstIncomplete(freshCourse, map, selectedModuleId);
     setSelectedItemId(next);
-  }, [course, selectedModuleId, selectedItemId, modulesData, courseId, loadUnlockedModules]);
+  }, [course, selectedModuleId, selectedItemId, modulesData, courseId, loadUnlockedModules, search.preview]);
 
   if (error) return <div className="p-8"><p className="text-sm text-destructive">{error}</p></div>;
   if (initialLoading || !course) return <div className="p-8"><p className="text-sm text-muted-foreground">Loading...</p></div>;
@@ -211,7 +245,7 @@ export default function LearnPlayer() {
                 button sits here instead, sharing a row with the title
                 (below the player, both at the same height) rather than
                 stacked under it inside ItemPane. */}
-            <ItemPane key={selectedItem.id} item={selectedItem} onProgressed={() => void handleProgressed()} />
+            <ItemPane key={selectedItem.id} item={selectedItem} isPreview={isPreview} onProgressed={(skipped) => void handleProgressed(skipped ? selectedItem.id : undefined)} />
 
             {selectedItem.kind === "video" && (
               <div className="flex items-center justify-between gap-4">
