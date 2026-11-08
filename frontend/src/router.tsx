@@ -182,6 +182,7 @@ import DesignBriefingPage from "@/pages/learn/DesignBriefingPage";
 import GroundStationAttemptPage from "@/pages/learn/GroundStationAttemptPage";
 import LearnArcade from "@/pages/learn/LearnArcade";
 import LearnArcadeGame from "@/pages/learn/LearnArcadeGame";
+import LearnRocketLab from "@/pages/learn/LearnRocketLab";
 
 // LMS authoring surface (LM1-13) — shared by operations + facilitator
 // (backend's require_lms_content), own top-level path so one URL space works
@@ -1425,6 +1426,18 @@ const learnArcadeGameRoute = createRoute({
   }),
 });
 
+const learnRocketLabRoute = createRoute({
+  getParentRoute: () => learnLayoutRoute,
+  path: "/rocket-lab",
+  component: LearnRocketLab,
+  validateSearch: (search: Record<string, unknown>): { program?: string; itemId?: string; mod?: string; pathway?: string } => ({
+    program: typeof search.program === "string" ? search.program : undefined,
+    itemId: typeof search.itemId === "string" ? search.itemId : undefined,
+    mod: typeof search.mod === "string" ? search.mod : undefined,
+    pathway: typeof search.pathway === "string" ? search.pathway : undefined,
+  }),
+});
+
 const routeTree = rootRoute.addChildren([
   ticketRoute,
   kitScanRoute,
@@ -1444,6 +1457,7 @@ const routeTree = rootRoute.addChildren([
     learnProfileRoute, learnProgramRoute, learnLeaderboardRoute,
     learnGamesRoute, learnGamePlayRoute,
     learnArcadeRoute, learnArcadeGameRoute,
+    learnRocketLabRoute,
     learnMissionsRoute, learnDesignBriefingRoute, learnDesignMissionRoute, learnOperateBriefingRoute,
     learnOperateMissionRoute, learnMissionRoute, learnGroundStationAttemptRoute,
   ]),

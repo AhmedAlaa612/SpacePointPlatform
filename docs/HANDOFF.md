@@ -45,6 +45,7 @@ where everything is and what it does. Depth lives in the per-domain files linked
 | Feature / Domain | Frontend UI | Backend Router | Backend Service / Model |
 |---|---|---|---|
 | **SpacePoint Mission Arcade** | `pages/learn/LearnArcade.tsx`<br/>`pages/learn/LearnArcadeGame.tsx` | `routers/lms/arcade.py` | `services/lms/arcade.py`<br/>`models/lms/arcade_game.py` |
+| **SpacePoint RocketLab 3D** | `pages/learn/LearnRocketLab.tsx` | Static / Client-side (`/rocketlab/*`) | Physics Simulation Engine (`simulate()`) |
 | **Website & Labs CMS (12 Tabs)** | `pages/admin/WebsiteManagement.tsx` | `routers/admin/website.py`<br/>`routers/admin/website_config.py`<br/>`routers/admin/website_people.py`<br/>`routers/public_content.py`<br/>`routers/public_website.py` | `models/website_cms.py`<br/>`models/website_config.py`<br/>`models/website_people.py` |
 | **Store & Merchandise (Stripe)** | `pages/admin/Shop.tsx` | `routers/admin/store.py`<br/>`routers/public_store.py` | `models/store.py` |
 | **Student & Observer Roster** | `pages/lms-authoring/LmsStudents.tsx` | `routers/lms/admin.py::search_students` | `services/lms/students.py::search_students` |

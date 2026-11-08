@@ -1546,7 +1546,21 @@ export function ItemForm({
       )}
 
       {itemType === "external_link" && (
-        <input value={externalUrl} onChange={(e) => setExternalUrl(e.target.value)} placeholder="https://…" className={inputCls} />
+        <div className="flex flex-col gap-1.5">
+          <input value={externalUrl} onChange={(e) => setExternalUrl(e.target.value)} placeholder="https://… or /learn/rocket-lab" className={inputCls} />
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => {
+                setExternalUrl("/learn/rocket-lab");
+                if (!title) setTitle("RocketLab 3D Simulation");
+              }}
+              className="text-[11px] px-2 py-0.5 rounded border border-primary/30 text-primary hover:bg-primary/10 transition-colors"
+            >
+              🚀 Prefill SpacePoint RocketLab (/learn/rocket-lab)
+            </button>
+          </div>
+        </div>
       )}
 
       {itemType === "pdf" && !initial && (

@@ -1138,3 +1138,26 @@ Each mission features dual gameplay tracks:
   2. `services/lms/program.py::check_arcade_game_item_completion` scans all active program assignments for the user containing this `arcade_game_id`.
   3. If `attempt.passed` and `score >= (item.arcade_passing_score or game.passing_score)`, the learner's `LmsProgramItemProgress` record is automatically marked as `completed` with `completed_at = now()`.
   4. Students viewing their checklist in [`TaskDrawer.tsx`](file:///c:/Users/ahmed/Downloads/spaceportal/spacepoint-stripe-test/frontend/src/pages/learn/board/TaskDrawer.tsx) see the linked mission, current best score, and a direct launch button into the arcade simulation.
+
+---
+
+## 26. SpacePoint RocketLab 3D (`/learn/rocket-lab`) (November 2026)
+
+### Purpose & Architecture
+SpacePoint RocketLab 3D is an interactive, browser-native rocket design and 3D flight simulation suite covering water rockets, model rockets, and high-power rocketry. It features:
+- **6 Engineering & Educational Modules**:
+  1. **Basics**: Foundations of rocketry and flight physics.
+  2. **Flight Lifecycle**: Complete lifecycle from nose cone & fin staging to lift-off, apogee, and parachute deployment.
+  3. **Aircraft vs Rocket**: Aerodynamics, thrust-to-weight, lift vs ballistics comparison.
+  4. **Propulsion Lab**: Solid & hybrid motor performance, burn simulation, and chamber pressure.
+  5. **Engines & Vehicles**: 30 certified rocket motors (Estes, AeroTech, Cesaroni) with measured mass calibration.
+  6. **Race 2 Space**: Specialized competition pathway covering hybrid motor design, safety reviews, and hot-fire tests.
+- **Physics Engine**: Pure client-side simulation (`simulate()`) adhering to the ISA standard atmosphere model, drag calibration (`cdK`), stability margin analysis (CG/CP margins), and rail-stall detection.
+- **Client-Side Self-Contained Deployment**:
+  - Located at `frontend/public/rocketlab/index.html` with locally vendored Three.js (`frontend/public/rocketlab/three.min.js`), eliminating school firewall / CDN blockage.
+  - Conforms to SpacePoint LMS design tokens (SpacePoint heliotrope purple `#a880ff`/`#c7aaff`, deep space darks `#05030A`/`#0d0814`, emerald `#34d399`, amber `#fbbf24`, zero light-blue/cyan).
+  - Standard platform fonts: `Outfit` for display and `Inter` for text, labels, and telemetry.
+- **Learner Navigation & Checklist Integration**:
+  - Route: `/learn/rocket-lab` mounted via [`LearnRocketLab.tsx`](file:///c:/Users/ahmed/Downloads/spaceportal/spacepoint-stripe-test/frontend/src/pages/learn/LearnRocketLab.tsx) inside `LearnShell`.
+  - Accessible directly from the learner sidebar ([`navItems.ts`](file:///c:/Users/ahmed/Downloads/spaceportal/spacepoint-stripe-test/frontend/src/pages/learn/nav/navItems.ts)) with the `Rocket` icon.
+  - Checklist steps in [`TaskDrawer.tsx`](file:///c:/Users/ahmed/Downloads/spaceportal/spacepoint-stripe-test/frontend/src/pages/learn/board/TaskDrawer.tsx) and authoring prefill in [`LmsChecklistAuthoring.tsx`](file:///c:/Users/ahmed/Downloads/spaceportal/spacepoint-stripe-test/frontend/src/pages/lms-authoring/components/LmsChecklistAuthoring.tsx) can route directly to RocketLab with program context and manual completion support.

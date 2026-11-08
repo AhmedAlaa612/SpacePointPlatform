@@ -1465,7 +1465,16 @@ export function TaskDrawer({
         to: `/learn/arcade/${target.gameKey}`,
         search: { mode: target.mode, program: assignmentId, itemId: target.itemId } as never,
       });
-    } else if (target.kind === "external") window.open(ensureAbsoluteUrl(target.url), "_blank", "noreferrer");
+    } else if (target.kind === "external") {
+      if (target.url.startsWith("/learn/rocket-lab") || target.url.includes("rocket-lab")) {
+        void navigate({
+          to: "/learn/rocket-lab",
+          search: { program: assignmentId, itemId: item.id } as never,
+        });
+      } else {
+        window.open(ensureAbsoluteUrl(target.url), "_blank", "noreferrer");
+      }
+    }
     else if (item.item_type === "mission_run") {
       if (item.mission_id) {
         void navigate({ to: `/learn/missions/${item.mission_id}` });
@@ -1510,6 +1519,7 @@ export function TaskDrawer({
     target.kind === "mission" ? (isViewOnly ? "View Mission" : "Open the mission") :
     target.kind === "quiz" ? (done ? "View results" : "Start the quiz") :
     target.kind === "arcade_game" ? (done ? "Replay game" : "Play game") :
+    target.kind === "external" && (target.url.startsWith("/learn/rocket-lab") || target.url.includes("rocket-lab")) ? "Launch RocketLab" :
     target.kind === "external" ? "Open the link" : "Open";
 
   const canSubmit = !hasGuideline || guidelineOpened;

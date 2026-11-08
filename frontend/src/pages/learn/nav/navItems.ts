@@ -1,5 +1,4 @@
-import { Home, GraduationCap, Trophy, ClipboardCheck, Gamepad2 } from "lucide-react";
-// import { Rocket } from "lucide-react"; // Missions / Arcade icons — restore alongside their NAV_ITEMS entries below
+import { Home, GraduationCap, Trophy, ClipboardCheck, Gamepad2, Rocket } from "lucide-react";
 
 /** `catalog`, `paths` and `profile` are still reachable pages — they just
  * aren't nav entries any more (2026-08-12): discovery moved onto the landing
@@ -9,7 +8,7 @@ import { Home, GraduationCap, Trophy, ClipboardCheck, Gamepad2 } from "lucide-re
  * Roadmap board redesign: the old navbar dropped it in favor of the logo
  * link, but a fixed sidebar has no logo-as-home affordance, so the sidebar
  * shows all six the same as the mobile tab bar always has. */
-export type LearnNavActive = "home" | "catalog" | "missions" | "paths" | "checklists" | "my-courses" | "games" | "arcade" | "leaderboard" | "profile";
+export type LearnNavActive = "home" | "catalog" | "missions" | "paths" | "checklists" | "my-courses" | "games" | "arcade" | "rocket-lab" | "leaderboard" | "profile";
 
 export const NAV_ITEMS: { key: LearnNavActive; label: string; to: string; icon: typeof Home }[] = [
   { key: "home", label: "Home", to: "/learn/home", icon: Home },
@@ -18,8 +17,8 @@ export const NAV_ITEMS: { key: LearnNavActive; label: string; to: string; icon: 
   // Missions tab hidden temporarily per management request; re-enable by uncommenting.
   // { key: "missions", label: "Missions", to: "/learn/missions", icon: Rocket },
   { key: "games", label: "Live Quiz", to: "/learn/games", icon: Gamepad2 },
-  // Arcade tab hidden temporarily per management request; re-enable by uncommenting.
-  // { key: "arcade", label: "Arcade", to: "/learn/arcade", icon: Rocket },
+  { key: "arcade", label: "Arcade", to: "/learn/arcade", icon: Gamepad2 },
+  { key: "rocket-lab", label: "RocketLab", to: "/learn/rocket-lab", icon: Rocket },
   { key: "leaderboard", label: "Leaderboard", to: "/learn/leaderboard", icon: Trophy },
 ];
 
