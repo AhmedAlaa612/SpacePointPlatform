@@ -1,6 +1,6 @@
 import { useMemo } from "react";
 import { Link, useSearch } from "@tanstack/react-router";
-import { ArrowLeft, Rocket, Sparkles, CheckCircle2 } from "lucide-react";
+import { ArrowLeft, Rocket, CheckCircle2 } from "lucide-react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { completeChecklistItem } from "@/api/lms";
 import { Button } from "@/components/ui/button";
@@ -83,10 +83,6 @@ export default function LearnRocketLab() {
         </div>
 
         <div className="flex items-center gap-3 shrink-0">
-          <div className="hidden md:flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-primary/10 border border-primary/20 text-xs font-medium text-primary">
-            <Sparkles className="size-3.5" />
-            <span>Interactive Simulator</span>
-          </div>
 
           {assignmentId && itemId && (
             <Button

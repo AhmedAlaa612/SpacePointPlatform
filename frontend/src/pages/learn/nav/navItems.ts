@@ -1,4 +1,4 @@
-import { Home, GraduationCap, Trophy, ClipboardCheck, Gamepad2, Rocket } from "lucide-react";
+import { Home, GraduationCap, Trophy, ClipboardCheck, Gamepad2 } from "lucide-react";
 
 /** `catalog`, `paths` and `profile` are still reachable pages — they just
  * aren't nav entries any more (2026-08-12): discovery moved onto the landing
@@ -19,7 +19,8 @@ export const NAV_ITEMS: { key: LearnNavActive; label: string; to: string; icon: 
   { key: "games", label: "Live Quiz", to: "/learn/games", icon: Gamepad2 },
   // Arcade tab hidden temporarily per management request; re-enable by uncommenting.
   // { key: "arcade", label: "Arcade", to: "/learn/arcade", icon: Gamepad2 },
-  { key: "rocket-lab", label: "RocketLab", to: "/learn/rocket-lab", icon: Rocket },
+  // RocketLab tab hidden from navbar per request; re-enable by uncommenting.
+  // { key: "rocket-lab", label: "RocketLab", to: "/learn/rocket-lab", icon: Rocket },
   { key: "leaderboard", label: "Leaderboard", to: "/learn/leaderboard", icon: Trophy },
 ];
 
