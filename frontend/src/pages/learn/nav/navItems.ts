@@ -17,7 +17,8 @@ export const NAV_ITEMS: { key: LearnNavActive; label: string; to: string; icon: 
   // Missions tab hidden temporarily per management request; re-enable by uncommenting.
   // { key: "missions", label: "Missions", to: "/learn/missions", icon: Rocket },
   { key: "games", label: "Live Quiz", to: "/learn/games", icon: Gamepad2 },
-  { key: "arcade", label: "Arcade", to: "/learn/arcade", icon: Gamepad2 },
+  // Arcade tab hidden temporarily per management request; re-enable by uncommenting.
+  // { key: "arcade", label: "Arcade", to: "/learn/arcade", icon: Gamepad2 },
   { key: "rocket-lab", label: "RocketLab", to: "/learn/rocket-lab", icon: Rocket },
   { key: "leaderboard", label: "Leaderboard", to: "/learn/leaderboard", icon: Trophy },
 ];
