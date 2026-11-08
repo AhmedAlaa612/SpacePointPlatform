@@ -70,7 +70,7 @@ class Settings(BaseSettings):
     R2_ACCESS_KEY_ID: str = ""
     R2_SECRET_ACCESS_KEY: str = ""
     R2_BUCKET: str = ""
-    R2_BOOTH_BUCKET: str = "spacepoint-booth"
+    R2_BOOTH_BUCKET: str = "spacepoint-videos"
     # Defaults to https://{R2_ACCOUNT_ID}.r2.cloudflarestorage.com when blank —
     # set explicitly only to pin a jurisdiction-specific endpoint.
     R2_ENDPOINT_URL: str = ""

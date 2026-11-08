@@ -364,7 +364,7 @@ async def list_event_photos(
     stmt = stmt.offset((page - 1) * limit).limit(limit)
     rows = (await db.execute(stmt)).all()
 
-    bucket_name = settings.R2_BOOTH_BUCKET or "spacepoint-booth"
+    bucket_name = settings.R2_BOOTH_BUCKET or settings.R2_BUCKET or "spacepoint-videos"
     items: List[BoothPhotoOut] = []
     for photo, user in rows:
         # Generate presigned URL for preview/download (valid 1 hour)
@@ -374,7 +374,8 @@ async def list_event_photos(
             parts = photo.storage_path.split("/", 1)
             b = parts[0] if len(parts) > 1 else "photos"
             p = parts[1] if len(parts) > 1 else parts[0]
-            photo_url = await storage_r2.get_signed_url(bucket=b, path=p, expires_in=3600, r2_bucket=bucket_name)
+            target_b = photo.storage_bucket or bucket_name
+            photo_url = await storage_r2.get_signed_url(bucket=b, path=p, expires_in=3600, r2_bucket=target_b)
         except Exception:
             pass
 

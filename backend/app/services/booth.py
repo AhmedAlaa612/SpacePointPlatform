@@ -165,7 +165,7 @@ async def process_booth_capture(
         raise HTTPException(status_code=400, detail=f"Invalid base64 image data: {exc}")
 
     photo_uuid = str(uuid.uuid4())
-    bucket_name = settings.R2_BOOTH_BUCKET or "spacepoint-booth"
+    bucket_name = settings.R2_BOOTH_BUCKET or settings.R2_BUCKET or "spacepoint-videos"
     storage_path = f"photos/{event.slug}/{photo_uuid}.jpg"
 
     try:

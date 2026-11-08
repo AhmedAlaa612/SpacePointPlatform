@@ -49,6 +49,13 @@ echo "==> Building frontend bundle..."
 npm install --no-audit --no-fund
 npm run build
 
+echo "==> Updating and restarting CubeSat backend (PM2)..."
+if [ -d "$REPO_DIR/backend" ]; then
+  (cd "$REPO_DIR/backend" && npm install --no-audit --no-fund)
+  pm2 restart cubesat-backend || pm2 start "$REPO_DIR/backend/server.js" --name cubesat-backend
+  pm2 save
+fi
+
 echo "==> Testing and reloading Nginx..."
 nginx -t && systemctl reload nginx
 
