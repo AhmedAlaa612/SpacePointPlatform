@@ -19,9 +19,8 @@ import {
   Users,
   X,
 } from "lucide-react";
+import type { BoothEvent, BoothPhoto } from "@/api/booth";
 import {
-  BoothEvent,
-  BoothPhoto,
   createBoothEventApi,
   deleteBoothEventApi,
   getBoothAnalyticsApi,
@@ -411,7 +410,7 @@ export default function BoothOperations() {
           <div className="p-12 text-center">
             <EmptyState
               title="No photos captured yet"
-              description="Photos captured from the booth kiosk will show up here live, along with student LMS creation status and delivery reports."
+              hint="Photos captured from the booth kiosk will show up here live, along with student LMS creation status and delivery reports."
             />
           </div>
         ) : (
@@ -582,180 +581,188 @@ export default function BoothOperations() {
       </div>
 
       {/* Modal: Create Event */}
-      <Modal
-        open={addModalOpen}
-        onClose={() => setAddModalOpen(false)}
-        title="Create CubeSat Booth Event"
-      >
-        <div className="space-y-4">
-          <Field label="Event Name" required>
-            <input
-              type="text"
-              placeholder="e.g. Sharjah Entrepreneurship Festival 2026"
-              value={formData.name}
-              onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-              className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white"
-            />
-          </Field>
-
-          <Field label="Event Slug (URL identifier)" hint="Used in the booth URL: selfie.spacepoint.ae?event=your-slug">
-            <input
-              type="text"
-              placeholder="e.g. sef-2026 (leave empty to auto-generate)"
-              value={formData.slug}
-              onChange={(e) => setFormData({ ...formData, slug: e.target.value })}
-              className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white font-mono"
-            />
-          </Field>
-
-          <Field label="Linked LMS Invite Code" hint="Attaches course/cohort access grants to participants who join from this event.">
-            <select
-              value={formData.invitation_code_id}
-              onChange={(e) => setFormData({ ...formData, invitation_code_id: e.target.value })}
-              className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white"
-            >
-              <option value="">-- No Invite Code linked --</option>
-              {studentCodes.map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.code} {c.label ? `(${c.label})` : ""} - {c.used_count}/{c.max_uses} uses
-                </option>
-              ))}
-            </select>
-          </Field>
-
-          <div className="pt-2">
-            <label className="flex items-start gap-3 cursor-pointer">
+      {addModalOpen && (
+        <Modal
+          onClose={() => setAddModalOpen(false)}
+          title="Create CubeSat Booth Event"
+        >
+          <div className="space-y-4">
+            <Field label="Event Name *">
               <input
-                type="checkbox"
-                checked={formData.auto_create_lms_account}
-                onChange={(e) => setFormData({ ...formData, auto_create_lms_account: e.target.checked })}
-                className="mt-1 rounded bg-slate-950 border-slate-700 text-purple-600 focus:ring-purple-500"
+                type="text"
+                placeholder="e.g. Sharjah Entrepreneurship Festival 2026"
+                value={formData.name}
+                onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white"
               />
-              <div>
-                <span className="text-sm font-semibold text-white">Automatically create SpacePoint LMS student accounts</span>
-                <p className="text-xs text-slate-400">
-                  New participants will receive their photo along with a secure activation link to set their password and access their space missions.
-                </p>
-              </div>
-            </label>
+            </Field>
+
+            <Field label="Event Slug (URL identifier)">
+              <input
+                type="text"
+                placeholder="e.g. sef-2026 (leave empty to auto-generate)"
+                value={formData.slug}
+                onChange={(e) => setFormData({ ...formData, slug: e.target.value })}
+                className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white font-mono"
+              />
+              <p className="text-xs text-slate-400 mt-1">Used in booth URL: selfie.spacepoint.ae?event=your-slug</p>
+            </Field>
+
+            <Field label="Linked LMS Invite Code">
+              <select
+                value={formData.invitation_code_id}
+                onChange={(e) => setFormData({ ...formData, invitation_code_id: e.target.value })}
+                className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white"
+              >
+                <option value="">-- No Invite Code linked --</option>
+                {studentCodes.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.code} {c.label ? `(${c.label})` : ""} - {c.used_count}/{c.max_uses} uses
+                  </option>
+                ))}
+              </select>
+              <p className="text-xs text-slate-400 mt-1">Attaches course/cohort access grants to participants who join from this event.</p>
+            </Field>
+
+            <div className="pt-2">
+              <label className="flex items-start gap-3 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={formData.auto_create_lms_account}
+                  onChange={(e) => setFormData({ ...formData, auto_create_lms_account: e.target.checked })}
+                  className="mt-1 rounded bg-slate-950 border-slate-700 text-purple-600 focus:ring-purple-500"
+                />
+                <div>
+                  <span className="text-sm font-semibold text-white">Automatically create SpacePoint LMS student accounts</span>
+                  <p className="text-xs text-slate-400">
+                    New participants will receive their photo along with a secure activation link to set their password and access their space missions.
+                  </p>
+                </div>
+              </label>
+            </div>
+
+            <Field label="Email Subject (Optional override)">
+              <input
+                type="text"
+                placeholder="e.g. Your CubeSat Photo — SpacePoint × SEF"
+                value={formData.email_subject}
+                onChange={(e) => setFormData({ ...formData, email_subject: e.target.value })}
+                className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white"
+              />
+            </Field>
           </div>
 
-          <Field label="Email Subject (Optional override)">
-            <input
-              type="text"
-              placeholder="e.g. Your CubeSat Photo — SpacePoint × SEF"
-              value={formData.email_subject}
-              onChange={(e) => setFormData({ ...formData, email_subject: e.target.value })}
-              className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white"
-            />
-          </Field>
-        </div>
-
-        <ModalActions
-          onCancel={() => setAddModalOpen(false)}
-          onConfirm={() => createMutation.mutate()}
-          confirmText="Create Event"
-          confirmDisabled={!formData.name.trim() || createMutation.isPending}
-        />
-      </Modal>
+          <ModalActions
+            onCancel={() => setAddModalOpen(false)}
+            onConfirm={() => createMutation.mutate()}
+            confirmText="Create Event"
+            disabled={!formData.name.trim() || createMutation.isPending}
+            loading={createMutation.isPending}
+          />
+        </Modal>
+      )}
 
       {/* Modal: Edit Event */}
-      <Modal
-        open={!!editTarget}
-        onClose={() => setEditTarget(null)}
-        title={`Edit Event: ${editTarget?.name}`}
-      >
-        <div className="space-y-4">
-          <Field label="Event Name" required>
-            <input
-              type="text"
-              value={formData.name}
-              onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-              className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white"
-            />
-          </Field>
-
-          <Field label="Event Slug">
-            <input
-              type="text"
-              value={formData.slug}
-              onChange={(e) => setFormData({ ...formData, slug: e.target.value })}
-              className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white font-mono"
-            />
-          </Field>
-
-          <Field label="Linked LMS Invite Code">
-            <select
-              value={formData.invitation_code_id}
-              onChange={(e) => setFormData({ ...formData, invitation_code_id: e.target.value })}
-              className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white"
-            >
-              <option value="">-- No Invite Code linked --</option>
-              {studentCodes.map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.code} {c.label ? `(${c.label})` : ""} - {c.used_count}/{c.max_uses} uses
-                </option>
-              ))}
-            </select>
-          </Field>
-
-          <div className="pt-2">
-            <label className="flex items-start gap-3 cursor-pointer">
+      {editTarget && (
+        <Modal
+          onClose={() => setEditTarget(null)}
+          title={`Edit Event: ${editTarget.name}`}
+        >
+          <div className="space-y-4">
+            <Field label="Event Name *">
               <input
-                type="checkbox"
-                checked={formData.auto_create_lms_account}
-                onChange={(e) => setFormData({ ...formData, auto_create_lms_account: e.target.checked })}
-                className="mt-1 rounded bg-slate-950 border-slate-700 text-purple-600 focus:ring-purple-500"
+                type="text"
+                value={formData.name}
+                onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white"
               />
-              <div>
-                <span className="text-sm font-semibold text-white">Automatically create SpacePoint LMS student accounts</span>
-                <p className="text-xs text-slate-400">
-                  New participants will receive their photo along with a secure activation link.
-                </p>
-              </div>
-            </label>
+            </Field>
+
+            <Field label="Event Slug">
+              <input
+                type="text"
+                value={formData.slug}
+                onChange={(e) => setFormData({ ...formData, slug: e.target.value })}
+                className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white font-mono"
+              />
+            </Field>
+
+            <Field label="Linked LMS Invite Code">
+              <select
+                value={formData.invitation_code_id}
+                onChange={(e) => setFormData({ ...formData, invitation_code_id: e.target.value })}
+                className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white"
+              >
+                <option value="">-- No Invite Code linked --</option>
+                {studentCodes.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.code} {c.label ? `(${c.label})` : ""} - {c.used_count}/{c.max_uses} uses
+                  </option>
+                ))}
+              </select>
+            </Field>
+
+            <div className="pt-2">
+              <label className="flex items-start gap-3 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={formData.auto_create_lms_account}
+                  onChange={(e) => setFormData({ ...formData, auto_create_lms_account: e.target.checked })}
+                  className="mt-1 rounded bg-slate-950 border-slate-700 text-purple-600 focus:ring-purple-500"
+                />
+                <div>
+                  <span className="text-sm font-semibold text-white">Automatically create SpacePoint LMS student accounts</span>
+                  <p className="text-xs text-slate-400">
+                    New participants will receive their photo along with a secure activation link.
+                  </p>
+                </div>
+              </label>
+            </div>
+
+            <div className="pt-2">
+              <label className="flex items-center gap-3 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={formData.is_active}
+                  onChange={(e) => setFormData({ ...formData, is_active: e.target.checked })}
+                  className="rounded bg-slate-950 border-slate-700 text-purple-600 focus:ring-purple-500"
+                />
+                <span className="text-sm font-semibold text-white">Event is Active (Accepts captures)</span>
+              </label>
+            </div>
+
+            <Field label="Email Subject">
+              <input
+                type="text"
+                value={formData.email_subject}
+                onChange={(e) => setFormData({ ...formData, email_subject: e.target.value })}
+                className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white"
+              />
+            </Field>
           </div>
 
-          <div className="pt-2">
-            <label className="flex items-center gap-3 cursor-pointer">
-              <input
-                type="checkbox"
-                checked={formData.is_active}
-                onChange={(e) => setFormData({ ...formData, is_active: e.target.checked })}
-                className="rounded bg-slate-950 border-slate-700 text-purple-600 focus:ring-purple-500"
-              />
-              <span className="text-sm font-semibold text-white">Event is Active (Accepts captures)</span>
-            </label>
-          </div>
-
-          <Field label="Email Subject">
-            <input
-              type="text"
-              value={formData.email_subject}
-              onChange={(e) => setFormData({ ...formData, email_subject: e.target.value })}
-              className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white"
-            />
-          </Field>
-        </div>
-
-        <ModalActions
-          onCancel={() => setEditTarget(null)}
-          onConfirm={() => updateMutation.mutate()}
-          confirmText="Save Changes"
-          confirmDisabled={!formData.name.trim() || updateMutation.isPending}
-        />
-      </Modal>
+          <ModalActions
+            onCancel={() => setEditTarget(null)}
+            onConfirm={() => updateMutation.mutate()}
+            confirmText="Save Changes"
+            disabled={!formData.name.trim() || updateMutation.isPending}
+            loading={updateMutation.isPending}
+          />
+        </Modal>
+      )}
 
       {/* Delete Confirmation Dialog */}
-      <ConfirmDialog
-        open={!!deleteTarget}
-        title={`Delete Event: ${deleteTarget?.name}?`}
-        description="This will permanently remove the event and all associated capture logs. Uploaded photos on R2 will remain untouched."
-        confirmText="Delete"
-        danger
-        onCancel={() => setDeleteTarget(null)}
-        onConfirm={() => deleteMutation.mutate()}
-      />
+      {deleteTarget && (
+        <ConfirmDialog
+          title={`Delete Event: ${deleteTarget.name}?`}
+          description="This will permanently remove the event and all associated capture logs. Uploaded photos on R2 will remain untouched."
+          confirmLabel="Delete"
+          destructive
+          pending={deleteMutation.isPending}
+          onCancel={() => setDeleteTarget(null)}
+          onConfirm={() => deleteMutation.mutate()}
+        />
+      )}
 
       {/* Photo Preview Modal */}
       {previewPhoto && (
