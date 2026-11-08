@@ -1,6 +1,6 @@
 import { Fragment, useEffect, useRef, useState } from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { Plus, X, GripVertical, ImagePlus, Users, Crop, ExternalLink, Eye, Copy } from "lucide-react"
+import { Plus, X, GripVertical, ImagePlus, Users, Crop, ExternalLink, Eye, Copy, Rocket } from "lucide-react"
 import { EmptyState, Spinner } from "@/components/ui/primitives"
 import { ImageCropModal } from "@/components/ui/ImageCropModal"
 import { ObserverTeamModal } from "@/components/lms/ObserverTeamModal"
@@ -652,6 +652,7 @@ export function ChecklistItemsEditor({
   onImportItems?: () => void
 }) {
   const [addingType, setAddingType] = useState<LmsProgramItemType | null>(null)
+  const [addingInitial, setAddingInitial] = useState<Partial<LmsProgramItem> | null>(null)
   // Individual vs. team is picked here, at add time, not toggled afterward —
   // a submission item's scope is locked server-side once created (flipping
   // it later silently orphans anything already submitted, since the two
@@ -827,14 +828,15 @@ export function ChecklistItemsEditor({
       {readOnly ? null : addingType ? (
         <ItemForm
           itemType={addingType}
+          initial={addingInitial as never}
           initialScope={
             addingType === "submission" ? addingSubmissionScope
             : addingType === "mission_run" ? addingMissionRunScope
             : undefined
           }
           cohortId={cohortId} checkpointLabels={checkpointLabels}
-          onCancel={() => setAddingType(null)}
-          onSave={async (data) => { await onAdd(data); setAddingType(null) }}
+          onCancel={() => { setAddingType(null); setAddingInitial(null); }}
+          onSave={async (data) => { await onAdd(data); setAddingType(null); setAddingInitial(null); }}
         />
       ) : (
         <div className="flex flex-col gap-2 pt-2">
@@ -851,13 +853,13 @@ export function ChecklistItemsEditor({
                 return (
                   <Fragment key={value}>
                     <button
-                      onClick={() => { setAddingSubmissionScope("individual"); setAddingType("submission") }}
+                      onClick={() => { setAddingSubmissionScope("individual"); setAddingInitial(null); setAddingType("submission") }}
                       className={addStepButtonCls}
                     >
                       <Icon size={13} /> Individual Submission
                     </button>
                     <button
-                      onClick={() => { setAddingSubmissionScope("team"); setAddingType("submission") }}
+                      onClick={() => { setAddingSubmissionScope("team"); setAddingInitial(null); setAddingType("submission") }}
                       className={addStepButtonCls}
                     >
                       <Users size={13} /> Team Submission
@@ -869,13 +871,13 @@ export function ChecklistItemsEditor({
                 return (
                   <Fragment key={value}>
                     <button
-                      onClick={() => { setAddingMissionRunScope("individual"); setAddingType("mission_run") }}
+                      onClick={() => { setAddingMissionRunScope("individual"); setAddingInitial(null); setAddingType("mission_run") }}
                       className={addStepButtonCls}
                     >
                       <Icon size={13} /> Individual Mission Run
                     </button>
                     <button
-                      onClick={() => { setAddingMissionRunScope("team"); setAddingType("mission_run") }}
+                      onClick={() => { setAddingMissionRunScope("team"); setAddingInitial(null); setAddingType("mission_run") }}
                       className={addStepButtonCls}
                     >
                       <Users size={13} /> Team Mission Run
@@ -883,8 +885,33 @@ export function ChecklistItemsEditor({
                   </Fragment>
                 )
               }
+              if (value === "arcade_game") {
+                return (
+                  <Fragment key={value}>
+                    <button key={value} onClick={() => { setAddingInitial(null); setAddingType(value); }} className={addStepButtonCls}>
+                      <Icon size={13} /> {label}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setAddingInitial({
+                          item_type: "external_link",
+                          title: "RocketLab 3D Simulation",
+                          description: "Interactive rocket design and 3D flight simulation.",
+                          external_url: "/learn/rocket-lab",
+                          scope: "individual",
+                        })
+                        setAddingType("external_link")
+                      }}
+                      className={addStepButtonCls}
+                    >
+                      <Rocket size={13} /> RocketLab
+                    </button>
+                  </Fragment>
+                )
+              }
               return (
-                <button key={value} onClick={() => setAddingType(value)} className={addStepButtonCls}>
+                <button key={value} onClick={() => { setAddingInitial(null); setAddingType(value); }} className={addStepButtonCls}>
                   <Icon size={13} /> {label}
                 </button>
               )
@@ -1546,21 +1573,7 @@ export function ItemForm({
       )}
 
       {itemType === "external_link" && (
-        <div className="flex flex-col gap-1.5">
-          <input value={externalUrl} onChange={(e) => setExternalUrl(e.target.value)} placeholder="https://… or /learn/rocket-lab" className={inputCls} />
-          <div className="flex items-center gap-2">
-            <button
-              type="button"
-              onClick={() => {
-                setExternalUrl("/learn/rocket-lab");
-                if (!title) setTitle("RocketLab 3D Simulation");
-              }}
-              className="text-[11px] px-2 py-0.5 rounded border border-primary/30 text-primary hover:bg-primary/10 transition-colors"
-            >
-              🚀 Prefill SpacePoint RocketLab (/learn/rocket-lab)
-            </button>
-          </div>
-        </div>
+        <input value={externalUrl} onChange={(e) => setExternalUrl(e.target.value)} placeholder="https://…" className={inputCls} />
       )}
 
       {itemType === "pdf" && !initial && (
