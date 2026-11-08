@@ -180,6 +180,7 @@ class OrganizationSignupRequest(BaseModel):
 class UpdateMeRequest(BaseModel):
     full_name: str | None = None
     student_id: str | None = None
+    university_name: str | None = None
     phone: str | None = None
     country: str | None = None
     linkedin_url: str | None = None

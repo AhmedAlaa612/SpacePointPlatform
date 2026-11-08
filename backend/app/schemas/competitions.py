@@ -628,6 +628,7 @@ class StudentExcuseLetterMemberOut(BaseModel):
     user_id: str
     full_name: str
     student_id: str = ""
+    university_name: str = ""
     is_me: bool = False
 
 
@@ -637,11 +638,14 @@ class StudentExcuseLetterStatusOut(BaseModel):
     team_id: UUID | None = None
     team_name: str | None = None
     my_student_id: str | None = None
+    my_university_name: str | None = None
+    team_university_name: str | None = None
     members: list[StudentExcuseLetterMemberOut] = []
 
 
 class UpdateTeamStudentIdsIn(BaseModel):
     members: list[dict[str, str]]
+    team_university_name: str | None = None
 
 
 class CompetitionAdvanceTeamsIn(BaseModel):

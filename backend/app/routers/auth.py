@@ -124,6 +124,10 @@ async def _user_out(db: AsyncSession, user: User, profile: ApplicantProfile | No
             select(Organization).where(Organization.owner_user_id == user.id)
         )
     ).scalars().first()
+    if org is None:
+        org_id = user.organization_id or (contact.organization_id if contact else None)
+        if org_id:
+            org = await db.get(Organization, org_id)
     code_rows = (
         await db.execute(
             select(
@@ -927,6 +931,25 @@ async def update_me(
             profile.deliver_city_ids = data.deliver_city_ids
         if data.has_own_transportation is not None:
             profile.has_own_transportation = data.has_own_transportation
+
+    if data.university_name is not None:
+        u_clean = data.university_name.strip()
+        if u_clean:
+            from app.services.spine.identity import resolve_or_create_organization
+            org_row = await resolve_or_create_organization(db, u_clean, org_type="university")
+            current_user.organization_id = org_row.id
+            if current_user.contact_id:
+                from app.models.spine.contact import Contact
+                c_row = await db.get(Contact, current_user.contact_id)
+                if c_row:
+                    c_row.organization_id = org_row.id
+        else:
+            current_user.organization_id = None
+            if current_user.contact_id:
+                from app.models.spine.contact import Contact
+                c_row = await db.get(Contact, current_user.contact_id)
+                if c_row:
+                    c_row.organization_id = None
 
     wants_org_fields = any(
         f is not None

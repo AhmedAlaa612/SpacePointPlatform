@@ -163,6 +163,7 @@ export async function updateMeApi(
   data: Partial<{
     full_name: string
     student_id: string
+    university_name: string
     phone: string
     country: string
     birthdate: string

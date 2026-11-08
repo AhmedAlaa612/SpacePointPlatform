@@ -653,18 +653,23 @@ export interface ExcuseLetterConfig {
   contact_website?: string
 }
 
+export interface StudentExcuseLetterMember {
+  user_id: string
+  full_name: string
+  student_id: string
+  university_name?: string
+  is_me: boolean
+}
+
 export interface StudentExcuseLetterStatus {
   enabled: boolean
   cohort_name: string
   team_id: string | null
   team_name: string | null
   my_student_id: string
-  members: Array<{
-    user_id: string
-    full_name: string
-    student_id: string
-    is_me: boolean
-  }>
+  my_university_name?: string
+  team_university_name?: string
+  members: StudentExcuseLetterMember[]
 }
 
 export const getStudentExcuseLetterStatusApi = (cohortId: string): Promise<StudentExcuseLetterStatus> =>
@@ -672,9 +677,13 @@ export const getStudentExcuseLetterStatusApi = (cohortId: string): Promise<Stude
 
 export const updateTeamStudentIdsApi = (
   cohortId: string,
-  members: Array<{ user_id: string; student_id: string }>,
+  members: Array<{ user_id: string; student_id?: string; university_name?: string }>,
+  team_university_name?: string,
 ): Promise<{ status: string }> =>
-  api.post(`/competitions/student/cohorts/${cohortId}/update-team-student-ids`, { members }).then((r) => r.data)
+  api.post(`/competitions/student/cohorts/${cohortId}/update-team-student-ids`, {
+    members,
+    team_university_name: team_university_name?.trim() || undefined,
+  }).then((r) => r.data)
 
 export const getCohortExcuseLetterTemplateApi = (cohortId: string): Promise<ExcuseLetterConfig> =>
   api.get<ExcuseLetterConfig>(`/competitions/admin/cohorts/${cohortId}/excuse-letter-template`).then((r) => r.data)
@@ -741,10 +750,14 @@ export const downloadExcuseLetterPreviewApi = (
 export const downloadMyExcuseLetterApi = (
   cohortId: string,
   mode: "team" | "individual" = "team",
+  universityName?: string,
 ): Promise<Blob> =>
   api
     .get(`/competitions/student/cohorts/${cohortId}/my-excuse-letter`, {
-      params: { mode },
+      params: {
+        mode,
+        university_name: universityName?.trim() || undefined,
+      },
       responseType: "blob",
     })
     .then((r) => r.data)

@@ -167,6 +167,7 @@ async def build_team_excuse_letter_pdf(
     target_cohort: Cohort,
     single_user_id: uuid.UUID | None = None,
     overrides: dict[str, Any] | None = None,
+    institution_name_override: str | None = None,
 ) -> bytes:
     from app.models.spine.contact import Contact
     from app.models.spine.organization import Organization
@@ -174,7 +175,8 @@ async def build_team_excuse_letter_pdf(
 
     member_ids = await team_member_ids(db, team_id=team.id)
     members_data = []
-    institution_name = None
+    first_member_institution = None
+    single_student_institution = None
     single_student_data = None
 
     for uid in member_ids:
@@ -185,10 +187,15 @@ async def build_team_excuse_letter_pdf(
 
         sid = user.student_id or (contact.student_id if contact else None) or ""
 
-        if contact and contact.organization_id and not institution_name:
-            org = await db.get(Organization, contact.organization_id)
+        user_org_name = None
+        org_id = user.organization_id or (contact.organization_id if contact else None)
+        if org_id:
+            org = await db.get(Organization, org_id)
             if org:
-                institution_name = org.name_latin or org.name_arabic
+                user_org_name = org.name_latin or org.name_arabic
+
+        if user_org_name and not first_member_institution:
+            first_member_institution = user_org_name
 
         m_dict = {
             "name": user.full_name,
@@ -197,6 +204,15 @@ async def build_team_excuse_letter_pdf(
         members_data.append(m_dict)
         if single_user_id and user.id == single_user_id:
             single_student_data = m_dict
+            single_student_institution = user_org_name
+
+    # Determine institution name
+    if institution_name_override and institution_name_override.strip():
+        institution_name = institution_name_override.strip()
+    elif single_user_id:
+        institution_name = single_student_institution
+    else:
+        institution_name = first_member_institution
 
     resolved = resolve_excuse_letter_config(target_cohort, overrides)
 
