@@ -48,6 +48,14 @@ class TeamCheckpointStateOut(BaseModel):
     locked_at: datetime | None = None
     locked_by_user_id: UUID | None = None
     locked_by_name: str | None = None
+    penalty_points: float | None = None
+    penalty_notes: str | None = None
+
+
+class OpsGateLockIn(BaseModel):
+    """Optional penalty payload when Ops locks a checkpoint or final submission."""
+    penalty_points: float | None = None
+    notes: str | None = None
 
 
 class CompetitionTeamRenameIn(BaseModel):
@@ -737,6 +745,8 @@ class CompetitionAnalyticsCheckpointOut(BaseModel):
     locked_by_name: str | None = None
     locked_by_email: str | None = None
     locked_by_id: UUID | None = None
+    penalty_points: float | None = None
+    penalty_notes: str | None = None
 
 
 class CompetitionAnalyticsTeamMemberOut(BaseModel):
@@ -805,6 +815,8 @@ class CompetitionAnalyticsTeamOut(BaseModel):
     locked_by_name: str | None = None
     locked_by_email: str | None = None
     locked_by_id: UUID | None = None
+    final_lock_penalty: float | None = None
+    final_lock_notes: str | None = None
 
 
 class CompetitionAnalyticsActivityOut(BaseModel):

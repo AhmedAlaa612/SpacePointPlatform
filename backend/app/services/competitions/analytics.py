@@ -532,6 +532,8 @@ async def cohort_team_analytics(db: AsyncSession, *, cohort_id: uuid.UUID, mode:
             is_locked = cp_status == "done"
             cp_locked_at = (cp_prog.completed_at or cp_prog.updated_at) if (cp_prog and is_locked) else None
             cp_updater = users_by_id.get(cp_prog.updated_by_user_id) if (cp_prog and cp_prog.updated_by_user_id) else None
+            cp_penalty_pts = cp_prog.penalty_points if (cp_prog and is_locked) else None
+            cp_penalty_notes = cp_prog.penalty_notes if (cp_prog and is_locked) else None
             checkpoints_for_team.append({
                 "item_id": cp.id,
                 "title": cp.title,
@@ -542,6 +544,8 @@ async def cohort_team_analytics(db: AsyncSession, *, cohort_id: uuid.UUID, mode:
                 "locked_by_name": cp_updater.full_name if cp_updater else None,
                 "locked_by_email": cp_updater.email if cp_updater else None,
                 "locked_by_id": cp_prog.updated_by_user_id if cp_prog else None,
+                "penalty_points": cp_penalty_pts,
+                "penalty_notes": cp_penalty_notes,
             })
 
         quiz_subs = []
@@ -614,6 +618,8 @@ async def cohort_team_analytics(db: AsyncSession, *, cohort_id: uuid.UUID, mode:
             "locked_by_name": locked_by_user.full_name if locked_by_user else None,
             "locked_by_email": locked_by_user.email if locked_by_user else None,
             "locked_by_id": team.final_locked_by,
+            "final_lock_penalty": getattr(team, "final_lock_penalty", None) if team.final_locked_at is not None else None,
+            "final_lock_notes": getattr(team, "final_lock_notes", None) if team.final_locked_at is not None else None,
         })
     team_rows.sort(key=lambda r: (-r["pct"], r["team_name"].lower()))
 

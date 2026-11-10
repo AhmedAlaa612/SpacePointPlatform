@@ -123,7 +123,7 @@ export function TimingOverrideModal({ cohortId, team, open, onClose }: TimingOve
               </span>
             </div>
 
-            {breakdown?.timing_breakdown && breakdown.timing_breakdown.length > 1 && (
+            {breakdown?.timing_breakdown && (breakdown.timing_breakdown.length > 1 || breakdown.timing_breakdown.some((g) => g.points !== 0)) && (
               <div className="border-t border-border/40 pt-2 space-y-1">
                 <span className="text-[11px] font-semibold text-muted-foreground">Breakdown:</span>
                 {breakdown.timing_breakdown.map((gate) => (

@@ -776,6 +776,15 @@ export const renameTeamApi = (teamId: string, name: string) =>
 export const deleteTeamApi = (teamId: string) =>
   api.delete<void>(`/competitions/admin/teams/${teamId}`).then((r) => r.data)
 
+export interface OpsGateLockPayload {
+  penalty_points?: number | null
+  notes?: string | null
+}
+
+/** Ops-side lock for a team's final submission, with optional penalty. */
+export const lockTeamApi = (teamId: string, body?: OpsGateLockPayload) =>
+  api.post<CompetitionTeam>(`/competitions/admin/teams/${teamId}/lock`, body ?? {}).then((r) => r.data)
+
 /** Reopens a team's checklist after "Final Submit" — see
  * routers/competitions/admin.py::unlock_team. The only way that lock
  * ever clears; a team can never re-open its own submission. */
@@ -791,10 +800,25 @@ export interface TeamCheckpointState {
   locked_at?: string | null
   locked_by_user_id?: string | null
   locked_by_name?: string | null
+  penalty_points?: number | null
+  penalty_notes?: string | null
 }
 
 export const getTeamCheckpointsApi = (teamId: string) =>
   api.get<TeamCheckpointState[]>(`/competitions/admin/teams/${teamId}/checkpoints`).then((r) => r.data)
+
+/** Ops-side lock for one checkpoint gate, with optional penalty. */
+export const lockTeamCheckpointApi = (
+  teamId: string,
+  checkpointItemId: string,
+  body?: OpsGateLockPayload,
+) =>
+  api
+    .post<CompetitionTeam>(
+      `/competitions/admin/teams/${teamId}/lock-checkpoint/${checkpointItemId}`,
+      body ?? {},
+    )
+    .then((r) => r.data)
 
 /** Reopens one checkpoint gate and cascades down (later gates + final
  * lock) — see routers/competitions/admin.py::unlock_team_checkpoint. */
@@ -908,6 +932,8 @@ export interface CompetitionAnalyticsCheckpoint {
   locked_by_name?: string | null
   locked_by_email?: string | null
   locked_by_id?: string | null
+  penalty_points?: number | null
+  penalty_notes?: string | null
 }
 
 export interface CompetitionAnalyticsTeamMember {
@@ -970,6 +996,8 @@ export interface CompetitionAnalyticsTeam {
   locked_by_name?: string | null
   locked_by_email?: string | null
   locked_by_id?: string | null
+  final_lock_penalty?: number | null
+  final_lock_notes?: string | null
 }
 
 export interface CompetitionAnalyticsActivity {

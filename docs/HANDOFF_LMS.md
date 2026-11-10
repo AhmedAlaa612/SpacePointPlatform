@@ -1161,3 +1161,10 @@ SpacePoint RocketLab 3D is an interactive, browser-native rocket design and 3D f
   - Route: `/learn/rocket-lab` mounted via [`LearnRocketLab.tsx`](file:///c:/Users/ahmed/Downloads/spaceportal/spacepoint-stripe-test/frontend/src/pages/learn/LearnRocketLab.tsx) inside `LearnShell`.
   - Accessible directly from the learner sidebar ([`navItems.ts`](file:///c:/Users/ahmed/Downloads/spaceportal/spacepoint-stripe-test/frontend/src/pages/learn/nav/navItems.ts)) with the `Rocket` icon.
   - Checklist steps in [`TaskDrawer.tsx`](file:///c:/Users/ahmed/Downloads/spaceportal/spacepoint-stripe-test/frontend/src/pages/learn/board/TaskDrawer.tsx) and authoring prefill in [`LmsChecklistAuthoring.tsx`](file:///c:/Users/ahmed/Downloads/spaceportal/spacepoint-stripe-test/frontend/src/pages/lms-authoring/components/LmsChecklistAuthoring.tsx) can route directly to RocketLab with program context and manual completion support.
+
+---
+
+## 27. Final Gate `teamReady` with Optional-Only Team Items (November 2026)
+
+- **Invariant**: In [`RoadmapBoard.tsx`](file:///c:/Users/ahmed/Downloads/spaceportal/spacepoint-stripe-test/frontend/src/pages/learn/board/RoadmapBoard.tsx), `teamReady` is `requiredTeamItems.every((i) => i.status === "done")` (without requiring `requiredTeamItems.length > 0`).
+- **Why**: If a cohort's checklist has only optional team-scoped items (e.g., an optional `Poster Submission`) and all required items are individual-scoped, `requiredTeamItems` is empty (`[]`). Using `requiredTeamItems.every((i) => i.status === "done")` evaluates to `true` whenever there are zero pending required team items, matching the backend's `services/lms/program.py::team_final_submit_readiness` and allowing teams on a team to lock their final submission whether or not they submitted the optional team item.

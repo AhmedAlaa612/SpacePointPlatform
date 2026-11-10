@@ -31,7 +31,7 @@ stored fact alone — same instinct as `compute_dashboard`'s `all_valid`.
 import uuid
 from datetime import datetime, timezone
 
-from sqlalchemy import Boolean, Column, Date, DateTime, ForeignKey, Integer, String, Text, Time, UniqueConstraint
+from sqlalchemy import Boolean, Column, Date, DateTime, Float, ForeignKey, Integer, String, Text, Time, UniqueConstraint
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 
 from app.db.base import Base
@@ -384,6 +384,9 @@ class LmsProgramTeamItemProgress(Base):
     # [name]" here instead of the individual table's implicit "you".
     updated_by_user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     updated_at = Column(DateTime(timezone=True), nullable=True)
+    # Optional Ops-applied penalty when locking a checkpoint gate (negative or 0).
+    penalty_points = Column(Float, nullable=True)
+    penalty_notes = Column(String(255), nullable=True)
 
 
 class CohortLmsEditor(Base):

@@ -39,7 +39,7 @@ from app.schemas.competitions import (
     CompetitionRubricIn, CompetitionRubricOut,
     CompetitionTeamCreateIn, CompetitionTeamMemberIn, CompetitionTeamOut, CompetitionTeamRenameIn,
     CohortSubmissionWindowsUpdate, TeamCheckpointStateOut, TeamTimingAdjustmentUpdate, TeamScoreBreakdownOut,
-    OpsScoreIn, OpsScoreOut, ExcuseLetterConfig,
+    OpsGateLockIn, OpsScoreIn, OpsScoreOut, ExcuseLetterConfig,
 )
 from app.services.competitions import analytics as analytics_service
 from app.services.competitions import certificates as certificates_service
@@ -280,6 +280,27 @@ async def delete_team(team_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
     await db.commit()
 
 
+@router.post("/teams/{team_id}/lock", response_model=CompetitionTeamOut)
+async def lock_team(
+    team_id: uuid.UUID,
+    body: OpsGateLockIn | None = None,
+    db: AsyncSession = Depends(get_db),
+    current: User = Depends(get_current_active_user),
+):
+    """Ops-side lock for a team's final submission, with an optional penalty
+    deduction and note."""
+    await team_service.lock_team_submission(
+        db,
+        team_id=team_id,
+        locked_by_user_id=current.id,
+        penalty_points=body.penalty_points if body else None,
+        notes=body.notes if body else None,
+    )
+    await db.commit()
+    rows = await team_service.list_teams_with_members(db, cohort_id=(await _team_cohort_id(db, team_id)))
+    return next(CompetitionTeamOut(**r) for r in rows if r["id"] == team_id)
+
+
 @router.post("/teams/{team_id}/unlock", response_model=CompetitionTeamOut)
 async def unlock_team(team_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
     """Reopens a team's checklist after "Final Submit" — the only way that
@@ -298,6 +319,29 @@ async def get_team_checkpoints(team_id: uuid.UUID, db: AsyncSession = Depends(ge
     Teams tab's gate badges + per-gate unlock buttons. Same ops-only gating
     as everything else on this router."""
     return await team_service.team_checkpoint_states(db, team_id=team_id)
+
+
+@router.post("/teams/{team_id}/lock-checkpoint/{checkpoint_item_id}", response_model=CompetitionTeamOut)
+async def lock_team_checkpoint(
+    team_id: uuid.UUID,
+    checkpoint_item_id: uuid.UUID,
+    body: OpsGateLockIn | None = None,
+    db: AsyncSession = Depends(get_db),
+    current: User = Depends(get_current_active_user),
+):
+    """Ops-side lock for one checkpoint gate for a team, with an optional
+    penalty deduction and note."""
+    await team_service.lock_team_checkpoint(
+        db,
+        team_id=team_id,
+        checkpoint_item_id=checkpoint_item_id,
+        locked_by_user_id=current.id,
+        penalty_points=body.penalty_points if body else None,
+        notes=body.notes if body else None,
+    )
+    await db.commit()
+    rows = await team_service.list_teams_with_members(db, cohort_id=(await _team_cohort_id(db, team_id)))
+    return next(CompetitionTeamOut(**r) for r in rows if r["id"] == team_id)
 
 
 @router.post("/teams/{team_id}/unlock-checkpoint/{checkpoint_item_id}", response_model=CompetitionTeamOut)

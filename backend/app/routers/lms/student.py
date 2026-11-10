@@ -1347,6 +1347,8 @@ async def lock_checkpoint_item(
     target.confirmed_by_user_id = current.id
     target.updated_by_user_id = current.id
     target.updated_at = datetime.now(timezone.utc)
+    target.penalty_points = None
+    target.penalty_notes = None
     await db.commit()
     await db.refresh(target)
     return await _checklist_item_out(db, item=item, target=target)
@@ -1556,8 +1558,12 @@ async def observer_reset_team(
         progress.submitted_links = None
         progress.updated_by_user_id = None
         progress.updated_at = None
+        progress.penalty_points = None
+        progress.penalty_notes = None
     team.final_locked_at = None
     team.final_locked_by = None
+    team.final_lock_penalty = None
+    team.final_lock_notes = None
 
     await db.execute(
         delete(CompetitionScore).where(CompetitionScore.team_id == team.id)

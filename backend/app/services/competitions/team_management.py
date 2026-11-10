@@ -310,7 +310,45 @@ async def finalize_team_submission(db: AsyncSession, *, team_id: uuid.UUID, lock
         if team.first_locked_at is None:
             team.first_locked_at = now
         team.final_locked_by = locked_by_user_id
+        team.final_lock_penalty = None
+        team.final_lock_notes = None
         await db.flush()
+    return team
+
+
+async def lock_team_submission(
+    db: AsyncSession,
+    *,
+    team_id: uuid.UUID,
+    locked_by_user_id: uuid.UUID,
+    penalty_points: float | None = None,
+    notes: str | None = None,
+) -> Team:
+    """Ops-only final submission lock — locks a team's final submission (even
+    after deadline or with incomplete items) and optionally records a penalty
+    deduction and note on the final submission gate."""
+    team = await db.get(Team, team_id)
+    if team is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Team not found")
+    now = datetime.now(timezone.utc)
+    if team.final_locked_at is None:
+        team.final_locked_at = now
+    if team.first_locked_at is None:
+        team.first_locked_at = now
+    team.final_locked_by = locked_by_user_id
+
+    norm_penalty: float | None = None
+    if penalty_points is not None:
+        try:
+            val = float(penalty_points)
+            if val != 0.0:
+                norm_penalty = -abs(val)
+        except (ValueError, TypeError):
+            norm_penalty = None
+    clean_notes = (notes or "").strip() or None
+    team.final_lock_penalty = norm_penalty
+    team.final_lock_notes = clean_notes[:255] if clean_notes else None
+    await db.flush()
     return team
 
 
@@ -324,6 +362,8 @@ async def unlock_team_submission(db: AsyncSession, *, team_id: uuid.UUID) -> Tea
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Team not found")
     team.final_locked_at = None
     team.final_locked_by = None
+    team.final_lock_penalty = None
+    team.final_lock_notes = None
     await db.flush()
     return team
 
@@ -350,6 +390,7 @@ async def team_checkpoint_states(db: AsyncSession, *, team_id: uuid.UUID) -> lis
     states = {c.id: "pending" for c in checkpoints}
     locked_ats = {}
     locked_by_user_ids = {}
+    penalties: dict[uuid.UUID, tuple[float | None, str | None]] = {}
     if checkpoints:
         rows = (await db.execute(
             select(LmsProgramTeamItemProgress).where(
@@ -367,6 +408,7 @@ async def team_checkpoint_states(db: AsyncSession, *, team_id: uuid.UUID) -> lis
             if progress.status == "done":
                 locked_ats[progress.item_id] = progress.completed_at or progress.updated_at
                 locked_by_user_ids[progress.item_id] = progress.updated_by_user_id
+                penalties[progress.item_id] = (progress.penalty_points, progress.penalty_notes)
     return [
         {
             "item_id": c.id,
@@ -376,9 +418,66 @@ async def team_checkpoint_states(db: AsyncSession, *, team_id: uuid.UUID) -> lis
             "locked_at": locked_ats.get(c.id),
             "locked_by_user_id": locked_by_user_ids.get(c.id),
             "locked_by_name": updater_names.get(locked_by_user_ids.get(c.id)) if locked_by_user_ids.get(c.id) else None,
+            "penalty_points": penalties.get(c.id, (None, None))[0],
+            "penalty_notes": penalties.get(c.id, (None, None))[1],
         }
         for c in checkpoints
     ]
+
+
+async def lock_team_checkpoint(
+    db: AsyncSession,
+    *,
+    team_id: uuid.UUID,
+    checkpoint_item_id: uuid.UUID,
+    locked_by_user_id: uuid.UUID,
+    penalty_points: float | None = None,
+    notes: str | None = None,
+) -> Team:
+    """Ops-only checkpoint lock — locks a specific checkpoint gate on behalf
+    of a team and optionally records a penalty deduction and note."""
+    from app.services.lms.program import _get_or_create_team_progress, resolve_cohort_program
+
+    team = await db.get(Team, team_id)
+    if team is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Team not found")
+    target = await db.get(LmsProgramItem, checkpoint_item_id)
+    if target is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Checkpoint item not found")
+    if target.item_type != "checkpoint":
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="This item isn't a checkpoint")
+    if team.cohort_id is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="This team has no cohort checklist")
+    resolved = await resolve_cohort_program(db, team.cohort_id)
+    if resolved is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="This team's cohort has no checklist")
+    _program, items = resolved
+    if target.id not in {i.id for i in items}:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST, detail="This checkpoint isn't on the team's checklist",
+        )
+    progress = await _get_or_create_team_progress(db, item_id=target.id, team_id=team.id)
+    now = datetime.now(timezone.utc)
+    progress.status = "done"
+    if progress.completed_at is None:
+        progress.completed_at = now
+    progress.confirmed_by_user_id = locked_by_user_id
+    progress.updated_by_user_id = locked_by_user_id
+    progress.updated_at = now
+
+    norm_penalty: float | None = None
+    if penalty_points is not None:
+        try:
+            val = float(penalty_points)
+            if val != 0.0:
+                norm_penalty = -abs(val)
+        except (ValueError, TypeError):
+            norm_penalty = None
+    clean_notes = (notes or "").strip() or None
+    progress.penalty_points = norm_penalty
+    progress.penalty_notes = clean_notes[:255] if clean_notes else None
+    await db.flush()
+    return team
 
 
 async def unlock_team_checkpoint(db: AsyncSession, *, team_id: uuid.UUID, checkpoint_item_id: uuid.UUID) -> Team:
@@ -427,8 +526,12 @@ async def unlock_team_checkpoint(db: AsyncSession, *, team_id: uuid.UUID, checkp
             progress.status = "pending"
             progress.completed_at = None
             progress.confirmed_by_user_id = None
+            progress.penalty_points = None
+            progress.penalty_notes = None
     team.final_locked_at = None
     team.final_locked_by = None
+    team.final_lock_penalty = None
+    team.final_lock_notes = None
     await db.flush()
     return team
 
@@ -444,6 +547,8 @@ async def reset_observer_team(db: AsyncSession, *, team_id: uuid.UUID) -> Team:
 
     team.final_locked_at = None
     team.final_locked_by = None
+    team.final_lock_penalty = None
+    team.final_lock_notes = None
 
     team_rows = (await db.execute(
         select(LmsProgramTeamItemProgress).where(LmsProgramTeamItemProgress.team_id == team.id)
@@ -457,6 +562,8 @@ async def reset_observer_team(db: AsyncSession, *, team_id: uuid.UUID) -> Team:
         progress.submitted_links = None
         progress.updated_by_user_id = None
         progress.updated_at = None
+        progress.penalty_points = None
+        progress.penalty_notes = None
 
     await db.execute(
         delete(CompetitionScore).where(CompetitionScore.team_id == team.id)

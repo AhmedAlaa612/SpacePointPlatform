@@ -89,6 +89,8 @@ class Team(Base):
     final_locked_at = Column(DateTime(timezone=True), nullable=True)
     final_locked_by = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     first_locked_at = Column(DateTime(timezone=True), nullable=True)
+    final_lock_penalty = Column(Float, nullable=True)
+    final_lock_notes = Column(String(255), nullable=True)
     timing_adjustment_override = Column(Float, nullable=True)
     timing_adjustment_notes = Column(String(255), nullable=True)
     qualification = Column(String(50), nullable=True)

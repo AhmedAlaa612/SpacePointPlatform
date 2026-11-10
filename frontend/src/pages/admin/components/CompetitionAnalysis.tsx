@@ -11,7 +11,8 @@ import {
   Rocket, UserX, Users, UsersRound, X, Maximize2,
 } from "lucide-react"
 import {
-  getCohortTeamAnalyticsApi, downloadCohortQuizAnswersWorkbookApi, unlockTeamApi, unlockTeamCheckpointApi,
+  getCohortTeamAnalyticsApi, downloadCohortQuizAnswersWorkbookApi,
+  lockTeamApi, unlockTeamApi, lockTeamCheckpointApi, unlockTeamCheckpointApi,
   type CompetitionAnalytics, type CompetitionAnalyticsItem, type CompetitionAnalyticsTeam,
   type CompetitionAnalyticsDeliverable, type CompetitionMissionRun, type CompetitionTeamQuizSubmission,
   type CompetitionAnalyticsTeamMember,
@@ -812,10 +813,25 @@ export function TeamAnalysisCard({
   const [localExpanded, setLocalExpanded] = useState(false)
   const [drilledMember, setDrilledMember] = useState<CompetitionAnalyticsTeamMember | null>(null)
   const [modalMember, setModalMember] = useState<CompetitionAnalyticsTeamMember | null>(null)
+  const [lockModalTarget, setLockModalTarget] = useState<
+    | { kind: "final" }
+    | { kind: "checkpoint"; checkpointItemId: string; title: string }
+    | null
+  >(null)
+  const [penaltyPointsStr, setPenaltyPointsStr] = useState("")
+  const [penaltyNotes, setPenaltyNotes] = useState("")
   const expanded = isExpanded !== undefined ? isExpanded : localExpanded
   const handleToggle = onToggleExpand ?? (() => setLocalExpanded((v) => !v))
   const toast = useToast()
   const queryClient = useQueryClient()
+
+  const invalidateTeamLockQueries = () => {
+    void queryClient.invalidateQueries({ queryKey: ["competitions-team-analytics", cohortId] })
+    void queryClient.invalidateQueries({ queryKey: ["competitions-teams", cohortId] })
+    void queryClient.invalidateQueries({ queryKey: ["competitions-leaderboard", cohortId] })
+    void queryClient.invalidateQueries({ queryKey: ["competitions-team-breakdown", cohortId, team.team_id] })
+    void queryClient.invalidateQueries({ queryKey: ["competitions-team-checkpoints", team.team_id] })
+  }
 
   const toggleDrillMember = (m: CompetitionAnalyticsTeamMember) => {
     setDrilledMember((prev) => {
@@ -825,24 +841,95 @@ export function TeamAnalysisCard({
       return m
     })
   }
+  const lockMutation = useMutation({
+    mutationFn: (args: { teamId: string; penalty_points?: number | null; notes?: string | null }) =>
+      lockTeamApi(args.teamId, { penalty_points: args.penalty_points, notes: args.notes }),
+    onSuccess: (_data, vars) => {
+      const pen = vars.penalty_points ? -Math.abs(vars.penalty_points) : 0
+      toast.success(
+        pen < 0
+          ? `Final submission locked with ${pen} pts penalty`
+          : "Final submission locked",
+      )
+      setLockModalTarget(null)
+      setPenaltyPointsStr("")
+      setPenaltyNotes("")
+      invalidateTeamLockQueries()
+    },
+    onError: (e: unknown) => toast.error(getErrorMessage(e, "Failed to lock this team")),
+  })
   const unlockMutation = useMutation({
     mutationFn: (teamId: string) => unlockTeamApi(teamId),
     onSuccess: () => {
       toast.success("Team's checklist reopened for editing")
-      queryClient.invalidateQueries({ queryKey: ["competitions-team-analytics", cohortId] })
+      invalidateTeamLockQueries()
     },
     onError: (e: unknown) => toast.error(getErrorMessage(e, "Failed to unlock this team")),
+  })
+  const lockCheckpointMutation = useMutation({
+    mutationFn: (args: {
+      teamId: string
+      checkpointItemId: string
+      penalty_points?: number | null
+      notes?: string | null
+    }) =>
+      lockTeamCheckpointApi(args.teamId, args.checkpointItemId, {
+        penalty_points: args.penalty_points,
+        notes: args.notes,
+      }),
+    onSuccess: (_data, vars) => {
+      const pen = vars.penalty_points ? -Math.abs(vars.penalty_points) : 0
+      toast.success(
+        pen < 0
+          ? `Checkpoint locked with ${pen} pts penalty`
+          : "Checkpoint locked",
+      )
+      setLockModalTarget(null)
+      setPenaltyPointsStr("")
+      setPenaltyNotes("")
+      invalidateTeamLockQueries()
+    },
+    onError: (e: unknown) => toast.error(getErrorMessage(e, "Failed to lock this checkpoint")),
   })
   const unlockCheckpointMutation = useMutation({
     mutationFn: (args: { teamId: string; checkpointItemId: string }) =>
       unlockTeamCheckpointApi(args.teamId, args.checkpointItemId),
     onSuccess: () => {
       toast.success("Checkpoint reopened — later checkpoints and the final lock reopened too")
-      queryClient.invalidateQueries({ queryKey: ["competitions-team-analytics", cohortId] })
+      invalidateTeamLockQueries()
     },
     onError: (e: unknown) => toast.error(getErrorMessage(e, "Failed to unlock this checkpoint")),
   })
   const checkpointLockedCount = team.checkpoints?.filter((c) => c.locked).length ?? 0
+
+  const parsedPenaltyVal = penaltyPointsStr.trim() !== "" ? parseFloat(penaltyPointsStr) : 0
+  const effectivePenaltyDeduction =
+    !isNaN(parsedPenaltyVal) && parsedPenaltyVal !== 0 ? -Math.abs(parsedPenaltyVal) : 0
+
+  const handleConfirmLock = (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!lockModalTarget) return
+    if (penaltyPointsStr.trim() !== "" && isNaN(parsedPenaltyVal)) {
+      toast.error("Please enter a valid number for penalty points")
+      return
+    }
+    const penaltyToSend = effectivePenaltyDeduction !== 0 ? effectivePenaltyDeduction : null
+    const notesToSend = penaltyNotes.trim() || null
+    if (lockModalTarget.kind === "final") {
+      lockMutation.mutate({
+        teamId: team.team_id,
+        penalty_points: penaltyToSend,
+        notes: notesToSend,
+      })
+    } else {
+      lockCheckpointMutation.mutate({
+        teamId: team.team_id,
+        checkpointItemId: lockModalTarget.checkpointItemId,
+        penalty_points: penaltyToSend,
+        notes: notesToSend,
+      })
+    }
+  }
 
   return (
     <div className="rounded-2xl border border-border/70 bg-background/40 overflow-hidden shadow-xs hover:border-border transition-all">
@@ -1108,6 +1195,11 @@ export function TeamAnalysisCard({
                           {cp.locked_at && (
                             <span className="text-[11px] font-normal text-muted-foreground">· {relativeTime(cp.locked_at)}</span>
                           )}
+                          {cp.penalty_points !== undefined && cp.penalty_points !== null && cp.penalty_points !== 0 && (
+                            <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-rose-500/15 text-rose-600 dark:text-rose-400 border border-rose-500/30">
+                              Penalty: {cp.penalty_points > 0 ? `+${cp.penalty_points}` : cp.penalty_points} pts
+                            </span>
+                          )}
                         </div>
                         <p className="text-[11px] text-muted-foreground mt-0.5 flex flex-wrap gap-x-1">
                           {cp.locked_at && (
@@ -1117,6 +1209,11 @@ export function TeamAnalysisCard({
                             <span>
                               by <strong className="text-foreground font-medium">{cp.locked_by_name}</strong>
                               {cp.locked_by_email ? <span> ({cp.locked_by_email})</span> : ""}
+                            </span>
+                          )}
+                          {cp.penalty_notes && (
+                            <span className="text-rose-600/90 dark:text-rose-400/90 italic">
+                              · Note: {cp.penalty_notes}
                             </span>
                           )}
                         </p>
@@ -1137,18 +1234,35 @@ export function TeamAnalysisCard({
                     </Button>
                   </div>
                 ) : (
-                  <div key={cp.item_id} className="flex items-center gap-2.5 p-3 rounded-xl border border-border/60 bg-muted/30 text-xs">
-                    <div className="p-1.5 rounded-lg bg-muted text-muted-foreground shrink-0"><Flag size={14} /></div>
-                    <span className="font-semibold text-foreground">{cp.title}</span>
-                    <span className="text-muted-foreground italic">· Not locked yet</span>
+                  <div key={cp.item_id} className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-3 rounded-xl border border-border/60 bg-muted/30 text-xs">
+                    <div className="flex items-center gap-2.5 min-w-0">
+                      <div className="p-1.5 rounded-lg bg-muted text-muted-foreground shrink-0"><Flag size={14} /></div>
+                      <div className="min-w-0 flex items-center gap-1.5 flex-wrap">
+                        <span className="font-semibold text-foreground">{cp.title}</span>
+                        <span className="text-muted-foreground italic">· Not locked yet</span>
+                      </div>
+                    </div>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => {
+                        setPenaltyPointsStr("")
+                        setPenaltyNotes("")
+                        setLockModalTarget({ kind: "checkpoint", checkpointItemId: cp.item_id, title: cp.title })
+                      }}
+                      disabled={lockCheckpointMutation.isPending}
+                      className="h-8 text-xs font-semibold gap-1.5 border-primary/40 text-primary hover:bg-primary/10 shrink-0 self-start sm:self-center cursor-pointer"
+                    >
+                      <Lock size={12} /> Lock checkpoint
+                    </Button>
                   </div>
                 ))}
               </div>
             </div>
           )}
 
-          {/* Locked submission banner */}
-          {team.locked && (
+          {/* Final submission lock / unlock banner */}
+          {team.locked ? (
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-3 rounded-xl border border-emerald-500/30 bg-emerald-500/10 text-xs">
               <div className="flex items-start sm:items-center gap-2.5 min-w-0">
                 <div className="p-1.5 rounded-lg bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 shrink-0 mt-0.5 sm:mt-0">
@@ -1160,6 +1274,11 @@ export function TeamAnalysisCard({
                     {team.locked_at && (
                       <span className="text-[11px] font-normal text-muted-foreground">
                         · {relativeTime(team.locked_at)}
+                      </span>
+                    )}
+                    {team.final_lock_penalty !== undefined && team.final_lock_penalty !== null && team.final_lock_penalty !== 0 && (
+                      <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-rose-500/15 text-rose-600 dark:text-rose-400 border border-rose-500/30">
+                        Penalty: {team.final_lock_penalty > 0 ? `+${team.final_lock_penalty}` : team.final_lock_penalty} pts
                       </span>
                     )}
                   </div>
@@ -1177,6 +1296,11 @@ export function TeamAnalysisCard({
                     )}
                     {!team.locked_at && !team.locked_by_name && (
                       <span>Checklist is finalized and locked.</span>
+                    )}
+                    {team.final_lock_notes && (
+                      <span className="text-rose-600/90 dark:text-rose-400/90 italic">
+                        · Note: {team.final_lock_notes}
+                      </span>
                     )}
                   </p>
                 </div>
@@ -1196,6 +1320,36 @@ export function TeamAnalysisCard({
                 <Lock size={12} /> Unlock final submission
               </Button>
             </div>
+          ) : (
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-3 rounded-xl border border-border/60 bg-muted/30 text-xs">
+              <div className="flex items-start sm:items-center gap-2.5 min-w-0">
+                <div className="p-1.5 rounded-lg bg-muted text-muted-foreground shrink-0 mt-0.5 sm:mt-0">
+                  <Lock size={14} />
+                </div>
+                <div className="min-w-0">
+                  <div className="font-semibold text-foreground flex items-center gap-1.5 flex-wrap">
+                    <span>Final submission not locked</span>
+                  </div>
+                  <p className="text-[11px] text-muted-foreground mt-0.5">
+                    Checklist is still open for editing. You can lock it on behalf of the team (with an optional penalty).
+                  </p>
+                </div>
+              </div>
+
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => {
+                  setPenaltyPointsStr("")
+                  setPenaltyNotes("")
+                  setLockModalTarget({ kind: "final" })
+                }}
+                disabled={lockMutation.isPending}
+                className="h-8 text-xs font-semibold gap-1.5 border-primary/40 text-primary hover:bg-primary/10 shrink-0 self-start sm:self-center cursor-pointer"
+              >
+                <Lock size={12} /> Lock final submission
+              </Button>
+            </div>
           )}
 
           {/* Footer metadata */}
@@ -1212,6 +1366,122 @@ export function TeamAnalysisCard({
             )}
           </div>
         </div>
+      )}
+
+      {lockModalTarget && (
+        <Dialog open={!!lockModalTarget} onOpenChange={(open) => !open && setLockModalTarget(null)}>
+          <DialogContent className="sm:max-w-md bg-card border-border p-6">
+            <DialogHeader>
+              <div className="flex items-center gap-2 mb-1">
+                <span className="text-[10px] font-bold uppercase tracking-wider text-primary bg-primary/10 border border-primary/20 px-2 py-0.5 rounded-full">
+                  Operations Lock
+                </span>
+              </div>
+              <DialogTitle className="text-lg font-bold text-foreground">
+                {lockModalTarget.kind === "final"
+                  ? `Lock Final Submission — ${team.team_name}`
+                  : `Lock "${lockModalTarget.title}" — ${team.team_name}`}
+              </DialogTitle>
+              <DialogDescription className="text-xs text-muted-foreground mt-0.5">
+                {lockModalTarget.kind === "final"
+                  ? `Finalize and lock "${team.team_name}"'s checklist. You can optionally apply a penalty deduction to their competition score.`
+                  : `Lock checkpoint "${lockModalTarget.title}" for "${team.team_name}". Team items in this section will be frozen. You can optionally apply a penalty deduction.`}
+              </DialogDescription>
+            </DialogHeader>
+
+            <form onSubmit={handleConfirmLock} className="mt-3 space-y-4">
+              <div>
+                <label className="block text-xs font-semibold text-foreground mb-1.5">
+                  Penalty Points Deduction (Optional)
+                </label>
+                <div className="flex flex-wrap gap-1.5 mb-2">
+                  {[0, 1, 2, 3, 5, 10].map((preset) => {
+                    const isSelected =
+                      preset === 0
+                        ? effectivePenaltyDeduction === 0
+                        : Math.abs(effectivePenaltyDeduction) === preset
+                    return (
+                      <button
+                        key={preset}
+                        type="button"
+                        onClick={() => setPenaltyPointsStr(preset === 0 ? "" : String(preset))}
+                        className={`px-2.5 py-1 rounded-lg text-xs font-semibold border transition-colors cursor-pointer ${
+                          isSelected
+                            ? preset === 0
+                              ? "bg-primary/15 border-primary/40 text-primary"
+                              : "bg-rose-500/15 border-rose-500/40 text-rose-600 dark:text-rose-400"
+                            : "bg-muted/40 border-border text-muted-foreground hover:text-foreground"
+                        }`}
+                      >
+                        {preset === 0 ? "No penalty" : `-${preset} pt${preset > 1 ? "s" : ""}`}
+                      </button>
+                    )
+                  })}
+                </div>
+                <input
+                  type="number"
+                  step="0.5"
+                  min="0"
+                  value={penaltyPointsStr}
+                  onChange={(e) => setPenaltyPointsStr(e.target.value)}
+                  placeholder="0 (no penalty) — e.g. 2, 5, 10"
+                  className="w-full h-10 px-3 rounded-xl border border-border bg-background text-foreground text-sm font-mono focus:outline-none focus:border-primary"
+                />
+                {effectivePenaltyDeduction < 0 ? (
+                  <p className="text-[11px] font-medium text-rose-600 dark:text-rose-400 mt-1.5">
+                    Will deduct <strong>{effectivePenaltyDeduction} pts</strong> from {team.team_name}&apos;s competition score.
+                  </p>
+                ) : (
+                  <p className="text-[11px] text-muted-foreground mt-1.5">
+                    Leave blank or 0 to lock without any point deduction.
+                  </p>
+                )}
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-foreground mb-1">
+                  Reason / Audit Note (Optional)
+                </label>
+                <input
+                  type="text"
+                  value={penaltyNotes}
+                  onChange={(e) => setPenaltyNotes(e.target.value)}
+                  placeholder="e.g. Late lock requested after deadline"
+                  className="w-full h-9 px-3 rounded-xl border border-border bg-background text-foreground text-xs focus:outline-none focus:border-primary"
+                />
+              </div>
+
+              <div className="flex items-center justify-end gap-2 pt-2 border-t border-border">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setLockModalTarget(null)}
+                  className="h-9 text-xs cursor-pointer"
+                >
+                  Cancel
+                </Button>
+                <Button
+                  type="submit"
+                  size="sm"
+                  disabled={lockMutation.isPending || lockCheckpointMutation.isPending}
+                  className={`h-9 text-xs font-bold gap-1.5 cursor-pointer ${
+                    effectivePenaltyDeduction < 0
+                      ? "bg-rose-600 hover:bg-rose-700 text-white"
+                      : ""
+                  }`}
+                >
+                  <Lock size={12} />
+                  {lockMutation.isPending || lockCheckpointMutation.isPending
+                    ? "Locking…"
+                    : effectivePenaltyDeduction < 0
+                    ? `Lock & Apply ${effectivePenaltyDeduction} pts`
+                    : "Lock without Penalty"}
+                </Button>
+              </div>
+            </form>
+          </DialogContent>
+        </Dialog>
       )}
 
       {modalMember && (

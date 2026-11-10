@@ -608,3 +608,32 @@ Observer mode allows educators, testing coordinators, guest evaluators, and rehe
 - **Teams Tab**: Has an inline toggle `Students (N) | Observers (M) | All (Total)`. Empty state dynamically clarifies if only observer teams exist.
 - **Analysis Tab (`CompetitionAnalysis.tsx`)**: Toggles completion rates, submission breakdowns, and bottleneck metrics between official students and observers.
 - **Leaderboard / Results Tab**: Defaults to official participant scores. Observers can be inspected on the observer tab, but are barred from one-click stage advancement (`advanceTargets`).
+
+---
+
+## 7. Ops-Side Gate Lock & Penalty (Final Submission & Checkpoints) (November 2026)
+
+### Purpose
+Previously, Operations staff could only **unlock** a team's Final Submission or Checkpoint gate in the Progress / Analysis and Teams views. Ops can now also **lock** any unlocked Final Submission or Checkpoint gate on behalf of a team (even after a deadline or when items are incomplete) and optionally attach a **penalty deduction** (`penalty_points`, stored as negative points) and an **audit note** (`notes`).
+
+### Backend Architecture & Schema
+- **Database Columns** (auto-added in `app/main.py` lifespan):
+  - `learner_teams`: `final_lock_penalty` (`DOUBLE PRECISION`, nullable), `final_lock_notes` (`VARCHAR(255)`, nullable).
+  - `lms_program_team_item_progress`: `penalty_points` (`DOUBLE PRECISION`, nullable), `penalty_notes` (`VARCHAR(255)`, nullable).
+- **Admin Endpoints** (`routers/competitions/admin.py`, body `OpsGateLockIn: { penalty_points?: float | null, notes?: str | null }`):
+  - `POST /competitions/admin/teams/{team_id}/lock` → `services/competitions/team_management.py::lock_team_submission`
+  - `POST /competitions/admin/teams/{team_id}/lock-checkpoint/{checkpoint_item_id}` → `services/competitions/team_management.py::lock_team_checkpoint`
+- **Reset on Unlock / Student Lock**:
+  - Unlocking a team's final submission (`unlock_team_submission`) or cascade-unlocking a checkpoint (`unlock_team_checkpoint`) clears any stored penalty and notes on the reopened gate(s).
+  - Student self-locks (`finalize_team_submission` / `lock_checkpoint_item`) also ensure penalty fields are `None`.
+- **Scoring & Timing Breakdown (`services/competitions/timing_windows.py::resolve_team_timing`)**:
+  - When a checkpoint or final gate has an Ops lock penalty set, that penalty (`Ops Penalty (-X)`) is applied for that gate in `resolve_team_timing`, reflected in `timing_points`, itemized in `timing_breakdown`, and surfaced in `TeamScoreBreakdownModal.tsx` and `TimingOverrideModal.tsx`.
+  - A manual team-wide `timing_adjustment_override` still takes top priority if explicitly set by Ops.
+
+### Frontend Surfaces
+- **`CompetitionAnalysis.tsx` (`TeamAnalysisCard`)**:
+  - **Checkpoints**: Unlocked checkpoints show a **Lock checkpoint** button; locked checkpoints show an **Unlock checkpoint** button plus any active `Penalty: -X pts` badge and note.
+  - **Final Submission**: Unlocked teams show a **Lock final submission** banner & button; locked teams show **Unlock final submission** plus any active `Penalty: -X pts` badge and note.
+  - **Operations Lock Modal**: Provides quick-select penalty presets (`No penalty`, `-1 pt`, `-2 pts`, `-3 pts`, `-5 pts`, `-10 pts`), a custom deduction input, and an optional reason/audit note.
+- **`TeamCheckpointGates.tsx` (Teams tab)**:
+  - Each open checkpoint gate has a **Lock** button that opens the penalty & note dialog; locked gates display any applied penalty badge and note alongside **Unlock**.

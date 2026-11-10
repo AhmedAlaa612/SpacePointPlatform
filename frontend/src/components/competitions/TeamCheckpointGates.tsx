@@ -1,20 +1,24 @@
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ChevronDown, ChevronRight, Flag, LockOpen } from "lucide-react";
+import { ChevronDown, ChevronRight, Flag, Lock, LockOpen } from "lucide-react";
 import {
-  getTeamCheckpointsApi, unlockTeamCheckpointApi,
+  getTeamCheckpointsApi, lockTeamCheckpointApi, unlockTeamCheckpointApi,
 } from "@/api/competitions";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { useToast } from "@/components/ui/toast";
 import { cn, getErrorMessage } from "@/lib/utils";
 
 /** A team's checkpoint gates on the ops Teams tab: one badge per gate
- * (locked vs open) plus a per-gate unlock button that cascades down
- * through later gates and the final lock. Collapsed to a single row
- * until opened; renders nothing when the checklist has no gates. */
+ * (locked vs open) plus per-gate lock (with optional penalty) and unlock
+ * buttons. Collapsed to a single row until opened; renders nothing when
+ * the checklist has no gates. */
 export function TeamCheckpointGates({ teamId, cohortId }: { teamId: string; cohortId: string }) {
   const toast = useToast();
   const queryClient = useQueryClient();
   const [open, setOpen] = useState(false);
+  const [lockTarget, setLockTarget] = useState<{ itemId: string; title: string } | null>(null);
+  const [penaltyPointsStr, setPenaltyPointsStr] = useState("");
+  const [penaltyNotes, setPenaltyNotes] = useState("");
 
   const { data: gates, isLoading } = useQuery({
     queryKey: ["competitions-team-checkpoints", teamId],
@@ -22,18 +26,43 @@ export function TeamCheckpointGates({ teamId, cohortId }: { teamId: string; coho
     enabled: open,
   });
 
+  const invalidateAll = () => {
+    void queryClient.invalidateQueries({ queryKey: ["competitions-team-checkpoints", teamId] });
+    void queryClient.invalidateQueries({ queryKey: ["competitions-teams", cohortId] });
+    void queryClient.invalidateQueries({ queryKey: ["competitions-team-analytics", cohortId] });
+    void queryClient.invalidateQueries({ queryKey: ["competitions-leaderboard", cohortId] });
+    void queryClient.invalidateQueries({ queryKey: ["competitions-team-breakdown", cohortId, teamId] });
+  };
+
+  const lockMutation = useMutation({
+    mutationFn: (args: { checkpointItemId: string; penalty_points?: number | null; notes?: string | null }) =>
+      lockTeamCheckpointApi(teamId, args.checkpointItemId, {
+        penalty_points: args.penalty_points,
+        notes: args.notes,
+      }),
+    onSuccess: (_data, vars) => {
+      const pen = vars.penalty_points ? -Math.abs(vars.penalty_points) : 0;
+      toast.success(pen < 0 ? `Checkpoint locked with ${pen} pts penalty` : "Checkpoint locked");
+      setLockTarget(null);
+      setPenaltyPointsStr("");
+      setPenaltyNotes("");
+      invalidateAll();
+    },
+    onError: (e: unknown) => toast.error(getErrorMessage(e, "Failed to lock this checkpoint")),
+  });
+
   const unlockMutation = useMutation({
     mutationFn: (checkpointItemId: string) => unlockTeamCheckpointApi(teamId, checkpointItemId),
     onSuccess: () => {
       toast.success("Checkpoint unlocked — team can re-lock forward");
-      void queryClient.invalidateQueries({ queryKey: ["competitions-team-checkpoints", teamId] });
-      void queryClient.invalidateQueries({ queryKey: ["competitions-teams", cohortId] });
-      void queryClient.invalidateQueries({ queryKey: ["competitions-team-analytics", cohortId] });
+      invalidateAll();
     },
     onError: (e: unknown) => toast.error(getErrorMessage(e, "Failed to unlock this checkpoint")),
   });
 
   const lockedCount = (gates ?? []).filter((g) => g.status === "done").length;
+  const parsedPenalty = penaltyPointsStr.trim() !== "" ? parseFloat(penaltyPointsStr) : 0;
+  const effectivePenaltyDeduction = !isNaN(parsedPenalty) && parsedPenalty !== 0 ? -Math.abs(parsedPenalty) : 0;
 
   return (
     <div className="border-t border-border/60 pt-2.5">
@@ -78,14 +107,20 @@ export function TeamCheckpointGates({ teamId, cohortId }: { teamId: string; coho
                       {isLocked ? "Locked" : "Open"}
                     </span>
                     <span className="truncate text-foreground font-medium">{gate.title}</span>
+                    {isLocked && gate.penalty_points !== undefined && gate.penalty_points !== null && gate.penalty_points !== 0 && (
+                      <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-rose-500/15 border border-rose-500/30 text-rose-600 dark:text-rose-400">
+                        Penalty: {gate.penalty_points} pts
+                      </span>
+                    )}
                     {isLocked && gate.locked_at && (
                       <span className="text-[11px] text-muted-foreground">
                         · Locked at {new Date(gate.locked_at).toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}
                         {gate.locked_by_name && ` by ${gate.locked_by_name}`}
+                        {gate.penalty_notes && ` (${gate.penalty_notes})`}
                       </span>
                     )}
                   </span>
-                  {isLocked && (
+                  {isLocked ? (
                     <button
                       type="button"
                       disabled={unlockMutation.isPending}
@@ -100,12 +135,118 @@ export function TeamCheckpointGates({ teamId, cohortId }: { teamId: string; coho
                       <LockOpen size={12} />
                       {unlockMutation.isPending ? "Unlocking…" : "Unlock"}
                     </button>
+                  ) : (
+                    <button
+                      type="button"
+                      disabled={lockMutation.isPending}
+                      onClick={() => {
+                        setPenaltyPointsStr("");
+                        setPenaltyNotes("");
+                        setLockTarget({ itemId: gate.item_id, title: gate.title });
+                      }}
+                      className="flex shrink-0 items-center gap-1 px-2 py-1 rounded-lg border border-primary/40 bg-primary/10 text-primary text-[11px] font-bold hover:bg-primary/20 transition-colors disabled:opacity-50 cursor-pointer"
+                      title="Lock this gate on behalf of the team (with optional penalty)"
+                    >
+                      <Lock size={12} />
+                      Lock
+                    </button>
                   )}
                 </div>
               );
             })
           )}
         </div>
+      )}
+
+      {lockTarget && (
+        <Dialog open={!!lockTarget} onOpenChange={(v) => !v && setLockTarget(null)}>
+          <DialogContent className="sm:max-w-md bg-card border-border p-6">
+            <DialogHeader>
+              <DialogTitle className="text-base font-bold text-foreground">
+                Lock Checkpoint — &ldquo;{lockTarget.title}&rdquo;
+              </DialogTitle>
+              <DialogDescription className="text-xs text-muted-foreground">
+                Lock this checkpoint gate on behalf of the team. You can optionally apply a penalty deduction.
+              </DialogDescription>
+            </DialogHeader>
+
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                if (penaltyPointsStr.trim() !== "" && isNaN(parsedPenalty)) {
+                  toast.error("Please enter a valid number for penalty points");
+                  return;
+                }
+                lockMutation.mutate({
+                  checkpointItemId: lockTarget.itemId,
+                  penalty_points: effectivePenaltyDeduction !== 0 ? effectivePenaltyDeduction : null,
+                  notes: penaltyNotes.trim() || null,
+                });
+              }}
+              className="mt-3 space-y-4"
+            >
+              <div>
+                <label className="block text-xs font-semibold text-foreground mb-1">
+                  Penalty Points Deduction (Optional)
+                </label>
+                <input
+                  type="number"
+                  step="0.5"
+                  min="0"
+                  value={penaltyPointsStr}
+                  onChange={(e) => setPenaltyPointsStr(e.target.value)}
+                  placeholder="0 (no penalty) — e.g. 2, 5"
+                  className="w-full h-9 px-3 rounded-xl border border-border bg-background text-foreground text-xs font-mono focus:outline-none focus:border-primary"
+                />
+                {effectivePenaltyDeduction < 0 && (
+                  <p className="text-[11px] font-medium text-rose-600 dark:text-rose-400 mt-1">
+                    Will deduct <strong>{effectivePenaltyDeduction} pts</strong> from the team&apos;s competition score.
+                  </p>
+                )}
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-foreground mb-1">
+                  Reason / Audit Note (Optional)
+                </label>
+                <input
+                  type="text"
+                  value={penaltyNotes}
+                  onChange={(e) => setPenaltyNotes(e.target.value)}
+                  placeholder="e.g. Late lock requested after deadline"
+                  className="w-full h-9 px-3 rounded-xl border border-border bg-background text-foreground text-xs focus:outline-none focus:border-primary"
+                />
+              </div>
+
+              <div className="flex items-center justify-end gap-2 pt-2 border-t border-border">
+                <button
+                  type="button"
+                  onClick={() => setLockTarget(null)}
+                  className="px-3 py-1.5 rounded-xl border border-border text-xs font-medium text-foreground hover:bg-muted transition-colors cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={lockMutation.isPending}
+                  className={cn(
+                    "flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all disabled:opacity-50 cursor-pointer",
+                    effectivePenaltyDeduction < 0
+                      ? "bg-rose-600 text-white hover:bg-rose-700"
+                      : "bg-primary text-primary-foreground hover:opacity-90",
+                  )}
+                >
+                  <Lock size={12} />
+                  {lockMutation.isPending
+                    ? "Locking…"
+                    : effectivePenaltyDeduction < 0
+                    ? `Lock & Apply ${effectivePenaltyDeduction} pts`
+                    : "Lock without Penalty"}
+                </button>
+              </div>
+            </form>
+          </DialogContent>
+        </Dialog>
       )}
     </div>
   );

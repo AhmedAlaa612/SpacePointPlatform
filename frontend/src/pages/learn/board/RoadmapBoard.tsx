@@ -137,9 +137,10 @@ export default function RoadmapBoard() {
   // deliverables gate it, not a teammate's unrelated personal task (found
   // live, 2026-09-19: a leftover individual item kept the button disabled
   // even once every team deliverable was in). Mirrors the backend's own
-  // team_final_submit_readiness, which checks the same subset.
+  // team_final_submit_readiness, which checks that no required team item
+  // is still pending (vacuously true when all team items are optional).
   const requiredTeamItems = requiredItems.filter((i) => i.scope === "team");
-  const teamReady = requiredTeamItems.length > 0 && requiredTeamItems.every((i) => i.status === "done");
+  const teamReady = requiredTeamItems.every((i) => i.status === "done");
   // Same "team items only, when there are any" basis as teamReady above —
   // computed here, not guessed inside FinalGateBar from an optional prop,
   // so a no-team program (requiredTeamItems always [] there, never

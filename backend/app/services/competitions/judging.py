@@ -392,11 +392,14 @@ async def _get_team_checkpoint_states(
         states = []
         for cp in checkpoints:
             r = by_team_item.get(tid, {}).get(cp.id)
+            is_done = bool(r and r.status == "done")
             states.append({
                 "item_id": cp.id,
                 "title": cp.title,
-                "locked_at": r.completed_at if r and r.status == "done" else None,
+                "locked_at": (r.completed_at or r.updated_at) if is_done else None,
                 "status": r.status if r else "pending",
+                "penalty_points": r.penalty_points if (r and is_done) else None,
+                "penalty_notes": r.penalty_notes if (r and is_done) else None,
             })
         result[tid] = states
     return result

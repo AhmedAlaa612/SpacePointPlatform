@@ -137,6 +137,7 @@ def resolve_team_timing(
 
     windows_raw = getattr(cohort, "submission_windows", None) if cohort else None
     final_locked_at = getattr(team, "final_locked_at", None)
+    gate_notes: list[str] = []
 
     # 1. Evaluate Checkpoint Gates (if provided)
     breakdown: list[dict[str, Any]] = []
@@ -148,6 +149,23 @@ def resolve_team_timing(
             cp_locked_at = cs.get("locked_at")
             cp_windows = filter_windows_for_gate(windows_raw, cp_id)
             cp_res = resolve_single_gate_timing(cp_windows, cp_locked_at)
+            cp_penalty = cs.get("penalty_points")
+            cp_penalty_notes = cs.get("penalty_notes")
+            if cp_penalty is not None:
+                try:
+                    pts = float(cp_penalty)
+                except (ValueError, TypeError):
+                    pts = 0.0
+                sign = "+" if pts > 0 else ""
+                cp_res = {
+                    "points": pts,
+                    "badge": f"Ops Penalty ({sign}{pts:g})",
+                    "tier_name": cp_penalty_notes or "Ops Lock Penalty",
+                    "color": "rose" if pts < 0 else ("green" if pts > 0 else "white"),
+                    "locked_at": parse_datetime(cp_locked_at),
+                }
+            if cp_penalty_notes:
+                gate_notes.append(f"{cp_title}: {cp_penalty_notes}")
             checkpoint_total += cp_res["points"]
             breakdown.append({
                 "gate_id": str(cp_id),
@@ -163,6 +181,23 @@ def resolve_team_timing(
     # 2. Evaluate Final Gate
     final_windows = filter_windows_for_gate(windows_raw, None)
     final_res = resolve_single_gate_timing(final_windows, final_locked_at)
+    final_penalty = getattr(team, "final_lock_penalty", None)
+    final_penalty_notes = getattr(team, "final_lock_notes", None)
+    if final_penalty is not None:
+        try:
+            pts = float(final_penalty)
+        except (ValueError, TypeError):
+            pts = 0.0
+        sign = "+" if pts > 0 else ""
+        final_res = {
+            "points": pts,
+            "badge": f"Ops Penalty ({sign}{pts:g})",
+            "tier_name": final_penalty_notes or "Ops Lock Penalty",
+            "color": "rose" if pts < 0 else ("green" if pts > 0 else "white"),
+            "locked_at": parse_datetime(final_locked_at),
+        }
+    if final_penalty_notes:
+        gate_notes.append(f"Final: {final_penalty_notes}" if checkpoint_states else final_penalty_notes)
     breakdown.append({
         "gate_id": "final",
         "title": "Final Submission",
@@ -175,6 +210,7 @@ def resolve_team_timing(
     })
 
     calculated_total = round(final_res["points"] + checkpoint_total, 1)
+    combined_gate_notes = " · ".join(gate_notes) if gate_notes else None
 
     # 3. Check Manual Ops Override
     override_val = getattr(team, "timing_adjustment_override", None)
@@ -190,7 +226,7 @@ def resolve_team_timing(
             "tier_name": "Manual Override",
             "color": "purple",
             "is_override": True,
-            "override_notes": getattr(team, "timing_adjustment_notes", None),
+            "override_notes": getattr(team, "timing_adjustment_notes", None) or combined_gate_notes,
             "locked_at": final_locked_at,
             "first_locked_at": getattr(team, "first_locked_at", None),
             "calculated_total": calculated_total,
@@ -218,7 +254,7 @@ def resolve_team_timing(
         "tier_name": tier_name,
         "color": color,
         "is_override": False,
-        "override_notes": None,
+        "override_notes": combined_gate_notes,
         "locked_at": final_locked_at,
         "first_locked_at": getattr(team, "first_locked_at", None),
         "calculated_total": calculated_total,
