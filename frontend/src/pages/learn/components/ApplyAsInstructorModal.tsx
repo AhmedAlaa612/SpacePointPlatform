@@ -15,6 +15,9 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
+import { CountrySelect } from "@/components/ui/CountrySelect"
+import { CitySelect, useCitiesForCountry } from "@/components/ui/CitySelect"
+import { LanguageMultiSelect } from "@/components/ui/LanguageMultiSelect"
 
 const DEGREES = ["Currently Pursuing Bachelors Degree", "Bachelors", "Masters", "PhD", "Other"]
 const BACKGROUNDS = ["Engineering", "Science", "Education", "Other"]
@@ -29,21 +32,45 @@ export function ApplyAsInstructorModal({ open, onOpenChange }: ApplyAsInstructor
   const navigate = useNavigate()
   const queryClient = useQueryClient()
 
+  const [nationality, setNationality] = useState(currentUser?.nationality || "")
+  const [workStatus, setWorkStatus] = useState(currentUser?.work_status || "")
+  const [fluentLanguages, setFluentLanguages] = useState<string[]>(
+    currentUser?.fluent_languages && currentUser.fluent_languages.length > 0
+      ? currentUser.fluent_languages
+      : ["English"]
+  )
+  const [country, setCountry] = useState(currentUser?.country || "AE")
+  const [cityOfResidenceId, setCityOfResidenceId] = useState(
+    currentUser?.city_of_residence_id || currentUser?.city_id || ""
+  )
+  const [deliverCityIds, setDeliverCityIds] = useState<string[]>(
+    currentUser?.deliver_city_ids || []
+  )
   const [university, setUniversity] = useState(currentUser?.organization_name || "")
   const [highestDegree, setHighestDegree] = useState(DEGREES[0])
   const [highestDegreeOther, setHighestDegreeOther] = useState("")
   const [backgroundAreas, setBackgroundAreas] = useState<string[]>(["Engineering"])
   const [backgroundOther, setBackgroundOther] = useState("")
-  const [hasTransportation, setHasTransportation] = useState<boolean>(false)
+  const [hasTransportation, setHasTransportation] = useState<boolean>(
+    currentUser?.has_own_transportation ?? false
+  )
   const [inviteCode, setInviteCode] = useState("")
   const [cvFile, setCvFile] = useState<File | null>(null)
 
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
+  const countryCities = useCitiesForCountry(country)
+
   const toggleBackground = (bg: string) => {
     setBackgroundAreas((prev) =>
       prev.includes(bg) ? prev.filter((b) => b !== bg) : [...prev, bg]
+    )
+  }
+
+  const toggleDeliverCity = (cityId: string) => {
+    setDeliverCityIds((prev) =>
+      prev.includes(cityId) ? prev.filter((id) => id !== cityId) : [...prev, cityId]
     )
   }
 
@@ -57,6 +84,10 @@ export function ApplyAsInstructorModal({ open, onOpenChange }: ApplyAsInstructor
       setError("Please select at least one background discipline.")
       return
     }
+    if (countryCities.length > 0 && deliverCityIds.length === 0) {
+      setError("Please select at least one city where you can deliver workshops.")
+      return
+    }
 
     setLoading(true)
     setError(null)
@@ -64,8 +95,15 @@ export function ApplyAsInstructorModal({ open, onOpenChange }: ApplyAsInstructor
     try {
       const payload = {
         university: university.trim() || undefined,
+        graduated_university: university.trim() || undefined,
         highest_degree: highestDegree,
         highest_degree_other: highestDegree === "Other" ? highestDegreeOther.trim() : undefined,
+        nationality: nationality || undefined,
+        work_status: workStatus.trim() || undefined,
+        fluent_languages: fluentLanguages,
+        country: country || undefined,
+        city_of_residence_id: cityOfResidenceId || undefined,
+        deliver_city_ids: deliverCityIds,
         background_areas: backgroundAreas,
         background_other: backgroundAreas.includes("Other") ? backgroundOther.trim() : undefined,
         has_own_transportation: hasTransportation,
@@ -100,7 +138,7 @@ export function ApplyAsInstructorModal({ open, onOpenChange }: ApplyAsInstructor
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
+      <DialogContent className="max-w-xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <div className="flex items-center gap-2 text-primary font-semibold text-xs uppercase tracking-wider mb-1">
             <GraduationCap className="size-4" />
@@ -129,24 +167,152 @@ export function ApplyAsInstructorModal({ open, onOpenChange }: ApplyAsInstructor
               <span className="text-muted-foreground">Email:</span>
               <span className="font-medium text-foreground">{currentUser?.email}</span>
             </div>
+            {currentUser?.phone && (
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">Phone / WhatsApp:</span>
+                <span className="font-medium text-foreground">{currentUser.phone}</span>
+              </div>
+            )}
           </div>
 
-          {/* Degree */}
+          {/* Nationality & Work Status */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div>
+              <label className="text-xs font-medium text-foreground block mb-1">
+                Nationality
+              </label>
+              <CountrySelect
+                className="input w-full"
+                value={nationality}
+                onChange={setNationality}
+                valueType="name"
+                placeholder="Select nationality..."
+              />
+            </div>
+            <div>
+              <label className="text-xs font-medium text-foreground block mb-1">
+                Current Work Status
+              </label>
+              <input
+                type="text"
+                className="input w-full"
+                value={workStatus}
+                onChange={(e) => setWorkStatus(e.target.value)}
+                placeholder="e.g. Student, Engineer"
+              />
+            </div>
+          </div>
+
+          {/* Fluent Languages */}
           <div>
             <label className="text-xs font-medium text-foreground block mb-1">
-              Highest Degree
+              Fluent Languages
             </label>
-            <select
+            <LanguageMultiSelect
+              value={fluentLanguages}
+              onChange={setFluentLanguages}
+              placeholder="Select fluent languages..."
+            />
+          </div>
+
+          {/* Country of Residence */}
+          <div>
+            <label className="text-xs font-medium text-foreground block mb-1">
+              Country of Residence
+            </label>
+            <CountrySelect
               className="input w-full"
-              value={highestDegree}
-              onChange={(e) => setHighestDegree(e.target.value)}
-            >
-              {DEGREES.map((d) => (
-                <option key={d} value={d}>
-                  {d}
-                </option>
-              ))}
-            </select>
+              value={country}
+              onChange={(code) => {
+                setCountry(code)
+                setCityOfResidenceId("")
+                setDeliverCityIds([])
+              }}
+              valueType="code"
+              placeholder="Select country..."
+            />
+          </div>
+
+          {/* City of Residence (when cities exist for selected country) */}
+          {countryCities.length > 0 && (
+            <div>
+              <label className="text-xs font-medium text-foreground block mb-1">
+                City of Residence
+              </label>
+              <CitySelect
+                country={country}
+                value={cityOfResidenceId}
+                onChange={setCityOfResidenceId}
+                placeholder="Select city of residence..."
+                className="input w-full"
+              />
+            </div>
+          )}
+
+          {/* Cities I Can Deliver In */}
+          {countryCities.length > 0 && (
+            <div>
+              <label className="text-xs font-medium text-foreground block mb-1.5">
+                Cities I Can Deliver In
+              </label>
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                {countryCities.map((c) => {
+                  const active = deliverCityIds.includes(c.id)
+                  return (
+                    <label
+                      key={c.id}
+                      className="flex items-center gap-2 rounded-xl border border-border px-3 py-2 text-xs cursor-pointer hover:bg-muted transition-colors"
+                    >
+                      <input
+                        type="checkbox"
+                        className="sr-only peer"
+                        checked={active}
+                        onChange={() => toggleDeliverCity(c.id)}
+                      />
+                      <span className="flex h-4 w-4 shrink-0 items-center justify-center rounded-md border border-border bg-background transition-colors peer-checked:border-primary peer-checked:bg-primary">
+                        <Check className="h-3 w-3 text-primary-foreground opacity-0 peer-checked:opacity-100" strokeWidth={3} />
+                      </span>
+                      <span className="text-muted-foreground peer-checked:text-foreground font-medium truncate">
+                        {c.name}
+                      </span>
+                    </label>
+                  )
+                })}
+              </div>
+            </div>
+          )}
+
+          {/* Degree & University */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div>
+              <label className="text-xs font-medium text-foreground block mb-1">
+                Highest Degree
+              </label>
+              <select
+                className="input w-full"
+                value={highestDegree}
+                onChange={(e) => setHighestDegree(e.target.value)}
+              >
+                {DEGREES.map((d) => (
+                  <option key={d} value={d}>
+                    {d}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="text-xs font-medium text-foreground block mb-1">
+                University / Institution
+              </label>
+              <input
+                type="text"
+                className="input w-full"
+                value={university}
+                onChange={(e) => setUniversity(e.target.value)}
+                placeholder="e.g. Khalifa University"
+                required
+              />
+            </div>
           </div>
 
           {highestDegree === "Other" && (
@@ -164,21 +330,6 @@ export function ApplyAsInstructorModal({ open, onOpenChange }: ApplyAsInstructor
               />
             </div>
           )}
-
-          {/* University */}
-          <div>
-            <label className="text-xs font-medium text-foreground block mb-1">
-              University / Institution
-            </label>
-            <input
-              type="text"
-              className="input w-full"
-              value={university}
-              onChange={(e) => setUniversity(e.target.value)}
-              placeholder="e.g. Khalifa University"
-              required
-            />
-          </div>
 
           {/* Background Disciplines */}
           <div>
@@ -223,7 +374,7 @@ export function ApplyAsInstructorModal({ open, onOpenChange }: ApplyAsInstructor
           {/* Own Transportation */}
           <div>
             <label className="text-xs font-medium text-foreground block mb-1.5">
-              Do you have own transportation / car for workshop delivery?
+              Do you have a car / own transportation for workshop delivery?
             </label>
             <div className="flex items-center gap-4 text-xs">
               <label className="flex items-center gap-1.5 cursor-pointer">
@@ -233,7 +384,7 @@ export function ApplyAsInstructorModal({ open, onOpenChange }: ApplyAsInstructor
                   checked={hasTransportation}
                   onChange={() => setHasTransportation(true)}
                 />
-                Yes
+                Yes, I have a car
               </label>
               <label className="flex items-center gap-1.5 cursor-pointer">
                 <input
@@ -242,7 +393,7 @@ export function ApplyAsInstructorModal({ open, onOpenChange }: ApplyAsInstructor
                   checked={!hasTransportation}
                   onChange={() => setHasTransportation(false)}
                 />
-                No
+                No, I don't
               </label>
             </div>
           </div>
@@ -275,14 +426,14 @@ export function ApplyAsInstructorModal({ open, onOpenChange }: ApplyAsInstructor
           {/* Invite Code */}
           <div>
             <label className="text-xs font-medium text-foreground block mb-1">
-              Ambassador / Referral Code (Optional)
+              Referral Code (Optional)
             </label>
             <input
               type="text"
               className="input w-full uppercase"
               value={inviteCode}
               onChange={(e) => setInviteCode(e.target.value)}
-              placeholder="e.g. AMB-1234"
+              placeholder="e.g. REF-1234"
             />
           </div>
 
