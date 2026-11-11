@@ -33,7 +33,6 @@ export function ApplyAsInstructorModal({ open, onOpenChange }: ApplyAsInstructor
   const queryClient = useQueryClient()
 
   const [nationality, setNationality] = useState(currentUser?.nationality || "")
-  const [workStatus, setWorkStatus] = useState(currentUser?.work_status || "")
   const [fluentLanguages, setFluentLanguages] = useState<string[]>(
     currentUser?.fluent_languages && currentUser.fluent_languages.length > 0
       ? currentUser.fluent_languages
@@ -99,7 +98,7 @@ export function ApplyAsInstructorModal({ open, onOpenChange }: ApplyAsInstructor
         highest_degree: highestDegree,
         highest_degree_other: highestDegree === "Other" ? highestDegreeOther.trim() : undefined,
         nationality: nationality || undefined,
-        work_status: workStatus.trim() || undefined,
+        work_status: currentUser?.work_status || "Student",
         fluent_languages: fluentLanguages,
         country: country || undefined,
         city_of_residence_id: cityOfResidenceId || undefined,
@@ -175,32 +174,18 @@ export function ApplyAsInstructorModal({ open, onOpenChange }: ApplyAsInstructor
             )}
           </div>
 
-          {/* Nationality & Work Status */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <div>
-              <label className="text-xs font-medium text-foreground block mb-1">
-                Nationality
-              </label>
-              <CountrySelect
-                className="input w-full"
-                value={nationality}
-                onChange={setNationality}
-                valueType="name"
-                placeholder="Select nationality..."
-              />
-            </div>
-            <div>
-              <label className="text-xs font-medium text-foreground block mb-1">
-                Current Work Status
-              </label>
-              <input
-                type="text"
-                className="input w-full"
-                value={workStatus}
-                onChange={(e) => setWorkStatus(e.target.value)}
-                placeholder="e.g. Student, Engineer"
-              />
-            </div>
+          {/* Nationality */}
+          <div>
+            <label className="text-xs font-medium text-foreground block mb-1">
+              Nationality
+            </label>
+            <CountrySelect
+              className="input w-full"
+              value={nationality}
+              onChange={setNationality}
+              valueType="name"
+              placeholder="Select nationality..."
+            />
           </div>
 
           {/* Fluent Languages */}
