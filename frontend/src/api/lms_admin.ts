@@ -799,6 +799,62 @@ export const getProgramProgressApi = (lmsProgramId: string, mode: RosterMode = "
     params: { mode },
   }).then((r) => r.data);
 
+export const downloadCohortItemsSubmissionsWorkbookApi = async (
+  cohortId: string,
+  itemIds: string[],
+  mode: RosterMode = "participant",
+  filename = "cohort_submissions.xlsx",
+): Promise<void> => {
+  const qs = new URLSearchParams();
+  qs.set("mode", mode);
+  for (const id of itemIds) {
+    qs.append("item_ids", id);
+  }
+  const res = await api.get(
+    `/lms/instructor/cohorts/${cohortId}/submissions-export.xlsx?${qs.toString()}`,
+    { responseType: "blob" },
+  );
+  const blob = new Blob([res.data], {
+    type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+};
+
+export const downloadProgramItemsSubmissionsWorkbookApi = async (
+  lmsProgramId: string,
+  itemIds: string[],
+  mode: RosterMode = "participant",
+  filename = "program_submissions.xlsx",
+): Promise<void> => {
+  const qs = new URLSearchParams();
+  qs.set("mode", mode);
+  for (const id of itemIds) {
+    qs.append("item_ids", id);
+  }
+  const res = await api.get(
+    `/lms/instructor/programs/${lmsProgramId}/submissions-export.xlsx?${qs.toString()}`,
+    { responseType: "blob" },
+  );
+  const blob = new Blob([res.data], {
+    type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+};
+
 export interface LmsAssignmentItemDetail {
   item_id: string;
   title: string;

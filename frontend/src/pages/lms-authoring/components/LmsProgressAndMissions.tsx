@@ -3,7 +3,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useNavigate } from "@tanstack/react-router"
 import {
   Plus, X, BookOpen, Rocket, ChevronDown, ChevronRight, RotateCcw, Clock, CheckCircle2, XCircle,
-  Award, Circle, ExternalLink, Eye, Play, Search, Users, Trash2, Gamepad2, Table,
+  Award, Circle, ExternalLink, Eye, Play, Search, Users, Trash2, Gamepad2, Table, Download,
 } from "lucide-react"
 import { EmptyState, Spinner } from "@/components/ui/primitives"
 import { Button } from "@/components/ui/button"
@@ -27,6 +27,8 @@ import {
   updateCohortOverrideItemApi, updateCohortOverrideItemInstructorApi,
   deleteCohortOverrideItemApi, deleteCohortOverrideItemInstructorApi,
   getProgramProgressApi, getCohortProgramProgressApi, confirmChecklistItemApi, getAssignmentItemsApi,
+  getMyReachableProgramsApi,
+  downloadCohortItemsSubmissionsWorkbookApi, downloadProgramItemsSubmissionsWorkbookApi,
   MISSION_STEP_KEYS,
   type LmsProgram, type LmsProgramItem, type LmsProgramItemInput, type LmsProgramRosterRow, type LmsAssignmentItemDetail,
   type RosterMode,
@@ -523,6 +525,264 @@ function RosterModeToggle({ mode, onChange }: { mode: RosterMode; onChange: (m: 
   )
 }
 
+function isSubmissionBearingItem(item: LmsProgramItem): boolean {
+  if (item.item_type === "submission" || item.submission_multi_link) return true
+  if (item.submission_table_config?.columns?.length) return true
+  if (item.item_type === "mission_run" && item.mission_step_key === "poster") return true
+  return false
+}
+
+function describeExportItemBadge(item: LmsProgramItem): string {
+  if (item.submission_table_config?.columns?.length) return "Table"
+  if (item.submission_multi_link) return "Multi-link"
+  if (item.item_type === "submission") return item.submission_field_type === "text" ? "Text submission" : "Link submission"
+  if (item.item_type === "mission_run" && item.mission_step_key === "poster") return "Poster link"
+  if (item.item_type === "mission_run") return item.mission_step_key ? `Step: ${item.mission_step_key}` : "Mission"
+  if (item.item_type === "quiz") return "Quiz"
+  if (item.item_type === "arcade_game") return "Game"
+  if (item.item_type === "course") return "Course"
+  if (item.item_type === "session") return "Session"
+  return item.item_type
+}
+
+export function ExportSubmissionsMenu({
+  cohortId,
+  lmsProgramId,
+  mode = "participant",
+  scopeLabel,
+}: {
+  cohortId?: string
+  lmsProgramId?: string
+  mode?: RosterMode
+  scopeLabel?: string
+}) {
+  const [open, setOpen] = useState(false)
+  const [selectedIds, setSelectedIds] = useState<string[] | null>(null)
+  const [filterText, setFilterText] = useState("")
+  const [downloading, setDownloading] = useState(false)
+  const [err, setErr] = useState<string | null>(null)
+
+  const { data: cohortOverride, isLoading: cohortLoading } = useQuery({
+    queryKey: ["lms-cohort-override-export", cohortId],
+    queryFn: () => getCohortProgramOverrideInstructorApi(cohortId as string),
+    enabled: open && Boolean(cohortId),
+  })
+
+  const { data: reachablePrograms, isLoading: programsLoading } = useQuery({
+    queryKey: ["lms-reachable-programs"],
+    queryFn: getMyReachableProgramsApi,
+    enabled: open && !cohortId && Boolean(lmsProgramId),
+  })
+
+  const items: LmsProgramItem[] = useMemo(() => {
+    if (cohortId) return cohortOverride?.items ?? []
+    if (lmsProgramId) {
+      const prog = (reachablePrograms ?? []).find((p) => p.id === lmsProgramId)
+      return prog?.items ?? []
+    }
+    return []
+  }, [cohortId, cohortOverride, lmsProgramId, reachablePrograms])
+
+  const defaultIds = useMemo(() => {
+    const subItems = items.filter(isSubmissionBearingItem)
+    return (subItems.length > 0 ? subItems : items).map((i) => i.id)
+  }, [items])
+
+  const effectiveSelectedIds = selectedIds ?? defaultIds
+  const selectedSet = useMemo(() => new Set(effectiveSelectedIds), [effectiveSelectedIds])
+
+  const filteredItems = useMemo(() => {
+    if (!filterText.trim()) return items
+    const q = filterText.toLowerCase()
+    return items.filter((i) => i.title.toLowerCase().includes(q))
+  }, [items, filterText])
+
+  const toggleItem = (id: string) => {
+    const next = new Set(effectiveSelectedIds)
+    if (next.has(id)) next.delete(id)
+    else next.add(id)
+    setSelectedIds(Array.from(next))
+  }
+
+  const handleDownload = async () => {
+    if (effectiveSelectedIds.length === 0) return
+    setDownloading(true)
+    setErr(null)
+    try {
+      const safeSlug = (scopeLabel || (cohortId ? "cohort" : "program"))
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, "_")
+        .replace(/^_+|_+$/g, "") || "submissions"
+      const filename = `${safeSlug}_submissions.xlsx`
+      if (cohortId) {
+        await downloadCohortItemsSubmissionsWorkbookApi(cohortId, effectiveSelectedIds, mode, filename)
+      } else if (lmsProgramId) {
+        await downloadProgramItemsSubmissionsWorkbookApi(lmsProgramId, effectiveSelectedIds, mode, filename)
+      }
+      setOpen(false)
+    } catch (e: any) {
+      setErr(errorDetail(e, "Failed to export submissions workbook"))
+    } finally {
+      setDownloading(false)
+    }
+  }
+
+  const isLoading = cohortLoading || programsLoading
+
+  return (
+    <div className="relative">
+      <Button
+        variant="outline"
+        size="sm"
+        onClick={() => {
+          setOpen((v) => !v)
+          setErr(null)
+        }}
+      >
+        <Download size={14} className="mr-1.5" />
+        Export Submissions (.xlsx)
+      </Button>
+
+      {open && (
+        <>
+          <div className="fixed inset-0 z-40" onClick={() => setOpen(false)} />
+          <div className="absolute right-0 mt-2 w-[360px] sm:w-[440px] max-w-[92vw] rounded-xl border border-border bg-card shadow-xl z-50 p-3.5 flex flex-col gap-3">
+            <div className="flex items-start justify-between gap-2">
+              <div>
+                <h4 className="text-xs font-semibold text-foreground">Export Checklist Submissions (.xlsx)</h4>
+                <p className="text-[11px] text-muted-foreground mt-0.5">
+                  Pick one or more items. Each item is exported as its own sheet (Team items: 1 row per team · Individual items: 1 row per student).
+                </p>
+              </div>
+              <button
+                onClick={() => setOpen(false)}
+                className="text-muted-foreground hover:text-foreground p-1 rounded cursor-pointer"
+                aria-label="Close export menu"
+              >
+                <X size={14} />
+              </button>
+            </div>
+
+            {isLoading ? (
+              <div className="py-6 flex justify-center">
+                <Spinner />
+              </div>
+            ) : items.length === 0 ? (
+              <p className="text-xs text-muted-foreground py-4 text-center">No checklist items found.</p>
+            ) : (
+              <>
+                <div className="flex flex-wrap items-center gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => setSelectedIds(items.filter(isSubmissionBearingItem).map((i) => i.id))}
+                    className="px-2 py-1 rounded-md border border-border bg-muted/40 hover:bg-muted text-[11px] font-medium text-foreground cursor-pointer"
+                  >
+                    Submissions only
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setSelectedIds(items.filter((i) => i.scope === "team").map((i) => i.id))}
+                    className="px-2 py-1 rounded-md border border-border bg-muted/40 hover:bg-muted text-[11px] font-medium text-foreground cursor-pointer"
+                  >
+                    Team items
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setSelectedIds(items.filter((i) => i.scope !== "team").map((i) => i.id))}
+                    className="px-2 py-1 rounded-md border border-border bg-muted/40 hover:bg-muted text-[11px] font-medium text-foreground cursor-pointer"
+                  >
+                    Individual items
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setSelectedIds(items.map((i) => i.id))}
+                    className="px-2 py-1 rounded-md border border-border bg-muted/40 hover:bg-muted text-[11px] font-medium text-foreground cursor-pointer"
+                  >
+                    Select all
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setSelectedIds([])}
+                    className="px-2 py-1 rounded-md border border-border bg-muted/40 hover:bg-muted text-[11px] font-medium text-muted-foreground hover:text-foreground cursor-pointer"
+                  >
+                    Clear
+                  </button>
+                </div>
+
+                {items.length > 6 && (
+                  <div className="relative">
+                    <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none" />
+                    <input
+                      value={filterText}
+                      onChange={(e) => setFilterText(e.target.value)}
+                      placeholder="Filter checklist items…"
+                      className="h-7 w-full pl-7 pr-2.5 border border-border bg-background text-foreground rounded-lg text-xs focus:outline-none focus:border-primary"
+                    />
+                  </div>
+                )}
+
+                <div className="max-h-64 overflow-y-auto border border-border rounded-lg divide-y divide-border/60 bg-background/50">
+                  {filteredItems.map((item) => {
+                    const checked = selectedSet.has(item.id)
+                    const isTeam = item.scope === "team"
+                    return (
+                      <label
+                        key={item.id}
+                        className="flex items-center gap-2.5 px-2.5 py-2 hover:bg-muted/40 transition-colors cursor-pointer select-none"
+                      >
+                        <input
+                          type="checkbox"
+                          checked={checked}
+                          onChange={() => toggleItem(item.id)}
+                          className="rounded border-border text-primary focus:ring-primary cursor-pointer"
+                        />
+                        <span className="flex-1 min-w-0 text-xs font-medium text-foreground truncate" title={item.title}>
+                          {item.title}
+                        </span>
+                        <span
+                          className={`text-[10px] font-semibold uppercase rounded px-1.5 py-0.5 shrink-0 ${
+                            isTeam
+                              ? "text-primary border border-primary/30 bg-primary/10"
+                              : "text-muted-foreground border border-border bg-muted/40"
+                          }`}
+                        >
+                          {isTeam ? "Team" : "Indiv"}
+                        </span>
+                        <span className="text-[10px] text-muted-foreground border border-border rounded px-1.5 py-0.5 shrink-0">
+                          {describeExportItemBadge(item)}
+                        </span>
+                      </label>
+                    )
+                  })}
+                  {filteredItems.length === 0 && (
+                    <p className="text-xs text-muted-foreground py-3 text-center">No items match "{filterText}"</p>
+                  )}
+                </div>
+
+                {err && <p className="text-xs text-destructive">{err}</p>}
+
+                <div className="flex items-center justify-between gap-2 pt-1">
+                  <span className="text-[11px] text-muted-foreground">
+                    {effectiveSelectedIds.length} {effectiveSelectedIds.length === 1 ? "item" : "items"} selected
+                  </span>
+                  <Button
+                    size="sm"
+                    disabled={effectiveSelectedIds.length === 0 || downloading}
+                    onClick={handleDownload}
+                  >
+                    <Download size={13} className="mr-1.5" />
+                    {downloading ? "Exporting…" : "Download .xlsx"}
+                  </Button>
+                </div>
+              </>
+            )}
+          </div>
+        </>
+      )}
+    </div>
+  )
+}
+
 export function ProgressPanel({
   cohortId, lmsProgramId, scopeLabel,
 }: { cohortId?: string; lmsProgramId?: string; scopeLabel: string }) {
@@ -572,7 +832,15 @@ export function ProgressPanel({
   if (!rows || rows.length === 0) {
     return (
       <div className="flex flex-col gap-3">
-        <RosterModeToggle mode={rosterMode} onChange={setRosterMode} />
+        <div className="flex items-center justify-between gap-3 flex-wrap">
+          <RosterModeToggle mode={rosterMode} onChange={setRosterMode} />
+          <ExportSubmissionsMenu
+            cohortId={cohortId}
+            lmsProgramId={lmsProgramId}
+            mode={rosterMode}
+            scopeLabel={scopeLabel}
+          />
+        </div>
         <EmptyState
           title={rosterMode === "observer" ? "No observers testing this checklist yet" : "No students assigned this checklist yet"}
           hint={`Showing ${scopeLabel}.`}
@@ -585,30 +853,38 @@ export function ProgressPanel({
     <div className="flex flex-col gap-3">
       <div className="flex items-center justify-between gap-3 flex-wrap">
         <RosterModeToggle mode={rosterMode} onChange={setRosterMode} />
-        {rows.length > 0 && (
-          <div className="flex items-center gap-2 flex-wrap w-full sm:w-auto">
-            <div className="relative w-full sm:w-64">
-              <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none" />
-              <input
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                placeholder={rosterMode === "observer" ? "Search by observer name…" : "Search by student name…"}
-                className="h-8 w-full pl-8 pr-3 border border-border bg-background text-foreground rounded-lg text-xs focus:outline-none focus:border-primary transition-colors"
-              />
-            </div>
-            <select
-              value={sortBy}
-              onChange={(e) => setSortBy(e.target.value as any)}
-              className="h-8 px-2.5 border border-border bg-background text-foreground rounded-lg text-xs font-medium cursor-pointer focus:outline-none focus:border-primary"
-              aria-label="Sort individual progress"
-            >
-              <option value="progress_desc">Sort: Highest progress</option>
-              <option value="progress_asc">Sort: Lowest progress</option>
-              <option value="name_asc">Sort: Name (A-Z)</option>
-              <option value="name_desc">Sort: Name (Z-A)</option>
-            </select>
-          </div>
-        )}
+        <div className="flex items-center gap-2 flex-wrap w-full sm:w-auto">
+          {rows.length > 0 && (
+            <>
+              <div className="relative w-full sm:w-64">
+                <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none" />
+                <input
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                  placeholder={rosterMode === "observer" ? "Search by observer name…" : "Search by student name…"}
+                  className="h-8 w-full pl-8 pr-3 border border-border bg-background text-foreground rounded-lg text-xs focus:outline-none focus:border-primary transition-colors"
+                />
+              </div>
+              <select
+                value={sortBy}
+                onChange={(e) => setSortBy(e.target.value as any)}
+                className="h-8 px-2.5 border border-border bg-background text-foreground rounded-lg text-xs font-medium cursor-pointer focus:outline-none focus:border-primary"
+                aria-label="Sort individual progress"
+              >
+                <option value="progress_desc">Sort: Highest progress</option>
+                <option value="progress_asc">Sort: Lowest progress</option>
+                <option value="name_asc">Sort: Name (A-Z)</option>
+                <option value="name_desc">Sort: Name (Z-A)</option>
+              </select>
+            </>
+          )}
+          <ExportSubmissionsMenu
+            cohortId={cohortId}
+            lmsProgramId={lmsProgramId}
+            mode={rosterMode}
+            scopeLabel={scopeLabel}
+          />
+        </div>
       </div>
 
       {sortedRows.length === 0 ? (

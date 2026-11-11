@@ -24,7 +24,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } f
 import { useToast } from "@/components/ui/toast"
 import { ensureAbsoluteUrl, getErrorMessage } from "@/lib/utils"
 import { DesignRunDetail } from "@/pages/lms-authoring/components/DesignRunDetail"
-import { QuizAnswersReview, AssignmentItemRow } from "@/pages/lms-authoring/components/LmsProgressAndMissions"
+import { QuizAnswersReview, AssignmentItemRow, ExportSubmissionsMenu } from "@/pages/lms-authoring/components/LmsProgressAndMissions"
 
 /* ================================================================== */
 /* Analysis tab (2026-09-16)                                           */
@@ -1781,6 +1781,7 @@ export function CompetitionAnalysisTab({ cohortId }: { cohortId: string }) {
             All
           </button>
         </div>
+        <ExportSubmissionsMenu cohortId={cohortId} mode={mode} />
       </div>
 
       {isLoading ? (

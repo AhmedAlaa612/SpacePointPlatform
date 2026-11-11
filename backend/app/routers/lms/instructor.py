@@ -17,7 +17,7 @@ student's own active registrations instead.
 import uuid
 from typing import Literal
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -46,6 +46,10 @@ from app.services.lms import cohort_quiz as cohort_quiz_service
 from app.services.lms.admin_progress import student_design_runs
 from app.services.lms.instructor_progress import student_course_progress
 from app.services.lms.my_programs import my_programs
+from app.services.lms.submissions_export import (
+    export_cohort_items_submissions_workbook,
+    export_program_items_submissions_workbook,
+)
 from app.services.lms.program import (
     assignment_item_detail, check_item_conflicts, cohort_program_roster, confirm_program_item,
     effective_cohort_program_items, fork_cohort_override, guard_locked_submission_scope, item_out, items_out,
@@ -563,4 +567,67 @@ async def reset_instructor_cohort_components(
     await component_config_service.reset_component_config(db, owner_type="cohort", owner_id=cohort_id)
     await db.commit()
     return await component_config_service.build_component_config_out(db, owner_type="cohort", owner_id=cohort_id)
+
+
+# ── Checklist Item Submissions Excel Export ──────────────────────────────
+
+@router.get("/cohorts/{cohort_id}/submissions-export.xlsx")
+async def export_cohort_items_submissions(
+    cohort_id: uuid.UUID,
+    item_ids: list[uuid.UUID] = Query(default=[]),
+    mode: Literal["participant", "observer", "all"] = "participant",
+    db: AsyncSession = Depends(get_db),
+    current: User = Depends(get_current_active_user),
+) -> Response:
+    """Export one worksheet per selected checklist item (or all submission items
+    when `item_ids` is empty) for a cohort as an `.xlsx` workbook. Team-scoped
+    items output one row per team; individual-scoped items output one row per
+    student."""
+    await require_cohort_access(db, cohort_id=cohort_id, user=current)
+    cohort = await db.get(Cohort, cohort_id)
+    if cohort is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Cohort not found")
+    xlsx_bytes = await export_cohort_items_submissions_workbook(
+        db, cohort_id=cohort_id, item_ids=item_ids, mode=mode
+    )
+    return Response(
+        content=xlsx_bytes,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={
+            "Content-Disposition": 'attachment; filename="cohort_submissions.xlsx"',
+            "Cache-Control": "no-cache",
+        },
+    )
+
+
+@router.get("/programs/{lms_program_id}/submissions-export.xlsx")
+async def export_program_items_submissions(
+    lms_program_id: uuid.UUID,
+    item_ids: list[uuid.UUID] = Query(default=[]),
+    mode: Literal["participant", "observer", "all"] = "participant",
+    db: AsyncSession = Depends(get_db),
+    current: User = Depends(get_current_active_user),
+) -> Response:
+    """Export one worksheet per selected checklist item across all reachable
+    cohorts for an LMS Program as an `.xlsx` workbook."""
+    program = await db.get(LmsProgram, lms_program_id)
+    if program is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Program not found")
+    restrict = await instructor_cohort_ids(db, user=current)
+    xlsx_bytes = await export_program_items_submissions_workbook(
+        db,
+        lms_program_id=lms_program_id,
+        item_ids=item_ids,
+        restrict_to_cohort_ids=restrict,
+        mode=mode,
+    )
+    return Response(
+        content=xlsx_bytes,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={
+            "Content-Disposition": 'attachment; filename="program_submissions.xlsx"',
+            "Cache-Control": "no-cache",
+        },
+    )
+
 
