@@ -28,6 +28,15 @@ function errorDetail(err: unknown, fallback: string): string {
   return fallback;
 }
 
+function formatBirthdate(val?: string | null) {
+  if (!val) return "Not set";
+  const clean = val.split("T")[0];
+  const d = new Date(clean + "T00:00:00");
+  return isNaN(d.getTime())
+    ? val
+    : d.toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" });
+}
+
 /** /learn/profile (design 2a/2b) — follows the portal's own profile
  * vocabulary (`pages/shared/Profile.tsx`'s edit mutations, `StatTile` from
  * `ProfileStatsCards.tsx`) rather than inventing a new one. Certificates
@@ -262,6 +271,7 @@ export default function LearnProfile() {
             <div className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Account info</div>
             <div className="flex flex-col gap-3">
               <AccountField label="Email" value={me.email} />
+              <AccountField label="Date of birth" value={formatBirthdate(me.birthdate || me.date_of_birth)} />
               <AccountField label="University / Institution" value={me.organization_name || "Not set"} />
               <AccountField label="University / Student ID" value={me.student_id || "Not set"} />
               <AccountField label="WhatsApp" value={me.phone || "Not set"} />
@@ -387,6 +397,9 @@ function EditProfileForm({ onOpenChange }: { onOpenChange: (v: boolean) => void 
   const [universityName, setUniversityName] = useState(currentUser?.organization_name ?? "");
   const [studentId, setStudentId] = useState(currentUser?.student_id ?? "");
   const [phone, setPhone] = useState(currentUser?.phone ?? "");
+  const [birthdate, setBirthdate] = useState(
+    (currentUser?.birthdate ?? currentUser?.date_of_birth ?? "").split("T")[0]
+  );
   const [country, setCountry] = useState(currentUser?.country ?? "");
   const [cityId, setCityId] = useState(currentUser?.city_id ?? "");
   const [cityOther, setCityOther] = useState(currentUser?.city_other ?? "");
@@ -411,6 +424,8 @@ function EditProfileForm({ onOpenChange }: { onOpenChange: (v: boolean) => void 
       student_id: studentId.trim() || undefined,
       university_name: universityName.trim() || undefined,
       phone: phone || undefined,
+      birthdate: birthdate || undefined,
+      date_of_birth: birthdate || undefined,
       country: country || undefined, city_id: cityId || undefined, city_other: cityOther || undefined,
     }),
     onSuccess: (updated) => {
@@ -475,6 +490,17 @@ function EditProfileForm({ onOpenChange }: { onOpenChange: (v: boolean) => void 
               <label className="block text-xs font-medium text-muted-foreground mb-1.5">Full name</label>
               <input
                 value={fullName} onChange={(e) => setFullName(e.target.value)}
+                className="w-full h-11 rounded-xl border border-border bg-background px-3.5 text-sm focus:outline-none focus:border-primary transition-colors"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-muted-foreground mb-1.5">
+                Date of birth <span className="normal-case font-normal">(optional)</span>
+              </label>
+              <input
+                type="date"
+                value={birthdate}
+                onChange={(e) => setBirthdate(e.target.value)}
                 className="w-full h-11 rounded-xl border border-border bg-background px-3.5 text-sm focus:outline-none focus:border-primary transition-colors"
               />
             </div>
