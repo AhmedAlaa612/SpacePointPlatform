@@ -1145,33 +1145,36 @@ export function ApplicantShell({ children }: { children: ReactNode }) {
             </Link>
           </div>
 
-          {/* Header controls (Explore courses is always next to RoleSwitcher) */}
-          <div className="flex items-center gap-1.5 sm:gap-2.5">
+          {/* Desktop header controls */}
+          <div className="hidden sm:flex items-center gap-2.5">
             <button
               type="button"
               onClick={handleGoToLearn}
-              className="text-xs font-medium text-gray-300 hover:text-white px-2.5 py-1.5 rounded-lg border border-white/10 bg-white/5 hover:bg-white/10 transition-colors whitespace-nowrap shrink-0"
+              className="text-xs font-medium text-gray-300 hover:text-white px-3 py-1.5 rounded-lg border border-white/10 bg-white/5 hover:bg-white/10 transition-colors whitespace-nowrap"
             >
               Explore courses
             </button>
             <RoleSwitcher />
-            <div className="hidden sm:flex items-center gap-2.5">
-              <PortalTutorialButton tourAttr="applicant-tutorial-btn" />
-              <button
-                type="button"
-                onClick={handleLogout}
-                className="text-sm font-medium text-gray-300 hover:text-white transition-colors whitespace-nowrap px-2 py-1"
-              >
-                Logout
-              </button>
-            </div>
+            <PortalTutorialButton tourAttr="applicant-tutorial-btn" />
+            <button
+              type="button"
+              onClick={handleLogout}
+              className="text-sm font-medium text-gray-300 hover:text-white transition-colors whitespace-nowrap px-2 py-1"
+            >
+              Logout
+            </button>
+          </div>
+
+          {/* Mobile header controls */}
+          <div className="flex sm:hidden items-center gap-2">
+            <RoleSwitcher />
             <button
               type="button"
               onClick={() => setDrawerOpen(true)}
-              className="p-1.5 text-gray-300 hover:text-white hover:bg-white/5 rounded-lg transition-colors sm:hidden"
+              className="p-1.5 text-gray-300 hover:text-white hover:bg-white/5 rounded-lg transition-colors"
               aria-label="Open menu"
             >
-              <Menu size={20} />
+              <Menu size={22} />
             </button>
           </div>
         </header>
