@@ -1,13 +1,15 @@
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
-from fastapi import APIRouter, Depends, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 
-from app.core.dependencies import require_applicant
+from app.core.dependencies import get_current_active_user, require_applicant
+from app.core.security import create_access_token, create_refresh_token
 from app.db.session import get_db
-from app.models.enums import ApplicationStatus, ModuleSubmissionStatus, VideoSubmissionStatus
+from app.models.enums import ApplicationStatus, ModuleSubmissionStatus, UserRole, VideoSubmissionStatus
+from app.models.instructors.applicant_profile import ApplicantProfile
 from app.models.instructors.application_review import ApplicationReview
 from app.models.instructors.checklist import ChecklistItem, ChecklistModule, ModuleSection, UserChecklistProgress
 from app.models.instructors.module_submission import ModuleSubmission
@@ -21,13 +23,23 @@ from app.schemas.instructors.applicant import (
     AssessmentSubmissionOut,
     ChecklistItemProgressOut,
     ChecklistModuleOut,
+    IntakeEligibilityOut,
     ModuleSectionOut,
     ModuleSubmissionOut,
     PresentationSubmit,
+    StudentInstructorApply,
     VideoSubmissionOut,
     VideoSummaryUpdate,
 )
 from app.services import storage
+from app.services.email import send_applicant_extension_granted_email
+from app.services.instructors.deadlines import (
+    compute_phase_deadline,
+    get_instructor_settings,
+    is_student_eligible_to_apply,
+)
+from app.services.invitations import resolve_invite_code
+from app.services.notification import create_notification as notify
 
 router = APIRouter(tags=["instructors-applicant"])
 
@@ -314,6 +326,233 @@ async def submit_module(
 
 # ── Application submit / reopen / status ──────────────────────
 
+def _build_status_out(
+    review: ApplicationReview,
+    presentation: PresentationSubmission | None = None,
+    assessment: AssessmentSubmission | None = None,
+) -> ApplicationStatusOut:
+    now = datetime.now(timezone.utc)
+    hours_remaining = None
+    is_under_review = review.status == ApplicationStatus.under_review
+    deadline = review.phase_deadline if not is_under_review else None
+
+    if deadline:
+        diff = (deadline - now).total_seconds() / 3600.0
+        hours_remaining = max(0.0, round(diff, 1))
+
+    can_extend = bool(
+        not review.extension_used
+        and deadline is not None
+        and review.status in (
+            ApplicationStatus.in_progress,
+            ApplicationStatus.phase_1_approved,
+            ApplicationStatus.research_approved,
+        )
+    )
+
+    return ApplicationStatusOut(
+        status=review.status,
+        feedback=review.feedback,
+        reviewed_at=review.reviewed_at,
+        presentation_video_link=presentation.video_link if presentation else None,
+        assessment=AssessmentSubmissionOut.model_validate(assessment) if assessment else None,
+        phase_deadline=deadline,
+        extension_used=review.extension_used,
+        can_extend=can_extend,
+        hours_remaining=hours_remaining,
+        created_at=review.created_at,
+    )
+
+
+@router.get("/intake-eligibility", response_model=IntakeEligibilityOut)
+async def get_intake_eligibility(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+):
+    """Checks whether the currently authenticated student is eligible to apply for an instructor role."""
+    settings = await get_instructor_settings(db)
+    eligible, reason = is_student_eligible_to_apply(current_user, settings)
+    return IntakeEligibilityOut(
+        eligible=eligible,
+        reason=reason,
+        min_age=settings["instructor_intake_min_age"],
+        has_birthdate=bool(current_user.birthdate),
+    )
+
+
+@router.post("/apply-as-student", status_code=status.HTTP_201_CREATED)
+async def apply_as_student(
+    payload_json: str = Form(..., alias="payload"),
+    cv: UploadFile | None = File(None),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+):
+    """Authenticated instructor application for existing platform users (e.g., adult students).
+    Appends UserRole.applicant to user.roles, initializes pipeline deadlines, and returns fresh JWT tokens."""
+    settings = await get_instructor_settings(db)
+    eligible, reason = is_student_eligible_to_apply(current_user, settings)
+    if not eligible:
+        raise HTTPException(status_code=400, detail=reason or "Not eligible to apply")
+
+    try:
+        payload = StudentInstructorApply.model_validate_json(payload_json)
+    except Exception:
+        raise HTTPException(status_code=422, detail="Invalid application payload")
+
+    code = payload.invite_code.strip().upper() if payload.invite_code else None
+    invitation = None
+    referred_by_ambassador_id = None
+    if code:
+        invitation, ambassador = await resolve_invite_code(db, code, kind="instructor")
+        referred_by_ambassador_id = ambassador.id if ambassador else None
+
+    # CV upload
+    cv_path = None
+    if cv and cv.filename:
+        ext = ("." + cv.filename.rsplit(".", 1)[-1].lower()) if "." in cv.filename else ""
+        if ext not in [".pdf", ".doc", ".docx"]:
+            raise HTTPException(status_code=400, detail="CV must be a PDF or Word document (.pdf, .doc, .docx)")
+        cv_path = f"instructor/{current_user.id}{ext}"
+        await storage.upload_file("cvs", cv_path, await cv.read(), cv.content_type or "application/pdf")
+
+    # Add or update ApplicantProfile
+    profile = await db.get(ApplicantProfile, current_user.id)
+    if profile is None:
+        profile = ApplicantProfile(
+            user_id=current_user.id,
+            cv_path=cv_path,
+            nationality=payload.nationality,
+            work_status=payload.work_status,
+            fluent_languages=payload.fluent_languages,
+            graduated_university=payload.graduated_university or payload.university,
+            university=payload.university,
+            highest_degree=payload.highest_degree,
+            highest_degree_other=payload.highest_degree_other,
+            city_of_residence_id=payload.city_of_residence_id,
+            deliver_city_ids=payload.deliver_city_ids,
+            background_areas=payload.background_areas,
+            background_other=payload.background_other,
+            has_own_transportation=payload.has_own_transportation,
+            country=payload.country or current_user.country or "United Arab Emirates",
+        )
+        db.add(profile)
+    else:
+        profile.cv_path = cv_path or profile.cv_path
+        profile.nationality = payload.nationality or profile.nationality
+        profile.work_status = payload.work_status or profile.work_status
+        profile.fluent_languages = payload.fluent_languages or profile.fluent_languages
+        profile.university = payload.university or profile.university
+        profile.highest_degree = payload.highest_degree or profile.highest_degree
+        profile.city_of_residence_id = payload.city_of_residence_id or profile.city_of_residence_id
+        profile.deliver_city_ids = payload.deliver_city_ids or profile.deliver_city_ids
+        profile.background_areas = payload.background_areas or profile.background_areas
+        profile.has_own_transportation = payload.has_own_transportation
+
+    # Initialize video submissions if not already present
+    for v in await get_configured_videos(db):
+        existing_v = (await db.execute(
+            select(VideoSubmission).where(
+                VideoSubmission.user_id == current_user.id,
+                VideoSubmission.video_no == v["video_no"],
+            )
+        )).scalars().first()
+        if not existing_v:
+            db.add(VideoSubmission(user_id=current_user.id, video_no=v["video_no"], youtube_url=v["url"]))
+
+    # Initialize ApplicationReview with Phase 1 deadline
+    now = datetime.now(timezone.utc)
+    phase1_days = settings["instructor_deadline_phase1_days"]
+    deadline = compute_phase_deadline(phase1_days)
+
+    review = (await db.execute(
+        select(ApplicationReview).where(ApplicationReview.user_id == current_user.id)
+    )).scalars().first()
+    if review is None:
+        db.add(ApplicationReview(
+            user_id=current_user.id,
+            status=ApplicationStatus.in_progress,
+            phase_deadline=deadline,
+            extension_used=False,
+            created_at=now,
+            last_status_change_at=now,
+        ))
+    else:
+        review.status = ApplicationStatus.in_progress
+        review.reviewed_at = None
+        review.admin_id = None
+        review.feedback = None
+        review.phase_deadline = deadline
+        review.extension_used = False
+        review.last_status_change_at = now
+
+    # Append UserRole.applicant
+    current_roles = [r.value if hasattr(r, "value") else str(r) for r in (current_user.roles or [])]
+    if "applicant" not in current_roles:
+        current_roles.append("applicant")
+    current_user.roles = [UserRole(r) for r in current_roles]
+
+    if invitation:
+        invitation.used_count += 1
+    if referred_by_ambassador_id:
+        await notify(
+            db, referred_by_ambassador_id, "New Instructor Application",
+            f"{current_user.full_name} applied as an instructor with your invite code.", type="instructor"
+        )
+
+    await db.commit()
+    await db.refresh(current_user)
+
+    from app.routers.auth import _user_out
+    roles = current_user.role_values
+    return {
+        "access_token": create_access_token(current_user.id, roles),
+        "refresh_token": create_refresh_token(current_user.id, roles),
+        "token_type": "bearer",
+        "user": await _user_out(db, current_user, profile),
+    }
+
+
+@router.post("/request-extension", response_model=ApplicationStatusOut)
+async def request_deadline_extension(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_applicant),
+):
+    """Allows an applicant a one-time 24-hour extension on their current phase deadline."""
+    review = await _get_review(db, current_user.id)
+    if review.extension_used:
+        raise HTTPException(status_code=400, detail="24-hour extension has already been claimed for this application.")
+    if not review.phase_deadline:
+        raise HTTPException(status_code=400, detail="No active deadline found to extend.")
+
+    settings = await get_instructor_settings(db)
+    ext_days = settings["instructor_extension_days"]
+    now = datetime.now(timezone.utc)
+
+    # Base extension from existing deadline or now (whichever is later)
+    base = max(now, review.phase_deadline)
+    review.phase_deadline = base + timedelta(days=ext_days)
+    review.extension_used = True
+    review.last_status_change_at = now
+
+    await db.commit()
+    await db.refresh(review)
+
+    # Send confirmation email
+    await send_applicant_extension_granted_email(
+        current_user.email,
+        current_user.full_name,
+        review.phase_deadline.strftime("%Y-%m-%d %H:%M"),
+    )
+
+    presentation = (await db.execute(
+        select(PresentationSubmission).where(PresentationSubmission.user_id == current_user.id)
+    )).scalars().first()
+    assessment = (await db.execute(
+        select(AssessmentSubmission).where(AssessmentSubmission.user_id == current_user.id)
+    )).scalars().first()
+    return _build_status_out(review, presentation, assessment)
+
+
 @router.post("/application/submit", response_model=ApplicationStatusOut)
 async def submit_application(db: AsyncSession = Depends(get_db), current_user: User = Depends(require_applicant)):
     review = await _get_review(db, current_user.id)
@@ -325,9 +564,11 @@ async def submit_application(db: AsyncSession = Depends(get_db), current_user: U
         raise HTTPException(status_code=400, detail="Submit all checklist modules first")
 
     review.status = ApplicationStatus.under_review
+    review.phase_deadline = None
     review.submitted_at = datetime.now(timezone.utc)
+    review.last_status_change_at = datetime.now(timezone.utc)
     await db.commit()
-    return ApplicationStatusOut(status=review.status, feedback=review.feedback, reviewed_at=review.reviewed_at)
+    return _build_status_out(review)
 
 
 @router.post("/application/reopen", response_model=ApplicationStatusOut)
@@ -335,9 +576,13 @@ async def reopen_application(db: AsyncSession = Depends(get_db), current_user: U
     review = await _get_review(db, current_user.id)
     if review.status != ApplicationStatus.rejected:
         raise HTTPException(status_code=400, detail="Only a rejected application can be reopened")
+    settings = await get_instructor_settings(db)
     review.status = ApplicationStatus.in_progress
+    review.phase_deadline = compute_phase_deadline(settings["instructor_deadline_phase1_days"])
+    review.extension_used = False
+    review.last_status_change_at = datetime.now(timezone.utc)
     await db.commit()
-    return ApplicationStatusOut(status=review.status, feedback=review.feedback, reviewed_at=review.reviewed_at)
+    return _build_status_out(review)
 
 
 @router.post("/presentation/submit", response_model=ApplicationStatusOut)
@@ -357,9 +602,10 @@ async def submit_presentation(
         db.add(PresentationSubmission(user_id=current_user.id, video_link=body.video_link))
 
     review.status = ApplicationStatus.under_review
+    review.phase_deadline = None
+    review.last_status_change_at = datetime.now(timezone.utc)
     await db.commit()
-    return ApplicationStatusOut(status=review.status, feedback=review.feedback, reviewed_at=review.reviewed_at,
-                                 presentation_video_link=body.video_link)
+    return _build_status_out(review, presentation=existing or PresentationSubmission(video_link=body.video_link))
 
 
 @router.get("/assessment/questions")
@@ -404,14 +650,17 @@ async def submit_assessment(
         existing.comments = comments
         existing.submitted_at = datetime.now(timezone.utc)
     else:
-        db.add(AssessmentSubmission(
+        existing = AssessmentSubmission(
             user_id=current_user.id, file_url=file_url, bucket=file_bucket, file_path=file_path,
             google_drive_link=google_drive_link, comments=comments,
-        ))
+        )
+        db.add(existing)
 
     review.status = ApplicationStatus.under_review
+    review.phase_deadline = None
+    review.last_status_change_at = datetime.now(timezone.utc)
     await db.commit()
-    return ApplicationStatusOut(status=review.status, feedback=review.feedback, reviewed_at=review.reviewed_at)
+    return _build_status_out(review, assessment=existing)
 
 
 @router.get("/status", response_model=ApplicationStatusOut)
@@ -428,8 +677,4 @@ async def get_status(db: AsyncSession = Depends(get_db), current_user: User = De
     assessment = (await db.execute(
         select(AssessmentSubmission).where(AssessmentSubmission.user_id == current_user.id)
     )).scalars().first()
-    return ApplicationStatusOut(
-        status=review.status, feedback=review.feedback, reviewed_at=review.reviewed_at,
-        presentation_video_link=presentation.video_link if presentation else None,
-        assessment=AssessmentSubmissionOut.model_validate(assessment) if assessment else None,
-    )
+    return _build_status_out(review, presentation, assessment)

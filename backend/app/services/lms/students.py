@@ -345,9 +345,8 @@ async def search_cohort_assignable_students(
         if mode == "observer":
             return "observer" in roles
         if mode == "staff":
-            if "student" in roles:
-                return False
-            return (not role_norm) or (role_norm in roles)
+            has_staff = bool(roles & {"instructor", "facilitator", "operations", "admin", "mentor", "intern", "leader", "ambassador", "teacher"})
+            return has_staff and ((not role_norm) or (role_norm in roles))
         if mode == "all":
             return True
         # student: student role without observer (observer-role holders
@@ -398,7 +397,8 @@ async def search_cohort_assignable_students(
         if mode == "observer":
             role_filter = User.roles.any("observer")
         elif mode == "staff":
-            role_filter = ~User.roles.any("student")
+            staff_roles = ("instructor", "facilitator", "operations", "admin", "mentor", "intern", "leader", "ambassador", "teacher")
+            role_filter = or_(*(User.roles.any(r) for r in staff_roles))
         elif mode == "all":
             role_filter = None
         else:

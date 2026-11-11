@@ -1154,7 +1154,18 @@ async def instructor_apply(
     # false. See services/instructors/application_videos.py.
     for v in await get_configured_videos(db):
         db.add(VideoSubmission(user_id=user.id, video_no=v["video_no"], youtube_url=v["url"]))
-    db.add(ApplicationReview(user_id=user.id))
+    
+    from app.services.instructors.deadlines import compute_phase_deadline, get_instructor_settings
+    inst_settings = await get_instructor_settings(db)
+    init_deadline = compute_phase_deadline(inst_settings["instructor_deadline_phase1_days"])
+    now_ts = datetime.now(timezone.utc)
+    db.add(ApplicationReview(
+        user_id=user.id,
+        phase_deadline=init_deadline,
+        extension_used=False,
+        created_at=now_ts,
+        last_status_change_at=now_ts,
+    ))
 
     if invitation:
         invitation.used_count += 1

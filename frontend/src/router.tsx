@@ -607,7 +607,25 @@ const instructorsLayoutRoute = createRoute({
     // lets through unauthenticated) — defer to authLayoutRoute's component, which
     // renders the public InstructorsLanding page directly instead of this subtree.
     if (!tokens.access) return;
-    const role = localStorage.getItem("active_role");
+    let role = localStorage.getItem("active_role");
+
+    // Auto-align active_role if navigating to instructor status or dashboard with appropriate role claim
+    if (tokens.access) {
+      try {
+        const payload = JSON.parse(atob(tokens.access.split(".")[1] || ""));
+        const roles = Array.isArray(payload.roles) ? payload.roles : [];
+        if (location.pathname.startsWith("/instructors/status") && role !== "applicant" && roles.includes("applicant")) {
+          localStorage.setItem("active_role", "applicant");
+          role = "applicant";
+        } else if (location.pathname.startsWith("/instructors") && role === "student" && roles.includes("instructor")) {
+          localStorage.setItem("active_role", "instructor");
+          role = "instructor";
+        }
+      } catch {
+        // Continue with current role
+      }
+    }
+
     if (role !== "instructor" && role !== "facilitator" && role !== "applicant" && role !== "admin") {
       // Operations manages the instructor-assessment gate and ratings (the same
       // role the backend already requires on those endpoints — require_operations),

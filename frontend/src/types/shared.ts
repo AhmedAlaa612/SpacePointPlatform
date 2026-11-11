@@ -49,7 +49,7 @@ export const ROLE_LABEL: Record<Role, string> = {
   admin: "Admin",
   intern: "Intern",
   leader: "Team Leader",
-  applicant: "Applicant",
+  applicant: "Instructor Application",
   instructor: "Instructor",
   facilitator: "Facilitator",
   ambassador: "Ambassador",

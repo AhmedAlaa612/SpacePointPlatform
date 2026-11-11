@@ -2,11 +2,12 @@ import { useRef, useState } from "react";
 import { useNavigate } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { isAxiosError } from "axios";
-import { Award, CheckCircle2, Download, LogOut, Pencil, Plus, RefreshCw, Upload, Users } from "lucide-react";
+import { Award, CheckCircle2, Download, GraduationCap, LogOut, Pencil, Plus, RefreshCw, Upload, Users } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
 import { changePassword, fetchMe, rerollNicknameApi, updateMeApi, updatePhotoApi } from "@/api/auth";
 import { fetchMyActivity, fetchMyCertificates, fetchMyCourses } from "@/api/lms";
 import { fetchMyTeams } from "@/api/missions";
+import { getIntakeEligibilityApi } from "@/api/instructors/applicant";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { CountrySelect } from "@/components/ui/CountrySelect";
@@ -20,6 +21,7 @@ import { ImageCropModal } from "@/components/ui/ImageCropModal";
 import { cn } from "@/lib/utils";
 import { CourseProgress } from "./CourseProgress";
 import { RedeemInviteModal } from "./components/RedeemInviteModal";
+import { ApplyAsInstructorModal } from "./components/ApplyAsInstructorModal";
 
 function errorDetail(err: unknown, fallback: string): string {
   if (isAxiosError(err) && typeof err.response?.data?.detail === "string") return err.response.data.detail;
@@ -40,9 +42,15 @@ export default function LearnProfile() {
   const [editOpen, setEditOpen] = useState(false);
   const [pwOpen, setPwOpen] = useState(false);
   const [redeemOpen, setRedeemOpen] = useState(false);
+  const [applyModalOpen, setApplyModalOpen] = useState(false);
   const [rerollError, setRerollError] = useState<string | null>(null);
 
   const { data: me } = useQuery({ queryKey: ["me"], queryFn: fetchMe, initialData: currentUser ?? undefined });
+  const { data: eligibility } = useQuery({
+    queryKey: ["instructor-intake-eligibility"],
+    queryFn: getIntakeEligibilityApi,
+    enabled: !!me && !me.roles?.includes("instructor") && !me.roles?.includes("applicant"),
+  });
   const { data: dashboard } = useQuery({ queryKey: ["lms-my-courses"], queryFn: fetchMyCourses });
   const { data: activity } = useQuery({ queryKey: ["lms-my-activity"], queryFn: fetchMyActivity });
   const { data: certificates } = useQuery({ queryKey: ["lms-my-certificates"], queryFn: fetchMyCertificates });
@@ -249,72 +257,94 @@ export default function LearnProfile() {
           </Card>
         </div>
 
-        <Card className="p-5 gap-4">
-          <div className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Account info</div>
-          <div className="flex flex-col gap-3">
-            <AccountField label="Email" value={me.email} />
-            <AccountField label="University / Institution" value={me.organization_name || "Not set"} />
-            <AccountField label="University / Student ID" value={me.student_id || "Not set"} />
-            <AccountField label="WhatsApp" value={me.phone || "Not set"} />
-            <AccountField
-              label="Location"
-              value={
-                [me.city_name, getCountries().find((c) => c.code === me.country)?.name ?? me.country]
-                  .filter(Boolean)
-                  .join(", ") || "Not set"
-              }
-            />
-            {memberSince && <AccountField label="Member since" value={memberSince} />}
-          </div>
-          <div className="h-px bg-border" />
-          <div className="flex flex-col gap-2">
+        <div className="flex flex-col gap-5">
+          <Card className="p-5 gap-4">
+            <div className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Account info</div>
+            <div className="flex flex-col gap-3">
+              <AccountField label="Email" value={me.email} />
+              <AccountField label="University / Institution" value={me.organization_name || "Not set"} />
+              <AccountField label="University / Student ID" value={me.student_id || "Not set"} />
+              <AccountField label="WhatsApp" value={me.phone || "Not set"} />
+              <AccountField
+                label="Location"
+                value={
+                  [me.city_name, getCountries().find((c) => c.code === me.country)?.name ?? me.country]
+                    .filter(Boolean)
+                    .join(", ") || "Not set"
+                }
+              />
+              {memberSince && <AccountField label="Member since" value={memberSince} />}
+            </div>
+            <div className="h-px bg-border" />
+            <div className="flex flex-col gap-2">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Invite codes</span>
+                <button
+                  type="button"
+                  onClick={() => setRedeemOpen(true)}
+                  className="text-xs font-medium text-primary hover:opacity-80 inline-flex items-center gap-1 cursor-pointer"
+                >
+                  <Plus className="size-3" /> Redeem code
+                </button>
+              </div>
+              {(() => {
+                const codes = (me.invitation_codes_used && me.invitation_codes_used.length > 0)
+                  ? me.invitation_codes_used.map((c) => c.code)
+                  : me.invitation_code_used
+                  ? [me.invitation_code_used]
+                  : [];
+                if (codes.length === 0) {
+                  return <span className="text-xs text-muted-foreground italic">None redeemed yet</span>;
+                }
+                return (
+                  <div className="flex flex-wrap gap-1.5 pt-0.5">
+                    {codes.map((code) => (
+                      <span
+                        key={code}
+                        className="font-mono text-xs font-semibold px-2 py-0.5 rounded-md bg-primary/10 text-primary border border-primary/20"
+                      >
+                        {code}
+                      </span>
+                    ))}
+                  </div>
+                );
+              })()}
+            </div>
+            <div className="h-px bg-border" />
             <div className="flex items-center justify-between">
-              <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Invite codes</span>
-              <button
-                type="button"
-                onClick={() => setRedeemOpen(true)}
-                className="text-xs font-medium text-primary hover:opacity-80 inline-flex items-center gap-1 cursor-pointer"
-              >
-                <Plus className="size-3" /> Redeem code
+              <button onClick={() => setPwOpen(true)} className="text-sm font-medium text-primary hover:opacity-80 cursor-pointer text-left">
+                Change password
+              </button>
+              <button onClick={() => void handleLogout()} className="text-sm font-medium text-destructive hover:opacity-80 cursor-pointer inline-flex items-center gap-1.5">
+                <LogOut className="size-3.5" /> Sign out
               </button>
             </div>
-            {(() => {
-              const codes = (me.invitation_codes_used && me.invitation_codes_used.length > 0)
-                ? me.invitation_codes_used.map((c) => c.code)
-                : me.invitation_code_used
-                ? [me.invitation_code_used]
-                : [];
-              if (codes.length === 0) {
-                return <span className="text-xs text-muted-foreground italic">None redeemed yet</span>;
-              }
-              return (
-                <div className="flex flex-wrap gap-1.5 pt-0.5">
-                  {codes.map((code) => (
-                    <span
-                      key={code}
-                      className="font-mono text-xs font-semibold px-2 py-0.5 rounded-md bg-primary/10 text-primary border border-primary/20"
-                    >
-                      {code}
-                    </span>
-                  ))}
-                </div>
-              );
-            })()}
-          </div>
-          <div className="h-px bg-border" />
-          <div className="flex items-center justify-between">
-            <button onClick={() => setPwOpen(true)} className="text-sm font-medium text-primary hover:opacity-80 cursor-pointer text-left">
-              Change password
-            </button>
-            <button onClick={() => void handleLogout()} className="text-sm font-medium text-destructive hover:opacity-80 cursor-pointer inline-flex items-center gap-1.5">
-              <LogOut className="size-3.5" /> Sign out
-            </button>
-          </div>
-        </Card>
+          </Card>
+
+          {eligibility?.eligible && (
+            <Card className="p-5 gap-3 border-border bg-card">
+              <div className="flex items-center gap-2 text-foreground font-semibold text-sm">
+                <GraduationCap className="size-4 text-primary" />
+                Instructor Intake
+              </div>
+              <p className="text-xs text-muted-foreground leading-relaxed">
+                Qualified adult students (18+) are invited to join the SpacePoint teaching team. Deliver hands-on space workshops and lead student cohorts.
+              </p>
+              <Button
+                size="sm"
+                onClick={() => setApplyModalOpen(true)}
+                className="w-full gap-1.5 text-xs font-semibold"
+              >
+                Apply to Become an Instructor
+              </Button>
+            </Card>
+          )}
+        </div>
       </div>
 
       <EditProfileDialog open={editOpen} onOpenChange={setEditOpen} />
       <ChangePasswordDialog open={pwOpen} onOpenChange={setPwOpen} />
+      <ApplyAsInstructorModal open={applyModalOpen} onOpenChange={setApplyModalOpen} />
       <RedeemInviteModal
         open={redeemOpen}
         onOpenChange={setRedeemOpen}

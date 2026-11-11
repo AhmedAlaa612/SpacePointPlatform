@@ -53,6 +53,11 @@ export interface ApplicationStatusOut {
   reviewed_at: string | null
   presentation_video_link: string | null
   assessment: AssessmentSubmissionOut | null
+  phase_deadline: string | null
+  extension_used: boolean
+  can_extend: boolean
+  hours_remaining: number | null
+  created_at: string | null
 }
 
 export const STATUS_LABEL: Record<ApplicationStatus, string> = {

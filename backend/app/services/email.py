@@ -147,6 +147,75 @@ async def send_phase1_approval_email(to_email: str, name: str) -> bool:
     return await try_send_email(to_email, "SpacePoint Instructor Application - Phase 1 Approved", body)
 
 
+async def send_applicant_revision_requested_email(to_email: str, name: str, feedback: str, days: int) -> bool:
+    body = (
+        f"Hi {name},\n\n"
+        "Your SpacePoint instructor application has been reviewed, and updates were requested by the review team.\n\n"
+        f"Reviewer Feedback:\n{feedback}\n\n"
+        f"Please update your submission within {days} days.\n"
+        f"Dashboard: {settings.FRONTEND_URL}/instructors/status\n\n"
+        "— SpacePoint"
+    )
+    return await try_send_email(to_email, "SpacePoint Instructor Application - Updates Requested", body)
+
+
+async def send_applicant_deadline_warning_email(
+    to_email: str, name: str, hours_left: int, extension_available: bool
+) -> bool:
+    ext_note = (
+        "\nNote: You have a one-time 24-hour extension option available on your dashboard if you need more time.\n"
+        if extension_available
+        else ""
+    )
+    body = (
+        f"Hi {name},\n\n"
+        f"This is a reminder that you have approximately {hours_left} hours remaining to complete your current "
+        "instructor application phase."
+        f"{ext_note}\n"
+        f"Access your dashboard: {settings.FRONTEND_URL}/instructors/status\n\n"
+        "— SpacePoint"
+    )
+    return await try_send_email(to_email, "SpacePoint Instructor Application - Deadline Reminder", body)
+
+
+async def send_applicant_extension_granted_email(to_email: str, name: str, new_deadline_str: str) -> bool:
+    body = (
+        f"Hi {name},\n\n"
+        "Your 24-hour deadline extension has been applied.\n\n"
+        f"Your new submission deadline is: {new_deadline_str} (UTC).\n\n"
+        f"Dashboard: {settings.FRONTEND_URL}/instructors/status\n\n"
+        "— SpacePoint"
+    )
+    return await try_send_email(to_email, "SpacePoint Instructor Application - 24h Extension Confirmed", body)
+
+
+async def send_applicant_rejected_email(to_email: str, name: str, feedback: str | None = None) -> bool:
+    fb_section = f"\nReviewer Feedback:\n{feedback}\n" if feedback else ""
+    body = (
+        f"Hi {name},\n\n"
+        "Thank you for taking the time to apply for an instructor role at SpacePoint.\n\n"
+        "After carefully reviewing your application and submissions, our team has decided not to move forward at this time."
+        f"{fb_section}\n"
+        "Your SpacePoint student account remains active, and all your existing course progress and certificates "
+        f"continue to be available at: {settings.FRONTEND_URL}/learn\n\n"
+        "Thank you for your interest in SpacePoint.\n\n"
+        "— SpacePoint"
+    )
+    return await try_send_email(to_email, "SpacePoint Instructor Application Status", body)
+
+
+async def send_applicant_timeout_rejected_email(to_email: str, name: str) -> bool:
+    body = (
+        f"Hi {name},\n\n"
+        "Your SpacePoint instructor application has been closed due to the submission deadline expiring.\n\n"
+        "Your SpacePoint student account remains active, and all your existing course progress and certificates "
+        f"continue to be available at: {settings.FRONTEND_URL}/learn\n\n"
+        "Thank you for your interest in SpacePoint.\n\n"
+        "— SpacePoint"
+    )
+    return await try_send_email(to_email, "SpacePoint Instructor Application - Closed", body)
+
+
 async def send_moved_to_onboarding_email(to_email: str, name: str) -> bool:
     body = (
         f"Hi {name},\n\n"

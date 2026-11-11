@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime, timezone
 
-from sqlalchemy import Column, DateTime, ForeignKey, String
+from sqlalchemy import Boolean, Column, DateTime, ForeignKey, String
 from sqlalchemy.dialects.postgresql import ENUM, UUID
 
 from app.db.base import Base
@@ -31,3 +31,9 @@ class ApplicationReview(Base):
     # the application) and reviewed_at (when an admin actioned it). NULL while
     # still in_progress. sql/0018 backfills historical rows best-effort.
     submitted_at = Column(DateTime(timezone=True), nullable=True)
+
+    # Deadlines and intake lifecycle (sql/0019)
+    phase_deadline = Column(DateTime(timezone=True), nullable=True)
+    extension_used = Column(Boolean, nullable=False, default=False)
+    created_at = Column(DateTime(timezone=True), nullable=False, default=lambda: datetime.now(timezone.utc))
+    last_status_change_at = Column(DateTime(timezone=True), nullable=False, default=lambda: datetime.now(timezone.utc))

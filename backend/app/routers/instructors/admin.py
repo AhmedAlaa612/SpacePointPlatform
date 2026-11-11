@@ -370,38 +370,45 @@ async def review_applicant(
     review.admin_id = current_user.id
     review.feedback = body.feedback
     review.reviewed_at = datetime.now(timezone.utc)
+    review.last_status_change_at = datetime.now(timezone.utc)
 
     email_sent = None
 
+    from app.services.instructors.deadlines import compute_phase_deadline, get_instructor_settings
+    inst_settings = await get_instructor_settings(db)
+
     if body.status == ApplicationStatus.phase_1_approved:
+        review.phase_deadline = compute_phase_deadline(inst_settings["instructor_deadline_presentation_days"])
+        review.extension_used = False
         email_sent = await send_phase1_approval_email(user.email, user.full_name)
 
+    elif body.status == ApplicationStatus.research_approved:
+        review.phase_deadline = compute_phase_deadline(inst_settings["instructor_deadline_assessment_days"])
+        review.extension_used = False
+
+    elif body.status == ApplicationStatus.rejected:
+        review.phase_deadline = None
+        active_roles = [r for r in user.role_values if r != UserRole.applicant.value]
+        if not active_roles:
+            active_roles = [UserRole.student.value]
+        user.roles = [UserRole(r) for r in active_roles]
+        from app.services.email import send_applicant_rejected_email
+        await send_applicant_rejected_email(user.email, user.full_name, body.feedback)
+
     elif body.status == ApplicationStatus.approved:
+        review.phase_deadline = None
         profile = (await db.execute(select(ApplicantProfile).where(ApplicantProfile.user_id == user_id))).scalars().first()
 
-        # Promote to instructor: swap 'applicant' for 'instructor' and leave every
-        # other role the person already holds untouched.
-        #
-        # This used to assign a fresh set (`user.roles = [UserRole.instructor]`),
-        # which silently destroyed anything else they had — an ambassador who
-        # completed instructor onboarding stopped being an ambassador. It also made
-        # holding two roles impossible in general, which is why `also_grant_role`
-        # exists at all: a single extra role smuggled through the wipe.
-        #
-        # The underlying confusion is that 'applicant' isn't a capability like the
-        # others, it's pipeline state (already tracked on application_reviews.status).
-        # Dropping just that one and adding to the rest is what "promotion" actually
-        # means. also_grant_role still applies — it carries a role the person was
-        # approved for elsewhere but never held yet (an intern application routed
-        # into this pipeline; see routers/admin/applications.py::onboard_application).
-        kept = {r for r in user.role_values if r != UserRole.applicant.value}
+        # Promote to instructor: strip 'applicant' and 'student' so they become clean
+        # instructors without dual-role collisions, while preserving any ambassador or intern roles.
+        kept = {r for r in user.role_values if r not in (UserRole.applicant.value, UserRole.student.value)}
         kept.add(UserRole.instructor.value)
         if profile and profile.also_grant_role:
             try:
                 kept.add(UserRole(profile.also_grant_role).value)
             except ValueError:
                 pass
-        user.roles = sorted(kept)
+        user.roles = [UserRole(r) for r in sorted(kept)]
 
         # Path 2 of the internship-letter flow (HANDOFF_INTERNSHIP.md):
         # onboard_application() stashed the letter details admin filled in
@@ -525,6 +532,28 @@ async def review_module_submission(
     sub.feedback = body.feedback
     sub.reviewed_at = datetime.now(timezone.utc)
     sub.reviewer_admin_id = current_user.id
+
+    if body.status == ModuleSubmissionStatus.rejected:
+        rev = (await db.execute(select(ApplicationReview).where(ApplicationReview.user_id == user_id))).scalars().first()
+        if rev:
+            from app.services.instructors.deadlines import compute_phase_deadline, get_instructor_settings
+            from app.services.email import send_applicant_revision_requested_email
+            inst_settings = await get_instructor_settings(db)
+            rev_days = inst_settings["instructor_deadline_revision_days"]
+            rev.status = ApplicationStatus.in_progress
+            rev.feedback = body.feedback
+            rev.phase_deadline = compute_phase_deadline(rev_days)
+            rev.extension_used = False
+            rev.last_status_change_at = datetime.now(timezone.utc)
+            rev_user = await db.get(User, user_id)
+            if rev_user:
+                await send_applicant_revision_requested_email(
+                    rev_user.email,
+                    rev_user.full_name,
+                    body.feedback or "A module submission was rejected. Please review feedback and resubmit.",
+                    rev_days,
+                )
+
     await db.commit()
     return {"module_id": str(module_id), "status": sub.status.value, "feedback": sub.feedback}
 

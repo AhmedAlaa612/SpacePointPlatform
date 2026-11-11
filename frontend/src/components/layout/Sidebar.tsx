@@ -1120,21 +1120,38 @@ export function AppShell({ children }: { children: ReactNode }) {
  */
 export function ApplicantShell({ children }: { children: ReactNode }) {
   const navigate = useNavigate();
-  const { logout } = useAuth();
+  const { logout, setActiveRole, roles } = useAuth();
 
   const handleLogout = () => {
     void logout();
     void navigate({ to: "/login" });
   };
 
+  const handleGoToLearn = () => {
+    if (roles.includes("student")) {
+      setActiveRole("student");
+    }
+    void navigate({ to: "/learn" });
+  };
+
   return (
     <TourProvider surface="applicant">
       <div className="min-h-screen flex flex-col text-white" style={BODY_BACKGROUND}>
         <header className="sticky top-0 z-20 flex h-16 shrink-0 items-center justify-between border-b border-white/10 bg-card/60 px-4 backdrop-blur-xl sm:px-6">
-          <Link to="/" aria-label="SpacePoint home" data-tour="applicant-brand">
-            <img src={PLAIN_LOGO} alt="SpacePoint" className="h-9 w-auto object-contain" />
-          </Link>
+          <div className="flex items-center gap-4">
+            <Link to="/" aria-label="SpacePoint home" data-tour="applicant-brand">
+              <img src={PLAIN_LOGO} alt="SpacePoint" className="h-9 w-auto object-contain" />
+            </Link>
+            <button
+              type="button"
+              onClick={handleGoToLearn}
+              className="text-xs font-medium text-gray-300 hover:text-white px-3 py-1.5 rounded-lg border border-white/10 bg-white/5 transition-colors"
+            >
+              Explore Courses (/learn)
+            </button>
+          </div>
           <div className="flex items-center gap-3">
+            <RoleSwitcher />
             <PortalTutorialButton tourAttr="applicant-tutorial-btn" />
             <button
               type="button"

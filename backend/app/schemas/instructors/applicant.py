@@ -86,3 +86,32 @@ class ApplicationStatusOut(BaseModel):
     reviewed_at: Optional[datetime] = None
     presentation_video_link: Optional[str] = None
     assessment: Optional[AssessmentSubmissionOut] = None
+    phase_deadline: Optional[datetime] = None
+    extension_used: bool = False
+    can_extend: bool = False
+    hours_remaining: Optional[float] = None
+    created_at: Optional[datetime] = None
+
+
+class StudentInstructorApply(BaseModel):
+    invite_code: Optional[str] = None
+    university: Optional[str] = None
+    highest_degree: Optional[str] = None
+    highest_degree_other: Optional[str] = None
+    nationality: Optional[str] = None
+    work_status: Optional[str] = None
+    fluent_languages: Optional[list[str]] = None
+    graduated_university: Optional[str] = None
+    city_of_residence_id: Optional[UUID] = None
+    deliver_city_ids: Optional[list[UUID]] = None
+    background_areas: Optional[list[str]] = None
+    background_other: Optional[str] = None
+    has_own_transportation: bool = False
+    country: str = "United Arab Emirates"
+
+
+class IntakeEligibilityOut(BaseModel):
+    eligible: bool
+    reason: Optional[str] = None
+    min_age: int = 18
+    has_birthdate: bool = False

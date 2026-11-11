@@ -9,6 +9,7 @@ from app.models.instructors.payment import PortalSetting
 from app.models.user import User
 from app.schemas.instructors.admin import PortalSettingUpdate
 from app.services import storage
+from app.services.instructors.deadlines import SETTING_KEYS
 
 router = APIRouter(prefix="/settings", tags=["admin-settings"])
 
@@ -24,6 +25,9 @@ async def list_settings(db: AsyncSession = Depends(get_db), current_user: User =
         data["admin_signatory_title"] = app_settings.DEFAULT_SIGNATORY_TITLE
     if "fin_support_enabled" not in data:
         data["fin_support_enabled"] = "true"
+    for k, default_val in SETTING_KEYS.items():
+        if k not in data:
+            data[k] = default_val
     return data
 
 

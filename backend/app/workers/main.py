@@ -19,6 +19,7 @@ from app.core.config import settings
 from app.core.log_context import configure_logging
 from app.workers.heartbeat import heartbeat
 from app.workers.settings import redis_settings
+from app.workers.tasks.applicant_expiration import process_expired_applications
 from app.workers.tasks.birthdays import send_daily_birthday_emails
 from app.workers.tasks.certificates import send_cohort_certificates_job
 from app.workers.tasks.cohort_interest import send_cohort_interest_notifications
@@ -66,6 +67,7 @@ class WorkerSettings:
         sync_registration_lms_job,
         send_cohort_interest_notifications,
         send_daily_birthday_emails,
+        process_expired_applications,
     ]
     cron_jobs = [
         cron(heartbeat, minute=set(range(0, 60, 5)), run_at_startup=True),
@@ -74,6 +76,7 @@ class WorkerSettings:
         # these situations changes fast enough to warrant it (I2-5).
         cron(send_inventory_reminders, hour={6}, minute={0}),
         cron(send_daily_birthday_emails, hour={6}, minute={0}),  # 06:00 UTC / 10:00 GST daily
+        cron(process_expired_applications, hour={2}, minute={0}),  # 02:00 UTC daily applicant timeout check
     ]
 
 

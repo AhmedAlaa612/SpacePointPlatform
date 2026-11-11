@@ -19,11 +19,21 @@ import { roleHomePath } from "@/lib/roleHome";
  * students have no portal home to return to (roleHomePath maps them right
  * back to /learn), so this only renders for everyone else. */
 export function BackToPortalButton({ compact }: { compact?: boolean }) {
-  const { currentUser } = useAuth();
-  if (!currentUser?.role || currentUser.role === "student") return null;
+  const { currentUser, roles, setActiveRole } = useAuth();
+  
+  const targetRole =
+    currentUser?.role && currentUser.role !== "student"
+      ? currentUser.role
+      : roles.find((r) => r !== "student" && r !== "observer") ?? null;
+
+  if (!targetRole) return null;
+
+  const isApplicant = targetRole === "applicant";
+
   return (
     <Link
-      to={roleHomePath(currentUser.role)}
+      to={roleHomePath(targetRole)}
+      onClick={() => setActiveRole(targetRole)}
       data-tour="learn-back-to-portal"
       className={cn(
         "flex items-center gap-1.5 rounded-xl px-3 h-9 text-sm text-muted-foreground border border-transparent transition-colors hover:bg-foreground/5 hover:text-foreground",
@@ -31,7 +41,11 @@ export function BackToPortalButton({ compact }: { compact?: boolean }) {
       )}
     >
       <ArrowLeftRight className="h-4 w-4 shrink-0" />
-      {!compact && <span className="hidden lg:inline">Back to portal</span>}
+      {!compact && (
+        <span className="hidden lg:inline">
+          {isApplicant ? "Application Status" : "Back to portal"}
+        </span>
+      )}
     </Link>
   );
 }
@@ -143,7 +157,7 @@ export function LearnNotificationsBell({
 }
 
 export function LearnProfileMenu() {
-  const { currentUser, logout } = useAuth();
+  const { currentUser, roles, setActiveRole, logout } = useAuth();
   const navigate = useNavigate();
   const initials = currentUser?.full_name
     ? currentUser.full_name.split(" ").map((w) => w[0]).join("").slice(0, 2).toUpperCase()
@@ -171,6 +185,16 @@ export function LearnProfileMenu() {
         <DropdownMenuItem onClick={() => void navigate({ to: "/learn/profile" })}>
           <User className="size-3.5" /> Profile
         </DropdownMenuItem>
+        {roles.includes("applicant") && (
+          <DropdownMenuItem
+            onClick={() => {
+              setActiveRole("applicant");
+              void navigate({ to: "/instructors/status" });
+            }}
+          >
+            <ArrowLeftRight className="size-3.5" /> Instructor Application
+          </DropdownMenuItem>
+        )}
         <DropdownMenuItem onClick={() => void handleLogout()} variant="destructive">
           <LogOut className="size-3.5" /> Sign out
         </DropdownMenuItem>

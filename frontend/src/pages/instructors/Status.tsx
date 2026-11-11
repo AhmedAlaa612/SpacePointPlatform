@@ -1,13 +1,14 @@
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
 import { Link } from "@tanstack/react-router"
-import { CheckCircle2, ChevronRight, FileVideo, FlaskConical, ListChecks, Lock, Send, XCircle } from "lucide-react"
+import { AlertCircle, CalendarPlus, CheckCircle2, ChevronRight, Clock, FileVideo, FlaskConical, ListChecks, Lock, Send, XCircle } from "lucide-react"
 import {
   getApplicationStatusApi,
   getAssessmentQuestionsApi,
   listVideosApi,
   listModulesApi,
   reopenApplicationApi,
+  requestExtensionApi,
   submitApplicationApi,
   submitAssessmentApi,
   submitPresentationApi,
@@ -16,6 +17,7 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
 import { PageHeader, Spinner } from "@/pages/instructors/components/common"
 import { ensureAbsoluteUrl, getErrorMessage } from "@/lib/utils"
+import { useToast } from "@/components/ui/toast"
 
 function ProgressRing({ percent }: { percent: number }) {
   const r = 15
@@ -158,8 +160,125 @@ function SubmitApplicationCard({
   )
 }
 
+function DeadlineCountdownCard({
+  phaseDeadline,
+  extensionUsed,
+  canExtend,
+  status,
+  feedback,
+  onRequestExtension,
+  isPendingExtension,
+}: {
+  phaseDeadline: string | null
+  extensionUsed: boolean
+  canExtend: boolean
+  status: string
+  feedback: string | null
+  onRequestExtension: () => void
+  isPendingExtension: boolean
+}) {
+  const [timeLeft, setTimeLeft] = useState<{ days: number; hours: number; minutes: number; isUrgent: boolean } | null>(null)
+
+  useEffect(() => {
+    if (!phaseDeadline) {
+      setTimeLeft(null)
+      return
+    }
+
+    const updateTimer = () => {
+      const now = new Date().getTime()
+      const target = new Date(phaseDeadline).getTime()
+      const diff = target - now
+
+      if (diff <= 0) {
+        setTimeLeft({ days: 0, hours: 0, minutes: 0, isUrgent: true })
+        return
+      }
+
+      const days = Math.floor(diff / (1000 * 60 * 60 * 24))
+      const hours = Math.floor((diff % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60))
+      const minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60))
+      const isUrgent = diff < 24 * 60 * 60 * 1000
+
+      setTimeLeft({ days, hours, minutes, isUrgent })
+    }
+
+    updateTimer()
+    const interval = setInterval(updateTimer, 60000)
+    return () => clearInterval(interval)
+  }, [phaseDeadline])
+
+  if (status === "under_review" || (!phaseDeadline && !feedback)) return null
+
+  return (
+    <div className="flex flex-col gap-3 mb-6">
+      {feedback && status === "in_progress" && (
+        <div className="rounded-xl border border-amber-500/30 bg-amber-500/5 p-4 flex items-start gap-3">
+          <AlertCircle className="size-5 text-amber-500 shrink-0 mt-0.5" />
+          <div>
+            <h4 className="text-sm font-semibold text-foreground">Updates Requested</h4>
+            <p className="text-xs text-muted-foreground mt-1 whitespace-pre-wrap">{feedback}</p>
+          </div>
+        </div>
+      )}
+
+      {timeLeft && (
+        <Card className={timeLeft.isUrgent ? "border-amber-500/40 bg-card" : "border-border bg-card"}>
+          <CardContent className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 p-4">
+            <div className="flex items-center gap-3">
+              <div
+                className={`flex size-10 shrink-0 items-center justify-center rounded-xl border ${
+                  timeLeft.isUrgent
+                    ? "border-amber-500/30 bg-amber-500/10 text-amber-500"
+                    : "border-primary/20 bg-primary/10 text-primary"
+                }`}
+              >
+                <Clock size={18} />
+              </div>
+              <div>
+                <div className="flex items-center gap-2">
+                  <h4 className="text-sm font-semibold text-foreground">Phase Deadline</h4>
+                  {timeLeft.isUrgent && (
+                    <span className="rounded-md border border-amber-500/30 bg-amber-500/10 px-2 py-0.5 text-[10px] font-semibold text-amber-500 uppercase tracking-wide">
+                      Less than 24h
+                    </span>
+                  )}
+                </div>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  Time remaining: <span className="font-medium text-foreground">{timeLeft.days}d {timeLeft.hours}h {timeLeft.minutes}m</span>
+                </p>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2 w-full sm:w-auto justify-end">
+              {canExtend && (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={onRequestExtension}
+                  disabled={isPendingExtension}
+                  className="gap-1.5 text-xs"
+                >
+                  <CalendarPlus size={14} />
+                  {isPendingExtension ? "Extending..." : "Request 24h Extension"}
+                </Button>
+              )}
+              {extensionUsed && (
+                <span className="text-[11px] text-muted-foreground">
+                  24h extension applied
+                </span>
+              )}
+            </div>
+          </CardContent>
+        </Card>
+      )}
+    </div>
+  )
+}
+
 export default function Status() {
   const qc = useQueryClient()
+  const toast = useToast()
   const [videoLink, setVideoLink] = useState("")
   const [assessmentFile, setAssessmentFile] = useState<File | null>(null)
   const [assessmentDriveLink, setAssessmentDriveLink] = useState("")
@@ -169,6 +288,17 @@ export default function Status() {
   const { data: status, isLoading, isError } = useQuery({
     queryKey: ["instructor-status"],
     queryFn: getApplicationStatusApi,
+  })
+
+  const requestExtension = useMutation({
+    mutationFn: requestExtensionApi,
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["instructor-status"] })
+      toast.success("24-hour extension granted. Your deadline has been updated.")
+    },
+    onError: (err: any) => {
+      toast.error(err?.response?.data?.detail || "Could not claim extension.")
+    },
   })
   const { data: videos } = useQuery({
     queryKey: ["instructor-videos"],
@@ -250,6 +380,16 @@ export default function Status() {
   return (
     <div>
       <PageHeader title="Application Status" subtitle="Track your progress through the instructor pipeline." />
+
+      <DeadlineCountdownCard
+        phaseDeadline={status.phase_deadline}
+        extensionUsed={status.extension_used}
+        canExtend={status.can_extend}
+        status={status.status}
+        feedback={status.feedback}
+        onRequestExtension={() => requestExtension.mutate()}
+        isPendingExtension={requestExtension.isPending}
+      />
 
       {isPhase1 ? (
         <div className="flex flex-col gap-4">

@@ -49,6 +49,21 @@ export const submitPresentationApi = (videoLink: string) =>
 export const getApplicationStatusApi = () =>
   api.get<ApplicationStatusOut>("/instructors/status").then((r) => r.data)
 
+export const getIntakeEligibilityApi = () =>
+  api.get<{ eligible: boolean; reason: string | null; min_age: number; has_birthdate: boolean }>(
+    "/instructors/intake-eligibility"
+  ).then((r) => r.data)
+
+export const applyAsStudentApi = (payload: any, cvFile?: File | null) => {
+  const form = new FormData()
+  form.append("payload", JSON.stringify(payload))
+  if (cvFile) form.append("cv", cvFile)
+  return api.post<{ access_token: string; refresh_token: string; user: any }>("/instructors/apply-as-student", form).then((r) => r.data)
+}
+
+export const requestExtensionApi = () =>
+  api.post<ApplicationStatusOut>("/instructors/request-extension").then((r) => r.data)
+
 export const getAssessmentQuestionsApi = () =>
   api.get<AssessmentQuestion[]>("/instructors/assessment/questions").then((r) => r.data)
 
