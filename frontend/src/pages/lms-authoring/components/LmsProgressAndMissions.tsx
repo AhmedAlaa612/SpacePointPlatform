@@ -574,19 +574,18 @@ export function ExportSubmissionsMenu({
     enabled: open && !cohortId && Boolean(lmsProgramId),
   })
 
+  // Only list items that actually collect student or team submissions
   const items: LmsProgramItem[] = useMemo(() => {
-    if (cohortId) return cohortOverride?.items ?? []
-    if (lmsProgramId) {
+    let rawItems: LmsProgramItem[] = []
+    if (cohortId) rawItems = cohortOverride?.items ?? []
+    else if (lmsProgramId) {
       const prog = (reachablePrograms ?? []).find((p) => p.id === lmsProgramId)
-      return prog?.items ?? []
+      rawItems = prog?.items ?? []
     }
-    return []
+    return rawItems.filter(isSubmissionBearingItem)
   }, [cohortId, cohortOverride, lmsProgramId, reachablePrograms])
 
-  const defaultIds = useMemo(() => {
-    const subItems = items.filter(isSubmissionBearingItem)
-    return (subItems.length > 0 ? subItems : items).map((i) => i.id)
-  }, [items])
+  const defaultIds = useMemo(() => items.map((i) => i.id), [items])
 
   const effectiveSelectedIds = selectedIds ?? defaultIds
   const selectedSet = useMemo(() => new Set(effectiveSelectedIds), [effectiveSelectedIds])
@@ -651,7 +650,7 @@ export function ExportSubmissionsMenu({
               <div>
                 <h4 className="text-xs font-semibold text-foreground">Export Checklist Submissions (.xlsx)</h4>
                 <p className="text-[11px] text-muted-foreground mt-0.5">
-                  Pick one or more items. Each item is exported as its own sheet (Team items: 1 row per team · Individual items: 1 row per student).
+                  Pick one or more submission deliverables. Each is exported as its own sheet (Team items: 1 row per team · Individual items: 1 row per student).
                 </p>
               </div>
               <button
@@ -668,30 +667,23 @@ export function ExportSubmissionsMenu({
                 <Spinner />
               </div>
             ) : items.length === 0 ? (
-              <p className="text-xs text-muted-foreground py-4 text-center">No checklist items found.</p>
+              <p className="text-xs text-muted-foreground py-4 text-center">No submission deliverables found on this checklist.</p>
             ) : (
               <>
                 <div className="flex flex-wrap items-center gap-1.5">
                   <button
                     type="button"
-                    onClick={() => setSelectedIds(items.filter(isSubmissionBearingItem).map((i) => i.id))}
-                    className="px-2 py-1 rounded-md border border-border bg-muted/40 hover:bg-muted text-[11px] font-medium text-foreground cursor-pointer"
-                  >
-                    Submissions only
-                  </button>
-                  <button
-                    type="button"
                     onClick={() => setSelectedIds(items.filter((i) => i.scope === "team").map((i) => i.id))}
                     className="px-2 py-1 rounded-md border border-border bg-muted/40 hover:bg-muted text-[11px] font-medium text-foreground cursor-pointer"
                   >
-                    Team items
+                    Team submissions
                   </button>
                   <button
                     type="button"
                     onClick={() => setSelectedIds(items.filter((i) => i.scope !== "team").map((i) => i.id))}
                     className="px-2 py-1 rounded-md border border-border bg-muted/40 hover:bg-muted text-[11px] font-medium text-foreground cursor-pointer"
                   >
-                    Individual items
+                    Individual submissions
                   </button>
                   <button
                     type="button"
