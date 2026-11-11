@@ -674,7 +674,9 @@ async def send_cohort_certificates(
         )
         type_title = "Participation" if cert_type == "participation" else "Completion"
 
-        if layout.get("body_text_template"):
+        if layout.get("is_custom"):
+            raw_body_template = layout.get("body_text_template") or ""
+        elif layout.get("body_text_template"):
             raw_body_template = layout["body_text_template"]
         else:
             if cert_type == "participation":
@@ -869,7 +871,9 @@ async def render_cohort_certificates_pdf(
         )
         type_title = "Participation" if cert_type == "participation" else "Completion"
 
-        if layout.get("body_text_template"):
+        if layout.get("is_custom"):
+            raw_body_template = layout.get("body_text_template") or ""
+        elif layout.get("body_text_template"):
             raw_body_template = layout["body_text_template"]
         else:
             if cert_type == "participation":
@@ -932,7 +936,9 @@ async def send_test_certificate_email(
     type_title = "Participation" if certificate_type == "participation" else "Completion"
     cohort_title = cohort.name or ""
 
-    if layout.get("body_text_template"):
+    if layout.get("is_custom"):
+        raw_body_template = layout.get("body_text_template") or ""
+    elif layout.get("body_text_template"):
         raw_body_template = layout["body_text_template"]
     else:
         if certificate_type == "participation":

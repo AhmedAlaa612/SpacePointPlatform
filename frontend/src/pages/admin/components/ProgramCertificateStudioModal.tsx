@@ -145,7 +145,7 @@ export function ProgramCertificateStudioModal({ program, onClose, onUpdated }: P
       setNameFontSize(34)
       setNameY(298)
       setNameColor("#9778be")
-      setBodyText("For successfully completing<br/>{program_name}<br/>{dates_line}")
+      setBodyText("")
       setBodyFontSize(20)
       setBodyY(260)
       setBodyColor("#9778be")
@@ -168,7 +168,7 @@ export function ProgramCertificateStudioModal({ program, onClose, onUpdated }: P
         setNameFontSize(existing.name_font_size)
         setNameY(Number(existing.name_y))
         setNameColor(existing.name_color)
-        setBodyText(existing.body_text ?? "For successfully completing<br/>{program_name}<br/>{dates_line}")
+        setBodyText(existing.body_text ?? "")
         setBodyFontSize(existing.body_font_size)
         setBodyY(Number(existing.body_y))
         setBodyColor(existing.body_color)
@@ -1064,26 +1064,28 @@ export function ProgramCertificateStudioModal({ program, onClose, onUpdated }: P
                 </div>
 
                 {/* Body Description Preview - Starts at body_y and flows downward matching ReportLab's Paragraph.drawOn */}
-                <div
-                  className="absolute left-1/2 font-serif italic transition-all pointer-events-none flex flex-col items-center"
-                  style={{
-                    top: `${((595.27 - bodyY) / 595.27) * 100}%`,
-                    transform: "translateX(-50%)",
-                    width: `${(bodyMaxWidth / 841.89) * 100}%`,
-                    fontSize: `${bodyFontSize}px`,
-                    fontFamily: '"Times New Roman", Times, Georgia, serif',
-                    lineHeight: 1.45,
-                    color: bodyColor,
-                    textAlign: bodyAlignment,
-                    textShadow: "0 1px 2px rgba(0,0,0,0.3)",
-                  }}
-                >
-                  {previewBodyLines.map((line, idx) => (
-                    <p key={idx} className="w-full">
-                      {line}
-                    </p>
-                  ))}
-                </div>
+                {bodyText.trim() && (
+                  <div
+                    className="absolute left-1/2 font-serif italic transition-all pointer-events-none flex flex-col items-center"
+                    style={{
+                      top: `${((595.27 - bodyY) / 595.27) * 100}%`,
+                      transform: "translateX(-50%)",
+                      width: `${(bodyMaxWidth / 841.89) * 100}%`,
+                      fontSize: `${bodyFontSize}px`,
+                      fontFamily: '"Times New Roman", Times, Georgia, serif',
+                      lineHeight: 1.45,
+                      color: bodyColor,
+                      textAlign: bodyAlignment,
+                      textShadow: "0 1px 2px rgba(0,0,0,0.3)",
+                    }}
+                  >
+                    {previewBodyLines.map((line, idx) => (
+                      <p key={idx} className="w-full">
+                        {line}
+                      </p>
+                    ))}
+                  </div>
+                )}
 
                 {/* Dynamic Signature Preview */}
                 {showSignature && (

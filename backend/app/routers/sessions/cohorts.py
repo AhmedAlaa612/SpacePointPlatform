@@ -1852,7 +1852,10 @@ async def download_cohort_certificates(
         select(DocumentTemplate).where(DocumentTemplate.key == "student_completion")
     )).scalars().first()
     location = await resolve_session_location_display(db, None, cohort)
-    template_body = layout["body_text_template"] or (template.body_text if template else STUDENT_COMPLETION_FALLBACK_BODY)
+    if layout.get("is_custom"):
+        template_body = layout.get("body_text_template") or ""
+    else:
+        template_body = layout.get("body_text_template") or (template.body_text if template else STUDENT_COMPLETION_FALLBACK_BODY)
     program_name = program.name if program else ""
     cohort_title = cohort.name if cohort and cohort.name else ""
     body_text = expand_certificate_body_template(

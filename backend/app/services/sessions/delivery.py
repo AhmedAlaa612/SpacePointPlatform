@@ -218,10 +218,15 @@ async def _send_certificate_email(
 ) -> None:
     if not contact.email:
         return
-    template = (await db.execute(
-        select(DocumentTemplate).where(DocumentTemplate.key == "student_completion")
-    )).scalars().first()
-    template_body = template.body_text if template else STUDENT_COMPLETION_FALLBACK_BODY
+    from app.services.competitions.certificates import _resolve_certificate_template
+    layout = await _resolve_certificate_template(db, program=program, theme="dark")
+    if layout.get("is_custom"):
+        template_body = layout.get("body_text_template") or ""
+    else:
+        template = (await db.execute(
+            select(DocumentTemplate).where(DocumentTemplate.key == "student_completion")
+        )).scalars().first()
+        template_body = layout.get("body_text_template") or (template.body_text if template else STUDENT_COMPLETION_FALLBACK_BODY)
     cohort_title = cohort.name if cohort and cohort.name else ""
     body_text = expand_certificate_body_template(
         template_body,
@@ -232,7 +237,29 @@ async def _send_certificate_email(
         ends_on=cohort.ends_on,
         location=location_name,
     )
-    cert_bytes = await asyncio.to_thread(generate_completion_certificate_pdf, contact.full_name, body_text)
+    cert_bytes = await asyncio.to_thread(
+        generate_completion_certificate_pdf,
+        contact.full_name,
+        body_text,
+        background_bytes=layout.get("background_bytes"),
+        theme=layout.get("theme", "dark"),
+        name_font_size=layout.get("name_font_size", 34),
+        name_y=layout.get("name_y", 298.0),
+        name_color=layout.get("name_color"),
+        body_font_size=layout.get("body_font_size", 20),
+        body_y=layout.get("body_y", 260.0),
+        body_color=layout.get("body_color"),
+        body_max_width=layout.get("body_max_width", 600.0),
+        body_alignment=layout.get("body_alignment", "center"),
+        show_signature=layout.get("show_signature", False),
+        signature_bytes=layout.get("signature_bytes"),
+        signature_x=layout.get("signature_x"),
+        signature_y=layout.get("signature_y", 90.0),
+        signature_width=layout.get("signature_width", 140.0),
+        signature_height=layout.get("signature_height", 50.0),
+        signatory_name=layout.get("signatory_name"),
+        signatory_title=layout.get("signatory_title"),
+    )
     filename = f"SpacePoint_Certificate_{program.name.replace(' ', '_')}.pdf"
     await try_send_email(
         contact.email,

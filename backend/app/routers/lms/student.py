@@ -1731,7 +1731,10 @@ async def my_certificates(
                 tmpl = (await db.execute(
                     select(DocumentTemplate).where(DocumentTemplate.key == "student_completion")
                 )).scalars().first()
-                raw_body = layout.get("body_text_template") or (tmpl.body_text if tmpl else STUDENT_COMPLETION_FALLBACK_BODY)
+                if layout.get("is_custom"):
+                    raw_body = layout.get("body_text_template") or ""
+                else:
+                    raw_body = layout.get("body_text_template") or (tmpl.body_text if tmpl else STUDENT_COMPLETION_FALLBACK_BODY)
                 # The "Held ..." witness line comes from the live cohort row
                 # when it still exists; for legalese archived certificates
                 # whose cohort was deleted, rebuild the same wording from the

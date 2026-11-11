@@ -27,7 +27,6 @@ from app.schemas.sessions.program_certificate_template import (
 from app.services import storage
 from app.services.documents.certificate import (
     _TEMPLATE_PATHS,
-    STUDENT_COMPLETION_FALLBACK_BODY,
     expand_certificate_body_template,
     format_certificate_program_title,
     generate_completion_certificate_pdf,
@@ -393,7 +392,7 @@ async def preview_certificate_template(
     cohort_name = body.cohort_name or "Cohort Title"
     dates = body.dates or "12 – 16 October 2026"
     location = body.location or "Muscat, Oman"
-    raw_template = body.body_text or STUDENT_COMPLETION_FALLBACK_BODY
+    raw_template = body.body_text or ""
     # Fake-data preview: the canned range phrase mirrors the canned {dates}
     # value ("12 – 16 October 2026"), with the fake venue appended exactly as
     # the real expansion would.

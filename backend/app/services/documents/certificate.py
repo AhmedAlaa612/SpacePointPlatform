@@ -127,31 +127,32 @@ def generate_completion_certificate_pdf(
     c.setFillColor(resolved_name_color)
     c.drawCentredString(width / 2.0, float(name_y), _shaped(recipient_name) if name_arabic else recipient_name)
 
-    # `<br/>`-joined segments render independently — reshape each one so a
-    # tag never gets treated as literal Arabic-adjacent text (reshaping
-    # only touches the actual glyphs on either side of it).
-    segments = body_text_template.split("<br/>")
-    body_arabic = any(_is_arabic(seg) for seg in segments)
-    if body_arabic:
-        segments = [_shaped(seg) if _is_arabic(seg) else seg for seg in segments]
-    display_body = "<br/>".join(segments)
+    if (body_text_template or "").strip():
+        # `<br/>`-joined segments render independently — reshape each one so a
+        # tag never gets treated as literal Arabic-adjacent text (reshaping
+        # only touches the actual glyphs on either side of it).
+        segments = body_text_template.split("<br/>")
+        body_arabic = any(_is_arabic(seg) for seg in segments)
+        if body_arabic:
+            segments = [_shaped(seg) if _is_arabic(seg) else seg for seg in segments]
+        display_body = "<br/>".join(segments)
 
-    align_map = {"left": 0, "center": 1, "right": 2}
-    align_int = align_map.get((body_alignment or "center").lower(), 1)
-    leading = max(int(round(float(body_font_size) * 1.45)), int(body_font_size) + 2)
+        align_map = {"left": 0, "center": 1, "right": 2}
+        align_int = align_map.get((body_alignment or "center").lower(), 1)
+        leading = max(int(round(float(body_font_size) * 1.45)), int(body_font_size) + 2)
 
-    style = ParagraphStyle(
-        name="CertificateCompletionText",
-        fontName="Amiri" if body_arabic else "TimesNewRoman-Italic",
-        fontSize=int(body_font_size),
-        leading=leading,
-        textColor=resolved_body_color,
-        alignment=align_int,
-    )
-    p = Paragraph(display_body, style)
-    p_width = float(body_max_width)
-    p_height = p.wrap(p_width, 100)[1]
-    p.drawOn(c, (width - p_width) / 2.0, float(body_y) - p_height)
+        style = ParagraphStyle(
+            name="CertificateCompletionText",
+            fontName="Amiri" if body_arabic else "TimesNewRoman-Italic",
+            fontSize=int(body_font_size),
+            leading=leading,
+            textColor=resolved_body_color,
+            alignment=align_int,
+        )
+        p = Paragraph(display_body, style)
+        p_width = float(body_max_width)
+        p_height = p.wrap(p_width, 100)[1]
+        p.drawOn(c, (width - p_width) / 2.0, float(body_y) - p_height)
 
     if show_signature:
         sig_img_bytes = signature_bytes

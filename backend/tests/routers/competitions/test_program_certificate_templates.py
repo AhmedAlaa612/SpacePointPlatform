@@ -284,3 +284,7 @@ async def test_stock_signatory_and_signature_preview(db, client):
     assert preview_res.headers["content-type"] == "application/pdf"
     reader = PdfReader(io.BytesIO(preview_res.content))
     assert len(reader.pages) == 1
+    page_text = reader.pages[0].extract_text() or ""
+    assert "For successfully completing" not in page_text
+    assert "Nasser Al-Harthy" in page_text
+
