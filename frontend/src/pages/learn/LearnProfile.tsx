@@ -89,44 +89,56 @@ export default function LearnProfile() {
 
   return (
     <div className="mx-auto max-w-[1180px] px-5 sm:px-8 lg:px-10 py-6 sm:py-8 flex flex-col gap-6">
-      <Card className="flex-row items-center gap-6 p-6">
-        <div className="w-24 h-24 rounded-full bg-primary/10 border-2 border-primary/30 flex items-center justify-center text-2xl font-display font-bold text-primary overflow-hidden shrink-0">
-          {me.photo_url ? <img src={me.photo_url} alt="" className="w-full h-full object-cover" /> : initials}
-        </div>
-        <div className="flex-1 min-w-0 flex flex-col gap-1.5">
-          <div className="flex items-center gap-2.5 flex-wrap">
-            <div className="font-display text-2xl font-bold tracking-tight">{me.full_name}</div>
-            <span
-              className={cn(
-                "text-[11px] font-semibold px-2.5 py-1 rounded-full",
-                me.roles?.includes("observer")
-                  ? "bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border border-indigo-500/20"
-                  : "bg-primary/10 text-primary",
-              )}
-            >
-              {me.roles?.includes("observer") ? "Observer" : "Student"}
-            </span>
+      <Card className="flex-col sm:flex-row items-start sm:items-center justify-between gap-5 sm:gap-6 p-5 sm:p-6">
+        <div className="flex items-center gap-4 sm:gap-6 min-w-0 w-full sm:w-auto flex-1">
+          <div className="w-20 h-20 sm:w-24 sm:h-24 rounded-full bg-primary/10 border-2 border-primary/30 flex items-center justify-center text-xl sm:text-2xl font-display font-bold text-primary overflow-hidden shrink-0">
+            {me.photo_url ? <img src={me.photo_url} alt="" className="w-full h-full object-cover" /> : initials}
           </div>
-          <div className="text-sm text-muted-foreground">{me.email}</div>
-          {me.nickname && (
-            <div className="flex items-center gap-2 text-xs text-muted-foreground" title="What other students see on leaderboards and in live games — never your real name.">
-              <span>Nickname: <span className="font-medium text-foreground">{me.nickname}</span></span>
-              <button
-                onClick={() => { setRerollError(null); reroll.mutate(); }}
-                disabled={reroll.isPending}
-                className="inline-flex items-center gap-1 text-primary hover:opacity-80 cursor-pointer font-medium disabled:opacity-50"
+          <div className="flex-1 min-w-0 flex flex-col gap-1.5">
+            <div className="flex items-center gap-2.5 flex-wrap">
+              <div className="font-display text-xl sm:text-2xl font-bold tracking-tight">{me.full_name}</div>
+              <span
+                className={cn(
+                  "text-[11px] font-semibold px-2.5 py-1 rounded-full",
+                  me.roles?.includes("observer")
+                    ? "bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border border-indigo-500/20"
+                    : "bg-primary/10 text-primary",
+                )}
               >
-                <RefreshCw className={`size-3 ${reroll.isPending ? "animate-spin" : ""}`} />
-                {reroll.isPending ? "Rerolling..." : "Reroll"}
-              </button>
+                {me.roles?.includes("observer") ? "Observer" : "Student"}
+              </span>
             </div>
-          )}
-          {rerollError && <div className="text-xs text-destructive">{rerollError}</div>}
-          {memberSince && <div className="text-xs text-muted-foreground">Student since {memberSince}</div>}
+            <div className="text-sm text-muted-foreground truncate">{me.email}</div>
+            {me.nickname && (
+              <div className="flex items-center gap-2 text-xs text-muted-foreground" title="What other students see on leaderboards and in live games — never your real name.">
+                <span>Nickname: <span className="font-medium text-foreground">{me.nickname}</span></span>
+                <button
+                  onClick={() => { setRerollError(null); reroll.mutate(); }}
+                  disabled={reroll.isPending}
+                  className="inline-flex items-center gap-1 text-primary hover:opacity-80 cursor-pointer font-medium disabled:opacity-50"
+                >
+                  <RefreshCw className={`size-3 ${reroll.isPending ? "animate-spin" : ""}`} />
+                  {reroll.isPending ? "Rerolling..." : "Reroll"}
+                </button>
+              </div>
+            )}
+            {rerollError && <div className="text-xs text-destructive">{rerollError}</div>}
+            {memberSince && <div className="text-xs text-muted-foreground">Student since {memberSince}</div>}
+          </div>
         </div>
-        <Button variant="outline" onClick={() => setEditOpen(true)} className="shrink-0">
-          <Pencil className="size-3.5" /> Edit profile
-        </Button>
+        <div className="flex items-center gap-2.5 flex-wrap w-full sm:w-auto shrink-0">
+          {eligibility?.eligible && (
+            <Button
+              onClick={() => setApplyModalOpen(true)}
+              className="gap-1.5 shrink-0 flex-1 sm:flex-initial"
+            >
+              <GraduationCap className="size-3.5" /> Apply as instructor
+            </Button>
+          )}
+          <Button variant="outline" onClick={() => setEditOpen(true)} className="shrink-0 flex-1 sm:flex-initial">
+            <Pencil className="size-3.5" /> Edit profile
+          </Button>
+        </div>
       </Card>
 
       <div className="grid lg:grid-cols-[1fr_340px] gap-5 items-start">
@@ -330,25 +342,6 @@ export default function LearnProfile() {
               </button>
             </div>
           </Card>
-
-          {eligibility?.eligible && (
-            <Card className="p-5 gap-3 border-border bg-card">
-              <div className="flex items-center gap-2 text-foreground font-semibold text-sm">
-                <GraduationCap className="size-4 text-primary" />
-                Instructor Intake
-              </div>
-              <p className="text-xs text-muted-foreground leading-relaxed">
-                Qualified adult students (18+) are invited to join the SpacePoint teaching team. Deliver hands-on space workshops and lead student cohorts.
-              </p>
-              <Button
-                size="sm"
-                onClick={() => setApplyModalOpen(true)}
-                className="w-full gap-1.5 text-xs font-semibold"
-              >
-                Apply to Become an Instructor
-              </Button>
-            </Card>
-          )}
         </div>
       </div>
 
