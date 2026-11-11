@@ -177,7 +177,7 @@ function DeadlineCountdownCard({
   onRequestExtension: () => void
   isPendingExtension: boolean
 }) {
-  const [timeLeft, setTimeLeft] = useState<{ days: number; hours: number; minutes: number; isUrgent: boolean } | null>(null)
+  const [timeLeft, setTimeLeft] = useState<{ days: number; hours: number; minutes: number; isUrgent: boolean; isOver: boolean } | null>(null)
 
   useEffect(() => {
     if (!phaseDeadline) {
@@ -191,7 +191,7 @@ function DeadlineCountdownCard({
       const diff = target - now
 
       if (diff <= 0) {
-        setTimeLeft({ days: 0, hours: 0, minutes: 0, isUrgent: true })
+        setTimeLeft({ days: 0, hours: 0, minutes: 0, isUrgent: true, isOver: true })
         return
       }
 
@@ -200,7 +200,7 @@ function DeadlineCountdownCard({
       const minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60))
       const isUrgent = diff < 24 * 60 * 60 * 1000
 
-      setTimeLeft({ days, hours, minutes, isUrgent })
+      setTimeLeft({ days, hours, minutes, isUrgent, isOver: false })
     }
 
     updateTimer()
@@ -223,12 +223,14 @@ function DeadlineCountdownCard({
       )}
 
       {timeLeft && (
-        <Card className={timeLeft.isUrgent ? "border-amber-500/40 bg-card" : "border-border bg-card"}>
+        <Card className={timeLeft.isOver ? "border-amber-500/40 bg-card" : timeLeft.isUrgent ? "border-amber-500/40 bg-card" : "border-border bg-card"}>
           <CardContent className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 p-4">
             <div className="flex items-center gap-3">
               <div
                 className={`flex size-10 shrink-0 items-center justify-center rounded-xl border ${
-                  timeLeft.isUrgent
+                  timeLeft.isOver
+                    ? "border-amber-500/30 bg-amber-500/10 text-amber-500"
+                    : timeLeft.isUrgent
                     ? "border-amber-500/30 bg-amber-500/10 text-amber-500"
                     : "border-primary/20 bg-primary/10 text-primary"
                 }`}
@@ -238,20 +240,30 @@ function DeadlineCountdownCard({
               <div>
                 <div className="flex items-center gap-2">
                   <h4 className="text-sm font-semibold text-foreground">Phase Deadline</h4>
-                  {timeLeft.isUrgent && (
+                  {timeLeft.isOver ? (
+                    <span className="rounded-md border border-amber-500/30 bg-amber-500/10 px-2 py-0.5 text-[10px] font-semibold text-amber-500 uppercase tracking-wide">
+                      Deadline Over
+                    </span>
+                  ) : timeLeft.isUrgent ? (
                     <span className="rounded-md border border-amber-500/30 bg-amber-500/10 px-2 py-0.5 text-[10px] font-semibold text-amber-500 uppercase tracking-wide">
                       Less than 24h
                     </span>
-                  )}
+                  ) : null}
                 </div>
                 <p className="text-xs text-muted-foreground mt-0.5">
-                  Time remaining: <span className="font-medium text-foreground">{timeLeft.days}d {timeLeft.hours}h {timeLeft.minutes}m</span>
+                  {timeLeft.isOver ? (
+                    <span className="text-amber-500 font-medium">Deadline has passed</span>
+                  ) : (
+                    <>
+                      Time remaining: <span className="font-medium text-foreground">{timeLeft.days}d {timeLeft.hours}h {timeLeft.minutes}m</span>
+                    </>
+                  )}
                 </p>
               </div>
             </div>
 
             <div className="flex items-center gap-2 w-full sm:w-auto justify-end">
-              {canExtend && (
+              {canExtend && timeLeft.isOver && (
                 <Button
                   size="sm"
                   variant="outline"

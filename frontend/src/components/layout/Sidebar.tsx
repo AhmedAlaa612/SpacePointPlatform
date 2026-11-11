@@ -719,10 +719,10 @@ function RoleSwitcher() {
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
-        className="flex items-center gap-1 rounded-xl border border-border bg-background/60 px-3 py-2 text-sm font-medium text-foreground hover:bg-foreground/5"
+        className="flex items-center gap-1 rounded-xl border border-border bg-background/60 px-3 py-2 text-sm font-medium text-foreground hover:bg-foreground/5 whitespace-nowrap"
       >
-        {ROLE_LABEL[activeRole]}
-        <ChevronDown size={16} />
+        <span className="truncate max-w-[130px] sm:max-w-none">{ROLE_LABEL[activeRole]}</span>
+        <ChevronDown size={16} className="shrink-0" />
       </button>
       {open && (
         <ul className="absolute right-0 z-50 mt-2 w-44 overflow-hidden rounded-xl border border-border bg-popover py-1 shadow-lg">
@@ -1121,6 +1121,7 @@ export function AppShell({ children }: { children: ReactNode }) {
 export function ApplicantShell({ children }: { children: ReactNode }) {
   const navigate = useNavigate();
   const { logout, setActiveRole, roles } = useAuth();
+  const [drawerOpen, setDrawerOpen] = useState(false);
 
   const handleLogout = () => {
     void logout();
@@ -1138,30 +1139,102 @@ export function ApplicantShell({ children }: { children: ReactNode }) {
     <TourProvider surface="applicant">
       <div className="min-h-screen flex flex-col text-white" style={BODY_BACKGROUND}>
         <header className="sticky top-0 z-20 flex h-16 shrink-0 items-center justify-between border-b border-white/10 bg-card/60 px-4 backdrop-blur-xl sm:px-6">
-          <div className="flex items-center gap-4">
-            <Link to="/" aria-label="SpacePoint home" data-tour="applicant-brand">
-              <img src={PLAIN_LOGO} alt="SpacePoint" className="h-9 w-auto object-contain" />
+          <div className="flex items-center gap-3">
+            <Link to="/" aria-label="SpacePoint home" data-tour="applicant-brand" className="shrink-0">
+              <img src={PLAIN_LOGO} alt="SpacePoint" className="h-7 sm:h-9 w-auto object-contain" />
             </Link>
+          </div>
+
+          {/* Desktop header controls */}
+          <div className="hidden sm:flex items-center gap-2.5">
             <button
               type="button"
               onClick={handleGoToLearn}
-              className="text-xs font-medium text-gray-300 hover:text-white px-3 py-1.5 rounded-lg border border-white/10 bg-white/5 transition-colors"
+              className="text-xs font-medium text-gray-300 hover:text-white px-3 py-1.5 rounded-lg border border-white/10 bg-white/5 hover:bg-white/10 transition-colors whitespace-nowrap"
             >
-              Explore Courses (/learn)
+              Explore courses
             </button>
-          </div>
-          <div className="flex items-center gap-3">
             <RoleSwitcher />
             <PortalTutorialButton tourAttr="applicant-tutorial-btn" />
             <button
               type="button"
               onClick={handleLogout}
-              className="text-sm font-medium text-gray-300 hover:text-white transition-colors"
+              className="text-sm font-medium text-gray-300 hover:text-white transition-colors whitespace-nowrap px-2 py-1"
             >
               Logout
             </button>
           </div>
+
+          {/* Mobile header controls */}
+          <div className="flex sm:hidden items-center gap-2">
+            <RoleSwitcher />
+            <button
+              type="button"
+              onClick={() => setDrawerOpen(true)}
+              className="p-1.5 text-gray-300 hover:text-white hover:bg-white/5 rounded-lg transition-colors"
+              aria-label="Open menu"
+            >
+              <Menu size={22} />
+            </button>
+          </div>
         </header>
+
+        {/* Mobile Drawer */}
+        {drawerOpen && (
+          <div className="fixed inset-0 z-50 sm:hidden">
+            <div
+              className="fixed inset-0 bg-black/60 backdrop-blur-sm transition-opacity"
+              onClick={() => setDrawerOpen(false)}
+            />
+            <div className="fixed inset-y-0 right-0 w-72 max-w-[85vw] bg-card border-l border-white/10 p-5 shadow-2xl flex flex-col justify-between">
+              <div className="space-y-4">
+                <div className="flex items-center justify-between border-b border-white/10 pb-4">
+                  <img src={PLAIN_LOGO} alt="SpacePoint" className="h-7 w-auto object-contain" />
+                  <button
+                    type="button"
+                    onClick={() => setDrawerOpen(false)}
+                    className="p-1.5 text-gray-400 hover:text-white rounded-lg hover:bg-white/5"
+                    aria-label="Close menu"
+                  >
+                    <X size={20} />
+                  </button>
+                </div>
+
+                <div className="flex flex-col gap-2 pt-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setDrawerOpen(false);
+                      handleGoToLearn();
+                    }}
+                    className="flex items-center gap-2.5 w-full text-left text-sm font-medium text-gray-200 hover:text-white px-3.5 py-2.5 rounded-xl border border-white/10 bg-white/5 hover:bg-white/10 transition-colors"
+                  >
+                    <BookOpen size={16} className="text-primary shrink-0" />
+                    <span>Explore courses</span>
+                  </button>
+
+                  <div className="pt-2">
+                    <PortalTutorialButton tourAttr="applicant-tutorial-btn" />
+                  </div>
+                </div>
+              </div>
+
+              <div className="border-t border-white/10 pt-4">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setDrawerOpen(false);
+                    handleLogout();
+                  }}
+                  className="flex items-center gap-2.5 w-full text-left text-sm font-medium text-red-400 hover:text-red-300 px-3.5 py-2.5 rounded-xl hover:bg-red-500/10 transition-colors"
+                >
+                  <LogOut size={16} />
+                  <span>Logout</span>
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
         <main data-tour="page-workspace" className="flex-1 overflow-x-clip p-4 sm:p-6 lg:p-10">{children}</main>
         <SiteFooter />
       </div>
