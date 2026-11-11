@@ -719,10 +719,10 @@ function RoleSwitcher() {
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
-        className="flex items-center gap-1 rounded-xl border border-border bg-background/60 px-3 py-2 text-sm font-medium text-foreground hover:bg-foreground/5 whitespace-nowrap"
+        className="flex items-center gap-1 rounded-xl border border-border bg-background/60 px-2.5 py-1.5 sm:px-3 sm:py-2 text-xs sm:text-sm font-medium text-foreground hover:bg-foreground/5 whitespace-nowrap"
       >
-        <span className="truncate max-w-[130px] sm:max-w-none">{ROLE_LABEL[activeRole]}</span>
-        <ChevronDown size={16} className="shrink-0" />
+        <span className="truncate max-w-[110px] sm:max-w-none">{ROLE_LABEL[activeRole]}</span>
+        <ChevronDown size={14} className="shrink-0" />
       </button>
       {open && (
         <ul className="absolute right-0 z-50 mt-2 w-44 overflow-hidden rounded-xl border border-border bg-popover py-1 shadow-lg">
@@ -1145,36 +1145,33 @@ export function ApplicantShell({ children }: { children: ReactNode }) {
             </Link>
           </div>
 
-          {/* Desktop header controls */}
-          <div className="hidden sm:flex items-center gap-2.5">
+          {/* Header controls (Explore courses is always next to RoleSwitcher) */}
+          <div className="flex items-center gap-1.5 sm:gap-2.5">
             <button
               type="button"
               onClick={handleGoToLearn}
-              className="text-xs font-medium text-gray-300 hover:text-white px-3 py-1.5 rounded-lg border border-white/10 bg-white/5 hover:bg-white/10 transition-colors whitespace-nowrap"
+              className="text-xs font-medium text-gray-300 hover:text-white px-2.5 py-1.5 rounded-lg border border-white/10 bg-white/5 hover:bg-white/10 transition-colors whitespace-nowrap shrink-0"
             >
               Explore courses
             </button>
             <RoleSwitcher />
-            <PortalTutorialButton tourAttr="applicant-tutorial-btn" />
-            <button
-              type="button"
-              onClick={handleLogout}
-              className="text-sm font-medium text-gray-300 hover:text-white transition-colors whitespace-nowrap px-2 py-1"
-            >
-              Logout
-            </button>
-          </div>
-
-          {/* Mobile header controls */}
-          <div className="flex sm:hidden items-center gap-2">
-            <RoleSwitcher />
+            <div className="hidden sm:flex items-center gap-2.5">
+              <PortalTutorialButton tourAttr="applicant-tutorial-btn" />
+              <button
+                type="button"
+                onClick={handleLogout}
+                className="text-sm font-medium text-gray-300 hover:text-white transition-colors whitespace-nowrap px-2 py-1"
+              >
+                Logout
+              </button>
+            </div>
             <button
               type="button"
               onClick={() => setDrawerOpen(true)}
-              className="p-1.5 text-gray-300 hover:text-white hover:bg-white/5 rounded-lg transition-colors"
+              className="p-1.5 text-gray-300 hover:text-white hover:bg-white/5 rounded-lg transition-colors sm:hidden"
               aria-label="Open menu"
             >
-              <Menu size={22} />
+              <Menu size={20} />
             </button>
           </div>
         </header>
