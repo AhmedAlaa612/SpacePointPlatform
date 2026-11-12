@@ -401,16 +401,14 @@ export default function OrganizationPrograms() {
                               >
                                 <Copy className="w-3 h-3" /> Duplicate
                               </button>
-                              {program.program_type === "competition" && (
-                                <Link
-                                  to="/organization/programs/$cohortId/judging"
-                                  params={{ cohortId: cohort.id }}
-                                  className="inline-flex items-center gap-1 h-7 px-2 rounded-lg border border-primary/30 bg-primary/5 text-primary text-[11px] font-semibold hover:bg-primary/15 transition"
-                                  title="Competition Judging, Roster, Rubric & Leaderboard"
-                                >
-                                  <Trophy className="w-3 h-3" /> Judging
-                                </Link>
-                              )}
+                              <Link
+                                to="/organization/programs/$cohortId/judging"
+                                params={{ cohortId: cohort.id }}
+                                className="inline-flex items-center gap-1 h-7 px-2 rounded-lg border border-primary/30 bg-primary/5 text-primary text-[11px] font-semibold hover:bg-primary/15 transition"
+                                title="Judging, Roster, Rubric & Leaderboard"
+                              >
+                                <Trophy className="w-3 h-3" /> Judging
+                              </Link>
                             </div>
 
                             <button

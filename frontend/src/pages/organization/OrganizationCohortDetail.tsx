@@ -203,15 +203,13 @@ export default function OrganizationCohortDetail() {
               <Pencil className="w-3.5 h-3.5 text-primary" /> Edit Cohort
             </button>
 
-            {isCompetition && (
-              <Link
-                to="/organization/programs/$cohortId/judging"
-                params={{ cohortId: cohort.id }}
-                className="inline-flex items-center gap-1.5 h-9 px-3.5 rounded-xl bg-primary text-primary-foreground text-xs font-semibold hover:opacity-90 transition shadow-sm"
-              >
-                <Trophy className="w-3.5 h-3.5" /> Judging & Roster
-              </Link>
-            )}
+            <Link
+              to="/organization/programs/$cohortId/judging"
+              params={{ cohortId: cohort.id }}
+              className="inline-flex items-center gap-1.5 h-9 px-3.5 rounded-xl bg-primary text-primary-foreground text-xs font-semibold hover:opacity-90 transition shadow-sm"
+            >
+              <Trophy className="w-3.5 h-3.5" /> Judging & Roster
+            </Link>
 
             <Link
               to="/lms-authoring/invite-codes"
