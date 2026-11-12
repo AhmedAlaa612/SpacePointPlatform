@@ -97,3 +97,22 @@ class InternProfileOut(BaseModel):
 
 class SignInternshipLetterRequest(BaseModel):
     signature: str  # data:image/png;base64,...
+
+
+class InternshipIntakeEligibilityOut(BaseModel):
+    eligible: bool
+    reason: Optional[str] = None
+    has_birthdate: bool
+    has_pending_request: bool
+    min_age: int
+    university: Optional[str] = None
+    student_id: Optional[str] = None
+
+
+class StudentInternApply(BaseModel):
+    university: str
+    university_id_number: str
+    preferred_city_id: Optional[UUID] = None
+    requested_start_date: Optional[str] = None
+    requested_duration_weeks: Optional[int] = 8
+    major: Optional[str] = None

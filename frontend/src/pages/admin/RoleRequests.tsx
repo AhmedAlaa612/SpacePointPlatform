@@ -1,10 +1,12 @@
 import { useState } from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { X } from "lucide-react"
+import { X, FileText, ArrowRight } from "lucide-react"
 import {
   listRoleRequestsAdminApi,
   approveRoleRequestApi,
   rejectRoleRequestApi,
+  onboardRoleRequestToInstructorApi,
+  getRoleRequestCvUrlApi,
 } from "@/api/internship"
 import { fetchPublicCities } from "@/api/lms"
 import type { RoleRequest } from "@/types/internship"
@@ -103,6 +105,7 @@ function RoleRequestDetailDialog({
 }: { req: RoleRequest; onClose: () => void; onChanged: () => void }) {
   const [notes, setNotes] = useState("")
   const [form, setForm] = useState(emptyInternshipApprove)
+  const [loadingCv, setLoadingCv] = useState(false)
   const { data: cities = [] } = useQuery({ queryKey: ["public-cities"], queryFn: fetchPublicCities })
   const requestedCityName = cities.find((c) => c.id === req.details.preferred_city_id)?.name
 
@@ -111,13 +114,35 @@ function RoleRequestDetailDialog({
     onSuccess: () => { onChanged(); onClose() },
     onError: (err: any) => alert(err?.response?.data?.detail || "Failed to approve request."),
   })
+  const onboardToInstructor = useMutation({
+    mutationFn: () => onboardRoleRequestToInstructorApi(req.id, { ...form, admin_notes: notes || undefined }),
+    onSuccess: () => { onChanged(); onClose() },
+    onError: (err: any) => alert(err?.response?.data?.detail || "Failed to route to instructor onboarding."),
+  })
   const reject = useMutation({
     mutationFn: () => rejectRoleRequestApi(req.id, notes || undefined),
     onSuccess: () => { onChanged(); onClose() },
     onError: (err: any) => alert(err?.response?.data?.detail || "Failed to reject request."),
   })
 
+  const handleViewCv = async () => {
+    try {
+      setLoadingCv(true)
+      const res = await getRoleRequestCvUrlApi(req.id)
+      if (res.cv_url) {
+        window.open(res.cv_url, "_blank", "noopener,noreferrer")
+      }
+    } catch (err: any) {
+      alert(err?.response?.data?.detail || "Failed to retrieve CV download URL")
+    } finally {
+      setLoadingCv(false)
+    }
+  }
+
   const canSubmit = isInternshipApproveComplete(form)
+  const isPending = req.status === "pending"
+  const isInternRequest = req.target_role === "intern"
+  const hasCv = Boolean(req.details.cv_path || req.details.cv_url)
 
   return (
     <div className="fixed inset-0 z-50 flex justify-end bg-black/50 backdrop-blur-sm"
@@ -138,8 +163,14 @@ function RoleRequestDetailDialog({
                 <p className="text-xs text-muted-foreground mt-1">Requesting: <strong>{req.target_role}</strong></p>
                 {Object.keys(req.details ?? {}).length > 0 && (
                   <div className="mt-2 flex flex-col gap-1 text-xs">
+                    {req.details.university != null && (
+                      <p><span className="text-muted-foreground">University: </span>{String(req.details.university)}</p>
+                    )}
                     {req.details.university_id_number != null && (
                       <p><span className="text-muted-foreground">University ID: </span>{String(req.details.university_id_number)}</p>
+                    )}
+                    {req.details.major != null && (
+                      <p><span className="text-muted-foreground">Major / Field: </span>{String(req.details.major)}</p>
                     )}
                     {req.details.preferred_city_id != null && (
                       <p><span className="text-muted-foreground">Requested city: </span>{requestedCityName ?? String(req.details.preferred_city_id)}</p>
@@ -150,12 +181,27 @@ function RoleRequestDetailDialog({
                     {req.details.requested_duration_weeks != null && (
                       <p><span className="text-muted-foreground">Requested duration: </span>{String(req.details.requested_duration_weeks)} weeks</p>
                     )}
+                    {hasCv && (
+                      <div className="mt-2 pt-2 border-t border-border">
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          disabled={loadingCv}
+                          onClick={handleViewCv}
+                          className="gap-1.5 text-xs h-8"
+                        >
+                          <FileText size={13} />
+                          {loadingCv ? "Opening CV..." : "View Uploaded CV (PDF)"}
+                        </Button>
+                      </div>
+                    )}
                   </div>
                 )}
               </CardContent>
             </Card>
 
-            {req.status === "pending" && req.target_role === "intern" && (
+            {isPending && isInternRequest && (
               <Card>
                 <CardContent className="p-4 flex flex-col gap-3">
                   <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
@@ -174,10 +220,10 @@ function RoleRequestDetailDialog({
               </Card>
             )}
 
-            {req.status === "pending" && (
+            {isPending && (
               <Card>
                 <CardContent className="p-4 flex flex-col gap-3">
-                  <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Review</p>
+                  <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Review Decision</p>
                   <textarea
                     value={notes}
                     onChange={(e) => setNotes(e.target.value)}
@@ -185,20 +231,66 @@ function RoleRequestDetailDialog({
                     rows={3}
                     className="w-full p-3 bg-background border border-border rounded-xl text-sm text-foreground focus:outline-none resize-none"
                   />
-                  <div className="flex gap-2">
-                    <Button variant="outline" className="flex-1 border-red-300 text-red-600 hover:bg-red-50 dark:hover:bg-red-500/10"
-                      onClick={() => reject.mutate()} disabled={reject.isPending || approve.isPending}>
-                      {reject.isPending ? "Rejecting…" : "Reject"}
-                    </Button>
-                    <Button className="flex-1 bg-emerald-600 hover:bg-emerald-700"
-                      onClick={() => approve.mutate()} disabled={approve.isPending || reject.isPending || !canSubmit}>
-                      {approve.isPending ? "Approving…" : "Approve"}
-                    </Button>
-                  </div>
-                  {!canSubmit && req.target_role === "intern" && (
+                  
+                  {isInternRequest ? (
+                    <div className="flex flex-col gap-2">
+                      <Button
+                        variant="outline"
+                        className="w-full border-primary/40 text-primary hover:bg-primary/5 gap-1.5"
+                        onClick={() => onboardToInstructor.mutate()}
+                        disabled={onboardToInstructor.isPending || approve.isPending || reject.isPending || !canSubmit}
+                      >
+                        <ArrowRight size={14} />
+                        {onboardToInstructor.isPending ? "Routing to Onboarding…" : "Route to Instructor Onboarding"}
+                      </Button>
+                      <div className="flex gap-2">
+                        <Button
+                          variant="outline"
+                          className="flex-1 border-red-300 text-red-600 hover:bg-red-50 dark:hover:bg-red-500/10"
+                          onClick={() => reject.mutate()}
+                          disabled={reject.isPending || approve.isPending || onboardToInstructor.isPending}
+                        >
+                          {reject.isPending ? "Rejecting…" : "Reject"}
+                        </Button>
+                        <Button
+                          className="flex-1 bg-emerald-600 hover:bg-emerald-700"
+                          onClick={() => approve.mutate()}
+                          disabled={approve.isPending || reject.isPending || onboardToInstructor.isPending || !canSubmit}
+                        >
+                          {approve.isPending ? "Approving…" : "Direct Approve (Intern Role)"}
+                        </Button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="flex gap-2">
+                      <Button
+                        variant="outline"
+                        className="flex-1 border-red-300 text-red-600 hover:bg-red-50 dark:hover:bg-red-500/10"
+                        onClick={() => reject.mutate()}
+                        disabled={reject.isPending || approve.isPending}
+                      >
+                        {reject.isPending ? "Rejecting…" : "Reject"}
+                      </Button>
+                      <Button
+                        className="flex-1 bg-emerald-600 hover:bg-emerald-700"
+                        onClick={() => approve.mutate()}
+                        disabled={approve.isPending || reject.isPending || !canSubmit}
+                      >
+                        {approve.isPending ? "Approving…" : "Approve"}
+                      </Button>
+                    </div>
+                  )}
+
+                  {!canSubmit && isInternRequest && (
                     <p className="text-[11px] text-muted-foreground">
-                      Fill in salutation, activity description, and all supervisor fields before approving.
+                      Fill in salutation, activity description, and all supervisor fields before approving or routing to onboarding.
                     </p>
+                  )}
+                  {isInternRequest && (
+                    <div className="text-[11px] text-muted-foreground bg-muted/40 p-2.5 rounded-lg border border-border/40 flex flex-col gap-1">
+                      <p><strong>Route to Onboarding:</strong> Sets roles to [applicant, student]. When the student completes onboarding, they receive [intern, instructor] roles and the internship letter.</p>
+                      <p><strong>Direct Approve:</strong> Converts role directly to [intern] and issues the internship letter immediately.</p>
+                    </div>
                   )}
                 </CardContent>
               </Card>
@@ -209,6 +301,16 @@ function RoleRequestDetailDialog({
                 <CardContent className="p-4">
                   <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-1">Admin notes</p>
                   <p className="text-sm text-foreground">{req.admin_notes}</p>
+                </CardContent>
+              </Card>
+            )}
+
+            {req.status === "approved" && Boolean(req.resolution?.routed_to_onboarding) && (
+              <Card>
+                <CardContent className="p-4 flex flex-col gap-1">
+                  <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Pipeline Status</p>
+                  <p className="text-sm font-medium text-primary">Routed to Instructor Onboarding Pipeline</p>
+                  <p className="text-xs text-muted-foreground">Letter will be finalized and both [intern, instructor] roles granted upon applicant graduation.</p>
                 </CardContent>
               </Card>
             )}

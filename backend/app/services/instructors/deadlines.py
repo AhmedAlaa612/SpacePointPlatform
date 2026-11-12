@@ -26,6 +26,9 @@ SETTING_KEYS = {
     "instructor_deadline_revision_days": str(DEFAULT_REVISION_DAYS),
     "instructor_extension_days": str(DEFAULT_EXTENSION_DAYS),
     "instructor_hard_timeout_days": str(DEFAULT_HARD_TIMEOUT_DAYS),
+    "internship_intake_enabled": "true",
+    "internship_intake_min_age": str(DEFAULT_MIN_AGE),
+    "internship_intake_require_university": "true",
 }
 
 
@@ -57,6 +60,9 @@ async def get_instructor_settings(db: AsyncSession) -> dict[str, Any]:
         "instructor_deadline_revision_days": _int("instructor_deadline_revision_days", DEFAULT_REVISION_DAYS),
         "instructor_extension_days": _int("instructor_extension_days", DEFAULT_EXTENSION_DAYS),
         "instructor_hard_timeout_days": _int("instructor_hard_timeout_days", DEFAULT_HARD_TIMEOUT_DAYS),
+        "internship_intake_enabled": _bool("internship_intake_enabled", True),
+        "internship_intake_min_age": _int("internship_intake_min_age", DEFAULT_MIN_AGE),
+        "internship_intake_require_university": _bool("internship_intake_require_university", True),
     }
 
 
@@ -84,6 +90,32 @@ def is_student_eligible_to_apply(user: User, settings: dict[str, Any]) -> tuple[
     if settings.get("instructor_intake_require_university", False):
         if not user.student_id:
             return False, "University affiliation / Student ID is required to apply."
+
+    return True, None
+
+
+def is_student_eligible_for_internship(
+    user: User, settings: dict[str, Any], has_pending_request: bool = False
+) -> tuple[bool, str | None]:
+    """Evaluates whether the given student meets admin criteria to apply for an internship."""
+    if not settings.get("internship_intake_enabled", True):
+        return False, "Internship applications are currently closed."
+
+    roles = user.role_values
+    if "intern" in roles:
+        return False, "You are already an intern."
+    if has_pending_request:
+        return False, "You already have a pending internship application."
+
+    if not user.birthdate:
+        return False, "Birthdate is not set on your profile. A verified birthdate is required."
+
+    today = date.today()
+    birth = user.birthdate
+    age = today.year - birth.year - ((today.month, today.day) < (birth.month, birth.day))
+    min_age = settings.get("internship_intake_min_age", DEFAULT_MIN_AGE)
+    if age < min_age:
+        return False, f"You must be at least {min_age} years old to apply."
 
     return True, None
 

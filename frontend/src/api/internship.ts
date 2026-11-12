@@ -53,6 +53,43 @@ export interface InternshipPreviewBody extends InternshipApproveBody {
   requested_duration_weeks?: number
 }
 
+export interface InternshipIntakeEligibilityOut {
+  eligible: boolean
+  reason: string | null
+  has_birthdate: boolean
+  has_pending_request: boolean
+  min_age: number
+  university?: string | null
+  student_id?: string | null
+}
+
+export const getInternshipIntakeEligibilityApi = () =>
+  api.get<InternshipIntakeEligibilityOut>("/internship/intake-eligibility").then((r) => r.data)
+
+export interface StudentInternPayload {
+  university: string
+  university_id_number: string
+  preferred_city_id?: string
+  requested_start_date?: string
+  requested_duration_weeks?: number
+  major?: string
+}
+
+export const applyAsStudentInternApi = (payload: StudentInternPayload, cv?: File | null) => {
+  const form = new FormData()
+  form.append("payload", JSON.stringify(payload))
+  if (cv) {
+    form.append("cv", cv)
+  }
+  return api.post<RoleRequest>("/internship/apply-as-student", form).then((r) => r.data)
+}
+
+export const onboardRoleRequestToInstructorApi = (id: string, body: InternshipApproveBody) =>
+  api.post<RoleRequest>(`/admin/role-requests/${id}/onboard-to-instructor`, body).then((r) => r.data)
+
+export const getRoleRequestCvUrlApi = (id: string) =>
+  api.get<{ cv_url: string }>(`/admin/role-requests/${id}/cv-url`).then((r) => r.data)
+
 // Renders the letter from whatever's currently in the form — no DB writes,
 // no ref number consumed. Returns the raw PDF as a blob to open/preview.
 export const previewInternshipLetterApi = (body: InternshipPreviewBody) =>

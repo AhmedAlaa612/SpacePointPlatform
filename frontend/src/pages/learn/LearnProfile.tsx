@@ -2,12 +2,13 @@ import { useRef, useState } from "react";
 import { useNavigate } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { isAxiosError } from "axios";
-import { Award, CheckCircle2, Download, GraduationCap, LogOut, Pencil, Plus, RefreshCw, Upload, Users } from "lucide-react";
+import { Award, Briefcase, CheckCircle2, Download, GraduationCap, LogOut, Pencil, Plus, RefreshCw, Upload, Users } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
 import { changePassword, fetchMe, rerollNicknameApi, updateMeApi, updatePhotoApi } from "@/api/auth";
 import { fetchMyActivity, fetchMyCertificates, fetchMyCourses } from "@/api/lms";
 import { fetchMyTeams } from "@/api/missions";
 import { getIntakeEligibilityApi } from "@/api/instructors/applicant";
+import { getInternshipIntakeEligibilityApi } from "@/api/internship";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { CountrySelect } from "@/components/ui/CountrySelect";
@@ -22,6 +23,7 @@ import { cn } from "@/lib/utils";
 import { CourseProgress } from "./CourseProgress";
 import { RedeemInviteModal } from "./components/RedeemInviteModal";
 import { ApplyAsInstructorModal } from "./components/ApplyAsInstructorModal";
+import { ApplyAsInternModal } from "./components/ApplyAsInternModal";
 
 function errorDetail(err: unknown, fallback: string): string {
   if (isAxiosError(err) && typeof err.response?.data?.detail === "string") return err.response.data.detail;
@@ -52,6 +54,7 @@ export default function LearnProfile() {
   const [pwOpen, setPwOpen] = useState(false);
   const [redeemOpen, setRedeemOpen] = useState(false);
   const [applyModalOpen, setApplyModalOpen] = useState(false);
+  const [internModalOpen, setInternModalOpen] = useState(false);
   const [rerollError, setRerollError] = useState<string | null>(null);
 
   const { data: me } = useQuery({ queryKey: ["me"], queryFn: fetchMe, initialData: currentUser ?? undefined });
@@ -59,6 +62,11 @@ export default function LearnProfile() {
     queryKey: ["instructor-intake-eligibility"],
     queryFn: getIntakeEligibilityApi,
     enabled: !!me && !me.roles?.includes("instructor") && !me.roles?.includes("applicant"),
+  });
+  const { data: internEligibility } = useQuery({
+    queryKey: ["internship-intake-eligibility"],
+    queryFn: getInternshipIntakeEligibilityApi,
+    enabled: !!me && !me.roles?.includes("intern"),
   });
   const { data: dashboard } = useQuery({ queryKey: ["lms-my-courses"], queryFn: fetchMyCourses });
   const { data: activity } = useQuery({ queryKey: ["lms-my-activity"], queryFn: fetchMyActivity });
@@ -134,6 +142,20 @@ export default function LearnProfile() {
             >
               <GraduationCap className="size-3.5" /> Apply as instructor
             </Button>
+          )}
+          {internEligibility?.eligible && (
+            <Button
+              variant="outline"
+              onClick={() => setInternModalOpen(true)}
+              className="gap-1.5 shrink-0 flex-1 sm:flex-initial"
+            >
+              <Briefcase className="size-3.5" /> Apply for internship
+            </Button>
+          )}
+          {internEligibility?.has_pending_request && (
+            <span className="text-xs text-muted-foreground border border-border px-3 py-1.5 rounded-xl bg-muted/40 font-medium inline-flex items-center gap-1.5 shrink-0">
+              <Briefcase className="size-3.5 text-muted-foreground" /> Internship pending review
+            </span>
           )}
           <Button variant="outline" onClick={() => setEditOpen(true)} className="shrink-0 flex-1 sm:flex-initial">
             <Pencil className="size-3.5" /> Edit profile
@@ -348,6 +370,12 @@ export default function LearnProfile() {
       <EditProfileDialog open={editOpen} onOpenChange={setEditOpen} />
       <ChangePasswordDialog open={pwOpen} onOpenChange={setPwOpen} />
       <ApplyAsInstructorModal open={applyModalOpen} onOpenChange={setApplyModalOpen} />
+      <ApplyAsInternModal
+        open={internModalOpen}
+        onOpenChange={setInternModalOpen}
+        initialUniversity={me.organization_name || ""}
+        initialStudentId={me.student_id || ""}
+      />
       <RedeemInviteModal
         open={redeemOpen}
         onOpenChange={setRedeemOpen}

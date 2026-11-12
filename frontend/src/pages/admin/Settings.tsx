@@ -1,6 +1,6 @@
 import { useState } from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { Save, Upload, CheckCircle2, Bot, Ban, GraduationCap } from "lucide-react"
+import { Save, Upload, CheckCircle2, Bot, Ban, GraduationCap, Briefcase } from "lucide-react"
 import { getSettingsApi, upsertSettingApi, uploadAdminSignatureApi } from "@/api/admin/settings"
 import { Spinner } from "@/pages/admin/components/common"
 import { useToast } from "@/components/ui/toast"
@@ -20,6 +20,7 @@ export default function Settings() {
   const [revDays, setRevDays] = useState("3")
   const [extDays, setExtDays] = useState("1")
   const [timeoutDays, setTimeoutDays] = useState("10")
+  const [internMinAge, setInternMinAge] = useState("18")
   const [loaded, setLoaded] = useState(false)
   const [savedName, setSavedName] = useState(false)
   const [savedTitle, setSavedTitle] = useState(false)
@@ -28,6 +29,7 @@ export default function Settings() {
     setSignatoryName(settings.admin_signatory_name ?? "")
     setSignatoryTitle(settings.admin_signatory_title ?? "")
     setMinAge(settings.instructor_intake_min_age ?? "18")
+    setInternMinAge(settings.internship_intake_min_age ?? "18")
     setPhase1Days(settings.instructor_deadline_phase1_days ?? "7")
     setPresDays(settings.instructor_deadline_presentation_days ?? "3")
     setAssessDays(settings.instructor_deadline_assessment_days ?? "3")
@@ -40,6 +42,37 @@ export default function Settings() {
   const isFinEnabled = settings?.fin_support_enabled !== "false"
   const isIntakeEnabled = settings?.instructor_intake_enabled !== "false"
   const isRequireUniv = settings?.instructor_intake_require_university === "true"
+  const isInternIntakeEnabled = settings?.internship_intake_enabled !== "false"
+  const isInternRequireUniv = settings?.internship_intake_require_university !== "false"
+
+  const toggleInternIntake = useMutation({
+    mutationFn: (enabled: boolean) =>
+      upsertSettingApi("internship_intake_enabled", enabled ? "true" : "false"),
+    onSuccess: (_, enabled) => {
+      qc.invalidateQueries({ queryKey: ["admin-settings"] })
+      toast.success(enabled ? "Student internship intake enabled" : "Student internship intake disabled")
+    },
+    onError: () => toast.error("Failed to update internship intake toggle"),
+  })
+
+  const toggleInternRequireUniv = useMutation({
+    mutationFn: (enabled: boolean) =>
+      upsertSettingApi("internship_intake_require_university", enabled ? "true" : "false"),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["admin-settings"] })
+      toast.success("Internship university requirement updated")
+    },
+    onError: () => toast.error("Failed to update setting"),
+  })
+
+  const saveInternMinAge = useMutation({
+    mutationFn: () => upsertSettingApi("internship_intake_min_age", internMinAge),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["admin-settings"] })
+      toast.success("Internship minimum age saved")
+    },
+    onError: () => toast.error("Failed to save minimum age"),
+  })
 
   const toggleIntake = useMutation({
     mutationFn: (enabled: boolean) =>
@@ -373,6 +406,110 @@ export default function Settings() {
                 <Save size={14} />
                 {saveDeadlines.isPending ? "Saving..." : "Save Intake & Deadlines"}
               </Button>
+            </div>
+          </div>
+        </div>
+
+        {/* Student Internship Intake Card */}
+        <div className="bg-card border border-border rounded-2xl p-6 shadow-sm flex flex-col gap-5">
+          <div className="flex items-start justify-between gap-4">
+            <div className="flex items-start gap-3">
+              <div className="w-10 h-10 rounded-xl bg-primary/10 border border-primary/20 flex items-center justify-center text-primary shrink-0 mt-0.5">
+                <Briefcase size={20} />
+              </div>
+              <div>
+                <div className="flex items-center gap-2">
+                  <h2 className="text-base font-semibold text-foreground">Student Internship Intake</h2>
+                  <span
+                    className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold tracking-wide uppercase ${
+                      isInternIntakeEnabled
+                        ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20"
+                        : "bg-muted text-muted-foreground border border-border"
+                    }`}
+                  >
+                    {isInternIntakeEnabled ? "Intake Active" : "Intake Closed"}
+                  </span>
+                </div>
+                <p className="text-xs text-muted-foreground mt-1">
+                  Control whether university students can apply for an internship directly from their LMS profile.
+                </p>
+              </div>
+            </div>
+
+            <button
+              type="button"
+              disabled={toggleInternIntake.isPending}
+              onClick={() => toggleInternIntake.mutate(!isInternIntakeEnabled)}
+              className={`relative w-12 h-6 rounded-full transition-colors shrink-0 cursor-pointer ${
+                isInternIntakeEnabled ? "bg-primary" : "bg-muted-foreground/30"
+              }`}
+              aria-label="Toggle student internship intake"
+              aria-pressed={isInternIntakeEnabled}
+            >
+              <span
+                className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform ${
+                  isInternIntakeEnabled ? "translate-x-6" : ""
+                }`}
+              />
+            </button>
+          </div>
+
+          <div className="flex flex-col gap-4 border-t border-border pt-4">
+            <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+              Student Eligibility Criteria
+            </h3>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div>
+                <label className="text-xs font-medium text-foreground block mb-1">
+                  Minimum Age Requirement (Years)
+                </label>
+                <div className="flex gap-2">
+                  <input
+                    type="number"
+                    min="16"
+                    max="99"
+                    className="input w-full"
+                    value={internMinAge}
+                    onChange={(e) => setInternMinAge(e.target.value)}
+                  />
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => saveInternMinAge.mutate()}
+                    disabled={saveInternMinAge.isPending}
+                    className="shrink-0 gap-1.5"
+                  >
+                    <Save size={14} />
+                    {saveInternMinAge.isPending ? "Saving..." : "Save"}
+                  </Button>
+                </div>
+                <p className="text-[11px] text-muted-foreground mt-1">
+                  Students with no birthdate or under this age cannot see or access the internship application button.
+                </p>
+              </div>
+
+              <div className="flex flex-col justify-center">
+                <div className="flex items-center justify-between gap-3 p-3 rounded-xl border border-border bg-muted/20">
+                  <div>
+                    <p className="text-xs font-medium text-foreground">Require University Affiliation</p>
+                    <p className="text-[11px] text-muted-foreground">Require university name and student ID in the application</p>
+                  </div>
+                  <button
+                    type="button"
+                    disabled={toggleInternRequireUniv.isPending}
+                    onClick={() => toggleInternRequireUniv.mutate(!isInternRequireUniv)}
+                    className={`relative w-10 h-5 rounded-full transition-colors shrink-0 cursor-pointer ${
+                      isInternRequireUniv ? "bg-primary" : "bg-muted-foreground/30"
+                    }`}
+                  >
+                    <span
+                      className={`absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform ${
+                        isInternRequireUniv ? "translate-x-5" : ""
+                      }`}
+                    />
+                  </button>
+                </div>
+              </div>
             </div>
           </div>
         </div>

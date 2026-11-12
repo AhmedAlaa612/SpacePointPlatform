@@ -22,28 +22,40 @@ import asyncio
 import uuid
 from datetime import date, datetime, timezone
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Response
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Response, UploadFile
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 
 from app.core.dependencies import get_current_active_user, require_admin, require_intern
 from app.db.session import get_db
+from app.models.enums import ApplicationStatus, UserRole
+from app.models.instructors.applicant_profile import ApplicantProfile
+from app.models.instructors.application_review import ApplicationReview
+from app.models.instructors.video_submission import VideoSubmission
 from app.models.internship import InternProfile, RoleRequest
 from app.models.user import User
 from app.schemas.internship import (
     InternProfileOut,
     InternshipApprove,
+    InternshipIntakeEligibilityOut,
     InternshipPreviewRequest,
     RoleRequestCreate,
     RoleRequestOut,
     RoleRequestReject,
     SignInternshipLetterRequest,
+    StudentInternApply,
 )
 from app.services import storage
 from app.services.documents.internship_letter import generate_internship_letter_pdf
 from app.services.email import (
     send_internship_letter_signed_notification_email,
     send_signed_internship_letter_email,
+)
+from app.services.instructors.application_videos import get_configured_videos
+from app.services.instructors.deadlines import (
+    compute_phase_deadline,
+    get_instructor_settings,
+    is_student_eligible_for_internship,
 )
 from app.services.internship.allowed_role_requests import can_request_role
 from app.services.internship.approval import approve_internship, format_letter_date, resolve_internship_request_fields, resolve_start_date
@@ -58,7 +70,16 @@ router = APIRouter(tags=["internship"])
 # future target_role rather than a generic freeform validator.
 
 def _validate_intern_details(details: dict) -> dict:
-    allowed_keys = {"university_id_number", "preferred_city_id", "requested_start_date", "requested_duration_weeks"}
+    allowed_keys = {
+        "university",
+        "university_id_number",
+        "preferred_city_id",
+        "requested_start_date",
+        "requested_duration_weeks",
+        "major",
+        "cv_path",
+        "cv_url",
+    }
     unknown = set(details) - allowed_keys
     if unknown:
         raise HTTPException(status_code=400, detail=f"Unknown fields: {sorted(unknown)}")
@@ -123,6 +144,130 @@ async def list_my_role_requests(db: AsyncSession = Depends(get_db), current_user
         select(RoleRequest).where(RoleRequest.requester_user_id == current_user.id).order_by(RoleRequest.created_at.desc())
     )).scalars().all()
     return [_request_out(r, current_user) for r in rows]
+
+
+@router.get("/internship/intake-eligibility", response_model=InternshipIntakeEligibilityOut)
+async def get_internship_intake_eligibility(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+):
+    """Checks whether the currently authenticated student is eligible to apply for an internship."""
+    settings = await get_instructor_settings(db)
+    pending_req = (await db.execute(
+        select(RoleRequest).where(
+            RoleRequest.requester_user_id == current_user.id,
+            RoleRequest.target_role == "intern",
+            RoleRequest.status == "pending",
+        )
+    )).scalars().first()
+
+    eligible, reason = is_student_eligible_for_internship(
+        current_user, settings, has_pending_request=bool(pending_req)
+    )
+    university_name = None
+    if current_user.organization_id:
+        from app.models.spine.organization import Organization
+        org = await db.get(Organization, current_user.organization_id)
+        if org:
+            university_name = org.name_latin
+
+    return InternshipIntakeEligibilityOut(
+        eligible=eligible,
+        reason=reason,
+        has_birthdate=bool(current_user.birthdate),
+        has_pending_request=bool(pending_req),
+        min_age=settings.get("internship_intake_min_age", 18),
+        university=university_name,
+        student_id=current_user.student_id,
+    )
+
+
+@router.post("/internship/apply-as-student", response_model=RoleRequestOut, status_code=201)
+async def apply_as_student_for_internship(
+    payload_json: str = Form(..., alias="payload"),
+    cv: UploadFile | None = File(None),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+):
+    """Authenticated student application for an internship role."""
+    settings = await get_instructor_settings(db)
+    pending_req = (await db.execute(
+        select(RoleRequest).where(
+            RoleRequest.requester_user_id == current_user.id,
+            RoleRequest.target_role == "intern",
+            RoleRequest.status == "pending",
+        )
+    )).scalars().first()
+
+    eligible, reason = is_student_eligible_for_internship(
+        current_user, settings, has_pending_request=bool(pending_req)
+    )
+    if not eligible:
+        raise HTTPException(status_code=400, detail=reason or "Not eligible to apply for internship")
+
+    try:
+        payload = StudentInternApply.model_validate_json(payload_json)
+    except Exception:
+        raise HTTPException(status_code=422, detail="Invalid application payload")
+
+    if not payload.university or not payload.university.strip():
+        raise HTTPException(status_code=400, detail="University name is required")
+    if not payload.university_id_number or not payload.university_id_number.strip():
+        raise HTTPException(status_code=400, detail="University / Student ID is required")
+
+    # Profile sync: save university and student ID back to User record (and prefill vice versa)
+    if payload.university and payload.university.strip():
+        from app.services.spine.identity import resolve_or_create_organization
+        org_row = await resolve_or_create_organization(db, payload.university.strip(), org_type="university")
+        current_user.organization_id = org_row.id
+        if current_user.contact_id:
+            from app.models.spine.contact import Contact
+            c_row = await db.get(Contact, current_user.contact_id)
+            if c_row:
+                c_row.organization_id = org_row.id
+
+    current_user.student_id = payload.university_id_number.strip()
+
+    # CV upload
+    cv_path = None
+    cv_url = None
+    if cv and cv.filename:
+        ext = ("." + cv.filename.rsplit(".", 1)[-1].lower()) if "." in cv.filename else ""
+        if ext not in [".pdf", ".doc", ".docx"]:
+            raise HTTPException(status_code=400, detail="CV must be a PDF or Word document (.pdf, .doc, .docx)")
+        cv_path = f"intern/{current_user.id}{ext}"
+        cv_url = await storage.upload_file("cvs", cv_path, await cv.read(), cv.content_type or "application/pdf")
+
+    details = {
+        "university": payload.university.strip(),
+        "university_id_number": payload.university_id_number.strip(),
+        "preferred_city_id": str(payload.preferred_city_id) if payload.preferred_city_id else None,
+        "requested_start_date": payload.requested_start_date,
+        "requested_duration_weeks": payload.requested_duration_weeks or 8,
+        "major": payload.major,
+        "cv_path": cv_path,
+        "cv_url": cv_url,
+    }
+
+    req = RoleRequest(
+        requester_user_id=current_user.id,
+        target_role="intern",
+        status="pending",
+        details=details,
+    )
+    db.add(req)
+
+    admins = (await db.execute(select(User).where(User.roles.any("admin")))).scalars().all()
+    for admin in admins:
+        await notify(
+            db, admin.id, "New Intern Application",
+            f"{current_user.full_name} applied for an internship.", type="role_request"
+        )
+
+    await db.commit()
+    await db.refresh(req)
+    await db.refresh(current_user)
+    return _request_out(req, current_user)
 
 
 def _request_out(req: RoleRequest, requester: User) -> RoleRequestOut:
@@ -228,6 +373,11 @@ async def approve_role_request(
         start_date=start_date, department=None, approve=body,
     )
 
+    # Role hygiene on approval: if user was a student, strip student so they become clean [intern]
+    kept = {r for r in user.role_values if r != UserRole.student.value}
+    kept.add(UserRole.intern.value)
+    user.roles = [UserRole(r) for r in sorted(kept)]
+
     req.status = "approved"
     req.resolution = {
         "final_city_id": str(body.city_id) if body.city_id else None,
@@ -246,6 +396,128 @@ async def approve_role_request(
     await db.commit()
     await db.refresh(req)
     return _request_out(req, user)
+
+
+@router.post("/admin/role-requests/{req_id}/onboard-to-instructor", response_model=RoleRequestOut)
+async def onboard_role_request_to_instructor(
+    req_id: uuid.UUID,
+    body: InternshipApprove,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_admin),
+):
+    """Route a pending intern role request into the instructor onboarding pipeline.
+    Completing that pipeline grants both [instructor, intern] roles and auto-generates the internship letter.
+    During onboarding, the student holds [applicant, student]."""
+    req = await _get_pending_request(db, req_id)
+    if req.target_role != "intern":
+        raise HTTPException(status_code=400, detail="Only intern role requests can be routed to onboarding")
+
+    user = await db.get(User, req.requester_user_id)
+    if not user:
+        raise HTTPException(status_code=404, detail="Requester account not found")
+
+    details = req.details or {}
+    university_id_number, start_date = resolve_internship_request_fields(body, details)
+    pending_intern_details = {
+        "university_id_number": university_id_number,
+        "start_date": start_date.isoformat() if start_date else None,
+        "approve": body.model_dump(mode="json"),
+    }
+
+    profile = await db.get(ApplicantProfile, user.id)
+    if profile is None:
+        profile = ApplicantProfile(
+            user_id=user.id,
+            university=details.get("university") or user.organization_name,
+            cv_path=details.get("cv_path"),
+            also_grant_role="intern",
+            pending_intern_details=pending_intern_details,
+        )
+        db.add(profile)
+    else:
+        profile.also_grant_role = "intern"
+        profile.pending_intern_details = pending_intern_details
+        if details.get("cv_path"):
+            profile.cv_path = details.get("cv_path")
+
+    # Seed video submissions if needed
+    for v in await get_configured_videos(db):
+        existing_v = (await db.execute(
+            select(VideoSubmission).where(
+                VideoSubmission.user_id == user.id,
+                VideoSubmission.video_no == v["video_no"],
+            )
+        )).scalars().first()
+        if not existing_v:
+            db.add(VideoSubmission(user_id=user.id, video_no=v["video_no"], youtube_url=v["url"]))
+
+    # Seed application review with phase 1 deadline
+    inst_settings = await get_instructor_settings(db)
+    deadline = compute_phase_deadline(inst_settings["instructor_deadline_phase1_days"])
+    now = datetime.now(timezone.utc)
+
+    review = (await db.execute(
+        select(ApplicationReview).where(ApplicationReview.user_id == user.id)
+    )).scalars().first()
+    if review is None:
+        db.add(ApplicationReview(
+            user_id=user.id,
+            status=ApplicationStatus.in_progress,
+            phase_deadline=deadline,
+            extension_used=False,
+            created_at=now,
+            last_status_change_at=now,
+        ))
+    else:
+        review.status = ApplicationStatus.in_progress
+        review.reviewed_at = None
+        review.admin_id = None
+        review.feedback = None
+        review.phase_deadline = deadline
+        review.extension_used = False
+        review.last_status_change_at = now
+
+    # Grant applicant role alongside existing student role: [applicant, student]
+    current_roles = [r.value if hasattr(r, "value") else str(r) for r in (user.roles or [])]
+    if "applicant" not in current_roles:
+        current_roles.append("applicant")
+    user.roles = [UserRole(r) for r in current_roles]
+
+    req.status = "approved"
+    req.admin_notes = body.admin_notes or "Routed to Instructor Onboarding"
+    req.reviewed_by = current_user.id
+    req.reviewed_at = now
+    req.resolution = {
+        "routed_to_onboarding": True,
+        "decision": "onboard-to-instructor",
+        "letter_date": now.date().isoformat(),
+    }
+
+    await db.commit()
+    await db.refresh(req)
+    return _request_out(req, user)
+
+
+@router.get("/admin/role-requests/{req_id}/cv-url")
+async def get_role_request_cv_url(
+    req_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_admin),
+):
+    req = await db.get(RoleRequest, req_id)
+    if not req:
+        raise HTTPException(status_code=404, detail="Request not found")
+    details = req.details or {}
+    cv_path = details.get("cv_path")
+    if cv_path:
+        try:
+            url = await storage.get_signed_url("cvs", cv_path)
+            return {"cv_url": url}
+        except Exception:
+            pass
+    if details.get("cv_url"):
+        return {"cv_url": details["cv_url"]}
+    raise HTTPException(status_code=404, detail="No CV found for this request")
 
 
 @router.post("/admin/role-requests/{req_id}/reject", response_model=RoleRequestOut)
