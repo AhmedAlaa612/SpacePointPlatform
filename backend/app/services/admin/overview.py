@@ -102,9 +102,18 @@ async def get_admin_command_overview(db: AsyncSession) -> AdminCommandOverviewOu
     published_letters = [(l, u) for l, u in letter_rows if l.status == PaymentLetterStatus.published]
     signed_letters = [(l, u) for l, u in letter_rows if l.status == PaymentLetterStatus.signed]
 
-    # 4. Business user/role + org totals
+    # 4. Business user/role + partner org totals
+    # Partner-organization fence: `organizations` also holds login-less school/university
+    # rows created by student intake (`owner_user_id IS NULL`). Only count onboarded
+    # partner organizations that own a portal account.
     role_rows = (await db.execute(select(User.roles))).scalars().all()
-    org_count = (await db.execute(select(func.count()).select_from(Organization))).scalar_one()
+    org_count = (
+        await db.execute(
+            select(func.count())
+            .select_from(Organization)
+            .where(Organization.owner_user_id.is_not(None))
+        )
+    ).scalar_one()
 
     role_counts: dict[str, int] = {}
     for roles in role_rows:

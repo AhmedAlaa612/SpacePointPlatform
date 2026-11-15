@@ -540,7 +540,10 @@ function InstructorRosterRow({
         </div>
 
         <div className="flex flex-wrap items-center gap-4 text-xs">
-          <div className="flex items-center gap-1.5">
+          <div
+            className="flex items-center gap-1.5"
+            title="Delivered (ops-approved present) / Total assigned sessions"
+          >
             <span className="text-muted-foreground">Sessions:</span>
             <span className="font-semibold tabular-nums text-foreground">
               {item.total_sessions_delivered}/{item.total_sessions_assigned}

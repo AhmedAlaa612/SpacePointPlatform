@@ -318,6 +318,26 @@ async def test_list_organizations_usage_rollups(db, client):
 
 
 @pytest.mark.asyncio
+async def test_list_organizations_excludes_student_institutions(db, client):
+    seed = await _seed_org_world(db)
+    school = Organization(
+        id=uuid.uuid4(),
+        name_latin="Some Student School",
+        org_type="school",
+        country="uae",
+        owner_user_id=None,
+    )
+    db.add(school)
+    await db.flush()
+
+    resp = await client.get("/admin/website/organizations", headers=_headers(seed["ops"]))
+    assert resp.status_code == 200
+    ids = {r["id"] for r in resp.json()}
+    assert str(seed["org"].id) in ids
+    assert str(school.id) not in ids
+
+
+@pytest.mark.asyncio
 async def test_get_organization_detail_360(db, client):
     seed = await _seed_org_world(db)
     resp = await client.get(

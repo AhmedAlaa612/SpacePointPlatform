@@ -306,7 +306,7 @@ export default function AdminHub() {
                     className={cn(
                       "px-2.5 py-1.5 rounded-[10px] text-xs font-semibold border whitespace-nowrap shrink-0 transition-colors",
                       active
-                        ? "bg-[#653F84] text-white border-primary"
+                        ? "bg-[#653F84] text-white border-[#653F84]"
                         : "bg-transparent text-foreground border-border"
                     )}
                   >

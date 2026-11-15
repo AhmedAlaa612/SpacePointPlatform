@@ -6,6 +6,7 @@ import uuid
 import pytest
 
 from app.core.security import create_access_token, get_password_hash
+from app.models.spine.organization import Organization
 from app.models.user import User
 from app.services.settings import set_portal_setting
 
@@ -100,3 +101,19 @@ async def test_auth_me_includes_missing_profile_fields(db, client):
     me_admin = await client.get("/auth/me", headers=_headers(admin))
     assert me_admin.status_code == 200, me_admin.text
     assert me_admin.json()["missing_profile_fields"] == []
+
+
+@pytest.mark.asyncio
+async def test_admin_overview_counts_only_partner_organizations(db, client):
+    admin = await _make_user(db, roles=["admin"])
+    owner = await _make_user(db, roles=["organization"])
+
+    # Partner org (has portal owner) vs login-less student schools (owner_user_id=None)
+    db.add(Organization(name_latin="Partner Academy", org_type="company", owner_user_id=owner.id))
+    db.add(Organization(name_latin="Khalifa University", org_type="university", owner_user_id=None))
+    db.add(Organization(name_latin="Dubai High School", org_type="school", owner_user_id=None))
+    await db.flush()
+
+    resp = await client.get("/admin/overview", headers=_headers(admin))
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["business"]["organizations"] == 1

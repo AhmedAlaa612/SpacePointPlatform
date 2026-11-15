@@ -542,7 +542,11 @@ async def admin_list_event_organizations(
     current_user: User = Depends(require_website_admin),
 ):
     orgs = (
-        await db.execute(select(Organization).order_by(Organization.name_latin.asc()))
+        await db.execute(
+            select(Organization)
+            .where(Organization.owner_user_id.is_not(None))
+            .order_by(Organization.name_latin.asc())
+        )
     ).scalars().all()
     return await _serialize_org_summaries(db, orgs)
 

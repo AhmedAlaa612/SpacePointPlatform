@@ -159,9 +159,9 @@ export default function Programs() {
       </div>
 
       {/* ── Filter & View Mode Controls ───────────────────────────── */}
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="flex flex-1 items-center gap-2 min-w-[260px]">
-          <div className="relative flex-1 min-w-[180px]">
+      <div className="flex flex-col sm:flex-row sm:flex-wrap sm:items-center justify-between gap-3">
+        <div className="flex flex-wrap flex-1 items-center gap-2 min-w-0">
+          <div className="relative w-full sm:flex-1 sm:min-w-[200px]">
             <Search
               size={15}
               className="absolute left-3.5 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none"
@@ -187,7 +187,7 @@ export default function Programs() {
           <select
             value={typeFilter}
             onChange={(e) => setTypeFilter(e.target.value)}
-            className="w-40 sm:w-44 shrink-0 h-10 px-3 rounded-[10px] border border-border bg-card text-foreground text-sm font-medium focus:outline-none focus:border-primary transition-colors cursor-pointer"
+            className="flex-1 sm:flex-none sm:w-44 shrink-0 h-10 px-3 rounded-[10px] border border-border bg-card text-foreground text-sm font-medium focus:outline-none focus:border-primary transition-colors cursor-pointer"
           >
             <option value="">All Types</option>
             {PROGRAM_TYPES.map((t) => (
@@ -201,7 +201,7 @@ export default function Programs() {
             <select
               value={statusFilter}
               onChange={(e) => setStatusFilter(e.target.value)}
-              className="w-40 shrink-0 h-10 px-3 rounded-[10px] border border-border bg-card text-foreground text-sm font-medium focus:outline-none focus:border-primary transition-colors cursor-pointer"
+              className="flex-1 sm:flex-none sm:w-44 shrink-0 h-10 px-3 rounded-[10px] border border-border bg-card text-foreground text-sm font-medium focus:outline-none focus:border-primary transition-colors cursor-pointer"
             >
               <option value="">All Statuses</option>
               <option value="running">Running</option>
@@ -213,7 +213,7 @@ export default function Programs() {
           )}
         </div>
 
-        <div className="inline-flex shrink-0 p-1 rounded-[10px] bg-muted/60 border border-border">
+        <div className="inline-flex self-start sm:self-auto shrink-0 p-1 rounded-[10px] bg-muted/60 border border-border">
           <button
             onClick={() => setViewMode("program")}
             className={`inline-flex items-center gap-1.5 h-8 px-3 rounded-[10px] text-xs font-bold transition-all cursor-pointer ${
@@ -424,7 +424,7 @@ export default function Programs() {
       {/* ── VIEW 2: GLOBAL OPERATIONAL WORKLIST (TIMELINE) ─────────── */}
       {viewMode === "worklist" && (
         <div className="rounded-[10px] border border-border bg-card overflow-hidden">
-          <div className="grid grid-cols-12 gap-3 p-4 border-b border-border bg-muted/20 text-xs font-bold uppercase tracking-wider text-muted-foreground">
+          <div className="hidden md:grid md:grid-cols-12 gap-3 p-4 border-b border-border bg-muted/20 text-xs font-bold uppercase tracking-wider text-muted-foreground">
             <div className="col-span-2">Status</div>
             <div className="col-span-3">Cohort & Program</div>
             <div className="col-span-3">Dates & Venue</div>
@@ -445,9 +445,9 @@ export default function Programs() {
                 return (
                   <div
                     key={c.id}
-                    className="grid grid-cols-12 gap-3 p-4 items-center hover:bg-muted/30 transition-colors"
+                    className="flex flex-col md:grid md:grid-cols-12 gap-3 p-4 md:items-center hover:bg-muted/30 transition-colors"
                   >
-                    <div className="col-span-2 flex items-center gap-1.5 flex-wrap">
+                    <div className="md:col-span-2 flex items-center gap-1.5 flex-wrap">
                       <CohortStatusBadge status={c.status} />
                       {unstaffed > 0 && (
                         <span className="text-[11px] font-bold px-2 py-0.5 rounded-[10px] bg-rose-500/15 text-rose-600 dark:text-rose-400 border border-rose-500/30">
@@ -456,42 +456,42 @@ export default function Programs() {
                       )}
                     </div>
 
-                    <div className="col-span-3 min-w-0">
+                    <div className="md:col-span-3 min-w-0">
                       <Link
                         to="/operations/cohorts/$cohortId"
                         params={{ cohortId: c.id }}
                         search={{ from: "/operations/programs" } as never}
-                        className="text-sm font-bold text-foreground hover:text-primary transition-colors truncate block"
+                        className="text-sm font-bold text-foreground hover:text-primary transition-colors block md:truncate"
                       >
                         {c.name}
                       </Link>
-                      <span className="text-xs text-muted-foreground truncate block">
+                      <span className="text-xs text-muted-foreground block md:truncate">
                         {c.program_name ?? "—"}
                       </span>
                     </div>
 
-                    <div className="col-span-3 text-xs text-muted-foreground min-w-0">
-                      <div className="truncate">
+                    <div className="md:col-span-3 text-xs text-muted-foreground min-w-0">
+                      <div className="md:truncate">
                         {c.starts_on
                           ? `${c.starts_on}${c.ends_on && c.ends_on !== c.starts_on ? ` – ${c.ends_on}` : ""}`
                           : "Dates unassigned"}
                       </div>
-                      <div className="truncate text-foreground font-medium mt-0.5">
+                      <div className="md:truncate text-foreground font-medium mt-0.5">
                         {c.location_name ?? c.location ?? "Venue unassigned"}
                       </div>
                     </div>
 
-                    <div className="col-span-2 text-xs text-muted-foreground">
+                    <div className="md:col-span-2 flex md:block items-center justify-between gap-2 text-xs text-muted-foreground">
                       <div className="font-bold text-foreground">
                         {registered}
                         {c.capacity ? ` / ${c.capacity}` : ""} Seats
                       </div>
-                      <div className="truncate mt-0.5">
+                      <div className="md:truncate md:mt-0.5">
                         {c.sessions_count != null ? `${c.sessions_count} sessions` : ""}
                       </div>
                     </div>
 
-                    <div className="col-span-2 flex items-center justify-end gap-1.5">
+                    <div className="md:col-span-2 flex items-center justify-end gap-1.5 pt-2 md:pt-0 border-t border-border/50 md:border-t-0">
                       <button
                         onClick={() => setEditingCohort(c)}
                         className="p-1.5 rounded-[10px] text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
