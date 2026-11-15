@@ -76,6 +76,29 @@ def upgrade() -> None:
         ondelete="SET NULL",
     )
     op.create_index("ix_certificates_team_id", "certificates", ["team_id"])
+    # Remove historical duplicate (registration_id, type) rows before enforcing uniqueness,
+    # keeping the newest row (and preferring rows that have a stored PDF file_path).
+    conn.execute(
+        sa.text(
+            """
+            DELETE FROM certificates
+            WHERE id IN (
+                SELECT id FROM (
+                    SELECT id,
+                           ROW_NUMBER() OVER (
+                               PARTITION BY registration_id, type
+                               ORDER BY generated_at DESC NULLS LAST,
+                                        (file_path IS NOT NULL) DESC,
+                                        id DESC
+                           ) AS rn
+                    FROM certificates
+                    WHERE registration_id IS NOT NULL
+                ) ranked
+                WHERE rn > 1
+            )
+            """
+        )
+    )
     op.create_index(
         "uq_certificates_registration_type",
         "certificates",

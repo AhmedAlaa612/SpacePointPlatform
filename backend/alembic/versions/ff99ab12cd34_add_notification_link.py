@@ -17,8 +17,8 @@ depends_on = None
 
 
 def upgrade() -> None:
-    op.add_column("notifications", sa.Column("link", sa.String(length=500), nullable=True))
+    op.execute(sa.text("ALTER TABLE notifications ADD COLUMN IF NOT EXISTS link VARCHAR(500)"))
 
 
 def downgrade() -> None:
-    op.drop_column("notifications", "link")
+    op.execute(sa.text("ALTER TABLE notifications DROP COLUMN IF EXISTS link"))
