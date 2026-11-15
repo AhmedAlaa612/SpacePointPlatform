@@ -33,7 +33,17 @@ from app.models.instructors.applicant_profile import ApplicantProfile
 from app.models.instructors.application_review import ApplicationReview
 from app.models.instructors.video_submission import VideoSubmission
 from app.models.internship import InternProfile, RoleRequest
+from app.models.inventory.city import City
+from app.models.spine.organization import Organization
 from app.models.user import User
+from app.services.apply_footprint import get_platform_footprint
+from app.services.apply_form_config import (
+    enforce_standard_field_requirements,
+    get_role_form_config,
+    resolve_answers_with_questions,
+    validate_and_snapshot_custom_questions,
+)
+from app.services.documents.card_id import format_card_id
 from app.schemas.internship import (
     InternProfileOut,
     InternshipApprove,
@@ -79,6 +89,8 @@ def _validate_intern_details(details: dict) -> dict:
         "major",
         "cv_path",
         "cv_url",
+        "answers",
+        "_question_snapshots",
     }
     unknown = set(details) - allowed_keys
     if unknown:
@@ -127,15 +139,22 @@ async def create_role_request(
 
     req = RoleRequest(requester_user_id=current_user.id, target_role=body.target_role, details=details)
     db.add(req)
+    await db.flush()
 
     admins = (await db.execute(select(User).where(User.roles.any("admin")))).scalars().all()
     for admin in admins:
-        await notify(db, admin.id, "New Role Request",
-                     f"{current_user.full_name} requested the '{body.target_role}' role.", type="role_request")
+        await notify(
+            db,
+            admin.id,
+            "New Role Request",
+            f"{current_user.full_name} requested the '{body.target_role}' role.",
+            type="role_request",
+            link=f"/admin/role-requests?id={req.id}",
+        )
 
     await db.commit()
     await db.refresh(req)
-    return _request_out(req, current_user)
+    return await _build_request_out(db, req, current_user)
 
 
 @router.get("/me/role-requests", response_model=list[RoleRequestOut])
@@ -143,7 +162,7 @@ async def list_my_role_requests(db: AsyncSession = Depends(get_db), current_user
     rows = (await db.execute(
         select(RoleRequest).where(RoleRequest.requester_user_id == current_user.id).order_by(RoleRequest.created_at.desc())
     )).scalars().all()
-    return [_request_out(r, current_user) for r in rows]
+    return [await _build_request_out(db, r, current_user) for r in rows]
 
 
 @router.get("/internship/intake-eligibility", response_model=InternshipIntakeEligibilityOut)
@@ -215,6 +234,23 @@ async def apply_as_student_for_internship(
     if not payload.university_id_number or not payload.university_id_number.strip():
         raise HTTPException(status_code=400, detail="University / Student ID is required")
 
+    intern_config = await get_role_form_config(db, "intern")
+    enforce_standard_field_requirements(
+        intern_config,
+        {
+            "university": payload.university,
+            "university_id_number": payload.university_id_number,
+            "preferred_city_id": str(payload.preferred_city_id) if payload.preferred_city_id else None,
+            "requested_start_date": payload.requested_start_date,
+            "requested_duration_weeks": payload.requested_duration_weeks,
+            "major": payload.major,
+            "cv": bool(cv and cv.filename),
+        },
+    )
+    clean_answers, q_snapshots = await validate_and_snapshot_custom_questions(
+        db, "intern", payload.answers
+    )
+
     # Profile sync: save university and student ID back to User record (and prefill vice versa)
     if payload.university and payload.university.strip():
         from app.services.spine.identity import resolve_or_create_organization
@@ -248,6 +284,10 @@ async def apply_as_student_for_internship(
         "cv_path": cv_path,
         "cv_url": cv_url,
     }
+    if clean_answers:
+        details["answers"] = clean_answers
+    if q_snapshots:
+        details["_question_snapshots"] = q_snapshots
 
     req = RoleRequest(
         requester_user_id=current_user.id,
@@ -256,18 +296,21 @@ async def apply_as_student_for_internship(
         details=details,
     )
     db.add(req)
+    await db.flush()
 
     admins = (await db.execute(select(User).where(User.roles.any("admin")))).scalars().all()
     for admin in admins:
         await notify(
             db, admin.id, "New Intern Application",
-            f"{current_user.full_name} applied for an internship.", type="role_request"
+            f"{current_user.full_name} applied for an internship.",
+            type="role_request",
+            link=f"/admin/role-requests?id={req.id}",
         )
 
     await db.commit()
     await db.refresh(req)
     await db.refresh(current_user)
-    return _request_out(req, current_user)
+    return await _build_request_out(db, req, current_user)
 
 
 def _request_out(req: RoleRequest, requester: User) -> RoleRequestOut:
@@ -277,6 +320,98 @@ def _request_out(req: RoleRequest, requester: User) -> RoleRequestOut:
         target_role=req.target_role, status=req.status, details=req.details or {},
         resolution=req.resolution or {}, admin_notes=req.admin_notes,
         reviewed_by=req.reviewed_by, reviewed_at=req.reviewed_at, created_at=req.created_at,
+    )
+
+
+async def _resolve_city_name(db: AsyncSession, city_id_val: object) -> str | None:
+    if not city_id_val:
+        return None
+    try:
+        city = await db.get(City, uuid.UUID(str(city_id_val)))
+        return city.name if city else None
+    except ValueError:
+        return None
+
+
+async def _build_request_out(
+    db: AsyncSession,
+    req: RoleRequest,
+    requester: User,
+    *,
+    include_footprint: bool = False,
+) -> RoleRequestOut:
+    details = req.details or {}
+    resolution = req.resolution or {}
+
+    req_city = await _resolve_city_name(db, requester.city_id) or requester.city_other
+    org_name = None
+    if requester.organization_id:
+        org = await db.get(Organization, requester.organization_id)
+        org_name = org.name_latin if org else None
+
+    roles_list = requester.role_values
+    requester_profile = {
+        "phone": requester.phone,
+        "country": requester.country,
+        "city": req_city,
+        "birthdate": requester.birthdate.isoformat() if requester.birthdate else None,
+        "roles": roles_list,
+        "card_id": format_card_id(requester.card_number, roles_list) if requester.card_number is not None else None,
+        "student_id": requester.student_id,
+        "organization_name": org_name,
+        "created_at": requester.created_at.isoformat() if requester.created_at else None,
+    }
+
+    preferred_city_name = await _resolve_city_name(db, details.get("preferred_city_id"))
+    final_city_name = await _resolve_city_name(db, resolution.get("final_city_id"))
+
+    reviewed_by_name = None
+    if req.reviewed_by:
+        reviewer = await db.get(User, req.reviewed_by)
+        reviewed_by_name = reviewer.full_name if reviewer else None
+
+    resolved_answers = await resolve_answers_with_questions(db, details, audience=req.target_role)
+
+    intern_profile_dict = None
+    if req.target_role == "intern":
+        ip = await db.get(InternProfile, requester.id)
+        if ip:
+            ip_out = await _profile_out(ip)
+            intern_profile_dict = ip_out.model_dump(mode="json")
+            intern_profile_dict["work_city_name"] = await _resolve_city_name(db, ip.work_city_id)
+
+    footprint = (
+        await get_platform_footprint(
+            db,
+            requester.email,
+            user_id=requester.id,
+            exclude_role_request_id=req.id,
+            exclude_user_id=requester.id,
+        )
+        if include_footprint
+        else None
+    )
+
+    return RoleRequestOut(
+        id=req.id,
+        requester_user_id=req.requester_user_id,
+        requester_name=requester.full_name,
+        requester_email=requester.email,
+        target_role=req.target_role,
+        status=req.status,
+        details=details,
+        resolution=resolution,
+        admin_notes=req.admin_notes,
+        reviewed_by=req.reviewed_by,
+        reviewed_at=req.reviewed_at,
+        created_at=req.created_at,
+        requester_profile=requester_profile,
+        preferred_city_name=preferred_city_name,
+        final_city_name=final_city_name,
+        reviewed_by_name=reviewed_by_name,
+        resolved_answers=resolved_answers,
+        intern_profile=intern_profile_dict,
+        platform_footprint=footprint,
     )
 
 
@@ -337,7 +472,7 @@ async def list_role_requests(
         stmt = stmt.where(RoleRequest.target_role == target_role)
     stmt = stmt.order_by(RoleRequest.created_at.desc())
     rows = (await db.execute(stmt)).all()
-    return [_request_out(req, requester) for req, requester in rows]
+    return [await _build_request_out(db, req, requester, include_footprint=True) for req, requester in rows]
 
 
 async def _get_pending_request(db: AsyncSession, req_id: uuid.UUID) -> RoleRequest:
@@ -395,7 +530,7 @@ async def approve_role_request(
 
     await db.commit()
     await db.refresh(req)
-    return _request_out(req, user)
+    return await _build_request_out(db, req, user, include_footprint=True)
 
 
 @router.post("/admin/role-requests/{req_id}/onboard-to-instructor", response_model=RoleRequestOut)
@@ -495,7 +630,7 @@ async def onboard_role_request_to_instructor(
 
     await db.commit()
     await db.refresh(req)
-    return _request_out(req, user)
+    return await _build_request_out(db, req, user, include_footprint=True)
 
 
 @router.get("/admin/role-requests/{req_id}/cv-url")
@@ -537,7 +672,7 @@ async def reject_role_request(
 
     await db.commit()
     await db.refresh(req)
-    return _request_out(req, user)
+    return await _build_request_out(db, req, user, include_footprint=True)
 
 
 # ── intern's own letter ──────────────────────────────────────────────────────
@@ -605,8 +740,14 @@ async def sign_internship_letter(
 
     admins = (await db.execute(select(User).where(User.roles.any("admin")))).scalars().all()
     for admin in admins:
-        await notify(db, admin.id, "Internship Letter Signed",
-                     f"{current_user.full_name} signed their internship letter.", type="internship")
+        await notify(
+            db,
+            admin.id,
+            "Internship Letter Signed",
+            f"{current_user.full_name} signed their internship letter.",
+            type="internship",
+            link=f"/admin/users?userId={current_user.id}&focus=dossier",
+        )
         await send_internship_letter_signed_notification_email(admin.email, current_user.full_name)
     await send_signed_internship_letter_email(current_user.email, current_user.full_name, pdf_bytes)
 

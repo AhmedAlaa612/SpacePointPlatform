@@ -6,11 +6,6 @@ from sqlalchemy.dialects.postgresql import JSONB, UUID
 
 from app.db.base import Base
 
-# Fixed platform-wide dimensions — not admin-configurable, unlike Competition
-# Judging's per-competition rubric criteria (`models/competitions/judging.py`):
-# the boss's spec names exactly these 10 for every instructor everywhere, so a
-# `RatingCriterion` table would be unused flexibility. `dimension_scores` on
-# InstructorProgramRating is keyed by these.
 RATING_DIMENSIONS = [
     "punctuality",
     "technical_knowledge",
@@ -75,9 +70,7 @@ class InstructorProgramRating(Base):
 
 class InstructorCertificationTag(Base):
     """A free-text certification/qualification tag on an instructor's
-    profile — "Certified: Advanced Safety". Deliberately no issuer/expiry/
-    verification workflow: nothing concrete to design against yet (the
-    boss's spec says "if applicable" with no named certifications), so this
+    profile — "Certified: Advanced Safety". this
     is a placeholder until real ones are named."""
 
     __tablename__ = "instructor_certification_tags"

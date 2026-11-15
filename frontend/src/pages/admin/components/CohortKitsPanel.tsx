@@ -48,10 +48,6 @@ export function CohortKitsPanel({ cohort }: { cohort: Cohort }) {
           Choose kits
         </button>
       </div>
-      <p className="text-xs text-muted-foreground -mt-1">
-        What a session in this cohort is equipped with until it picks its own — set it once here,
-        override it for one session in that session's own Kits panel.
-      </p>
 
       {kits.length === 0 ? (
         <p className="text-sm text-muted-foreground">No default kits set for this cohort.</p>

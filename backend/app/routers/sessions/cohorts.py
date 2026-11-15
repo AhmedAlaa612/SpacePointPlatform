@@ -25,9 +25,11 @@ from html import escape
 import redis.asyncio as redis
 from arq.connections import ArqRedis
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Response, UploadFile, status
-from sqlalchemy import delete as sa_delete, func, select
+from sqlalchemy import delete as sa_delete, func, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.services.documents.card_id import format_card_id
 from sqlalchemy.orm import aliased
 
 from app.core.dependencies import get_current_active_user, require_operations, require_session_delivery
@@ -37,6 +39,7 @@ from app.models.competitions.judging import CompetitionJudge, CompetitionRubric,
 from app.models.lms.program import LmsProgram, LmsProgramCohortOverride, LmsProgramItem
 from app.models.document_template import DocumentTemplate
 from app.models.instructor_assessment.assignment import AssessmentCohortAssignment
+from app.models.sessions.pre_session_quiz import PreSessionQuizAssignment
 from app.models.sessions.delivery_role import DeliveryRole
 from app.services.documents.certificate import (
     STUDENT_COMPLETION_FALLBACK_BODY, expand_certificate_body_template,
@@ -184,6 +187,24 @@ async def _cohort_out(
     return out
 
 
+def _template_cohort_match():
+    """Match internal draft/template cohorts created for Program Templates."""
+    return or_(
+        Cohort.status == "draft",
+        Cohort.name.ilike("[Template]%"),
+        func.lower(func.trim(Cohort.name)) == "template",
+    )
+
+
+def _real_cohort_clauses():
+    """SQLAlchemy filter clauses excluding internal program template cohorts."""
+    return (
+        Cohort.status != "draft",
+        ~Cohort.name.ilike("[Template]%"),
+        func.lower(func.trim(Cohort.name)) != "template",
+    )
+
+
 @router.get("/cohorts", response_model=list[CohortOut])
 async def list_cohorts(
     program_id: uuid.UUID | None = Query(None),
@@ -221,6 +242,7 @@ async def list_cohorts(
         )
         .join(Program, Program.id == Cohort.program_id)
         .outerjoin(Location, Location.id == Cohort.location_id)
+        .where(*_real_cohort_clauses())
     )
     if program_id is not None:
         stmt = stmt.where(Cohort.program_id == program_id)
@@ -252,6 +274,12 @@ async def create_cohort(
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Warehouse not found")
 
     data = body.model_dump()
+    if data.get("capacity") is None and program.default_capacity is not None:
+        data["capacity"] = program.default_capacity
+    if data.get("duration_hours") is None and program.duration_hours is not None:
+        data["duration_hours"] = program.duration_hours
+    if data.get("poster_template_url") is None and program.poster_template_url:
+        data["poster_template_url"] = program.poster_template_url
     if data.get("keep_course_access_after_completion") is None:
         data["keep_course_access_after_completion"] = program.keep_course_access_after_completion
     cohort = Cohort(id=uuid.uuid4(), **data)
@@ -276,11 +304,46 @@ async def create_cohort(
             assigned_by=current_user.id,
         ))
 
-    # Seed cohort sessions and delivery checklists from the program template cohort
+    # Copy program-level pre-session quiz assignment and general delivery checklist items
+    prog_quiz = (await db.execute(
+        select(PreSessionQuizAssignment).where(PreSessionQuizAssignment.program_id == program.id)
+    )).scalars().first()
+    if prog_quiz is not None:
+        db.add(PreSessionQuizAssignment(
+            id=uuid.uuid4(),
+            cohort_id=cohort.id,
+            preset_id=prog_quiz.preset_id,
+        ))
+
+    program_checklist_items = (await db.execute(
+        select(DeliveryChecklistItem).where(DeliveryChecklistItem.program_id == program.id)
+        .order_by(DeliveryChecklistItem.sort_order, DeliveryChecklistItem.created_at)
+    )).scalars().all()
+    for ci in program_checklist_items:
+        db.add(DeliveryChecklistItem(
+            id=uuid.uuid4(),
+            cohort_id=cohort.id,
+            role_id=ci.role_id,
+            title=ci.title,
+            description=ci.description,
+            requires_proof=ci.requires_proof,
+            is_required=ci.is_required,
+            sort_order=ci.sort_order,
+            target_audience=ci.target_audience,
+            material_id=ci.material_id,
+            link_url=ci.link_url,
+            attachments=list(ci.attachments or []),
+            sub_items=list(ci.sub_items or []),
+            created_by=current_user.id,
+        ))
+    if program_checklist_items:
+        await db.flush()
+
+    # Seed cohort sessions, per-day checklists, and quizzes from the program template cohort
     template_cohort = await db.scalar(
         select(Cohort).where(
             Cohort.program_id == program.id,
-            Cohort.name.ilike("%template%"),
+            or_(_template_cohort_match(), Cohort.name.ilike("%template%")),
             Cohort.id != cohort.id,
         ).order_by(Cohort.created_at.asc())
     )
@@ -299,7 +362,11 @@ async def create_cohort(
                 meeting_date=sess_date,
                 starts_at=t_sess.starts_at,
                 title=t_sess.title or f"Day {idx + 1}",
-                duration_hours=t_sess.duration_hours or program.duration_hours,
+                duration_hours=(
+                    t_sess.duration_hours
+                    if t_sess.duration_hours is not None
+                    else (cohort.duration_hours if cohort.duration_hours is not None else program.duration_hours)
+                ),
             )
             db.add(new_s)
             await db.flush()
@@ -325,32 +392,53 @@ async def create_cohort(
                     sub_items=list(ci.sub_items or []),
                     created_by=current_user.id,
                 ))
-            if t_items:
+            t_sess_quiz = (await db.execute(
+                select(PreSessionQuizAssignment).where(PreSessionQuizAssignment.session_id == t_sess.id)
+            )).scalars().first()
+            if t_sess_quiz is not None:
+                db.add(PreSessionQuizAssignment(
+                    id=uuid.uuid4(),
+                    session_id=new_s.id,
+                    preset_id=t_sess_quiz.preset_id,
+                ))
+            if t_items or t_sess_quiz is not None:
                 await db.flush()
 
-        template_cohort_items = (await db.execute(
-            select(DeliveryChecklistItem).where(DeliveryChecklistItem.cohort_id == template_cohort.id)
-            .order_by(DeliveryChecklistItem.sort_order, DeliveryChecklistItem.created_at)
-        )).scalars().all()
-        for ci in template_cohort_items:
-            db.add(DeliveryChecklistItem(
-                id=uuid.uuid4(),
-                cohort_id=cohort.id,
-                role_id=ci.role_id,
-                title=ci.title,
-                description=ci.description,
-                requires_proof=ci.requires_proof,
-                is_required=ci.is_required,
-                sort_order=ci.sort_order,
-                target_audience=ci.target_audience,
-                material_id=ci.material_id,
-                link_url=ci.link_url,
-                attachments=list(ci.attachments or []),
-                sub_items=list(ci.sub_items or []),
-                created_by=current_user.id,
-            ))
-        if template_cohort_items:
-            await db.flush()
+        if prog_quiz is None:
+            t_cohort_quiz = (await db.execute(
+                select(PreSessionQuizAssignment).where(PreSessionQuizAssignment.cohort_id == template_cohort.id)
+            )).scalars().first()
+            if t_cohort_quiz is not None:
+                db.add(PreSessionQuizAssignment(
+                    id=uuid.uuid4(),
+                    cohort_id=cohort.id,
+                    preset_id=t_cohort_quiz.preset_id,
+                ))
+
+        if not program_checklist_items:
+            template_cohort_items = (await db.execute(
+                select(DeliveryChecklistItem).where(DeliveryChecklistItem.cohort_id == template_cohort.id)
+                .order_by(DeliveryChecklistItem.sort_order, DeliveryChecklistItem.created_at)
+            )).scalars().all()
+            for ci in template_cohort_items:
+                db.add(DeliveryChecklistItem(
+                    id=uuid.uuid4(),
+                    cohort_id=cohort.id,
+                    role_id=ci.role_id,
+                    title=ci.title,
+                    description=ci.description,
+                    requires_proof=ci.requires_proof,
+                    is_required=ci.is_required,
+                    sort_order=ci.sort_order,
+                    target_audience=ci.target_audience,
+                    material_id=ci.material_id,
+                    link_url=ci.link_url,
+                    attachments=list(ci.attachments or []),
+                    sub_items=list(ci.sub_items or []),
+                    created_by=current_user.id,
+                ))
+            if template_cohort_items:
+                await db.flush()
 
     await db.commit()
     await db.refresh(cohort)
@@ -473,6 +561,20 @@ async def delete_cohort(
     if cohort is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Cohort not found")
 
+    normalized_name = (cohort.name or "").strip().lower()
+    if (
+        cohort.status == "draft"
+        or normalized_name.startswith("[template]")
+        or normalized_name == "template"
+    ):
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            detail=(
+                "This is an internal program template cohort and cannot be deleted directly. "
+                "Manage template days from Program Setup instead."
+            ),
+        )
+
     registration_count = await db.scalar(
         select(func.count()).select_from(Registration).where(Registration.cohort_id == cohort_id)
     )
@@ -525,7 +627,10 @@ async def clone_cohort(
         new_cohort.organization_id = source.organization_id
         new_cohort.poster_template_url = source.poster_template_url
         new_cohort.keep_course_access_after_completion = source.keep_course_access_after_completion
-    if "windows" in body.carry and is_target_comp and is_source_comp:
+    if "windows" in body.carry and (
+        (is_target_comp and is_source_comp)
+        or (target_program.id == source.program_id and not is_source_comp)
+    ):
         new_cohort.submission_windows = [dict(w) if isinstance(w, dict) else w for w in (source.submission_windows or [])]
     else:
         new_cohort.submission_windows = []
@@ -881,11 +986,11 @@ async def seed_cohort_sessions_from_template(
     db: AsyncSession, cohort: Cohort, new_sessions: list[Session], actor_user_id: uuid.UUID,
 ) -> None:
     """When sessions are added or generated for a cohort, inherit day config
-    (titles, duration, and delivery checklists) from the program's template cohort sessions."""
+    (titles, duration, checklists, and pre-session quizzes) from the program's template cohort sessions."""
     template_cohort = await db.scalar(
         select(Cohort).where(
             Cohort.program_id == cohort.program_id,
-            Cohort.name.ilike("%template%"),
+            or_(_template_cohort_match(), Cohort.name.ilike("%template%")),
             Cohort.id != cohort.id,
         ).order_by(Cohort.created_at.asc())
     )
@@ -901,14 +1006,14 @@ async def seed_cohort_sessions_from_template(
 
     template_sessions = (await db.execute(
         select(Session).where(Session.cohort_id == template_cohort.id)
-        .order_by(Session.meeting_date, Session.starts_at)
+        .order_by(Session.meeting_date, Session.starts_at, Session.created_at)
     )).scalars().all()
     if not template_sessions:
         return
 
     all_sessions = (await db.execute(
         select(Session).where(Session.cohort_id == cohort.id)
-        .order_by(Session.meeting_date, Session.starts_at)
+        .order_by(Session.meeting_date, Session.starts_at, Session.created_at)
     )).scalars().all()
 
     for idx, s in enumerate(all_sessions):
@@ -917,8 +1022,11 @@ async def seed_cohort_sessions_from_template(
         t_sess = template_sessions[idx]
         if not s.title and t_sess.title:
             s.title = t_sess.title
-        if s.duration_hours is None and t_sess.duration_hours is not None:
-            s.duration_hours = t_sess.duration_hours
+        if s.duration_hours is None:
+            if t_sess.duration_hours is not None:
+                s.duration_hours = t_sess.duration_hours
+            elif cohort.duration_hours is not None:
+                s.duration_hours = cohort.duration_hours
 
         existing_count = await db.scalar(
             select(func.count(DeliveryChecklistItem.id)).where(DeliveryChecklistItem.session_id == s.id)
@@ -944,7 +1052,22 @@ async def seed_cohort_sessions_from_template(
                     material_id=ti.material_id,
                     link_url=ti.link_url,
                     attachments=list(ti.attachments or []),
+                    sub_items=list(ti.sub_items or []),
                     created_by=actor_user_id,
+                ))
+
+        existing_quiz = (await db.execute(
+            select(PreSessionQuizAssignment).where(PreSessionQuizAssignment.session_id == s.id)
+        )).scalars().first()
+        if existing_quiz is None:
+            t_quiz = (await db.execute(
+                select(PreSessionQuizAssignment).where(PreSessionQuizAssignment.session_id == t_sess.id)
+            )).scalars().first()
+            if t_quiz is not None:
+                db.add(PreSessionQuizAssignment(
+                    id=uuid.uuid4(),
+                    session_id=s.id,
+                    preset_id=t_quiz.preset_id,
                 ))
     await db.flush()
 
@@ -1392,12 +1515,20 @@ async def list_registrations(
     # "linked account" here means the same thing it does everywhere else.
     student_contact_ids = [student.id for _, student, _, _ in rows]
     last_login_by_contact: dict[uuid.UUID, datetime | None] = {}
+    user_id_by_contact: dict[uuid.UUID, uuid.UUID] = {}
+    card_id_by_contact: dict[uuid.UUID, str | None] = {}
     if student_contact_ids:
         linked_users = (await db.execute(
-            select(User.contact_id, User.email, User.last_login_at)
+            select(User)
             .where(User.contact_id.in_(student_contact_ids))
-        )).all()
-        last_login_by_contact = {u.contact_id: u.last_login_at for u in linked_users}
+        )).scalars().all()
+        for u in linked_users:
+            if u.contact_id is not None:
+                last_login_by_contact[u.contact_id] = u.last_login_at
+                user_id_by_contact[u.contact_id] = u.id
+                card_id_by_contact[u.contact_id] = (
+                    format_card_id(u.card_number, u.role_values) if u.card_number is not None else None
+                )
         resolved_contact_ids = set(last_login_by_contact.keys())
 
         missing_emails = {
@@ -1407,14 +1538,22 @@ async def list_registrations(
         }
         if missing_emails:
             by_email = {
-                normalize_user_email(email): last_login for email, last_login in (await db.execute(
-                    select(User.email, User.last_login_at).where(func.lower(User.email).in_(missing_emails))
-                )).all() if email
+                normalize_user_email(u.email): (
+                    u.id,
+                    u.last_login_at,
+                    format_card_id(u.card_number, u.role_values) if u.card_number is not None else None,
+                )
+                for u in (await db.execute(
+                    select(User).where(func.lower(User.email).in_(missing_emails))
+                )).scalars().all() if u.email
             }
             for _, student, _, _ in rows:
                 key = normalize_user_email(student.email) if student.email else ""
                 if student.id not in resolved_contact_ids and key in by_email:
-                    last_login_by_contact[student.id] = by_email[key]
+                    uid, last_login, cid = by_email[key]
+                    last_login_by_contact[student.id] = last_login
+                    user_id_by_contact[student.id] = uid
+                    card_id_by_contact[student.id] = cid
 
     if registration_ids:
         att_records = (await db.execute(
@@ -1499,6 +1638,8 @@ async def list_registrations(
                 attendance_records=att_list,
                 created_at=reg.created_at,
                 last_login_at=last_login_by_contact.get(reg.contact_id),
+                card_id=card_id_by_contact.get(reg.contact_id),
+                lms_user_id=user_id_by_contact.get(reg.contact_id),
                 media_consent_status=media_consent_status,
                 media_consent_id=consent.id if consent else None,
                 media_consent_parent_name=consent.parent_name if consent else (guardian.full_name if guardian else None),

@@ -30,6 +30,7 @@ class ProgramBase(BaseModel):
     pricing_model: PricingModel
     description: str | None = None
     price: Decimal | None = None
+    duration_hours: Decimal | None = None
     default_capacity: int | None = None
     active: bool = True
     completion_rule_type: CompletionRuleType = "percentage"
@@ -59,6 +60,7 @@ class ProgramUpdate(BaseModel):
     pricing_model: PricingModel | None = None
     description: str | None = None
     price: Decimal | None = None
+    duration_hours: Decimal | None = None
     default_capacity: int | None = None
     active: bool | None = None
     completion_rule_type: CompletionRuleType | None = None

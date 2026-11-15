@@ -58,31 +58,12 @@ pypdf
 cairosvg
 arabic-reshaper
 python-bidi
-
-# LMS content ingest (LM1-9) — pulling the boss's Drive dump straight to the
-# VPS instead of through the operator's slow upload.
 gdown
-
-# LMS content ingest, private-folder path (2026-08-09) — the Drive folder
-# turned out to be shared with the operator's specific account, not
-# "anyone with the link", so gdown (unauthenticated) can't reach it. OAuth
-# authenticates as the operator's own account instead, using whatever
-# access they already have — no re-sharing, no service account.
 google-auth-oauthlib
 google-api-python-client
 requests
-
-# Stripe Checkout — LMS course purchases (Stage S, August Build Brief
-# Branch 4). The [async] extra pulls httpx so every call can use the
-# _async suffix (create_async/retrieve_async) instead of blocking the
-# event loop.
 stripe[async]
-
-# Cloudflare R2 (S3-compatible object storage) — services/storage_r2.py.
-# R2 speaks the S3 API, so the standard AWS SDK works against it unmodified.
 boto3
-
-# Website articles CMS (Step 5) - markdown authoring rendered to sanitized HTML
 markdown
 bleach
 

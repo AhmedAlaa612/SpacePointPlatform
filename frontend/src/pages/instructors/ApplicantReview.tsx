@@ -3,9 +3,10 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { Link, useNavigate, useParams } from "@tanstack/react-router"
 import { ArrowLeft, Check, ChevronDown, ExternalLink, FileText, Video, Play, CheckCircle2, XCircle, AlertCircle, MessageSquare, FileDown, Trash2, FlaskConical, UserRound } from "lucide-react"
 import { getApplicantDetailApi, reviewApplicantApi, reviewModuleSubmissionApi, deleteApplicantApi, exportApplicantDossierApi } from "@/api/instructors/admin"
+import { ResolvedAnswersSection, PlatformFootprintSection } from "@/components/apply/ApplicationFootprintPanel"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { EmptyState, Spinner, StatusPill } from "@/pages/instructors/components/common"
+import { EmptyState, PhaseDeadlineBadge, Spinner, StatusPill } from "@/pages/instructors/components/common"
 import { cn, ensureAbsoluteUrl } from "@/lib/utils"
 import { getCountries } from "@/lib/countries"
 
@@ -173,9 +174,16 @@ export default function ApplicantReviewPage() {
               </p>
             )}
           </div>
-          <div className="flex items-center gap-3">
-            <span className="text-xs text-muted-foreground font-semibold uppercase tracking-wider">Status:</span>
-            <StatusPill status={headerStatus} />
+          <div className="flex flex-col sm:items-end gap-1.5">
+            <div className="flex items-center gap-3">
+              <span className="text-xs text-muted-foreground font-semibold uppercase tracking-wider">Status:</span>
+              <StatusPill status={headerStatus} />
+            </div>
+            <PhaseDeadlineBadge
+              phaseDeadline={detail.review?.phase_deadline}
+              status={reviewStatus}
+              extensionUsed={detail.review?.extension_used}
+            />
           </div>
         </div>
       </div>
@@ -192,8 +200,27 @@ export default function ApplicantReviewPage() {
             <CardContent className="p-5 space-y-1.5 text-sm">
               <p><span className="text-muted-foreground">Name:</span> <span className="text-foreground font-medium">{detail.full_name}</span></p>
               <p><span className="text-muted-foreground">Email:</span> <span className="text-foreground font-medium">{detail.email}</span></p>
-              {detail.phone && (
-                <p><span className="text-muted-foreground">Phone:</span> <span className="text-foreground font-medium">{detail.phone}</span></p>
+              <p><span className="text-muted-foreground">Phone:</span> <span className="text-foreground font-medium">{detail.phone || "Not provided"}</span></p>
+              {detail.birthdate && (
+                <p><span className="text-muted-foreground">Birthdate:</span> <span className="text-foreground font-medium">{detail.birthdate}</span></p>
+              )}
+              {!detail.profile && detail.country && (
+                <p><span className="text-muted-foreground">Country:</span> <span className="text-foreground font-medium">{countryName(detail.country)}</span></p>
+              )}
+              {detail.city_other && (
+                <p><span className="text-muted-foreground">City (Other):</span> <span className="text-foreground font-medium">{detail.city_other}</span></p>
+              )}
+              {detail.roles && detail.roles.length > 0 && (
+                <p><span className="text-muted-foreground">Platform Roles:</span> <span className="text-foreground font-medium">{detail.roles.join(", ")}</span></p>
+              )}
+              {detail.card_id && (
+                <p><span className="text-muted-foreground">Card ID:</span> <span className="font-mono text-xs text-foreground">{detail.card_id}</span></p>
+              )}
+              {detail.created_at && (
+                <p><span className="text-muted-foreground">Account Created:</span> <span className="text-foreground font-medium">{new Date(detail.created_at).toLocaleString()}</span></p>
+              )}
+              {detail.last_login_at && (
+                <p><span className="text-muted-foreground">Last Login:</span> <span className="text-foreground font-medium">{new Date(detail.last_login_at).toLocaleString()}</span></p>
               )}
               {detail.profile && (
                 <>
@@ -246,16 +273,87 @@ export default function ApplicantReviewPage() {
               {detail.invite_code_used && (
                 <p className="pt-2"><span className="text-muted-foreground">Invite Code:</span> <span className="font-mono text-xs text-foreground">{detail.invite_code_used}</span></p>
               )}
-              {detail.cv_url && (
+              {detail.referred_by && (
+                <p><span className="text-muted-foreground">Referred By:</span> <span className="text-foreground font-medium">{detail.referred_by.full_name} ({detail.referred_by.email})</span></p>
+              )}
+              {detail.cv_url ? (
                 <p className="pt-2">
                   <span className="text-muted-foreground">CV / Resume:</span>{" "}
                   <a href={detail.cv_url} target="_blank" rel="noreferrer" className="text-primary font-medium hover:underline">
                     View CV
                   </a>
                 </p>
+              ) : (
+                <p className="pt-2"><span className="text-muted-foreground">CV / Resume:</span> <span className="text-muted-foreground">Not uploaded</span></p>
+              )}
+              {detail.review && (
+                <>
+                  <div className="h-px bg-border/50 my-3" />
+                  <p className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Review Timeline</p>
+                  {detail.review.submitted_at && (
+                    <p><span className="text-muted-foreground">Submitted At:</span> <span className="text-foreground font-medium">{new Date(detail.review.submitted_at).toLocaleString()}</span></p>
+                  )}
+                  {detail.review.reviewed_at && (
+                    <p><span className="text-muted-foreground">Reviewed At:</span> <span className="text-foreground font-medium">{new Date(detail.review.reviewed_at).toLocaleString()}</span></p>
+                  )}
+                  {detail.review.reviewed_by_name && (
+                    <p><span className="text-muted-foreground">Reviewed By:</span> <span className="text-foreground font-medium">{detail.review.reviewed_by_name}</span></p>
+                  )}
+                  {detail.review.phase_deadline && (
+                    <p><span className="text-muted-foreground">Phase Deadline:</span> <span className="text-foreground font-medium">{new Date(detail.review.phase_deadline).toLocaleString()}{detail.review.extension_used ? " (extension used)" : ""}</span></p>
+                  )}
+                  {detail.review.last_status_change_at && (
+                    <p><span className="text-muted-foreground">Last Status Change:</span> <span className="text-foreground font-medium">{new Date(detail.review.last_status_change_at).toLocaleString()}</span></p>
+                  )}
+                </>
               )}
             </CardContent>
           </Card>
+
+          {(Boolean(detail.profile?.also_grant_role) || Boolean(detail.profile?.pending_intern_details)) && (() => {
+            const pendingIntern = (detail.profile?.pending_intern_details ?? {}) as Record<string, unknown>
+            return (
+              <Card className="border-border/80 bg-card/40 backdrop-blur-sm">
+                <CardHeader className="border-b border-border/40 pb-4">
+                  <CardTitle className="text-base font-bold">Pending Intern Grant & Details</CardTitle>
+                </CardHeader>
+                <CardContent className="p-5 space-y-1.5 text-sm">
+                  {detail.profile?.also_grant_role != null && (
+                    <p><span className="text-muted-foreground">Also Grant Role:</span> <span className="text-foreground font-medium">{String(detail.profile.also_grant_role)}</span></p>
+                  )}
+                  {pendingIntern.work_city_name != null && (
+                    <p><span className="text-muted-foreground">Work City:</span> <span className="text-foreground font-medium">{String(pendingIntern.work_city_name)}</span></p>
+                  )}
+                  {pendingIntern.start_date != null && (
+                    <p><span className="text-muted-foreground">Start Date:</span> <span className="text-foreground font-medium">{String(pendingIntern.start_date)}</span></p>
+                  )}
+                  {pendingIntern.duration_weeks != null && (
+                    <p><span className="text-muted-foreground">Duration:</span> <span className="text-foreground font-medium">{String(pendingIntern.duration_weeks)} weeks</span></p>
+                  )}
+                  {pendingIntern.hours_per_week != null && (
+                    <p><span className="text-muted-foreground">Hours / Week:</span> <span className="text-foreground font-medium">{String(pendingIntern.hours_per_week)}</span></p>
+                  )}
+                  {pendingIntern.activity_description != null && (
+                    <p><span className="text-muted-foreground">Activity Description:</span> <span className="text-foreground font-medium">{String(pendingIntern.activity_description)}</span></p>
+                  )}
+                  {(pendingIntern.supervisor_name != null || pendingIntern.supervisor_email != null || pendingIntern.supervisor_phone != null) && (
+                    <p>
+                      <span className="text-muted-foreground">Supervisor:</span>{" "}
+                      <span className="text-foreground font-medium">
+                        {[pendingIntern.supervisor_title, pendingIntern.supervisor_name, pendingIntern.supervisor_email, pendingIntern.supervisor_phone]
+                          .filter(Boolean)
+                          .map(String)
+                          .join(" · ")}
+                      </span>
+                    </p>
+                  )}
+                </CardContent>
+              </Card>
+            )
+          })()}
+
+          <ResolvedAnswersSection answers={detail.custom_answers} />
+          <PlatformFootprintSection footprint={detail.platform_footprint} />
 
           {/* Phase 1: Video Submissions */}
           <Card className="border-border/80 bg-card/40 backdrop-blur-sm">

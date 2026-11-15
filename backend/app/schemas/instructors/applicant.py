@@ -108,6 +108,7 @@ class StudentInstructorApply(BaseModel):
     background_other: Optional[str] = None
     has_own_transportation: bool = False
     country: str = "United Arab Emirates"
+    answers: Optional[dict] = None
 
 
 class IntakeEligibilityOut(BaseModel):

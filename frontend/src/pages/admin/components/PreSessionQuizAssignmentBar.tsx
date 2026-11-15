@@ -7,6 +7,7 @@ import {
   setPreQuizAssignmentApi,
   type PreQuizScope,
 } from "@/api/sessions/pre_session_quiz"
+import CohortReadinessQuiz from "@/pages/instructors/CohortReadinessQuiz"
 import { SessionPreQuizModal } from "@/pages/instructors/components/SessionPreQuizModal"
 import { useToast } from "@/components/ui/toast"
 import { getErrorMessage } from "@/lib/utils"
@@ -77,11 +78,11 @@ export function PreSessionQuizAssignmentBar({
             </span>
           )}
         </div>
-        <p className="text-[11px] text-muted-foreground mt-0.5">
-          {assignment?.preset_name
-            ? `Assigned preset: "${assignment.preset_name}" · Required before instructor can start the session · Unlocks Start Session immediately on submit.`
-            : "Optional — assign a hardware pinout / readiness quiz preset that instructors must complete before starting the session."}
-        </p>
+        {!assignment?.preset_name && (
+          <p className="text-[11px] text-muted-foreground mt-0.5">
+            Optional — assign a readiness quiz preset that instructors must complete before starting the session.
+          </p>
+        )}
       </div>
 
       <div className="flex items-center gap-2 flex-wrap w-full sm:w-auto">
@@ -107,10 +108,10 @@ export function PreSessionQuizAssignmentBar({
             <button
               type="button"
               onClick={() => setPreviewOpen(true)}
-              title="Preview exact instructor quiz experience"
+              title="Preview exact instructor pipeline experience"
               className="flex-1 sm:flex-initial h-8 px-2.5 rounded-lg border border-primary/40 bg-primary/10 hover:bg-primary/20 text-[11px] font-semibold text-primary inline-flex items-center justify-center cursor-pointer shrink-0"
             >
-              Preview Quiz
+              Preview
             </button>
           )}
 
@@ -135,20 +136,30 @@ export function PreSessionQuizAssignmentBar({
         </div>
       </div>
 
-      {selectedPreset && (
-        <SessionPreQuizModal
-          open={previewOpen}
-          onClose={() => setPreviewOpen(false)}
-          isPreview
-          quizStatus={{
-            has_quiz: true,
-            assignment_level: "cohort",
-            preset: selectedPreset,
-            my_attempt: null,
-            trials: [],
-            all_attempts: [],
-          }}
-        />
+      {previewOpen && selectedPreset && (
+        selectedPreset.phases && selectedPreset.phases.length > 0 ? (
+          <div className="fixed inset-0 z-50 bg-background overflow-y-auto">
+            <CohortReadinessQuiz
+              presetOverride={selectedPreset}
+              isObserverMode={true}
+              onExitObserver={() => setPreviewOpen(false)}
+            />
+          </div>
+        ) : (
+          <SessionPreQuizModal
+            open={previewOpen}
+            onClose={() => setPreviewOpen(false)}
+            isPreview
+            quizStatus={{
+              has_quiz: true,
+              assignment_level: "cohort",
+              preset: selectedPreset,
+              my_attempt: null,
+              trials: [],
+              all_attempts: [],
+            }}
+          />
+        )
       )}
     </div>
   )

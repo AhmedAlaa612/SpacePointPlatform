@@ -777,19 +777,26 @@ async def get_cohort_quiz_analysis(
         q["average_score_pct"] = round((q["total_score"] / q["total_possible"]) * 100) if q["total_possible"] > 0 else 0
 
     # Questions breakdown across submitted attempts
+    from app.models.user import User as _User
     answers_stmt = (
         select(
             CohortQuizAnswer.question_id,
             CohortQuizAnswer.topic,
             CohortQuizAnswer.is_correct,
+            CohortQuizAnswer.timed_out,
+            CohortQuizAnswer.text_answer,
             CohortQuizQuestion.prompt,
             CohortQuizQuestion.difficulty,
+            CohortQuizQuestion.question_type,
             CohortQuizAttempt.program_item_id,
+            CohortQuizAttempt.user_id,
             LmsProgramItem.title.label("quiz_title"),
+            _User.full_name.label("student_name"),
         )
         .join(CohortQuizAttempt, CohortQuizAnswer.attempt_id == CohortQuizAttempt.id)
         .outerjoin(CohortQuizQuestion, CohortQuizAnswer.question_id == CohortQuizQuestion.id)
         .outerjoin(LmsProgramItem, CohortQuizAttempt.program_item_id == LmsProgramItem.id)
+        .outerjoin(_User, CohortQuizAttempt.user_id == _User.id)
         .where(
             CohortQuizAttempt.cohort_id == cohort_id,
             CohortQuizAttempt.status == "submitted",
@@ -812,7 +819,10 @@ async def get_cohort_quiz_analysis(
     ans_rows = (await db.execute(answers_stmt)).all()
 
     questions_map: dict[tuple[str, str], dict] = {}
-    for qid, topic, is_correct, prompt, difficulty, p_item_id, q_title in ans_rows:
+    for (
+        qid, topic, is_correct, timed_out, text_response,
+        prompt, difficulty, question_type, p_item_id, uid, q_title, student_name,
+    ) in ans_rows:
         qid_str = str(qid) if qid else "unknown"
         p_item_id_str = str(p_item_id) if p_item_id else "unknown"
         key = (qid_str, p_item_id_str)
@@ -825,10 +835,14 @@ async def get_cohort_quiz_analysis(
                 "topic": topic or "General",
                 "prompt": prompt or f"Question ({qid_str[:8]})",
                 "difficulty": difficulty,
+                "question_type": question_type or "mcq",
                 "correct_count": 0,
                 "incorrect_count": 0,
+                "wrong_selected_count": 0,
+                "timeout_count": 0,
                 "total_answers": 0,
                 "accuracy_pct": 0,
+                "text_responses": [],
             }
 
         q_stat = questions_map[key]
@@ -837,6 +851,16 @@ async def get_cohort_quiz_analysis(
             q_stat["correct_count"] += 1
         elif is_correct is False:
             q_stat["incorrect_count"] += 1
+            if timed_out:
+                q_stat["timeout_count"] += 1
+            else:
+                q_stat["wrong_selected_count"] += 1
+        if text_response and text_response.strip():
+            q_stat["text_responses"].append({
+                "user_id": str(uid) if uid else "",
+                "student_name": student_name or "Student",
+                "text_response": text_response.strip(),
+            })
 
     for q_stat in questions_map.values():
         scorable = q_stat["correct_count"] + q_stat["incorrect_count"]

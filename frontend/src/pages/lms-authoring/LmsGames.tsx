@@ -73,7 +73,6 @@ export default function LmsGames() {
     <div className="flex flex-col gap-6">
       <PageHeader
         title="Live Quiz"
-        subtitle="Build reusable question sets for live, synchronous games — ops assigns them to a session, the instructor runs them."
         action={
           <button
             onClick={() => setCreateOpen(true)}
@@ -157,8 +156,8 @@ export default function LmsGames() {
           description={
             deleteError
             || `This removes the game and its ${deleting.question_count} question`
-              + `${deleting.question_count === 1 ? "" : "s"}, and can't be undone. A game that `
-              + `has already been assigned to a session can't be deleted at all.`
+            + `${deleting.question_count === 1 ? "" : "s"}, and can't be undone. A game that `
+            + `has already been assigned to a session can't be deleted at all.`
           }
           confirmLabel="Delete"
           destructive

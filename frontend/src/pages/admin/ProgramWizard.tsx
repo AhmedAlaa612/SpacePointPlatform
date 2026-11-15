@@ -79,6 +79,7 @@ export default function ProgramWizard() {
   const [program, setProgram] = useState<Program | null>(null)
   const [basicsForm, setBasicsForm] = useState<{ save: () => void; isPending: boolean; canSubmit: boolean }>({ save: () => {}, isPending: false, canSubmit: false })
   const [templateForm, setTemplateForm] = useState<{ save: () => void; isPending: boolean; canSubmit: boolean }>({ save: () => {}, isPending: false, canSubmit: true })
+  const [rolesForm, setRolesForm] = useState<{ ensure: () => Promise<void>; isPending: boolean }>({ ensure: async () => {}, isPending: false })
 
   useEffect(() => {
     const prev = document.body.style.overflow
@@ -87,7 +88,14 @@ export default function ProgramWizard() {
   }, [])
 
   const goStep = (i: number) => setStep(Math.max(0, Math.min(LAST_STEP, i)))
-  const advance = () => {
+  const advance = async () => {
+    if (step === 2) {
+      try {
+        await rolesForm.ensure()
+      } catch {
+        return
+      }
+    }
     setSkipped((s) => { const n = { ...s }; delete n[step]; return n })
     goStep(step + 1)
   }
@@ -151,7 +159,7 @@ export default function ProgramWizard() {
               eyebrow="Roles & checklist" title="Who runs a day, and what they do" ledeWidth={70}
               lede="Every new cohort of this program starts with these roles, this checklist, and this instructor-assessment default — a one-time copy at creation, not a live link. Editing this later never reaches a cohort that already exists."
             />
-            <ProgramRolesPanel program={program} />
+            <ProgramRolesPanel program={program} onFormChange={setRolesForm} />
             <div className="pt-4 border-t border-border">
               <ProgramAssessmentDefaultPanel program={program} onUpdated={setProgram} />
             </div>
@@ -200,7 +208,7 @@ export default function ProgramWizard() {
               >Skip for now</button>
             )}
             {step < LAST_STEP ? (
-              <WizardContinueButton step={step} program={program} onContinue={advance} basicsForm={basicsForm} templateForm={templateForm} />
+              <WizardContinueButton step={step} program={program} onContinue={advance} basicsForm={basicsForm} templateForm={templateForm} rolesPending={rolesForm.isPending} />
             ) : (
               <button
                 onClick={() => navigate({ to: "/operations/programs" })}
@@ -224,10 +232,11 @@ function SkipNote({ children }: { children: ReactNode }) {
   return <p style={{ fontSize: 13, margin: 0 }} className="text-muted-foreground">{children}</p>
 }
 
-function WizardContinueButton({ step, program, onContinue, basicsForm, templateForm }: {
+function WizardContinueButton({ step, program, onContinue, basicsForm, templateForm, rolesPending }: {
   step: number; program: Program | null; onContinue: () => void;
   basicsForm: { save: () => void; isPending: boolean; canSubmit: boolean }
   templateForm: { save: () => void; isPending: boolean; canSubmit: boolean }
+  rolesPending?: boolean
 }) {
   if (step === 0) {
     return (
@@ -252,10 +261,10 @@ function WizardContinueButton({ step, program, onContinue, basicsForm, templateF
   return (
     <button
       onClick={onContinue}
-      disabled={!program}
+      disabled={!program || (step === 2 && rolesPending)}
       style={{ height: 38, borderRadius: 8, fontFamily: OUTFIT, fontWeight: 600 }}
       className="px-4 sm:px-7 text-sm sm:text-base bg-primary text-primary-foreground hover:opacity-90 transition-opacity disabled:opacity-50"
-    >Continue</button>
+    >{step === 2 && rolesPending ? "Saving…" : "Continue"}</button>
   )
 }
 
@@ -444,6 +453,7 @@ function BasicsStep({ program, onSaved, onFormChange }: {
   const [programType, setProgramType] = useState<ProgramType>(program?.program_type ?? "workshop")
   const [pricingModel, setPricingModel] = useState<PricingModel>(program?.pricing_model ?? "free")
   const [price, setPrice] = useState(program?.price != null ? String(program.price) : "")
+  const [durationHours, setDurationHours] = useState(program?.duration_hours != null ? String(program.duration_hours) : "")
   const [defaultCapacity, setDefaultCapacity] = useState(program?.default_capacity != null ? String(program.default_capacity) : "")
   const [description, setDescription] = useState(program?.description ?? "")
   const [completionRuleType, setCompletionRuleType] = useState<CompletionRuleType>(program?.completion_rule_type ?? "percentage")
@@ -464,6 +474,7 @@ function BasicsStep({ program, onSaved, onFormChange }: {
         pricing_model: pricingModel,
         description: description.trim() || undefined,
         price: price.trim() ? Number(price) : undefined,
+        duration_hours: durationHours.trim() ? Number(durationHours) : null,
         default_capacity: defaultCapacity.trim() ? Number(defaultCapacity) : undefined,
         completion_rule_type: completionRuleType,
         completion_rule_value: completionRuleValue.trim() ? Number(completionRuleValue) : undefined,
@@ -483,7 +494,7 @@ function BasicsStep({ program, onSaved, onFormChange }: {
       isPending: save.isPending,
       canSubmit,
     })
-  }, [name, code, programType, pricingModel, price, defaultCapacity, description, completionRuleType, completionRuleValue, keepCourseAccessAfterCompletion, save.isPending, canSubmit])
+  }, [name, code, programType, pricingModel, price, durationHours, defaultCapacity, description, completionRuleType, completionRuleValue, keepCourseAccessAfterCompletion, save.isPending, canSubmit])
 
   const selectStyle: React.CSSProperties = { ...bigInput, cursor: "pointer" }
 
@@ -548,6 +559,11 @@ function BasicsStep({ program, onSaved, onFormChange }: {
 
         <BigField label="Default capacity (optional)">
           <input value={defaultCapacity} onChange={(e) => setDefaultCapacity(e.target.value)} type="number" placeholder="20"
+            style={bigInput} className="border border-border bg-background text-foreground focus:outline-none focus:border-primary transition-colors" />
+        </BigField>
+
+        <BigField label="Default session duration (hrs)">
+          <input value={durationHours} onChange={(e) => setDurationHours(e.target.value)} type="number" step="0.5" min="0" placeholder="e.g. 2"
             style={bigInput} className="border border-border bg-background text-foreground focus:outline-none focus:border-primary transition-colors" />
         </BigField>
 

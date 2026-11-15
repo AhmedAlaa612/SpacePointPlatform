@@ -88,8 +88,9 @@ from app.services.spine.identity import (
 )
 from app.services.teams import create_team, join_team, leave_team, team_member_ids
 
-REQUIRED_COLUMNS = ["team_id", "member_name", "email"]
+REQUIRED_COLUMNS = ["member_name", "email"]
 OPTIONAL_COLUMNS = [
+    "team_id",
     "phone",
     "gender",
     "nationality",
@@ -221,14 +222,6 @@ def _find_header_row(rows: list[list]) -> tuple[int, dict[str, int]]:
         col_index = {name: i for i, name in enumerate(header) if name}
         if all(c in col_index for c in REQUIRED_COLUMNS):
             return row_idx, col_index
-    # Fallback: if a sheet has member_name + email + team_name but is missing
-    # the team_id column, allow parsing so preview can surface "Team ID is
-    # required" per row and let ops fill or inspect the sheet in the browser.
-    for row_idx, cells in enumerate(rows[:_MAX_HEADER_SCAN_ROWS]):
-        header = [_normalize_header(c) for c in cells]
-        col_index = {name: i for i, name in enumerate(header) if name}
-        if all(c in col_index for c in ("member_name", "email", "team_name")):
-            return row_idx, col_index
     raise HTTPException(
         status.HTTP_422_UNPROCESSABLE_ENTITY,
         detail=f"Couldn't find a header row with all required columns ({', '.join(REQUIRED_COLUMNS)}) "
@@ -303,8 +296,6 @@ def _blocking_issues(row: CleanedRow) -> list[str]:
     NOT here — it's optional (see module docstring): a blank one just means
     this team hasn't been named yet, not a bad row."""
     issues = []
-    if not row.team_id:
-        issues.append("Team ID is required")
     if not row.member_name:
         issues.append("Member name is required")
     if not row.email:
@@ -522,9 +513,9 @@ async def _find_existing_contact_by_email(db: AsyncSession, *, email: str | None
 
 
 async def _register_and_assign_team(
-    db: AsyncSession, *, contact_id: uuid.UUID, cohort: Cohort, team_id: str, team_name: str | None,
+    db: AsyncSession, *, contact_id: uuid.UUID, cohort: Cohort, team_id: str | None, team_name: str | None,
     send_welcome_email: bool, fallback_email: str | None = None,
-) -> tuple[Team, Registration, bool]:
+) -> tuple[Team | None, Registration, bool]:
     """Shared core of both entry points into a competition roster: the CSV
     bulk import (`_import_row`) and assigning an already self-registered
     student found by search (`_assign_row`). Given a contact who may or may
@@ -582,6 +573,9 @@ async def _register_and_assign_team(
         user.student_id = contact_obj.student_id
 
     is_obs = "observer" in user.role_values
+
+    if not team_id:
+        return None, registration, is_new_registration
 
     # Grouped by team_id, never by name — see module docstring. A team not
     # found for this (cohort, team_id) yet is a brand new one; `name` falls
@@ -695,7 +689,8 @@ async def _import_row(
         return ImportRowResult(row_number, team_id, team_name, email, "error", exc.detail)
 
     return ImportRowResult(
-        row_number, team_id, team.name, email, "created" if is_new_registration else "matched",
+        row_number, team_id, team.name if team is not None else None, email,
+        "created" if is_new_registration else "matched",
         registration_id=registration.id,
     )
 

@@ -155,6 +155,7 @@ class UserOut(UserReadBase):
     org_max_cohorts: int | None = None
     org_max_students_per_cohort: int | None = None
     org_max_observers_per_cohort: int | None = None
+    is_certified_instructor: bool = False
 
     class Config:
         from_attributes = True
@@ -169,6 +170,7 @@ class InstructorApply(BaseModel):
     full_name: str
     email: EmailStr
     password: str
+    phone: str | None = None
     invite_code: str | None = None
     university: str | None = None
     highest_degree: str | None = None
@@ -187,4 +189,5 @@ class InstructorApply(BaseModel):
     background_other: str | None = None
     has_own_transportation: bool = False
     country: str = "United Arab Emirates"
+    answers: dict | None = None
 

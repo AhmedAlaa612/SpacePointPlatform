@@ -242,6 +242,8 @@ class OrganizationAccountCreateIn(BaseModel):
     can_publish_courses: bool = False
     course_scope_all: bool = False
     allowed_course_ids: list[str] = Field(default_factory=list)
+    quiz_scope: str = "all"
+    allowed_quiz_template_ids: list[str] = Field(default_factory=list)
     max_events: int | None = None
     max_programs: int | None = None
     max_cohorts: int | None = None
@@ -267,6 +269,8 @@ class OrganizationAccountUpdateIn(BaseModel):
     can_publish_courses: bool | None = None
     course_scope_all: bool | None = None
     allowed_course_ids: list[str] | None = None
+    quiz_scope: str | None = None
+    allowed_quiz_template_ids: list[str] | None = None
     max_events: int | None = None
     max_programs: int | None = None
     max_cohorts: int | None = None
@@ -281,13 +285,33 @@ class OrganizationSummaryOut(BaseModel):
     org_type: str
     country: str | None = None
     city: str | None = None
+    created_at: datetime | None = None
     owner_user_id: UUID | None = None
     owner_email: str | None = None
     owner_name: str | None = None
     owner_phone: str | None = None
     owner_status: str | None = None
+    owner_card_id: str | None = None
+    logo_url: str | None = None
     events_count: int = 0
+    published_events_count: int = 0
     members_count: int = 1
+    programs_count: int = 0
+    cohorts_count: int = 0
+    running_cohorts_count: int = 0
+    enrolled_students_count: int = 0
+    highest_cohort_students: int = 0
+    highest_cohort_name: str | None = None
+    highest_cohort_observers: int = 0
+    highest_observers_cohort_name: str | None = None
+    authored_courses_count: int = 0
+    pending_review_courses_count: int = 0
+    shared_courses_count: int = 0
+    invite_batches_active_count: int = 0
+    invite_used_count: int = 0
+    invite_max_count: int = 0
+    quiz_templates_authored_count: int = 0
+    quiz_questions_authored_count: int = 0
 
     is_approved: bool = True
     can_publish_events: bool = False
@@ -295,11 +319,140 @@ class OrganizationSummaryOut(BaseModel):
     can_publish_courses: bool = False
     course_scope_all: bool = False
     allowed_course_ids: list[str] = Field(default_factory=list)
+    quiz_scope: str = "own"
+    allowed_quiz_template_ids: list[str] = Field(default_factory=list)
     max_events: int | None = None
     max_programs: int | None = None
     max_cohorts: int | None = None
     max_students_per_cohort: int | None = None
     max_observers_per_cohort: int | None = None
+
+
+class OrgProgramChecklistItemOut(BaseModel):
+    id: UUID
+    position: int
+    title: str
+    item_type: str
+    optional: bool = False
+    scope: str = "individual"
+
+
+class OrgProgramDetailOut(BaseModel):
+    id: UUID
+    name: str
+    program_type: str
+    active: bool = True
+    lms_program_id: UUID | None = None
+    checklist_name: str | None = None
+    certificate_required: bool = True
+    cohorts_count: int = 0
+    checklist_items: list[OrgProgramChecklistItemOut] = Field(default_factory=list)
+
+
+class OrgCohortDetailOut(BaseModel):
+    id: UUID
+    program_id: UUID
+    program_name: str
+    name: str
+    status: str
+    starts_on: str | None = None
+    ends_on: str | None = None
+    enrolled_count: int = 0
+    capacity: int | None = None
+    observers_count: int = 0
+    sessions_count: int = 0
+    completion_pct: int = 0
+
+
+class OrgInviteBatchOut(BaseModel):
+    id: UUID
+    code: str
+    label: str | None = None
+    kind: str
+    granted_target: str | None = None
+    used_count: int = 0
+    max_uses: int = 0
+    expires_at: datetime | None = None
+    is_active: bool = True
+
+
+class OrgStudentDetailOut(BaseModel):
+    registration_id: UUID
+    contact_id: UUID
+    user_id: UUID | None = None
+    full_name: str
+    email: str | None = None
+    phone: str | None = None
+    cohort_id: UUID
+    cohort_name: str
+    status: str
+    enrolled_at: datetime
+    completion_pct: int = 0
+
+
+class OrgAuthoredCourseOut(BaseModel):
+    id: UUID
+    title: str
+    track: str | None = None
+    is_published: bool = False
+    submitted_for_review_at: datetime | None = None
+    modules_count: int = 0
+    enrolled_count: int = 0
+    created_at: datetime | None = None
+
+
+class OrgSharedCourseOut(BaseModel):
+    id: UUID
+    title: str
+    track: str | None = None
+    level: str | None = None
+    modules_count: int = 0
+    is_published: bool = True
+
+
+class OrgQuizTemplateOut(BaseModel):
+    id: UUID
+    name: str
+    questions_count: int = 0
+    is_active: bool = True
+    linked_cohorts: list[str] = Field(default_factory=list)
+    created_at: datetime | None = None
+
+
+class OrgLandingPageOut(BaseModel):
+    id: UUID
+    title: str
+    slug: str
+    country: str
+    is_published: bool = False
+    cohort_id: UUID | None = None
+    cohort_name: str | None = None
+    registrations_count: int = 0
+    updated_at: datetime
+
+
+class OrgTeamMemberDetailOut(BaseModel):
+    user_id: UUID
+    full_name: str
+    email: str
+    phone: str | None = None
+    role: str
+    card_id: str | None = None
+    status: str
+    observer_cohorts: list[str] = Field(default_factory=list)
+
+
+class OrganizationDetailOut(BaseModel):
+    organization: OrganizationSummaryOut
+    programs: list[OrgProgramDetailOut] = Field(default_factory=list)
+    cohorts: list[OrgCohortDetailOut] = Field(default_factory=list)
+    invite_batches: list[OrgInviteBatchOut] = Field(default_factory=list)
+    students: list[OrgStudentDetailOut] = Field(default_factory=list)
+    authored_courses: list[OrgAuthoredCourseOut] = Field(default_factory=list)
+    shared_courses: list[OrgSharedCourseOut] = Field(default_factory=list)
+    quiz_templates: list[OrgQuizTemplateOut] = Field(default_factory=list)
+    landing_pages: list[OrgLandingPageOut] = Field(default_factory=list)
+    team: list[OrgTeamMemberDetailOut] = Field(default_factory=list)
 
 
 class OrgTeamMemberOut(BaseModel):

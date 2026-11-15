@@ -233,41 +233,52 @@ export default function LearnProfile() {
             {!certificates || certificates.length === 0 ? (
               <EmptyState
                 title="No certificates yet"
-                hint="Finish a course or a learning path and its certificate appears here automatically."
+                hint="Completed programs, teams, courses, and learning paths appear here."
               />
             ) : (
               <div className="flex flex-col gap-2">
-                {certificates.map((c) => (
-                  <div
-                    key={c.id}
-                    className="flex items-center gap-3 rounded-xl border border-border p-3"
-                  >
-                    <div className="flex size-10 shrink-0 items-center justify-center rounded-full ring-1 ring-primary/35 text-primary">
-                      <Award className="size-5" />
-                    </div>
-                    <div className="min-w-0 flex-1">
-                      <div className="text-sm font-medium text-foreground truncate">{c.title}</div>
-                      <div className="text-xs text-muted-foreground">
-                        {c.type === "student_completion"
-                          ? "Program"
-                          : c.type === "lms_path_completion"
-                          ? "Learning path"
-                          : "Course"}
-                        {c.issued_at && ` · ${new Date(c.issued_at).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}`}
+                {certificates.map((c) => {
+                  const typeLabel =
+                    c.type === "team_completion"
+                      ? "Team"
+                      : c.type === "student_completion"
+                      ? "Program"
+                      : c.type === "lms_path_completion"
+                      ? "Learning path"
+                      : "Course";
+                  const dateLabel = c.issued_at
+                    ? new Date(c.issued_at).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })
+                    : null;
+                  return (
+                    <div
+                      key={c.id}
+                      className="flex items-center gap-3 rounded-[10px] border border-border p-3"
+                    >
+                      <div className="flex size-10 shrink-0 items-center justify-center rounded-[10px] ring-1 ring-primary/35 text-primary">
+                        <Award className="size-5" />
                       </div>
+                      <div className="min-w-0 flex-1">
+                        <div className="text-sm font-medium text-foreground">{c.title}</div>
+                        <div className="flex flex-wrap items-center gap-3 text-xs text-muted-foreground mt-0.5">
+                          <span>{typeLabel}</span>
+                          {dateLabel && <span>{dateLabel}</span>}
+                        </div>
+                      </div>
+                      {c.url ? (
+                        <a
+                          href={c.url}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="shrink-0 flex items-center gap-1.5 text-sm font-medium text-primary hover:opacity-80"
+                        >
+                          <Download className="size-3.5" /> PDF
+                        </a>
+                      ) : (
+                        <span className="shrink-0 text-xs text-rose-500">File unavailable</span>
+                      )}
                     </div>
-                    {c.url && (
-                      <a
-                        href={c.url}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="shrink-0 flex items-center gap-1.5 text-sm font-medium text-primary hover:opacity-80"
-                      >
-                        <Download className="size-3.5" /> PDF
-                      </a>
-                    )}
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             )}
           </Card>
@@ -305,6 +316,7 @@ export default function LearnProfile() {
             <div className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Account info</div>
             <div className="flex flex-col gap-3">
               <AccountField label="Email" value={me.email} />
+              <AccountField label="Nationality" value={me.nationality || "Not set"} />
               <AccountField label="Date of birth" value={formatBirthdate(me.birthdate || me.date_of_birth)} />
               <AccountField label="University / Institution" value={me.organization_name || "Not set"} />
               <AccountField label="University / Student ID" value={me.student_id || "Not set"} />
@@ -421,6 +433,7 @@ function EditProfileForm({ onOpenChange }: { onOpenChange: (v: boolean) => void 
   const [birthdate, setBirthdate] = useState(
     (currentUser?.birthdate ?? currentUser?.date_of_birth ?? "").split("T")[0]
   );
+  const [nationality, setNationality] = useState(currentUser?.nationality ?? "");
   const [country, setCountry] = useState(currentUser?.country ?? "");
   const [cityId, setCityId] = useState(currentUser?.city_id ?? "");
   const [cityOther, setCityOther] = useState(currentUser?.city_other ?? "");
@@ -447,6 +460,7 @@ function EditProfileForm({ onOpenChange }: { onOpenChange: (v: boolean) => void 
       phone: phone || undefined,
       birthdate: birthdate || undefined,
       date_of_birth: birthdate || undefined,
+      nationality: nationality || undefined,
       country: country || undefined, city_id: cityId || undefined, city_other: cityOther || undefined,
     }),
     onSuccess: (updated) => {
@@ -522,6 +536,18 @@ function EditProfileForm({ onOpenChange }: { onOpenChange: (v: boolean) => void 
                 type="date"
                 value={birthdate}
                 onChange={(e) => setBirthdate(e.target.value)}
+                className="w-full h-11 rounded-xl border border-border bg-background px-3.5 text-sm focus:outline-none focus:border-primary transition-colors"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-muted-foreground mb-1.5">
+                Nationality
+              </label>
+              <CountrySelect
+                value={nationality}
+                onChange={setNationality}
+                valueType="name"
+                placeholder="Select nationality..."
                 className="w-full h-11 rounded-xl border border-border bg-background px-3.5 text-sm focus:outline-none focus:border-primary transition-colors"
               />
             </div>

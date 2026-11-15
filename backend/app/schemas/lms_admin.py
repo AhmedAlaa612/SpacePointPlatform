@@ -530,6 +530,8 @@ class ModuleAdminOut(BaseModel):
     course_id: UUID
     title: str
     position: int
+    items_count: int = 0
+    item_counts_by_kind: dict[str, int] = {}
 
 
 class ModuleReorderIn(BaseModel):

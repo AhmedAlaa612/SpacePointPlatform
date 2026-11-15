@@ -6,7 +6,6 @@ import {
   ImageOff,
   ImagePlus,
   MapPin,
-  Package,
   PackageCheck,
   Pencil,
   Search,
@@ -378,7 +377,7 @@ export default function WarehousesPage() {
                 alt={currentWarehouse.name}
                 className="max-h-[360px] max-w-full w-auto h-auto block pointer-events-none select-none"
               />
-      {/* Clickable Cabin Pins */}
+              {/* Clickable Cabin Pins */}
               {cabins.map((c) => {
                 if (c.pin_x == null || c.pin_y == null) return null
                 const isSelected = cabinId === c.id
@@ -439,85 +438,6 @@ export default function WarehousesPage() {
           >
             Upload Photo
           </button>
-        </div>
-      )}
-
-      {/* 4. Boxes Strip inside Selected Cabin */}
-      {cabinId && cabinId !== "unassigned" && (
-        <div className="bg-card border border-border rounded-2xl p-4 flex flex-col gap-3">
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-bold text-foreground flex items-center gap-1.5">
-              <Boxes size={15} className="text-primary" /> Boxes in {cabins.find((c) => c.id === cabinId)?.name}
-            </span>
-            {boxId && (
-              <button
-                type="button"
-                onClick={() => setBoxId("")}
-                className="text-xs text-primary hover:underline font-medium cursor-pointer"
-              >
-                Show all in cabin
-              </button>
-            )}
-          </div>
-
-          <div className="flex items-center gap-2 overflow-x-auto pb-1">
-            <button
-              type="button"
-              onClick={() => setBoxId("")}
-              className={cn(
-                "flex items-center gap-2 px-3 py-2 rounded-xl border text-xs font-semibold cursor-pointer shrink-0 transition-all",
-                !boxId ? "bg-primary text-primary-foreground border-primary" : "bg-card border-border hover:bg-muted/50 text-foreground",
-              )}
-            >
-              <Package size={14} />
-              <span>All in Cabin</span>
-            </button>
-
-            <button
-              type="button"
-              onClick={() => setBoxId(boxId === "loose" ? "" : "loose")}
-              className={cn(
-                "flex items-center gap-2 px-3 py-2 rounded-xl border text-xs font-semibold cursor-pointer shrink-0 transition-all",
-                boxId === "loose" ? "bg-primary text-primary-foreground border-primary" : "bg-card border-border hover:bg-muted/50 text-foreground",
-              )}
-            >
-              <span>Loose on shelf</span>
-            </button>
-
-            {boxes
-              .filter((b) => b.cabin_id === cabinId)
-              .map((b) => {
-                const isSelected = boxId === b.id
-                return (
-                  <button
-                    key={b.id}
-                    type="button"
-                    onClick={() => setBoxId(isSelected ? "" : b.id)}
-                    className={cn(
-                      "flex items-center gap-2 px-3 py-2 rounded-xl border text-xs font-semibold cursor-pointer shrink-0 transition-all",
-                      isSelected
-                        ? "bg-primary text-primary-foreground border-primary shadow-xs"
-                        : "bg-card border-border hover:bg-muted/50 text-foreground",
-                    )}
-                  >
-                    {b.image_url ? (
-                      <img src={b.image_url} alt="" className="w-5 h-5 rounded object-cover border border-white/20 shrink-0" />
-                    ) : (
-                      <Boxes size={14} className={isSelected ? "text-primary-foreground" : "text-primary"} />
-                    )}
-                    <span>{b.name}</span>
-                    <span
-                      className={cn(
-                        "text-[10px] px-1.5 py-0.2 rounded-full",
-                        isSelected ? "bg-white/20 text-white" : "bg-secondary text-secondary-foreground",
-                      )}
-                    >
-                      {b.item_count ?? 0}
-                    </span>
-                  </button>
-                )
-              })}
-          </div>
         </div>
       )}
 

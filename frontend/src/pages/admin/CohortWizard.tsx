@@ -20,7 +20,7 @@ import type { City, Location, Warehouse } from "@/types/inventory"
 import { getProgramsApi } from "@/api/sessions/programs"
 import { getLocationsApi, getWarehousesApi, createLocationApi, getCitiesApi } from "@/api/inventory"
 import {
-  cloneCohortApi, createCohortApi, updateCohortApi, generateSessionsApi, getCohortsApi, getSessionsApi, addSessionApi, deleteSessionApi,
+  cloneCohortApi, createCohortApi, updateCohortApi, generateSessionsApi, getCohortsApi, getSessionsApi, addSessionApi, updateSessionApi, deleteSessionApi,
   getRegistrationsApi,
 } from "@/api/sessions/cohorts"
 import { getCohortOpeningsApi, getDeliveryRolesApi, getMaterialsApi, setCohortOpeningsApi } from "@/api/sessions/openings"
@@ -90,8 +90,31 @@ const heroInput: React.CSSProperties = {
   height: 46, padding: "0 16px", borderRadius: 10, fontFamily: OUTFIT, fontSize: 17, fontWeight: 500, width: "100%", boxSizing: "border-box",
 }
 
+type WizardStepKey =
+  | "template"
+  | "basics"
+  | "sessions"
+  | "roles"
+  | "lms"
+  | "materials"
+  | "staffing"
+  | "students"
+  | "judging"
+  | "review"
+
+interface WizardStepConfig {
+  key: WizardStepKey
+  label: string
+}
+
 export default function CohortWizard() {
   const navigate = useNavigate()
+
+  const queryProgramId = useMemo(
+    () => new URLSearchParams(window.location.search).get("programId") || "",
+    []
+  )
+  const isFromProgram = Boolean(queryProgramId)
 
   const [step, setStep] = useState(0)
   const [skipped, setSkipped] = useState<Record<number, boolean>>({})
@@ -99,16 +122,6 @@ export default function CohortWizard() {
 
   const [basicsForm, setBasicsForm] = useState<{ save: () => void; isPending: boolean; canSubmit: boolean }>({ save: () => {}, isPending: false, canSubmit: false })
   const [templateForm, setTemplateForm] = useState<{ save: () => void; isPending: boolean; canSubmit: boolean }>({ save: () => {}, isPending: false, canSubmit: true })
-  // The Roles & checklist step (2026-09 fix): the panel shows every active
-  // Delivery Settings role as a live preview before anything is saved — if
-  // nobody clicks its own "Save roles" button, no CohortOpening row ever
-  // gets created, and every session in the cohort ends up with no roles to
-  // staff at all (openings_for_session has no fallback below the cohort
-  // tier). `ensure()` persists real rows for whatever's currently shown —
-  // each role at its own live defaults (null rate/notes/override, so it
-  // still inherits DeliveryRole changes exactly like a row someone saved by
-  // hand would) — the moment the wizard actually leaves this step, whether
-  // by clicking Continue or Skip. It's a no-op once anything already exists.
   const [rolesForm, setRolesForm] = useState<{ ensure: () => Promise<void> }>({ ensure: async () => {} })
 
   useEffect(() => {
@@ -118,40 +131,46 @@ export default function CohortWizard() {
   }, [])
 
   const { data: programs = [] } = useQuery({ queryKey: ["sessions-programs"], queryFn: getProgramsApi })
-  const program = programs.find((p) => p.id === cohort?.program_id)
+  const program = programs.find((p) => p.id === (cohort?.program_id || queryProgramId))
   const isComp = Boolean(program?.is_competition || cohort?.program_is_competition)
 
-  const stepLabels = useMemo(() => {
-    const list = [
-      "Template or scratch",
-      "Cohort basics",
-      "Sessions",
-      "Roles & checklist",
-      "LMS Checklist",
-      "Materials",
-      "Staffing",
-      "Students",
-    ]
-    if (isComp) {
-      list.push("Judging & Competition")
+  const steps: WizardStepConfig[] = useMemo(() => {
+    const list: WizardStepConfig[] = []
+    if (!isFromProgram) {
+      list.push({ key: "template", label: "Template or scratch" })
     }
-    list.push("Review & finish")
+    list.push(
+      { key: "basics", label: "Cohort basics" },
+      { key: "sessions", label: "Sessions" },
+      { key: "roles", label: "Roles & checklist" },
+      { key: "lms", label: "LMS Checklist" },
+      { key: "materials", label: "Materials" },
+      { key: "staffing", label: "Staffing" },
+      { key: "students", label: "Students" },
+    )
+    if (isComp) {
+      list.push({ key: "judging", label: "Judging & Competition" })
+    }
+    list.push({ key: "review", label: "Review & finish" })
     return list
-  }, [isComp])
-  const lastStep = stepLabels.length - 1
+  }, [isFromProgram, isComp])
+
+  const stepLabels = useMemo(() => steps.map((s) => s.label), [steps])
+  const lastStep = steps.length - 1
+  const currentStepKey = steps[step]?.key
 
   const goStep = (i: number) => setStep(Math.max(0, Math.min(lastStep, i)))
   const advance = async () => {
-    if (step === 3) await rolesForm.ensure()
+    if (currentStepKey === "roles") await rolesForm.ensure()
     setSkipped((s) => { const n = { ...s }; delete n[step]; return n })
     goStep(step + 1)
   }
   const skipThis = async () => {
-    if (step === 3) await rolesForm.ensure()
+    if (currentStepKey === "roles") await rolesForm.ensure()
     setSkipped((s) => ({ ...s, [step]: true }))
     goStep(step + 1)
   }
-  const canSkip = step > 1 && step < lastStep
+  const canSkip = currentStepKey !== "template" && currentStepKey !== "basics" && currentStepKey !== "review"
   const canBack = step > 0
 
   return (
@@ -163,7 +182,7 @@ export default function CohortWizard() {
               style={{ fontFamily: OUTFIT }}
               className="text-foreground m-0 text-base sm:text-xl font-semibold tracking-tight truncate"
             >
-              Setting up: {cohort?.name || "New Cohort"}
+              Setting up: {cohort?.name || (program ? `New Cohort · ${program.name}` : "New Cohort")}
             </h1>
             <p className="text-xs sm:text-sm text-muted-foreground mt-0.5 truncate">
               Step {step + 1} of {stepLabels.length} — {stepLabels[step]}
@@ -190,7 +209,7 @@ export default function CohortWizard() {
       </header>
 
       <div className="flex-1 overflow-y-auto p-4 sm:px-10 sm:py-8">
-        {step === 0 && (
+        {currentStepKey === "template" && (
           <TemplateStep
             programs={programs}
             cohort={cohort}
@@ -199,16 +218,16 @@ export default function CohortWizard() {
             onFormChange={setTemplateForm}
           />
         )}
-        {step === 1 && (
+        {currentStepKey === "basics" && (
           <BasicsStep
             programs={programs} program={program} cohort={cohort}
             onSaved={(c) => { setCohort(c); advance() }}
             onFormChange={setBasicsForm}
           />
         )}
-        {step === 2 && cohort && <SessionsStep cohort={cohort} />}
-        {step === 3 && cohort && <RolesChecklistStep cohort={cohort} onFormChange={setRolesForm} />}
-        {step === 4 && cohort && program && (
+        {currentStepKey === "sessions" && cohort && <SessionsStep cohort={cohort} />}
+        {currentStepKey === "roles" && cohort && <RolesChecklistStep cohort={cohort} onFormChange={setRolesForm} />}
+        {currentStepKey === "lms" && cohort && program && (
           <>
             <StepIntro
               eyebrow="LMS Checklist" title="What does students' checklist look like?" ledeWidth={70}
@@ -217,7 +236,7 @@ export default function CohortWizard() {
             <LmsChecklistStep cohort={cohort} program={program} />
           </>
         )}
-        {step === 5 && cohort && (
+        {currentStepKey === "materials" && cohort && (
           <>
             <StepIntro
               eyebrow="Materials" title="What instructors open on the day" ledeWidth={70}
@@ -229,7 +248,7 @@ export default function CohortWizard() {
             />
           </>
         )}
-        {step === 6 && cohort && (
+        {currentStepKey === "staffing" && cohort && (
           <>
             <StepIntro
               eyebrow="Staffing" title="Who's running each session?" ledeWidth={70}
@@ -238,7 +257,7 @@ export default function CohortWizard() {
             <StaffingStep cohort={cohort} />
           </>
         )}
-        {step === 7 && cohort && (
+        {currentStepKey === "students" && cohort && (
           <>
             <StepIntro
               eyebrow="Students" title="Who is registered?" ledeWidth={70}
@@ -247,8 +266,8 @@ export default function CohortWizard() {
             <StudentsStep cohort={cohort} />
           </>
         )}
-        {isComp && step === 8 && cohort && <CompetitionJudgingStep cohort={cohort} />}
-        {step === lastStep && cohort && <ReviewStep cohort={cohort} program={program} />}
+        {currentStepKey === "judging" && cohort && <CompetitionJudgingStep cohort={cohort} />}
+        {currentStepKey === "review" && cohort && <ReviewStep cohort={cohort} program={program} />}
       </div>
 
       <footer
@@ -273,7 +292,7 @@ export default function CohortWizard() {
               >Skip for now</button>
             )}
             {step < lastStep ? (
-              <WizardContinueButton step={step} cohort={cohort} onContinue={advance} basicsForm={basicsForm} templateForm={templateForm} />
+              <WizardContinueButton currentStepKey={currentStepKey} cohort={cohort} onContinue={advance} basicsForm={basicsForm} templateForm={templateForm} />
             ) : (
               <div className="flex items-center gap-2">
                 {Boolean(program?.is_competition || cohort?.program_is_competition) && (
@@ -292,13 +311,13 @@ export default function CohortWizard() {
             )}
           </div>
           <div className="hidden sm:block">
-            {step === 2 && <SkipNote>You can add sessions later from the cohort page.</SkipNote>}
-            {step === 3 && <SkipNote>Every session uses the cohort&rsquo;s roles and checklist until you override one.</SkipNote>}
-            {step === 4 && <SkipNote>You can set this up later from the program or this cohort&rsquo;s own LMS tab.</SkipNote>}
-            {step === 5 && <SkipNote>Sessions will use the program&rsquo;s materials.</SkipNote>}
-            {step === 6 && <SkipNote>You can staff sessions any time from the cohort&rsquo;s Staffing tab.</SkipNote>}
-            {step === 7 && <SkipNote>You can add students any time from the cohort&rsquo;s Students tab.</SkipNote>}
-            {isComp && step === 8 && <SkipNote>You can fine-tune rubric and judges any time from the Judging tab.</SkipNote>}
+            {currentStepKey === "sessions" && <SkipNote>You can add sessions later from the cohort page.</SkipNote>}
+            {currentStepKey === "roles" && <SkipNote>Every session uses the cohort&rsquo;s roles and checklist until you override one.</SkipNote>}
+            {currentStepKey === "lms" && <SkipNote>You can set this up later from the program or this cohort&rsquo;s own LMS tab.</SkipNote>}
+            {currentStepKey === "materials" && <SkipNote>Sessions will use the program&rsquo;s materials.</SkipNote>}
+            {currentStepKey === "staffing" && <SkipNote>You can staff sessions any time from the cohort&rsquo;s Staffing tab.</SkipNote>}
+            {currentStepKey === "students" && <SkipNote>You can add students any time from the cohort&rsquo;s Students tab.</SkipNote>}
+            {currentStepKey === "judging" && <SkipNote>You can fine-tune rubric and judges any time from the Judging tab.</SkipNote>}
           </div>
         </div>
       </footer>
@@ -310,12 +329,12 @@ function SkipNote({ children }: { children: ReactNode }) {
   return <p style={{ fontSize: 13, margin: 0 }} className="text-muted-foreground">{children}</p>
 }
 
-function WizardContinueButton({ step, cohort, onContinue, basicsForm, templateForm }: {
-  step: number; cohort: Cohort | null; onContinue: () => void;
+function WizardContinueButton({ currentStepKey, cohort, onContinue, basicsForm, templateForm }: {
+  currentStepKey?: WizardStepKey; cohort: Cohort | null; onContinue: () => void;
   basicsForm: { save: () => void; isPending: boolean; canSubmit: boolean }
   templateForm: { save: () => void; isPending: boolean; canSubmit: boolean }
 }) {
-  if (step === 0) {
+  if (currentStepKey === "template") {
     return (
       <button
         onClick={templateForm.save}
@@ -325,7 +344,7 @@ function WizardContinueButton({ step, cohort, onContinue, basicsForm, templateFo
       >{templateForm.isPending ? "…" : "Continue"}</button>
     )
   }
-  if (step === 1) {
+  if (currentStepKey === "basics") {
     return (
       <button
         onClick={basicsForm.save}
@@ -400,7 +419,9 @@ function TemplateStep({ programs, cohort, onCloned, onFresh, onFormChange }: {
   const toast = useToast()
   const qc = useQueryClient()
   const [mode, setMode] = useState<"fresh" | "clone">("fresh")
-  const [targetProgramId, setTargetProgramId] = useState(cohort?.program_id ?? "")
+  const [targetProgramId, setTargetProgramId] = useState(
+    cohort?.program_id ?? (new URLSearchParams(window.location.search).get("programId") || "")
+  )
   const [sourceId, setSourceId] = useState("")
   const [name, setName] = useState("")
   const [startsOn, setStartsOn] = useState("")
@@ -408,7 +429,16 @@ function TemplateStep({ programs, cohort, onCloned, onFresh, onFormChange }: {
   const [carry, setCarry] = useState<string[]>(["basics", "windows", "roles", "materials", "assessment", "checklist", "rubric", "judges"])
   const [error, setError] = useState("")
 
-  const { data: allCohorts = [] } = useQuery({ queryKey: ["sessions-cohorts-all"], queryFn: () => getCohortsApi() })
+  const { data: rawCohorts = [] } = useQuery({ queryKey: ["sessions-cohorts-all"], queryFn: () => getCohortsApi() })
+  const allCohorts = useMemo(
+    () =>
+      rawCohorts.filter((c) => {
+        const statusStr = String(c.status).toLowerCase()
+        const normName = c.name.trim().toLowerCase()
+        return statusStr !== "draft" && !normName.startsWith("[template]") && normName !== "template"
+      }),
+    [rawCohorts],
+  )
   const targetProgram = programs.find((p) => p.id === targetProgramId)
   const isTargetCompetition = Boolean(targetProgram?.is_competition)
 
@@ -628,19 +658,74 @@ function BasicsStep({ programs, program, cohort, onSaved, onFormChange }: {
   const toast = useToast()
   const qc = useQueryClient()
   const { hasRole } = useAuth()
-  const [programId, setProgramId] = useState(cohort?.program_id ?? "")
+  const [programId, setProgramId] = useState(
+    cohort?.program_id ?? program?.id ?? (new URLSearchParams(window.location.search).get("programId") || "")
+  )
   const [name, setName] = useState(cohort?.name ?? "")
   const [startsOn, setStartsOn] = useState(cohort?.starts_on ?? "")
   const [endsOn, setEndsOn] = useState(cohort?.ends_on ?? "")
   const [locationId, setLocationId] = useState(cohort?.location_id ?? "")
   const [warehouseId, setWarehouseId] = useState(cohort?.warehouse_id ?? "")
-  const [capacity, setCapacity] = useState(cohort?.capacity != null ? String(cohort.capacity) : "")
-  const [durationHours, setDurationHours] = useState(cohort?.duration_hours != null ? String(cohort.duration_hours) : "")
+  const [capacity, setCapacity] = useState(
+    cohort?.capacity != null
+      ? String(cohort.capacity)
+      : program?.default_capacity != null
+      ? String(program.default_capacity)
+      : ""
+  )
+  const [durationHours, setDurationHours] = useState(
+    cohort?.duration_hours != null
+      ? String(cohort.duration_hours)
+      : program?.duration_hours != null
+      ? String(program.duration_hours)
+      : ""
+  )
+  const [posterTemplateUrl, setPosterTemplateUrl] = useState(
+    cohort?.poster_template_url ?? program?.poster_template_url ?? ""
+  )
   const [visibility, setVisibility] = useState<CohortVisibility>(cohort?.visibility ?? "public")
   const [keepCourseAccessAfterCompletion, setKeepCourseAccessAfterCompletion] = useState(
     cohort?.keep_course_access_after_completion ?? program?.keep_course_access_after_completion ?? true,
   )
   const [error, setError] = useState("")
+
+  const [nameManuallyEdited, setNameManuallyEdited] = useState(Boolean(cohort?.name))
+  const [capacityManuallyEdited, setCapacityManuallyEdited] = useState(Boolean(cohort?.capacity != null))
+  const [durationManuallyEdited, setDurationManuallyEdited] = useState(Boolean(cohort?.duration_hours != null))
+  const [posterManuallyEdited, setPosterManuallyEdited] = useState(Boolean(cohort?.poster_template_url))
+
+  const { data: rawCohorts = [] } = useQuery({ queryKey: ["sessions-cohorts-all"], queryFn: () => getCohortsApi() })
+  const allCohorts = useMemo(
+    () =>
+      rawCohorts.filter((c) => {
+        const statusStr = String(c.status).toLowerCase()
+        const normName = c.name.trim().toLowerCase()
+        return statusStr !== "draft" && !normName.startsWith("[template]") && normName !== "template"
+      }),
+    [rawCohorts],
+  )
+
+  // Auto-fill defaults from the selected/inherited program whenever program data resolves or changes
+  useEffect(() => {
+    if (!cohort && program) {
+      if (!capacityManuallyEdited && program.default_capacity != null) {
+        setCapacity(String(program.default_capacity))
+      }
+      if (!durationManuallyEdited && program.duration_hours != null) {
+        setDurationHours(String(program.duration_hours))
+      }
+      if (!posterManuallyEdited && program.poster_template_url) {
+        setPosterTemplateUrl(program.poster_template_url)
+      }
+      if (program.keep_course_access_after_completion != null) {
+        setKeepCourseAccessAfterCompletion(program.keep_course_access_after_completion)
+      }
+      if (!nameManuallyEdited) {
+        const existing = allCohorts.filter((c) => c.program_id === program.id)
+        setName(`Cohort ${existing.length + 1}`)
+      }
+    }
+  }, [program, cohort, allCohorts, capacityManuallyEdited, durationManuallyEdited, posterManuallyEdited, nameManuallyEdited])
 
   const { data: locations = [] } = useQuery({ queryKey: ["inv-locations"], queryFn: () => getLocationsApi() })
   const { data: warehouses = [] } = useQuery({ queryKey: ["inv-warehouses"], queryFn: () => getWarehousesApi() })
@@ -669,21 +754,24 @@ function BasicsStep({ programs, program, cohort, onSaved, onFormChange }: {
           capacity: capacity.trim() ? Number(capacity) : null,
           duration_hours: durationHours.trim() ? Number(durationHours) : null,
           visibility,
+          poster_template_url: posterTemplateUrl.trim() || null,
           keep_course_access_after_completion: keepCourseAccessAfterCompletion,
         })
       : createCohortApi({
-          program_id: programId, name: name.trim(), starts_on: startsOn || undefined, ends_on: endsOn || undefined,
+          program_id: programId || program?.id || "",
+          name: name.trim(), starts_on: startsOn || undefined, ends_on: endsOn || undefined,
           location_id: locationId || undefined, warehouse_id: warehouseId || undefined,
           capacity: capacity.trim() ? Number(capacity) : undefined,
           duration_hours: durationHours.trim() ? Number(durationHours) : undefined,
           visibility,
+          poster_template_url: posterTemplateUrl.trim() || undefined,
           keep_course_access_after_completion: keepCourseAccessAfterCompletion,
         }),
     onSuccess: (c) => { toast.success(cohort ? "Cohort updated" : "Cohort created"); qc.invalidateQueries({ queryKey: ["sessions-cohorts"] }); onSaved(c) },
     onError: (e: any) => setError(getErrorMessage(e, "Failed to save cohort")),
   })
 
-  const canSubmit = Boolean(name.trim() && (cohort || programId))
+  const canSubmit = Boolean(name.trim() && (cohort || programId || program?.id))
 
   useEffect(() => {
     onFormChange({
@@ -691,7 +779,7 @@ function BasicsStep({ programs, program, cohort, onSaved, onFormChange }: {
       isPending: save.isPending,
       canSubmit,
     })
-  }, [name, programId, cohort, save.isPending, canSubmit, startsOn, endsOn, locationId, warehouseId, capacity, durationHours, visibility, keepCourseAccessAfterCompletion])
+  }, [name, programId, program, cohort, save.isPending, canSubmit, startsOn, endsOn, locationId, warehouseId, capacity, durationHours, posterTemplateUrl, visibility, keepCourseAccessAfterCompletion])
 
   const selectStyle: React.CSSProperties = { ...bigInput, cursor: "pointer" }
 
@@ -710,18 +798,22 @@ function BasicsStep({ programs, program, cohort, onSaved, onFormChange }: {
         eyebrow="Cohort basics" title="What is this run of the program?"
         lede="Everything here becomes the default for every session in the cohort. You can change any of it later."
         right={
-          cohort ? (
+          (program || cohort) ? (
             <div className="flex flex-col shrink-0" style={{ gap: 4, paddingLeft: 20, borderLeft: "2px solid hsl(var(--primary))" }}>
               <span style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em" }} className="text-muted-foreground">Program</span>
               <span style={{ fontFamily: OUTFIT, fontSize: 18, fontWeight: 600, letterSpacing: "-0.01em" }} className="flex items-center gap-2 text-foreground">
-                {program?.name ?? "…"} <Lock size={15} className="text-muted-foreground" />
+                {(program?.name ?? cohort?.program_name) || "…"} <Lock size={15} className="text-muted-foreground" />
               </span>
+              <div className="flex items-center gap-2 text-xs font-semibold text-primary">
+                {program?.default_capacity != null && <span>Default {program.default_capacity} Seats</span>}
+                {program?.pricing_model && <span>· {program.pricing_model === "free" ? "Free" : `AED ${program.price ?? 0}`}</span>}
+              </div>
             </div>
           ) : undefined
         }
       />
 
-      {!cohort && (
+      {!cohort && !program && (
         <BigField label="Program">
           <select
             value={programId}
@@ -746,8 +838,15 @@ function BasicsStep({ programs, program, cohort, onSaved, onFormChange }: {
         <div className="col-span-1 sm:col-span-2">
           <BigField label="Cohort name">
             <input
-              value={name} onChange={(e) => setName(e.target.value)} placeholder="Q3 Cohort A" autoFocus
-              style={heroInput} className="border border-border bg-background text-foreground focus:outline-none focus:border-primary transition-colors"
+              value={name}
+              onChange={(e) => {
+                setName(e.target.value)
+                setNameManuallyEdited(true)
+              }}
+              placeholder={program ? `e.g. Cohort 1` : "Q3 Cohort A"}
+              autoFocus
+              style={heroInput}
+              className="border border-border bg-background text-foreground focus:outline-none focus:border-primary transition-colors"
             />
           </BigField>
         </div>
@@ -819,13 +918,36 @@ function BasicsStep({ programs, program, cohort, onSaved, onFormChange }: {
           </div>
         )}
 
-        <BigField label="Capacity (optional)">
-          <input value={capacity} onChange={(e) => setCapacity(e.target.value)} type="number" placeholder="20"
-            style={bigInput} className="border border-border bg-background text-foreground focus:outline-none focus:border-primary transition-colors" />
+        <BigField
+          label="Capacity (optional)"
+          hint={program?.default_capacity != null ? `Blueprint default: ${program.default_capacity} seats` : undefined}
+        >
+          <input
+            value={capacity}
+            onChange={(e) => {
+              setCapacity(e.target.value)
+              setCapacityManuallyEdited(true)
+            }}
+            type="number"
+            placeholder={program?.default_capacity != null ? String(program.default_capacity) : "20"}
+            style={bigInput}
+            className="border border-border bg-background text-foreground focus:outline-none focus:border-primary transition-colors"
+          />
         </BigField>
         <BigField label="Session duration (hrs)">
-          <input value={durationHours} onChange={(e) => setDurationHours(e.target.value)} type="number" step="0.5" min="0" placeholder="e.g. 2"
-            style={bigInput} className="border border-border bg-background text-foreground focus:outline-none focus:border-primary transition-colors" />
+          <input
+            value={durationHours}
+            onChange={(e) => {
+              setDurationHours(e.target.value)
+              setDurationManuallyEdited(true)
+            }}
+            type="number"
+            step="0.5"
+            min="0"
+            placeholder={program?.duration_hours != null ? String(program.duration_hours) : "e.g. 2"}
+            style={bigInput}
+            className="border border-border bg-background text-foreground focus:outline-none focus:border-primary transition-colors"
+          />
         </BigField>
         <BigField label="Visibility">
           <div className="flex bg-muted" style={{ height: 42, padding: 3, gap: 3, borderRadius: 10 }}>
@@ -840,6 +962,24 @@ function BasicsStep({ programs, program, cohort, onSaved, onFormChange }: {
         <p style={{ fontSize: 13, maxWidth: "60ch", alignSelf: "end" }} className="text-muted-foreground m-0">
           Every session in this cohort uses this duration unless it has its own override. Shown to instructors before they apply, and feeds the payment letter&rsquo;s hours.
         </p>
+
+        <div className="col-span-1 sm:col-span-2">
+          <BigField
+            label="Poster template URL (optional)"
+            hint={program?.poster_template_url ? "Inherited default from program blueprint" : undefined}
+          >
+            <input
+              value={posterTemplateUrl}
+              onChange={(e) => {
+                setPosterTemplateUrl(e.target.value)
+                setPosterManuallyEdited(true)
+              }}
+              placeholder="https://canva.com/... or Google Slides template"
+              style={bigInput}
+              className="border border-border bg-background text-foreground focus:outline-none focus:border-primary transition-colors"
+            />
+          </BigField>
+        </div>
 
         <div className="col-span-1 sm:col-span-2">
           <label className="flex items-center gap-2.5 text-foreground cursor-pointer select-none" style={{ fontSize: 14 }}>
@@ -892,6 +1032,16 @@ function SessionsStep({ cohort }: { cohort: Cohort }) {
     mutationFn: (sessionId: string) => deleteSessionApi(cohort.id, sessionId),
     onSuccess: () => { toast.success("Session removed"); qc.invalidateQueries({ queryKey: sessionsKey }) },
     onError: (e: any) => setError(getErrorMessage(e, "Could not remove that session — it may already have activity")),
+  })
+
+  const updateDate = useMutation({
+    mutationFn: ({ id, meeting_date }: { id: string; meeting_date: string }) =>
+      updateSessionApi(cohort.id, id, { meeting_date }),
+    onSuccess: () => {
+      toast.success("Session date updated")
+      qc.invalidateQueries({ queryKey: sessionsKey })
+    },
+    onError: (e: any) => setError(getErrorMessage(e, "Could not update session date")),
   })
 
   const togglePending = (iso: string) => setPending((s) => {
@@ -965,7 +1115,14 @@ function SessionsStep({ cohort }: { cohort: Cohort }) {
               {generate.isPending ? "Generating…" : "Generate sessions"}
             </button>
           </div>
-          <SessionsList sessions={sessions} isLoading={isLoading} onRemove={(id) => remove.mutate(id)} countLabel="Preview" count={sessions.length} />
+          <SessionsList
+            sessions={sessions}
+            isLoading={isLoading}
+            onRemove={(id) => remove.mutate(id)}
+            onUpdateDate={(id, meeting_date) => updateDate.mutate({ id, meeting_date })}
+            countLabel="Preview"
+            count={sessions.length}
+          />
         </div>
       ) : (
         <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_minmax(320px,0.6fr)] gap-6 lg:gap-9 items-start">
@@ -1014,7 +1171,14 @@ function SessionsStep({ cohort }: { cohort: Cohort }) {
               className="bg-primary text-primary-foreground hover:opacity-90 transition-opacity disabled:opacity-50">
               {addManual.isPending ? "Adding…" : `Add ${pending.size || ""} session${pending.size === 1 ? "" : "s"}`}
             </button>
-            <SessionsList sessions={sessions} isLoading={isLoading} onRemove={(id) => remove.mutate(id)} countLabel="This cohort's sessions" count={sessions.length} />
+            <SessionsList
+              sessions={sessions}
+              isLoading={isLoading}
+              onRemove={(id) => remove.mutate(id)}
+              onUpdateDate={(id, meeting_date) => updateDate.mutate({ id, meeting_date })}
+              countLabel="This cohort's sessions"
+              count={sessions.length}
+            />
           </div>
         </div>
       )}
@@ -1023,8 +1187,10 @@ function SessionsStep({ cohort }: { cohort: Cohort }) {
   )
 }
 
-function SessionsList({ sessions, isLoading, onRemove, countLabel, count }: {
-  sessions: Session[]; isLoading: boolean; onRemove: (id: string) => void; countLabel: string; count: number
+function SessionsList({ sessions, isLoading, onRemove, onUpdateDate, countLabel, count }: {
+  sessions: Session[]; isLoading: boolean; onRemove: (id: string) => void;
+  onUpdateDate?: (id: string, meeting_date: string) => void;
+  countLabel: string; count: number
 }) {
   return (
     <div className="flex flex-col" style={{ gap: 14 }}>
@@ -1037,18 +1203,43 @@ function SessionsList({ sessions, isLoading, onRemove, countLabel, count }: {
           <p style={{ fontSize: 14 }} className="text-muted-foreground italic">No sessions yet.</p>
         ) : sessions
           .slice()
-          .sort((a, b) => a.meeting_date.localeCompare(b.meeting_date))
+          .sort((a, b) => {
+            const d = a.meeting_date.localeCompare(b.meeting_date)
+            return d !== 0 ? d : (a.starts_at || "").localeCompare(b.starts_at || "")
+          })
           .map((s, i) => (
             <div key={s.id}
               style={{ padding: "12px 16px", borderRadius: 10, boxShadow: CARD_SHADOW }}
-              className="flex items-center justify-between border border-border bg-card">
-              <span style={{ fontFamily: OUTFIT, fontSize: 16, fontWeight: 600, letterSpacing: "-0.01em" }} className="text-foreground">
-                {fmtDate(s.meeting_date)}
-              </span>
-              <div className="flex items-center" style={{ gap: 12 }}>
-                <span style={{ fontSize: 12, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.06em", fontVariantNumeric: "tabular-nums" }} className="text-muted-foreground">
-                  Session {i + 1}
+              className="flex items-center justify-between gap-3 border border-border bg-card flex-wrap">
+              <div className="flex flex-col gap-0.5 min-w-0">
+                <div className="flex items-center gap-2">
+                  <span style={{ fontFamily: OUTFIT, fontSize: 15, fontWeight: 600, letterSpacing: "-0.01em" }} className="text-foreground truncate">
+                    {s.title || `Session ${i + 1}`}
+                  </span>
+                  {s.duration_hours != null && (
+                    <span className="px-1.5 py-0.5 rounded bg-muted text-[11px] font-medium text-muted-foreground shrink-0">
+                      {s.duration_hours}h
+                    </span>
+                  )}
+                </div>
+                <span className="text-xs text-muted-foreground">
+                  {fmtDate(s.meeting_date)}
                 </span>
+              </div>
+              <div className="flex items-center shrink-0" style={{ gap: 10 }}>
+                {onUpdateDate && (
+                  <input
+                    type="date"
+                    value={s.meeting_date}
+                    onChange={(e) => {
+                      if (e.target.value && e.target.value !== s.meeting_date) {
+                        onUpdateDate(s.id, e.target.value)
+                      }
+                    }}
+                    aria-label={`Session ${i + 1} date`}
+                    className="h-8 px-2 rounded-lg border border-border bg-background text-foreground text-xs font-medium focus:outline-none focus:border-primary"
+                  />
+                )}
                 <button onClick={() => onRemove(s.id)} style={{ width: 28, height: 28 }} className="flex items-center justify-center rounded-lg text-muted-foreground hover:text-red-600 hover:bg-muted transition-colors" aria-label="Remove session">
                   <Trash2 size={15} />
                 </button>

@@ -1,5 +1,5 @@
-import { useMemo, useState } from "react"
-import { useNavigate } from "@tanstack/react-router"
+import { useEffect, useMemo, useState } from "react"
+import { useNavigate, useSearch } from "@tanstack/react-router"
 import { useQuery } from "@tanstack/react-query"
 import { AlertTriangle, Banknote, CheckCircle2, Download, FileText, LineChart, MapPin } from "lucide-react"
 import {
@@ -83,11 +83,10 @@ function InstructorDocumentsDialog({ userId, name, onClose }: { userId: string; 
                 <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
                   Mandatory Checklist
                 </p>
-                <span className={`text-[11px] font-semibold px-2 py-0.5 rounded-full ${
-                  data?.is_complete
+                <span className={`text-[11px] font-semibold px-2 py-0.5 rounded-full ${data?.is_complete
                     ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20"
                     : "bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20"
-                }`}>
+                  }`}>
                   {data?.is_complete ? "All Complete" : `${data?.uploaded_count}/${data?.total_required} Complete`}
                 </span>
               </div>
@@ -96,13 +95,12 @@ function InstructorDocumentsDialog({ userId, name, onClose }: { userId: string; 
                 {data?.checklist?.map((item) => (
                   <div
                     key={item.key}
-                    className={`flex items-center justify-between gap-3 p-3 rounded-xl border transition-colors ${
-                      item.uploaded
+                    className={`flex items-center justify-between gap-3 p-3 rounded-xl border transition-colors ${item.uploaded
                         ? "bg-emerald-500/5 border-emerald-500/20"
                         : item.exempt
-                        ? "bg-muted/30 border-border"
-                        : "bg-amber-500/5 border-amber-500/20"
-                    }`}
+                          ? "bg-muted/30 border-border"
+                          : "bg-amber-500/5 border-amber-500/20"
+                      }`}
                   >
                     <div className="flex items-start gap-2.5 min-w-0">
                       {item.uploaded ? (
@@ -125,9 +123,8 @@ function InstructorDocumentsDialog({ userId, name, onClose }: { userId: string; 
                                 : "Exempt"}
                             </span>
                           ) : item.mandatory ? (
-                            <span className={`text-[10px] uppercase font-bold px-1.5 py-0.5 rounded ${
-                              item.uploaded ? "text-emerald-600 dark:text-emerald-400 bg-emerald-500/10" : "text-amber-600 dark:text-amber-400 bg-amber-500/10"
-                            }`}>
+                            <span className={`text-[10px] uppercase font-bold px-1.5 py-0.5 rounded ${item.uploaded ? "text-emerald-600 dark:text-emerald-400 bg-emerald-500/10" : "text-amber-600 dark:text-amber-400 bg-amber-500/10"
+                              }`}>
                               {item.uploaded ? "Uploaded" : "Missing"}
                             </span>
                           ) : null}
@@ -202,8 +199,8 @@ function InstructorDocumentsDialog({ userId, name, onClose }: { userId: string; 
                     const displayTitle = hasDistinctName
                       ? doc.file_name
                       : data.other_documents.filter(d => d.document_type === doc.document_type).length > 1
-                      ? `${doc.document_type} (${idx + 1})`
-                      : doc.document_type
+                        ? `${doc.document_type} (${idx + 1})`
+                        : doc.document_type
 
                     return (
                       <div key={doc.id} className="flex items-center justify-between gap-2 p-2.5 rounded-lg border bg-card/40 text-xs">
@@ -355,11 +352,10 @@ function BatchDownloadModal({
                 <label
                   key={opt.id}
                   onClick={(e) => e.stopPropagation()}
-                  className={`flex items-start gap-3 p-2.5 rounded-xl border text-xs cursor-pointer transition-colors ${
-                    checked
+                  className={`flex items-start gap-3 p-2.5 rounded-xl border text-xs cursor-pointer transition-colors ${checked
                       ? "bg-primary/5 border-primary/30"
                       : "bg-card/40 border-border hover:bg-muted/40"
-                  }`}
+                    }`}
                 >
                   <input
                     type="checkbox"
@@ -419,10 +415,18 @@ function BatchDownloadModal({
 }
 
 export default function InstructorsAdminInstructors() {
+  const { userId: searchUserId, focus: searchFocus, docFilter: searchDocFilter, bankFilter: searchBankFilter } = useSearch({
+    strict: false,
+  }) as {
+    userId?: string
+    focus?: string
+    docFilter?: string
+    bankFilter?: string
+  }
   const navigate = useNavigate()
   const toast = useToast()
   const { data: instructors, isLoading } = useQuery({ queryKey: ["admin-instructors"], queryFn: listAdminInstructorsApi })
-  const [profileUserId, setProfileUserId] = useState<string | null>(null)
+  const [profileUserId, setProfileUserId] = useState<string | null>(searchUserId ?? null)
   const [bankDetailsFor, setBankDetailsFor] = useState<{ id: string; name: string } | null>(null)
   const [documentsFor, setDocumentsFor] = useState<{ id: string; name: string } | null>(null)
   const [selectedIds, setSelectedIds] = useState<string[]>([])
@@ -431,8 +435,32 @@ export default function InstructorsAdminInstructors() {
   const [search, setSearch] = useState("")
   const [cityId, setCityId] = useState("")
   const [deliverCityId, setDeliverCityId] = useState("")
-  const [bankFilter, setBankFilter] = useState<"" | "missing" | "complete">("")
-  const [docFilter, setDocFilter] = useState<"" | "missing" | "complete">("")
+  const [bankFilter, setBankFilter] = useState<"" | "missing" | "complete">(
+    searchBankFilter === "missing" || searchBankFilter === "complete" ? searchBankFilter : ""
+  )
+  const [docFilter, setDocFilter] = useState<"" | "missing" | "complete">(
+    searchDocFilter === "missing" || searchDocFilter === "complete" ? searchDocFilter : ""
+  )
+
+  useEffect(() => {
+    if (searchUserId) setProfileUserId(searchUserId)
+  }, [searchUserId])
+
+  useEffect(() => {
+    if (searchBankFilter === "missing" || searchBankFilter === "complete") {
+      setBankFilter(searchBankFilter)
+    } else if (searchDocFilter) {
+      setBankFilter("")
+    }
+  }, [searchBankFilter, searchDocFilter])
+
+  useEffect(() => {
+    if (searchDocFilter === "missing" || searchDocFilter === "complete") {
+      setDocFilter(searchDocFilter)
+    } else if (searchBankFilter) {
+      setDocFilter("")
+    }
+  }, [searchDocFilter, searchBankFilter])
 
   // Options come from the loaded rows rather than /public/cities: the point of
   // these filters is to narrow THIS list, so offering cities no instructor is
@@ -620,11 +648,10 @@ export default function InstructorsAdminInstructors() {
                 tabIndex={0}
                 onClick={() => setProfileUserId(i.id)}
                 onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setProfileUserId(i.id) } }}
-                className={`w-full flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3 p-3.5 sm:p-4 rounded-xl border text-left transition-colors cursor-pointer ${
-                  isSelected
+                className={`w-full flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3 p-3.5 sm:p-4 rounded-xl border text-left transition-colors cursor-pointer ${isSelected
                     ? "bg-primary/5 border-primary/40 shadow-xs"
                     : "bg-card border-border hover:border-muted-foreground/30"
-                }`}
+                  }`}
               >
                 {/* Main info section */}
                 <div className="flex items-start gap-3 min-w-0 flex-1">
@@ -689,7 +716,7 @@ export default function InstructorsAdminInstructors() {
                     size="sm"
                     variant="outline"
                     className="h-8 text-xs flex-1 sm:flex-initial justify-center"
-                    onClick={(e) => { e.stopPropagation(); void navigate({ to: `/instructors/admin/instructors/${i.id}/performance` }) }}
+                    onClick={(e) => { e.stopPropagation(); void navigate({ to: `/operations/instructors/${i.id}` }) }}
                   >
                     <LineChart size={13} className="mr-1.5 shrink-0" />
                     <span>Performance</span>
@@ -729,7 +756,12 @@ export default function InstructorsAdminInstructors() {
       )}
 
       {profileUserId && (
-        <UserProfileModal userId={profileUserId} onClose={() => setProfileUserId(null)} />
+        <UserProfileModal
+          userId={profileUserId}
+          onClose={() => setProfileUserId(null)}
+          highlightCategory={searchFocus === "contract" ? "Contract" : undefined}
+          focusDossier={searchFocus === "contract" || searchFocus === "dossier"}
+        />
       )}
       {bankDetailsFor && (
         <BankDetailsDialog

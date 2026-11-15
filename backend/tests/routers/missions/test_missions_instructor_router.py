@@ -197,7 +197,7 @@ async def test_assigned_instructor_gets_default_all_steps_when_unconfigured(db, 
     assert body["is_default"] is True
     assert {s["step_key"] for s in body["steps"]} == {
         "components", "conops", "data_budget", "power_budget",
-        "mass_budget", "cost_budget", "link_budget",
+        "mass_budget", "cost_budget", "link_budget", "poster",
     }
     assert all(s["included"] for s in body["steps"])
     assert body["downlink_included"] is True

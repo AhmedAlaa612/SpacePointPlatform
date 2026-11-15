@@ -1,6 +1,6 @@
 import { useMemo, useRef, useState } from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { Boxes, CornerDownRight, FileText, ImagePlus, MapPin, Pencil, Plus, Search, Tag, Trash2, Upload, X } from "lucide-react"
+import { Boxes, Building2, CornerDownRight, FileText, Globe, ImagePlus, Layers, MapPin, Pencil, Plus, Search, Tag, Trash2, Upload, X } from "lucide-react"
 import type { City, Item, ItemCategory, ItemCategoryDef, ItemSubcategoryDef, KitTemplate, Location, StockLevel, Warehouse } from "@/types/inventory"
 import { ImageCropModal } from "@/components/ui/ImageCropModal"
 import {
@@ -47,43 +47,51 @@ import { cn } from "@/lib/utils"
 import { getCountries } from "@/lib/countries"
 import { useAuth } from "@/context/AuthContext"
 
-type Tab = "templates" | "items" | "locations" | "cities" | "warehouses" | "categories"
+type Tab = "items" | "warehouses" | "locations" | "categories" | "cities" | "templates"
 
 export default function Catalog() {
-  const [tab, setTab] = useState<Tab>("templates")
+  const [tab, setTab] = useState<Tab>("items")
 
   return (
     <div className="flex flex-col gap-6">
-      <div>
-        <h1 className="text-xl font-bold text-foreground tracking-tight">Catalogue</h1>
-        <p className="text-sm text-muted-foreground mt-0.5">
-          What a kit should contain, what we stock, and where things live
-        </p>
+      <div className="sp-wireframe-header relative overflow-hidden -mx-4 -mt-4 sm:-mx-6 sm:-mt-6 lg:-mx-10 lg:-mt-10 px-4 sm:px-6 lg:px-10 pt-6 bg-[#231134] text-white">
+        <img
+          src="/space-logo-white.png"
+          alt=""
+          aria-hidden="true"
+          className="pointer-events-none select-none absolute bottom-0 right-6 w-48 sm:w-64 opacity-10"
+        />
+
+        <div className="relative z-10 flex flex-col gap-5">
+          <h1 className="text-2xl font-bold tracking-tight text-white">Catalogue</h1>
+
+          <div className="flex items-center gap-1 border-b border-white/15 overflow-x-auto scrollbar-none no-scrollbar" role="tablist">
+            {(["items", "warehouses", "locations", "categories", "cities", "templates"] as Tab[]).map((t) => (
+              <button
+                key={t}
+                role="tab"
+                aria-selected={tab === t}
+                onClick={() => setTab(t)}
+                className={cn(
+                  "h-9 px-3 -mb-px border-b-2 text-sm font-medium transition-colors capitalize shrink-0 whitespace-nowrap cursor-pointer",
+                  tab === t
+                    ? "border-[#D7D2CB] text-white"
+                    : "border-transparent text-white/70 hover:text-white",
+                )}
+              >
+                {t}
+              </button>
+            ))}
+          </div>
+        </div>
       </div>
 
-      <div className="flex gap-1 border-b border-border overflow-x-auto">
-        {(["templates", "items", "locations", "cities", "warehouses", "categories"] as Tab[]).map((t) => (
-          <button
-            key={t}
-            onClick={() => setTab(t)}
-            className={cn(
-              "px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors capitalize shrink-0 whitespace-nowrap",
-              tab === t
-                ? "border-primary text-primary"
-                : "border-transparent text-muted-foreground hover:text-foreground",
-            )}
-          >
-            {t}
-          </button>
-        ))}
-      </div>
-
-      {tab === "templates" && <Templates />}
       {tab === "items" && <Items />}
-      {tab === "locations" && <Locations />}
-      {tab === "cities" && <Cities />}
       {tab === "warehouses" && <Warehouses />}
+      {tab === "locations" && <Locations />}
       {tab === "categories" && <Categories />}
+      {tab === "cities" && <Cities />}
+      {tab === "templates" && <Templates />}
     </div>
   )
 }
@@ -1127,13 +1135,7 @@ function Categories() {
 
   return (
     <div className="flex flex-col gap-4">
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-        <p className="text-sm text-muted-foreground max-w-2xl -mt-1">
-          Groupings and sub-groupings used across the catalogue, the "add a component" form and
-          stock filters. Renaming updates all assigned components. Deletion is refused while any
-          components still use it.
-        </p>
-
+      <div className="flex flex-col sm:flex-row sm:items-center justify-end gap-3">
         {canManage && (
           <form
             onSubmit={(e) => {
@@ -1413,63 +1415,85 @@ function Locations() {
 
   const rowContent = (l: Location) => (
     <>
-      <div className="min-w-0">
-        <p className="text-sm text-foreground">{l.name}</p>
-        <p className="text-xs text-muted-foreground truncate">
-          {l.city_name ? `${l.city_name}${l.country ? `, ${l.country}` : ""}` : (l.country ?? "no city yet")}
-          {l.address && ` · ${l.address}`}
-        </p>
-      </div>
-      <div className="flex items-center gap-2 shrink-0">
-        {l.maps_url && (
-          <a
-            href={l.maps_url} target="_blank" rel="noreferrer"
-            onClick={(e) => e.stopPropagation()}
-            className="text-muted-foreground hover:text-primary"
-            title="Open in maps"
-          >
-            <MapPin size={14} />
-          </a>
-        )}
-        {!l.is_active && (
-          <span className="text-xs px-2 py-0.5 rounded-full bg-muted text-muted-foreground">inactive</span>
-        )}
-        {canManage && <Pencil size={12} className="text-muted-foreground" />}
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <div className="flex items-center gap-2 flex-wrap">
+            <p className="text-sm font-semibold text-foreground">{l.name}</p>
+            {!l.is_active && (
+              <span className="text-[11px] px-2 py-0.5 rounded-full bg-muted text-muted-foreground">inactive</span>
+            )}
+          </div>
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground mt-1.5">
+            <span className="inline-flex items-center gap-1">
+              <Globe size={12} className="shrink-0" />
+              {l.city_name ? `${l.city_name}${l.country ? `, ${l.country}` : ""}` : (l.country ?? "No city yet")}
+            </span>
+            {l.address && (
+              <span className="inline-flex items-center gap-1 truncate max-w-xs">
+                <Building2 size={12} className="shrink-0" />
+                {l.address}
+              </span>
+            )}
+          </div>
+        </div>
+        <div className="flex items-center gap-1.5 shrink-0">
+          {l.maps_url && (
+            <a
+              href={l.maps_url} target="_blank" rel="noreferrer"
+              onClick={(e) => e.stopPropagation()}
+              className="p-1.5 rounded-lg text-muted-foreground hover:text-primary hover:bg-muted transition-colors"
+              title="Open in maps"
+            >
+              <MapPin size={14} />
+            </a>
+          )}
+          {canManage && (
+            <span className="p-1.5 rounded-lg text-muted-foreground">
+              <Pencil size={13} />
+            </span>
+          )}
+        </div>
       </div>
     </>
   )
 
   return (
     <div className="flex flex-col gap-4">
-      <p className="text-sm text-muted-foreground -mt-1">
-        A location is a site — a workshop space, an office. No warehouse is
-        created automatically; add one from the Warehouses tab once you
-        actually need to hold stock here.
-      </p>
-      {canManage && (
-        <button
-          onClick={() => setOpen(true)}
-          className="flex items-center gap-1.5 h-9 px-4 bg-primary text-primary-foreground text-sm font-medium rounded-xl hover:opacity-90 w-fit"
-        >
-          <Plus size={14} /> New location
-        </button>
-      )}
-
-      <div className="rounded-2xl border border-border bg-card divide-y divide-border">
-        {locations.map((l) => canManage ? (
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+        <p className="text-sm text-muted-foreground">
+          A location is a site — a workshop space, an office. Add a warehouse once you actually need to hold stock here.
+        </p>
+        {canManage && (
           <button
-            key={l.id}
-            onClick={() => setEditing(l)}
-            className="w-full flex items-center justify-between px-4 py-3 text-left hover:bg-muted/40 transition-colors"
+            onClick={() => setOpen(true)}
+            className="flex items-center gap-1.5 h-9 px-4 bg-primary text-primary-foreground text-sm font-medium rounded-xl hover:opacity-90 shrink-0 cursor-pointer w-fit"
           >
-            {rowContent(l)}
+            <Plus size={14} /> New location
           </button>
-        ) : (
-          <div key={l.id} className="w-full flex items-center justify-between px-4 py-3">
-            {rowContent(l)}
-          </div>
-        ))}
+        )}
       </div>
+
+      {locations.length === 0 ? (
+        <div className="rounded-[10px] border border-border bg-card p-8 text-center text-sm text-muted-foreground">
+          No locations yet.
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+          {locations.map((l) => canManage ? (
+            <button
+              key={l.id}
+              onClick={() => setEditing(l)}
+              className="rounded-[10px] border border-border bg-card p-4 text-left hover:border-primary/40 transition-colors cursor-pointer"
+            >
+              {rowContent(l)}
+            </button>
+          ) : (
+            <div key={l.id} className="rounded-[10px] border border-border bg-card p-4">
+              {rowContent(l)}
+            </div>
+          ))}
+        </div>
+      )}
 
       {canManage && (open || editing) && (
         <LocationModal
@@ -1583,57 +1607,72 @@ function Cities() {
   const [open, setOpen] = useState(false)
   const [editing, setEditing] = useState<City | null>(null)
 
+  const countriesByCode = useMemo(
+    () => new Map(getCountries().map((item) => [item.code, item.name])),
+    [],
+  )
+
   if (isLoading) return <Spinner />
 
   const rowContent = (c: City) => (
     <>
       <div className="min-w-0">
-        <p className="text-sm text-foreground">{c.name}</p>
-        <p className="text-xs text-muted-foreground">{c.country}</p>
+        <div className="flex items-center gap-2">
+          <p className="text-sm font-semibold text-foreground truncate">{c.name}</p>
+          {!c.is_active && (
+            <span className="text-[11px] px-2 py-0.5 rounded-full bg-muted text-muted-foreground shrink-0">inactive</span>
+          )}
+        </div>
+        <p className="inline-flex items-center gap-1.5 text-xs text-muted-foreground mt-1">
+          <Globe size={12} className="shrink-0" />
+          <span>{countriesByCode.get(c.country) ?? c.country}</span>
+        </p>
       </div>
-      <div className="flex items-center gap-2 shrink-0">
-        {!c.is_active && (
-          <span className="text-xs px-2 py-0.5 rounded-full bg-muted text-muted-foreground">inactive</span>
-        )}
-        {canManage && <Pencil size={12} className="text-muted-foreground" />}
-      </div>
+      {canManage && (
+        <span className="p-1.5 rounded-lg text-muted-foreground shrink-0">
+          <Pencil size={13} />
+        </span>
+      )}
     </>
   )
 
   return (
     <div className="flex flex-col gap-4">
-      <p className="text-sm text-muted-foreground -mt-1">
-        The cities instructors can mark as "open to work in", and locations
-        can sit in — seeded with the UAE emirates, add more as the org
-        expands. Reflected live on the instructor apply form and profile.
-      </p>
-      {canManage && (
-        <button
-          onClick={() => setOpen(true)}
-          className="flex items-center gap-1.5 h-9 px-4 bg-primary text-primary-foreground text-sm font-medium rounded-xl hover:opacity-90 w-fit"
-        >
-          <Plus size={14} /> New city
-        </button>
-      )}
-
-      <div className="rounded-2xl border border-border bg-card divide-y divide-border">
-        {cities.map((c) => canManage ? (
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+        <p className="text-sm text-muted-foreground">
+          Cities instructors can mark as open to work in, and where locations sit.
+        </p>
+        {canManage && (
           <button
-            key={c.id}
-            onClick={() => setEditing(c)}
-            className="w-full flex items-center justify-between px-4 py-3 text-left hover:bg-muted/40 transition-colors"
+            onClick={() => setOpen(true)}
+            className="flex items-center gap-1.5 h-9 px-4 bg-primary text-primary-foreground text-sm font-medium rounded-xl hover:opacity-90 shrink-0 cursor-pointer w-fit"
           >
-            {rowContent(c)}
+            <Plus size={14} /> New city
           </button>
-        ) : (
-          <div key={c.id} className="w-full flex items-center justify-between px-4 py-3">
-            {rowContent(c)}
-          </div>
-        ))}
-        {cities.length === 0 && (
-          <div className="p-8 text-center text-sm text-muted-foreground">No cities yet.</div>
         )}
       </div>
+
+      {cities.length === 0 ? (
+        <div className="rounded-[10px] border border-border bg-card p-8 text-center text-sm text-muted-foreground">
+          No cities yet.
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+          {cities.map((c) => canManage ? (
+            <button
+              key={c.id}
+              onClick={() => setEditing(c)}
+              className="rounded-[10px] border border-border bg-card px-4 py-3 flex items-center justify-between gap-3 text-left hover:border-primary/40 transition-colors cursor-pointer"
+            >
+              {rowContent(c)}
+            </button>
+          ) : (
+            <div key={c.id} className="rounded-[10px] border border-border bg-card px-4 py-3 flex items-center justify-between gap-3">
+              {rowContent(c)}
+            </div>
+          ))}
+        </div>
+      )}
 
       {canManage && (open || editing) && (
         <CityModal city={editing} onClose={() => { setOpen(false); setEditing(null) }} />
@@ -1717,26 +1756,48 @@ function Warehouses() {
 
   const rowContent = (w: Warehouse) => (
     <>
-      <div className="min-w-0">
-        <div className="flex items-center gap-2 flex-wrap">
-          <p className="text-sm font-semibold text-foreground">{w.name}</p>
-          {w.code && (
-            <span className="text-[11px] font-mono font-medium px-2 py-0.5 rounded-md bg-secondary text-secondary-foreground">
-              {w.code}
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <div className="flex items-center gap-2 flex-wrap">
+            <p className="text-sm font-semibold text-foreground">{w.name}</p>
+            {w.code && (
+              <span className="text-[11px] font-mono font-medium px-2 py-0.5 rounded-md bg-secondary text-secondary-foreground">
+                {w.code}
+              </span>
+            )}
+            {!w.is_active && (
+              <span className="text-[11px] px-2 py-0.5 rounded-full bg-muted text-muted-foreground">inactive</span>
+            )}
+          </div>
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground mt-1.5">
+            <span className="inline-flex items-center gap-1">
+              <Building2 size={12} className="shrink-0" />
+              {w.location_name}
             </span>
-          )}
-          {w.cabins && w.cabins.length > 0 && (
-            <span className="text-xs px-2 py-0.5 rounded-full bg-primary/10 text-primary font-medium flex items-center gap-1">
-              <MapPin size={11} /> {w.cabins.length} cabin{w.cabins.length === 1 ? "" : "s"}
+            {w.address && (
+              <span className="inline-flex items-center gap-1 truncate max-w-xs">
+                <MapPin size={12} className="shrink-0" />
+                {w.address}
+              </span>
+            )}
+            <span className="inline-flex items-center gap-1">
+              <Layers size={12} className="shrink-0" />
+              {w.cabins?.length ?? 0} cabin{(w.cabins?.length ?? 0) === 1 ? "" : "s"}
             </span>
-          )}
+          </div>
         </div>
-        <p className="text-xs text-muted-foreground truncate mt-0.5">
-          Location: <span className="font-medium text-foreground">{w.location_name}</span>
-          {w.address && ` · ${w.address}`}
-        </p>
+        {canManage && (
+          <button
+            type="button"
+            onClick={() => setEditing(w)}
+            className="p-1.5 text-muted-foreground hover:text-foreground hover:bg-muted rounded-lg transition-colors cursor-pointer shrink-0"
+            title="Edit warehouse"
+          >
+            <Pencil size={13} />
+          </button>
+        )}
       </div>
-      <div className="flex items-center gap-2 shrink-0" onClick={(e) => e.stopPropagation()}>
+      <div className="border-t border-border/60 pt-3 flex items-center justify-end">
         <button
           type="button"
           onClick={() => setManagingCabins(w)}
@@ -1744,53 +1805,36 @@ function Warehouses() {
         >
           <MapPin size={13} className="text-primary" /> Cabins & Layout
         </button>
-        {!w.is_active && (
-          <span className="text-xs px-2 py-0.5 rounded-full bg-muted text-muted-foreground">inactive</span>
-        )}
-        {canManage && (
-          <button
-            type="button"
-            onClick={() => setEditing(w)}
-            className="p-1.5 text-muted-foreground hover:text-foreground rounded-lg transition-colors cursor-pointer"
-            title="Edit warehouse"
-          >
-            <Pencil size={13} />
-          </button>
-        )}
       </div>
     </>
   )
 
   return (
     <div className="flex flex-col gap-4">
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-        <p className="text-sm text-muted-foreground">
-          A warehouse is a store within a location — the shelf stock and kits are actually counted
-          against. Manage physical cabins and visual layouts for each warehouse below.
-        </p>
-        {canManage && (
+      {canManage && (
+        <div className="flex justify-end">
           <button
             onClick={() => setOpen(true)}
             className="flex items-center gap-1.5 h-9 px-4 bg-primary text-primary-foreground text-sm font-medium rounded-xl hover:opacity-90 shrink-0 cursor-pointer w-fit"
           >
             <Plus size={14} /> New warehouse
           </button>
-        )}
-      </div>
+        </div>
+      )}
 
-      <div className="rounded-2xl border border-border bg-card divide-y divide-border">
-        {warehouses.map((w) => (
-          <div key={w.id} className="w-full flex items-center justify-between px-4 py-3">
-            {rowContent(w)}
-          </div>
-        ))}
-
-        {warehouses.length === 0 && (
-          <div className="p-8 text-center text-sm text-muted-foreground">
-            {canManage ? "No warehouses created yet. Click \"New warehouse\" above to add one." : "No warehouses created yet."}
-          </div>
-        )}
-      </div>
+      {warehouses.length === 0 ? (
+        <div className="rounded-[10px] border border-border bg-card p-8 text-center text-sm text-muted-foreground">
+          {canManage ? "No warehouses created yet. Click \"New warehouse\" above to add one." : "No warehouses created yet."}
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+          {warehouses.map((w) => (
+            <div key={w.id} className="rounded-[10px] border border-border bg-card p-4 flex flex-col justify-between gap-3">
+              {rowContent(w)}
+            </div>
+          ))}
+        </div>
+      )}
 
       {canManage && (open || editing) && (
         <WarehouseEditModal

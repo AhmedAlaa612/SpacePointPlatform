@@ -204,13 +204,33 @@ export interface OrganizationAccountSummary {
   org_type: string
   country: string | null
   city: string | null
+  created_at?: string | null
   owner_user_id: string | null
   owner_email: string | null
   owner_name: string | null
   owner_phone?: string | null
   owner_status?: string | null
+  owner_card_id?: string | null
+  logo_url?: string | null
   events_count: number
+  published_events_count?: number
   members_count: number
+  programs_count?: number
+  cohorts_count?: number
+  running_cohorts_count?: number
+  enrolled_students_count?: number
+  highest_cohort_students?: number
+  highest_cohort_name?: string | null
+  highest_cohort_observers?: number
+  highest_observers_cohort_name?: string | null
+  authored_courses_count?: number
+  pending_review_courses_count?: number
+  shared_courses_count?: number
+  invite_batches_active_count?: number
+  invite_used_count?: number
+  invite_max_count?: number
+  quiz_templates_authored_count?: number
+  quiz_questions_authored_count?: number
   is_approved: boolean
   can_publish_events: boolean
   can_author_courses: boolean
@@ -224,6 +244,133 @@ export interface OrganizationAccountSummary {
   max_cohorts?: number | null
   max_students_per_cohort?: number | null
   max_observers_per_cohort?: number | null
+}
+
+export interface OrgProgramChecklistItem {
+  id: string
+  position: number
+  title: string
+  item_type: string
+  optional: boolean
+  scope: string
+}
+
+export interface OrgProgramDetail {
+  id: string
+  name: string
+  program_type: string
+  active: boolean
+  lms_program_id: string | null
+  checklist_name: string | null
+  certificate_required: boolean
+  cohorts_count: number
+  checklist_items: OrgProgramChecklistItem[]
+}
+
+export interface OrgCohortDetail {
+  id: string
+  program_id: string
+  program_name: string
+  name: string
+  status: string
+  starts_on: string | null
+  ends_on: string | null
+  enrolled_count: number
+  capacity: number | null
+  observers_count: number
+  sessions_count: number
+  completion_pct: number
+}
+
+export interface OrgInviteBatch {
+  id: string
+  code: string
+  label: string | null
+  kind: string
+  granted_target: string | null
+  used_count: number
+  max_uses: number
+  expires_at: string | null
+  is_active: boolean
+}
+
+export interface OrgStudentDetail {
+  registration_id: string
+  contact_id: string
+  user_id: string | null
+  full_name: string
+  email: string
+  phone: string | null
+  cohort_id: string
+  cohort_name: string
+  status: string
+  enrolled_at: string | null
+  completion_pct: number
+}
+
+export interface OrgAuthoredCourse {
+  id: string
+  title: string
+  track: string | null
+  is_published: boolean
+  submitted_for_review_at: string | null
+  modules_count: number
+  enrolled_count: number
+  created_at: string | null
+}
+
+export interface OrgSharedCourse {
+  id: string
+  title: string
+  track: string | null
+  level: string | null
+  modules_count: number
+  is_published: boolean
+}
+
+export interface OrgQuizTemplate {
+  id: string
+  name: string
+  questions_count: number
+  is_active: boolean
+  linked_cohorts: string[]
+  created_at: string | null
+}
+
+export interface OrgLandingPage {
+  id: string
+  title: string
+  slug: string
+  country: string
+  is_published: boolean
+  cohort_id: string | null
+  cohort_name: string | null
+  registrations_count: number
+  updated_at: string | null
+}
+
+export interface OrgTeamMemberDetail {
+  user_id: string
+  full_name: string
+  email: string
+  phone: string | null
+  role: string
+  card_id: string | null
+  status: string
+  observer_cohorts: string[]
+}
+
+export interface OrganizationDetail {
+  organization: OrganizationAccountSummary
+  programs: OrgProgramDetail[]
+  cohorts: OrgCohortDetail[]
+  invite_batches: OrgInviteBatch[]
+  students: OrgStudentDetail[]
+  authored_courses: OrgAuthoredCourse[]
+  shared_courses: OrgSharedCourse[]
+  quiz_templates: OrgQuizTemplate[]
+  landing_pages: OrgLandingPage[]
+  team: OrgTeamMemberDetail[]
 }
 
 export interface OrganizationAccountCreatePayload {
@@ -332,6 +479,24 @@ export const getAdminOrganizationResetLink = (orgId: string) =>
     )
     .then((r) => r.data)
 
+export const getAdminOrganizationDetail = (orgId: string) =>
+  api.get<OrganizationDetail>(`/admin/website/organizations/${orgId}/detail`).then((r) => r.data)
+
+export const createOrganizationMemberResetLink = (orgId: string, userId: string) =>
+  api
+    .post<{ organization_id: string; user_id: string; email: string; reset_url: string }>(
+      `/admin/website/organizations/${orgId}/members/${userId}/reset-link`
+    )
+    .then((r) => r.data)
+
+export const toggleOrganizationCoursePublish = (orgId: string, courseId: string, is_published: boolean) =>
+  api
+    .post<{ id: string; is_published: boolean }>(
+      `/admin/website/organizations/${orgId}/courses/${courseId}/publish`,
+      { is_published }
+    )
+    .then((r) => r.data)
+
 // ── Organization Self-Service Endpoints ──────────────────────────────────────
 export interface MyOrganizationContext {
   organization: {
@@ -387,7 +552,9 @@ export const updateMyOrganizationEvent = (id: string, payload: Partial<WebsiteEv
 export const deleteMyOrganizationEvent = (id: string) =>
   api.delete(`/organization/events/${id}`)
 
-export async function organizationSignupApi(payload: OrganizationAccountCreatePayload & { phone: string }): Promise<User> {
+export async function organizationSignupApi(
+  payload: OrganizationAccountCreatePayload & { phone: string; answers?: Record<string, unknown> },
+): Promise<User> {
   const { data } = await api.post<{
     access_token: string
     refresh_token: string

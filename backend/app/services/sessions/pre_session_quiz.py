@@ -3,7 +3,7 @@ from typing import Any
 from uuid import UUID
 
 from fastapi import HTTPException, status
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.sessions.cohort import Cohort
@@ -658,8 +658,63 @@ async def get_assignment_for_scope(
                     "preset_name": preset.name,
                     "inherited": False,
                 }
-        # Fallback to cohort
+        # Fallback to matching template day, then cohort (and cohort -> program)
         if session.cohort_id:
+            cohort = await db.get(Cohort, session.cohort_id)
+            if cohort is not None:
+                norm_name = (cohort.name or "").strip().lower()
+                is_template = (
+                    cohort.status == "draft"
+                    or norm_name.startswith("[template]")
+                    or norm_name == "template"
+                )
+                if not is_template:
+                    template_cohort = await db.scalar(
+                        select(Cohort).where(
+                            Cohort.program_id == cohort.program_id,
+                            or_(
+                                Cohort.status == "draft",
+                                Cohort.name.ilike("[Template]%"),
+                                Cohort.name.ilike("%template%"),
+                            ),
+                            Cohort.id != cohort.id,
+                        ).order_by(Cohort.created_at.asc())
+                    )
+                    if template_cohort is not None:
+                        all_sessions = (await db.execute(
+                            select(Session.id).where(Session.cohort_id == cohort.id)
+                            .order_by(Session.meeting_date, Session.starts_at, Session.created_at)
+                        )).scalars().all()
+                        try:
+                            s_idx = all_sessions.index(session.id)
+                            t_sessions = (await db.execute(
+                                select(Session.id).where(Session.cohort_id == template_cohort.id)
+                                .order_by(Session.meeting_date, Session.starts_at, Session.created_at)
+                            )).scalars().all()
+                            if s_idx < len(t_sessions):
+                                t_assign = (await db.execute(
+                                    select(PreSessionQuizAssignment).where(
+                                        PreSessionQuizAssignment.session_id == t_sessions[s_idx]
+                                    )
+                                )).scalars().first()
+                                if t_assign is not None:
+                                    if t_assign.preset_id is None:
+                                        return {
+                                            "level": "program",
+                                            "preset_id": None,
+                                            "preset_name": None,
+                                            "inherited": True,
+                                        }
+                                    preset = await db.get(PreSessionQuizPreset, t_assign.preset_id)
+                                    if preset:
+                                        return {
+                                            "level": "program",
+                                            "preset_id": preset.id,
+                                            "preset_name": preset.name,
+                                            "inherited": True,
+                                        }
+                        except ValueError:
+                            pass
             res = await get_assignment_for_scope(db, "cohorts", session.cohort_id)
             if res["preset_id"] is not None:
                 res["inherited"] = True

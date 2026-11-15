@@ -1,7 +1,7 @@
 import { useState } from "react"
 import { useNavigate } from "@tanstack/react-router"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { Bus, Check, CheckCircle2, LifeBuoy, MapPin, Plane, Star, Trash2, XCircle } from "lucide-react"
+import { Bus, Check, CheckCircle2, ExternalLink, LifeBuoy, MapPin, Plane, Star, Trash2, XCircle } from "lucide-react"
 import { getDeliveryRolesApi, type DeliveryRole } from "@/api/sessions/openings"
 import {
   listCohortApplicantsApi,
@@ -260,9 +260,6 @@ export default function CohortStaffingPanel({ cohort }: { cohort: Cohort }) {
         <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
           <div>
             <h3 className="font-semibold text-sm">Applicants</h3>
-            <p className="text-xs text-muted-foreground">
-              One row per instructor — the role they asked for and the sessions they can do.
-            </p>
           </div>
           {(calls.data ?? []).length > 1 && (
             <select
@@ -406,11 +403,7 @@ export default function CohortStaffingPanel({ cohort }: { cohort: Cohort }) {
       </div>
 
       <div>
-        <h3 className="font-semibold text-sm mb-1">Staffed</h3>
-        <p className="text-xs text-muted-foreground mb-3">
-          The agreed rate is snapshotted here — editing a cohort rate later won't reprice anyone
-          already assigned.
-        </p>
+        <h3 className="font-semibold text-sm mb-3">Staffed</h3>
         {assignments.isLoading ? (
           <Spinner />
         ) : staffed.length === 0 ? (
@@ -451,17 +444,27 @@ export default function CohortStaffingPanel({ cohort }: { cohort: Cohort }) {
                       <div className="flex items-center justify-end gap-2">
                         <button
                           type="button"
-                          className="text-muted-foreground hover:text-primary transition-colors"
+                          className="inline-flex items-center gap-1 rounded-lg border border-border bg-background px-2.5 py-1 text-xs font-semibold text-foreground hover:border-primary/50 hover:text-primary transition-colors"
                           title="Rate this instructor's performance"
                           onClick={() => void navigate({
                             to: `/instructors/admin/ratings/${cohort.id}/${a.user_id}`,
                           })}
                         >
-                          <Star size={14} />
+                          <Star size={12} /> Rate
                         </button>
                         <button
                           type="button"
-                          className="text-muted-foreground hover:text-red-600 transition-colors"
+                          className="inline-flex items-center gap-1 rounded-lg border border-border bg-background px-2.5 py-1 text-xs font-semibold text-muted-foreground hover:text-foreground transition-colors"
+                          title="Open comprehensive Ops instructor profile"
+                          onClick={() => void navigate({
+                            to: `/operations/instructors/${a.user_id}`,
+                          })}
+                        >
+                          <ExternalLink size={12} /> Ops Profile
+                        </button>
+                        <button
+                          type="button"
+                          className="p-1 text-muted-foreground hover:text-red-600 transition-colors"
                           title="Remove from this cohort"
                           onClick={() => setRemoving({ userId: a.user_id, name: a.full_name })}
                         >

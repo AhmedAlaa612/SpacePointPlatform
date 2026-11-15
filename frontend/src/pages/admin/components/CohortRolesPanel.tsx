@@ -38,13 +38,12 @@ import {
   type MaterialOwner,
 } from "@/api/sessions/openings"
 import { getSessionsApi } from "@/api/sessions/cohorts"
+import { getProgramTemplateApi } from "@/api/sessions/programs"
 import { listChecklistItemsApi, setChecklistItemsApi, type ChecklistScope } from "@/api/sessions/day"
 import { useToast } from "@/components/ui/toast"
 import { cn, ensureAbsoluteUrl, getErrorMessage } from "@/lib/utils"
 import { MediaPreviewModal } from "@/components/media/MediaPreviewModal"
 import { ChecklistAttachmentPicker } from "./ChecklistAttachmentPicker"
-import { PreSessionQuizAssignmentBar } from "./PreSessionQuizAssignmentBar"
-import { SessionPreQuizOpsPanel } from "./SessionPreQuizOpsPanel"
 import { ImportInstructorChecklistModal } from "./ImportInstructorChecklistModal"
 
 export type ChecklistDraftLine = {
@@ -111,21 +110,52 @@ async function fetchFallbackChecklistItems(
   roleId?: string | null,
   cohortId?: string,
   targetAudience: "instructor" | "internal" = "instructor",
+  allSessions?: Session[],
 ): Promise<ChecklistItem[]> {
+  let templateSessionId: string | undefined
+  if (scope === "sessions" && programId && allSessions && allSessions.length > 0) {
+    const dayIdx = allSessions.findIndex((s) => s.id === ownerId)
+    if (dayIdx >= 0) {
+      try {
+        const tpl = await getProgramTemplateApi(programId)
+        templateSessionId = tpl.sessions[dayIdx]?.id
+      } catch { }
+    }
+  }
+
   if (targetAudience === "internal") {
+    if (templateSessionId) {
+      try {
+        const tplInternal = await listChecklistItemsApi("sessions", templateSessionId, null, "internal")
+        if (tplInternal.length > 0) return tplInternal
+      } catch { }
+    }
     if (scope === "sessions" && cohortId) {
       try {
         const cohortInternal = await listChecklistItemsApi("cohorts", cohortId, null, "internal")
         if (cohortInternal.length > 0) return cohortInternal
-      } catch {}
+      } catch { }
     }
     if (programId) {
       try {
         const progInternal = await listChecklistItemsApi("programs", programId, null, "internal")
         if (progInternal.length > 0) return progInternal
-      } catch {}
+      } catch { }
     }
     return []
+  }
+
+  if (templateSessionId) {
+    if (roleId) {
+      try {
+        const tplRole = await listChecklistItemsApi("sessions", templateSessionId, roleId)
+        if (tplRole.length > 0) return tplRole
+      } catch { }
+    }
+    try {
+      const tplGen = await listChecklistItemsApi("sessions", templateSessionId, null)
+      if (tplGen.length > 0) return tplGen
+    } catch { }
   }
 
   if (scope === "sessions" && cohortId) {
@@ -133,19 +163,19 @@ async function fetchFallbackChecklistItems(
       try {
         const cohortRole = await listChecklistItemsApi("cohorts", cohortId, roleId)
         if (cohortRole.length > 0) return cohortRole
-      } catch {}
+      } catch { }
     }
     try {
       const cohortGen = await listChecklistItemsApi("cohorts", cohortId, null)
       if (cohortGen.length > 0) return cohortGen
-    } catch {}
+    } catch { }
   }
 
   if (roleId) {
     try {
       const sameLevelGeneral = await listChecklistItemsApi(scope, ownerId, null)
       if (sameLevelGeneral.length > 0) return sameLevelGeneral
-    } catch {}
+    } catch { }
   }
 
   if (programId) {
@@ -153,12 +183,12 @@ async function fetchFallbackChecklistItems(
       try {
         const progRole = await listChecklistItemsApi("programs", programId, roleId)
         if (progRole.length > 0) return progRole
-      } catch {}
+      } catch { }
     }
     try {
       const progGeneral = await listChecklistItemsApi("programs", programId, null)
       if (progGeneral.length > 0) return progGeneral
-    } catch {}
+    } catch { }
   }
   return []
 }
@@ -204,7 +234,7 @@ export function OrderNumberInput({
         if (e.key === "Enter") (e.target as HTMLInputElement).blur()
         if (e.key === "Escape") {
           setText(String(value))
-          ;(e.target as HTMLInputElement).blur()
+            ; (e.target as HTMLInputElement).blur()
         }
       }}
       onClick={(e) => e.stopPropagation()}
@@ -329,11 +359,10 @@ function ReorderableChecklistList({
             dropOnto(line.key)
           }}
           onDragEnd={() => setDragKey(null)}
-          className={`flex flex-col sm:flex-row sm:items-start gap-2 p-2.5 sm:p-2 bg-card border rounded-xl transition-all ${
-            dragKey === line.key
-              ? "opacity-40 border-primary ring-1 ring-primary/40"
-              : "border-border hover:border-border/80"
-          }`}
+          className={`flex flex-col sm:flex-row sm:items-start gap-2 p-2.5 sm:p-2 bg-card border rounded-xl transition-all ${dragKey === line.key
+            ? "opacity-40 border-primary ring-1 ring-primary/40"
+            : "border-border hover:border-border/80"
+            }`}
         >
           {/* Top bar on mobile / Reorder controls on desktop */}
           <div className="flex items-center justify-between sm:justify-start gap-1.5 shrink-0 sm:pt-1 flex-wrap">
@@ -745,7 +774,7 @@ function DayChecklistEditor({
       setIsInherited(false)
     } else {
       setIsLoadingFallback(true)
-      fetchFallbackChecklistItems(scope, ownerId, programId, roleId, cohortId, targetAudience)
+      fetchFallbackChecklistItems(scope, ownerId, programId, roleId, cohortId, targetAudience, allSessions)
         .then((fb) => {
           setDraft(toDraftLines(fb))
           setIsInherited(fb.length > 0)
@@ -756,7 +785,7 @@ function DayChecklistEditor({
         })
         .finally(() => setIsLoadingFallback(false))
     }
-  }, [isLoading, items, draft, scope, ownerId, programId, roleId, cohortId, targetAudience])
+  }, [isLoading, items, draft, scope, ownerId, programId, roleId, cohortId, targetAudience, allSessions])
 
   const saveMutation = useMutation({
     mutationFn: () => {
@@ -1077,9 +1106,9 @@ export function CohortDayChecklistManager({
             const dayLabel = `Day ${idx + 1}`
             const dateFormatted = session.meeting_date
               ? new Date(session.meeting_date).toLocaleDateString("en-US", {
-                  month: "short",
-                  day: "numeric",
-                })
+                month: "short",
+                day: "numeric",
+              })
               : ""
 
             return (
@@ -1177,19 +1206,6 @@ export function CohortDayChecklistManager({
           <ClipboardCheck size={12} />
           Internal Checklist
         </button>
-      </div>
-
-      {/* 2.5. Pre-Session Quiz Preset Assignment & Submissions Review */}
-      <div className="space-y-3">
-        <PreSessionQuizAssignmentBar
-          scope={isDefaultScope ? "cohorts" : "sessions"}
-          ownerId={isDefaultScope ? cohort.id : selectedDay}
-          dayTitle={dayTitle}
-        />
-        <SessionPreQuizOpsPanel
-          cohortId={isDefaultScope ? cohort.id : undefined}
-          sessionId={!isDefaultScope ? selectedDay : undefined}
-        />
       </div>
 
       {/* 3. Active Day & Role Checklist Editor */}

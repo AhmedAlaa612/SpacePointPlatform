@@ -295,6 +295,14 @@ def format_certificate_when_phrase(
     return phrase
 
 
+def format_rank_ordinal(rank: int | None) -> str:
+    """1 -> "1st", 2 -> "2nd", 11 -> "11th"; "" when unranked."""
+    if not rank:
+        return ""
+    suffix = "th" if 10 <= rank % 100 <= 20 else {1: "st", 2: "nd", 3: "rd"}.get(rank % 10, "th")
+    return f"{rank}{suffix}"
+
+
 def expand_certificate_body_template(
     body_text_template: str,
     *,
@@ -307,6 +315,8 @@ def expand_certificate_body_template(
     when_line: str | None = None,
     stored_dates: str | None = None,
     certificate_type_label: str = "Completion",
+    team_name: str | None = None,
+    rank: int | None = None,
 ) -> str:
     """One expansion pass for every default-issued certificate body — workshop
     completion (delivery.py), competition certificates (send / bulk PDF /
@@ -324,6 +334,10 @@ def expand_certificate_body_template(
     with nothing to say) are dropped rather than rendered as blank lines — a
     deliberately empty spacer line must be written as `&nbsp;` to survive.
     """
+    # Team certificates: `{team_name}` and `{rank}` (ordinal, e.g. "1st");
+    # `{rank_number}` is the bare number. All expand to "" when unknown.
+    rank_number = str(rank) if rank else ""
+    rank_ordinal = format_rank_ordinal(rank)
     dates_line = when_line
     if dates_line is None:
         dates_line = format_certificate_when_phrase(
@@ -339,6 +353,10 @@ def expand_certificate_body_template(
         .replace("{location}", escape(location or ""))
         .replace("{certificate_type}", escape(certificate_type_label))
         .replace("{type}", escape(certificate_type_label))
+        .replace("{team_name}", escape(team_name or ""))
+        .replace("{team}", escape(team_name or ""))
+        .replace("{rank_number}", rank_number)
+        .replace("{rank}", rank_ordinal)
     )
     segments = [segment.strip() for segment in expanded.split("<br/>")]
     return "<br/>".join(segment for segment in segments if segment)

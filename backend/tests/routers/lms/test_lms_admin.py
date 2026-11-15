@@ -491,7 +491,12 @@ async def test_video_item_exposes_transcode_status_through_admin_api(db, client)
     )
     item_id = created.json()["id"]
     # No upload yet — nothing to report.
-    assert created.json()["content"] == {"transcode_status": None, "transcode_error": None, "duration_seconds": None}
+    assert created.json()["content"] == {
+        "transcode_status": None,
+        "transcode_error": None,
+        "duration_seconds": None,
+        "video_id": None,
+    }
 
     video = Video(
         id=uuid.uuid4(), owner_type="module_item", owner_id=uuid.UUID(item_id),

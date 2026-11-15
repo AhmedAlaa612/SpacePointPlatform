@@ -80,6 +80,7 @@ export interface User {
   organization_type?: string | null;
   organization_country?: string | null;
   organization_city?: string | null;
+  is_certified_instructor?: boolean;
   org_is_approved?: boolean;
   org_can_publish_events?: boolean;
   org_can_author_courses?: boolean;
@@ -143,6 +144,7 @@ export interface User {
   work_status?: string | null;
   fluent_languages?: string[] | null;
   graduated_university?: string | null;
+  missing_profile_fields?: string[];
 }
 
 export interface AuthTokens {
@@ -157,6 +159,7 @@ export interface Notification {
   title: string;
   body: string | null;
   type?: string | null;
+  link?: string | null;
   is_read: boolean;
   created_at: string;
 }

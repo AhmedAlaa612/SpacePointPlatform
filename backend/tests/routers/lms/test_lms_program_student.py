@@ -422,10 +422,19 @@ async def test_multi_field_submission_takes_a_text_field_alongside_a_link_field(
     assert body["status"] == "done"
     writeup, team_link = body["submitted_links"]
     assert writeup == {
-        "label": "Design writeup", "url": None,
+        "label": "Design writeup",
+        "url": None,
         "text": "We built a CubeSat with a deployable solar array.",
+        "tag": None,
+        "values": None,
     }
-    assert team_link == {"label": "Team link", "url": "https://example.com/team", "text": None}
+    assert team_link == {
+        "label": "Team link",
+        "url": "https://example.com/team",
+        "text": None,
+        "tag": None,
+        "values": None,
+    }
     # The one link-type field's value, not the text field's.
     assert body["submitted_url"] == "https://example.com/team"
 

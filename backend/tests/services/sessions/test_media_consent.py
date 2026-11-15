@@ -41,11 +41,19 @@ def test_parse_consent_choice():
 @pytest.mark.asyncio
 async def test_media_consent_match_email_first_and_replace_guardian(db_session: AsyncSession):
     # Setup Program, Cohort, Contact (Student), Registration
-    program = Program(id=uuid.uuid4(), name="Space Race", code="SR-2026")
+    program = Program(
+        id=uuid.uuid4(),
+        name="Space Race",
+        code="SR-2026",
+        program_type="competition",
+        pricing_model="free",
+    )
     db_session.add(program)
+    await db_session.flush()
 
     cohort = Cohort(id=uuid.uuid4(), program_id=program.id, name="Cohort Alpha")
     db_session.add(cohort)
+    await db_session.flush()
 
     # Initial guardian
     initial_guardian = Contact(
@@ -64,6 +72,7 @@ async def test_media_consent_match_email_first_and_replace_guardian(db_session: 
         contact_roles=["student"],
     )
     db_session.add(student)
+    await db_session.flush()
 
     reg = Registration(
         id=uuid.uuid4(),
@@ -76,14 +85,15 @@ async def test_media_consent_match_email_first_and_replace_guardian(db_session: 
     db_session.add(reg)
     await db_session.commit()
 
-    # Form submitted with student's email, but different name (e.g. Arabic or parent typed 'Fatima M')
+    # Form submitted with student_email, but different name (e.g. Arabic or parent typed 'Fatima M')
     req = MediaConsentWebhookRequest(
         student_name="Fatima M (nickname)",
+        student_email="fatima.mansoori@example.com",
         school_name="Al Mawakeb School",
         parent_name="Aisha Al Mansoori",
         relationship="Mother",
         mobile_number="+971 50 111 2233",
-        email_address="fatima.mansoori@example.com",
+        email_address="aisha.parent@example.com",
         consent_choice="YES: I give permission...",
         permission_grants=["photography", "videography"],
         date_of_signing=date(2026, 9, 27),
@@ -92,23 +102,31 @@ async def test_media_consent_match_email_first_and_replace_guardian(db_session: 
     consent = await ingest_media_consent_webhook(db_session, cohort_id=cohort.id, payload=req)
 
     assert consent.match_status == "matched"
-    assert consent.match_method == "email"
+    assert consent.match_method == "student_email"
     assert consent.registration_id == reg.id
     assert consent.consent_choice == "consented"
 
-    # Verify existing guardian data was replaced
+    # Verify existing guardian data was replaced (normalized E.164 phone)
     await db_session.refresh(initial_guardian)
     assert initial_guardian.full_name == "Aisha Al Mansoori"
-    assert initial_guardian.primary_phone_e164 == "+971 50 111 2233"
+    assert initial_guardian.primary_phone_e164 == "+971501112233"
 
 
 @pytest.mark.asyncio
 async def test_media_consent_match_phone_fallback(db_session: AsyncSession):
-    program = Program(id=uuid.uuid4(), name="Space Race Phone", code="SRP-2026")
+    program = Program(
+        id=uuid.uuid4(),
+        name="Space Race Phone",
+        code="SRP-2026",
+        program_type="competition",
+        pricing_model="free",
+    )
     db_session.add(program)
+    await db_session.flush()
 
     cohort = Cohort(id=uuid.uuid4(), program_id=program.id, name="Cohort Beta")
     db_session.add(cohort)
+    await db_session.flush()
 
     student = Contact(
         id=uuid.uuid4(),
@@ -118,6 +136,7 @@ async def test_media_consent_match_phone_fallback(db_session: AsyncSession):
         contact_roles=["student"],
     )
     db_session.add(student)
+    await db_session.flush()
 
     reg = Registration(
         id=uuid.uuid4(),
@@ -129,20 +148,34 @@ async def test_media_consent_match_phone_fallback(db_session: AsyncSession):
     db_session.add(reg)
     await db_session.commit()
 
-    # Form has different email (parent email), but matches student's phone
-    req = MediaConsentWebhookRequest(
+    # Parent phone/email alone (without student_email) must NEVER match (2026-09-27 rule)
+    unmatched_req = MediaConsentWebhookRequest(
         student_name="Different Student Name",
         parent_name="Rashid Saeed",
         relationship="Father",
-        mobile_number="052 123 4567",  # UAE format
-        email_address="parent_rashid@gmail.com",  # Not student's email
+        mobile_number="052 123 4567",
+        email_address="parent_rashid@gmail.com",
+        consent_choice="NO: I do not give permission...",
+    )
+    unmatched_consent = await ingest_media_consent_webhook(db_session, cohort_id=cohort.id, payload=unmatched_req)
+    assert unmatched_consent.match_status == "unmatched"
+    assert unmatched_consent.registration_id is None
+
+    # When student_email is provided (even with parent's own email/phone), it matches via student_email
+    req = MediaConsentWebhookRequest(
+        student_name="Different Student Name",
+        student_email="saeed@school.ae",
+        parent_name="Rashid Saeed",
+        relationship="Father",
+        mobile_number="052 123 4567",
+        email_address="parent_rashid@gmail.com",
         consent_choice="NO: I do not give permission...",
     )
 
     consent = await ingest_media_consent_webhook(db_session, cohort_id=cohort.id, payload=req)
 
     assert consent.match_status == "matched"
-    assert consent.match_method == "phone"
+    assert consent.match_method == "student_email"
     assert consent.registration_id == reg.id
     assert consent.consent_choice == "declined"
 
@@ -155,11 +188,19 @@ async def test_media_consent_match_phone_fallback(db_session: AsyncSession):
 
 @pytest.mark.asyncio
 async def test_media_consent_unmatched_and_manual_override(db_session: AsyncSession):
-    program = Program(id=uuid.uuid4(), name="Space Race Unmatched", code="SRU-2026")
+    program = Program(
+        id=uuid.uuid4(),
+        name="Space Race Unmatched",
+        code="SRU-2026",
+        program_type="competition",
+        pricing_model="free",
+    )
     db_session.add(program)
+    await db_session.flush()
 
     cohort = Cohort(id=uuid.uuid4(), program_id=program.id, name="Cohort Gamma")
     db_session.add(cohort)
+    await db_session.flush()
 
     student = Contact(
         id=uuid.uuid4(),
@@ -169,6 +210,7 @@ async def test_media_consent_unmatched_and_manual_override(db_session: AsyncSess
         contact_roles=["student"],
     )
     db_session.add(student)
+    await db_session.flush()
 
     reg = Registration(
         id=uuid.uuid4(),

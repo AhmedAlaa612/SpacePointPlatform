@@ -93,6 +93,7 @@ import Settings from "@/pages/admin/Settings";
 
 // Sessions/spine domain pages (V2 R2-3/R2-4/R2-5)
 import AdminPrograms from "@/pages/admin/Programs";
+import AdminProgramDetail from "@/pages/admin/ProgramDetail";
 import AdminCohorts from "@/pages/admin/Cohorts";
 import AdminCohortDetail from "@/pages/admin/CohortDetail";
 import CohortWizard from "@/pages/admin/CohortWizard";
@@ -109,6 +110,10 @@ import SessionsCalendar from "@/pages/sessions/Calendar";
 import OpsDashboard from "@/pages/sessions/OpsDashboard";
 import ThisWeek from "@/pages/sessions/ThisWeek";
 import Reviews from "@/pages/sessions/Reviews";
+import OpsInstructors from "@/pages/operations/OpsInstructors";
+import OpsInstructorProfile from "@/pages/operations/OpsInstructorProfile";
+import OpsOrganizations from "@/pages/operations/OpsOrganizations";
+import OpsOrganizationDetail from "@/pages/operations/OpsOrganizationDetail";
 
 // Inventory (I1-4)
 import InventoryKits from "@/pages/operations/inventory/Kits";
@@ -124,7 +129,6 @@ import GroundStationDevices from "@/pages/operations/GroundStationDevices";
 import TestAccounts from "@/pages/operations/TestAccounts";
 import Birthdays from "@/pages/operations/Birthdays";
 import WebsiteManagement from "@/pages/operations/website/WebsiteManagement";
-import OperationsBooth from "@/pages/operations/Booth";
 import OrganizationEvents from "@/pages/organization/OrganizationEvents";
 import OrganizationPrograms from "@/pages/organization/OrganizationPrograms";
 import OrganizationCohortDetail from "@/pages/organization/OrganizationCohortDetail";
@@ -862,11 +866,23 @@ const operationsRoutes = [
   createRoute({ getParentRoute: po, path: "/reviews", component: Reviews }),
   createRoute({ getParentRoute: po, path: "/programs", component: AdminPrograms }),
   createRoute({ getParentRoute: po, path: "/programs/new", component: ProgramWizard }),
+  createRoute({ getParentRoute: po, path: "/programs/$programId", component: AdminProgramDetail }),
   createRoute({ getParentRoute: po, path: "/cohorts", component: AdminCohorts }),
-  createRoute({ getParentRoute: po, path: "/cohorts/new", component: CohortWizard }),
+  createRoute({
+    getParentRoute: po,
+    path: "/cohorts/new",
+    component: CohortWizard,
+    validateSearch: (s: Record<string, unknown>): { programId?: string } => ({
+      programId: typeof s.programId === "string" ? s.programId : undefined,
+    }),
+  }),
   createRoute({ getParentRoute: po, path: "/cohorts/$cohortId", component: AdminCohortDetail }),
   createRoute({ getParentRoute: po, path: "/cohorts/$cohortId/judging", component: CompetitionJudging }),
   createRoute({ getParentRoute: po, path: "/cohorts/$cohortId/sessions/$sessionId", component: AdminSessionDetail }),
+  createRoute({ getParentRoute: po, path: "/instructors", component: OpsInstructors }),
+  createRoute({ getParentRoute: po, path: "/instructors/$userId", component: OpsInstructorProfile }),
+  createRoute({ getParentRoute: po, path: "/organizations", component: OpsOrganizations }),
+  createRoute({ getParentRoute: po, path: "/organizations/$orgId", component: OpsOrganizationDetail }),
   createRoute({ getParentRoute: po, path: "/game-assignments/$assignmentId", component: SessionGameAssignmentDetail }),
   createRoute({ getParentRoute: po, path: "/contacts", component: AdminContacts }),
   createRoute({ getParentRoute: po, path: "/merge-reviews", component: AdminMergeReviews }),
@@ -885,7 +901,6 @@ const operationsRoutes = [
   createRoute({ getParentRoute: po, path: "/delivery-settings", component: DeliverySettings }),
   createRoute({ getParentRoute: po, path: "/ground-station-devices", component: GroundStationDevices }),
   createRoute({ getParentRoute: po, path: "/test-accounts", component: TestAccounts }),
-  createRoute({ getParentRoute: po, path: "/booth", component: OperationsBooth }),
   createRoute({ getParentRoute: po, path: "/website", component: WebsiteManagement }),
   // Website hub tabs as deep-linkable routes (same pattern as the LMS and
   // Programs sidebar groups — one route per section, shared component).

@@ -15,16 +15,23 @@ import { myInstructorCohortsApi, type InstructorCohort } from "@/api/missionsIns
 import type { Program } from "@/types/sessions"
 import { CreateChecklistPrompt, ProgramTemplateEditor, CohortOverrideEditor } from "./components/LmsChecklistAuthoring"
 import { ProgramMissionsPanel, CohortMissionsPanel, ProgressPanel } from "./components/LmsProgressAndMissions"
-import { CohortQuizAnalysisPanel } from "./components/CohortQuizAnalysisPanel"
+import { CohortProgressPanel, CohortAnalysisPanel } from "@/pages/admin/components/CohortProgressAnalysisPanel"
 import { LmsComponentConfigPanel } from "./components/LmsComponentConfigPanel"
 import { LmsHintStationAuthoring } from "./components/LmsHintStationAuthoring"
 import { ObserverTeamModal } from "@/components/lms/ObserverTeamModal"
+import { SubmissionWindowsModal } from "@/components/competitions/SubmissionWindowsModal"
 import { CohortLmsEditorsModal } from "./components/CohortLmsEditorsModal"
 
 type Scope = "program" | { cohortId: string; cohortName: string }
-type SubTab = "checklist" | "missions" | "components" | "hints" | "progress" | "analysis"
+type SubTab = "checklist" | "missions" | "components" | "hints" | "windows" | "progress" | "analysis"
 const SUBTAB_LABEL: Record<SubTab, string> = {
-  checklist: "Checklist", missions: "Missions", components: "Components", hints: "Hints", progress: "Progress", analysis: "Analysis",
+  checklist: "Checklist",
+  missions: "Missions",
+  components: "Components",
+  hints: "Hints",
+  windows: "Submission Windows",
+  progress: "Progress",
+  analysis: "Analysis",
 }
 
 /** The one LMS Programs page (2026-08-22 merge) — absorbs what used to be
@@ -96,7 +103,6 @@ export default function LmsProgramAdmin() {
     <div className="flex flex-col gap-6">
       <PageHeader
         title="Programs"
-        subtitle="Each program's checklist, mission runs, and student progress — pick a cohort to see its own overridden checklist, gated missions, and submissions."
       />
 
       <div className="max-w-sm">
@@ -262,9 +268,8 @@ function ProgramWorkspace({
               } as never,
               replace: true,
             })}
-            className={`px-3 py-2.5 text-sm font-medium border-b-2 -mb-px transition-colors cursor-pointer shrink-0 whitespace-nowrap ${
-              scope === "program" ? "border-primary text-foreground" : "border-transparent text-muted-foreground hover:text-foreground"
-            }`}
+            className={`px-3 py-2.5 text-sm font-medium border-b-2 -mb-px transition-colors cursor-pointer shrink-0 whitespace-nowrap ${scope === "program" ? "border-primary text-foreground" : "border-transparent text-muted-foreground hover:text-foreground"
+              }`}
           >
             Program
           </button>
@@ -281,9 +286,8 @@ function ProgramWorkspace({
               } as never,
               replace: true,
             })}
-            className={`px-3 py-2.5 text-sm font-medium border-b-2 -mb-px transition-colors cursor-pointer shrink-0 whitespace-nowrap ${
-              typeof scope === "object" && scope.cohortId === c.id ? "border-primary text-foreground" : "border-transparent text-muted-foreground hover:text-foreground"
-            }`}
+            className={`px-3 py-2.5 text-sm font-medium border-b-2 -mb-px transition-colors cursor-pointer shrink-0 whitespace-nowrap ${typeof scope === "object" && scope.cohortId === c.id ? "border-primary text-foreground" : "border-transparent text-muted-foreground hover:text-foreground"
+              }`}
           >
             {c.name}
           </button>
@@ -321,12 +325,14 @@ function ProgramWorkspace({
       )}
 
       <div className="flex gap-1 border-b border-border overflow-x-auto scrollbar-none no-scrollbar">
-        {(["checklist", "missions", "components", "hints", "progress", "analysis"] as const).map((t) => (
+        {(scope === "program"
+          ? (["checklist", "missions", "components", "hints", "progress", "analysis"] as const)
+          : (["checklist", "missions", "components", "hints", "windows", "progress", "analysis"] as const)
+        ).map((t) => (
           <button
             key={t}
             onClick={() => setSubtab(t)}
-            className={`px-3 py-2 text-sm font-medium border-b-2 -mb-px transition-colors cursor-pointer shrink-0 whitespace-nowrap ${
-              subtab === t ? "border-primary text-primary" : "border-transparent text-muted-foreground hover:text-foreground"}`}
+            className={`px-3 py-2 text-sm font-medium border-b-2 -mb-px transition-colors cursor-pointer shrink-0 whitespace-nowrap ${subtab === t ? "border-primary text-primary" : "border-transparent text-muted-foreground hover:text-foreground"}`}
           >
             {SUBTAB_LABEL[t]}
           </button>
@@ -351,15 +357,18 @@ function ProgramWorkspace({
       {subtab === "hints" && (
         <LmsHintStationAuthoring programId={programId} scope={scope} />
       )}
+      {subtab === "windows" && scope !== "program" && (
+        <SubmissionWindowsModal cohortId={scope.cohortId} embedded />
+      )}
       {subtab === "progress" && (
         scope === "program"
           ? <ProgressPanel lmsProgramId={effective.id} scopeLabel="every cohort using this program" />
-          : <ProgressPanel cohortId={scope.cohortId} scopeLabel={scope.cohortName} />
+          : <CohortProgressPanel cohortId={scope.cohortId} cohortName={scope.cohortName} />
       )}
       {subtab === "analysis" && (
         scope === "program"
-          ? <EmptyState title="Pick a cohort to view quiz analysis" hint="Quiz attempts and topic mastery are cohort-scoped. Select a cohort tab above." />
-          : <CohortQuizAnalysisPanel cohortId={scope.cohortId} />
+          ? <EmptyState title="Pick a cohort to view analysis" hint="Student and team analysis are cohort-scoped. Select a cohort tab above." />
+          : <CohortAnalysisPanel cohortId={scope.cohortId} />
       )}
 
       {typeof scope === "object" && (

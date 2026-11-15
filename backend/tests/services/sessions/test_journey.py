@@ -54,6 +54,7 @@ async def _chain(db, *, duration=None):
 
 
 async def _link(db, user, *, title, **owner):
+    owner.setdefault("is_published", True)
     return await mat.add_material(db, user=user, title=title, url="https://example.com/x", **owner)
 
 

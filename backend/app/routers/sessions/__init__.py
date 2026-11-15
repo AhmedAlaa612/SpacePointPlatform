@@ -9,6 +9,7 @@ from app.routers.sessions.lms_progress import router as lms_progress_router
 from app.routers.sessions.imports import router as imports_router
 from app.routers.sessions.programs import router as programs_router
 from app.routers.sessions.program_certificate_templates import router as program_certificate_templates_router
+from app.routers.sessions.certificate_email_templates import router as certificate_email_templates_router
 from app.routers.sessions.public import router as public_router
 from app.routers.sessions.staffing import router as staffing_router
 from app.routers.sessions.dashboard import router as dashboard_router
@@ -39,6 +40,7 @@ router.include_router(day_router)
 # `/sessions/programs/{program_id}` in programs_router would otherwise intercept
 # and fail authentication on.
 router.include_router(program_certificate_templates_router)
+router.include_router(certificate_email_templates_router)
 router.include_router(programs_router)
 router.include_router(cohorts_router)
 router.include_router(checkin_router)

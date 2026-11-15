@@ -1,4 +1,4 @@
-import type { ReactNode } from "react"
+import type { ComponentProps, ReactNode } from "react"
 import { cn } from "@/lib/utils"
 
 /** Shared, domain-agnostic UI primitives. Domain `common.tsx` files re-export
@@ -62,19 +62,46 @@ export function StatCard({
         {icon}
       </div>
       <div className="min-w-0">
-        <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide truncate">{label}</p>
-        <p className="font-display text-2xl font-bold leading-tight break-all">{value}</p>
-        {sub && <p className="text-xs text-muted-foreground mt-0.5 truncate">{sub}</p>}
+        <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">{label}</p>
+        <p className="font-display text-2xl font-bold leading-tight break-words">{value}</p>
+        {sub && <p className="text-xs text-muted-foreground mt-0.5">{sub}</p>}
       </div>
     </div>
   )
 }
 
-export function EmptyState({ title, hint }: { title: string; hint?: string }) {
+export const SUB_CARD_CLASS =
+  "sp-subcard rounded-[10px] border border-border bg-card p-4 transition-colors"
+
+export function SubCard({
+  className,
+  children,
+  ...props
+}: ComponentProps<"div">) {
+  return (
+    <div className={cn(SUB_CARD_CLASS, className)} {...props}>
+      {children}
+    </div>
+  )
+}
+
+export function EmptyState({
+  icon,
+  title,
+  hint,
+  description,
+}: {
+  icon?: ReactNode
+  title: string
+  hint?: string
+  description?: string
+}) {
+  const subtext = hint ?? description
   return (
     <div className="flex flex-col items-center justify-center text-center py-12 px-4">
+      {icon && <div className="mb-3 text-muted-foreground">{icon}</div>}
       <p className="text-base font-semibold">{title}</p>
-      {hint && <p className="text-sm text-muted-foreground mt-1 max-w-xs">{hint}</p>}
+      {subtext && <p className="text-sm text-muted-foreground mt-1 max-w-xs">{subtext}</p>}
     </div>
   )
 }

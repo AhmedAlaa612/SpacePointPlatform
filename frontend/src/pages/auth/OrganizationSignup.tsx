@@ -1,15 +1,26 @@
-import { useState, type FormEvent } from "react"
+import { useEffect, useState, type FormEvent } from "react"
+import { useQuery } from "@tanstack/react-query"
 import { Link } from "@tanstack/react-router"
 import { Building2, Clock, Eye, EyeOff, Loader2, Lock, Mail, Phone, User as UserIcon } from "lucide-react"
+import { useAuth } from "@/context/AuthContext"
 import { PLAIN_LOGO } from "@/lib/logos"
 import { Button } from "@/components/ui/button"
 import { CountrySelect } from "@/components/ui/CountrySelect"
 import { CityNameSelect } from "@/components/ui/CitySelect"
 import { getErrorMessage } from "@/lib/utils"
+import { getPublicFormConfigApi } from "@/api/apply"
 import { organizationSignupApi } from "@/api/websiteEvents"
+import {
+  CustomQuestionsFields,
+  isFieldEnabled,
+  isFieldRequired,
+  validateCustomQuestionAnswers,
+} from "@/components/apply/CustomQuestionsFields"
 
 export function OrganizationSignup() {
+  const { currentUser } = useAuth()
   const [orgNameLatin, setOrgNameLatin] = useState("")
+  const [orgNameArabic, setOrgNameArabic] = useState("")
   const [orgType, setOrgType] = useState("university")
   const [country, setCountry] = useState("AE")
   const [city, setCity] = useState("")
@@ -17,18 +28,49 @@ export function OrganizationSignup() {
   const [email, setEmail] = useState("")
   const [phone, setPhone] = useState("")
   const [password, setPassword] = useState("")
+  const [answers, setAnswers] = useState<Record<string, string>>({})
   const [showPassword, setShowPassword] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const [submitted, setSubmitted] = useState(false)
 
+  useEffect(() => {
+    if (!currentUser) return
+    setOrgNameLatin((v) => v || currentUser.organization_name || "")
+    setOrgNameArabic((v) => v || currentUser.organization_name_arabic || "")
+    if (currentUser.organization_type) {
+      setOrgType(currentUser.organization_type)
+    }
+    const c = currentUser.organization_country || currentUser.country
+    if (c) {
+      setCountry(c === "uae" ? "AE" : c)
+    }
+    setCity((v) => v || currentUser.organization_city || currentUser.city_name || currentUser.city_other || "")
+    setFullName((v) => v || currentUser.full_name || "")
+    setEmail((v) => v || currentUser.email || "")
+    setPhone((v) => v || currentUser.phone || "")
+  }, [currentUser])
+
+  const { data: formConfig } = useQuery({
+    queryKey: ["apply-form-config", "organization"],
+    queryFn: () => getPublicFormConfigApi("organization"),
+  })
+  const fields = formConfig?.fields
+  const questions = formConfig?.questions ?? []
+
   async function onSubmit(e: FormEvent) {
     e.preventDefault()
     setError(null)
+    const qErr = validateCustomQuestionAnswers(questions, answers)
+    if (qErr) {
+      setError(qErr)
+      return
+    }
     setBusy(true)
     try {
       await organizationSignupApi({
         org_name_latin: orgNameLatin,
+        ...(orgNameArabic.trim() ? { org_name_arabic: orgNameArabic.trim() } : {}),
         org_type: orgType,
         country,
         city,
@@ -36,6 +78,7 @@ export function OrganizationSignup() {
         email,
         phone,
         password,
+        answers,
       })
       setSubmitted(true)
     } catch (err) {
@@ -252,6 +295,34 @@ export function OrganizationSignup() {
               </button>
             </div>
           </div>
+
+          {isFieldEnabled(fields, "org_name_arabic", false) && (
+            <div className="space-y-1.5">
+              <label className="text-xs font-semibold text-white/70 uppercase tracking-wider block">
+                Organization Name (Arabic){isFieldRequired(fields, "org_name_arabic", false) ? " *" : ""}
+              </label>
+              <input
+                type="text"
+                required={isFieldRequired(fields, "org_name_arabic", false)}
+                placeholder="الاسم بالعربية"
+                value={orgNameArabic}
+                onChange={(e) => setOrgNameArabic(e.target.value)}
+                className="w-full h-11 px-4 rounded-xl border border-[#653f84]/40 bg-[#0b0514] text-sm text-white outline-none focus:border-[#a880ff]"
+              />
+            </div>
+          )}
+
+          {questions.length > 0 && (
+            <div className="pt-2 border-t border-white/10">
+              <CustomQuestionsFields
+                questions={questions}
+                answers={answers}
+                onChange={setAnswers}
+                inputClassName="w-full h-11 px-3 rounded-xl border border-[#653f84]/40 bg-[#0b0514] text-sm text-white outline-none focus:border-[#a880ff]"
+                labelClassName="text-xs font-semibold text-white/70 uppercase tracking-wider block"
+              />
+            </div>
+          )}
         </div>
 
         {error && (

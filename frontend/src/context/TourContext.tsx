@@ -225,8 +225,10 @@ export function TourProvider({
 
   // Auto-start unseen steps (full onboarding on first visit, or mini-spotlight
   // when a previously hidden tab is unlocked for this user).
+  const hasMissingProfileFields = (user?.missing_profile_fields?.length ?? 0) > 0;
+
   useEffect(() => {
-    if (!user?.id) return;
+    if (!user?.id || hasMissingProfileFields) return;
     // Don't auto-pop on full-screen player / live quiz gameplay routes
     if (
       pathname.startsWith("/learn/courses/") ||
@@ -272,7 +274,7 @@ export function TourProvider({
     }, 700);
 
     return () => window.clearTimeout(timer);
-  }, [user?.id, surface, activeRole, pathname, run]);
+  }, [user?.id, hasMissingProfileFields, surface, activeRole, pathname, run]);
 
   const value = useMemo<TourContextValue>(
     () => ({

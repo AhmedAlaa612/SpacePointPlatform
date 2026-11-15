@@ -273,7 +273,7 @@ async def test_add_submission_item_with_deadline(db, client):
 
 
 @pytest.mark.asyncio
-async def test_deadline_rejected_on_a_non_submission_item(db, client):
+async def test_deadline_allowed_on_a_non_submission_item(db, client):
     ops = await _user(db)
     program = await _program(db)
     await db.commit()
@@ -285,7 +285,8 @@ async def test_deadline_rejected_on_a_non_submission_item(db, client):
         f"/lms/admin/programs/{lms_program_id}/items", headers=_headers(ops),
         json={"item_type": "manual", "title": "Attend", "deadline_at": "2026-09-15T17:00:00Z"},
     )
-    assert resp.status_code == http_status.HTTP_400_BAD_REQUEST
+    assert resp.status_code == 201, resp.text
+    assert resp.json()["deadline_at"] is not None
 
 
 @pytest.mark.asyncio

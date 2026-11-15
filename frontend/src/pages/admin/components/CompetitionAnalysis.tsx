@@ -3,12 +3,12 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useNavigate } from "@tanstack/react-router"
 import * as XLSX from "xlsx"
 import {
-  Area, AreaChart, Bar, BarChart, CartesianGrid, Cell, LabelList, ResponsiveContainer,
+  Bar, BarChart, CartesianGrid, Cell, LabelList, ResponsiveContainer,
   Tooltip, XAxis, YAxis,
 } from "recharts"
 import {
   AlertTriangle, CheckCircle2, ChevronDown, ChevronRight, Circle, Clock, ExternalLink, Eye, FileSpreadsheet, Flag, Loader2, Lock, Search,
-  Rocket, UserX, Users, UsersRound, X, Maximize2,
+  Rocket, Users, X, Maximize2,
 } from "lucide-react"
 import {
   getCohortTeamAnalyticsApi, downloadCohortQuizAnswersWorkbookApi,
@@ -18,10 +18,12 @@ import {
   type CompetitionAnalyticsTeamMember,
 } from "@/api/competitions"
 import { getAssignmentItemsApi, type LmsAssignmentItemDetail } from "@/api/lms_admin"
-import { Spinner, EmptyState, StatCard } from "@/components/ui/primitives"
+import { AnalysisFunnelWidget } from "@/components/ui/AnalysisFunnelWidget"
+import { Spinner, EmptyState } from "@/components/ui/primitives"
 import { Button } from "@/components/ui/button"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog"
 import { useToast } from "@/components/ui/toast"
+import { useAuth } from "@/context/AuthContext"
 import { ensureAbsoluteUrl, getErrorMessage } from "@/lib/utils"
 import { DesignRunDetail } from "@/pages/lms-authoring/components/DesignRunDetail"
 import { QuizAnswersReview, AssignmentItemRow, ExportSubmissionsMenu } from "@/pages/lms-authoring/components/LmsProgressAndMissions"
@@ -60,14 +62,14 @@ import { QuizAnswersReview, AssignmentItemRow, ExportSubmissionsMenu } from "@/p
  * resolve reliably), which is why these are hex here rather than theme
  * tokens — same reason `instructors/admin/Overview.tsx` hardcodes its own. */
 const CHART = {
-  light: { done: "#047857", awaiting: "#d97706", track: "#e2e8f0", accent: "#6d3fd4", grid: "#e1e0d9", ink: "#898781" },
-  dark: { done: "#199e70", awaiting: "#c98500", track: "#2e2440", accent: "#9a72f5", grid: "#2c2c2a", ink: "#898781" },
+  light: { done: "#059669", awaiting: "#d97706", track: "#e2e8f0", accent: "#653F84", grid: "#e1e0d9", ink: "#898781" },
+  dark: { done: "#199e70", awaiting: "#c98500", track: "#2e2440", accent: "#A77DFF", grid: "#2c2c2a", ink: "#898781" },
 } as const
 
 /** The app toggles dark mode by putting `.dark` on <html> imperatively
  * (see components/layout/ThemeToggle.tsx) — there's no context to read,
  * so the charts watch the class attribute instead. */
-function useIsDark(): boolean {
+export function useIsDark(): boolean {
   const [isDark, setIsDark] = useState(() => document.documentElement.classList.contains("dark"))
   useEffect(() => {
     const observer = new MutationObserver(() => setIsDark(document.documentElement.classList.contains("dark")))
@@ -92,7 +94,7 @@ function useIsMobile(): boolean {
   return isMobile
 }
 
-function SectionCard({ title, hint, action, children }: {
+export function SectionCard({ title, hint, action, children }: {
   title: string; hint?: string; action?: React.ReactNode; children: React.ReactNode
 }) {
   return (
@@ -142,7 +144,22 @@ function ChartTooltip({ active, payload, label, unit }: {
  * "which deliverable is the cohort stuck on" in one glance. A team-scoped
  * item's bar counts teams; an individual one counts students (the item's
  * own `denominator` says which, so this never infers it). */
-function CompletionRateChart({ items, isDark }: { items: CompetitionAnalyticsItem[]; isDark: boolean }) {
+export function computeBottleneck(items: CompetitionAnalyticsItem[]): { title: string; dropPct: number } | null {
+  let bottleneck: { title: string; dropPct: number } | null = null
+  for (let i = 1; i < items.length; i++) {
+    const prev = items[i - 1]
+    const curr = items[i]
+    if (prev.done > 0 && curr.done < prev.done) {
+      const dropPct = Math.round(((prev.done - curr.done) / prev.done) * 100)
+      if (dropPct >= 20 && (!bottleneck || dropPct > bottleneck.dropPct)) {
+        bottleneck = { title: curr.title, dropPct }
+      }
+    }
+  }
+  return bottleneck
+}
+
+export function CompletionRateChart({ items, isDark }: { items: CompetitionAnalyticsItem[]; isDark: boolean }) {
   const c = isDark ? CHART.dark : CHART.light
   const isMobile = useIsMobile()
   const maxChars = isMobile ? 16 : 28
@@ -259,29 +276,35 @@ function DistributionChart({ teams, isDark }: { teams: CompetitionAnalyticsTeam[
  * the teams that went quiet, which is what this is for. */
 function ActivityChart({ activity, isDark }: { activity: CompetitionAnalytics["activity"]; isDark: boolean }) {
   const c = isDark ? CHART.dark : CHART.light
+  const hasMultiSignal = activity.some(
+    (p) => (p.team_deliverables ?? 0) > 0 || (p.quiz_submissions ?? 0) > 0 || (p.course_completions ?? 0) > 0,
+  )
   const data = activity.map((point) => ({
     ...point,
+    team_deliverables: point.team_deliverables ?? (hasMultiSignal ? 0 : point.updates),
+    quiz_submissions: point.quiz_submissions ?? 0,
+    course_completions: point.course_completions ?? 0,
     label: new Date(point.date).toLocaleDateString(undefined, { month: "short", day: "numeric" }),
   }))
   return (
-    <ResponsiveContainer width="100%" height={180}>
-      <AreaChart data={data} margin={{ top: 12, right: 8, bottom: 4, left: -20 }}>
-        <defs>
-          <linearGradient id="analysis-activity-fill" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%" stopColor={c.accent} stopOpacity={0.35} />
-            <stop offset="100%" stopColor={c.accent} stopOpacity={0.02} />
-          </linearGradient>
-        </defs>
-        <CartesianGrid vertical={false} stroke={c.grid} />
-        <XAxis dataKey="label" tick={{ fontSize: 10, fill: c.ink }} stroke={c.grid} interval="preserveStartEnd" minTickGap={24} />
-        <YAxis tick={{ fontSize: 11, fill: c.ink }} stroke={c.grid} allowDecimals={false} />
-        <Tooltip cursor={{ stroke: c.accent, strokeWidth: 1 }} content={<ChartTooltip />} />
-        <Area
-          type="monotone" dataKey="updates" name="Deliverables updated"
-          stroke={c.accent} strokeWidth={2} fill="url(#analysis-activity-fill)"
-        />
-      </AreaChart>
-    </ResponsiveContainer>
+    <div className="flex flex-col gap-2.5">
+      <div className="flex items-center gap-4 flex-wrap">
+        <LegendSwatch color={c.accent} label="Team deliverables" />
+        <LegendSwatch color={c.done} label="Quiz submissions" />
+        <LegendSwatch color={c.awaiting} label="Course completions" />
+      </div>
+      <ResponsiveContainer width="100%" height={180}>
+        <BarChart data={data} margin={{ top: 12, right: 8, bottom: 4, left: -20 }} barCategoryGap="24%">
+          <CartesianGrid vertical={false} stroke={c.grid} />
+          <XAxis dataKey="label" tick={{ fontSize: 10, fill: c.ink }} stroke={c.grid} interval="preserveStartEnd" minTickGap={24} />
+          <YAxis tick={{ fontSize: 11, fill: c.ink }} stroke={c.grid} allowDecimals={false} />
+          <Tooltip cursor={{ fill: c.track, opacity: 0.35 }} content={<ChartTooltip />} />
+          <Bar dataKey="team_deliverables" stackId="act" name="Team deliverables" fill={c.accent} stroke="transparent" strokeWidth={1.5} />
+          <Bar dataKey="quiz_submissions" stackId="act" name="Quiz submissions" fill={c.done} stroke="transparent" strokeWidth={1.5} />
+          <Bar dataKey="course_completions" stackId="act" name="Course completions" fill={c.awaiting} stroke="transparent" strokeWidth={1.5} radius={[3, 3, 0, 0]} />
+        </BarChart>
+      </ResponsiveContainer>
+    </div>
   )
 }
 
@@ -991,19 +1014,27 @@ export function TeamAnalysisCard({
 
         {team.locked && (
           <span
-            className="hidden sm:flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-lg bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30 shrink-0"
+            className="hidden sm:flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30 shrink-0"
             title={team.locked_at ? `Locked on ${formatDateTime(team.locked_at)}${team.locked_by_name ? ` by ${team.locked_by_name}` : ""}` : "Final submission locked"}
           >
             <Lock size={11} /> Locked
           </span>
         )}
+        {team.collaboration_status === "solo_carried" && (
+          <span
+            className="hidden sm:flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-full bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-500/30 shrink-0"
+            title="Only one active member is driving submissions on a multi-member team"
+          >
+            Solo-carried
+          </span>
+        )}
         {team.stalled && (
-          <span className="hidden sm:flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-lg bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/30 shrink-0">
+          <span className="hidden sm:flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/30 shrink-0">
             <Clock size={11} /> Stalled
           </span>
         )}
         {team.awaiting > 0 && (
-          <span className="hidden sm:inline text-[11px] font-semibold px-2 py-0.5 rounded-lg bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/30 shrink-0">
+          <span className="hidden sm:inline text-[11px] font-semibold px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/30 shrink-0">
             {team.awaiting} to confirm
           </span>
         )}
@@ -1575,7 +1606,6 @@ function TeamTable({
   return (
     <SectionCard
       title="Team progress"
-      hint="Against this cohort's required team deliverables. Awaiting confirmation counts as not done — confirming it is the outstanding work."
       action={
         <div className="flex items-center gap-2 flex-wrap w-full sm:w-auto">
           <button
@@ -1635,72 +1665,9 @@ function TeamTable({
   )
 }
 
-/* ── Attention list ───────────────────────────────────────────────── */
-
-function AttentionList({ data }: { data: CompetitionAnalytics }) {
-  const notStarted = data.teams.filter((t) => t.items_done === 0 && t.items_total > 0)
-  const empty = data.teams.filter((t) => t.member_count === 0)
-  const solo = data.teams.filter((t) => t.member_count === 1)
-  const awaiting = data.teams.filter((t) => t.awaiting > 0)
-
-  const groups = [
-    {
-      key: "awaiting", tone: "amber" as const,
-      label: `${awaiting.length} ${awaiting.length === 1 ? "team is" : "teams are"} waiting on your confirmation`,
-      names: awaiting.map((t) => `${t.team_name} (${t.awaiting})`),
-    },
-    {
-      key: "notStarted", tone: "amber" as const,
-      label: `${notStarted.length} ${notStarted.length === 1 ? "team has" : "teams have"} submitted nothing at all`,
-      names: notStarted.map((t) => t.team_name),
-    },
-    {
-      key: "roster", tone: "muted" as const,
-      label: `${empty.length} empty ${empty.length === 1 ? "team" : "teams"}, ${solo.length} with a single member`,
-      names: [...empty, ...solo].map((t) => `${t.team_name} (${t.member_count})`),
-    },
-    {
-      key: "unassigned", tone: "muted" as const,
-      label: `${data.totals.students_without_team} registered ${
-        data.totals.students_without_team === 1 ? "student is" : "students are"} not on any team`,
-      names: [],
-    },
-  ].filter((g) => g.key === "unassigned" ? data.totals.students_without_team > 0 : g.names.length > 0)
-
-  if (groups.length === 0) {
-    return (
-      <SectionCard title="Needs attention">
-        <p className="text-sm text-muted-foreground">
-          Nothing outstanding — every team has members, recent activity, and nothing waiting on a confirmation.
-        </p>
-      </SectionCard>
-    )
-  }
-
-  return (
-    <SectionCard title="Needs attention" hint="Everything here is something only ops can unblock.">
-      <div className="flex flex-col gap-3">
-        {groups.map((group) => (
-          <div key={group.key} className="flex items-start gap-2.5">
-            {group.tone === "amber"
-              ? <AlertTriangle size={14} className="mt-0.5 shrink-0 text-amber-600 dark:text-amber-400" />
-              : <UserX size={14} className="mt-0.5 shrink-0 text-muted-foreground" />}
-            <div className="min-w-0">
-              <p className="text-sm font-medium text-foreground">{group.label}</p>
-              {group.names.length > 0 && (
-                <p className="text-xs text-muted-foreground mt-0.5">{group.names.join(", ")}</p>
-              )}
-            </div>
-          </div>
-        ))}
-      </div>
-    </SectionCard>
-  )
-}
-
 /* ── Missions ─────────────────────────────────────────────────────── */
 
-function MissionsBlock({ missions, isDark }: { missions: CompetitionAnalytics["missions"]; isDark: boolean }) {
+export function MissionsBlock({ missions, isDark }: { missions: CompetitionAnalytics["missions"]; isDark: boolean }) {
   const c = isDark ? CHART.dark : CHART.light
   const isMobile = useIsMobile()
   const maxChars = isMobile ? 16 : 28
@@ -1708,11 +1675,9 @@ function MissionsBlock({ missions, isDark }: { missions: CompetitionAnalytics["m
     ...m,
     shortTitle: m.title.length > maxChars ? `${m.title.slice(0, maxChars - 1)}…` : m.title,
   }))
+  const missionsWithFunnel = missions.filter((m) => m.step_funnel && m.step_funnel.length > 0)
   return (
-    <SectionCard
-      title="Mission runs"
-      hint="Read off each run's shared MissionAttempt, not the checklist's stored status — a run is multi-step, so it gets its own block rather than a completion bar."
-    >
+    <SectionCard title="Mission runs">
       <div className="flex items-center gap-4 flex-wrap">
         <LegendSwatch color={c.done} label="Passed" />
         <LegendSwatch color={c.awaiting} label="Started" />
@@ -1735,18 +1700,55 @@ function MissionsBlock({ missions, isDark }: { missions: CompetitionAnalytics["m
           <Bar dataKey="not_started" stackId="m" name="Not started" fill={c.track} stroke="transparent" strokeWidth={2} radius={[0, 4, 4, 0]} />
         </BarChart>
       </ResponsiveContainer>
+
+      {missionsWithFunnel.map((m) => (
+        <div key={m.mission_id} className="pt-3 border-t border-border/60 flex flex-col gap-2.5">
+          <div className="flex items-center justify-between text-xs">
+            <span className="font-semibold text-foreground">{m.title} — Phase Step Funnel</span>
+            <span className="text-muted-foreground">{m.total} {m.scope === "team" ? "teams" : "students"}</span>
+          </div>
+          <div className="grid gap-2 sm:grid-cols-3">
+            {m.step_funnel!.map((step, sIdx) => (
+              <div key={step.step_key} className="p-2.5 rounded-xl border border-border bg-muted/20 flex flex-col gap-1.5">
+                <div className="flex items-center justify-between gap-2 text-xs">
+                  <span className="font-medium text-foreground truncate">
+                    {sIdx + 1}. {step.label}
+                  </span>
+                  <span className="font-mono text-[11px] font-semibold text-foreground shrink-0">
+                    {step.confirmed_count} ({step.pct}%)
+                  </span>
+                </div>
+                <div className="h-1.5 w-full rounded-full overflow-hidden" style={{ backgroundColor: c.track }}>
+                  <div
+                    className="h-full rounded-full transition-all"
+                    style={{ width: `${step.pct}%`, backgroundColor: step.pct >= 70 ? c.done : c.accent }}
+                  />
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      ))}
     </SectionCard>
   )
 }
 
 /* ── Page ─────────────────────────────────────────────────────────── */
 
-export function CompetitionAnalysisTab({ cohortId }: { cohortId: string }) {
+export function CompetitionAnalysisTab({
+  cohortId,
+  view = "all",
+}: {
+  cohortId: string
+  view?: "analysis" | "progress" | "all"
+}) {
+  const { currentUser, activeRole } = useAuth()
+  const isInstructor = activeRole === "instructor" || currentUser?.role === "instructor"
   const isDark = useIsDark()
   const [mode, setMode] = useState<"participant" | "observer" | "all">("participant")
   const { data, isLoading, isError } = useQuery({
-    queryKey: ["competitions-team-analytics", cohortId, mode],
-    queryFn: () => getCohortTeamAnalyticsApi(cohortId, mode),
+    queryKey: ["competitions-team-analytics", cohortId, mode, isInstructor],
+    queryFn: () => getCohortTeamAnalyticsApi(cohortId, mode, isInstructor),
   })
 
   return (
@@ -1797,62 +1799,89 @@ export function CompetitionAnalysisTab({ cohortId }: { cohortId: string }) {
         <>
           {(() => {
             const { totals } = data
-            const requiredItems = data.items.filter((i) => !i.optional)
+            const requiredItems = data.items.filter((i) => !i.optional && i.scope === "team")
+            const visibleMissions = data.missions.filter((m) => m.scope === "team")
+            const teamsStarted = Math.max(0, totals.teams - totals.teams_not_started)
+            const startedPct = totals.teams > 0 ? Math.round((teamsStarted / totals.teams) * 1000) / 10 : 0
+            const completePct = totals.teams > 0 ? Math.round((totals.teams_complete / totals.teams) * 1000) / 10 : 0
+            const teamSubmitted = totals.deliverables_done + totals.deliverables_awaiting
+            const teamTotalDeliverables = totals.teams * totals.deliverables_per_team
+            const teamSubmissionRate =
+              teamTotalDeliverables > 0 ? Math.round((teamSubmitted / teamTotalDeliverables) * 1000) / 10 : 0
+            const bottleneck = computeBottleneck(requiredItems)
+            const showAnalysis = view === "analysis" || view === "all"
+            const showProgress = view === "progress" || view === "all"
             return (
               <>
-                <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        <StatCard
-          icon={<UsersRound size={20} />} label="Teams" value={totals.teams}
-          sub={`${totals.empty_teams} with no members`}
-        />
-        <StatCard
-          icon={<Users size={20} />} label="Students on teams" value={totals.students_on_teams}
-          sub={`${totals.avg_team_size} avg per team · ${totals.students_without_team} not on a team`}
-        />
-        <StatCard
-          icon={<Rocket size={20} />} label="Avg completion" value={`${totals.avg_team_pct}%`}
-          sub={`${totals.teams_complete} done · ${totals.teams_not_started} not started`}
-        />
-        <StatCard
-          icon={<Clock size={20} />} label="Awaiting confirmation" value={totals.deliverables_awaiting}
-          sub={`${totals.teams_stalled} stalled ${totals.teams_stalled === 1 ? "team" : "teams"}`}
-        />
-      </div>
+                {showAnalysis && (
+                  <>
+                    <AnalysisFunnelWidget
+                      stages={[
+                        { label: "Total teams", value: totals.teams, weight: Math.max(totals.teams, 1) },
+                        { label: "Teams started", value: teamsStarted, weight: teamsStarted },
+                        { label: "Teams completed", value: totals.teams_complete, weight: totals.teams_complete },
+                      ]}
+                      sideCards={[
+                        {
+                          title: "Submission rate",
+                          badge: "Live",
+                          subtitle: `${teamSubmitted} / ${teamTotalDeliverables} deliverables`,
+                          value: `${teamSubmissionRate}%`,
+                          ok: teamSubmissionRate >= 60,
+                        },
+                        {
+                          title: "Started rate",
+                          subtitle: `${teamsStarted} of ${totals.teams} teams`,
+                          value: `${startedPct}%`,
+                          ok: startedPct >= 50,
+                        },
+                        {
+                          title: "Average completion",
+                          subtitle: `${completePct}% fully done`,
+                          value: `${totals.avg_team_pct}%`,
+                          ok: totals.avg_team_pct >= 60,
+                        },
+                      ]}
+                    />
 
-      {requiredItems.length > 0 ? (
-        <SectionCard
-          title="Checklist completion rate"
-          hint="Every required checklist item, in order. A team deliverable counts teams; an individual item counts the students holding this cohort's checklist."
-        >
-          <CompletionRateChart items={requiredItems} isDark={isDark} />
-        </SectionCard>
-      ) : (
-        <SectionCard title="Checklist completion rate">
-          <p className="text-sm text-muted-foreground">
-            This cohort's checklist has no required items yet — add some from the cohort's LMS tab.
-          </p>
-        </SectionCard>
-      )}
+                    {requiredItems.length > 0 ? (
+                      <SectionCard
+                        title="Checklist completion rate"
+                        action={
+                          bottleneck ? (
+                            <span className="inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1 rounded-full bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/30">
+                              <AlertTriangle size={13} />
+                              Bottleneck: {bottleneck.title} (-{bottleneck.dropPct}%)
+                            </span>
+                          ) : undefined
+                        }
+                      >
+                        <CompletionRateChart items={requiredItems} isDark={isDark} />
+                      </SectionCard>
+                    ) : (
+                      <SectionCard title="Checklist completion rate">
+                        <p className="text-sm text-muted-foreground">
+                          This cohort's checklist has no required items yet — add some from the cohort's LMS tab.
+                        </p>
+                      </SectionCard>
+                    )}
 
-      <div className="grid gap-4 lg:grid-cols-2">
-        <SectionCard
-          title="Team completion distribution"
-          hint="How the cohort is spread — an average hides a split between teams that are done and teams that never started."
-        >
-          <DistributionChart teams={data.teams} isDark={isDark} />
-        </SectionCard>
-        <SectionCard
-          title="Submission activity"
-          hint={`Team deliverables touched per day over the last ${data.activity.length} days. Counts each deliverable once, on the day it was last updated.`}
-        >
-          <ActivityChart activity={data.activity} isDark={isDark} />
-        </SectionCard>
-      </div>
+                    <div className="grid gap-4 lg:grid-cols-2">
+                      <SectionCard title="Team completion distribution">
+                        <DistributionChart teams={data.teams} isDark={isDark} />
+                      </SectionCard>
+                      <SectionCard title="Submission activity">
+                        <ActivityChart activity={data.activity} isDark={isDark} />
+                      </SectionCard>
+                    </div>
 
-      {data.missions.length > 0 && <MissionsBlock missions={data.missions} isDark={isDark} />}
+                    {visibleMissions.length > 0 && <MissionsBlock missions={visibleMissions} isDark={isDark} />}
+                  </>
+                )}
 
-      <TeamTable teams={data.teams} isDark={isDark} cohortId={cohortId} cohortName={data.cohort_name} />
-      <AttentionList data={data} />
+                {showProgress && (
+                  <TeamTable teams={data.teams} isDark={isDark} cohortId={cohortId} cohortName={data.cohort_name} />
+                )}
               </>
             )
           })()}

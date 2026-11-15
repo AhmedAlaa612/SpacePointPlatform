@@ -52,25 +52,23 @@ export default function LmsStudents() {
 
   return (
     <div className="flex flex-col gap-6">
-      <PageHeader title="Students" subtitle="Search students, view their profile, and manage what they're enrolled in." />
+      <PageHeader title="Students" />
 
       <div data-tour="students-filter-bar" className="flex flex-wrap items-center gap-3">
         <div className="flex rounded-xl bg-card border border-border p-0.5">
           <button
             type="button"
             onClick={() => setRosterMode("student")}
-            className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition-colors cursor-pointer ${
-              rosterMode === "student" ? "bg-primary text-primary-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"
-            }`}
+            className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition-colors cursor-pointer ${rosterMode === "student" ? "bg-primary text-primary-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"
+              }`}
           >
             Students
           </button>
           <button
             type="button"
             onClick={() => setRosterMode("observer")}
-            className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition-colors cursor-pointer ${
-              rosterMode === "observer" ? "bg-primary text-primary-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"
-            }`}
+            className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition-colors cursor-pointer ${rosterMode === "observer" ? "bg-primary text-primary-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"
+              }`}
           >
             Observers
           </button>
@@ -117,8 +115,8 @@ export default function LmsStudents() {
             query || inviteCode
               ? "Try a different search or batch."
               : rosterMode === "observer"
-              ? "No observer accounts exist yet."
-              : "No student accounts exist yet."
+                ? "No observer accounts exist yet."
+                : "No student accounts exist yet."
           }
         />
       ) : (
@@ -155,11 +153,10 @@ export default function LmsStudents() {
                         {s.invite_codes.map((inv) => (
                           <span
                             key={inv.code}
-                            className={`text-[11px] font-mono font-medium px-2 py-0.5 rounded-full border ${
-                              inv.kind === "observer"
+                            className={`text-[11px] font-mono font-medium px-2 py-0.5 rounded-full border ${inv.kind === "observer"
                                 ? "bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border-indigo-500/20"
                                 : "bg-primary/10 text-primary border-primary/20"
-                            }`}
+                              }`}
                             title={inv.label ?? undefined}
                           >
                             {inv.label ? `${inv.code} (${inv.label})` : inv.code}

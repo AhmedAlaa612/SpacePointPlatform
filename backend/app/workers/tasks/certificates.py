@@ -22,8 +22,17 @@ async def send_cohort_certificates_job(
     actor_user_id: str,
     filter_type: str = "at_least_one",
     registration_ids: list[str] | None = None,
+    team_ids: list[str] | None = None,
     theme: str = "dark",
     template_id: str | None = None,
+    primary_kind: str = "individual",
+    primary_template_id: str | None = None,
+    primary_email_template_id: str | None = None,
+    also_send_other: bool = False,
+    secondary_template_id: str | None = None,
+    secondary_email_template_id: str | None = None,
+    delivery_mode: str = "email",
+    notify_by_email: bool = True,
     skip_already_issued: bool = True,
     custom_email_subject: str | None = None,
     custom_email_body: str | None = None,
@@ -38,14 +47,27 @@ async def send_cohort_certificates_job(
         len(registration_ids) if registration_ids else "all_matching",
     )
 
-    reg_uuids = None
-    if registration_ids:
-        reg_uuids = []
-        for r in registration_ids:
+    def _parse_uuids(items: list[str] | None) -> list[uuid.UUID] | None:
+        if not items:
+            return None
+        out = []
+        for r in items:
             try:
-                reg_uuids.append(uuid.UUID(str(r)))
+                out.append(uuid.UUID(str(r)))
             except (ValueError, TypeError):
                 pass
+        return out
+
+    def _parse_uuid(val: str | None) -> uuid.UUID | None:
+        if not val:
+            return None
+        try:
+            return uuid.UUID(str(val))
+        except (ValueError, TypeError):
+            return None
+
+    reg_uuids = _parse_uuids(registration_ids)
+    team_uuids = _parse_uuids(team_ids)
 
     try:
         async with AsyncSessionLocal() as db:
@@ -55,8 +77,17 @@ async def send_cohort_certificates_job(
                 actor_user_id=uuid.UUID(actor_user_id),
                 filter_type=filter_type,
                 registration_ids=reg_uuids,
+                team_ids=team_uuids,
                 theme=theme,
                 template_id=template_id,
+                primary_kind=primary_kind,
+                primary_template_id=primary_template_id,
+                primary_email_template_id=_parse_uuid(primary_email_template_id),
+                also_send_other=also_send_other,
+                secondary_template_id=secondary_template_id,
+                secondary_email_template_id=_parse_uuid(secondary_email_template_id),
+                delivery_mode=delivery_mode,
+                notify_by_email=notify_by_email,
                 skip_already_issued=skip_already_issued,
                 custom_email_subject=custom_email_subject,
                 custom_email_body=custom_email_body,

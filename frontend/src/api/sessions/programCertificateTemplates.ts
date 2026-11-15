@@ -43,12 +43,16 @@ export const setDefaultProgramCertificateTemplateApi = (programId: string, templ
     )
     .then((r) => r.data)
 
-export const setStockDefaultCertificateTemplateApi = (programId: string, theme: "dark" | "light") =>
+export const setStockDefaultCertificateTemplateApi = (
+  programId: string,
+  theme: "dark" | "light",
+  kind: "individual" | "team" = "individual"
+) =>
   api
-    .post<{ default_theme: string }>(
+    .post<{ default_theme: string; kind: string }>(
       `/sessions/programs/${programId}/certificate-templates/set-stock-default`,
       undefined,
-      { params: { theme } }
+      { params: { theme, kind } }
     )
     .then((r) => r.data)
 

@@ -18,8 +18,8 @@ from app.models.spine.contact import Contact
 from app.models.team import Team
 from app.models.user import User
 from app.services.competitions.registration_import import (
-    REQUIRED_COLUMNS, assign_existing_students, import_registrations, parse_registration_sheet, summarize,
-    summarize_assign_results,
+    REQUIRED_COLUMNS, assign_existing_students, import_registrations, parse_registration_sheet,
+    preview_registration_sheet, summarize, summarize_assign_results,
 )
 from app.services.teams import create_team, team_member_ids
 
@@ -66,8 +66,68 @@ async def test_parse_requires_columns():
     with pytest.raises(HTTPException):
         parse_registration_sheet(buf.getvalue())
     assert "email" in REQUIRED_COLUMNS
-    assert "team_id" in REQUIRED_COLUMNS
+    assert "member_name" in REQUIRED_COLUMNS
+    assert "team_id" not in REQUIRED_COLUMNS  # optional — blank team_id means no team
     assert "team_name" not in REQUIRED_COLUMNS  # optional now — see module docstring
+
+
+async def _ensure_test_team_columns(db) -> None:
+    from sqlalchemy import text
+    for stmt in [
+        "ALTER TABLE learner_teams ADD COLUMN IF NOT EXISTS final_locked_at TIMESTAMPTZ",
+        "ALTER TABLE learner_teams ADD COLUMN IF NOT EXISTS final_locked_by UUID",
+        "ALTER TABLE learner_teams ADD COLUMN IF NOT EXISTS first_locked_at TIMESTAMPTZ",
+        "ALTER TABLE learner_teams ADD COLUMN IF NOT EXISTS final_lock_penalty DOUBLE PRECISION",
+        "ALTER TABLE learner_teams ADD COLUMN IF NOT EXISTS final_lock_notes VARCHAR(255)",
+        "ALTER TABLE learner_teams ADD COLUMN IF NOT EXISTS timing_adjustment_override DOUBLE PRECISION",
+        "ALTER TABLE learner_teams ADD COLUMN IF NOT EXISTS timing_adjustment_notes VARCHAR(255)",
+        "ALTER TABLE learner_teams ADD COLUMN IF NOT EXISTS qualification VARCHAR(50)",
+        "ALTER TABLE learner_teams ADD COLUMN IF NOT EXISTS ops_criterion_scores JSONB NOT NULL DEFAULT '{}'::jsonb",
+        "ALTER TABLE learner_teams ADD COLUMN IF NOT EXISTS ops_criterion_notes TEXT",
+        "ALTER TABLE learner_teams ADD COLUMN IF NOT EXISTS ops_scored_by UUID",
+        "ALTER TABLE learner_teams ADD COLUMN IF NOT EXISTS ops_scored_at TIMESTAMPTZ",
+        "ALTER TABLE learner_teams ADD COLUMN IF NOT EXISTS is_observer BOOLEAN NOT NULL DEFAULT false",
+    ]:
+        await db.execute(text(stmt))
+
+
+@pytest.mark.asyncio
+async def test_import_without_team_id_registers_student_with_no_team(db):
+    await _ensure_test_team_columns(db)
+    cohort = await _make_cohort(db)
+    await db.commit()
+
+    solo_email = f"solo-{uuid.uuid4().hex[:6]}@example.com"
+    teamed_email = f"teamed-{uuid.uuid4().hex[:6]}@example.com"
+    file_bytes = _workbook([
+        {"team_id": None, "team_name": None, "member_name": "Solo Student", "email": solo_email},
+        {"team_id": "T1", "team_name": "Falcon Eye", "member_name": "Teamed Student", "email": teamed_email},
+    ])
+    preview = preview_registration_sheet(file_bytes)
+    assert preview[0].issues == []
+    assert preview[1].issues == []
+
+    rows = parse_registration_sheet(file_bytes)
+    results = await import_registrations(db, cohort_id=cohort.id, rows=rows)
+    await db.commit()
+
+    assert summarize(results) == {"total": 2, "created": 2, "matched": 0, "error": 0}
+    assert results[0].team_id is None
+    assert results[0].team_name is None
+    assert results[1].team_name == "Falcon Eye"
+
+    # Only 1 team created (for T1), solo student has no team membership
+    teams = (await db.execute(select(Team).where(Team.cohort_id == cohort.id))).scalars().all()
+    assert len(teams) == 1
+    assert teams[0].roster_team_id == "T1"
+    solo_user = (await db.execute(select(User).where(User.email == solo_email))).scalars().first()
+    assert solo_user is not None
+    solo_reg = (await db.execute(select(Registration).where(Registration.cohort_id == cohort.id, Registration.contact_id == solo_user.contact_id))).scalars().first()
+    assert solo_reg is not None
+
+    # Re-importing is idempotent
+    results2 = await import_registrations(db, cohort_id=cohort.id, rows=rows)
+    assert summarize(results2) == {"total": 2, "created": 0, "matched": 2, "error": 0}
 
 
 @pytest.mark.asyncio
@@ -342,10 +402,10 @@ async def test_a_row_missing_a_required_field_errors_without_failing_the_batch(d
 
 
 @pytest.mark.asyncio
-async def test_a_row_missing_team_id_errors_even_with_a_team_name_present(db):
-    """team_id, not team_name, is the required grouping key now — a row with
-    a name but a blank id still errors (the column exists, so this is the
-    per-row blocking-issue path, not the missing-column 422 above it)."""
+async def test_a_row_missing_team_id_registers_with_no_team_even_if_team_name_present(db):
+    """team_id is optional — a row with a blank team_id (even if team_name is present)
+    is registered with no team instead of erroring."""
+    await _ensure_test_team_columns(db)
     cohort = await _make_cohort(db)
     await db.commit()
     file_bytes = _workbook([
@@ -355,9 +415,11 @@ async def test_a_row_missing_team_id_errors_even_with_a_team_name_present(db):
     results = await import_registrations(db, cohort_id=cohort.id, rows=parse_registration_sheet(file_bytes))
     await db.commit()
     summary = summarize(results)
-    assert summary["error"] == 1 and summary["created"] == 1
-    error_row = next(r for r in results if r.disposition == "error")
-    assert "Team ID" in error_row.reason
+    assert summary["error"] == 0 and summary["created"] == 2
+    assert results[0].team_id is None
+    assert results[0].team_name is None
+    assert results[1].team_id == "T1"
+    assert results[1].team_name == "Falcon Eye"
 
 
 @pytest.mark.asyncio
@@ -569,6 +631,7 @@ async def test_assign_joins_an_existing_team_by_id_and_is_idempotent(db):
 
 @pytest.mark.asyncio
 async def test_assign_a_row_with_no_team_id_errors_without_failing_the_batch(db):
+    await _ensure_test_team_columns(db)
     cohort = await _make_cohort(db)
     a = await _make_self_registered_student(db)
     b = await _make_self_registered_student(db)

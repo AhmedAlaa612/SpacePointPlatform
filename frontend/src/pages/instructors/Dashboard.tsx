@@ -38,6 +38,7 @@ export default function InstructorDashboard() {
   const card = idCard.data
   const cardGenerated = !!(card?.card_id || card?.generated_at)
   const firstName = (currentUser?.full_name ?? "Instructor").split(" ")[0]
+  const isCertified = !!currentUser?.is_certified_instructor
 
   const nextSteps = [
     ...(docsCompliance.data && !docsCompliance.data.is_complete
@@ -76,12 +77,13 @@ export default function InstructorDashboard() {
           <div className="max-w-xl">
             <h1 className="font-display text-3xl font-bold tracking-tight">Welcome aboard, {firstName}!</h1>
             <p className="mt-2 text-sm text-muted-foreground">
-              You are now an officially certified SpacePoint Instructor. Explore your dashboard to access training
-              material, instructional resources, and classroom tools.
+              {isCertified
+                ? "You are now an officially certified SpacePoint Instructor. Explore your dashboard to access training material, instructional resources, and classroom tools."
+                : "Welcome to your SpacePoint Instructor portal. Explore your dashboard to access training material, instructional resources, and classroom tools."}
             </p>
           </div>
           <span className="inline-flex shrink-0 items-center gap-2 self-start rounded-full border border-emerald-500/30 bg-emerald-500/10 px-4 py-2 text-xs font-bold uppercase tracking-wider text-emerald-500 dark:text-emerald-400">
-            <span className="h-2 w-2 rounded-full bg-emerald-500" /> Status: Active Instructor
+            <span className="h-2 w-2 rounded-full bg-emerald-500" /> {isCertified ? "Status: Certified Instructor" : "Status: Active Instructor"}
           </span>
         </div>
       </GlassCard>

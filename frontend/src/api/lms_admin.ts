@@ -211,6 +211,8 @@ export interface AdminModule {
   course_id: string;
   title: string;
   position: number;
+  items_count?: number;
+  item_counts_by_kind?: Record<string, number>;
 }
 
 export interface AdminQuizOption {
@@ -1144,6 +1146,12 @@ export interface CohortQuizAnalysisQuiz {
   topic_breakdown: Record<string, { correct: number; total: number }>;
 }
 
+export interface CohortQuizTextResponse {
+  user_id: string;
+  student_name: string;
+  text: string;
+}
+
 export interface CohortQuizQuestionAnalysis {
   question_id: string;
   quiz_id: string;
@@ -1151,10 +1159,14 @@ export interface CohortQuizQuestionAnalysis {
   topic: string;
   prompt: string;
   difficulty?: string | null;
+  question_type?: string;
   correct_count: number;
   incorrect_count: number;
+  wrong_selected_count?: number;
+  timeout_count?: number;
   total_answers: number;
   accuracy_pct: number | null;
+  text_responses?: CohortQuizTextResponse[];
 }
 
 export interface CohortQuizAnalysisOut {

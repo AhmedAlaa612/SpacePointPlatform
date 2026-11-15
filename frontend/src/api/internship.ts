@@ -73,6 +73,7 @@ export interface StudentInternPayload {
   requested_start_date?: string
   requested_duration_weeks?: number
   major?: string
+  answers?: Record<string, unknown>
 }
 
 export const applyAsStudentInternApi = (payload: StudentInternPayload, cv?: File | null) => {

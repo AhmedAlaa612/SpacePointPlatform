@@ -619,7 +619,8 @@ async def select_for_cohort(
 
 async def list_cohort_assignments(db: AsyncSession, cohort_id: UUID) -> list[dict]:
     """Who is staffed on this cohort, in what role, at what agreed rate, and
-    across how many of its sessions."""
+    across how many of its sessions — unifying both CohortInstructorAssignment
+    rows and direct SessionInstructor assignments."""
     rows = (await db.execute(
         select(CohortInstructorAssignment, User, DeliveryRole)
         .join(User, User.id == CohortInstructorAssignment.user_id)
@@ -627,17 +628,24 @@ async def list_cohort_assignments(db: AsyncSession, cohort_id: UUID) -> list[dic
         .where(CohortInstructorAssignment.cohort_id == cohort_id)
         .order_by(DeliveryRole.sort_order, User.full_name)
     )).all()
-    if not rows:
-        return []
 
-    counts = dict((await db.execute(
-        select(SessionInstructor.user_id, func.count())
+    si_rows = (await db.execute(
+        select(SessionInstructor, User, DeliveryRole)
         .join(Session, Session.id == SessionInstructor.session_id)
+        .join(User, User.id == SessionInstructor.user_id)
+        .join(DeliveryRole, DeliveryRole.id == SessionInstructor.role_id)
         .where(Session.cohort_id == cohort_id)
-        .group_by(SessionInstructor.user_id)
-    )).all())
+        .order_by(DeliveryRole.sort_order, User.full_name, SessionInstructor.created_at)
+    )).all()
 
-    return [
+    counts: dict[UUID, int] = {}
+    first_direct: dict[UUID, tuple[SessionInstructor, User, DeliveryRole]] = {}
+    for si, u, r in si_rows:
+        counts[u.id] = counts.get(u.id, 0) + 1
+        if u.id not in first_direct:
+            first_direct[u.id] = (si, u, r)
+
+    out = [
         {
             "id": a.id, "cohort_id": a.cohort_id, "user_id": u.id, "full_name": u.full_name,
             "email": u.email, "role_id": r.id, "role_name": r.name,
@@ -647,6 +655,19 @@ async def list_cohort_assignments(db: AsyncSession, cohort_id: UUID) -> list[dic
         }
         for a, u, r in rows
     ]
+
+    assigned_user_ids = {a.user_id for a, _, _ in rows if a.status == "active"}
+    for uid, (si, u, r) in first_direct.items():
+        if uid not in assigned_user_ids:
+            out.append({
+                "id": si.id, "cohort_id": cohort_id, "user_id": u.id, "full_name": u.full_name,
+                "email": u.email, "role_id": r.id, "role_name": r.name,
+                "rate_basis": "per_session", "rate_aed": None,
+                "flat_amount_aed": None, "status": "active", "source": "direct",
+                "session_count": counts.get(u.id, 0), "created_at": si.created_at,
+            })
+
+    return out
 
 
 async def remove_cohort_assignment(
@@ -667,7 +688,13 @@ async def remove_cohort_assignment(
         )
     )).scalars().all()
     if not assignments:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Assignment not found")
+        has_sessions = (await db.execute(
+            select(SessionInstructor.id)
+            .join(Session, Session.id == SessionInstructor.session_id)
+            .where(Session.cohort_id == cohort_id, SessionInstructor.user_id == user_id)
+        )).first()
+        if not has_sessions:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Assignment not found")
     for assignment in assignments:
         assignment.status = "withdrawn"
 

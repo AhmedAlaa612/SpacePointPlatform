@@ -1,61 +1,86 @@
-import { useState, useMemo, useEffect } from "react"
+import { useState, useMemo } from "react"
 import { useQuery } from "@tanstack/react-query"
 import {
-  BookOpen,
+  AlertTriangle,
   CheckCircle2,
+  ChevronDown,
   ChevronRight,
+  Clock,
   Layers,
+  MessageSquare,
   RefreshCw,
-  Trophy,
   XCircle,
   HelpCircle,
   ArrowUpDown,
   Filter,
   Search,
 } from "lucide-react"
+import { getCohortTeamAnalyticsApi } from "@/api/competitions"
 import { getCohortQuizAnalysisApi, type CohortQuizAnalysisOut } from "@/api/lms_admin"
+import { AnalysisFunnelWidget } from "@/components/ui/AnalysisFunnelWidget"
 import { EmptyState, Spinner } from "@/components/ui/primitives"
+import { useAuth } from "@/context/AuthContext"
+import {
+  CompletionRateChart,
+  MissionsBlock,
+  SectionCard,
+  computeBottleneck,
+  useIsDark,
+} from "@/pages/admin/components/CompetitionAnalysis"
 
 export function CohortQuizAnalysisPanel({ cohortId }: { cohortId: string }) {
+  const { currentUser, activeRole } = useAuth()
+  const isInstructor = activeRole === "instructor" || currentUser?.role === "instructor"
+  const isDark = useIsDark()
   const [selectedQuizId, setSelectedQuizId] = useState<string>("all")
   const [rosterMode, setRosterMode] = useState<"student" | "observer" | "all">("student")
 
   // Questions breakdown filter and sort states
-  const [questionQuizFilter, setQuestionQuizFilter] = useState<string>("all")
   const [questionTopicFilter, setQuestionTopicFilter] = useState<string>("all")
   const [questionSortBy, setQuestionSortBy] = useState<
     "most_wrong" | "most_right" | "lowest_accuracy" | "highest_accuracy" | "total_answers"
   >("most_wrong")
   const [questionSearch, setQuestionSearch] = useState<string>("")
+  const [expandedTextIds, setExpandedTextIds] = useState<Record<string, boolean>>({})
 
-  const { data: analysis, isLoading, refetch, isRefetching } = useQuery<CohortQuizAnalysisOut>({
+  const teamMode = rosterMode === "observer" ? "observer" : rosterMode === "all" ? "all" : "participant"
+
+  const { data: teamAnalytics, isLoading: loadingTeam, refetch: refetchTeam, isRefetching: refetchingTeam } = useQuery({
+    queryKey: ["competitions-team-analytics", cohortId, teamMode, isInstructor],
+    queryFn: () => getCohortTeamAnalyticsApi(cohortId, teamMode, isInstructor),
+  })
+
+  const { data: analysis, isLoading: loadingQuiz, refetch: refetchQuiz, isRefetching: refetchingQuiz } = useQuery<CohortQuizAnalysisOut>({
     queryKey: ["cohort-quiz-analysis", cohortId, rosterMode],
     queryFn: () => getCohortQuizAnalysisApi(cohortId, rosterMode),
   })
 
-  // Sync questions quiz filter when top scope selector changes
-  useEffect(() => {
-    setQuestionQuizFilter(selectedQuizId)
-  }, [selectedQuizId])
+  const isLoading = loadingTeam && loadingQuiz
+  const isRefetching = refetchingTeam || refetchingQuiz
+  const refetch = () => {
+    void refetchTeam()
+    void refetchQuiz()
+  }
 
   // Extract all distinct topics from questions list
   const availableTopics = useMemo(() => {
     if (!analysis?.questions) return []
     const topicSet = new Set<string>()
     for (const q of analysis.questions) {
+      if (selectedQuizId !== "all" && q.quiz_id !== selectedQuizId) continue
       if (q.topic) topicSet.add(q.topic)
     }
     return Array.from(topicSet).sort()
-  }, [analysis?.questions])
+  }, [analysis?.questions, selectedQuizId])
 
   // Filter and sort questions list
   const filteredAndSortedQuestions = useMemo(() => {
     if (!analysis?.questions) return []
     let list = [...analysis.questions]
 
-    // 1. Filter by Quiz
-    if (questionQuizFilter !== "all") {
-      list = list.filter((q) => q.quiz_id === questionQuizFilter)
+    // 1. Filter by Quiz (synced with top Evaluation Scope)
+    if (selectedQuizId !== "all") {
+      list = list.filter((q) => q.quiz_id === selectedQuizId)
     }
 
     // 2. Filter by Topic
@@ -109,7 +134,7 @@ export function CohortQuizAnalysisPanel({ cohortId }: { cohortId: string }) {
     })
 
     return list
-  }, [analysis?.questions, questionQuizFilter, questionTopicFilter, questionSearch, questionSortBy])
+  }, [analysis?.questions, selectedQuizId, questionTopicFilter, questionSearch, questionSortBy])
 
   const rosterToggle = (
     <div className="flex items-center gap-1 p-1 rounded-xl border border-border bg-muted/40 w-fit">
@@ -117,7 +142,7 @@ export function CohortQuizAnalysisPanel({ cohortId }: { cohortId: string }) {
         type="button"
         onClick={() => setRosterMode("student")}
         className={`px-3 py-1 text-xs font-semibold rounded-lg transition-colors cursor-pointer ${
-          rosterMode === "student" ? "bg-primary text-primary-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"
+          rosterMode === "student" ? "bg-background text-foreground shadow-xs" : "text-muted-foreground hover:text-foreground"
         }`}
       >
         Students
@@ -126,7 +151,7 @@ export function CohortQuizAnalysisPanel({ cohortId }: { cohortId: string }) {
         type="button"
         onClick={() => setRosterMode("observer")}
         className={`px-3 py-1 text-xs font-semibold rounded-lg transition-colors cursor-pointer ${
-          rosterMode === "observer" ? "bg-primary text-primary-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"
+          rosterMode === "observer" ? "bg-background text-foreground shadow-xs" : "text-muted-foreground hover:text-foreground"
         }`}
       >
         Observers
@@ -135,7 +160,7 @@ export function CohortQuizAnalysisPanel({ cohortId }: { cohortId: string }) {
         type="button"
         onClick={() => setRosterMode("all")}
         className={`px-3 py-1 text-xs font-semibold rounded-lg transition-colors cursor-pointer ${
-          rosterMode === "all" ? "bg-primary text-primary-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"
+          rosterMode === "all" ? "bg-background text-foreground shadow-xs" : "text-muted-foreground hover:text-foreground"
         }`}
       >
         All
@@ -145,20 +170,126 @@ export function CohortQuizAnalysisPanel({ cohortId }: { cohortId: string }) {
 
   if (isLoading) return <Spinner />
 
-  if (!analysis || analysis.total_attempts === 0) {
-    return (
-      <div className="flex flex-col gap-4">
-        <div className="flex items-center justify-between gap-3 flex-wrap">
+  const ind = teamAnalytics?.individual_summary
+  const hasQuizData = Boolean(analysis && analysis.total_attempts > 0)
+
+  const currentQuiz =
+    selectedQuizId !== "all" && analysis
+      ? analysis.quizzes.find((q) => q.quiz_id === selectedQuizId)
+      : null
+
+  const activeTopicBreakdown = currentQuiz
+    ? currentQuiz.topic_breakdown
+    : (analysis?.overall_topic_breakdown ?? {})
+
+  const activeAttempts = currentQuiz ? currentQuiz.total_attempts : (analysis?.total_attempts ?? 0)
+  const activeAvgScore = currentQuiz ? currentQuiz.average_score_pct : (analysis?.overall_average_score_pct ?? 0)
+  const topicsCount = Object.keys(activeTopicBreakdown).length
+
+  const registeredVal = ind?.registered_count ?? 0
+  const startedVal = ind?.started_count ?? 0
+  const completedVal = ind?.completed_count ?? 0
+
+  const individualItems = (teamAnalytics?.items ?? []).filter((i) => !i.optional && i.scope === "individual")
+  const individualMissions = (teamAnalytics?.missions ?? []).filter((m) => m.scope === "individual")
+  const indBottleneck = computeBottleneck(individualItems)
+  const indSubmittedCount = individualItems.reduce((acc, i) => acc + i.done + i.awaiting, 0)
+  const indTotalPossible = individualItems.reduce((acc, i) => acc + i.total, 0)
+  const indSubmissionRate =
+    indTotalPossible > 0 ? Math.round((indSubmittedCount / indTotalPossible) * 1000) / 10 : 0
+
+  return (
+    <div className="flex flex-col gap-5">
+      {/* Top Bar: Roster Mode + Quiz Scope + Refresh */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-3 bg-card border border-border rounded-xl">
+        <div className="flex items-center gap-3 flex-wrap">
           {rosterToggle}
-          <button
-            onClick={() => refetch()}
-            disabled={isRefetching}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs text-muted-foreground hover:text-foreground bg-background border border-border rounded-lg transition disabled:opacity-50 cursor-pointer"
-          >
-            <RefreshCw size={13} className={isRefetching ? "animate-spin" : ""} />
-            Refresh Live Data
-          </button>
+          {hasQuizData && analysis && analysis.quizzes.length > 0 && (
+            <>
+              <div className="h-5 w-px bg-border hidden sm:block" />
+              <div className="flex items-center gap-2">
+                <Layers size={15} className="text-muted-foreground" />
+                <select
+                  value={selectedQuizId}
+                  onChange={(e) => {
+                    setSelectedQuizId(e.target.value)
+                    setQuestionTopicFilter("all")
+                  }}
+                  className="bg-background border border-border text-foreground text-xs rounded-lg px-3 py-1.5 focus:outline-none focus:ring-1 focus:ring-primary font-medium"
+                >
+                  <option value="all">All Quizzes ({analysis.total_attempts} submissions)</option>
+                  {analysis.quizzes.map((q) => (
+                    <option key={q.quiz_id} value={q.quiz_id}>
+                      {q.quiz_title} ({q.total_attempts} submissions)
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </>
+          )}
         </div>
+
+        <button
+          onClick={() => refetch()}
+          disabled={isRefetching}
+          className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs text-muted-foreground hover:text-foreground bg-background border border-border rounded-lg transition disabled:opacity-50 cursor-pointer self-start sm:self-auto"
+        >
+          <RefreshCw size={13} className={isRefetching ? "animate-spin" : ""} />
+          Refresh
+        </button>
+      </div>
+
+      {/* Executive Individual Funnel */}
+      <AnalysisFunnelWidget
+        stages={[
+          { label: "Registered", value: registeredVal, weight: Math.max(registeredVal, 1) },
+          { label: "Started", value: startedVal, weight: startedVal },
+          { label: "Completed", value: completedVal, weight: completedVal },
+        ]}
+        sideCards={[
+          {
+            title: "Submission rate",
+            badge: "Live",
+            subtitle: `${indSubmittedCount} / ${indTotalPossible} items`,
+            value: indTotalPossible > 0 ? `${indSubmissionRate}%` : "—",
+            ok: indTotalPossible > 0 ? indSubmissionRate >= 60 : undefined,
+          },
+          {
+            title: "Avg completion",
+            subtitle: `${ind?.never_logged_in_count ?? 0} never logged in`,
+            value: `${ind?.avg_pct ?? 0}%`,
+            ok: (ind?.avg_pct ?? 0) >= 60,
+          },
+          {
+            title: "Quiz mastery",
+            subtitle: activeAttempts > 0 ? `${activeAttempts} submissions` : "No submissions yet",
+            value: activeAttempts > 0 ? `${activeAvgScore}%` : "—",
+            ok: activeAttempts > 0 ? activeAvgScore >= 70 : undefined,
+          },
+        ]}
+      />
+
+      {individualItems.length > 0 && (
+        <SectionCard
+          title="Individual items completion rate"
+          action={
+            indBottleneck ? (
+              <span className="inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1 rounded-full bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/30">
+                <AlertTriangle size={13} />
+                Bottleneck: {indBottleneck.title} (-{indBottleneck.dropPct}%)
+              </span>
+            ) : undefined
+          }
+        >
+          <CompletionRateChart items={individualItems} isDark={isDark} />
+        </SectionCard>
+      )}
+
+      {individualMissions.length > 0 && (
+        <MissionsBlock missions={individualMissions} isDark={isDark} />
+      )}
+
+      {!hasQuizData || !analysis ? (
         <EmptyState
           title={
             rosterMode === "observer"
@@ -167,112 +298,14 @@ export function CohortQuizAnalysisPanel({ cohortId }: { cohortId: string }) {
               ? "No quiz submissions yet"
               : "No student quiz submissions yet"
           }
-          hint={
-            rosterMode === "observer"
-              ? "Once observers complete and submit their cohort knowledge-quizzes, observer analysis will appear here."
-              : "Once students complete and submit their cohort knowledge-quizzes, real-time topic levels and mastery breakdowns will appear here."
-          }
         />
-      </div>
-    )
-  }
-
-  // Determine which topic breakdown to display (overall vs specific quiz)
-  const currentQuiz =
-    selectedQuizId !== "all"
-      ? analysis.quizzes.find((q) => q.quiz_id === selectedQuizId)
-      : null
-
-  const activeTopicBreakdown = currentQuiz
-    ? currentQuiz.topic_breakdown
-    : analysis.overall_topic_breakdown
-
-  const activeAttempts = currentQuiz ? currentQuiz.total_attempts : analysis.total_attempts
-  const activeAvgScore = currentQuiz ? currentQuiz.average_score_pct : analysis.overall_average_score_pct
-  const topicsCount = Object.keys(activeTopicBreakdown).length
-
-  return (
-    <div className="flex flex-col gap-6">
-      {/* Metric Cards Row */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-        <div className="p-4 rounded-xl bg-card border border-border flex items-center justify-between">
-          <div>
-            <span className="text-xs uppercase font-medium text-muted-foreground">Total Submissions</span>
-            <p className="text-2xl font-bold text-foreground mt-1">{activeAttempts}</p>
-            <span className="text-[11px] text-muted-foreground">
-              {selectedQuizId === "all" ? "Across all cohort quizzes" : "For selected quiz"}
-            </span>
-          </div>
-          <div className="p-2.5 rounded-lg bg-primary/10 text-primary">
-            <CheckCircle2 size={20} />
-          </div>
-        </div>
-
-        <div className="p-4 rounded-xl bg-card border border-border flex items-center justify-between">
-          <div>
-            <span className="text-xs uppercase font-medium text-muted-foreground">Average Mastery</span>
-            <p className="text-2xl font-bold text-foreground mt-1">{activeAvgScore}%</p>
-            <span className="text-[11px] text-muted-foreground">Cohort performance grade</span>
-          </div>
-          <div className="p-2.5 rounded-lg bg-emerald-500/10 text-emerald-500">
-            <Trophy size={20} />
-          </div>
-        </div>
-
-        <div className="p-4 rounded-xl bg-card border border-border flex items-center justify-between">
-          <div>
-            <span className="text-xs uppercase font-medium text-muted-foreground">Topics Assessed</span>
-            <p className="text-2xl font-bold text-foreground mt-1">{topicsCount}</p>
-            <span className="text-[11px] text-muted-foreground">Curriculum knowledge areas</span>
-          </div>
-          <div className="p-2.5 rounded-lg bg-indigo-500/10 text-indigo-500">
-            <BookOpen size={20} />
-          </div>
-        </div>
-      </div>
-
-      {/* Selector: Overall vs Individual Quiz & Roster Mode */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-3 bg-card border border-border rounded-xl">
-        <div className="flex items-center gap-3 flex-wrap">
-          {rosterToggle}
-          <div className="h-5 w-px bg-border hidden sm:block" />
-          <div className="flex items-center gap-2">
-            <Layers size={16} className="text-muted-foreground" />
-            <span className="text-xs font-semibold uppercase text-muted-foreground">Evaluation Scope:</span>
-            <select
-              value={selectedQuizId}
-              onChange={(e) => setSelectedQuizId(e.target.value)}
-              className="bg-background border border-border text-foreground text-xs rounded-lg px-3 py-1.5 focus:outline-none focus:ring-1 focus:ring-primary font-medium"
-            >
-              <option value="all">Overall Cohort (All Quizzes Combined)</option>
-              {analysis.quizzes.map((q) => (
-                <option key={q.quiz_id} value={q.quiz_id}>
-                  Quiz: {q.quiz_title} ({q.total_attempts} submissions)
-                </option>
-              ))}
-            </select>
-          </div>
-        </div>
-
-        <button
-          onClick={() => refetch()}
-          disabled={isRefetching}
-          className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs text-muted-foreground hover:text-foreground bg-background border border-border rounded-lg transition disabled:opacity-50 cursor-pointer"
-        >
-          <RefreshCw size={13} className={isRefetching ? "animate-spin" : ""} />
-          Refresh Live Data
-        </button>
-      </div>
+      ) : (
+        <>
 
       {/* ── Block 1: Strengths & Weaknesses by Topic Card ─────────────────── */}
       <div className="flex flex-col gap-4 p-5 bg-card border border-border rounded-2xl">
         <div>
-          <h3 className="text-sm font-semibold text-foreground">Strengths & weaknesses by topic</h3>
-          <p className="text-xs text-muted-foreground mt-0.5">
-            {selectedQuizId === "all"
-              ? "Summed live across every cohort knowledge-quiz submitted in this cohort."
-              : `Summed live for "${currentQuiz?.quiz_title}".`}
-          </p>
+          <h3 className="text-sm font-semibold text-foreground">Topic Mastery</h3>
         </div>
 
         {topicsCount === 0 ? (
@@ -306,47 +339,23 @@ export function CohortQuizAnalysisPanel({ cohortId }: { cohortId: string }) {
         )}
       </div>
 
-      {/* ── Block 2: Questions Breakdown (Right vs Wrong Analysis) ────────── */}
+      {/* ── Block 2: Questions Breakdown (Right vs Wrong vs Timed Out) ─────── */}
       <div className="flex flex-col gap-4 p-5 bg-card border border-border rounded-2xl">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-          <div>
-            <div className="flex items-center gap-2">
-              <h3 className="text-sm font-semibold text-foreground">Questions Performance Breakdown</h3>
-              <span className="text-[11px] px-2 py-0.5 rounded-full bg-primary/10 text-primary font-medium">
-                {filteredAndSortedQuestions.length} Questions
-              </span>
-            </div>
-            <p className="text-xs text-muted-foreground mt-0.5">
-              Inspect student responses per question, analyze question difficulty, and identify common misconceptions.
-            </p>
+          <div className="flex items-center gap-2">
+            <h3 className="text-sm font-semibold text-foreground">Questions Breakdown</h3>
+            <span className="text-[11px] px-2 py-0.5 rounded-full bg-primary/10 text-primary font-medium">
+              {filteredAndSortedQuestions.length}
+            </span>
           </div>
         </div>
 
         {/* Filter & Sort Controls */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2.5 p-3 rounded-xl bg-muted/30 border border-border/70 text-xs">
-          {/* Quiz Filter */}
-          <div className="flex flex-col gap-1">
-            <label className="text-[10px] font-semibold uppercase text-muted-foreground tracking-wider flex items-center gap-1">
-              <Layers size={11} /> Filter by Quiz
-            </label>
-            <select
-              value={questionQuizFilter}
-              onChange={(e) => setQuestionQuizFilter(e.target.value)}
-              className="h-8 bg-background border border-border text-foreground text-xs rounded-lg px-2.5 focus:outline-none focus:ring-1 focus:ring-primary truncate"
-            >
-              <option value="all">All Quizzes</option>
-              {analysis.quizzes.map((q) => (
-                <option key={q.quiz_id} value={q.quiz_id}>
-                  {q.quiz_title}
-                </option>
-              ))}
-            </select>
-          </div>
-
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 p-3 rounded-xl bg-muted/30 border border-border/70 text-xs">
           {/* Topic Filter */}
           <div className="flex flex-col gap-1">
             <label className="text-[10px] font-semibold uppercase text-muted-foreground tracking-wider flex items-center gap-1">
-              <Filter size={11} /> Filter by Topic
+              <Filter size={11} /> Topic
             </label>
             <select
               value={questionTopicFilter}
@@ -407,10 +416,16 @@ export function CohortQuizAnalysisPanel({ cohortId }: { cohortId: string }) {
         ) : (
           <div className="flex flex-col gap-3">
             {filteredAndSortedQuestions.map((q, idx) => {
-              const wrongPct = q.total_answers > 0 ? Math.round((q.incorrect_count / q.total_answers) * 100) : 0
+              const wrongSelected = q.wrong_selected_count ?? q.incorrect_count
+              const timeoutCount = q.timeout_count ?? 0
+              const wrongPct = q.total_answers > 0 ? Math.round((wrongSelected / q.total_answers) * 100) : 0
+              const timeoutPct = q.total_answers > 0 ? Math.round((timeoutCount / q.total_answers) * 100) : 0
+              const textResponses = q.text_responses ?? []
+              const qKey = `${q.question_id}-${q.quiz_id}-${idx}`
+              const textExpanded = Boolean(expandedTextIds[qKey])
               return (
                 <div
-                  key={`${q.question_id}-${q.quiz_id}-${idx}`}
+                  key={qKey}
                   className="p-4 rounded-xl bg-card border border-border hover:border-border/80 transition-all flex flex-col gap-3"
                 >
                   {/* Question Header & Prompt */}
@@ -445,35 +460,54 @@ export function CohortQuizAnalysisPanel({ cohortId }: { cohortId: string }) {
                   {/* Breakdown Bars & Counters */}
                   <div className="pt-2 border-t border-border/60 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
                     {q.accuracy_pct === null ? (
-                      <div className="flex items-center gap-3">
-                        <span className="inline-flex items-center gap-1 font-semibold text-primary bg-primary/10 px-2.5 py-1 rounded-lg">
-                          Opinion / Open-ended
+                      <div className="flex items-center gap-3 flex-wrap">
+                        <span className="inline-flex items-center gap-1 font-semibold text-primary bg-primary/10 px-2.5 py-1 rounded-full">
+                          Open-ended
                         </span>
                         <span className="text-muted-foreground text-[11px] font-mono">
-                          {q.total_answers} total {q.total_answers === 1 ? "response" : "responses"}
+                          {q.total_answers} {q.total_answers === 1 ? "response" : "responses"}
                         </span>
+                        {textResponses.length > 0 && (
+                          <button
+                            type="button"
+                            onClick={() => setExpandedTextIds((prev) => ({ ...prev, [qKey]: !prev[qKey] }))}
+                            className="inline-flex items-center gap-1.5 text-xs font-medium text-primary hover:underline cursor-pointer"
+                          >
+                            <MessageSquare size={12} />
+                            {textExpanded ? "Hide responses" : `View responses (${textResponses.length})`}
+                            {textExpanded ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
+                          </button>
+                        )}
                       </div>
                     ) : (
-                      <div className="flex items-center gap-3">
+                      <div className="flex items-center gap-2 flex-wrap">
                         {/* Right Count */}
-                        <span className="inline-flex items-center gap-1 font-semibold text-emerald-500 bg-emerald-500/10 px-2.5 py-1 rounded-lg">
+                        <span className="inline-flex items-center gap-1 font-semibold text-emerald-500 bg-emerald-500/10 px-2.5 py-1 rounded-full">
                           <CheckCircle2 size={13} />
                           {q.correct_count} Right ({q.accuracy_pct}%)
                         </span>
 
-                        {/* Wrong Count */}
-                        <span className="inline-flex items-center gap-1 font-semibold text-rose-500 bg-rose-500/10 px-2.5 py-1 rounded-lg">
+                        {/* Wrong Selected Count */}
+                        <span className="inline-flex items-center gap-1 font-semibold text-rose-500 bg-rose-500/10 px-2.5 py-1 rounded-full">
                           <XCircle size={13} />
-                          {q.incorrect_count} Wrong ({wrongPct}%)
+                          {wrongSelected} Wrong ({wrongPct}%)
                         </span>
 
+                        {/* Timed Out Count */}
+                        {timeoutCount > 0 && (
+                          <span className="inline-flex items-center gap-1 font-semibold text-amber-500 bg-amber-500/10 px-2.5 py-1 rounded-full">
+                            <Clock size={13} />
+                            {timeoutCount} Timed Out ({timeoutPct}%)
+                          </span>
+                        )}
+
                         <span className="text-muted-foreground text-[11px] font-mono">
-                          {q.total_answers} total {q.total_answers === 1 ? "take" : "takes"}
+                          {q.total_answers} total
                         </span>
                       </div>
                     )}
 
-                    {/* Visual Segmented Progress Bar */}
+                    {/* Visual 3-Segment Progress Bar */}
                     {q.accuracy_pct === null ? (
                       <div className="flex items-center gap-2 w-full sm:w-48 shrink-0 justify-end">
                         <span className="text-[11px] font-medium text-muted-foreground italic">
@@ -491,8 +525,15 @@ export function CohortQuizAnalysisPanel({ cohortId }: { cohortId: string }) {
                           <div
                             className="h-full bg-rose-500 transition-all"
                             style={{ width: `${wrongPct}%` }}
-                            title={`${q.incorrect_count} Incorrect (${wrongPct}%)`}
+                            title={`${wrongSelected} Wrong (${wrongPct}%)`}
                           />
+                          {timeoutPct > 0 && (
+                            <div
+                              className="h-full bg-amber-500 transition-all"
+                              style={{ width: `${timeoutPct}%` }}
+                              title={`${timeoutCount} Timed Out (${timeoutPct}%)`}
+                            />
+                          )}
                         </div>
                         <span className="text-[11px] font-mono font-semibold text-muted-foreground shrink-0 w-8 text-right">
                           {q.accuracy_pct}%
@@ -500,6 +541,18 @@ export function CohortQuizAnalysisPanel({ cohortId }: { cohortId: string }) {
                       </div>
                     )}
                   </div>
+
+                  {/* Expandable Open-Ended Text Responses */}
+                  {q.accuracy_pct === null && textExpanded && textResponses.length > 0 && (
+                    <div className="mt-1 pt-3 border-t border-border/60 flex flex-col gap-2 max-h-64 overflow-y-auto">
+                      {textResponses.map((resp, rIdx) => (
+                        <div key={`${resp.user_id}-${rIdx}`} className="p-2.5 rounded-lg bg-muted/40 border border-border/60 text-xs">
+                          <span className="font-semibold text-foreground">{resp.student_name}: </span>
+                          <span className="text-muted-foreground whitespace-pre-wrap">{resp.text}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
               )
             })}
@@ -534,6 +587,8 @@ export function CohortQuizAnalysisPanel({ cohortId }: { cohortId: string }) {
             ))}
           </div>
         </div>
+      )}
+        </>
       )}
     </div>
   )

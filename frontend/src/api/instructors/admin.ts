@@ -1,4 +1,5 @@
 import { api } from "@/api/client"
+import type { PlatformFootprint, ResolvedAnswer } from "@/api/apply"
 import type { BankDetails } from "@/types/instructors"
 
 export interface DistributionEntry {
@@ -40,6 +41,9 @@ export interface ApplicantListItem {
   also_grant_role: string | null
   rejected_modules_count?: number
   has_rejected_modules?: boolean
+  phase_deadline?: string | null
+  extension_used?: boolean
+  hours_remaining?: number | null
 }
 
 export interface InvitationCode {
@@ -129,14 +133,34 @@ export const getApplicantDetailApi = (userId: string) =>
     full_name: string
     email: string
     phone: string | null
+    birthdate?: string | null
+    country?: string | null
+    city_other?: string | null
+    roles?: string[]
+    card_id?: string | null
+    created_at?: string | null
+    last_login_at?: string | null
     invite_code_used: string | null
+    referred_by?: { id: string; full_name: string; email: string } | null
     cv_url: string | null
     profile: Record<string, unknown> | null
-    review: { status: string; feedback: string | null } | null
+    review: {
+      status: string
+      feedback: string | null
+      created_at?: string | null
+      submitted_at?: string | null
+      reviewed_at?: string | null
+      phase_deadline?: string | null
+      extension_used?: boolean
+      last_status_change_at?: string | null
+      reviewed_by_name?: string | null
+    } | null
     videos: unknown[]
     presentation_link: string | null
     assessment: AssessmentSubmissionDetail | null
     modules: unknown[]
+    custom_answers?: ResolvedAnswer[]
+    platform_footprint?: PlatformFootprint | null
   })
 
 export const reviewApplicantApi = (userId: string, status: string, feedback?: string) =>

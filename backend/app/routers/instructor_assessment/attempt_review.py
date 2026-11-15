@@ -65,3 +65,17 @@ async def get_review_for_session(session_id: uuid.UUID, user_id: uuid.UUID, db: 
     if cohort_call_id is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="No open call on this session")
     return await _review_for(db, cohort_call_id, user_id)
+
+
+@router.get("/{attempt_id}/review", response_model=AttemptResultOut)
+async def get_review_by_attempt_id(attempt_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
+    attempt = await db.get(AssessmentAttempt, attempt_id)
+    if attempt is None or attempt.status != "submitted":
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="No submitted assessment attempt found")
+    review = await get_attempt_review(db, attempt)
+    return AttemptResultOut(
+        id=attempt.id, status=attempt.status, score=attempt.score, total=attempt.total,
+        critical_correct=attempt.critical_correct, critical_total=attempt.critical_total,
+        category_breakdown=attempt.category_breakdown, submitted_at=attempt.submitted_at,
+        questions=[AttemptQuestionReviewOut(**q) for q in review],
+    )

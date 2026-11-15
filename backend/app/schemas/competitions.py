@@ -705,6 +705,14 @@ class CompetitionAnalyticsItemOut(BaseModel):
     pct: int
 
 
+class CompetitionMissionStepFunnelOut(BaseModel):
+    step_key: str
+    label: str
+    confirmed_count: int
+    pct: int
+    dropoff_from_prev_pct: int = 0
+
+
 class CompetitionAnalyticsMissionOut(BaseModel):
     mission_id: UUID
     title: str
@@ -713,6 +721,7 @@ class CompetitionAnalyticsMissionOut(BaseModel):
     passed: int
     in_progress: int
     not_started: int
+    step_funnel: list[CompetitionMissionStepFunnelOut] = []
 
 
 class CompetitionAnalyticsDeliverableOut(BaseModel):
@@ -807,6 +816,9 @@ class CompetitionAnalyticsTeamOut(BaseModel):
     quiz_submissions: list[CompetitionTeamQuizSubmissionOut] = []
     last_activity_at: datetime | None = None
     stalled: bool
+    collaboration_status: Literal["balanced", "solo_carried", "imbalanced", "stalled"] = "balanced"
+    active_member_count: int = 0
+    distinct_submitter_count: int = 0
     # True once the team has hit "Final Submit" (Team.final_locked_at is
     # set) — read straight off the already-loaded Team row, no new query.
     locked: bool = False
@@ -822,6 +834,18 @@ class CompetitionAnalyticsTeamOut(BaseModel):
 class CompetitionAnalyticsActivityOut(BaseModel):
     date: date
     updates: int
+    team_deliverables: int = 0
+    quiz_submissions: int = 0
+    course_completions: int = 0
+
+
+class CompetitionIndividualSummaryOut(BaseModel):
+    registered_count: int = 0
+    assigned_count: int = 0
+    started_count: int = 0
+    completed_count: int = 0
+    never_logged_in_count: int = 0
+    avg_pct: int = 0
 
 
 class CompetitionAnalyticsTotalsOut(BaseModel):
@@ -846,6 +870,7 @@ class CompetitionAnalyticsOut(BaseModel):
     cohort_id: UUID
     cohort_name: str
     totals: CompetitionAnalyticsTotalsOut
+    individual_summary: CompetitionIndividualSummaryOut | None = None
     items: list[CompetitionAnalyticsItemOut] = []
     missions: list[CompetitionAnalyticsMissionOut] = []
     teams: list[CompetitionAnalyticsTeamOut] = []
@@ -863,6 +888,7 @@ class CompetitionCertificateRecipientOut(BaseModel):
     email: str | None = None
     team_id: UUID | None = None
     team_name: str | None = None
+    team_rank: int | None = None
     submissions_done: int
     submissions_total: int
     required_submissions_total: int
@@ -880,6 +906,31 @@ class CompetitionCertificateRecipientOut(BaseModel):
     certificate_issued: bool
     certificate_id: UUID | None = None
     certificate_generated_at: datetime | None = None
+    student_cert_issued: bool = False
+    student_cert_id: UUID | None = None
+    student_cert_generated_at: datetime | None = None
+    student_cert_delivery: str | None = None
+    team_cert_issued: bool = False
+    team_cert_id: UUID | None = None
+    team_cert_generated_at: datetime | None = None
+    team_cert_delivery: str | None = None
+
+
+class CompetitionCertificateTeamOut(BaseModel):
+    team_id: UUID
+    team_name: str
+    rank: int | None = None
+    member_count: int
+    required_submissions_done: int = 0
+    required_submissions_total: int = 0
+    optional_submissions_done: int = 0
+    optional_submissions_total: int = 0
+    team_locked: bool = False
+    team_cert_issued: bool = False
+    team_cert_generated_at: datetime | None = None
+    team_cert_delivery: str | None = None
+    member_student_certs_issued: int = 0
+    registration_ids: list[UUID] = []
 
 
 class CompetitionCertificateRecipientsSummaryOut(BaseModel):
@@ -889,27 +940,37 @@ class CompetitionCertificateRecipientsSummaryOut(BaseModel):
     total_registered: int
     submission_items_total: int
     required_submissions_total: int
+    optional_submissions_total: int = 0
     locked_only_count: int = 0
     participation_count: int = 0
     at_least_one_count: int
     all_completed_count: int
     recipients: list[CompetitionCertificateRecipientOut]
+    teams: list[CompetitionCertificateTeamOut] = []
     templates: list[dict] | None = None
+    email_templates: list[dict] | None = None
     default_template_id: str | None = None
+    default_team_template_id: str | None = None
 
 
 class CompetitionCertificateSendIn(BaseModel):
     filter: Literal["locked_only", "participation", "at_least_one", "all_completed", "custom", "all"] = "at_least_one"
     registration_ids: list[UUID] | None = None
+    team_ids: list[UUID] | None = None
     theme: str = "dark"
     template_id: str | None = None
+    primary_kind: Literal["individual", "team"] = "individual"
+    primary_template_id: str | None = None
+    primary_email_template_id: UUID | None = None
+    also_send_other: bool = False
+    secondary_template_id: str | None = None
+    secondary_email_template_id: UUID | None = None
+    delivery_mode: Literal["email", "publish"] = "email"
+    notify_by_email: bool = True
     skip_already_issued: bool = True
     custom_email_subject: str | None = None
     custom_email_body: str | None = None
     save_email_to_template: bool = False
-    # Bulk override (2026-09-30) — issue every targeted recipient as this
-    # type regardless of what the system computed for them. None = per
-    # recipient earned type, as before.
     force_certificate_type: Literal["completion", "participation"] | None = None
 
 
@@ -917,16 +978,22 @@ class CompetitionCertificateDownloadIn(BaseModel):
     filter: Literal["locked_only", "participation", "at_least_one", "all_completed", "all"] = "at_least_one"
     theme: str = "dark"
     template_id: str | None = None
+    kind: Literal["individual", "team"] = "individual"
     registration_ids: list[UUID] | None = None
+    team_ids: list[UUID] | None = None
     force_certificate_type: Literal["completion", "participation"] | None = None
 
 
 class CompetitionCertificateTestEmailIn(BaseModel):
     """Send a test certificate email to a specific address with the current config."""
     to_email: str
-    recipient_name: str | None = None  # Name shown on the certificate PDF; defaults to "Test Recipient"
+    recipient_name: str | None = None
     theme: str = "dark"
     template_id: str | None = None
+    kind: Literal["individual", "team"] = "individual"
+    email_template_id: UUID | None = None
+    delivery_mode: Literal["email", "publish"] = "email"
+    notify_by_email: bool = True
     certificate_type: Literal["completion", "participation"] = "completion"
     custom_email_subject: str | None = None
     custom_email_body: str | None = None

@@ -359,52 +359,18 @@ export function LmsComponentConfigPanel({
     <div className="flex flex-col gap-5 w-full max-w-7xl mx-auto pb-12">
       {/* ── 1. Inheritance Status Banner ─────────────────────────────────── */}
       {ownerType === "cohort" ? (
-        config.is_inherited ? (
-          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 p-4 rounded-xl border border-sky-500/30 bg-sky-500/10 text-sky-950 dark:text-sky-200">
-            <div className="min-w-0">
-              <div>
-                <div className="flex items-center gap-2 flex-wrap">
-                  <span className="font-semibold text-sm sm:text-base">
-                    Inheriting Program Default Template
-                  </span>
-                  <span className="px-2 py-0.5 text-xs font-medium rounded-full bg-sky-500/20 text-sky-700 dark:text-sky-300">
-                    Auto-Synced
-                  </span>
-                </div>
-                <p className="text-xs sm:text-sm text-sky-800/80 dark:text-sky-300/80 mt-0.5">
-                  Components below reflect the program default. Saving any toggle here will create a
-                  dedicated cohort override.
-                </p>
-              </div>
-            </div>
-          </div>
-        ) : (
-          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 p-4 rounded-xl border border-amber-500/30 bg-amber-500/10 text-amber-950 dark:text-amber-200">
-            <div className="min-w-0">
-              <div>
-                <div className="flex items-center gap-2 flex-wrap">
-                  <span className="font-semibold text-sm sm:text-base">
-                    Custom Cohort Override Active
-                  </span>
-                  <span className="px-2 py-0.5 text-xs font-medium rounded-full bg-amber-500/20 text-amber-700 dark:text-amber-300">
-                    Custom Rules
-                  </span>
-                </div>
-                <p className="text-xs sm:text-sm text-amber-800/80 dark:text-amber-300/80 mt-0.5">
-                  This cohort has custom component availability rules overriding the program
-                  template.
-                </p>
-              </div>
-            </div>
+        config.is_inherited ? null : (
+          <div className="flex items-center justify-between gap-3 p-3.5 rounded-[10px] border border-border bg-card text-foreground">
+            <span className="text-sm font-semibold">Custom Component Overrides Active</span>
             <button
               onClick={() => resetMutation.mutate()}
               disabled={resetMutation.isPending}
-              className="min-h-[44px] px-3.5 py-2 text-xs sm:text-sm font-medium rounded-lg border border-amber-600/30 bg-card hover:bg-accent text-foreground transition-colors flex items-center gap-2 shrink-0 cursor-pointer self-stretch sm:self-auto justify-center"
+              className="h-9 px-3.5 text-xs sm:text-sm font-medium rounded-[10px] border border-border bg-background hover:bg-muted text-foreground transition-colors flex items-center gap-2 shrink-0 cursor-pointer"
             >
               {resetMutation.isPending ? (
                 <Spinner />
               ) : (
-                <RotateCcw className="w-4 h-4 text-amber-600 dark:text-amber-400" />
+                <RotateCcw className="w-4 h-4 text-primary" />
               )}
               <span>Reset to Program Default</span>
             </button>

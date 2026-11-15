@@ -63,7 +63,17 @@ async def _engine():
     # the event loop pytest-asyncio actually runs tests in — an asyncpg
     # connection pool created before any loop exists breaks across tests
     # with "another operation is in progress" once a second test reuses it.
+    from sqlalchemy import text
+    from app.db.base import Base
+    import app.models  # noqa: F401
+
     engine = create_async_engine(settings.DATABASE_URL_TEST)
+    async with engine.begin() as conn:
+        await conn.run_sync(lambda sync_conn: Base.metadata.create_all(sync_conn, checkfirst=True))
+        await conn.execute(text("ALTER TABLE learner_teams ADD COLUMN IF NOT EXISTS final_lock_penalty DOUBLE PRECISION;"))
+        await conn.execute(text("ALTER TABLE learner_teams ADD COLUMN IF NOT EXISTS final_lock_notes VARCHAR(255);"))
+        await conn.execute(text("ALTER TABLE lms_program_team_item_progress ADD COLUMN IF NOT EXISTS penalty_points DOUBLE PRECISION;"))
+        await conn.execute(text("ALTER TABLE lms_program_team_item_progress ADD COLUMN IF NOT EXISTS penalty_notes VARCHAR(255);"))
     yield engine
     await engine.dispose()
 
@@ -85,6 +95,11 @@ async def db(_engine):
         finally:
             await session.close()
             await trans.rollback()
+
+
+@pytest_asyncio.fixture
+async def db_session(db):
+    yield db
 
 
 @pytest_asyncio.fixture(scope="session")

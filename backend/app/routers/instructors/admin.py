@@ -48,6 +48,9 @@ from app.schemas.instructors.instructor import BankDetailsOut
 from app.models.enums import CertificateType, PaymentLetterStatus
 from app.routers.instructors.instructor import _resolve_living_area
 from app.services import storage
+from app.services.apply_footprint import get_platform_footprint
+from app.services.apply_form_config import get_user_custom_answers
+from app.services.documents.card_id import format_card_id
 from app.services.documents.certificate import generate_completion_certificate_pdf
 from app.services.documents.contract import format_contract_date, generate_contract_pdf
 from app.services.documents.dossier import build_applicant_dossier_pdf
@@ -129,6 +132,32 @@ async def overview(db: AsyncSession = Depends(get_db), current_user: User = Depe
     )
 
 
+_TIMED_APPLICATION_STATUSES = {
+    ApplicationStatus.in_progress,
+    ApplicationStatus.phase_1_approved,
+    ApplicationStatus.research_approved,
+}
+
+
+def _applicant_deadline_fields(review: ApplicationReview, now: datetime) -> dict:
+    """Return active phase deadline fields matching applicant status visibility."""
+    deadline = review.phase_deadline
+    if review.status not in _TIMED_APPLICATION_STATUSES or deadline is None:
+        return {
+            "phase_deadline": None,
+            "extension_used": bool(review.extension_used),
+            "hours_remaining": None,
+        }
+    if deadline.tzinfo is None:
+        deadline = deadline.replace(tzinfo=timezone.utc)
+    hours_remaining = max(0.0, round((deadline - now).total_seconds() / 3600.0, 1))
+    return {
+        "phase_deadline": deadline,
+        "extension_used": bool(review.extension_used),
+        "hours_remaining": hours_remaining,
+    }
+
+
 @router.get("/applicants")
 async def list_applicants(db: AsyncSession = Depends(get_db), current_user: User = Depends(require_admin)):
     # Everyone with an application review — including promoted instructors.
@@ -163,6 +192,7 @@ async def list_applicants(db: AsyncSession = Depends(get_db), current_user: User
         )).all()
         rejected_counts = {uid: count for uid, count in rejected_rows}
 
+    now = datetime.now(timezone.utc)
     return [
         {
             "id": str(u.id), "full_name": u.full_name, "email": u.email,
@@ -175,6 +205,7 @@ async def list_applicants(db: AsyncSession = Depends(get_db), current_user: User
             "also_grant_role": profile.also_grant_role if profile else None,
             "rejected_modules_count": rejected_counts.get(u.id, 0),
             "has_rejected_modules": rejected_counts.get(u.id, 0) > 0,
+            **_applicant_deadline_fields(review, now),
         }
         for u, review, profile in rows
     ]
@@ -306,12 +337,72 @@ async def applicant_detail(
         profile_out = {c.name: getattr(profile, c.name) for c in ApplicantProfile.__table__.columns}
         profile_out["city_of_residence"] = residence_city.name if residence_city else None
 
+        deliver_cities: list[str] = []
+        if profile.deliver_city_ids:
+            city_rows = (
+                await db.execute(select(City).where(City.id.in_(profile.deliver_city_ids)))
+            ).scalars().all()
+            city_map = {c.id: c.name for c in city_rows}
+            deliver_cities = [city_map[cid] for cid in profile.deliver_city_ids if cid in city_map]
+        profile_out["deliver_cities"] = deliver_cities
+
+        if isinstance(profile.pending_intern_details, dict):
+            pending_copy = dict(profile.pending_intern_details)
+            approve_data = pending_copy.get("approve") or {}
+            if approve_data.get("city_id"):
+                try:
+                    pc = await db.get(City, uuid.UUID(str(approve_data["city_id"])))
+                    pending_copy["work_city_name"] = pc.name if pc else None
+                except ValueError:
+                    pass
+            profile_out["pending_intern_details"] = pending_copy
+
+    referred_by = None
+    if user.invited_by_id:
+        ref = await db.get(User, user.invited_by_id)
+        if ref:
+            referred_by = {"id": str(ref.id), "full_name": ref.full_name, "email": ref.email}
+
+    reviewer_name = None
+    if review and review.admin_id:
+        rev_admin = await db.get(User, review.admin_id)
+        reviewer_name = rev_admin.full_name if rev_admin else None
+
+    roles_list = user.role_values
+    custom_answers = await get_user_custom_answers(db, user.id, audience="instructor")
+    platform_footprint = await get_platform_footprint(
+        db, user.email, user_id=user.id, exclude_user_id=user.id
+    )
+
     return {
-        "id": str(user.id), "full_name": user.full_name, "email": user.email, "phone": user.phone,
+        "id": str(user.id),
+        "full_name": user.full_name,
+        "email": user.email,
+        "phone": user.phone,
+        "birthdate": user.birthdate.isoformat() if user.birthdate else None,
+        "country": user.country,
+        "city_other": user.city_other,
+        "roles": roles_list,
+        "card_id": format_card_id(user.card_number, roles_list) if user.card_number is not None else None,
+        "created_at": user.created_at.isoformat() if user.created_at else None,
+        "last_login_at": user.last_login_at.isoformat() if user.last_login_at else None,
         "invite_code_used": invite_code_used,
+        "referred_by": referred_by,
         "cv_url": await storage.get_signed_url("cvs", profile.cv_path) if profile and profile.cv_path else None,
-        "profile": profile_out, "review": {"status": review.status, "feedback": review.feedback} if review else None,
-        "videos": videos, "presentation_link": presentation.video_link if presentation else None,
+        "profile": profile_out,
+        "review": {
+            "status": review.status,
+            "feedback": review.feedback,
+            "created_at": review.created_at.isoformat() if review.created_at else None,
+            "submitted_at": review.submitted_at.isoformat() if review.submitted_at else None,
+            "reviewed_at": review.reviewed_at.isoformat() if review.reviewed_at else None,
+            "phase_deadline": review.phase_deadline.isoformat() if review.phase_deadline else None,
+            "extension_used": review.extension_used,
+            "last_status_change_at": review.last_status_change_at.isoformat() if review.last_status_change_at else None,
+            "reviewed_by_name": reviewer_name,
+        } if review else None,
+        "videos": videos,
+        "presentation_link": presentation.video_link if presentation else None,
         "assessment": {
             "file_url": await storage.resolve_url(assessment.bucket, assessment.file_path, assessment.file_url),
             "google_drive_link": assessment.google_drive_link,
@@ -319,6 +410,8 @@ async def applicant_detail(
             "submitted_at": assessment.submitted_at,
         } if assessment else None,
         "modules": modules_data,
+        "custom_answers": custom_answers,
+        "platform_footprint": platform_footprint,
     }
 
 
@@ -584,6 +677,7 @@ async def export_applicant_dossier(
     if not user:
         raise HTTPException(status_code=404, detail="Applicant not found")
     review = (await db.execute(select(ApplicationReview).where(ApplicationReview.user_id == user_id))).scalars().first()
+    profile = (await db.execute(select(ApplicantProfile).where(ApplicantProfile.user_id == user_id))).scalars().first()
 
     mods = (await db.execute(select(ChecklistModule).order_by(ChecklistModule.sort_order))).scalars().all()
     subs = (await db.execute(
@@ -592,6 +686,8 @@ async def export_applicant_dossier(
     sub_by_module = {s.module_id: s for s in subs}
 
     modules_payload = []
+    cv_pdf_bytes = None
+    cv_filename = None
     async with httpx.AsyncClient(timeout=30) as client:
         for m in mods:
             sub = sub_by_module.get(m.id)
@@ -610,11 +706,59 @@ async def export_applicant_dossier(
                 "pdf_bytes": pdf_bytes,
             })
 
+        if profile and profile.cv_path:
+            cv_filename = profile.cv_path.split("/")[-1]
+            if profile.cv_path.lower().endswith(".pdf"):
+                try:
+                    cv_url = await storage.get_signed_url("cvs", profile.cv_path)
+                    if cv_url:
+                        resp = await client.get(cv_url)
+                        if resp.status_code == 200:
+                            cv_pdf_bytes = resp.content
+                except Exception:
+                    cv_pdf_bytes = None
+
+    profile_lines: list[str] = []
+    if user.phone:
+        profile_lines.append(f"Phone: {user.phone}")
+    if user.birthdate:
+        profile_lines.append(f"Date of birth: {user.birthdate.isoformat()}")
+    if user.country:
+        profile_lines.append(f"Country: {user.country}")
+    if profile:
+        if profile.nationality:
+            profile_lines.append(f"Nationality: {profile.nationality}")
+        if profile.work_status:
+            profile_lines.append(f"Work status: {profile.work_status}")
+        if profile.fluent_languages:
+            profile_lines.append(f"Languages: {', '.join(profile.fluent_languages)}")
+        if profile.city_of_residence_id:
+            rc = await db.get(City, profile.city_of_residence_id)
+            if rc:
+                profile_lines.append(f"City of residence: {rc.name}")
+        if profile.deliver_city_ids:
+            dc_rows = (await db.execute(select(City).where(City.id.in_(profile.deliver_city_ids)))).scalars().all()
+            if dc_rows:
+                profile_lines.append(f"Delivery cities: {', '.join(c.name for c in dc_rows)}")
+        if profile.graduated_university or profile.university:
+            profile_lines.append(f"University: {profile.graduated_university or profile.university}")
+        if profile.highest_degree:
+            deg = profile.highest_degree_other if profile.highest_degree == "other" and profile.highest_degree_other else profile.highest_degree
+            profile_lines.append(f"Highest degree: {deg}")
+        if profile.background_areas:
+            profile_lines.append(f"Background: {', '.join(profile.background_areas)}")
+        profile_lines.append(f"Own transportation: {'Yes' if profile.has_own_transportation else 'No'}")
+    if user.invitation_code_used:
+        profile_lines.append(f"Invite code used: {user.invitation_code_used}")
+
     pdf = await asyncio.to_thread(
         build_applicant_dossier_pdf,
         user.full_name, user.email,
         review.status.value if review else "in_progress",
         modules_payload,
+        profile_lines=profile_lines,
+        cv_pdf_bytes=cv_pdf_bytes,
+        cv_filename=cv_filename,
     )
     safe = "".join(c for c in user.full_name if c.isalnum() or c in " -_").strip().replace(" ", "_")
     return Response(

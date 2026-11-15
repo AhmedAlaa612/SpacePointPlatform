@@ -3,8 +3,15 @@ import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { isAxiosError } from "axios"
 import { Briefcase, Upload } from "lucide-react"
 import { useAuth } from "@/context/AuthContext"
+import { getPublicFormConfigApi } from "@/api/apply"
 import { applyAsStudentInternApi } from "@/api/internship"
 import { fetchPublicCities } from "@/api/lms"
+import {
+  CustomQuestionsFields,
+  isFieldEnabled,
+  isFieldRequired,
+  validateCustomQuestionAnswers,
+} from "@/components/apply/CustomQuestionsFields"
 import {
   Dialog,
   DialogContent,
@@ -47,6 +54,7 @@ export function ApplyAsInternModal({
   const [requestedStartDate, setRequestedStartDate] = useState("")
   const [requestedDurationWeeks, setRequestedDurationWeeks] = useState(8)
   const [cvFile, setCvFile] = useState<File | null>(null)
+  const [answers, setAnswers] = useState<Record<string, string>>({})
 
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -57,6 +65,16 @@ export function ApplyAsInternModal({
     enabled: open,
   })
 
+  const { data: formConfig } = useQuery({
+    queryKey: ["apply-form-config", "intern"],
+    queryFn: () => getPublicFormConfigApi("intern"),
+    enabled: open,
+  })
+  const fields = formConfig?.fields
+  const questions = formConfig?.questions ?? []
+  const cvRequired = isFieldRequired(fields, "cv", false)
+  const cvEnabled = isFieldEnabled(fields, "cv", true)
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!university.trim()) {
@@ -65,6 +83,27 @@ export function ApplyAsInternModal({
     }
     if (!universityIdNumber.trim()) {
       setError("Please enter your university or student ID number.")
+      return
+    }
+    if (isFieldRequired(fields, "major", false) && !major.trim()) {
+      setError("Please enter your major / academic discipline.")
+      return
+    }
+    if (isFieldRequired(fields, "preferred_city_id", false) && !preferredCityId) {
+      setError("Please select a preferred work city.")
+      return
+    }
+    if (isFieldRequired(fields, "requested_start_date", false) && !requestedStartDate) {
+      setError("Please choose a requested start date.")
+      return
+    }
+    if (cvRequired && !cvFile) {
+      setError("Please upload your CV / Resume.")
+      return
+    }
+    const qErr = validateCustomQuestionAnswers(questions, answers)
+    if (qErr) {
+      setError(qErr)
       return
     }
 
@@ -80,6 +119,7 @@ export function ApplyAsInternModal({
           preferred_city_id: preferredCityId || undefined,
           requested_start_date: requestedStartDate || undefined,
           requested_duration_weeks: requestedDurationWeeks,
+          answers,
         },
         cvFile
       )
@@ -171,95 +211,121 @@ export function ApplyAsInternModal({
           </div>
 
           {/* Major / Field of Study */}
-          <div>
-            <label className="text-xs font-medium text-foreground block mb-1">
-              Major / Academic Discipline
-            </label>
-            <input
-              type="text"
-              className="input w-full"
-              value={major}
-              onChange={(e) => setMajor(e.target.value)}
-              placeholder="e.g. Aerospace Engineering / Computer Science"
-            />
-          </div>
-
-          {/* Preferred Location */}
-          <div>
-            <label className="text-xs font-medium text-foreground block mb-1">
-              Preferred Work City / Center
-            </label>
-            <select
-              className="input w-full"
-              value={preferredCityId}
-              onChange={(e) => setPreferredCityId(e.target.value)}
-            >
-              <option value="">No preference / Remote</option>
-              {cities.map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.name}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            {/* Requested Start Date */}
+          {isFieldEnabled(fields, "major", true) && (
             <div>
               <label className="text-xs font-medium text-foreground block mb-1">
-                Requested Start Date
+                Major / Academic Discipline{" "}
+                {isFieldRequired(fields, "major", false) && <span className="text-destructive">*</span>}
               </label>
               <input
-                type="date"
+                type="text"
                 className="input w-full"
-                value={requestedStartDate}
-                onChange={(e) => setRequestedStartDate(e.target.value)}
+                value={major}
+                onChange={(e) => setMajor(e.target.value)}
+                placeholder="e.g. Aerospace Engineering / Computer Science"
+                required={isFieldRequired(fields, "major", false)}
               />
             </div>
+          )}
 
-            {/* Duration Weeks */}
+          {/* Preferred Location */}
+          {isFieldEnabled(fields, "preferred_city_id", true) && (
             <div>
               <label className="text-xs font-medium text-foreground block mb-1">
-                Internship Duration
+                Preferred Work City / Center{" "}
+                {isFieldRequired(fields, "preferred_city_id", false) && <span className="text-destructive">*</span>}
               </label>
               <select
                 className="input w-full"
-                value={requestedDurationWeeks}
-                onChange={(e) => setRequestedDurationWeeks(Number(e.target.value))}
+                value={preferredCityId}
+                onChange={(e) => setPreferredCityId(e.target.value)}
               >
-                {DURATION_OPTIONS.map((opt) => (
-                  <option key={opt.value} value={opt.value}>
-                    {opt.label}
+                <option value="">No preference / Remote</option>
+                {cities.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.name}
                   </option>
                 ))}
               </select>
             </div>
+          )}
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            {/* Requested Start Date */}
+            {isFieldEnabled(fields, "requested_start_date", true) && (
+              <div>
+                <label className="text-xs font-medium text-foreground block mb-1">
+                  Requested Start Date{" "}
+                  {isFieldRequired(fields, "requested_start_date", false) && <span className="text-destructive">*</span>}
+                </label>
+                <input
+                  type="date"
+                  className="input w-full"
+                  value={requestedStartDate}
+                  onChange={(e) => setRequestedStartDate(e.target.value)}
+                />
+              </div>
+            )}
+
+            {/* Duration Weeks */}
+            {isFieldEnabled(fields, "requested_duration_weeks", true) && (
+              <div>
+                <label className="text-xs font-medium text-foreground block mb-1">
+                  Internship Duration{" "}
+                  {isFieldRequired(fields, "requested_duration_weeks", false) && <span className="text-destructive">*</span>}
+                </label>
+                <select
+                  className="input w-full"
+                  value={requestedDurationWeeks}
+                  onChange={(e) => setRequestedDurationWeeks(Number(e.target.value))}
+                >
+                  {DURATION_OPTIONS.map((opt) => (
+                    <option key={opt.value} value={opt.value}>
+                      {opt.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
           </div>
 
           {/* CV Upload */}
-          <div>
-            <label className="text-xs font-medium text-foreground block mb-1">
-              CV / Resume (PDF)
-            </label>
-            <div className="flex items-center gap-3">
-              <label className="relative cursor-pointer h-9 px-3 bg-secondary text-secondary-foreground font-semibold text-xs rounded-xl hover:opacity-90 transition-opacity flex items-center gap-1.5 shrink-0">
-                <Upload size={14} />
-                {cvFile ? "Replace File" : "Choose PDF"}
-                <input
-                  type="file"
-                  accept="application/pdf"
-                  className="hidden"
-                  onChange={(e) => {
-                    const f = e.target.files?.[0]
-                    if (f) setCvFile(f)
-                  }}
-                />
+          {cvEnabled && (
+            <div>
+              <label className="text-xs font-medium text-foreground block mb-1">
+                CV / Resume (PDF){cvRequired && <span className="text-destructive"> *</span>}
               </label>
-              <span className="text-xs text-muted-foreground truncate">
-                {cvFile ? cvFile.name : "No file selected"}
-              </span>
+              <div className="flex items-center gap-3">
+                <label className="relative cursor-pointer h-9 px-3 bg-secondary text-secondary-foreground font-semibold text-xs rounded-xl hover:opacity-90 transition-opacity flex items-center gap-1.5 shrink-0">
+                  <Upload size={14} />
+                  {cvFile ? "Replace File" : "Choose PDF"}
+                  <input
+                    type="file"
+                    accept="application/pdf"
+                    className="hidden"
+                    onChange={(e) => {
+                      const f = e.target.files?.[0]
+                      if (f) setCvFile(f)
+                    }}
+                  />
+                </label>
+                <span className="text-xs text-muted-foreground truncate">
+                  {cvFile ? cvFile.name : "No file selected"}
+                </span>
+              </div>
             </div>
-          </div>
+          )}
+
+          {questions.length > 0 && (
+            <div className="pt-2 border-t border-border">
+              <CustomQuestionsFields
+                questions={questions}
+                answers={answers}
+                onChange={setAnswers}
+                labelClassName="text-xs font-medium text-foreground block mb-1"
+              />
+            </div>
+          )}
 
           <DialogFooter className="mt-2">
             <Button

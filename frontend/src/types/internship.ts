@@ -1,3 +1,5 @@
+import type { PlatformFootprint, ResolvedAnswer } from "@/api/apply"
+
 export interface RoleRequest {
   id: string
   requester_user_id: string
@@ -11,6 +13,23 @@ export interface RoleRequest {
   reviewed_by: string | null
   reviewed_at: string | null
   created_at: string
+  requester_profile?: {
+    phone?: string | null
+    country?: string | null
+    city?: string | null
+    birthdate?: string | null
+    roles?: string[]
+    card_id?: string | null
+    student_id?: string | null
+    organization_name?: string | null
+    created_at?: string | null
+  } | null
+  preferred_city_name?: string | null
+  final_city_name?: string | null
+  reviewed_by_name?: string | null
+  resolved_answers?: ResolvedAnswer[]
+  intern_profile?: (InternProfile & { work_city_name?: string | null }) | null
+  platform_footprint?: PlatformFootprint | null
 }
 
 export interface InternProfile {

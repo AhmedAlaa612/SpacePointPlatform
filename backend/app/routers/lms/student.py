@@ -1684,26 +1684,35 @@ async def my_certificates(
                 CertificateType.lms_course_completion,
                 CertificateType.lms_path_completion,
                 CertificateType.student_completion,
+                CertificateType.team_completion,
             ]),
         ).order_by(Certificate.generated_at.desc())
     )).scalars().all()
 
     out: list[MyCertificateOut] = []
     for row in rows:
+        team_name_val: str | None = None
         if row.course_id is not None:
             course = await db.get(Course, row.course_id)
             title = course.title if course else "Course"
         elif row.learning_path_id is not None:
             path = await db.get(LearningPath, row.learning_path_id)
             title = path.title if path else "Learning path"
+        elif row.type == CertificateType.team_completion:
+            if getattr(row, "team_id", None):
+                from app.models.team import Team
+                team_obj = await db.get(Team, row.team_id)
+                team_name_val = team_obj.name if team_obj else None
+            base_prog = row.workshop_name or "Team Certificate"
+            title = f"{base_prog} — {team_name_val}" if team_name_val else base_prog
         else:
             title = row.workshop_name or "Program Certificate"
 
         url = None
         if row.bucket and row.file_path:
             url = await storage.resolve_url(row.bucket, row.file_path)
-        elif row.type == CertificateType.student_completion:
-            # Self-heal previously issued certs that were emailed before storage uploading was added
+        elif row.type in (CertificateType.student_completion, CertificateType.team_completion):
+            # Self-heal previously issued certs or missing storage uploads
             try:
                 from app.models.sessions.registration import Registration
                 from app.models.sessions.cohort import Cohort
@@ -1727,7 +1736,14 @@ async def my_certificates(
                 cohort_name = cohort_obj.name if cohort_obj and cohort_obj.name else ""
                 dates_str = format_cohort_dates(cohort_obj) if cohort_obj else (row.workshop_date or "")
 
-                layout = await _resolve_certificate_template(db, program=prog_obj, theme="dark") if prog_obj else {}
+                cert_kind = "team" if row.type == CertificateType.team_completion else "individual"
+                layout = await _resolve_certificate_template(
+                    db,
+                    program=prog_obj,
+                    template_id=getattr(row, "template_id", None),
+                    theme="dark",
+                    kind=cert_kind,
+                ) if prog_obj else {}
                 tmpl = (await db.execute(
                     select(DocumentTemplate).where(DocumentTemplate.key == "student_completion")
                 )).scalars().first()
@@ -1735,17 +1751,24 @@ async def my_certificates(
                     raw_body = layout.get("body_text_template") or ""
                 else:
                     raw_body = layout.get("body_text_template") or (tmpl.body_text if tmpl else STUDENT_COMPLETION_FALLBACK_BODY)
-                # The "Held ..." witness line comes from the live cohort row
-                # when it still exists; for legalese archived certificates
-                # whose cohort was deleted, rebuild the same wording from the
-                # date text format_cohort_dates stored on the row itself
-                # ('a – b' range or single date) plus the row's venue.
                 if cohort_obj is not None:
                     when_line = format_certificate_when_phrase(
                         starts_on=cohort_obj.starts_on, ends_on=cohort_obj.ends_on, location=row.location,
                     )
                 else:
                     when_line = format_certificate_when_phrase(location=row.location, stored_dates=row.workshop_date)
+
+                team_rank_val: int | None = None
+                if cert_kind == "team" and getattr(row, "team_id", None) and cohort_obj is not None:
+                    try:
+                        from app.services.competitions.judging import leaderboard as _leaderboard
+                        for lb_row in await _leaderboard(db, cohort_id=cohort_obj.id, mode="participant"):
+                            if lb_row.get("team_id") == row.team_id and lb_row.get("score") is not None:
+                                team_rank_val = lb_row["rank"]
+                                break
+                    except Exception:
+                        team_rank_val = None
+
                 body_rendered = expand_certificate_body_template(
                     raw_body,
                     program_name=prog_name,
@@ -1753,6 +1776,8 @@ async def my_certificates(
                     dates=dates_str,
                     location=row.location,
                     when_line=when_line,
+                    team_name=team_name_val,
+                    rank=team_rank_val,
                 )
 
                 cert_pdf = await asyncio.to_thread(
@@ -1791,6 +1816,7 @@ async def my_certificates(
         out.append(MyCertificateOut(
             id=row.id, type=row.type.value if hasattr(row.type, "value") else str(row.type),
             title=title, course_id=row.course_id, learning_path_id=row.learning_path_id,
+            team_name=team_name_val,
             issued_at=row.generated_at,
             url=url,
         ))

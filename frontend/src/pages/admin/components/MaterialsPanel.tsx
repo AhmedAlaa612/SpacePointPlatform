@@ -27,7 +27,7 @@ import { MediaPreviewModal } from "@/components/media/MediaPreviewModal"
  * for one cohort, and it is the part people get wrong when reading the word
  * "override".
  */
-export function MaterialsPanel({ owner, inheritedNote, level }: {
+export function MaterialsPanel({ owner, inheritedNote: _inheritedNote, level }: {
   owner: MaterialOwner
   /** e.g. "Sessions inherit these unless the cohort has its own." */
   inheritedNote?: string
@@ -90,10 +90,6 @@ export function MaterialsPanel({ owner, inheritedNote, level }: {
               levels that actually inherit; the program is the root. */}
           {level && <InheritedBadge level={level} overridden={materials.length > 0} />}
         </div>
-        <p className="text-xs text-muted-foreground mt-0.5">
-          Files and links. {inheritedNote}{" "}
-          Anything here <strong>replaces</strong> what would otherwise apply, rather than adding to it.
-        </p>
       </div>
 
       <div className="flex flex-col gap-1.5">

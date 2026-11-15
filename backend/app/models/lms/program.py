@@ -1,11 +1,7 @@
 """LMS Program domain — the checklist-driven redesign (2026-08-21) that
 replaces the old `program_curriculum`/`cohort_curriculum` flat course list.
 
-A student in the boss's own words: "added to a cohort" and "assigned to
-an LMS program" are two distinct steps, but structurally this attaches at
-the same level `program_curriculum` did — `LmsProgram.program_id` binds
-a checklist to a Sessions `Program`, and every cohort under that program
-inherits it automatically. A cohort can instead define its own
+A cohort can define its own
 `LmsProgramCohortOverride`, which replaces the program's checklist
 outright for that cohort's assignees — same "nearest level with any rows
 wins, never merges" idiom `CohortCurriculum` used, carried forward by

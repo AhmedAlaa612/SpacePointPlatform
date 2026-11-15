@@ -17,5 +17,6 @@ class Notification(Base):
     title = Column(String(255), nullable=False)
     body = Column(Text, nullable=True)
     type = Column(String(50), nullable=True)  # optional category (e.g. "system", "review")
+    link = Column(String(500), nullable=True)  # optional deep-link route (e.g. "/admin/applications?id=...")
     is_read = Column(Boolean, default=False, nullable=False)
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))

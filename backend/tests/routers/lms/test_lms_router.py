@@ -438,13 +438,12 @@ async def test_module_read_gates_on_enrollment_not_role(db, client):
     routes gate purely on enrollment now, not on holding the `student` role."""
     course, module, *_ = await _tree_with_quiz(db)
 
-    # an unpublished course gives 404, never a role-based 403 —
-    # don't-leak-existence treatment for not-yet-enrolled staff and students.
+    # An unpublished course gives 404 for students, while staff/authors can preview it.
     course.is_published = False
     await db.commit()
     ops = await _user(db, roles=["operations"])
     resp = await client.get(f"/lms/modules/{module.id}", headers=_headers(ops))
-    assert resp.status_code == http_status.HTTP_404_NOT_FOUND
+    assert resp.status_code == 200
 
     stranger = await _user(db)
     resp = await client.get(f"/lms/modules/{module.id}", headers=_headers(stranger))

@@ -260,7 +260,12 @@ async def get_organization_programs_overview(
         c_rows = (
             await db.execute(
                 select(Cohort)
-                .where(Cohort.program_id.in_(program_ids))
+                .where(
+                    Cohort.program_id.in_(program_ids),
+                    Cohort.status != "draft",
+                    ~Cohort.name.ilike("[Template]%"),
+                    func.lower(func.trim(Cohort.name)) != "template",
+                )
                 .order_by(Cohort.created_at.desc())
             )
         ).scalars().all()

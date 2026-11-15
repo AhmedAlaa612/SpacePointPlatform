@@ -727,7 +727,16 @@ async def export_program_items_submissions_workbook(
             if i.item_type == "submission" or (i.item_type == "mission_run" and i.mission_step_key == "poster")
         ] or program_items
 
-    cohort_stmt = select(Cohort).where(Cohort.program_id == program.program_id).order_by(Cohort.name)
+    cohort_stmt = (
+        select(Cohort)
+        .where(
+            Cohort.program_id == program.program_id,
+            Cohort.status != "draft",
+            ~Cohort.name.ilike("[Template]%"),
+            func.lower(func.trim(Cohort.name)) != "template",
+        )
+        .order_by(Cohort.name)
+    )
     if restrict_to_cohort_ids is not None:
         if not restrict_to_cohort_ids:
             cohorts = []

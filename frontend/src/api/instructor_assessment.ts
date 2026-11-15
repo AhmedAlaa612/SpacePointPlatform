@@ -13,6 +13,7 @@ import type {
   CertificationTag,
   InstructorPerformance,
   InstructorProgramRating,
+  OpsInstructorRosterItem,
   RankingWeightProfile,
 } from "@/types/instructor_assessment";
 
@@ -105,6 +106,9 @@ export const getAttemptReviewForCohortCallApi = (cohortCallId: string, userId: s
     `/instructor-assessment/attempts/cohort-calls/${cohortCallId}/instructors/${userId}/review`,
   ).then((r) => r.data);
 
+export const getAttemptReviewByIdApi = (attemptId: string) =>
+  api.get<AttemptResult>(`/instructor-assessment/attempts/${attemptId}/review`).then((r) => r.data);
+
 // ── post-program rating ─────────────────────────────────────────────────
 
 export const getInstructorRatingApi = (cohortId: string, instructorUserId: string) =>
@@ -122,10 +126,33 @@ export interface RatingInput {
 export const upsertInstructorRatingApi = (cohortId: string, instructorUserId: string, data: RatingInput) =>
   api.put<InstructorProgramRating>(`/instructor-assessment/ratings/${cohortId}/${instructorUserId}`, data).then((r) => r.data);
 
-// ── performance profile ──────────────────────────────────────────────────
+// ── performance profile & ops directory ───────────────────────────────────
+
+export interface OpsIdCardPreview {
+  card_id: string | null;
+  front_b64: string | null;
+  back_b64: string | null;
+  generated_at?: string | null;
+  has_photo?: boolean;
+  has_linkedin?: boolean;
+  photo_url?: string | null;
+  linkedin_url?: string | null;
+}
+
+export const listOpsInstructorsApi = () =>
+  api.get<OpsInstructorRosterItem[]>("/instructor-assessment/performance").then((r) => r.data);
 
 export const getInstructorPerformanceApi = (userId: string) =>
   api.get<InstructorPerformance>(`/instructor-assessment/performance/${userId}`).then((r) => r.data);
+
+export const setInstructorCertifiedApi = (userId: string, certified: boolean) =>
+  api.put<{ is_certified: boolean; certified_tag_id?: string | null }>(
+    `/instructor-assessment/performance/${userId}/certified`,
+    { certified },
+  ).then((r) => r.data);
+
+export const getOpsInstructorIdCardApi = (userId: string) =>
+  api.get<OpsIdCardPreview>(`/instructor-assessment/performance/${userId}/id-card`).then((r) => r.data);
 
 export const addCertificationTagApi = (userId: string, label: string) =>
   api.post<CertificationTag>(`/instructor-assessment/performance/${userId}/certifications`, { label }).then((r) => r.data);

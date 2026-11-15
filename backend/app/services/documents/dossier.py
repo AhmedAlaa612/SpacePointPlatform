@@ -23,21 +23,28 @@ def _text_page(heading: str, lines: list[str], big: bool = False) -> io.BytesIO:
     buf = io.BytesIO()
     c = canvas.Canvas(buf, pagesize=A4)
     width, height = A4
-    y = height - 60 * mm
+    y = height - (45 * mm if big else 60 * mm)
 
     c.setFillColor(_ACCENT)
-    c.setFont("Helvetica-Bold", 26 if big else 20)
+    c.setFont("Helvetica-Bold", 24 if big else 20)
     for chunk in _wrap(heading, 34 if big else 44):
         c.drawString(25 * mm, y, chunk)
-        y -= (12 if big else 9) * mm
+        y -= (11 if big else 9) * mm
 
     y -= 4 * mm
     c.setFillColor(_MUTED)
-    c.setFont("Helvetica", 12)
+    c.setFont("Helvetica", 11 if big else 12)
     for line in lines:
-        for chunk in _wrap(line, 80):
+        for chunk in _wrap(line, 84 if big else 80):
+            if y < 25 * mm:
+                c.setFont("Helvetica-Oblique", 8)
+                c.drawString(25 * mm, 15 * mm, "SpacePoint — Applicant Assessment Dossier")
+                c.showPage()
+                y = height - 30 * mm
+                c.setFillColor(_MUTED)
+                c.setFont("Helvetica", 11 if big else 12)
             c.drawString(25 * mm, y, chunk)
-            y -= 7 * mm
+            y -= 6.5 * mm
 
     c.setFillColor(_MUTED)
     c.setFont("Helvetica-Oblique", 8)
@@ -69,21 +76,44 @@ def build_applicant_dossier_pdf(
     applicant_email: str,
     status: str,
     modules: list[dict],
+    *,
+    profile_lines: list[str] | None = None,
+    cv_pdf_bytes: bytes | None = None,
+    cv_filename: str | None = None,
 ) -> bytes:
     """`modules`: list of {title, status, filename, pdf_bytes(optional)}."""
     writer = PdfWriter()
 
+    cover_lines = [
+        f"Email: {applicant_email}",
+        f"Application status: {status.replace('_', ' ').title()}",
+        f"Modules with submissions: {sum(1 for m in modules if m.get('pdf_bytes'))} / {len(modules)}",
+    ]
+    if profile_lines:
+        cover_lines.append("")
+        cover_lines.extend(profile_lines)
+
     cover = _text_page(
         f"Assessment Dossier — {applicant_name}",
-        [
-            f"Email: {applicant_email}",
-            f"Application status: {status.replace('_', ' ').title()}",
-            f"Modules with submissions: {sum(1 for m in modules if m.get('pdf_bytes'))} / {len(modules)}",
-        ],
+        cover_lines,
         big=True,
     )
     for p in PdfReader(cover).pages:
         writer.add_page(p)
+
+    if cv_pdf_bytes is not None or cv_filename:
+        cv_divider = _text_page(
+            "Curriculum Vitae (CV)",
+            [f"File: {cv_filename or 'Attached CV'}"],
+        )
+        for p in PdfReader(cv_divider).pages:
+            writer.add_page(p)
+        if cv_pdf_bytes:
+            try:
+                for p in PdfReader(io.BytesIO(cv_pdf_bytes)).pages:
+                    writer.add_page(p)
+            except Exception:  # noqa: BLE001 — non-PDF / corrupt upload
+                pass
 
     for i, m in enumerate(modules, 1):
         sub_status = (m.get("status") or "no submission").replace("_", " ").title()

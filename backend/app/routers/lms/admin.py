@@ -27,7 +27,7 @@ from app.models.enums import UserRole
 from app.models.lms import Course, CourseModule, CourseRating, Enrollment, ModuleItem, VideoCheckpoint
 from app.models.videos import Video
 from app.models.lms.invite_grant import InvitationCodeGrant, UserInvitationCode
-from app.models.lms.program import CohortLmsEditor, LmsProgram, LmsProgramItem
+from app.models.lms.program import CohortLmsEditor, LmsProgram, LmsProgramCohortOverride, LmsProgramItem
 from app.models.missions.mission import Mission
 from app.models.lms.learning_path import LearningPath, LearningPathStep
 from app.models.instructors.invitation_code import InvitationCode
@@ -1366,6 +1366,7 @@ async def submit_course_review(
             title="Course submitted for review",
             body=f"{who} submitted '{course.title}' for review and publishing.",
             type="course_review",
+            link=f"/lms-authoring/courses/{course.id}",
         )
         if admin.email:
             await send_course_review_submission_email(
@@ -1528,7 +1529,28 @@ async def list_modules(
     rows = (await db.execute(
         select(CourseModule).where(CourseModule.course_id == course_id).order_by(CourseModule.position)
     )).scalars().all()
-    return rows
+    if not rows:
+        return []
+    module_ids = [m.id for m in rows]
+    counts_rows = (await db.execute(
+        select(ModuleItem.module_id, ModuleItem.kind, func.count(ModuleItem.id))
+        .where(ModuleItem.module_id.in_(module_ids))
+        .group_by(ModuleItem.module_id, ModuleItem.kind)
+    )).all()
+    by_mod: dict[uuid.UUID, dict[str, int]] = {}
+    for mod_id, kind, cnt in counts_rows:
+        by_mod.setdefault(mod_id, {})[kind] = int(cnt)
+    return [
+        ModuleAdminOut(
+            id=m.id,
+            course_id=m.course_id,
+            title=m.title,
+            position=m.position,
+            items_count=sum(by_mod.get(m.id, {}).values()),
+            item_counts_by_kind=by_mod.get(m.id, {}),
+        )
+        for m in rows
+    ]
 
 
 @router.post("/courses/{course_id}/modules", response_model=ModuleAdminOut, status_code=status.HTTP_201_CREATED)
@@ -1598,7 +1620,28 @@ async def reorder_modules(
     rows = (await db.execute(
         select(CourseModule).where(CourseModule.course_id == course_id).order_by(CourseModule.position)
     )).scalars().all()
-    return rows
+    if not rows:
+        return []
+    module_ids = [m.id for m in rows]
+    counts_rows = (await db.execute(
+        select(ModuleItem.module_id, ModuleItem.kind, func.count(ModuleItem.id))
+        .where(ModuleItem.module_id.in_(module_ids))
+        .group_by(ModuleItem.module_id, ModuleItem.kind)
+    )).all()
+    by_mod: dict[uuid.UUID, dict[str, int]] = {}
+    for mod_id, kind, cnt in counts_rows:
+        by_mod.setdefault(mod_id, {})[kind] = int(cnt)
+    return [
+        ModuleAdminOut(
+            id=m.id,
+            course_id=m.course_id,
+            title=m.title,
+            position=m.position,
+            items_count=sum(by_mod.get(m.id, {}).values()),
+            item_counts_by_kind=by_mod.get(m.id, {}),
+        )
+        for m in rows
+    ]
 
 
 @router.get("/modules/{module_id}", response_model=ModuleAdminOut)
@@ -2880,7 +2923,7 @@ async def import_cohort_override_items(
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Target cohort not found")
 
     if not body.item_ids:
-        return await get_cohort_program_override(cohort_id, db=db, _=current_user)
+        return await get_cohort_program_override(cohort_id, db=db, current=current_user)
 
     # 1. Fetch source items
     raw_items: list[LmsProgramItem] = []
@@ -3063,7 +3106,7 @@ async def import_cohort_override_items(
     await sync_cohort_assignments(db, cohort_id=target_cohort.id)
     await db.commit()
 
-    return await get_cohort_program_override(cohort_id, db=db, _=current_user)
+    return await get_cohort_program_override(cohort_id, db=db, current=current_user)
 
 
 # ── LMS Program & Cohort CubeSat Component Configuration ─────────────────
@@ -3347,6 +3390,7 @@ async def submit_learning_path_review(
             title="Learning path submitted for review",
             body=f"{who} submitted '{path.title}' for review and publishing.",
             type="learning_path_review",
+            link=f"/lms-authoring/learning-paths/{path.id}",
         )
         if admin.email:
             await send_learning_path_review_submission_email(

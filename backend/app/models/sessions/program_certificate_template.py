@@ -25,6 +25,7 @@ class ProgramCertificateTemplate(Base):
         index=True,
     )
     name = Column(String(255), nullable=False)
+    kind = Column(String(24), nullable=False, default="individual", server_default="individual")  # "individual" | "team"
     is_default = Column(Boolean, nullable=False, default=False)
     background_type = Column(String(24), nullable=False, default="custom")  # "custom" | "dark" | "light"
     background_file_path = Column(String(512), nullable=True)

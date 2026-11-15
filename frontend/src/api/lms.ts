@@ -316,11 +316,12 @@ export interface LearningPathDetail {
 
 export interface MyCertificate {
   id: string;
-  type: "lms_course_completion" | "lms_path_completion" | "student_completion" | string;
+  type: "lms_course_completion" | "lms_path_completion" | "student_completion" | "team_completion" | string;
   /** The course or learning path or program it was earned for. */
   title: string;
   course_id: string | null;
   learning_path_id: string | null;
+  team_name?: string | null;
   issued_at: string | null;
   /** Signed at query time — don't cache this beyond the request. */
   url: string | null;

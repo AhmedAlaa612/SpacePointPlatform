@@ -280,11 +280,11 @@ async def test_a_team_mission_run_with_an_assigned_attempt_shows_its_status_per_
     variant = MissionVariant(id=uuid.uuid4(), mission_id=mission.id, label="Standard", position=1, points=20)
     db.add(variant)
     await db.flush()
+    student = await _student(db, "Solo", cohort=cohort)
+    team = await create_team(db, name="Alpha", created_by=student.id, cohort_id=cohort.id)
     _lms_program, (design_item,) = await _checklist(db, program, [
         {"title": "Design run", "scope": "team", "item_type": "mission_run", "mission_id": mission.id},
     ])
-    student = await _student(db, "Solo", cohort=cohort)
-    team = await create_team(db, name="Alpha", created_by=student.id, cohort_id=cohort.id)
     attempt = MissionAttempt(
         id=uuid.uuid4(), mission_id=mission.id, variant_id=variant.id, team_id=team.id,
         attempt_no=1, status="in_progress", payload={},

@@ -1,5 +1,6 @@
-import { useMemo, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
+import { useSearch } from "@tanstack/react-router"
 import { Trash2, UserPlus, FileText, Pencil, UserX, UserCheck } from "lucide-react"
 import type { Role, User } from "@/types/shared"
 import { ROLE_LABEL } from "@/types/shared"
@@ -22,7 +23,7 @@ const ALL_ROLES: Role[] = ["admin", "intern", "leader", "applicant", "instructor
 const roleBadgeColor: Record<Role, string> = {
   admin: "bg-foreground text-background",
   leader: "bg-[#643f83] text-white",
-  intern: "bg-[#d6c7e1] text-[#643f83]",
+  intern: "bg-[#653F84] text-white",
   applicant: "bg-amber-100 text-amber-700 dark:bg-amber-500/15 dark:text-amber-400",
   instructor: "bg-blue-100 text-blue-700 dark:bg-blue-500/15 dark:text-blue-400",
   facilitator: "bg-teal-100 text-teal-700 dark:bg-teal-500/15 dark:text-teal-400",
@@ -43,16 +44,40 @@ const roleBadgeColor: Record<Role, string> = {
 /* Users page                                                          */
 /* ================================================================== */
 export default function Users() {
+  const { userId: searchUserId, focus: searchFocus, view: searchView, role: searchRole } = useSearch({
+    strict: false,
+  }) as {
+    userId?: string
+    focus?: string
+    view?: string
+    role?: Role | "all"
+  }
   const queryClient = useQueryClient()
   const [createOpen, setCreateOpen] = useState(false)
   const [changePasswordUser, setChangePasswordUser] = useState<User | null>(null)
   const [resetLinkData, setResetLinkData] = useState<{ user: User; url: string } | null>(null)
   const [documentsUser, setDocumentsUser] = useState<User | null>(null)
   const [editUser, setEditUser] = useState<User | null>(null)
-  const [profileUserId, setProfileUserId] = useState<string | null>(null)
+  const [profileUserId, setProfileUserId] = useState<string | null>(searchUserId ?? null)
   const [search, setSearch] = useState("")
-  const [roleFilter, setRoleFilter] = useState<Role | "all">("all")
-  const [view, setView] = useState<"staff" | "students" | "organizations">("staff")
+  const [roleFilter, setRoleFilter] = useState<Role | "all">(searchRole ?? "all")
+  const [view, setView] = useState<"staff" | "students" | "organizations">(
+    searchView === "students" || searchView === "organizations" ? searchView : "staff"
+  )
+
+  useEffect(() => {
+    if (searchUserId) setProfileUserId(searchUserId)
+  }, [searchUserId])
+
+  useEffect(() => {
+    if (searchView === "students" || searchView === "organizations" || searchView === "staff") {
+      setView(searchView)
+    }
+  }, [searchView])
+
+  useEffect(() => {
+    if (searchRole) setRoleFilter(searchRole)
+  }, [searchRole])
   const studentsOnly = view === "students"
   const organizationsOnly = view === "organizations"
 
@@ -101,7 +126,7 @@ export default function Users() {
     },
     onSuccess: (data) => {
       if (navigator.clipboard) {
-        navigator.clipboard.writeText(data.url).catch(() => {})
+        navigator.clipboard.writeText(data.url).catch(() => { })
       }
       setResetLinkData(data)
     },
@@ -121,54 +146,52 @@ export default function Users() {
   if (isLoading) return <Spinner />
 
   return (
-    <div className="flex flex-col gap-6">
-      <div>
+    <div className="flex flex-col gap-5">
+      <div className="flex items-baseline gap-3">
         <h1 className="text-xl font-bold text-foreground tracking-tight">Users</h1>
-        <p className="text-sm text-muted-foreground mt-0.5">Manage staff, students, and partner organizations across the platform</p>
+        <p className="text-sm text-muted-foreground">
+          {filteredUsers.length} {organizationsOnly ? "organization" : "user"}{filteredUsers.length !== 1 ? "s" : ""}
+          {filteredUsers.length !== users.length ? ` of ${users.length}` : ""}
+        </p>
       </div>
 
       <div className="flex flex-col gap-4">
-        <div className="flex items-center justify-between">
-          <p className="text-sm text-muted-foreground">
-            {filteredUsers.length} {organizationsOnly ? "organization" : "user"}{filteredUsers.length !== 1 ? "s" : ""}
-            {filteredUsers.length !== users.length ? ` of ${users.length}` : ""}
-          </p>
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div data-tour="admin-users-toolbar" className="flex flex-wrap items-center gap-2 flex-1 min-w-0">
+            <input
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder={organizationsOnly ? "Search by organization, contact, or email…" : "Search by name, email, or ID…"}
+              className="h-9 px-3 w-full sm:w-64 border border-border bg-card text-foreground rounded-xl text-sm focus:outline-none focus:border-primary transition-colors"
+            />
+            <select
+              value={organizationsOnly ? "organization" : roleFilter}
+              onChange={(e) => {
+                const val = e.target.value as Role | "all"
+                if (val === "organization") {
+                  setView("organizations")
+                  setRoleFilter("all")
+                } else {
+                  if (organizationsOnly) setView("staff")
+                  setRoleFilter(val)
+                }
+              }}
+              disabled={studentsOnly}
+              className="h-9 px-3 w-full sm:w-44 border border-border bg-card text-foreground rounded-xl text-sm focus:outline-none focus:border-primary transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+              <option value="all">All roles</option>
+              {ALL_ROLES.map((r) => (
+                <option key={r} value={r}>{ROLE_LABEL[r]}</option>
+              ))}
+            </select>
+          </div>
           <button
             data-tour="admin-new-user-btn"
             onClick={() => setCreateOpen(true)}
-            className="flex items-center gap-1.5 h-9 px-4 bg-primary text-primary-foreground text-sm font-medium rounded-xl hover:opacity-90 transition-colors"
+            className="flex items-center gap-1.5 h-9 px-4 bg-primary text-primary-foreground text-sm font-medium rounded-xl hover:opacity-90 transition-colors shrink-0"
           >
             <UserPlus size={14} /> {organizationsOnly ? "New organization" : "New user"}
           </button>
-        </div>
-
-        <div data-tour="admin-users-toolbar" className="flex flex-wrap items-center gap-2">
-          <input
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder={organizationsOnly ? "Search by organization, contact, or email…" : "Search by name, email, or ID…"}
-            className="h-9 px-3 w-full sm:w-64 border border-border bg-card text-foreground rounded-xl text-sm focus:outline-none focus:border-primary transition-colors"
-          />
-          <select
-            value={organizationsOnly ? "organization" : roleFilter}
-            onChange={(e) => {
-              const val = e.target.value as Role | "all"
-              if (val === "organization") {
-                setView("organizations")
-                setRoleFilter("all")
-              } else {
-                if (organizationsOnly) setView("staff")
-                setRoleFilter(val)
-              }
-            }}
-            disabled={studentsOnly}
-            className="h-9 px-3 border border-border bg-card text-foreground rounded-xl text-sm focus:outline-none focus:border-primary transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
-          >
-            <option value="all">All roles</option>
-            {ALL_ROLES.map((r) => (
-              <option key={r} value={r}>{ROLE_LABEL[r]}</option>
-            ))}
-          </select>
         </div>
 
         <div className="flex justify-center">
@@ -364,7 +387,12 @@ export default function Users() {
         )}
 
         {profileUserId && (
-          <UserProfileModal userId={profileUserId} onClose={() => setProfileUserId(null)} />
+          <UserProfileModal
+            userId={profileUserId}
+            onClose={() => setProfileUserId(null)}
+            highlightCategory={searchFocus === "contract" ? "Contract" : undefined}
+            focusDossier={searchFocus === "contract" || searchFocus === "dossier"}
+          />
         )}
       </div>
     </div>
@@ -392,22 +420,20 @@ function LmsAuthorPermissionsField({
           <button
             type="button"
             onClick={() => setCanPublish(false)}
-            className={`h-8 px-3 text-xs font-medium transition-colors ${
-              !canPublish
+            className={`h-8 px-3 text-xs font-medium transition-colors ${!canPublish
                 ? "bg-primary text-primary-foreground"
                 : "text-muted-foreground hover:text-foreground"
-            }`}
+              }`}
           >
             Draft only
           </button>
           <button
             type="button"
             onClick={() => setCanPublish(true)}
-            className={`h-8 px-3 text-xs font-medium transition-colors ${
-              canPublish
+            className={`h-8 px-3 text-xs font-medium transition-colors ${canPublish
                 ? "bg-primary text-primary-foreground"
                 : "text-muted-foreground hover:text-foreground"
-            }`}
+              }`}
           >
             Publish access
           </button>
@@ -420,22 +446,20 @@ function LmsAuthorPermissionsField({
           <button
             type="button"
             onClick={() => setScopeAll(false)}
-            className={`h-8 px-3 text-xs font-medium transition-colors ${
-              !scopeAll
+            className={`h-8 px-3 text-xs font-medium transition-colors ${!scopeAll
                 ? "bg-primary text-primary-foreground"
                 : "text-muted-foreground hover:text-foreground"
-            }`}
+              }`}
           >
             Authored content only
           </button>
           <button
             type="button"
             onClick={() => setScopeAll(true)}
-            className={`h-8 px-3 text-xs font-medium transition-colors ${
-              scopeAll
+            className={`h-8 px-3 text-xs font-medium transition-colors ${scopeAll
                 ? "bg-primary text-primary-foreground"
                 : "text-muted-foreground hover:text-foreground"
-            }`}
+              }`}
           >
             Full access
           </button>
@@ -458,11 +482,11 @@ function CreateUserModal({
   onSuccess: (createdUser?: User) => void
 }) {
   const [fullName, setFullName] = useState("")
-  const [email,    setEmail]    = useState("")
+  const [email, setEmail] = useState("")
   const [password, setPassword] = useState("")
-  const [roles,    setRoles]    = useState<Role[]>(defaultRoles)
+  const [roles, setRoles] = useState<Role[]>(defaultRoles)
   const [authorCanPublish, setAuthorCanPublish] = useState(false)
-  const [authorScopeAll,   setAuthorScopeAll]   = useState(false)
+  const [authorScopeAll, setAuthorScopeAll] = useState(false)
   const [orgNameLatin, setOrgNameLatin] = useState("")
   const [orgNameArabic, setOrgNameArabic] = useState("")
   const [orgType, setOrgType] = useState("university")
@@ -483,9 +507,9 @@ function CreateUserModal({
     max_students_per_cohort: null,
     max_observers_per_cohort: null,
   })
-  const [teamId,   setTeamId]   = useState("")
-  const [phone,    setPhone]    = useState("")
-  const [error,    setError]    = useState("")
+  const [teamId, setTeamId] = useState("")
+  const [phone, setPhone] = useState("")
+  const [error, setError] = useState("")
 
   const { data: teams = [] } = useQuery<Team[]>({ queryKey: ["teams"], queryFn: getTeamsApi })
 
@@ -512,25 +536,25 @@ function CreateUserModal({
         author_scope_all: roles.includes("lms_author") ? authorScopeAll : undefined,
         ...(isOrg
           ? {
-              org_name_latin: orgNameLatin.trim() || fullName.trim(),
-              org_name_arabic: orgNameArabic.trim() || undefined,
-              org_type: orgType,
-              org_country: orgCountry,
-              org_city: orgCity.trim() || undefined,
-              org_is_approved: orgGrants.is_approved,
-              org_can_publish_events: orgGrants.can_publish_events,
-              org_can_author_courses: orgGrants.can_author_courses,
-              org_can_publish_courses: orgGrants.can_publish_courses,
-              org_course_scope_all: orgGrants.course_scope_all,
-              org_allowed_course_ids: orgGrants.allowed_course_ids,
-              org_quiz_scope: orgGrants.quiz_scope,
-              org_allowed_quiz_template_ids: orgGrants.allowed_quiz_template_ids,
-              org_max_events: orgGrants.max_events,
-              org_max_programs: orgGrants.max_programs,
-              org_max_cohorts: orgGrants.max_cohorts,
-              org_max_students_per_cohort: orgGrants.max_students_per_cohort,
-              org_max_observers_per_cohort: orgGrants.max_observers_per_cohort,
-            }
+            org_name_latin: orgNameLatin.trim() || fullName.trim(),
+            org_name_arabic: orgNameArabic.trim() || undefined,
+            org_type: orgType,
+            org_country: orgCountry,
+            org_city: orgCity.trim() || undefined,
+            org_is_approved: orgGrants.is_approved,
+            org_can_publish_events: orgGrants.can_publish_events,
+            org_can_author_courses: orgGrants.can_author_courses,
+            org_can_publish_courses: orgGrants.can_publish_courses,
+            org_course_scope_all: orgGrants.course_scope_all,
+            org_allowed_course_ids: orgGrants.allowed_course_ids,
+            org_quiz_scope: orgGrants.quiz_scope,
+            org_allowed_quiz_template_ids: orgGrants.allowed_quiz_template_ids,
+            org_max_events: orgGrants.max_events,
+            org_max_programs: orgGrants.max_programs,
+            org_max_cohorts: orgGrants.max_cohorts,
+            org_max_students_per_cohort: orgGrants.max_students_per_cohort,
+            org_max_observers_per_cohort: orgGrants.max_observers_per_cohort,
+          }
           : {}),
       })
       if (teamId && roles.includes("intern")) {
@@ -723,9 +747,9 @@ function ResetLinkModal({
 function ChangePasswordModal({ user, onClose, onSuccess }: {
   user: User; onClose: () => void; onSuccess: () => void
 }) {
-  const [password,  setPassword]  = useState("")
-  const [confirm,   setConfirm]   = useState("")
-  const [error,     setError]     = useState("")
+  const [password, setPassword] = useState("")
+  const [confirm, setConfirm] = useState("")
+  const [error, setError] = useState("")
 
   const mutation = useMutation({
     mutationFn: () => updateUserApi(user.id, { password }),
@@ -772,9 +796,9 @@ function ChangePasswordModal({ user, onClose, onSuccess }: {
 type DocTemplate = { id: string; key: string; name: string; roles: string[]; body_text?: string }
 
 const DOC_TYPE_LABEL: Record<string, string> = {
-  certificate:           "Certificate",
-  confirmation_letter:   "Confirmation Letter",
-  completion_letter:     "Completion Letter",
+  certificate: "Certificate",
+  confirmation_letter: "Confirmation Letter",
+  completion_letter: "Completion Letter",
   recommendation_letter: "Recommendation Letter",
 }
 
@@ -831,10 +855,10 @@ function DocumentsModal({ user, onClose }: { user: User; onClose: () => void }) 
     setSignatoryName(systemSettings?.admin_signatory_name || "ABDULLAH ALSALMANI")
     setSignatoryTitle(systemSettings?.admin_signatory_title || "Co-Founder & CEO of SpacePoint")
     setDocumentTitle(t.name)
-    
+
     const today = new Date().toLocaleDateString("en-US", { day: "numeric", month: "long", year: "numeric" })
     setDocumentDate(today)
-    
+
     setFileUrl(null)
     setError("")
   }
@@ -1011,10 +1035,10 @@ function DocumentsModal({ user, onClose }: { user: User; onClose: () => void }) 
 /* ================================================================== */
 function EditUserModal({ user, onClose, onSuccess }: { user: User; onClose: () => void; onSuccess: () => void }) {
   const [fullName, setFullName] = useState(user.full_name)
-  const [email,    setEmail]    = useState(user.email)
-  const [roles,    setRoles]    = useState<Role[]>(user.roles)
+  const [email, setEmail] = useState(user.email)
+  const [roles, setRoles] = useState<Role[]>(user.roles)
   const [authorCanPublish, setAuthorCanPublish] = useState(user.author_can_publish ?? false)
-  const [authorScopeAll,   setAuthorScopeAll]   = useState(user.author_scope_all ?? false)
+  const [authorScopeAll, setAuthorScopeAll] = useState(user.author_scope_all ?? false)
   const [orgNameLatin, setOrgNameLatin] = useState(user.organization_name || "")
   const [orgNameArabic, setOrgNameArabic] = useState(user.organization_name_arabic || "")
   const [orgType, setOrgType] = useState(user.organization_type || "university")
@@ -1035,10 +1059,10 @@ function EditUserModal({ user, onClose, onSuccess }: { user: User; onClose: () =
     max_students_per_cohort: user.org_max_students_per_cohort ?? null,
     max_observers_per_cohort: user.org_max_observers_per_cohort ?? null,
   })
-  const [phone,    setPhone]    = useState(user.phone || "")
+  const [phone, setPhone] = useState(user.phone || "")
   const [nickname, setNickname] = useState(user.nickname || "")
-  const [avatar,   setAvatar]   = useState(user.avatar || "")
-  const [error,    setError]    = useState("")
+  const [avatar, setAvatar] = useState(user.avatar || "")
+  const [error, setError] = useState("")
   const isStudent = user.roles.includes("student")
   const isOrg = roles.includes("organization")
 
@@ -1054,25 +1078,25 @@ function EditUserModal({ user, onClose, onSuccess }: { user: User; onClose: () =
       ...(roles.includes("lms_author") ? { author_can_publish: authorCanPublish, author_scope_all: authorScopeAll } : {}),
       ...(isOrg
         ? {
-            org_name_latin: orgNameLatin.trim() || fullName.trim(),
-            org_name_arabic: orgNameArabic.trim(),
-            org_type: orgType,
-            org_country: orgCountry,
-            org_city: orgCity.trim(),
-            org_is_approved: orgGrants.is_approved,
-            org_can_publish_events: orgGrants.can_publish_events,
-            org_can_author_courses: orgGrants.can_author_courses,
-            org_can_publish_courses: orgGrants.can_publish_courses,
-            org_course_scope_all: orgGrants.course_scope_all,
-            org_allowed_course_ids: orgGrants.allowed_course_ids,
-            org_quiz_scope: orgGrants.quiz_scope,
-            org_allowed_quiz_template_ids: orgGrants.allowed_quiz_template_ids,
-            org_max_events: orgGrants.max_events,
-            org_max_programs: orgGrants.max_programs,
-            org_max_cohorts: orgGrants.max_cohorts,
-            org_max_students_per_cohort: orgGrants.max_students_per_cohort,
-            org_max_observers_per_cohort: orgGrants.max_observers_per_cohort,
-          }
+          org_name_latin: orgNameLatin.trim() || fullName.trim(),
+          org_name_arabic: orgNameArabic.trim(),
+          org_type: orgType,
+          org_country: orgCountry,
+          org_city: orgCity.trim(),
+          org_is_approved: orgGrants.is_approved,
+          org_can_publish_events: orgGrants.can_publish_events,
+          org_can_author_courses: orgGrants.can_author_courses,
+          org_can_publish_courses: orgGrants.can_publish_courses,
+          org_course_scope_all: orgGrants.course_scope_all,
+          org_allowed_course_ids: orgGrants.allowed_course_ids,
+          org_quiz_scope: orgGrants.quiz_scope,
+          org_allowed_quiz_template_ids: orgGrants.allowed_quiz_template_ids,
+          org_max_events: orgGrants.max_events,
+          org_max_programs: orgGrants.max_programs,
+          org_max_cohorts: orgGrants.max_cohorts,
+          org_max_students_per_cohort: orgGrants.max_students_per_cohort,
+          org_max_observers_per_cohort: orgGrants.max_observers_per_cohort,
+        }
         : {}),
     }),
     onSuccess,

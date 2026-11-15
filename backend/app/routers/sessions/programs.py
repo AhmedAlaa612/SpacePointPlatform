@@ -10,7 +10,7 @@ import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
-from sqlalchemy import delete as sa_delete, func, select
+from sqlalchemy import delete as sa_delete, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.dependencies import require_operations
@@ -19,6 +19,7 @@ from app.models.instructor_assessment.config import AssessmentConfig
 from app.models.sessions.checklist import DeliveryChecklistItem
 from app.models.sessions.cohort import Cohort
 from app.models.sessions.material import Material
+from app.models.sessions.pre_session_quiz import PreSessionQuizAssignment
 from app.models.sessions.program import Program
 from app.models.sessions.program_opening import ProgramOpening
 from app.models.sessions.session import Session
@@ -42,7 +43,7 @@ class TemplateDayOut(BaseModel):
 
 class ProgramTemplateOut(BaseModel):
     program_id: uuid.UUID
-    template_cohort_id: uuid.UUID
+    template_cohort_id: uuid.UUID | None = None
     days_count: int
     sessions: list[TemplateDayOut]
 
@@ -98,6 +99,22 @@ async def get_program(
     return program
 
 
+def _template_cohort_match():
+    return or_(
+        Cohort.status == "draft",
+        Cohort.name.ilike("[Template]%"),
+        func.lower(Cohort.name) == "template",
+    )
+
+
+async def _find_template_cohort(db: AsyncSession, program_id: uuid.UUID) -> Cohort | None:
+    return await db.scalar(
+        select(Cohort)
+        .where(Cohort.program_id == program_id, _template_cohort_match())
+        .order_by(Cohort.created_at.asc())
+    )
+
+
 @router.patch("/programs/{program_id}", response_model=ProgramOut)
 async def update_program(
     program_id: uuid.UUID,
@@ -120,6 +137,12 @@ async def update_program(
 
     for field, value in changes.items():
         setattr(program, field, value)
+    if "name" in changes:
+        template_cohort = await _find_template_cohort(db, program.id)
+        if template_cohort is not None:
+            template_cohort.name = f"[Template] {program.name}"
+            template_cohort.status = "draft"
+            template_cohort.visibility = "private"
     await db.commit()
     await db.refresh(program)
     return program
@@ -143,7 +166,12 @@ async def delete_program(
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Program not found")
 
     cohort_count = await db.scalar(
-        select(func.count()).select_from(Cohort).where(Cohort.program_id == program_id)
+        select(func.count()).select_from(Cohort).where(
+            Cohort.program_id == program_id,
+            Cohort.status != "draft",
+            ~Cohort.name.ilike("[Template]%"),
+            func.lower(Cohort.name) != "template",
+        )
     )
     if cohort_count:
         raise HTTPException(
@@ -153,6 +181,31 @@ async def delete_program(
                 "Delete those first, or set the program to inactive to hide it."
             ),
         )
+
+    template_cohort_ids = list((
+        await db.execute(
+            select(Cohort.id).where(Cohort.program_id == program_id, _template_cohort_match())
+        )
+    ).scalars().all())
+    if template_cohort_ids:
+        template_session_ids = list((
+            await db.execute(select(Session.id).where(Session.cohort_id.in_(template_cohort_ids)))
+        ).scalars().all())
+        if template_session_ids:
+            await db.execute(
+                sa_delete(DeliveryChecklistItem).where(DeliveryChecklistItem.session_id.in_(template_session_ids))
+            )
+            await db.execute(
+                sa_delete(PreSessionQuizAssignment).where(PreSessionQuizAssignment.session_id.in_(template_session_ids))
+            )
+            await db.execute(sa_delete(Session).where(Session.id.in_(template_session_ids)))
+        await db.execute(
+            sa_delete(DeliveryChecklistItem).where(DeliveryChecklistItem.cohort_id.in_(template_cohort_ids))
+        )
+        await db.execute(
+            sa_delete(PreSessionQuizAssignment).where(PreSessionQuizAssignment.cohort_id.in_(template_cohort_ids))
+        )
+        await db.execute(sa_delete(Cohort).where(Cohort.id.in_(template_cohort_ids)))
 
     await db.delete(program)
     await db.commit()
@@ -231,6 +284,7 @@ async def clone_program(
         pricing_model=source.pricing_model,
         description=source.description,
         price=source.price,
+        duration_hours=source.duration_hours,
         default_capacity=source.default_capacity,
         completion_rule_type=source.completion_rule_type,
         completion_rule_value=source.completion_rule_value,
@@ -314,6 +368,7 @@ async def clone_program(
             if source_items:
                 await db.flush()
 
+    if "roles" in body.carry or "checklist" in body.carry:
         # ── Delivery checklist (program-level pre-program/pre-workshop items) ──
         source_delivery_items = (await db.execute(
             select(DeliveryChecklistItem).where(DeliveryChecklistItem.program_id == source.id)
@@ -341,13 +396,20 @@ async def clone_program(
         if source_delivery_items:
             await db.flush()
 
-        # ── Clone program's template cohort, days and checklists ──
-        source_template_cohort = await db.scalar(
-            select(Cohort).where(
-                Cohort.program_id == source.id,
-                Cohort.name.ilike("%template%"),
-            ).order_by(Cohort.created_at.asc())
+        # ── Program-level Pre-Session Quiz Assignment ──
+        source_prog_quiz = await db.scalar(
+            select(PreSessionQuizAssignment).where(PreSessionQuizAssignment.program_id == source.id)
         )
+        if source_prog_quiz is not None and source_prog_quiz.preset_id is not None:
+            db.add(PreSessionQuizAssignment(
+                id=uuid.uuid4(),
+                program_id=new_program.id,
+                preset_id=source_prog_quiz.preset_id,
+            ))
+            await db.flush()
+
+        # ── Clone program's template cohort, days, checklists and quiz assignments ──
+        source_template_cohort = await _find_template_cohort(db, source.id)
         if source_template_cohort:
             new_template_cohort = Cohort(
                 id=uuid.uuid4(),
@@ -398,6 +460,16 @@ async def clone_program(
                         sub_items=list(item.sub_items or []),
                         created_by=current_user.id,
                     ))
+
+                s_quiz = await db.scalar(
+                    select(PreSessionQuizAssignment).where(PreSessionQuizAssignment.session_id == s.id)
+                )
+                if s_quiz is not None and s_quiz.preset_id is not None:
+                    db.add(PreSessionQuizAssignment(
+                        id=uuid.uuid4(),
+                        session_id=new_session.id,
+                        preset_id=s_quiz.preset_id,
+                    ))
             if source_template_sessions:
                 await db.flush()
 
@@ -443,12 +515,7 @@ async def clone_program(
 
 async def _get_or_create_template_cohort(db: AsyncSession, program: Program) -> Cohort:
     """Finds or auto-creates the draft template cohort where a program defines its default days & checklists."""
-    template_cohort = await db.scalar(
-        select(Cohort).where(
-            Cohort.program_id == program.id,
-            Cohort.name.ilike("%template%"),
-        ).order_by(Cohort.created_at.asc())
-    )
+    template_cohort = await _find_template_cohort(db, program.id)
     if template_cohort is None:
         template_cohort = Cohort(
             id=uuid.uuid4(),
@@ -460,6 +527,9 @@ async def _get_or_create_template_cohort(db: AsyncSession, program: Program) -> 
         )
         db.add(template_cohort)
         await db.flush()
+    else:
+        template_cohort.status = "draft"
+        template_cohort.visibility = "private"
     return template_cohort
 
 
@@ -474,7 +544,15 @@ async def get_program_template(
     if program is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Program not found")
 
-    template_cohort = await _get_or_create_template_cohort(db, program)
+    template_cohort = await _find_template_cohort(db, program.id)
+    if template_cohort is None:
+        return ProgramTemplateOut(
+            program_id=program.id,
+            template_cohort_id=None,
+            days_count=0,
+            sessions=[],
+        )
+
     sessions = (await db.execute(
         select(Session).where(Session.cohort_id == template_cohort.id)
         .order_by(Session.meeting_date, Session.starts_at, Session.created_at)

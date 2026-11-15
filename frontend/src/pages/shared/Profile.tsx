@@ -45,7 +45,7 @@ export default function Profile() {
   const [cityOther, setCityOther] = useState("")
   const [hasTransport, setHasTransport] = useState(false)
   const [deliverCityIds, setDeliverCityIds] = useState<string[]>([])
-  const [nationality, setNationality] = useState("")
+  const [nationality, setNationality] = useState(user?.nationality ?? "")
   const [workStatus, setWorkStatus] = useState("")
   const [fluentLanguages, setFluentLanguages] = useState<string[]>([])
   const [graduatedUniversity, setGraduatedUniversity] = useState("")
@@ -72,6 +72,7 @@ export default function Profile() {
     setPhone(me.phone ?? "")
     setBirthdate(me.birthdate ?? me.date_of_birth ?? "")
     setCountry(me.country ?? "")
+    setNationality((prev) => me.nationality ?? prev)
     setCityOfResidenceId(me.city_of_residence_id ?? "")
     setCityOther(me.city_other ?? "")
     setHasTransport(!!me.has_own_transportation)
@@ -114,6 +115,7 @@ export default function Profile() {
         student_id: studentId.trim() || undefined,
         phone: phone || undefined,
         country: country || undefined,
+        nationality: !isOrganization ? (nationality || undefined) : undefined,
         birthdate: birthdate || undefined,
         date_of_birth: birthdate || undefined,
         ...(hasApplicantDetails
@@ -170,8 +172,9 @@ export default function Profile() {
   if (!user) return null
 
   const initial = user.full_name.charAt(0).toUpperCase()
+  const isCertifiedInstructor = !!(me?.is_certified_instructor ?? user.is_certified_instructor)
   const titleLabel = roles.includes("instructor")
-    ? "Certified Instructor"
+    ? (isCertifiedInstructor ? "Certified Instructor" : "Instructor")
     : activeRole
     ? ROLE_LABEL[activeRole]
     : roles[0]
@@ -340,6 +343,18 @@ export default function Profile() {
                 className={inputCls}
               />
             </div>
+            {!isOrganization && (
+              <div>
+                <label className={labelCls}>Nationality</label>
+                <CountrySelect
+                  value={nationality}
+                  onChange={setNationality}
+                  valueType="name"
+                  placeholder="Select nationality..."
+                  className={inputCls}
+                />
+              </div>
+            )}
           </div>
 
           <div className={isOrganization ? "" : "grid grid-cols-1 sm:grid-cols-2 gap-5"}>
@@ -457,16 +472,6 @@ export default function Profile() {
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
                 <div>
-                  <label className={labelCls}>Nationality</label>
-                  <CountrySelect
-                    value={nationality}
-                    onChange={setNationality}
-                    valueType="name"
-                    placeholder="Select nationality..."
-                    className={inputCls}
-                  />
-                </div>
-                <div>
                   <label className={labelCls}>Work Status</label>
                   <input
                     value={workStatus}
@@ -475,9 +480,6 @@ export default function Profile() {
                     className={inputCls}
                   />
                 </div>
-              </div>
-
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
                 <div>
                   <label className={labelCls}>Graduated University</label>
                   <input
@@ -487,14 +489,15 @@ export default function Profile() {
                     className={inputCls}
                   />
                 </div>
-                <div>
-                  <label className={labelCls}>Fluent Languages</label>
-                  <LanguageMultiSelect
-                    value={fluentLanguages}
-                    onChange={setFluentLanguages}
-                    placeholder="Select fluent languages..."
-                  />
-                </div>
+              </div>
+
+              <div>
+                <label className={labelCls}>Fluent Languages</label>
+                <LanguageMultiSelect
+                  value={fluentLanguages}
+                  onChange={setFluentLanguages}
+                  placeholder="Select fluent languages..."
+                />
               </div>
             </div>
           )}

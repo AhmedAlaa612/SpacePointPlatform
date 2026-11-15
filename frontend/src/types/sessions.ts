@@ -19,6 +19,7 @@ export interface Program {
   pricing_model: PricingModel;
   description?: string | null;
   price?: number | null;
+  duration_hours?: number | null;
   default_capacity?: number | null;
   active: boolean;
   completion_rule_type: CompletionRuleType;
@@ -32,14 +33,30 @@ export interface Program {
    * afterwards. See backend Program.default_assessment_config_id. */
   default_assessment_config_id?: string | null;
   default_certificate_template_id?: string | null;
+  default_team_certificate_template_id?: string | null;
   keep_course_access_after_completion: boolean;
   created_at: string;
+}
+
+export type CertificateTemplateKind = "individual" | "team";
+export type CertificateEmailTemplateKind = "individual" | "team" | "combined" | "profile";
+
+export interface CertificateEmailTemplate {
+  id: string;
+  name: string;
+  kind: CertificateEmailTemplateKind;
+  subject: string;
+  body_html: string;
+  is_default: boolean;
+  created_at: string;
+  updated_at?: string | null;
 }
 
 export interface ProgramCertificateTemplate {
   id: string;
   program_id: string;
   name: string;
+  kind: CertificateTemplateKind;
   is_default: boolean;
   background_type: "custom" | "dark" | "light";
   background_file_path?: string | null;
@@ -484,6 +501,8 @@ export interface Registration {
   /** The linked LMS account's own last_login_at — null means either no
    * account exists yet, or one does but nobody's ever logged into it. */
   last_login_at: string | null;
+  card_id?: string | null;
+  lms_user_id?: string | null;
   // 2026-09-27 — Cohort Media Consent tracking
   media_consent_status?: "consented" | "declined" | "pending";
   media_consent_id?: string | null;

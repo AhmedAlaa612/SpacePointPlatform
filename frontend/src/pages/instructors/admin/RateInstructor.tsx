@@ -1,5 +1,5 @@
 import { useState } from "react"
-import { useNavigate, useParams } from "@tanstack/react-router"
+import { useParams } from "@tanstack/react-router"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { ArrowLeft, Star } from "lucide-react"
 import { isAxiosError } from "axios"
@@ -36,27 +36,11 @@ export default function RateInstructor() {
 
   if (userLoading || ratingLoading) return <Spinner />
 
-  if (existing?.submitted) {
-    return <AlreadySubmittedNotice instructorUserId={instructorUserId} />
-  }
-
   return (
     <RatingForm
       cohortId={cohortId} instructorUserId={instructorUserId}
       instructorName={instructor?.full_name ?? "Instructor"} existing={existing ?? null}
     />
-  )
-}
-
-function AlreadySubmittedNotice({ instructorUserId }: { instructorUserId: string }) {
-  const navigate = useNavigate()
-  return (
-    <div className="max-w-3xl mx-auto flex flex-col gap-3 py-16 text-center">
-      <p className="text-sm font-semibold">This rating has already been submitted and can't be edited.</p>
-      <Button variant="outline" onClick={() => void navigate({ to: `/instructors/admin/instructors/${instructorUserId}/performance` })}>
-        View performance profile
-      </Button>
-    </div>
   )
 }
 
@@ -66,7 +50,6 @@ function RatingForm({ cohortId, instructorUserId, instructorName, existing }: {
   instructorName: string
   existing: InstructorProgramRating | null
 }) {
-  const navigate = useNavigate()
   const queryClient = useQueryClient()
 
   const [scores, setScores] = useState<Partial<Record<RatingDimensionKey, number>>>(existing?.dimension_scores ?? {})
@@ -93,7 +76,8 @@ function RatingForm({ cohortId, instructorUserId, instructorName, existing }: {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["instructor-rating", cohortId, instructorUserId] })
       queryClient.invalidateQueries({ queryKey: ["instructor-performance", instructorUserId] })
-      void navigate({ to: `/instructors/admin/instructors/${instructorUserId}/performance` })
+      queryClient.invalidateQueries({ queryKey: ["ops-instructors"] })
+      window.history.back()
     },
     onError: (err) => setError(
       (isAxiosError(err) && typeof err.response?.data?.detail === "string") ? err.response.data.detail : "Couldn't save this rating.",
@@ -105,7 +89,10 @@ function RatingForm({ cohortId, instructorUserId, instructorName, existing }: {
       <Button variant="outline" size="sm" onClick={() => window.history.back()} className="self-start gap-1.5">
         <ArrowLeft size={14} /> Back
       </Button>
-      <PageHeader title={`Rate ${instructorName}`} subtitle="Post-program performance rating" />
+      <PageHeader
+        title={`${existing?.submitted ? "Edit rating for" : "Rate"} ${instructorName}`}
+        subtitle="Post-program performance rating"
+      />
 
       <div className="rounded-2xl bg-card/70 dark:bg-card/60 backdrop-blur-xl ring-1 ring-black/5 dark:ring-white/10 p-5 flex flex-col divide-y divide-border">
         {RATING_DIMENSIONS.map((d) => (
@@ -183,7 +170,7 @@ function RatingForm({ cohortId, instructorUserId, instructorName, existing }: {
         disabled={!filled || submit.isPending}
         className="h-11 bg-primary text-primary-foreground rounded-xl text-sm font-semibold hover:opacity-90 transition-colors disabled:opacity-50"
       >
-        {submit.isPending ? "Submitting…" : "Submit Rating"}
+        {submit.isPending ? "Saving…" : existing?.submitted ? "Save Changes" : "Submit Rating"}
       </button>
     </div>
   )

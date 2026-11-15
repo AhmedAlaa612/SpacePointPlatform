@@ -445,6 +445,9 @@ async def test_team_mission_run_items_reports_not_started_before_any_assignment(
     author = await _author(db)
     program, cohort = await _program_and_cohort(db)
     mission, variant = await _mission_with_variant(db, author=author, team_policy="team")
+    alice = await _student(db)
+    await db.commit()
+    team = await create_team(db, name="Not Assigned Yet Team", created_by=alice.id, cohort_id=cohort.id)
     lms_program = LmsProgram(id=uuid.uuid4(), program_id=program.id, name="Team Mission Not Started")
     db.add(lms_program)
     await db.flush()
@@ -453,9 +456,6 @@ async def test_team_mission_run_items_reports_not_started_before_any_assignment(
         item_type="mission_run", title=mission.title, mission_id=mission.id, variant_id=variant.id,
         scope="team",
     ))
-    alice = await _student(db)
-    await db.commit()
-    team = await create_team(db, name="Not Assigned Yet Team", created_by=alice.id, cohort_id=cohort.id)
     await db.commit()
 
     runs = await team_mission_run_items(db, team_id=team.id)
@@ -992,19 +992,18 @@ async def test_sync_team_mission_runs_assigns_the_attempt_once_the_team_forms(db
     team = await create_team(db, name="Formed Late", created_by=alice.id, cohort_id=cohort.id, member_ids=[bob.id])
     await db.commit()
 
-    # Without the resync trigger, the team's own progress row would still
-    # be missing/attempt-less here — `create_team` itself doesn't know
-    # about LMS checklists.
-    still_missing = await db.scalar(
+    # `create_team` auto-resyncs team-scoped mission_run items for cohort teams,
+    # and calling `sync_team_mission_runs` again is idempotent (0 newly attached).
+    auto_synced_attempt = await db.scalar(
         select(LmsProgramTeamItemProgress.mission_attempt_id).where(
             LmsProgramTeamItemProgress.item_id == item.id, LmsProgramTeamItemProgress.team_id == team.id,
         )
     )
-    assert still_missing is None
+    assert auto_synced_attempt is not None
 
     synced = await sync_team_mission_runs(db, team=team)
     await db.commit()
-    assert synced == 1
+    assert synced == 0
 
     team_progress = (await db.execute(
         select(LmsProgramTeamItemProgress).where(
@@ -1108,6 +1107,8 @@ async def test_team_mission_run_items_finds_the_attempt_even_when_an_earlier_ste
     lms_program = LmsProgram(id=uuid.uuid4(), program_id=program.id, name="Partially Synced Split Mission")
     db.add(lms_program)
     await db.flush()
+    alice = await _student(db)
+    team = await create_team(db, name="Partial Sync Team", created_by=alice.id, cohort_id=cohort.id)
     step_a = LmsProgramItem(
         id=uuid.uuid4(), owner_type="program", owner_id=lms_program.id, position=1,
         item_type="mission_run", title="Step A", mission_id=mission.id, variant_id=variant.id,
@@ -1120,8 +1121,6 @@ async def test_team_mission_run_items_finds_the_attempt_even_when_an_earlier_ste
     )
     db.add_all([step_a, step_b])
     await db.flush()
-    alice = await _student(db)
-    team = await create_team(db, name="Partial Sync Team", created_by=alice.id, cohort_id=cohort.id)
     attempt = MissionAttempt(
         id=uuid.uuid4(), mission_id=mission.id, variant_id=variant.id, team_id=team.id,
         attempt_no=1, status="in_progress", payload={},

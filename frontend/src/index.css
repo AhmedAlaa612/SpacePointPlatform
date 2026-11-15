@@ -13,6 +13,7 @@
   font-style: normal;
   font-display: swap;
 }
+
 @font-face {
   font-family: 'ThmanyahSans';
   src: url('/fonts/thmanyah/thmanyahsans-Regular.woff2') format('woff2');
@@ -20,6 +21,7 @@
   font-style: normal;
   font-display: swap;
 }
+
 @font-face {
   font-family: 'ThmanyahSans';
   src: url('/fonts/thmanyah/thmanyahsans-Medium.woff2') format('woff2');
@@ -27,6 +29,7 @@
   font-style: normal;
   font-display: swap;
 }
+
 @font-face {
   font-family: 'ThmanyahSans';
   src: url('/fonts/thmanyah/thmanyahsans-Medium.woff2') format('woff2');
@@ -34,6 +37,7 @@
   font-style: normal;
   font-display: swap;
 }
+
 @font-face {
   font-family: 'ThmanyahSans';
   src: url('/fonts/thmanyah/thmanyahsans-Bold.woff2') format('woff2');
@@ -41,6 +45,7 @@
   font-style: normal;
   font-display: swap;
 }
+
 @font-face {
   font-family: 'ThmanyahSans';
   src: url('/fonts/thmanyah/thmanyahsans-Black.woff2') format('woff2');
@@ -74,8 +79,10 @@
   --card-foreground: 260 30% 10%;
   --popover: 0 0% 100%;
   --popover-foreground: 260 30% 10%;
-  --primary: 258 100% 75%; /* heliotrope #a880ff / space-accent #A77DFF */
-  --primary-foreground: 257 45% 9%; /* dark text on the purple accent */
+  --primary: 258 100% 75%;
+  /* heliotrope #a880ff / space-accent #A77DFF */
+  --primary-foreground: 257 45% 9%;
+  /* dark text on the purple accent */
   --secondary: 258 40% 95%;
   --secondary-foreground: 260 30% 15%;
   --muted: 258 40% 95%;
@@ -102,27 +109,48 @@
   --board-trace-live: #a880ff;
   --board-trace-dim: #d3cbe0;
   --board-next-bg: rgba(168, 128, 255, 0.09);
+
+  /* Global SpacePoint Wireframe Tokens — change any value here in 1 line */
+  --sp-cta-bg: #653F84;
+  --sp-cta-fg: #ffffff;
+  --sp-card-bg: #ffffff;
+  --sp-card-fg: hsl(260 30% 10%);
+  --sp-card-foreground-hsl: 260 30% 10%;
+  --sp-card-muted-hsl: 258 12% 42%;
+  --sp-card-input-fg: hsl(260 30% 10%);
+  --sp-header-bg: #231134;
+  --sp-card-border-width: 0px;
+  --sp-card-border-color: transparent;
+  --sp-control-border-width: 2px;
+  --sp-control-border-color: #D7D2CB;
+  --sp-control-selected-border-color: hsl(var(--primary));
+  --sp-control-radius: 10px;
 }
 
 /* The original instructors "space" theme, near-1:1. Background #05030A with
    purple radial glows (applied on body below), glass panels #1A0F26. */
 .dark {
   color-scheme: dark;
-  --background: 257 54% 3%;   /* #05030A */
+  --background: 257 54% 3%;
+  /* #05030A */
   --foreground: 0 0% 98%;
-  --card: 269 43% 10%;        /* #1A0F26 */
+  --card: 269 43% 10%;
+  /* #1A0F26 */
   --card-foreground: 0 0% 98%;
   --popover: 269 43% 12%;
   --popover-foreground: 0 0% 98%;
   --primary: 258 100% 75%;
-  --primary-foreground: 257 45% 8%; /* dark text on the purple accent */
+  --primary-foreground: 257 45% 8%;
+  /* dark text on the purple accent */
   --secondary: 269 35% 15%;
   --secondary-foreground: 0 0% 96%;
   --muted: 269 30% 14%;
-  --muted-foreground: 260 12% 68%; /* ~gray-400, faint purple */
+  --muted-foreground: 260 12% 68%;
+  /* ~gray-400, faint purple */
   --destructive: 0 72% 60%;
   --destructive-foreground: 0 0% 100%;
-  --border: 268 30% 18%;      /* hairline ≈ white/8 over near-black */
+  --border: 268 30% 18%;
+  /* hairline ≈ white/8 over near-black */
   --input: 268 30% 18%;
   --ring: 258 100% 75%;
 
@@ -140,12 +168,20 @@
   --board-trace-live: #a880ff;
   --board-trace-dim: rgba(214, 199, 225, 0.35);
   --board-next-bg: rgba(168, 128, 255, 0.14);
+
+  /* Dark mode card overrides */
+  --sp-card-bg: #231134;
+  --sp-card-fg: #ffffff;
+  --sp-card-foreground-hsl: 0 0% 100%;
+  --sp-card-muted-hsl: 268 20% 78%;
+  --sp-card-input-fg: #ffffff;
 }
 
 @layer base {
   * {
     border-color: hsl(var(--border));
   }
+
   body {
     margin: 0;
     min-height: 100vh;
@@ -164,6 +200,7 @@
     font-family: "Inter Variable", Inter, ui-sans-serif, system-ui, sans-serif;
     -webkit-font-smoothing: antialiased;
   }
+
   /* Dark = the instructors space theme: #05030A + two purple radial glows. */
   .dark body {
     background-image:
@@ -177,6 +214,7 @@
     opacity: 0;
     transform: translateY(12px);
   }
+
   to {
     opacity: 1;
     transform: translateY(0);
@@ -186,13 +224,17 @@
 /* Roadmap board — the single live tile's glow, dark theme only (design
    spec: "Nothing loops except the single live-tile pulse."). */
 @keyframes boardPulse {
-  0%, 100% {
+
+  0%,
+  100% {
     box-shadow: inset 0 0 0 1.5px var(--board-live-ring), 0 0 22px var(--board-live-glow);
   }
+
   50% {
     box-shadow: inset 0 0 0 1.5px var(--board-live-ring), 0 0 34px var(--board-live-glow);
   }
 }
+
 .dark .animate-board-pulse {
   animation: boardPulse 2.6s ease-in-out infinite;
 }
@@ -205,13 +247,20 @@
    Madar dashboard's `.card::before` "holo-sweep". Scoped to
    `.gs-holo-card`, not a platform-wide loop. */
 @keyframes holoSweep {
-  0% { transform: translate(-20%, -20%) rotate(0deg); }
-  100% { transform: translate(20%, 20%) rotate(0deg); }
+  0% {
+    transform: translate(-20%, -20%) rotate(0deg);
+  }
+
+  100% {
+    transform: translate(20%, 20%) rotate(0deg);
+  }
 }
+
 .gs-holo-card {
   position: relative;
   overflow: hidden;
 }
+
 .gs-holo-card::before {
   content: "";
   position: absolute;
@@ -224,15 +273,28 @@
 /* CompletionCelebration's checkmark — a small overshoot bounce, not just
    a fade, so "you finished this" actually reads as a micro-celebration. */
 @keyframes checkPop {
-  0% { transform: scale(0.4); opacity: 0; }
-  60% { transform: scale(1.15); opacity: 1; }
-  100% { transform: scale(1); opacity: 1; }
+  0% {
+    transform: scale(0.4);
+    opacity: 0;
+  }
+
+  60% {
+    transform: scale(1.15);
+    opacity: 1;
+  }
+
+  100% {
+    transform: scale(1);
+    opacity: 1;
+  }
 }
+
 .animate-check-pop {
   animation: checkPop 0.5s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
 }
 
 @layer base {
+
   /* These element selectors are MORE specific than Tailwind's single-class
      utilities (0,2,1 and 0,1,1 vs 0,1,0), so they silently beat them. The
      :not(.hidden):not(.sr-only) guards exist because without them
@@ -295,6 +357,7 @@
      fires the zoom, while keeping the tighter 14 px size on desktop where the
      screen is large enough that it reads comfortably. */
   @media (max-width: 767px) {
+
     input:not([type="checkbox"]):not([type="radio"]):not(.hidden):not(.sr-only),
     select:not(.hidden):not(.sr-only),
     textarea:not(.hidden):not(.sr-only) {
@@ -345,12 +408,16 @@ select option {
 .scrollbar-none::-webkit-scrollbar {
   display: none;
 }
+
 /* Hide scrollbar for IE, Edge and Firefox */
 .no-scrollbar,
 .scrollbar-none {
-  -ms-overflow-style: none;  /* IE and Edge */
-  scrollbar-width: none;  /* Firefox */
+  -ms-overflow-style: none;
+  /* IE and Edge */
+  scrollbar-width: none;
+  /* Firefox */
 }
+
 /* Intercom Fin launcher & notification position on mobile.
    Intercom's native widget script hardcodes `bottom: 20px; right: 20px` on mobile web
    and ignores vertical spacing from the Intercom dashboard (which only applies to desktop/tablets).
@@ -358,6 +425,7 @@ select option {
    We raise the launcher and notification bubble above the LearnMobileTabBar (~115px + safe-area).
    Chat windows (.intercom-messenger) are strictly excluded so the messenger opens full screen. */
 @media (max-width: 767px) {
+
   html body .intercom-lightweight-app-launcher,
   html body .intercom-launcher-frame,
   html body iframe[name="intercom-launcher-frame"],
@@ -386,6 +454,7 @@ select option {
   border-bottom: 1px solid hsl(var(--border));
   color: hsl(var(--foreground));
 }
+
 .markdown-preview h2 {
   font-size: 1.4rem;
   font-weight: 700;
@@ -393,6 +462,7 @@ select option {
   margin: 1rem 0 0.55rem;
   color: hsl(var(--foreground));
 }
+
 .markdown-preview h3 {
   font-size: 1.175rem;
   font-weight: 700;
@@ -400,6 +470,7 @@ select option {
   margin: 0.9rem 0 0.45rem;
   color: hsl(var(--foreground));
 }
+
 .markdown-preview h4 {
   font-size: 1.025rem;
   font-weight: 600;
@@ -407,6 +478,7 @@ select option {
   margin: 0.8rem 0 0.4rem;
   color: hsl(var(--foreground));
 }
+
 .markdown-preview h5 {
   font-size: 0.925rem;
   font-weight: 600;
@@ -414,6 +486,7 @@ select option {
   margin: 0.7rem 0 0.35rem;
   color: hsl(var(--muted-foreground));
 }
+
 .markdown-preview h6 {
   font-size: 0.8rem;
   font-weight: 700;
@@ -423,33 +496,40 @@ select option {
   margin: 0.7rem 0 0.35rem;
   color: hsl(var(--primary));
 }
+
 .markdown-preview p {
   margin: 0.65rem 0;
   line-height: 1.65;
 }
+
 .markdown-preview ul {
   list-style-type: disc;
   padding-left: 1.5rem;
   margin: 0.65rem 0;
 }
+
 .markdown-preview ol {
   list-style-type: decimal;
   padding-left: 1.5rem;
   margin: 0.65rem 0;
 }
+
 .markdown-preview li {
   margin: 0.25rem 0;
   line-height: 1.6;
 }
+
 .markdown-preview strong,
 .markdown-preview b {
   font-weight: 700;
   color: hsl(var(--foreground));
 }
+
 .markdown-preview em,
 .markdown-preview i {
   font-style: italic;
 }
+
 .markdown-preview blockquote {
   border-left: 3px solid hsl(var(--primary));
   padding-left: 1rem;
@@ -457,6 +537,7 @@ select option {
   color: hsl(var(--muted-foreground));
   font-style: italic;
 }
+
 .markdown-preview code {
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
   font-size: 0.85em;
@@ -464,6 +545,7 @@ select option {
   padding: 0.15rem 0.35rem;
   border-radius: 0.3rem;
 }
+
 .markdown-preview pre {
   background-color: hsl(var(--muted));
   padding: 0.85rem 1rem;
@@ -471,49 +553,267 @@ select option {
   overflow-x: auto;
   margin: 0.85rem 0;
 }
+
 .markdown-preview pre code {
   background-color: transparent;
   padding: 0;
 }
+
 .markdown-preview a {
   color: hsl(var(--primary));
   text-decoration: underline;
 }
+
 .markdown-preview hr {
   border: 0;
   border-top: 1px solid hsl(var(--border));
   margin: 1.25rem 0;
 }
+
 .markdown-preview img {
   max-width: 100%;
   border-radius: 0.5rem;
   margin: 0.75rem 0;
 }
+
 .markdown-preview del,
 .markdown-preview s {
   text-decoration: line-through;
   color: hsl(var(--muted-foreground));
 }
+
 .markdown-preview table {
   width: 100%;
   border-collapse: collapse;
   margin: 0.85rem 0;
   font-size: 0.85rem;
 }
+
 .markdown-preview th,
 .markdown-preview td {
   border: 1px solid hsl(var(--border));
   padding: 0.5rem 0.75rem;
   text-align: left;
 }
+
 .markdown-preview th {
   background-color: hsl(var(--muted));
   font-weight: 600;
   color: hsl(var(--foreground));
 }
-.markdown-preview > :first-child {
+
+.markdown-preview> :first-child {
   margin-top: 0;
 }
-.markdown-preview > :last-child {
+
+.markdown-preview> :last-child {
   margin-bottom: 0;
+}
+
+/* ========================================================================== */
+/* Global SpacePoint Wireframe System (applied portal-wide except .sp-legacy-lms) */
+/* Driven by --sp-* CSS variables in :root / .dark above (1-line global edits).  */
+/* ========================================================================== */
+.sp-wireframe-header {
+  background-color: var(--sp-header-bg);
+  color: #ffffff;
+}
+
+body:not(:has(.sp-legacy-lms)) input:not([type="checkbox"]):not([type="radio"]):not([type="color"]):not([type="range"]):not(.hidden):not(.sr-only),
+body:not(:has(.sp-legacy-lms)) select:not(.hidden):not(.sr-only),
+body:not(:has(.sp-legacy-lms)) textarea:not(.hidden):not(.sr-only) {
+  background-color: transparent !important;
+  border: var(--sp-control-border-width) solid var(--sp-control-border-color) !important;
+  border-radius: var(--sp-control-radius) !important;
+}
+
+body:not(:has(.sp-legacy-lms)) input[type="checkbox"]:not(.hidden):not(.sr-only),
+body:not(:has(.sp-legacy-lms)) input[type="radio"]:not(.hidden):not(.sr-only) {
+  background-color: transparent !important;
+  border: var(--sp-control-border-width) solid var(--sp-control-border-color) !important;
+  accent-color: var(--sp-cta-bg);
+}
+
+body:not(:has(.sp-legacy-lms)) input:not([type="checkbox"]):not([type="radio"]):not([type="color"]):not([type="range"]):focus,
+body:not(:has(.sp-legacy-lms)) select:focus,
+body:not(:has(.sp-legacy-lms)) textarea:focus {
+  border-color: var(--sp-cta-bg) !important;
+  box-shadow: 0 0 0 1px var(--sp-cta-bg) !important;
+}
+
+.sp-wireframe-header select {
+  background-color: transparent !important;
+  border: var(--sp-control-border-width) solid var(--sp-control-border-color) !important;
+  color: #ffffff !important;
+}
+
+body:not(:has(.sp-legacy-lms)) .bg-card:not(aside):not(header) input:not([type="checkbox"]):not([type="radio"]):not([type="color"]):not([type="range"]):not(.hidden):not(.sr-only),
+body:not(:has(.sp-legacy-lms)) .bg-card:not(aside):not(header) select:not(.hidden):not(.sr-only),
+body:not(:has(.sp-legacy-lms)) .bg-card:not(aside):not(header) textarea:not(.hidden):not(.sr-only) {
+  background-color: transparent !important;
+  border: var(--sp-control-border-width) solid var(--sp-control-border-color) !important;
+  color: var(--sp-card-input-fg) !important;
+}
+
+.dark body:not(:has(.sp-legacy-lms)) .bg-card:not(aside):not(header) input::placeholder,
+.dark body:not(:has(.sp-legacy-lms)) .bg-card:not(aside):not(header) textarea::placeholder {
+  color: rgba(255, 255, 255, 0.55) !important;
+}
+
+body:not(:has(.sp-legacy-lms)) .bg-card:not(aside):not(header):not(.sp-subcard):not(input):not(select):not(textarea):not(button),
+body:not(:has(.sp-legacy-lms)) [class*="bg-card/"]:not(aside):not(header):not(.sp-subcard):not(input):not(select):not(textarea):not(button) {
+  background-color: var(--sp-card-bg) !important;
+  border: var(--sp-card-border-width) solid var(--sp-card-border-color) !important;
+  border-radius: var(--sp-control-radius) !important;
+  box-shadow: none !important;
+  --foreground: var(--sp-card-foreground-hsl);
+  --card-foreground: var(--sp-card-foreground-hsl);
+  --muted-foreground: var(--sp-card-muted-hsl);
+  color: var(--sp-card-fg);
+}
+
+body:not(:has(.sp-legacy-lms)) .sp-subcard:not(aside):not(header) {
+  background-color: var(--sp-card-bg) !important;
+  border: var(--sp-control-border-width) solid var(--sp-control-border-color) !important;
+  border-radius: var(--sp-control-radius) !important;
+  box-shadow: none !important;
+  --foreground: var(--sp-card-foreground-hsl);
+  --card-foreground: var(--sp-card-foreground-hsl);
+  --muted-foreground: var(--sp-card-muted-hsl);
+  color: var(--sp-card-fg);
+}
+
+body:not(:has(.sp-legacy-lms)) button.border-border:not(.bg-primary):not([style*="background"]),
+body:not(:has(.sp-legacy-lms)) a.border-border:not(.bg-primary):not([style*="background"]) {
+  background-color: transparent !important;
+  border: var(--sp-control-border-width) solid var(--sp-control-border-color) !important;
+  border-radius: var(--sp-control-radius) !important;
+}
+
+body:not(:has(.sp-legacy-lms)) button[class*="bg-primary/10"]:not(.border-b-2):not([style*="background"]):not(:has(> svg:only-child):not([class*="px-"]):not([class*="gap-"])),
+body:not(:has(.sp-legacy-lms)) button[class*="border-primary"]:not(.border-b-2):not([style*="background"]):not(:has(> svg:only-child):not([class*="px-"]):not([class*="gap-"])) {
+  background-color: transparent !important;
+  border: var(--sp-control-border-width) solid var(--sp-control-selected-border-color) !important;
+  border-radius: var(--sp-control-radius) !important;
+}
+
+body:not(:has(.sp-legacy-lms)) div[class*="bg-muted"]:has(> button) {
+  background-color: transparent !important;
+  border: none !important;
+  gap: 0.375rem;
+  padding: 0 !important;
+}
+
+body:not(:has(.sp-legacy-lms)) div[class*="bg-muted"]>button {
+  background-color: transparent !important;
+  border: var(--sp-control-border-width) solid var(--sp-control-border-color) !important;
+  border-radius: var(--sp-control-radius) !important;
+}
+
+body:not(:has(.sp-legacy-lms)) div[class*="bg-muted"]>button[class*="bg-background"],
+body:not(:has(.sp-legacy-lms)) div[class*="bg-muted"]>button[class*="bg-primary"] {
+  background-color: transparent !important;
+  border: var(--sp-control-border-width) solid var(--sp-control-selected-border-color) !important;
+  color: var(--sp-card-fg) !important;
+}
+
+body:not(:has(.sp-legacy-lms)) span.rounded-full:not(:empty) {
+  border-radius: var(--sp-control-radius) !important;
+  border: none !important;
+  color: #ffffff !important;
+}
+
+body:not(:has(.sp-legacy-lms)) span.rounded-full[class*="bg-emerald"],
+body:not(:has(.sp-legacy-lms)) span.rounded-full[class*="bg-green"] {
+  background-color: #059669 !important;
+}
+
+body:not(:has(.sp-legacy-lms)) span.rounded-full[class*="bg-amber"],
+body:not(:has(.sp-legacy-lms)) span.rounded-full[class*="bg-yellow"] {
+  background-color: #d97706 !important;
+}
+
+body:not(:has(.sp-legacy-lms)) span.rounded-full[class*="bg-red"],
+body:not(:has(.sp-legacy-lms)) span.rounded-full[class*="bg-rose"] {
+  background-color: #dc2626 !important;
+}
+
+body:not(:has(.sp-legacy-lms)) span.rounded-full[class*="bg-blue"],
+body:not(:has(.sp-legacy-lms)) span.rounded-full[class*="bg-indigo"],
+body:not(:has(.sp-legacy-lms)) span.rounded-full[class*="bg-purple"],
+body:not(:has(.sp-legacy-lms)) span.rounded-full[class*="bg-violet"],
+body:not(:has(.sp-legacy-lms)) span.rounded-full[class*="bg-primary"] {
+  background-color: var(--sp-cta-bg) !important;
+}
+
+body:not(:has(.sp-legacy-lms)) span.rounded-full[class*="bg-muted"],
+body:not(:has(.sp-legacy-lms)) span.rounded-full[class*="bg-foreground"] {
+  background-color: #4b3b5c !important;
+}
+
+body:not(:has(.sp-legacy-lms)) .bg-card button.border-border:not(.bg-primary):not([style*="background"]),
+body:not(:has(.sp-legacy-lms)) .bg-card a.border-border:not(.bg-primary):not([style*="background"]) {
+  color: var(--sp-card-fg) !important;
+}
+
+body:not(:has(.sp-legacy-lms)) button.bg-primary,
+body:not(:has(.sp-legacy-lms)) a.bg-primary {
+  background-color: var(--sp-cta-bg) !important;
+  border: none !important;
+  color: var(--sp-cta-fg) !important;
+  border-radius: var(--sp-control-radius) !important;
+}
+
+body:not(:has(.sp-legacy-lms)) button:has(> svg:only-child):not([class*="px-"]):not([class*="gap-"]):not(.bg-primary):not([class*="bg-[#653F84]"]):not([style*="background"]),
+body:not(:has(.sp-legacy-lms)) div:has(> svg:only-child):not([class*="px-"]):not([class*="gap-"]):not([style*="background"]),
+body:not(:has(.sp-legacy-lms)) span:has(> svg:only-child):not([class*="px-"]):not([class*="gap-"]):not([style*="background"]) {
+  background-color: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
+}
+
+/* Portal light-mode surface overrides (never applied to .sp-legacy-lms) */
+html:not(.dark):not(:has(.sp-legacy-lms)) {
+  --background: 34.3 16.3% 91.6%;
+  /* #EDEAE6 */
+  --card: 36 20% 95.3%;
+  /* #F6F4F0 */
+  --popover: 36 20% 96.5%;
+  --sp-card-bg: #F6F4F0;
+}
+
+/* Soft, theme-matched scrollbars (portal-only, never applied to .sp-legacy-lms) */
+body:not(:has(.sp-legacy-lms)) * {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(100, 90, 80, 0.28) transparent;
+}
+
+.dark body:not(:has(.sp-legacy-lms)) * {
+  scrollbar-color: rgba(167, 125, 255, 0.25) transparent;
+}
+
+body:not(:has(.sp-legacy-lms)) ::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+body:not(:has(.sp-legacy-lms)) ::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+body:not(:has(.sp-legacy-lms)) ::-webkit-scrollbar-thumb {
+  background: rgba(100, 90, 80, 0.28);
+  border-radius: 9999px;
+}
+
+body:not(:has(.sp-legacy-lms)) ::-webkit-scrollbar-thumb:hover {
+  background: rgba(100, 90, 80, 0.45);
+}
+
+.dark body:not(:has(.sp-legacy-lms)) ::-webkit-scrollbar-thumb {
+  background: rgba(167, 125, 255, 0.25);
+}
+
+.dark body:not(:has(.sp-legacy-lms)) ::-webkit-scrollbar-thumb:hover {
+  background: rgba(167, 125, 255, 0.42);
 }

@@ -12,7 +12,8 @@ export async function signup(data: {
   full_name: string;
   email: string;
   password: string;
-  phone: string;
+  phone?: string;
+  nationality?: string;
   date_of_birth?: string;
   invite_code?: string;
   parent_name?: string;
@@ -21,6 +22,7 @@ export async function signup(data: {
   country?: string;
   city_id?: string;
   city_other?: string;
+  answers?: Record<string, unknown>;
 }): Promise<User> {
   const { data: res } = await api.post<AuthTokens & { user: User }>("/auth/signup", data);
   tokens.set(res);
@@ -166,6 +168,7 @@ export async function updateMeApi(
     university_name: string
     phone: string
     country: string
+    nationality: string
     birthdate: string
     date_of_birth: string
     linkedin_url: string
@@ -174,6 +177,9 @@ export async function updateMeApi(
     city_of_residence_id: string
     deliver_city_ids: string[]
     has_own_transportation: boolean
+    work_status: string
+    fluent_languages: string[]
+    graduated_university: string
     org_name_latin: string
     org_name_arabic: string
     org_type: string
@@ -217,6 +223,7 @@ export async function applyInstructorApi(data: {
   background_other?: string
   has_own_transportation?: boolean
   country?: string
+  answers?: Record<string, unknown>
 }, cv?: File | null): Promise<User> {
   // Unlike apply/teacher-apply, this creates an active user immediately
   // (status starts the pipeline, not a pending-admin-approval gate) and

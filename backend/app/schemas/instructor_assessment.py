@@ -4,7 +4,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date, datetime
 from typing import Literal
 from uuid import UUID
 
@@ -260,6 +260,7 @@ class RatingHistoryEntryOut(BaseModel):
     program_name: str
     rater_name: str | None
     overall_rating: float
+    dimension_scores: dict[str, int] = {}
     recommended: bool | None
     flag: Literal["none", "exceptional", "concern"]
     strengths: str | None
@@ -267,17 +268,112 @@ class RatingHistoryEntryOut(BaseModel):
     submitted_at: datetime | None
 
 
+class CohortRatingSummaryOut(BaseModel):
+    rating_id: UUID
+    overall_rating: float
+    dimension_scores: dict[str, int] = {}
+    recommended: bool | None = None
+    flag: Literal["none", "exceptional", "concern"] = "none"
+    strengths: str | None = None
+    areas_for_improvement: str | None = None
+    rater_name: str | None = None
+    submitted_at: datetime | None = None
+
+
+class InstructorCohortHistoryEntryOut(BaseModel):
+    cohort_id: UUID
+    cohort_name: str
+    program_id: UUID | None = None
+    program_name: str | None = None
+    starts_on: date | None = None
+    ends_on: date | None = None
+    city_name: str | None = None
+    role_name: str | None = None
+    staffing_source: str = "Direct Assigned"
+    sessions_assigned: int = 0
+    sessions_delivered: int = 0
+    hours_delivered: float = 0.0
+    quiz_attempt_id: UUID | None = None
+    quiz_score: int | None = None
+    quiz_total: int | None = None
+    quiz_submitted_at: datetime | None = None
+    rating: CohortRatingSummaryOut | None = None
+
+
 class InstructorPerformanceOut(BaseModel):
     user_id: UUID
+    full_name: str = ""
+    email: str = ""
+    phone: str | None = None
+    photo_url: str | None = None
+    linkedin_url: str | None = None
+    card_id: str | None = None
+    city_id: str | None = None
+    city_name: str | None = None
+    deliver_city_ids: list[str] = []
+    deliver_city_names: list[str] = []
+    has_own_transportation: bool | None = None
+    nationality: str | None = None
+    graduated_university: str | None = None
+    fluent_languages: list[str] = []
+    docs_complete: bool = False
+    is_certified: bool = False
+    certified_tag_id: UUID | None = None
+    total_sessions_assigned: int = 0
     total_sessions_delivered: int
     total_hours_delivered: float
     programs_participated_in: int
+    cohorts_participated_in: int = 0
+    unrated_cohorts_count: int = 0
     average_rating: float | None
     recent_rating_trend: list[float]  # last-N overall ratings, oldest first
     reliability_ratio: float | None  # present+approved / total assigned days
+    dimension_averages: dict[str, float] = {}
     certifications: list[CertificationTagOut]
     quiz_history: list[QuizHistoryEntryOut]
     rating_history: list[RatingHistoryEntryOut]
+    cohort_history: list[InstructorCohortHistoryEntryOut] = []
+
+
+class OpsInstructorRosterItemOut(BaseModel):
+    id: UUID
+    full_name: str
+    email: str
+    phone: str | None = None
+    status: str
+    photo_url: str | None = None
+    linkedin_url: str | None = None
+    created_at: datetime | None = None
+    card_id: str | None = None
+    city_id: str | None = None
+    city_name: str | None = None
+    deliver_city_ids: list[str] = []
+    deliver_city_names: list[str] = []
+    has_own_transportation: bool | None = None
+    nationality: str | None = None
+    graduated_university: str | None = None
+    fluent_languages: list[str] = []
+    docs_complete: bool = False
+    is_certified: bool = False
+    certified_tag_id: UUID | None = None
+    certifications: list[CertificationTagOut] = []
+    total_sessions_assigned: int = 0
+    total_sessions_delivered: int = 0
+    total_hours_delivered: float = 0.0
+    reliability_ratio: float | None = None
+    cohorts_count: int = 0
+    unrated_cohorts_count: int = 0
+    average_rating: float | None = None
+    flags: list[str] = []
+
+
+class CertifiedToggleIn(BaseModel):
+    certified: bool
+
+
+class CertifiedToggleOut(BaseModel):
+    is_certified: bool
+    certified_tag_id: UUID | None = None
 
 
 # ── ranking weights ──────────────────────────────────────────────────────

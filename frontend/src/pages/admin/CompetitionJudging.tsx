@@ -1,9 +1,9 @@
 import { useEffect, useRef, useState } from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { Link, useParams } from "@tanstack/react-router"
-import { ArrowLeft, ArrowUpRight, Award, Clock, Copy, Download, Eye, FileText, Mail, MessageSquare, Plus, Printer, RefreshCw, Search, Trash2, Trophy, Upload, UserPlus, UserMinus, Pencil, X, Check, RotateCcw } from "lucide-react"
+import { ArrowLeft, ArrowUpRight, Award, Copy, Download, Eye, FileText, Mail, MessageSquare, Plus, RefreshCw, Search, Trash2, Trophy, Upload, UserPlus, UserMinus, Pencil, X, Check, RotateCcw } from "lucide-react"
 import { getCohortApi, getCohortsApi } from "@/api/sessions/cohorts"
-import type { Cohort, ProgramCertificateTemplate } from "@/types/sessions"
+import type { Cohort } from "@/types/sessions"
 import { searchStaffApi, listInviteCodesApi, type StaffOption } from "@/api/lms_admin"
 import { UserProfileModal } from "@/components/UserProfileModal"
 import { CompetitionCertificatesModal } from "@/pages/admin/components/CompetitionCertificatesModal"
@@ -12,16 +12,13 @@ import { TeamCheckpointGates } from "@/components/competitions/TeamCheckpointGat
 import { TeamOperationsScoreModal } from "@/components/competitions/TeamOperationsScoreModal"
 import { PublishResultsModal } from "@/components/competitions/PublishResultsModal"
 import { TimingOverrideModal } from "@/components/competitions/TimingOverrideModal"
-import { SubmissionWindowsModal } from "@/components/competitions/SubmissionWindowsModal"
 import { ExcuseLetterModal } from "@/components/competitions/ExcuseLetterModal"
-import { listProgramCertificateTemplatesApi } from "@/api/sessions/programCertificateTemplates"
 import {
   advanceCohortTeamsApi, createCohortTeamApi, deleteTeamApi, downloadCohortResultsWorkbookApi,
   downloadCohortDetailedResultsWorkbookApi, downloadCohortTeamsWorkbookApi, registerUsersToCohortApi,
-  downloadCompetitionCertificatesApi, type ExcuseLetterConfig,
+  type ExcuseLetterConfig,
   downloadCompetitionRosterTemplateApi,
   getCohortExcuseLetterTemplateApi,
-  getCohortExportTop20Api,
   confirmCohortRegistrationImportApi,
   getCohortRegistrationImportBatchStatusApi,
   getCohortJudgesApi, getCohortLeaderboardApi, getCohortPublicationApi, getCohortTeamsApi, getCohortRubricApi,
@@ -32,18 +29,10 @@ import {
   type CompetitionAssignStudentsResult, type CompetitionImportPreviewRow, type CompetitionImportResult,
   type CompetitionJudgeProgress,
   type CompetitionLeaderboardRow, type CompetitionPublication, type CompetitionRubric, type CompetitionTeam,
-  type CertificateFilterMode,
 } from "@/api/competitions"
 import { CompetitionAnalysisTab } from "@/pages/admin/components/CompetitionAnalysis"
 import { PageHeader, Spinner, EmptyState } from "@/components/ui/primitives"
 import { Field } from "@/pages/admin/components/common"
-import {
-  DropdownMenu,
-  DropdownMenuTrigger,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuSeparator,
-} from "@/components/ui/dropdown-menu"
 import { useToast } from "@/components/ui/toast"
 import { useAuth } from "@/context/AuthContext"
 import { getErrorMessage } from "@/lib/utils"
@@ -171,7 +160,7 @@ const IMPORT_EMAIL_RE = /^[^@\s]+@[^@\s]+\.[^@\s]+$/
 // being written — mirrors registration_import.py's blocking checks. A
 // malformed-but-present email or duplicate-email note is a warning: ops can
 // still confirm and keep it (fix the address for that student later).
-const BLOCKING_ISSUES = new Set(["Team ID is required", "Member name is required", "Email is required"])
+const BLOCKING_ISSUES = new Set(["Member name is required", "Email is required"])
 const isBlockingIssue = (issue: string) =>
   BLOCKING_ISSUES.has(issue) ||
   issue.includes("already exists in this sheet") ||
@@ -232,7 +221,6 @@ function recomputePreviewIssues(rows: CompetitionImportPreviewRow[]): Competitio
     const email = row.email?.trim() || ""
     const norm = email.toLowerCase()
 
-    if (!tid) issues.push("Team ID is required")
     if (!member) issues.push("Member name is required")
     if (!email) issues.push("Email is required")
     else if (!IMPORT_EMAIL_RE.test(email)) issues.push("Email is not valid")
@@ -271,7 +259,7 @@ function recomputePreviewIssues(rows: CompetitionImportPreviewRow[]): Competitio
   })
 }
 
-function RosterTab({ cohortId }: { cohortId: string }) {
+export function RosterTab({ cohortId }: { cohortId: string }) {
   const toast = useToast()
   const queryClient = useQueryClient()
   const fileInputRef = useRef<HTMLInputElement>(null)
@@ -365,12 +353,11 @@ function RosterTab({ cohortId }: { cohortId: string }) {
       {!previewRows && !isBackgroundRunning && (
         <div className="flex flex-col gap-4 max-w-4xl">
           <p className="text-sm text-muted-foreground">
-            Upload the final roster exported from the registration form — columns <code>Team ID</code>,{" "}
-            <code>Student Name</code>, <code>Email</code>, and optional fields (<code>Team Name</code>,{" "}
-            <code>Phone</code>, <code>University</code>, <code>Nationality</code>, <code>Gender</code>). A team
-            with no <code>Team Name</code> yet gets its <code>Team ID</code> as a placeholder — students set the
-            real one themselves later. You'll get a preview to review before anything is created, and the upload
-            runs asynchronously in the background.
+            Upload the final roster exported from the registration form — required columns <code>Student Name</code>{" "}
+            and <code>Email</code>, and optional fields (<code>Team ID</code>, <code>Team Name</code>,{" "}
+            <code>Phone</code>, <code>University</code>, <code>Nationality</code>, <code>Gender</code>). Rows with no{" "}
+            <code>Team ID</code> are registered with no team; a team with a <code>Team ID</code> and no{" "}
+            <code>Team Name</code> yet gets its <code>Team ID</code> as a placeholder.
           </p>
           <input
             ref={fileInputRef} type="file" accept=".xlsx,.xls,.csv" className="hidden"
@@ -598,12 +585,11 @@ const STAFF_ROLE_OPTIONS = [
   "lms_author", "judge", "ambassador", "teacher", "leader", "coo", "storekeeper",
 ]
 
-function AssignTab({ cohortId }: { cohortId: string }) {
+export function AssignTab({ cohortId }: { cohortId: string }) {
   const toast = useToast()
   const queryClient = useQueryClient()
   const [query, setQuery] = useState("")
   const [inviteCode, setInviteCode] = useState("")
-  const [registeredOnly, setRegisteredOnly] = useState(false)
   const [teamStatus, setTeamStatus] = useState<TeamStatusFilter>("all")
   const [loginStatus, setLoginStatus] = useState<LoginStatusFilter>("all")
   // Rebuild (2026-10): Students | Staff (literally not a student, with a
@@ -636,12 +622,12 @@ function AssignTab({ cohortId }: { cohortId: string }) {
   }
 
   // Any filter/mode change restarts at page 1.
-  useEffect(() => { setPage(1); setSelected({}) }, [query, inviteCode, registeredOnly, teamStatus, loginStatus, mode, role, pageSize, sort, direction])
+  useEffect(() => { setPage(1); setSelected({}) }, [query, inviteCode, teamStatus, loginStatus, mode, role, pageSize, sort, direction])
 
   const { data: assignPage, isLoading } = useQuery({
-    queryKey: ["competitions-assignable-students", cohortId, query, inviteCode, registeredOnly, teamStatus, loginStatus, mode, role, page, pageSize, sort, direction],
+    queryKey: ["competitions-assignable-students", cohortId, query, inviteCode, teamStatus, loginStatus, mode, role, page, pageSize, sort, direction],
     queryFn: () => searchAssignableStudentsApi(cohortId, {
-      q: query || undefined, invite_code: inviteCode || undefined, registered_only: registeredOnly,
+      q: query || undefined, invite_code: inviteCode || undefined,
       team_status: teamStatus, login_status: loginStatus, mode,
       role: mode === "staff" && role ? role : undefined,
       page, page_size: pageSize, sort, direction,
@@ -742,10 +728,6 @@ function AssignTab({ cohortId }: { cohortId: string }) {
           ))}
           <option value="none">No code</option>
         </select>
-        <label className="flex items-center gap-2 text-sm text-foreground cursor-pointer select-none">
-          <input type="checkbox" checked={registeredOnly} onChange={(e) => setRegisteredOnly(e.target.checked)} />
-          Registered to this cohort
-        </label>
         <select
           value={teamStatus}
           onChange={(e) => setTeamStatus(e.target.value as TeamStatusFilter)}
@@ -878,9 +860,7 @@ function AssignTab({ cohortId }: { cohortId: string }) {
         <EmptyState
           title={mode === "staff" ? "No staff found" : mode === "observer" ? "No observers found" : "No students found"}
           hint={
-            registeredOnly
-              ? "Nobody registered to this cohort matches these filters — untick \"Registered to this cohort\" to search everyone."
-              : query || inviteCode ? "Try a different search or batch." : "No accounts match the selected filters."
+            query || inviteCode ? "Try a different search or batch." : "No accounts match the selected filters."
           }
         />
       ) : (
@@ -1129,10 +1109,10 @@ function TeamStatChip({ label, value, tone = "default" }: {
 }) {
   return (
     <div
-      className={`flex items-center justify-center gap-1.5 h-9 px-4 rounded-xl border text-sm ${
+      className={`flex items-center justify-center gap-1.5 h-9 px-4 rounded-[10px] border-[2px] text-sm bg-transparent ${
         tone === "alert"
-          ? "border-amber-500/30 bg-amber-500/10 text-amber-600 dark:text-amber-400"
-          : "border-border bg-card text-foreground"
+          ? "border-amber-500/50 text-amber-600 dark:text-amber-400"
+          : "border-[#D7D2CB] text-foreground"
       }`}
     >
       <span className="font-semibold tabular-nums leading-none flex items-center">{value}</span>
@@ -1141,7 +1121,7 @@ function TeamStatChip({ label, value, tone = "default" }: {
   )
 }
 
-function TeamsTab({ cohortId, cohortName }: { cohortId: string; cohortName?: string }) {
+export function TeamsTab({ cohortId, cohortName }: { cohortId: string; cohortName?: string }) {
   const toast = useToast()
   const queryClient = useQueryClient()
   const invalidate = () => queryClient.invalidateQueries({ queryKey: ["competitions-teams", cohortId] })
@@ -1197,12 +1177,6 @@ function TeamsTab({ cohortId, cohortName }: { cohortId: string; cohortName?: str
 
   return (
     <div className="flex flex-col gap-4 max-w-3xl">
-      <p className="text-sm text-muted-foreground">
-        For one-off corrections after a Roster import — a late signup, a team split, someone switching
-        teams — without re-uploading a whole sheet. Adding a member by name + email registers them if
-        they're new, or matches an existing account if that email already has one — same as a Roster row.
-      </p>
-
       {teams.length > 0 && (
         <div className="flex flex-wrap gap-2">
           <TeamStatChip label={teams.length === 1 ? "team" : "teams"} value={teams.length} />
@@ -1249,12 +1223,12 @@ function TeamsTab({ cohortId, cohortName }: { cohortId: string; cohortName?: str
             className="w-full h-10 pl-8 pr-3 border border-border bg-card text-foreground rounded-xl text-sm focus:outline-none focus:border-primary transition-colors"
           />
         </div>
-        <div className="flex items-center p-1 bg-muted/60 border border-border/80 rounded-xl text-xs">
+        <div className="flex items-center gap-1.5 text-xs">
           <button
             type="button"
             onClick={() => setTeamFilter("all")}
-            className={`px-3 py-1 rounded-lg font-medium transition-colors cursor-pointer ${
-              teamFilter === "all" ? "bg-background text-foreground shadow-xs font-semibold" : "text-muted-foreground hover:text-foreground"
+            className={`h-9 px-3 rounded-[10px] border-[2px] bg-transparent font-medium transition-colors cursor-pointer ${
+              teamFilter === "all" ? "border-primary text-primary font-semibold" : "border-[#D7D2CB] text-muted-foreground hover:text-foreground"
             }`}
           >
             All ({teams.length})
@@ -1262,8 +1236,8 @@ function TeamsTab({ cohortId, cohortName }: { cohortId: string; cohortName?: str
           <button
             type="button"
             onClick={() => setTeamFilter("student")}
-            className={`px-3 py-1 rounded-lg font-medium transition-colors cursor-pointer ${
-              teamFilter === "student" ? "bg-background text-foreground shadow-xs font-semibold" : "text-muted-foreground hover:text-foreground"
+            className={`h-9 px-3 rounded-[10px] border-[2px] bg-transparent font-medium transition-colors cursor-pointer ${
+              teamFilter === "student" ? "border-primary text-primary font-semibold" : "border-[#D7D2CB] text-muted-foreground hover:text-foreground"
             }`}
           >
             Students ({teams.filter((t) => !t.is_observer).length})
@@ -1271,8 +1245,8 @@ function TeamsTab({ cohortId, cohortName }: { cohortId: string; cohortName?: str
           <button
             type="button"
             onClick={() => setTeamFilter("observer")}
-            className={`px-3 py-1 rounded-lg font-medium transition-colors cursor-pointer ${
-              teamFilter === "observer" ? "bg-background text-indigo-600 dark:text-indigo-400 shadow-xs font-semibold" : "text-muted-foreground hover:text-foreground"
+            className={`h-9 px-3 rounded-[10px] border-[2px] bg-transparent font-medium transition-colors cursor-pointer ${
+              teamFilter === "observer" ? "border-primary text-primary font-semibold" : "border-[#D7D2CB] text-muted-foreground hover:text-foreground"
             }`}
           >
             Observers ({teams.filter((t) => t.is_observer).length})
@@ -2134,11 +2108,10 @@ export function JudgesTab({ cohortId }: { cohortId: string }) {
 /* ================================================================== */
 /* Results                                                              */
 /* ================================================================== */
-function ResultsTab({
+export function ResultsTab({
   cohortId,
   cohortName,
   programId,
-  onOpenCertificates,
 }: {
   cohortId: string
   cohortName: string
@@ -2147,7 +2120,6 @@ function ResultsTab({
 }) {
   const toast = useToast()
   const queryClient = useQueryClient()
-  const [showTop20, setShowTop20] = useState(false)
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [toCohortId, setToCohortId] = useState("")
   const [sendTicketOnAdvance, setSendTicketOnAdvance] = useState(true)
@@ -2155,57 +2127,11 @@ function ResultsTab({
   const [attachExcuseOnAdvance, setAttachExcuseOnAdvance] = useState(false)
   const [exporting, setExporting] = useState(false)
   const [exportingDetailed, setExportingDetailed] = useState(false)
-  const [downloadingCertificates, setDownloadingCertificates] = useState(false)
-
-  const { data: programTemplates = [] } = useQuery<ProgramCertificateTemplate[]>({
-    queryKey: ["program-certificate-templates", programId],
-    queryFn: () => listProgramCertificateTemplatesApi(programId),
-    enabled: !!programId,
-  })
-
-  const handleDownloadCertificates = async (
-    filter: CertificateFilterMode,
-    theme: "dark" | "light" | "custom",
-    templateId?: string,
-    templateName?: string,
-  ) => {
-    setDownloadingCertificates(true)
-    try {
-      await downloadCompetitionCertificatesApi(
-        cohortId,
-        cohortName,
-        filter,
-        theme,
-        null,
-        templateId,
-      )
-      const filterLabel =
-        filter === "locked_only"
-          ? "locked only (completion)"
-          : filter === "participation"
-          ? "participation"
-          : filter === "at_least_one"
-          ? "≥ 1 submission"
-          : "completed all"
-      toast.success(
-        `Downloaded ${templateName || theme} certificates for ${filterLabel}`,
-      )
-    } catch (e: unknown) {
-      toast.error(getErrorMessage(e, "Failed to download certificates PDF"))
-    } finally {
-      setDownloadingCertificates(false)
-    }
-  }
 
   const [mode, setMode] = useState<"participant" | "observer" | "all">("participant")
   const { data: board = [], isLoading } = useQuery<CompetitionLeaderboardRow[]>({
     queryKey: ["competitions-leaderboard", cohortId, mode],
     queryFn: () => getCohortLeaderboardApi(cohortId, mode),
-  })
-  const { data: top20 = [] } = useQuery<CompetitionLeaderboardRow[]>({
-    queryKey: ["competitions-top20", cohortId],
-    queryFn: () => getCohortExportTop20Api(cohortId),
-    enabled: showTop20,
   })
   const { data: siblingCohorts = [] } = useQuery<Cohort[]>({
     queryKey: ["sessions-cohorts", programId],
@@ -2283,7 +2209,6 @@ function ResultsTab({
     }
   }
 
-  const [windowsModalOpen, setWindowsModalOpen] = useState(false)
   const [breakdownTeamId, setBreakdownTeamId] = useState<string | null>(null)
   const [overrideTeam, setOverrideTeam] = useState<CompetitionLeaderboardRow | null>(null)
   const [gradingTeam, setGradingTeam] = useState<CompetitionLeaderboardRow | null>(null)
@@ -2389,20 +2314,6 @@ function ResultsTab({
           </button>
         </div>
         <button
-          onClick={() => setShowTop20((s) => !s)}
-          title="Filters the table below to only the 20 highest-ranked teams — doesn't download anything"
-          className="h-9 px-4 border border-border rounded-xl text-sm font-medium text-foreground hover:bg-muted transition-colors"
-        >
-          {showTop20 ? "Show all teams" : "Filter to Top 20"}
-        </button>
-        <button
-          onClick={() => setWindowsModalOpen(true)}
-          title="Configure tiered submission deadlines and timing incentives"
-          className="flex items-center gap-1.5 h-9 px-4 border border-border rounded-xl text-sm font-medium text-foreground hover:bg-muted transition-colors"
-        >
-          <Clock size={14} className="text-primary" /> Submission Windows
-        </button>
-        <button
           onClick={async () => {
             setExporting(true)
             try {
@@ -2436,89 +2347,7 @@ function ResultsTab({
         >
           <Download size={14} /> {exportingDetailed ? "Exporting…" : "Export detailed"}
         </button>
-        {onOpenCertificates && (
-          <button
-            onClick={onOpenCertificates}
-            className="flex items-center gap-1.5 h-9 px-4 border border-border rounded-xl text-sm font-medium text-foreground hover:bg-muted transition-colors"
-            title="Review qualifying students and email certificates"
-          >
-            <Mail size={14} className="text-primary" /> Send certificates
-          </button>
-        )}
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <button
-              disabled={downloadingCertificates}
-              className="flex items-center gap-1.5 h-9 px-3 border border-border rounded-xl text-sm font-medium text-foreground hover:bg-muted transition-colors disabled:opacity-50"
-              title="Download merged PDF of certificates for students with submissions"
-            >
-              <Printer size={14} /> {downloadingCertificates ? "Preparing…" : "Print certificates"}
-            </button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end" className="w-64 max-h-96 overflow-y-auto">
-            <div className="px-2 py-1 text-[11px] font-semibold text-emerald-600 dark:text-emerald-400 uppercase tracking-wider">
-              Locked only (Completion)
-            </div>
-            <DropdownMenuItem onClick={() => handleDownloadCertificates("locked_only", "dark")}>
-              Dark background
-            </DropdownMenuItem>
-            <DropdownMenuItem onClick={() => handleDownloadCertificates("locked_only", "light")}>
-              Light background
-            </DropdownMenuItem>
-            {programTemplates.map((tmpl: ProgramCertificateTemplate) => (
-              <DropdownMenuItem
-                key={`locked-only-${tmpl.id}`}
-                onClick={() => handleDownloadCertificates("locked_only", "custom", tmpl.id, tmpl.name)}
-                className="truncate"
-              >
-                {tmpl.name}
-              </DropdownMenuItem>
-            ))}
-            <DropdownMenuSeparator />
-            <div className="px-2 py-1 text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">
-              Participation (≥ 1 submission)
-            </div>
-            <DropdownMenuItem onClick={() => handleDownloadCertificates("participation", "dark")}>
-              Dark background
-            </DropdownMenuItem>
-            <DropdownMenuItem onClick={() => handleDownloadCertificates("participation", "light")}>
-              Light background
-            </DropdownMenuItem>
-            {programTemplates.map((tmpl: ProgramCertificateTemplate) => (
-              <DropdownMenuItem
-                key={`participation-${tmpl.id}`}
-                onClick={() => handleDownloadCertificates("participation", "custom", tmpl.id, tmpl.name)}
-                className="truncate"
-              >
-                {tmpl.name}
-              </DropdownMenuItem>
-            ))}
-            <DropdownMenuSeparator />
-            <div className="px-2 py-1 text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">
-              Completed all submissions
-            </div>
-            <DropdownMenuItem onClick={() => handleDownloadCertificates("all_completed", "dark")}>
-              Dark background
-            </DropdownMenuItem>
-            <DropdownMenuItem onClick={() => handleDownloadCertificates("all_completed", "light")}>
-              Light background
-            </DropdownMenuItem>
-            {programTemplates.map((tmpl: ProgramCertificateTemplate) => (
-              <DropdownMenuItem
-                key={`all-completed-${tmpl.id}`}
-                onClick={() => handleDownloadCertificates("all_completed", "custom", tmpl.id, tmpl.name)}
-                className="truncate"
-              >
-                {tmpl.name}
-              </DropdownMenuItem>
-            ))}
-          </DropdownMenuContent>
-        </DropdownMenu>
       </div>
-      <p className="text-xs text-muted-foreground -mt-2">
-        Publishing closes scoring for every judge on this cohort — unpublish to reopen it. "Export spreadsheet"
-        downloads an .xlsx with every team's score breakdown and submission links, for reviewing outside the app.
-      </p>
 
       {advanceTargets.length > 0 ? (
         <div className="flex items-center gap-2 p-3 bg-card border border-border rounded-xl flex-wrap">
@@ -2578,7 +2407,7 @@ function ResultsTab({
       )}
 
       <LeaderboardTable
-        rows={showTop20 ? top20 : board}
+        rows={board}
         selected={selected}
         onToggle={toggleTeam}
         onInspectTeam={(teamId) => setBreakdownTeamId(teamId)}
@@ -2587,12 +2416,6 @@ function ResultsTab({
         onGradeOperations={(team) => setGradingTeam(team)}
         onDownloadExcuseLetter={currentCohortTemplate?.enabled ? handleDownloadExcuseLetter : undefined}
         mode={mode}
-      />
-
-      <SubmissionWindowsModal
-        cohortId={cohortId}
-        open={windowsModalOpen}
-        onClose={() => setWindowsModalOpen(false)}
       />
 
       <TeamScoreBreakdownModal

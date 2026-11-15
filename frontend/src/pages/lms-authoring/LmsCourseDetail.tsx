@@ -326,6 +326,44 @@ export default function LmsCourseDetail() {
                   <p className="text-sm font-medium text-foreground truncate">
                     {module.position}. {module.title}
                   </p>
+                  {(() => {
+                    const byKind = module.item_counts_by_kind ?? {}
+                    const total = module.items_count ?? 0
+                    const entries = Object.entries(byKind).filter(([, count]) => count > 0)
+                    const kindLabel = (k: string, count: number) => {
+                      const labels: Record<string, [string, string]> = {
+                        lesson: ["lesson", "lessons"],
+                        video: ["video", "videos"],
+                        quiz: ["quiz", "quizzes"],
+                        flashcards: ["flashcard deck", "flashcard decks"],
+                        interactive: ["interactive", "interactives"],
+                        reading: ["reading", "readings"],
+                      }
+                      const pair = labels[k] ?? [k, `${k}s`]
+                      return `${count} ${count === 1 ? pair[0] : pair[1]}`
+                    }
+                    return (
+                      <div className="flex flex-wrap items-center gap-1.5 mt-1 text-xs text-muted-foreground">
+                        {total === 0 ? (
+                          <span>Empty module</span>
+                        ) : (
+                          <>
+                            <span className="font-medium text-foreground/80">
+                              {total} {total === 1 ? "item" : "items"}
+                            </span>
+                            {entries.map(([k, cnt]) => (
+                              <span
+                                key={k}
+                                className="px-2 py-0.5 rounded-full bg-muted text-muted-foreground text-[11px] font-medium"
+                              >
+                                {kindLabel(k, cnt)}
+                              </span>
+                            ))}
+                          </>
+                        )}
+                      </div>
+                    )
+                  })()}
                 </div>
               </div>
               <div className="flex items-center gap-1 flex-shrink-0 ml-3" onClick={(e) => e.stopPropagation()}>

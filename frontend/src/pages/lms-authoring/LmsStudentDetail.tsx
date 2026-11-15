@@ -244,7 +244,7 @@ export default function LmsStudentDetail() {
         }}
         className="flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground transition-colors w-fit cursor-pointer"
       >
-        <ArrowLeft size={14} /> {search.from?.includes("curriculum") ? "Programs" : isStaff ? (profile.is_observer ? "Observers" : "Students") : "Programs"}
+        <ArrowLeft size={14} /> {search.from?.includes("/cohorts/") ? "Cohort" : search.from?.includes("curriculum") ? "Programs" : isStaff ? (profile.is_observer ? "Observers" : "Students") : "Programs"}
       </button>
 
       <PageHeader

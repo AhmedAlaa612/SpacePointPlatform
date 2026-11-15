@@ -160,6 +160,7 @@ export interface RatingHistoryEntry {
   program_name: string;
   rater_name?: string | null;
   overall_rating: number;
+  dimension_scores?: Partial<Record<RatingDimensionKey, number>>;
   recommended?: boolean | null;
   flag: RatingFlag;
   strengths?: string | null;
@@ -167,17 +168,103 @@ export interface RatingHistoryEntry {
   submitted_at?: string | null;
 }
 
+export interface CohortRatingSummary {
+  rating_id: string;
+  overall_rating: number;
+  dimension_scores: Partial<Record<RatingDimensionKey, number>>;
+  recommended?: boolean | null;
+  flag: RatingFlag;
+  strengths?: string | null;
+  areas_for_improvement?: string | null;
+  rater_name?: string | null;
+  submitted_at?: string | null;
+}
+
+export interface InstructorCohortHistoryEntry {
+  cohort_id: string;
+  cohort_name: string;
+  program_id?: string | null;
+  program_name?: string | null;
+  starts_on?: string | null;
+  ends_on?: string | null;
+  city_name?: string | null;
+  role_name?: string | null;
+  staffing_source: string;
+  sessions_assigned: number;
+  sessions_delivered: number;
+  hours_delivered: number;
+  quiz_attempt_id?: string | null;
+  quiz_score?: number | null;
+  quiz_total?: number | null;
+  quiz_submitted_at?: string | null;
+  rating?: CohortRatingSummary | null;
+}
+
 export interface InstructorPerformance {
   user_id: string;
+  full_name: string;
+  email: string;
+  phone?: string | null;
+  photo_url?: string | null;
+  linkedin_url?: string | null;
+  card_id?: string | null;
+  city_id?: string | null;
+  city_name?: string | null;
+  deliver_city_ids: string[];
+  deliver_city_names: string[];
+  has_own_transportation?: boolean | null;
+  nationality?: string | null;
+  graduated_university?: string | null;
+  fluent_languages: string[];
+  docs_complete: boolean;
+  is_certified: boolean;
+  certified_tag_id?: string | null;
+  total_sessions_assigned: number;
   total_sessions_delivered: number;
   total_hours_delivered: number;
   programs_participated_in: number;
+  cohorts_participated_in: number;
+  unrated_cohorts_count: number;
   average_rating: number | null;
   recent_rating_trend: number[];
   reliability_ratio: number | null;
+  dimension_averages: Partial<Record<RatingDimensionKey, number>>;
   certifications: CertificationTag[];
   quiz_history: QuizHistoryEntry[];
   rating_history: RatingHistoryEntry[];
+  cohort_history: InstructorCohortHistoryEntry[];
+}
+
+export interface OpsInstructorRosterItem {
+  id: string;
+  full_name: string;
+  email: string;
+  phone?: string | null;
+  status: string;
+  photo_url?: string | null;
+  linkedin_url?: string | null;
+  created_at?: string | null;
+  card_id?: string | null;
+  city_id?: string | null;
+  city_name?: string | null;
+  deliver_city_ids: string[];
+  deliver_city_names: string[];
+  has_own_transportation?: boolean | null;
+  nationality?: string | null;
+  graduated_university?: string | null;
+  fluent_languages: string[];
+  docs_complete: boolean;
+  is_certified: boolean;
+  certified_tag_id?: string | null;
+  certifications: CertificationTag[];
+  total_sessions_assigned: number;
+  total_sessions_delivered: number;
+  total_hours_delivered: number;
+  reliability_ratio: number | null;
+  cohorts_count: number;
+  unrated_cohorts_count: number;
+  average_rating: number | null;
+  flags: RatingFlag[];
 }
 
 // ── ranking weights ──────────────────────────────────────────────────────

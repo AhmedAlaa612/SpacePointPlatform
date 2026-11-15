@@ -17,9 +17,8 @@ function errorDetail(err: unknown, fallback: string): string {
 
 function StatusPill({ status }: { status: "online" | "offline" }) {
   return (
-    <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${
-      status === "online" ? "bg-green-500/15 text-green-600 dark:text-green-400" : "bg-muted text-muted-foreground"
-    }`}>
+    <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${status === "online" ? "bg-green-500/15 text-green-600 dark:text-green-400" : "bg-muted text-muted-foreground"
+      }`}>
       {status === "online" ? "Online" : "Offline"}
     </span>
   )
@@ -59,7 +58,6 @@ export default function GroundStationDevices() {
     <div className="flex flex-col gap-8">
       <PageHeader
         title="Ground Station"
-        subtitle="Every team/solo run and its rig — a device is private to its owner and ops, no secret needed on either side."
       />
 
       {actionError && <p className="text-sm text-red-500">{actionError}</p>}

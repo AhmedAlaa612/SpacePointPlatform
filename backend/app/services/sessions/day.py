@@ -31,7 +31,7 @@ from datetime import datetime, timezone
 from uuid import UUID, uuid4
 
 from fastapi import HTTPException, status
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.sessions.checklist import (
@@ -391,20 +391,24 @@ async def resolve_checklist(
         template_cohort = await db.scalar(
             select(Cohort).where(
                 Cohort.program_id == cohort.program_id,
-                Cohort.name.ilike("%template%"),
+                or_(
+                    Cohort.status == "draft",
+                    Cohort.name.ilike("[Template]%"),
+                    Cohort.name.ilike("%template%"),
+                ),
                 Cohort.id != cohort.id,
             ).order_by(Cohort.created_at.asc())
         )
         if template_cohort is not None:
             all_sessions = (await db.execute(
                 select(Session.id).where(Session.cohort_id == cohort.id)
-                .order_by(Session.meeting_date, Session.starts_at)
+                .order_by(Session.meeting_date, Session.starts_at, Session.created_at)
             )).scalars().all()
             try:
                 s_idx = all_sessions.index(session.id)
                 t_sessions = (await db.execute(
                     select(Session.id).where(Session.cohort_id == template_cohort.id)
-                    .order_by(Session.meeting_date, Session.starts_at)
+                    .order_by(Session.meeting_date, Session.starts_at, Session.created_at)
                 )).scalars().all()
                 if s_idx < len(t_sessions):
                     t_items = await _items_at_level(db, session_id=t_sessions[s_idx])
@@ -455,20 +459,24 @@ async def resolve_internal_checklist(
         template_cohort = await db.scalar(
             select(Cohort).where(
                 Cohort.program_id == cohort.program_id,
-                Cohort.name.ilike("%template%"),
+                or_(
+                    Cohort.status == "draft",
+                    Cohort.name.ilike("[Template]%"),
+                    Cohort.name.ilike("%template%"),
+                ),
                 Cohort.id != cohort.id,
             ).order_by(Cohort.created_at.asc())
         )
         if template_cohort is not None:
             all_sessions = (await db.execute(
                 select(Session.id).where(Session.cohort_id == cohort.id)
-                .order_by(Session.meeting_date, Session.starts_at)
+                .order_by(Session.meeting_date, Session.starts_at, Session.created_at)
             )).scalars().all()
             try:
                 s_idx = all_sessions.index(session.id)
                 t_sessions = (await db.execute(
                     select(Session.id).where(Session.cohort_id == template_cohort.id)
-                    .order_by(Session.meeting_date, Session.starts_at)
+                    .order_by(Session.meeting_date, Session.starts_at, Session.created_at)
                 )).scalars().all()
                 if s_idx < len(t_sessions):
                     t_items = await _items_at_level(db, session_id=t_sessions[s_idx], target_audience="internal")

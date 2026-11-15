@@ -1116,7 +1116,7 @@ async def test_warehouse_cabins_crud_and_item_assignments(db, client, ops_header
     assert len(assign_a.json()) == 1
     assert assign_a.json()[0]["cabin_name"] == "Cabin 1"
 
-    # 4. 1:1 enforced — a second cabin for the same item is rejected
+    # 4. Multiple placements supported — an item can be split across cabins
     assign_b_split = await client.put(
         f"/inventory/warehouses/{wh.id}/items/{item_b.id}/cabins",
         headers=ops_headers,
@@ -1125,7 +1125,8 @@ async def test_warehouse_cabins_crud_and_item_assignments(db, client, ops_header
             {"cabin_id": c2["id"], "notes": "Overflow stock"},
         ],
     )
-    assert assign_b_split.status_code == 400
+    assert assign_b_split.status_code == 200
+    assert len(assign_b_split.json()) == 2
 
     # 4b. Single assignment works
     assign_b = await client.put(

@@ -1,6 +1,6 @@
 import { Fragment, useEffect, useRef, useState } from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { Plus, X, GripVertical, ImagePlus, Users, Crop, ExternalLink, Eye, Copy, Rocket } from "lucide-react"
+import { Plus, X, GripVertical, ImagePlus, Users, ExternalLink, Eye, Copy, Rocket } from "lucide-react"
 import { EmptyState, Spinner } from "@/components/ui/primitives"
 import { ImageCropModal } from "@/components/ui/ImageCropModal"
 import { ObserverTeamModal } from "@/components/lms/ObserverTeamModal"
@@ -9,7 +9,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { VideoPlayer } from "@/components/video/VideoPlayer"
 import { useToast } from "@/components/ui/toast"
 import { ensureAbsoluteUrl } from "@/lib/utils"
-import { getSessionsApi, getCohortApi, updateCohortApi } from "@/api/sessions/cohorts"
+import { getSessionsApi, getCohortApi } from "@/api/sessions/cohorts"
 import { listCoursesApi } from "@/api/lms_admin"
 import { listMissionsAdminFullApi } from "@/api/missions_admin"
 import { instructorStepSelectionApi } from "@/api/missionsInstructor"
@@ -18,7 +18,7 @@ import { fetchArcadeGamesApi } from "@/api/arcade"
 import type { LmsTableColumn } from "@/api/lms"
 import { MediaPreviewModal } from "@/components/media/MediaPreviewModal"
 import {
-  updateLmsProgramApi, uploadLmsProgramImageApi, updateCohortPosterTemplateApi,
+  updateLmsProgramApi, uploadLmsProgramImageApi,
   addLmsProgramItemApi, updateLmsProgramItemApi, deleteLmsProgramItemApi, reorderLmsProgramItemsApi,
   getCohortProgramOverrideApi, addCohortOverrideItemApi, updateCohortOverrideItemApi, deleteCohortOverrideItemApi,
   reorderCohortOverrideItemsApi, getCohortProgramOverrideInstructorApi, resyncCohortProgramAssignmentsApi,
@@ -91,10 +91,6 @@ export function ProgramTemplateEditor({
     onError: (e: unknown) => toast.error(errorDetail(e, "Failed to update title")),
   })
 
-  const toggleCert = useMutation({
-    mutationFn: (value: boolean) => updateLmsProgramApi(program.id, { certificate_required: value }),
-    onSuccess: onChanged,
-  })
   const [imageError, setImageError] = useState("")
   const [cropModalOpen, setCropModalOpen] = useState(false)
   const [selectedImageForCrop, setSelectedImageForCrop] = useState<string | null>(null)
@@ -136,64 +132,20 @@ export function ProgramTemplateEditor({
 
   return (
     <div className="flex flex-col gap-5">
-      {!readOnly && (
-        <div className="flex flex-col gap-1.5 p-4 bg-card border border-border rounded-xl">
-          <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-            LMS Program Title (Displayed to Students)
-          </label>
-          <div className="flex items-center gap-2 mt-1">
-            <input
-              type="text"
-              value={titleValue}
-              onChange={(e) => setTitleValue(e.target.value)}
-              disabled={updateTitleMutation.isPending}
-              placeholder="e.g. Ru'ya Space Race"
-              className="flex-1 h-10 px-3 border border-border bg-background text-foreground rounded-lg text-sm font-medium focus:outline-none focus:border-primary transition-colors disabled:opacity-50"
-              onKeyDown={(e) => {
-                if (e.key === "Enter") {
-                  e.preventDefault()
-                  const val = titleValue.trim()
-                  if (val && val !== program.name) {
-                    updateTitleMutation.mutate(val)
-                  }
-                }
-              }}
-              onBlur={() => {
-                const val = titleValue.trim()
-                if (val && val !== program.name) {
-                  updateTitleMutation.mutate(val)
-                }
-              }}
-            />
-            <button
-              type="button"
-              onClick={() => {
-                const val = titleValue.trim()
-                if (val && val !== program.name) {
-                  updateTitleMutation.mutate(val)
-                }
-              }}
-              disabled={updateTitleMutation.isPending || !titleValue.trim() || titleValue.trim() === program.name}
-              className="h-10 px-4 bg-primary text-primary-foreground text-sm font-medium rounded-lg hover:opacity-90 transition-opacity disabled:opacity-50 cursor-pointer"
-            >
-              {updateTitleMutation.isPending ? "Saving..." : "Save Title"}
-            </button>
-          </div>
-        </div>
-      )}
-      <div className="flex items-start gap-4">
+      <div className="w-full">
         <button
+          type="button"
           onClick={() => !readOnly && fileInputRef.current?.click()}
           disabled={readOnly}
-          className="group relative w-24 h-24 shrink-0 rounded-2xl bg-muted overflow-hidden ring-1 ring-border disabled:cursor-not-allowed cursor-pointer"
-          title="Upload header image"
+          className="group relative w-full h-40 rounded-[10px] bg-card overflow-hidden border-2 border-[#D7D2CB] disabled:cursor-not-allowed cursor-pointer block"
+          title="Upload LMS banner"
         >
           {program.image_url ? (
             <img src={program.image_url} alt="" className="w-full h-full object-cover" />
           ) : (
-            <div className="w-full h-full flex flex-col items-center justify-center gap-1 text-muted-foreground">
-              <ImagePlus size={16} />
-              <span className="text-[10px]">Add header</span>
+            <div className="w-full h-full flex flex-col items-center justify-center gap-1.5 text-muted-foreground">
+              <ImagePlus size={18} />
+              <span className="text-sm font-medium">LMS banner</span>
             </div>
           )}
           {!readOnly && (
@@ -209,26 +161,7 @@ export function ProgramTemplateEditor({
           className="hidden"
           onChange={handleFilePicked}
         />
-        <div className="flex flex-col gap-1 pt-1">
-          <div className="text-sm font-medium">Checklist banner image</div>
-          <div className="text-xs text-muted-foreground">Top banner image displayed on the student checklist roadmap</div>
-          {program.image_url && !readOnly && (
-            <div className="flex items-center gap-2 mt-1">
-              <button
-                type="button"
-                onClick={() => {
-                  setSelectedImageForCrop(program.image_url)
-                  setCropModalOpen(true)
-                }}
-                className="text-xs font-medium text-primary hover:underline flex items-center gap-1 cursor-pointer"
-              >
-                <Crop size={12} />
-                <span>Crop & Preview Banner</span>
-              </button>
-            </div>
-          )}
-          {imageError && <p className="text-xs text-red-500">{imageError}</p>}
-        </div>
+        {imageError && <p className="text-xs text-red-500 mt-1">{imageError}</p>}
       </div>
 
       <ImageCropModal
@@ -245,64 +178,95 @@ export function ProgramTemplateEditor({
         isUploading={imageMutation.isPending}
       />
 
-      <div className="flex items-center justify-between p-3 bg-card border border-border rounded-xl">
-        <div>
-          <div className="text-sm font-medium">Gate certificate on this checklist</div>
-          <div className="text-xs text-muted-foreground mt-0.5">Cohort certificate needs every required step done</div>
-        </div>
-        <button
-          onClick={() => !readOnly && toggleCert.mutate(!program.certificate_required)}
-          disabled={readOnly}
-          className={`w-10 h-6 rounded-full relative transition-colors ${readOnly ? "cursor-not-allowed opacity-60" : "cursor-pointer"} ${program.certificate_required ? "bg-primary" : "bg-muted"}`}
-        >
-          <span className={`absolute left-1 top-1 w-4 h-4 rounded-full bg-white transition-transform ${program.certificate_required ? "translate-x-4" : "translate-x-0"}`} />
-        </button>
-      </div>
-
-      <div className="flex flex-col gap-2 p-3 bg-card border border-border rounded-xl">
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <div>
-            <div className="text-sm font-medium">Mission Poster Template URL</div>
-            <div className="text-xs text-muted-foreground mt-0.5">
-              Default template URL (Canva, Google Slides, Figma, etc.) shared with all cohorts unless overridden
+      {(!readOnly || program.poster_template_url) && (
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 p-4 bg-card border border-border rounded-xl items-end">
+          {!readOnly && (
+            <div className="flex flex-col gap-1.5">
+              <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                LMS Program Title
+              </label>
+              <div className="flex items-center gap-2">
+                <input
+                  type="text"
+                  value={titleValue}
+                  onChange={(e) => setTitleValue(e.target.value)}
+                  disabled={updateTitleMutation.isPending}
+                  placeholder="e.g. Ru'ya Space Race"
+                  className="flex-1 h-10 px-3 border border-border bg-background text-foreground rounded-lg text-sm font-medium focus:outline-none focus:border-primary transition-colors disabled:opacity-50"
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      e.preventDefault()
+                      const val = titleValue.trim()
+                      if (val && val !== program.name) {
+                        updateTitleMutation.mutate(val)
+                      }
+                    }
+                  }}
+                  onBlur={() => {
+                    const val = titleValue.trim()
+                    if (val && val !== program.name) {
+                      updateTitleMutation.mutate(val)
+                    }
+                  }}
+                />
+                <button
+                  type="button"
+                  onClick={() => {
+                    const val = titleValue.trim()
+                    if (val && val !== program.name) {
+                      updateTitleMutation.mutate(val)
+                    }
+                  }}
+                  disabled={updateTitleMutation.isPending || !titleValue.trim() || titleValue.trim() === program.name}
+                  className="h-10 px-4 bg-primary text-primary-foreground text-sm font-medium rounded-lg hover:opacity-90 transition-opacity disabled:opacity-50 cursor-pointer shrink-0"
+                >
+                  {updateTitleMutation.isPending ? "Saving..." : "Save Title"}
+                </button>
+              </div>
             </div>
-          </div>
-          {program.poster_template_url && (
-            <a
-              href={ensureAbsoluteUrl(program.poster_template_url)}
-              target="_blank"
-              rel="noreferrer"
-              className="text-xs text-primary hover:underline flex items-center gap-1 shrink-0"
-            >
-              Open template <ExternalLink size={12} />
-            </a>
           )}
-        </div>
-        {!readOnly && (
-          <div className="flex items-center gap-2 mt-1">
-            <input
-              type="url"
-              defaultValue={program.poster_template_url ?? ""}
-              key={program.poster_template_url ?? ""}
-              placeholder="https://canva.com/design/..."
-              className="flex-1 h-9 px-3 border border-border bg-background text-foreground rounded-lg text-sm focus:outline-none focus:border-primary transition-colors"
-              onKeyDown={(e) => {
-                if (e.key === "Enter") {
-                  e.preventDefault()
-                  const val = (e.target as HTMLInputElement).value.trim()
-                  updatePosterTemplate.mutate(val || null)
-                }
-              }}
-              onBlur={(e) => {
-                const val = e.target.value.trim()
-                if (val !== (program.poster_template_url ?? "")) {
-                  updatePosterTemplate.mutate(val || null)
-                }
-              }}
-            />
+
+          <div className="flex flex-col gap-1.5">
+            <div className="flex items-center justify-between gap-2">
+              <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                Mission Poster Template URL
+              </label>
+              {program.poster_template_url && (
+                <a
+                  href={ensureAbsoluteUrl(program.poster_template_url)}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="text-xs text-primary hover:underline flex items-center gap-1 shrink-0"
+                >
+                  Open template <ExternalLink size={12} />
+                </a>
+              )}
+            </div>
+            {!readOnly && (
+              <input
+                type="url"
+                defaultValue={program.poster_template_url ?? ""}
+                key={program.poster_template_url ?? ""}
+                placeholder="https://canva.com/design/..."
+                className="w-full h-10 px-3 border border-border bg-background text-foreground rounded-lg text-sm focus:outline-none focus:border-primary transition-colors"
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    e.preventDefault()
+                    const val = (e.target as HTMLInputElement).value.trim()
+                    updatePosterTemplate.mutate(val || null)
+                  }
+                }}
+                onBlur={(e) => {
+                  const val = e.target.value.trim()
+                  if (val !== (program.poster_template_url ?? "")) {
+                    updatePosterTemplate.mutate(val || null)
+                  }
+                }}
+              />
+            )}
           </div>
-        )}
-      </div>
+        </div>
+      )}
 
       <ChecklistItemsEditor
         items={program.items}
@@ -352,70 +316,11 @@ export function CohortOverrideEditor({
     queryKey: ["cohort-detail", cohortId],
     queryFn: () => getCohortApi(cohortId),
   })
-
-  const storedOverride = cohortData?.checklist_title_override ?? null
-  const programName = cohortData?.program_name ?? null
-  const defaultTitle = programName && cohortData
-    ? `${programName} — ${cohortData.name}`
-    : cohortData
-      ? cohortData.name
-      : undefined
-
-  const [overrideValue, setOverrideValue] = useState("")
   const [showObserverModal, setShowObserverModal] = useState(false)
   const [showImportModal, setShowImportModal] = useState(false)
 
-  useEffect(() => {
-    setOverrideValue(storedOverride ?? defaultTitle ?? "")
-  }, [storedOverride, defaultTitle])
-
-  const updateTitleOverrideMutation = useMutation({
-    mutationFn: (val: string | null) =>
-      updateCohortApi(cohortId, { checklist_title_override: val }),
-    onSuccess: (_data, val) => {
-      toast.success(val === null ? "Title reset to default" : "Cohort checklist title saved")
-      void queryClient.invalidateQueries({ queryKey: ["cohort-detail", cohortId] })
-      invalidate()
-    },
-    onError: (e: unknown) => toast.error(errorDetail(e, "Failed to update title override")),
-  })
-
-  const saveOverride = (raw: string) => {
-    const val = raw.trim() || null
-    const target = (val && defaultTitle && val === defaultTitle) ? null : val
-    if (target === storedOverride) return
-    updateTitleOverrideMutation.mutate(target)
-  }
-
-  const clearOverride = () => {
-    setOverrideValue(defaultTitle ?? "")
-    updateTitleOverrideMutation.mutate(null)
-  }
-
-  const updateCohortPosterMutation = useMutation({
-    mutationFn: (url: string | null) => updateCohortPosterTemplateApi(cohortId, url),
-    onSuccess: () => {
-      toast.success("Cohort poster template updated")
-      invalidate()
-    },
-    onError: () => toast.error("Failed to update poster template"),
-  })
-
-  const updateKeepAccessMutation = useMutation({
-    mutationFn: (keep: boolean) =>
-      updateCohortApi(cohortId, { keep_course_access_after_completion: keep }),
-    onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ["cohort-detail", cohortId] })
-      void queryClient.invalidateQueries({ queryKey: ["sessions-cohorts"] })
-    },
-    onError: (e: unknown) => toast.error(errorDetail(e, "Failed to update course access setting")),
-  })
-
   if (isLoading) return <Spinner />
   if (!override) return <EmptyState title="This cohort's program has no checklist yet" />
-
-  const effectivePosterUrl = override.poster_template_url || override.inherited_poster_template_url
-  const keepCourseAccess = cohortData?.keep_course_access_after_completion ?? true
 
   return (
     <div className="flex flex-col gap-3">
@@ -434,132 +339,6 @@ export function CohortOverrideEditor({
               Import items from another cohort
             </button>
           )}
-        </div>
-      )}
-      {isStaff && !readOnly && cohortData && (
-        <div className="flex items-center justify-between p-3 bg-card border border-border rounded-xl">
-          <div className="text-sm font-medium">Keep course access after completion</div>
-          <button
-            type="button"
-            onClick={() => updateKeepAccessMutation.mutate(!keepCourseAccess)}
-            disabled={updateKeepAccessMutation.isPending}
-            className={`w-10 h-6 rounded-full relative transition-colors cursor-pointer disabled:opacity-50 ${keepCourseAccess ? "bg-primary" : "bg-muted"}`}
-          >
-            <span className={`absolute left-1 top-1 w-4 h-4 rounded-full bg-white transition-transform ${keepCourseAccess ? "translate-x-4" : "translate-x-0"}`} />
-          </button>
-        </div>
-      )}
-      {isStaff && !readOnly && (
-        <div className="flex flex-col gap-1.5 p-4 bg-card border border-border rounded-xl">
-          <div className="flex items-center justify-between">
-            <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-              LMS Cohort Title (Displayed to Students)
-            </label>
-            {storedOverride && (
-              <span className="text-[11px] font-medium text-emerald-600 dark:text-emerald-400">
-                ✓ Override active
-              </span>
-            )}
-          </div>
-          <div className="text-xs text-muted-foreground">
-            {defaultTitle
-              ? <>Default: <span className="font-medium text-foreground">{defaultTitle}</span>. Set an override to replace what students see entirely.</>
-              : "Set a custom title students see instead of the default."}
-          </div>
-          <div className="flex items-center gap-2 mt-1">
-            <input
-              type="text"
-              value={overrideValue}
-              onChange={(e) => setOverrideValue(e.target.value)}
-              disabled={updateTitleOverrideMutation.isPending}
-              placeholder={defaultTitle ?? "e.g. Ru'ya Competition — Finalists"}
-              className="flex-1 h-10 px-3 border border-border bg-background text-foreground rounded-lg text-sm font-medium focus:outline-none focus:border-primary transition-colors disabled:opacity-50"
-              onKeyDown={(e) => {
-                if (e.key === "Enter") {
-                  e.preventDefault()
-                  saveOverride(overrideValue)
-                }
-              }}
-              onBlur={() => {
-                saveOverride(overrideValue)
-              }}
-            />
-            <button
-              type="button"
-              onClick={() => {
-                saveOverride(overrideValue)
-              }}
-              disabled={updateTitleOverrideMutation.isPending || overrideValue.trim() === (storedOverride ?? defaultTitle ?? "")}
-              className="h-10 px-4 bg-primary text-primary-foreground text-sm font-medium rounded-lg hover:opacity-90 transition-opacity disabled:opacity-50 cursor-pointer"
-            >
-              {updateTitleOverrideMutation.isPending ? "Saving..." : "Save Title"}
-            </button>
-            {storedOverride && (
-              <button
-                type="button"
-                onClick={clearOverride}
-                disabled={updateTitleOverrideMutation.isPending}
-                className="h-10 px-3 text-xs text-muted-foreground hover:text-foreground border border-border rounded-lg cursor-pointer disabled:opacity-50 whitespace-nowrap"
-              >
-                Reset to default
-              </button>
-            )}
-          </div>
-        </div>
-      )}
-      {isStaff && !readOnly && (
-        <div className="flex flex-col gap-2 p-3 bg-card border border-border rounded-xl">
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <div>
-              <div className="text-sm font-medium">Cohort Poster Template Override</div>
-              <div className="text-xs text-muted-foreground mt-0.5">
-                {override.inherited_poster_template_url
-                  ? "Inheriting default template from program. Set an override for this cohort below."
-                  : "Set a specific poster template for this cohort."}
-              </div>
-            </div>
-            {effectivePosterUrl && (
-              <a
-                href={ensureAbsoluteUrl(effectivePosterUrl)}
-                target="_blank"
-                rel="noreferrer"
-                className="text-xs text-primary hover:underline flex items-center gap-1 shrink-0"
-              >
-                Open template <ExternalLink size={12} />
-              </a>
-            )}
-          </div>
-          <div className="flex items-center gap-2 mt-1">
-            <input
-              type="url"
-              defaultValue={override.poster_template_url ?? ""}
-              key={override.poster_template_url ?? ""}
-              placeholder={override.inherited_poster_template_url ? `Inherited: ${override.inherited_poster_template_url}` : "https://canva.com/design/..."}
-              className="flex-1 h-9 px-3 border border-border bg-background text-foreground rounded-lg text-sm focus:outline-none focus:border-primary transition-colors"
-              onKeyDown={(e) => {
-                if (e.key === "Enter") {
-                  e.preventDefault()
-                  const val = (e.target as HTMLInputElement).value.trim()
-                  updateCohortPosterMutation.mutate(val || null)
-                }
-              }}
-              onBlur={(e) => {
-                const val = e.target.value.trim()
-                if (val !== (override.poster_template_url ?? "")) {
-                  updateCohortPosterMutation.mutate(val || null)
-                }
-              }}
-            />
-            {override.poster_template_url && (
-              <button
-                type="button"
-                onClick={() => updateCohortPosterMutation.mutate(null)}
-                className="text-xs text-muted-foreground hover:text-foreground px-2 py-1 cursor-pointer"
-              >
-                Clear override
-              </button>
-            )}
-          </div>
         </div>
       )}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs bg-muted/30 border border-border rounded-xl p-3">

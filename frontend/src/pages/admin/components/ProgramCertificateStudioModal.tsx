@@ -43,11 +43,12 @@ const COLOR_SWATCHES = [
 
 interface Props {
   program: Program
-  onClose: () => void
+  onClose?: () => void
   onUpdated?: () => void
+  embedded?: boolean
 }
 
-export function ProgramCertificateStudioModal({ program, onClose, onUpdated }: Props) {
+export function ProgramCertificateStudioModal({ program, onClose, onUpdated, embedded = false }: Props) {
   const queryClient = useQueryClient()
   const canvasRef = useRef<HTMLDivElement>(null)
   const [isOpeningPreview, setIsOpeningPreview] = useState(false)
@@ -93,9 +94,7 @@ export function ProgramCertificateStudioModal({ program, onClose, onUpdated }: P
   const [sigWidth, setSigWidth] = useState(140)
   const [sigHeight, setSigHeight] = useState(50)
 
-  // Custom email subject and body per template
-  const [emailSubject, setEmailSubject] = useState("")
-  const [emailBody, setEmailBody] = useState("")
+  const [kind, setKind] = useState<"individual" | "team">("individual")
 
   // Sample student name for live testing
   const [testStudentName, setTestStudentName] = useState("Ahmed Mubarak Albalushi")
@@ -119,8 +118,7 @@ export function ProgramCertificateStudioModal({ program, onClose, onUpdated }: P
       setBodyColor("#9778be")
       setBodyMaxWidth(600)
       setShowSignature(false)
-      setEmailSubject("")
-      setEmailBody("")
+      setKind("individual")
     } else if (activeTab === "stock_light") {
       setName("Stock Light Default")
       setBackgroundType("light")
@@ -135,9 +133,9 @@ export function ProgramCertificateStudioModal({ program, onClose, onUpdated }: P
       setBodyColor("#67388f")
       setBodyMaxWidth(600)
       setShowSignature(false)
-      setEmailSubject("")
-      setEmailBody("")
+      setKind("individual")
     } else if (activeTab === "new") {
+      setKind("individual")
       setName("New Program Certificate")
       setBackgroundType("custom")
       setBgFilePath(null)
@@ -156,11 +154,10 @@ export function ProgramCertificateStudioModal({ program, onClose, onUpdated }: P
       setIsCustomX(false)
       setSigWidth(140)
       setSigHeight(50)
-      setEmailSubject("")
-      setEmailBody("")
     } else {
       const existing = templates.find((t) => t.id === activeTab)
       if (existing) {
+        setKind(existing.kind === "team" ? "team" : "individual")
         setName(existing.name)
         setBackgroundType(existing.background_type)
         setBgFilePath(existing.background_file_path ?? null)
@@ -185,8 +182,6 @@ export function ProgramCertificateStudioModal({ program, onClose, onUpdated }: P
           setSigX(null)
           setIsCustomX(false)
         }
-        setEmailSubject(existing.email_subject || "")
-        setEmailBody(existing.email_body || "")
       }
     }
   }, [activeTab, templates])
@@ -207,6 +202,7 @@ export function ProgramCertificateStudioModal({ program, onClose, onUpdated }: P
     mutationFn: async () => {
       const payload: ProgramCertificateTemplateCreate = {
         name,
+        kind,
         is_default: isCurrentlyDefault,
         background_type: backgroundType,
         background_file_path: bgFilePath,
@@ -227,8 +223,8 @@ export function ProgramCertificateStudioModal({ program, onClose, onUpdated }: P
         signature_y: sigY,
         signature_width: sigWidth,
         signature_height: sigHeight,
-        email_subject: emailSubject.trim() || null,
-        email_body: emailBody.trim() || null,
+        email_subject: null,
+        email_body: null,
       }
 
       if (currentCustomTemplate) {
@@ -390,6 +386,10 @@ export function ProgramCertificateStudioModal({ program, onClose, onUpdated }: P
     .replace(/\{dates\}/g, "12 – 16 October 2026")
     .replace(/\{dates_line\}/g, "Held from 12 October 2026 to 16 October 2026 at SpacePoint HQ")
     .replace(/\{location\}/g, "SpacePoint HQ")
+    .replace(/\{team_name\}/g, "Team Name")
+    .replace(/\{team\}/g, "Team Name")
+    .replace(/\{rank_number\}/g, "1")
+    .replace(/\{rank\}/g, "1st")
     .split("<br/>")
 
   // Effective background image URL for canvas
@@ -402,13 +402,8 @@ export function ProgramCertificateStudioModal({ program, onClose, onUpdated }: P
   })()
 
 
-  return (
-    <Modal
-      title={`Certificate Templates: ${program.name}`}
-      onClose={onClose}
-      maxWidth="w-[98vw] max-w-[98vw] sm:w-full sm:max-w-7xl p-2.5 sm:p-6 max-h-[96vh] sm:max-h-[90vh]"
-    >
-      <div className="flex flex-col gap-5 -mt-1">
+  const content = (
+    <div className="flex flex-col gap-5 -mt-1">
         {/* Top Header: Template Selector Pills & Actions Bar */}
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2.5 pb-2.5 border-b border-border">
           {/* Template Selector Pills (Horizontally scrollable) */}
@@ -558,8 +553,39 @@ export function ProgramCertificateStudioModal({ program, onClose, onUpdated }: P
                     value={name}
                     onChange={(e) => setName(e.target.value)}
                     placeholder="e.g. Space Race Champion Finalist"
-                    className="w-full h-9 px-3 rounded-xl border border-border bg-background text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
+                    className="w-full h-9 px-3 rounded-[10px] border border-border bg-background text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
                   />
+                </div>
+
+                {/* Template Kind */}
+                <div>
+                  <label className="text-xs text-muted-foreground font-medium uppercase tracking-wider mb-1 block">
+                    Certificate Type
+                  </label>
+                  <div className="grid grid-cols-2 gap-1.5">
+                    <button
+                      type="button"
+                      onClick={() => setKind("individual")}
+                      className={`h-8 rounded-[10px] text-xs font-medium border transition-colors ${
+                        kind === "individual"
+                          ? "border-primary bg-primary/10 text-primary font-semibold"
+                          : "border-border text-muted-foreground hover:text-foreground"
+                      }`}
+                    >
+                      Individual
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setKind("team")}
+                      className={`h-8 rounded-[10px] text-xs font-medium border transition-colors ${
+                        kind === "team"
+                          ? "border-primary bg-primary/10 text-primary font-semibold"
+                          : "border-border text-muted-foreground hover:text-foreground"
+                      }`}
+                    >
+                      Team
+                    </button>
+                  </div>
                 </div>
 
                 {/* Background Image Selection */}
@@ -732,6 +758,8 @@ export function ProgramCertificateStudioModal({ program, onClose, onUpdated }: P
                       <code className="bg-muted px-1 rounded text-foreground">&#123;dates&#125;</code>
                       <code className="bg-muted px-1 rounded text-foreground">&#123;dates_line&#125;</code>
                       <code className="bg-muted px-1 rounded text-foreground">&#123;location&#125;</code>
+                      <code className="bg-muted px-1 rounded text-foreground" title="Team certificates (competitions)">&#123;team_name&#125;</code>
+                      <code className="bg-muted px-1 rounded text-foreground" title="Team certificates: judging rank, e.g. 1st (blank if unranked)">&#123;rank&#125;</code>
                     </div>
                   </div>
 
@@ -921,52 +949,6 @@ export function ProgramCertificateStudioModal({ program, onClose, onUpdated }: P
                   )}
                 </div>
 
-            {/* Certificate Email Template (2026-09) */}
-            <div className="p-3 bg-card border border-border rounded-xl flex flex-col gap-2.5">
-              <div className="flex items-center justify-between">
-                <label className="text-xs font-semibold text-foreground uppercase tracking-wider">
-                  Email Notification Copy
-                </label>
-                <span className="text-[10px] text-muted-foreground">Optional</span>
-              </div>
-              <p className="text-[11px] text-muted-foreground leading-relaxed">
-                Configure the email subject and body sent with this certificate. Leave blank to use system defaults.
-              </p>
-              <div>
-                <label className="text-[11px] text-muted-foreground font-medium mb-1 block">Subject Line</label>
-                <input
-                  type="text"
-                  value={emailSubject}
-                  onChange={(e) => setEmailSubject(e.target.value)}
-                  placeholder={`Your SpacePoint certificate — ${program.name}`}
-                  className="w-full h-8 px-2.5 rounded-lg border border-border bg-background text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
-                />
-              </div>
-              <div>
-                <label className="text-[11px] text-muted-foreground font-medium mb-1 block">Email Body (HTML supported)</label>
-                <textarea
-                  rows={4}
-                  value={emailBody}
-                  onChange={(e) => setEmailBody(e.target.value)}
-                  placeholder={`<p>Hi {student_name},</p>\n<p>Congratulations on completing {program_name} ({dates})!</p>\n<p>Your certificate is attached.</p>`}
-                  className="w-full p-2.5 rounded-lg border border-border bg-background text-xs text-foreground font-mono focus:outline-none focus:ring-1 focus:ring-primary"
-                />
-              </div>
-              <div className="flex items-center gap-1 flex-wrap pt-0.5">
-                <span className="text-[10px] text-muted-foreground font-medium">Insert:</span>
-                {["{student_name}", "{program_name}", "{dates}", "{team_name}", "{certificate_type}"].map((token) => (
-                  <button
-                    key={token}
-                    type="button"
-                    onClick={() => setEmailBody((prev) => (prev ? `${prev} ${token}` : token))}
-                    className="text-[10px] px-1.5 py-0.5 rounded bg-muted/80 hover:bg-muted text-foreground transition-colors font-mono"
-                  >
-                    {token}
-                  </button>
-                ))}
-              </div>
-            </div>
-
             {/* Test Student Name Input */}
             <div className="p-3 bg-muted/20 border border-border rounded-xl">
               <label className="text-xs text-muted-foreground font-medium uppercase tracking-wider mb-1 block">
@@ -1139,18 +1121,37 @@ export function ProgramCertificateStudioModal({ program, onClose, onUpdated }: P
           </div>
 
             {/* Bottom Actions Row */}
-            <div className="flex items-center justify-end pt-2 border-t border-border mt-auto">
-              <button
-                type="button"
-                onClick={onClose}
-                className="h-9 px-4 border border-border rounded-xl text-xs font-medium text-foreground hover:bg-muted transition-colors"
-              >
-                Close
-              </button>
-            </div>
+            {!embedded && onClose && (
+              <div className="flex items-center justify-end pt-2 border-t border-border mt-auto">
+                <button
+                  type="button"
+                  onClick={onClose}
+                  className="h-9 px-4 border border-border rounded-[10px] text-xs font-medium text-foreground hover:bg-muted transition-colors cursor-pointer"
+                >
+                  Close
+                </button>
+              </div>
+            )}
           </div>
         </div>
       </div>
+  )
+
+  if (embedded) {
+    return (
+      <div className="rounded-[10px] border border-border bg-card p-4 sm:p-5">
+        {content}
+      </div>
+    )
+  }
+
+  return (
+    <Modal
+      title={`Certificate Templates: ${program.name}`}
+      onClose={onClose ?? (() => {})}
+      maxWidth="w-[98vw] max-w-[98vw] sm:w-full sm:max-w-7xl p-2.5 sm:p-6 max-h-[96vh] sm:max-h-[90vh]"
+    >
+      {content}
     </Modal>
   )
 }

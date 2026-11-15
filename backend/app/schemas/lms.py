@@ -415,6 +415,7 @@ class MyCertificateOut(BaseModel):
     title: str  # the course or learning path it was earned for
     course_id: UUID | None = None
     learning_path_id: UUID | None = None
+    team_name: str | None = None
     issued_at: datetime | None = None
     url: str | None = None
 

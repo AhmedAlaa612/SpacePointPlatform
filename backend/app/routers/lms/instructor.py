@@ -31,6 +31,7 @@ from app.models.sessions.program import Program
 from app.models.sessions.registration import Registration
 from app.models.user import User
 from app.routers.lms.admin import enrollment_admin_out, program_out
+from app.schemas.competitions import CohortSubmissionWindowsUpdate, CompetitionAnalyticsOut
 from app.schemas.lms_admin import (
     EnrollmentAdminOut, LmsProgramCohortEffectiveOut, LmsProgramItemIn, LmsProgramItemOut, LmsProgramItemReorderIn,
     LmsProgramOut, StudentProfileOut, StudentProgramOut,
@@ -42,6 +43,7 @@ from app.schemas.lms_instructor import (
 from app.schemas.lms_progress_grid import StudentDesignRunsOut
 from app.schemas.missions_component_config import ComponentConfigIn, ComponentConfigOut
 from app.services.missions import component_config as component_config_service
+from app.services.competitions import analytics as competition_analytics_service
 from app.services.lms import cohort_quiz as cohort_quiz_service
 from app.services.lms.admin_progress import student_design_runs
 from app.services.lms.instructor_progress import student_course_progress
@@ -92,6 +94,60 @@ async def cohort_program_progress(
     "all" lists everyone."""
     await require_cohort_access(db, cohort_id=cohort_id, user=current)
     return await cohort_program_roster(db, cohort_id=cohort_id, mode=mode)
+
+
+@router.get("/cohorts/{cohort_id}/team-analytics", response_model=CompetitionAnalyticsOut)
+async def cohort_team_analytics(
+    cohort_id: uuid.UUID,
+    mode: Literal["participant", "observer", "all"] = Query("participant"),
+    db: AsyncSession = Depends(get_db),
+    current: User = Depends(get_current_active_user),
+):
+    """Instructor/ops team progress & analytics, scoped per-cohort via `require_cohort_access`."""
+    await require_cohort_access(db, cohort_id=cohort_id, user=current)
+    result = await competition_analytics_service.cohort_team_analytics(db, cohort_id=cohort_id, mode=mode)
+    if result is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Cohort not found")
+    return CompetitionAnalyticsOut(**result)
+
+
+@router.get("/cohorts/{cohort_id}/checkpoints")
+async def cohort_checkpoints(
+    cohort_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    current: User = Depends(get_current_active_user),
+):
+    """Instructor/ops checkpoint gates list for Submission Windows."""
+    from app.routers.competitions.admin import get_cohort_checkpoints as admin_get_cohort_checkpoints
+    await require_cohort_access(db, cohort_id=cohort_id, user=current)
+    return await admin_get_cohort_checkpoints(cohort_id, db=db)
+
+
+@router.get("/cohorts/{cohort_id}/submission-windows")
+async def cohort_submission_windows(
+    cohort_id: uuid.UUID,
+    checkpoint_id: str | None = None,
+    db: AsyncSession = Depends(get_db),
+    current: User = Depends(get_current_active_user),
+):
+    """Instructor/ops read access to cohort submission windows."""
+    from app.routers.competitions.admin import get_cohort_submission_windows as admin_get_cohort_submission_windows
+    await require_cohort_access(db, cohort_id=cohort_id, user=current)
+    return await admin_get_cohort_submission_windows(cohort_id, checkpoint_id=checkpoint_id, db=db)
+
+
+@router.put("/cohorts/{cohort_id}/submission-windows")
+async def update_cohort_submission_windows_instructor(
+    cohort_id: uuid.UUID,
+    body: CohortSubmissionWindowsUpdate,
+    checkpoint_id: str | None = None,
+    db: AsyncSession = Depends(get_db),
+    current: User = Depends(get_current_active_user),
+):
+    """Instructor/ops write access to cohort submission windows."""
+    from app.routers.competitions.admin import update_cohort_submission_windows as admin_update_cohort_submission_windows
+    await require_cohort_access(db, cohort_id=cohort_id, user=current)
+    return await admin_update_cohort_submission_windows(cohort_id, body=body, checkpoint_id=checkpoint_id, db=db)
 
 
 @router.get("/programs/{lms_program_id}/progress", response_model=list[LmsProgramRosterRowOut])

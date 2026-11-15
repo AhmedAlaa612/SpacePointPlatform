@@ -146,11 +146,12 @@ async def create_program_certificate_template(
     await db.flush()
 
     if new_template.is_default:
-        # Clear default on all other templates for this program
+        # Clear default on all other templates of the same kind for this program
         existing_defaults = (
             await db.execute(
                 select(ProgramCertificateTemplate).where(
                     ProgramCertificateTemplate.program_id == program_id,
+                    ProgramCertificateTemplate.kind == new_template.kind,
                     ProgramCertificateTemplate.is_default.is_(True),
                     ProgramCertificateTemplate.id != new_template.id,
                 )
@@ -158,7 +159,10 @@ async def create_program_certificate_template(
         ).scalars().all()
         for t in existing_defaults:
             t.is_default = False
-        program.default_certificate_template_id = new_template.id
+        if new_template.kind == "team":
+            program.default_team_certificate_template_id = new_template.id
+        else:
+            program.default_certificate_template_id = new_template.id
 
     await db.commit()
     await db.refresh(new_template)
@@ -198,12 +202,14 @@ async def update_program_certificate_template(
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Certificate template not found")
 
     changes = body.model_dump(exclude_unset=True)
+    effective_kind = changes.get("kind") or template.kind or "individual"
 
     if changes.get("is_default") is True:
         existing_defaults = (
             await db.execute(
                 select(ProgramCertificateTemplate).where(
                     ProgramCertificateTemplate.program_id == program_id,
+                    ProgramCertificateTemplate.kind == effective_kind,
                     ProgramCertificateTemplate.is_default.is_(True),
                     ProgramCertificateTemplate.id != template_id,
                 )
@@ -211,10 +217,19 @@ async def update_program_certificate_template(
         ).scalars().all()
         for t in existing_defaults:
             t.is_default = False
-        program.default_certificate_template_id = template.id
+        if effective_kind == "team":
+            program.default_team_certificate_template_id = template.id
+            if program.default_certificate_template_id == template.id:
+                program.default_certificate_template_id = None
+        else:
+            program.default_certificate_template_id = template.id
+            if program.default_team_certificate_template_id == template.id:
+                program.default_team_certificate_template_id = None
     elif changes.get("is_default") is False:
         if program.default_certificate_template_id == template.id:
             program.default_certificate_template_id = None
+        if program.default_team_certificate_template_id == template.id:
+            program.default_team_certificate_template_id = None
 
     for field, value in changes.items():
         setattr(template, field, value)
@@ -242,6 +257,8 @@ async def delete_program_certificate_template(
 
     if program and program.default_certificate_template_id == template.id:
         program.default_certificate_template_id = None
+    if program and program.default_team_certificate_template_id == template.id:
+        program.default_team_certificate_template_id = None
 
     # Delete storage assets if custom
     if template.background_file_path:
@@ -277,16 +294,23 @@ async def set_default_program_certificate_template(
     if template is None or template.program_id != program_id:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Certificate template not found")
 
+    kind = template.kind or "individual"
     all_templates = (
         await db.execute(
-            select(ProgramCertificateTemplate).where(ProgramCertificateTemplate.program_id == program_id)
+            select(ProgramCertificateTemplate).where(
+                ProgramCertificateTemplate.program_id == program_id,
+                ProgramCertificateTemplate.kind == kind,
+            )
         )
     ).scalars().all()
 
     for t in all_templates:
         t.is_default = (t.id == template_id)
 
-    program.default_certificate_template_id = template.id
+    if kind == "team":
+        program.default_team_certificate_template_id = template.id
+    else:
+        program.default_certificate_template_id = template.id
     await db.commit()
     await db.refresh(template)
     await _enrich_template_urls(template)
@@ -297,28 +321,36 @@ async def set_default_program_certificate_template(
 async def set_stock_default_certificate_template(
     program_id: uuid.UUID,
     theme: str = "dark",
+    kind: str = "individual",
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_operations),
 ):
     """Sets the stock default template ('dark' or 'light') as auto-send default,
-    clearing custom defaults.
+    clearing custom defaults for the given kind.
     """
     program = await db.get(Program, program_id)
     if program is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Program not found")
 
+    target_kind = kind if kind in ("individual", "team") else "individual"
     all_templates = (
         await db.execute(
-            select(ProgramCertificateTemplate).where(ProgramCertificateTemplate.program_id == program_id)
+            select(ProgramCertificateTemplate).where(
+                ProgramCertificateTemplate.program_id == program_id,
+                ProgramCertificateTemplate.kind == target_kind,
+            )
         )
     ).scalars().all()
 
     for t in all_templates:
         t.is_default = False
 
-    program.default_certificate_template_id = None
+    if target_kind == "team":
+        program.default_team_certificate_template_id = None
+    else:
+        program.default_certificate_template_id = None
     await db.commit()
-    return {"default_theme": theme if theme in ("dark", "light") else "dark"}
+    return {"default_theme": theme if theme in ("dark", "light") else "dark", "kind": target_kind}
 
 
 @router.post("/{program_id}/certificate-templates/upload-background")
@@ -405,6 +437,8 @@ async def preview_certificate_template(
         cohort_name=cohort_name,
         dates=dates,
         when_line=when_line,
+        team_name="Team Name",
+        rank=1,
     )
 
     # 1. Background bytes

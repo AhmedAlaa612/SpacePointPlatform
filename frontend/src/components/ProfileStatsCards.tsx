@@ -1,5 +1,5 @@
 import { useState } from "react"
-import { ChevronDown, Download } from "lucide-react"
+import { ChevronDown, Download, ExternalLink } from "lucide-react"
 import type { AmbassadorCardStats, TeacherCardStats, InstructorCardStats, StudentCardStats, StudentMissionProgress } from "@/api/auth"
 import { generateImpactReport, generateTeacherImpactReport } from "@/lib/pdf"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -8,7 +8,7 @@ import { TitleBadge, TitleProgress, AchievementGrid } from "@/pages/ambassadors/
 
 export const ROLE_BADGE: Record<string, string> = {
   admin:       "bg-black text-white dark:bg-white dark:text-black",
-  intern:      "bg-[#d6c7e1] text-[#643f83]",
+  intern:      "bg-[#653F84] text-white",
   leader:      "bg-[#643f83] text-white",
   ambassador:  "bg-violet-100 text-violet-700 dark:bg-violet-500/20 dark:text-violet-300",
   teacher:     "bg-blue-100 text-blue-700 dark:bg-blue-500/20 dark:text-blue-300",
@@ -93,15 +93,64 @@ export function TeacherCard({ name, stats }: { name: string; stats: TeacherCardS
   )
 }
 
-export function InstructorCard({ stats }: { stats: InstructorCardStats }) {
+interface InstructorCardProps {
+  stats: InstructorCardStats
+  hideCompensation?: boolean
+  onOpenOpsProfile?: () => void
+  averageRating?: number | null
+  unratedCohortsCount?: number
+  isCertified?: boolean
+}
+
+export function InstructorCard({
+  stats,
+  hideCompensation = false,
+  onOpenOpsProfile,
+  averageRating,
+  unratedCohortsCount,
+  isCertified,
+}: InstructorCardProps) {
+  const showOpsRating = averageRating !== undefined
+  const tileCount = (hideCompensation ? 2 : 3) + (showOpsRating ? 1 : 0)
+
   return (
     <Card>
-      <CardHeader className="pb-2"><CardTitle>Instructor</CardTitle></CardHeader>
+      <CardHeader className="pb-2">
+        <div className="flex items-center justify-between gap-2 flex-wrap">
+          <div className="flex items-center gap-2">
+            <CardTitle>Instructor</CardTitle>
+            {isCertified && (
+              <span className="text-[11px] font-semibold px-2 py-0.5 rounded-[10px] bg-emerald-600 text-white">
+                Certified
+              </span>
+            )}
+            {unratedCohortsCount != null && unratedCohortsCount > 0 && (
+              <span className="text-[11px] font-semibold px-2 py-0.5 rounded-[10px] bg-primary text-primary-foreground">
+                {unratedCohortsCount} unrated
+              </span>
+            )}
+          </div>
+          {onOpenOpsProfile && (
+            <Button size="sm" variant="outline" className="gap-1.5" onClick={onOpenOpsProfile}>
+              <ExternalLink size={13} />
+              Performance
+            </Button>
+          )}
+        </div>
+      </CardHeader>
       <CardContent>
-        <div className="grid grid-cols-3 gap-3">
-          <StatTile label="Earned (AED)"       value={stats.total_earned_aed.toLocaleString()} />
+        <div className={`grid gap-3 ${tileCount >= 4 ? "grid-cols-2" : tileCount === 3 ? "grid-cols-3" : "grid-cols-2"}`}>
+          {!hideCompensation && (
+            <StatTile label="Earned (AED)" value={stats.total_earned_aed.toLocaleString()} />
+          )}
           <StatTile label="Sessions delivered" value={stats.total_sessions} />
           <StatTile label="Training"           value={`${stats.completed_videos}/${stats.total_videos}`} />
+          {showOpsRating && (
+            <StatTile
+              label="Ops rating"
+              value={averageRating != null ? `${averageRating.toFixed(1)} / 5` : "—"}
+            />
+          )}
         </div>
       </CardContent>
     </Card>

@@ -21,6 +21,7 @@ where everything is and what it does. Depth lives in the per-domain files linked
 
 | Read | For |
 |---|---|
+| [`DESIGN_SYSTEM.md`](./DESIGN_SYSTEM.md) | **SpacePoint Design System (November 2026)** — Authoritative visual & UX rules: no gradients, no emojis, purple/black/white strict palette (+ rose/green alerts), 10px corner radius, large readable typography, un-nested direct-on-background creation forms |
 | [`HANDOFF_WEBSITE.md`](./HANDOFF_WEBSITE.md) | **Marketing Website (`spacepoint.ae`), SpacePoint Labs (`labs.spacepoint.ae`), & E-Commerce Store** — 12-tab Portal CMS (`WebsiteManagement.tsx`), Stripe store (`Shop.tsx`), public hydration APIs, lead email forwarding, `deploy-website.sh` & `deploy-labs.sh` |
 | [`HANDOFF_LMS.md`](./HANDOFF_LMS.md) | Student & Observer accounts, courses, learning paths, missions, live quiz games, **SpacePoint Mission Arcade (`/learn/arcade`)**, checklist programs, **Student Operations Hub (`/lms-authoring/students`)**, **Invite-Code Grants**, and **Observer Mode Architecture** (§21–25) |
 | [`HANDOFF_COMPETITIONS.md`](./HANDOFF_COMPETITIONS.md) | Competitions, team-scoped checklists, rubric scoring, judging surface (`JudgeTeams.tsx`), team analytics (`CompetitionAnalysis.tsx`), and **Observer Sandbox Teams Partitioning** (§6) |

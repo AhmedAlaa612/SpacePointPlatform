@@ -36,22 +36,22 @@ const DIFFICULTIES: CohortQuizDifficulty[] = ["Easy", "Medium", "Hard"]
  * the exact same template, hand-picked here — not a random draw, unlike
  * the sibling instructor-assessment authoring screen this page's shape
  * otherwise borrows from. */
-export default function LmsCohortQuizAdmin() {
+export default function LmsCohortQuizAdmin({ embedded = false }: { embedded?: boolean } = {}) {
   const [tab, setTab] = useState<"bank" | "templates">("bank")
   return (
     <div className="flex flex-col gap-6">
-      <PageHeader
-        title="Quiz Bank"
-        subtitle="Author knowledge-check questions by topic and difficulty, then assemble them into fixed templates for a program checklist's quiz step."
-      />
+      {!embedded && (
+        <PageHeader
+          title="Quiz Bank"
+        />
+      )}
       <div className="flex gap-1 border-b border-border overflow-x-auto scrollbar-none no-scrollbar">
         {(["bank", "templates"] as const).map((t) => (
           <button
             key={t}
             onClick={() => setTab(t)}
-            className={`px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors cursor-pointer shrink-0 whitespace-nowrap ${
-              tab === t ? "border-primary text-primary" : "border-transparent text-muted-foreground hover:text-foreground"
-            }`}
+            className={`px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors cursor-pointer shrink-0 whitespace-nowrap ${tab === t ? "border-primary text-primary" : "border-transparent text-muted-foreground hover:text-foreground"
+              }`}
           >
             {t === "bank" ? "Question Bank" : "Templates"}
           </button>
@@ -348,33 +348,30 @@ function QuestionForm({
                   )
                 }
               }}
-              className={`py-2 px-2 text-xs font-semibold rounded-lg transition-colors cursor-pointer flex items-center justify-center text-center ${
-                questionType === "mcq"
+              className={`py-2 px-2 text-xs font-semibold rounded-lg transition-colors cursor-pointer flex items-center justify-center text-center ${questionType === "mcq"
                   ? "bg-primary text-primary-foreground shadow-xs"
                   : "text-muted-foreground hover:text-foreground"
-              }`}
+                }`}
             >
               Single Choice
             </button>
             <button
               type="button"
               onClick={() => setQuestionType("multiselect")}
-              className={`py-2 px-2 text-xs font-semibold rounded-lg transition-colors cursor-pointer flex items-center justify-center text-center ${
-                questionType === "multiselect"
+              className={`py-2 px-2 text-xs font-semibold rounded-lg transition-colors cursor-pointer flex items-center justify-center text-center ${questionType === "multiselect"
                   ? "bg-primary text-primary-foreground shadow-xs"
                   : "text-muted-foreground hover:text-foreground"
-              }`}
+                }`}
             >
               Multiple Choice
             </button>
             <button
               type="button"
               onClick={() => setQuestionType("textarea")}
-              className={`py-2 px-2 text-xs font-semibold rounded-lg transition-colors cursor-pointer flex items-center justify-center text-center ${
-                questionType === "textarea"
+              className={`py-2 px-2 text-xs font-semibold rounded-lg transition-colors cursor-pointer flex items-center justify-center text-center ${questionType === "textarea"
                   ? "bg-primary text-primary-foreground shadow-xs"
                   : "text-muted-foreground hover:text-foreground"
-              }`}
+                }`}
             >
               Text Area
             </button>
@@ -517,8 +514,8 @@ function QuestionForm({
                 {isOpinion
                   ? "Options (No correct answer required)"
                   : questionType === "multiselect"
-                  ? "Options (Check all correct answers)"
-                  : "Options (Select radio for the correct answer)"}
+                    ? "Options (Check all correct answers)"
+                    : "Options (Select radio for the correct answer)"}
               </label>
               <label className="flex items-center gap-2 cursor-pointer select-none">
                 <input
@@ -712,11 +709,10 @@ function TemplatesTab() {
                     <button
                       key={topic}
                       onClick={() => toggleCreateTopic(topic)}
-                      className={`text-[11px] font-medium px-2.5 py-1 rounded-full border transition-colors cursor-pointer ${
-                        createTopics.includes(topic)
+                      className={`text-[11px] font-medium px-2.5 py-1 rounded-full border transition-colors cursor-pointer ${createTopics.includes(topic)
                           ? "border-primary bg-primary/10 text-primary"
                           : "border-border text-muted-foreground hover:border-primary/40"
-                      }`}
+                        }`}
                     >
                       {topic}
                     </button>
@@ -923,7 +919,7 @@ function TemplateDetail({ templateId }: { templateId: string }) {
     const ids = template.questions.map((tq) => tq.id)
     const target = index + direction
     if (target < 0 || target >= ids.length) return
-    ;[ids[index], ids[target]] = [ids[target], ids[index]]
+      ;[ids[index], ids[target]] = [ids[target], ids[index]]
     reorderMutation.mutate(ids)
   }
 
@@ -1019,8 +1015,8 @@ function TemplateDetail({ templateId }: { templateId: string }) {
                     d === "Easy"
                       ? "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border-emerald-500/30"
                       : d === "Medium"
-                      ? "bg-amber-500/15 text-amber-600 dark:text-amber-400 border-amber-500/30"
-                      : "bg-rose-500/15 text-rose-600 dark:text-rose-400 border-rose-500/30"
+                        ? "bg-amber-500/15 text-amber-600 dark:text-amber-400 border-amber-500/30"
+                        : "bg-rose-500/15 text-rose-600 dark:text-rose-400 border-rose-500/30"
                   return (
                     <span key={d} className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-xl border text-xs font-semibold ${badgeColor}`}>
                       {d}: <span className="font-bold text-sm">{count}</span>
@@ -1074,11 +1070,10 @@ function TemplateDetail({ templateId }: { templateId: string }) {
               <button
                 key={topic}
                 onClick={() => toggleGenerateTopic(topic)}
-                className={`text-xs font-semibold px-3 py-1.5 rounded-xl border transition-colors cursor-pointer ${
-                  generateTopics.includes(topic)
+                className={`text-xs font-semibold px-3 py-1.5 rounded-xl border transition-colors cursor-pointer ${generateTopics.includes(topic)
                     ? "border-primary bg-primary/10 text-primary"
                     : "border-border text-muted-foreground hover:border-primary/40"
-                }`}
+                  }`}
               >
                 {topic}
               </button>
@@ -1131,12 +1126,12 @@ function TemplateDetail({ templateId }: { templateId: string }) {
               const typeLabel = isTextarea
                 ? " - Text"
                 : isMultiselect
-                ? isOpinion
-                  ? " - Multi-select (Opinion)"
-                  : " - Multi-select"
-                : isOpinion
-                ? " - Opinion"
-                : ""
+                  ? isOpinion
+                    ? " - Multi-select (Opinion)"
+                    : " - Multi-select"
+                  : isOpinion
+                    ? " - Opinion"
+                    : ""
               return (
                 <option key={q.id} value={q.id}>
                   [{q.topic} - {q.difficulty}{typeLabel}{q.is_optional ? " - Optional" : ""}] {q.prompt.length > 60 ? q.prompt.slice(0, 60) + "…" : q.prompt}
@@ -1203,15 +1198,14 @@ function TemplateDetail({ templateId }: { templateId: string }) {
               q.difficulty === "Easy"
                 ? "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border-emerald-500/30"
                 : q.difficulty === "Medium"
-                ? "bg-amber-500/15 text-amber-600 dark:text-amber-400 border-amber-500/30"
-                : "bg-rose-500/15 text-rose-600 dark:text-rose-400 border-rose-500/30"
+                  ? "bg-amber-500/15 text-amber-600 dark:text-amber-400 border-amber-500/30"
+                  : "bg-rose-500/15 text-rose-600 dark:text-rose-400 border-rose-500/30"
 
             return (
               <div
                 key={tq.id}
-                className={`flex flex-col gap-3 p-4 bg-card border rounded-2xl transition-all shadow-xs ${
-                  !q.is_active ? "border-amber-500/40 opacity-70" : "border-border hover:border-primary/40"
-                }`}
+                className={`flex flex-col gap-3 p-4 bg-card border rounded-2xl transition-all shadow-xs ${!q.is_active ? "border-amber-500/40 opacity-70" : "border-border hover:border-primary/40"
+                  }`}
               >
                 {/* Header Bar */}
                 <div className="flex items-center justify-between gap-3">
@@ -1357,18 +1351,16 @@ function TemplateDetail({ templateId }: { templateId: string }) {
                           {q.options.map((opt, optIdx) => (
                             <div
                               key={optIdx}
-                              className={`flex items-start gap-2.5 p-2.5 rounded-xl border text-xs leading-relaxed transition-all ${
-                                opt.is_correct
+                              className={`flex items-start gap-2.5 p-2.5 rounded-xl border text-xs leading-relaxed transition-all ${opt.is_correct
                                   ? "border-emerald-500/50 bg-emerald-500/10 text-emerald-950 dark:text-emerald-200 font-medium"
                                   : "border-border bg-background/60 text-foreground/80"
-                              }`}
+                                }`}
                             >
                               <span
-                                className={`w-5 h-5 rounded-md flex items-center justify-center text-[10px] font-bold shrink-0 mt-0.5 ${
-                                  opt.is_correct
+                                className={`w-5 h-5 rounded-md flex items-center justify-center text-[10px] font-bold shrink-0 mt-0.5 ${opt.is_correct
                                     ? "bg-emerald-500 text-white"
                                     : "bg-muted text-muted-foreground"
-                                }`}
+                                  }`}
                               >
                                 {String.fromCharCode(65 + optIdx)}
                               </span>

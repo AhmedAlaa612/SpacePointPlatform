@@ -11,10 +11,13 @@ from pydantic import BaseModel, Field
 
 BackgroundType = Literal["custom", "dark", "light"]
 BodyAlignment = Literal["center", "left", "right"]
+TemplateKind = Literal["individual", "team"]
+EmailTemplateKind = Literal["individual", "team", "combined", "profile"]
 
 
 class ProgramCertificateTemplateBase(BaseModel):
     name: str = Field(..., max_length=255)
+    kind: TemplateKind = "individual"
     is_default: bool = False
     background_type: BackgroundType = "custom"
     background_file_path: str | None = None
@@ -42,6 +45,45 @@ class ProgramCertificateTemplateBase(BaseModel):
     signature_width: float = 140.0
     signature_height: float = 50.0
 
+
+class CertificateEmailTemplateBase(BaseModel):
+    name: str = Field(..., max_length=255)
+    kind: EmailTemplateKind = "individual"
+    subject: str = Field(..., max_length=255)
+    body_html: str
+    is_default: bool = False
+
+
+class CertificateEmailTemplateCreate(CertificateEmailTemplateBase):
+    pass
+
+
+class CertificateEmailTemplateUpdate(BaseModel):
+    name: str | None = None
+    kind: EmailTemplateKind | None = None
+    subject: str | None = None
+    body_html: str | None = None
+    is_default: bool | None = None
+
+
+class CertificateEmailTemplateOut(CertificateEmailTemplateBase):
+    id: UUID
+    created_at: datetime
+    updated_at: datetime | None = None
+
+    class Config:
+        from_attributes = True
+
+
+class CertificateEmailTemplateTestIn(BaseModel):
+    to_email: str
+    recipient_name: str | None = None
+    subject: str | None = None
+    body_html: str | None = None
+    kind: EmailTemplateKind | None = None
+    cohort_id: UUID | None = None
+    certificate_template_id: str | None = None
+
     # Email notification settings
     email_subject: str | None = None
     email_body: str | None = None
@@ -53,6 +95,7 @@ class ProgramCertificateTemplateCreate(ProgramCertificateTemplateBase):
 
 class ProgramCertificateTemplateUpdate(BaseModel):
     name: str | None = None
+    kind: TemplateKind | None = None
     is_default: bool | None = None
     background_type: BackgroundType | None = None
     background_file_path: str | None = None
@@ -118,3 +161,42 @@ class CertificatePreviewRequest(BaseModel):
     signature_y: float = 90.0
     signature_width: float = 140.0
     signature_height: float = 50.0
+
+
+class CertificateEmailTemplateBase(BaseModel):
+    name: str = Field(..., max_length=255)
+    kind: EmailTemplateKind = "individual"
+    subject: str = Field(..., max_length=255)
+    body_html: str
+    is_default: bool = False
+
+
+class CertificateEmailTemplateCreate(CertificateEmailTemplateBase):
+    pass
+
+
+class CertificateEmailTemplateUpdate(BaseModel):
+    name: str | None = None
+    kind: EmailTemplateKind | None = None
+    subject: str | None = None
+    body_html: str | None = None
+    is_default: bool | None = None
+
+
+class CertificateEmailTemplateOut(CertificateEmailTemplateBase):
+    id: UUID
+    created_at: datetime
+    updated_at: datetime | None = None
+
+    class Config:
+        from_attributes = True
+
+
+class CertificateEmailTemplateTestIn(BaseModel):
+    to_email: str
+    recipient_name: str | None = None
+    subject: str | None = None
+    body_html: str | None = None
+    kind: EmailTemplateKind | None = None
+    cohort_id: UUID | None = None
+    certificate_template_id: str | None = None

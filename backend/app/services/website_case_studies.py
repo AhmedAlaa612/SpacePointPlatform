@@ -71,7 +71,14 @@ async def pull_case_study_snapshot(
             await db.execute(select(Program).where(Program.id == req.program_id))
         ).scalars().first()
         c_rows = (
-            await db.execute(select(Cohort.id).where(Cohort.program_id == req.program_id))
+            await db.execute(
+                select(Cohort.id).where(
+                    Cohort.program_id == req.program_id,
+                    Cohort.status != "draft",
+                    ~Cohort.name.ilike("[Template]%"),
+                    func.lower(func.trim(Cohort.name)) != "template",
+                )
+            )
         ).scalars().all()
         cohort_ids = list(c_rows)
 

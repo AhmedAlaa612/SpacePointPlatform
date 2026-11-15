@@ -1,5 +1,8 @@
+import { useEffect, useState } from "react";
 import { Outlet, useLocation } from "@tanstack/react-router";
+import { cn } from "@/lib/utils";
 import { FinWidget } from "@/components/FinWidget";
+import { CompleteProfileModal } from "@/components/CompleteProfileModal";
 import { TourProvider } from "@/context/TourContext";
 import { LearnSidebar } from "./LearnSidebar";
 import { LearnMobileTabBar } from "./nav/LearnMobileTabBar";
@@ -28,6 +31,45 @@ import type { LearnNavActive } from "./nav/navItems";
  */
 export function LearnShell() {
   const { pathname } = useLocation();
+  const [sidebarOpen, setSidebarOpen] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem("sp_sidebar_open") !== "false";
+    } catch {
+      return true;
+    }
+  });
+
+  const toggleSidebar = () => {
+    setSidebarOpen((prev) => {
+      const next = !prev;
+      try {
+        localStorage.setItem("sp_sidebar_open", String(next));
+      } catch {}
+      return next;
+    });
+  };
+
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "b") {
+        const target = e.target as HTMLElement | null;
+        if (
+          target &&
+          (target.tagName === "INPUT" ||
+            target.tagName === "TEXTAREA" ||
+            target.tagName === "SELECT" ||
+            target.isContentEditable)
+        ) {
+          return;
+        }
+        e.preventDefault();
+        toggleSidebar();
+      }
+    };
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
+  }, []);
+
   const active: LearnNavActive =
     pathname.startsWith("/learn/catalog") ? "catalog"
     : pathname.startsWith("/learn/missions") ? "missions"
@@ -43,8 +85,8 @@ export function LearnShell() {
 
   return (
     <TourProvider surface="learn">
-      <div className="min-h-screen bg-background text-foreground flex flex-col md:flex-row">
-        <LearnSidebar active={active} />
+      <div className="min-h-screen bg-background text-foreground flex flex-col md:flex-row sp-legacy-lms">
+        <LearnSidebar active={active} sidebarOpen={sidebarOpen} onToggleSidebar={toggleSidebar} />
         <LearnMobileTabBar active={active} />
         {/* pb-28 not pb-20 on mobile: staff get a second row (Back to
             portal) under the tab icons, and the fixed bar's real height
@@ -63,13 +105,20 @@ export function LearnShell() {
             mission's Report tab) should print just that content, not the
             shell chrome around it, which a fixed-position "cover it on
             screen" trick doesn't reliably keep off the printed page. */}
-        <main data-tour="page-workspace" className="flex-1 min-w-0 overflow-x-clip pb-28 md:pb-0 md:ml-64 print:ml-0 print:pb-0">
+        <main
+          data-tour="page-workspace"
+          className={cn(
+            "flex-1 min-w-0 overflow-x-clip pb-28 md:pb-0 transition-[margin] duration-200 print:ml-0 print:pb-0",
+            sidebarOpen ? "md:ml-64" : "md:ml-0",
+          )}
+        >
           <Outlet />
         </main>
         {/* Renders nothing; the messenger injects its own launcher into <body>.
             Here rather than in main.tsx so it stays on the student surface — see
             the component's docblock. Inert without VITE_INTERCOM_APP_ID. */}
         <FinWidget />
+        <CompleteProfileModal />
       </div>
     </TourProvider>
   );

@@ -1,6 +1,6 @@
 import { Link } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
-import { Rocket, Search } from "lucide-react";
+import { PanelLeftClose, PanelLeftOpen, Rocket } from "lucide-react";
 import { fetchMyChecklists } from "@/api/lms";
 import { useAuth } from "@/context/AuthContext";
 import { DomainIcon } from "@/components/ui/DomainIcon";
@@ -23,7 +23,15 @@ import { BackToPortalButton, LearnNotificationsBell, LearnProfileMenu, LearnTuto
  *
  * Mobile is unchanged: `LearnMobileTabBar` (bottom tab bar) already matched
  * the wireframe, so it isn't touched by this redesign. */
-export function LearnSidebar({ active }: { active: LearnNavActive }) {
+export function LearnSidebar({
+  active,
+  sidebarOpen = true,
+  onToggleSidebar,
+}: {
+  active: LearnNavActive;
+  sidebarOpen?: boolean;
+  onToggleSidebar?: () => void;
+}) {
   // Same query key LearnLanding/LearnChecklists use — one shared cache entry,
   // not a second fetch. Already ordered newest-first by the backend
   // (`list_student_assignments`), so [0] is "their latest program" with no
@@ -40,20 +48,40 @@ export function LearnSidebar({ active }: { active: LearnNavActive }) {
   const myProgram = checklists?.[0] ?? null;
 
   return (
-    <aside className="fixed inset-y-0 left-0 z-20 hidden w-64 flex-col border-r border-border bg-background md:flex print:hidden">
-      <div className="flex h-20 shrink-0 items-center gap-2 border-b border-border px-4">
-        <Link to="/learn/home" aria-label="SpacePoint Learn" data-tour="learn-brand" className="flex flex-1 items-center gap-2 overflow-hidden">
-          <DomainIcon className="h-11 w-auto shrink-0" />
-        </Link>
-        <Link
-          to="/learn/catalog"
-          aria-label="Search courses"
-          data-tour="learn-search-catalog"
-          className="shrink-0 rounded-lg p-1.5 text-muted-foreground transition-colors hover:bg-foreground/5 hover:text-foreground"
+    <>
+      {!sidebarOpen && onToggleSidebar && (
+        <button
+          type="button"
+          onClick={onToggleSidebar}
+          className="fixed top-4 left-4 z-30 hidden md:inline-flex items-center justify-center rounded-lg border border-border bg-background/90 backdrop-blur p-2 text-muted-foreground transition-colors hover:bg-foreground/5 hover:text-foreground cursor-pointer print:hidden"
+          title="Show sidebar (Ctrl+B)"
+          aria-label="Show sidebar"
         >
-          <Search size={18} />
-        </Link>
-      </div>
+          <PanelLeftOpen size={18} />
+        </button>
+      )}
+      <aside
+        className={cn(
+          "fixed inset-y-0 left-0 z-20 hidden w-64 flex-col border-r border-border bg-background transition-transform duration-200 md:flex print:hidden",
+          sidebarOpen ? "translate-x-0" : "-translate-x-full",
+        )}
+      >
+        <div className="flex h-20 shrink-0 items-center gap-1.5 border-b border-border px-4">
+          <Link to="/learn/home" aria-label="SpacePoint Learn" data-tour="learn-brand" className="flex flex-1 items-center gap-2 overflow-hidden">
+            <DomainIcon className="h-11 w-auto shrink-0" />
+          </Link>
+          {onToggleSidebar && (
+            <button
+              type="button"
+              onClick={onToggleSidebar}
+              className="shrink-0 rounded-lg p-1.5 text-muted-foreground transition-colors hover:bg-foreground/5 hover:text-foreground cursor-pointer"
+              title="Hide sidebar (Ctrl+B)"
+              aria-label="Hide sidebar"
+            >
+              <PanelLeftClose size={18} />
+            </button>
+          )}
+        </div>
 
       <nav className="flex flex-1 min-h-0 flex-col space-y-2 overflow-y-auto px-4 py-6">
         {NAV_ITEMS.map((item) => {
@@ -139,5 +167,6 @@ export function LearnSidebar({ active }: { active: LearnNavActive }) {
         <BackToPortalButton />
       </div>
     </aside>
+    </>
   );
 }

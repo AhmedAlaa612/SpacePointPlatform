@@ -232,8 +232,14 @@ async def sign_contract(
 
     admins = (await db.execute(select(User).where(User.roles.any("admin")))).scalars().all()
     for admin in admins:
-        await notify(db, admin.id, "Instructor Contract Signed",
-                     f"{current_user.full_name} signed their instructor contract.", type="instructor")
+        await notify(
+            db,
+            admin.id,
+            "Instructor Contract Signed",
+            f"{current_user.full_name} signed their instructor contract.",
+            type="instructor",
+            link=f"/instructors/admin/instructors?userId={current_user.id}&focus=contract",
+        )
         await send_contract_signed_notification_email(admin.email, current_user.full_name)
     await send_signed_contract_email(current_user.email, current_user.full_name, pdf_bytes)
 

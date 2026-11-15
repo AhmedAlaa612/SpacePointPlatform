@@ -27,6 +27,13 @@ class RoleRequestOut(BaseModel):
     reviewed_by: Optional[UUID] = None
     reviewed_at: Optional[datetime] = None
     created_at: datetime
+    requester_profile: Optional[dict] = None
+    preferred_city_name: Optional[str] = None
+    final_city_name: Optional[str] = None
+    reviewed_by_name: Optional[str] = None
+    resolved_answers: list[dict] = []
+    intern_profile: Optional[dict] = None
+    platform_footprint: Optional[dict] = None
 
     class Config:
         from_attributes = True
@@ -116,3 +123,4 @@ class StudentInternApply(BaseModel):
     requested_start_date: Optional[str] = None
     requested_duration_weeks: Optional[int] = 8
     major: Optional[str] = None
+    answers: Optional[dict] = None

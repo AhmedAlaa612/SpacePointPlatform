@@ -2,7 +2,6 @@ import { useRef, useState } from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import {
   ArrowLeft,
-  Building2,
   CalendarDays,
   CheckCircle2,
   Clock,
@@ -53,8 +52,8 @@ import {
 const WEBSITE_BASE_URL =
   (import.meta.env.VITE_WEBSITE_URL as string | undefined)?.replace(/\/$/, "") ||
   (typeof window !== "undefined" &&
-  window.location.hostname !== "localhost" &&
-  window.location.hostname !== "127.0.0.1"
+    window.location.hostname !== "localhost" &&
+    window.location.hostname !== "127.0.0.1"
     ? "https://spacepoint.ae"
     : "http://localhost:4321")
 
@@ -574,36 +573,36 @@ export function EventEditorModal({
 
   const form: WebsiteEventInput = isArMode
     ? {
-        ...rawForm,
-        title: arContent.title ?? rawForm.title_ar ?? "",
-        subtitle: arContent.subtitle ?? "",
-        tagline: arContent.tagline ?? "",
-        city: arContent.city ?? rawForm.city ?? "",
-        audience: arContent.audience ?? "",
-        host_org_name: arContent.host_org_name ?? "",
-        date_label: arContent.date_label ?? "",
-        location: arContent.location ?? "",
-        about_text: arContent.about_text ?? "",
-        benefits: arContent.benefits ?? [],
-        at_a_glance: arContent.at_a_glance ?? [],
-        eligibility_intro: arContent.eligibility_intro ?? "",
-        eligibility_rows: arContent.eligibility_rows ?? [],
-        eligibility_note: arContent.eligibility_note ?? "",
-        journey_stages: arContent.journey_stages ?? [],
-        timeline: arContent.timeline ?? [],
-        timeline_note: arContent.timeline_note ?? "",
-        deliverables: arContent.deliverables ?? [],
-        deliverables_note: arContent.deliverables_note ?? "",
-        awards_text: arContent.awards_text ?? "",
-        registration_text: arContent.registration_text ?? "",
-        registration_deadline: arContent.registration_deadline ?? "",
-        registration_note: arContent.registration_note ?? "",
-        faqs: arContent.faqs ?? [],
-        partners: arContent.partners ?? rawForm.partners ?? [],
-        partners_note: arContent.partners_note ?? "",
-        contacts: arContent.contacts ?? rawForm.contacts ?? [],
-        contact_meta: arContent.contact_meta ?? [],
-      }
+      ...rawForm,
+      title: arContent.title ?? rawForm.title_ar ?? "",
+      subtitle: arContent.subtitle ?? "",
+      tagline: arContent.tagline ?? "",
+      city: arContent.city ?? rawForm.city ?? "",
+      audience: arContent.audience ?? "",
+      host_org_name: arContent.host_org_name ?? "",
+      date_label: arContent.date_label ?? "",
+      location: arContent.location ?? "",
+      about_text: arContent.about_text ?? "",
+      benefits: arContent.benefits ?? [],
+      at_a_glance: arContent.at_a_glance ?? [],
+      eligibility_intro: arContent.eligibility_intro ?? "",
+      eligibility_rows: arContent.eligibility_rows ?? [],
+      eligibility_note: arContent.eligibility_note ?? "",
+      journey_stages: arContent.journey_stages ?? [],
+      timeline: arContent.timeline ?? [],
+      timeline_note: arContent.timeline_note ?? "",
+      deliverables: arContent.deliverables ?? [],
+      deliverables_note: arContent.deliverables_note ?? "",
+      awards_text: arContent.awards_text ?? "",
+      registration_text: arContent.registration_text ?? "",
+      registration_deadline: arContent.registration_deadline ?? "",
+      registration_note: arContent.registration_note ?? "",
+      faqs: arContent.faqs ?? [],
+      partners: arContent.partners ?? rawForm.partners ?? [],
+      partners_note: arContent.partners_note ?? "",
+      contacts: arContent.contacts ?? rawForm.contacts ?? [],
+      contact_meta: arContent.contact_meta ?? [],
+    }
     : rawForm
 
   const set = <K extends keyof WebsiteEventInput>(key: K, val: WebsiteEventInput[K]) => {
@@ -674,8 +673,8 @@ export function EventEditorModal({
 
   const canSave = Boolean(
     (rawForm.title && rawForm.title.trim()) ||
-      (arContent.title && String(arContent.title).trim()) ||
-      (rawForm.title_ar && rawForm.title_ar.trim())
+    (arContent.title && String(arContent.title).trim()) ||
+    (rawForm.title_ar && rawForm.title_ar.trim())
   )
 
   return (
@@ -2044,29 +2043,29 @@ export function WebsiteEventsPanel() {
     mutationFn: () =>
       editingOrg
         ? updateAdminOrganizationAccount(editingOrg.id, {
-            org_name_latin: orgForm.org_name_latin,
-            org_name_arabic: orgForm.org_name_arabic,
-            org_type: orgForm.org_type,
-            country: orgForm.country,
-            city: orgForm.city,
-            full_name: orgForm.full_name,
-            email: orgForm.email || undefined,
-            phone: orgForm.phone,
-            password: orgForm.password || undefined,
-            is_approved: orgForm.is_approved,
-            can_publish_events: orgForm.can_publish_events,
-            can_author_courses: orgForm.can_author_courses,
-            can_publish_courses: orgForm.can_publish_courses,
-            course_scope_all: orgForm.course_scope_all,
-            allowed_course_ids: orgForm.allowed_course_ids,
-            quiz_scope: orgForm.quiz_scope,
-            allowed_quiz_template_ids: orgForm.allowed_quiz_template_ids,
-            max_events: orgForm.max_events,
-            max_programs: orgForm.max_programs,
-            max_cohorts: orgForm.max_cohorts,
-            max_students_per_cohort: orgForm.max_students_per_cohort,
-            max_observers_per_cohort: orgForm.max_observers_per_cohort,
-          })
+          org_name_latin: orgForm.org_name_latin,
+          org_name_arabic: orgForm.org_name_arabic,
+          org_type: orgForm.org_type,
+          country: orgForm.country,
+          city: orgForm.city,
+          full_name: orgForm.full_name,
+          email: orgForm.email || undefined,
+          phone: orgForm.phone,
+          password: orgForm.password || undefined,
+          is_approved: orgForm.is_approved,
+          can_publish_events: orgForm.can_publish_events,
+          can_author_courses: orgForm.can_author_courses,
+          can_publish_courses: orgForm.can_publish_courses,
+          course_scope_all: orgForm.course_scope_all,
+          allowed_course_ids: orgForm.allowed_course_ids,
+          quiz_scope: orgForm.quiz_scope,
+          allowed_quiz_template_ids: orgForm.allowed_quiz_template_ids,
+          max_events: orgForm.max_events,
+          max_programs: orgForm.max_programs,
+          max_cohorts: orgForm.max_cohorts,
+          max_students_per_cohort: orgForm.max_students_per_cohort,
+          max_observers_per_cohort: orgForm.max_observers_per_cohort,
+        })
         : createAdminOrganizationAccount(orgForm),
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ["admin-website-organizations"] })
@@ -2096,7 +2095,7 @@ export function WebsiteEventsPanel() {
       return { orgName: org.name_latin, email: res.email, url: res.reset_url }
     },
     onSuccess: (data) => {
-      navigator.clipboard?.writeText(data.url).catch(() => {})
+      navigator.clipboard?.writeText(data.url).catch(() => { })
       setOrgResetLink(data)
       toast.success("Password reset link generated and copied to clipboard!")
     },
@@ -2628,19 +2627,6 @@ export function WebsiteEventsPanel() {
           >
             <Layers className="h-4 w-4" />
             Featured Events ({megaEvents.length})
-          </button>
-          <button
-            type="button"
-            onClick={() => setSubTab("organizations")}
-            className={cn(
-              "inline-flex items-center gap-2 rounded-xl px-4 py-2 text-xs font-semibold transition",
-              subTab === "organizations"
-                ? "bg-primary text-primary-foreground"
-                : "border border-border bg-card text-muted-foreground hover:text-foreground"
-            )}
-          >
-            <Building2 className="h-4 w-4" />
-            Partner Organizations ({partnerOrgs.length})
           </button>
         </div>
 

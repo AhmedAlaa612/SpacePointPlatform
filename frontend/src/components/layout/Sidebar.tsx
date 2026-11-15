@@ -8,10 +8,11 @@ import {
   Bell,
   BookOpen,
   Boxes,
+  Building2,
   Cake,
   CalendarDays,
-  Camera,
   ChevronDown,
+  ChevronRight,
   ClipboardList,
   Clock,
   CreditCard,
@@ -28,6 +29,8 @@ import {
   LogOut,
   Menu,
   Newspaper,
+  PanelLeftClose,
+  PanelLeftOpen,
   PlayCircle,
   QrCode,
   Settings as SettingsIcon,
@@ -47,7 +50,7 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
-import { getNotificationsApi, markAllReadApi } from "@/api/notifications";
+import { getNotificationsApi, markAllReadApi, markReadApi } from "@/api/notifications";
 import { getPaymentSummaryApi } from "@/api/instructors/payments";
 import { ROLE_LABEL, type Notification, type Role } from "@/types/shared";
 import { DomainIcon } from "@/components/ui/DomainIcon";
@@ -59,6 +62,7 @@ import { slugifyTourId } from "@/lib/tours";
 import { cn } from "@/lib/utils";
 import { TourProvider } from "@/context/TourContext";
 import { TutorialLauncherMenu } from "@/components/ui/SpacePointTourCard";
+import { CompleteProfileModal } from "@/components/CompleteProfileModal";
 
 interface NavItem {
   label: string;
@@ -149,7 +153,6 @@ const ICONS: Record<string, LucideIcon> = {
   "Programs & Cohorts": Layers,
   Team: Users,
   Birthdays: Cake,
-  Booth: Camera,
   "Admin Hub": UserCog,
   Kits: Boxes,
   "My Kits & Items": Boxes,
@@ -161,6 +164,8 @@ const ICONS: Record<string, LucideIcon> = {
   Learn: GraduationCap,
   Students: Users,
   "Invite Codes": Ticket,
+  Interns: Users,
+  Ambassadors: Share2,
   Courses: BookOpen,
   "Learning Paths": GitMerge,
   "Live Quiz": PlayCircle,
@@ -168,6 +173,7 @@ const ICONS: Record<string, LucideIcon> = {
   Missions: Target,
   Progress: Activity,
   "Component library": Boxes,
+  Organizations: Building2,
 };
 
 const mk = (label: string, to: string): NavItem => ({ label, to, icon: ICONS[label] ?? FileText });
@@ -196,6 +202,41 @@ const LMS_OPS_GROUP = mkGroup("LMS", undefined, [
   mk("Ground Station Devices", "/operations/ground-station-devices"),
 ]);
 
+// Unified Admin sidebar: Inbox request tools (Applications, Role Requests, Documents)
+// live directly on the Admin Hub dashboard, while Instructor / Intern / Ambassador
+// areas sit in collapsible sub-groups.
+const ADMIN_NAV_ITEMS: NavItem[] = [
+  mk("Dashboard", "/admin"),
+  mk("User Management", "/admin/users"),
+  mkGroup("Instructors", undefined, [
+    mk("Overview", "/instructors/admin/overview"),
+    mk("Applicants", "/instructors/admin/applicants"),
+    mk("Instructors", "/instructors/admin/instructors"),
+    mk("Invitation Codes", "/instructors/admin/invitations"),
+    mk("Facilitators", "/instructors/admin/facilitators"),
+    mk("Payments", "/instructors/admin/payments"),
+    mk("Certificates", "/instructors/admin/certificates"),
+  ]),
+  mkGroup("Interns", undefined, [
+    mk("Dashboard", "/interns"),
+    mk("Tracker", "/interns/tracker"),
+    mk("Team Management", "/interns/admin"),
+  ]),
+  mkGroup("Ambassadors", undefined, [
+    mk("Network", "/ambassadors/admin/network"),
+    mk("Tasks", "/ambassadors/admin/tasks"),
+    mk("Leads", "/ambassadors/admin/leads"),
+    mk("Sessions", "/ambassadors/admin/sessions"),
+    mk("Titles", "/ambassadors/admin/titles"),
+    mk("Badges", "/ambassadors/admin/badges"),
+    mk("Settings", "/ambassadors/admin/settings"),
+  ]),
+  mk("Birthdays", "/admin/birthdays"),
+  mk("Learn", "/learn"),
+  mk("Settings", "/admin/settings"),
+  mk("Operations", "/operations/dashboard"),
+];
+
 const INVENTORY_GROUP = mkGroup("Inventory", undefined, [
   mk("Kits", "/operations/inventory"),
   mk("Stock", "/operations/inventory/stock"),
@@ -208,6 +249,7 @@ const INVENTORY_GROUP = mkGroup("Inventory", undefined, [
 const PROGRAMS_GROUP = mkGroup("Programs", undefined, [
   mk("Programs", "/operations/programs"),
   mk("Cohorts", "/operations/cohorts"),
+  mk("Instructors", "/operations/instructors"),
   mk("Reviews", "/operations/reviews"),
   mk("Delivery Settings", "/operations/delivery-settings"),
 ]);
@@ -232,6 +274,21 @@ const MENTORS_GROUP = mkGroup("Mentors", undefined, [
   mk("Applications", "/operations/mentors/applications"),
   mk("Topics", "/operations/mentors/topics"),
 ]);
+
+const OPERATIONS_NAV_ITEMS: NavItem[] = [
+  mk("Dashboard", "/operations/dashboard"),
+  PROGRAMS_GROUP,
+  LMS_OPS_GROUP,
+  INVENTORY_GROUP,
+  WEBSITE_GROUP,
+  MENTORS_GROUP,
+  mk("Organizations", "/operations/organizations"),
+  mk("Learn", "/learn"),
+  // mk("Sessions Calendar", "/operations/calendar"),
+  // mk("Ground Station Devices", "/operations/ground-station-devices"),
+  mk("Test Accounts", "/operations/test-accounts"),
+  // mk("My Articles", "/articles"),
+];
 
 const DOMAIN_TITLE: Record<string, string> = {
   interns: "Interns",
@@ -277,7 +334,9 @@ function getNavItems(pathname: string, activeRole: Role | null): NavItem[] {
   // duplicating pages under /operations and /instructors.
 
   // V2 S6-2: operations domain — dedicated sidebar, no longer piggybacking on admin.
-  if (pathname.startsWith("/operations")) {
+  // Keep admin on the Operations sidebar when navigating into LMS authoring
+  // (which sits under Operations in the sidebar).
+  if (pathname.startsWith("/operations") || (activeRole === "admin" && pathname.startsWith("/lms-authoring"))) {
     // I1-4: a storekeeper restocks, receives, and (2026-08-27) reads
     // everything in the inventory domain — but still can't create/edit/
     // delete anything outside a stock count. The full inventory nav is
@@ -305,47 +364,14 @@ function getNavItems(pathname: string, activeRole: Role | null): NavItem[] {
         mk("Profile & Settings", "/operations/profile"),
       ];
     }
-    return [
-      mk("Dashboard", "/operations/dashboard"),
-      PROGRAMS_GROUP,
-      LMS_OPS_GROUP,
-      INVENTORY_GROUP,
-      WEBSITE_GROUP,
-      MENTORS_GROUP,
-      mk("Booth", "/operations/booth"),
-      mk("Learn", "/learn"),
-      // mk("Sessions Calendar", "/operations/calendar"),
-      // mk("Ground Station Devices", "/operations/ground-station-devices"),
-      mk("Test Accounts", "/operations/test-accounts"),
-      // mk("My Articles", "/articles"),
-    ];
+    return OPERATIONS_NAV_ITEMS;
   }
   if (pathname.startsWith("/admin")) {
-    return [
-      mk("Dashboard", "/admin"),
-      mk("User Management", "/admin/users"),
-      mk("Documents", "/admin/documents"),
-      mk("Applications", "/admin/applications"),
-      mk("Role Requests", "/admin/role-requests"),
-      mk("Birthdays", "/admin/birthdays"),
-      // mk("My Articles", "/articles"),
-      mk("Learn", "/learn"),
-      mk("Settings", "/admin/settings"),
-      mk("Operations", "/operations/dashboard"),
-    ];
+    return ADMIN_NAV_ITEMS;
   }
   if (pathname.startsWith("/ambassadors")) {
     if (activeRole === "admin") {
-      return [
-        mk("Network", "/ambassadors/admin/network"),
-        mk("Tasks", "/ambassadors/admin/tasks"),
-        mk("Leads", "/ambassadors/admin/leads"),
-        mk("Sessions", "/ambassadors/admin/sessions"),
-        mk("Titles", "/ambassadors/admin/titles"),
-        mk("Badges", "/ambassadors/admin/badges"),
-        mk("Learn", "/learn"),
-        mk("Settings", "/ambassadors/admin/settings"),
-      ];
+      return ADMIN_NAV_ITEMS;
     }
     if (activeRole === "teacher") {
       return [
@@ -372,18 +398,7 @@ function getNavItems(pathname: string, activeRole: Role | null): NavItem[] {
   }
   if (pathname.startsWith("/instructors")) {
     if (activeRole === "admin") {
-      return [
-        mk("Overview", "/instructors/admin/overview"),
-        mk("Applicants", "/instructors/admin/applicants"),
-        mk("Invitation Codes", "/instructors/admin/invitations"),
-        mk("Instructors", "/instructors/admin/instructors"),
-        mk("Facilitators", "/instructors/admin/facilitators"),
-        mk("Assessment Questions", "/instructors/admin/assessment-questions"),
-        mk("Pre-Session Quizzes", "/instructors/facilitator/quizzes"),
-        mk("Payments", "/instructors/admin/payments"),
-        mk("Certificates", "/instructors/admin/certificates"),
-        mk("Learn", "/learn"),
-      ];
+      return ADMIN_NAV_ITEMS;
     }
     if (activeRole === "facilitator") {
       return [
@@ -434,12 +449,7 @@ function getNavItems(pathname: string, activeRole: Role | null): NavItem[] {
   }
   if (pathname.startsWith("/interns")) {
     if (activeRole === "admin") {
-      return [
-        mk("Dashboard", "/interns"),
-        mk("Tracker", "/interns/tracker"),
-        mk("Team Management", "/interns/admin"),
-        mk("Learn", "/learn"),
-      ];
+      return ADMIN_NAV_ITEMS;
     }
     return [
       mk("Board", "/interns"),
@@ -518,35 +528,10 @@ function getNavItems(pathname: string, activeRole: Role | null): NavItem[] {
     ];
   }
   if (activeRole === "admin") {
-    return [
-      mk("Dashboard", "/admin"),
-      mk("User Management", "/admin/users"),
-      mk("Documents", "/admin/documents"),
-      mk("Applications", "/admin/applications"),
-      mk("Role Requests", "/admin/role-requests"),
-      mk("Birthdays", "/admin/birthdays"),
-      LMS_GROUP,
-      // mk("My Articles", "/articles"),
-      mk("Learn", "/learn"),
-      mk("Settings", "/admin/settings"),
-      mk("Operations", "/operations/dashboard"),
-    ];
+    return ADMIN_NAV_ITEMS;
   }
   if (activeRole === "operations") {
-    return [
-      mk("Dashboard", "/operations/dashboard"),
-      PROGRAMS_GROUP,
-      LMS_OPS_GROUP,
-      INVENTORY_GROUP,
-      WEBSITE_GROUP,
-      MENTORS_GROUP,
-      mk("Booth", "/operations/booth"),
-      mk("Learn", "/learn"),
-      // mk("Sessions Calendar", "/operations/calendar"),
-      // mk("Ground Station Devices", "/operations/ground-station-devices"),
-      mk("Test Accounts", "/operations/test-accounts"),
-      // mk("My Articles", "/articles"),
-    ];
+    return OPERATIONS_NAV_ITEMS;
   }
   if (activeRole === "mentor") {
     return [
@@ -598,13 +583,29 @@ const isActive = (pathname: string, to?: string) =>
       to === "/admin" ||
       to === "/instructors/dashboard" ||
       to === "/operations/website"
-    ? pathname === to
-    : pathname.startsWith(to);
+      ? pathname === to
+      : pathname.startsWith(to);
 
 /* ─────────────────────────── sub-pieces ─────────────────────────── */
 
+function resolveNotificationLink(n: Notification): string | null {
+  if (n.link) return n.link;
+  const title = (n.title ?? "").toLowerCase();
+  if (title.includes("contract signed")) return "/instructors/admin/instructors";
+  if (title.includes("payment letter")) return "/instructors/admin/payments";
+  if (title.includes("internship letter")) return "/admin/users";
+  if (title.includes("role request") || title.includes("intern application")) return "/admin/role-requests";
+  if (title.includes("application")) return "/admin/applications";
+  if (title.includes("document request")) return "/admin/documents?tab=requests";
+  if (title.includes("lead")) return "/ambassadors/admin/leads";
+  if (title.includes("course submitted")) return "/lms-authoring/courses";
+  if (title.includes("learning path")) return "/lms-authoring/learning-paths";
+  return null;
+}
+
 function NotificationsBell() {
   const { user } = useAuth();
+  const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
@@ -615,6 +616,14 @@ function NotificationsBell() {
     enabled: !!user,
     staleTime: 30_000,
     refetchInterval: 60_000,
+  });
+
+  const markOne = useMutation({
+    mutationFn: markReadApi,
+    onSuccess: (_data, id) =>
+      queryClient.setQueryData<Notification[]>(["notifications"], (old = []) =>
+        old.map((n) => (n.id === id ? { ...n, is_read: true } : n)),
+      ),
   });
 
   const markAll = useMutation({
@@ -635,17 +644,29 @@ function NotificationsBell() {
     return () => document.removeEventListener("mousedown", handler);
   }, []);
 
-  const handleClick = () => {
-    const wasOpen = open;
+  const handleToggle = () => {
     setOpen((v) => !v);
-    if (!wasOpen && unread > 0) markAll.mutate();
+  };
+
+  const handleNotificationClick = (n: Notification) => {
+    if (!n.is_read) markOne.mutate(n.id);
+    const target = resolveNotificationLink(n);
+    if (!target) return;
+    setOpen(false);
+    const u = new URL(target, window.location.origin);
+    const searchObj = Object.fromEntries(u.searchParams.entries());
+    void navigate({
+      to: u.pathname as never,
+      search: (Object.keys(searchObj).length ? searchObj : undefined) as never,
+      hash: u.hash ? u.hash.slice(1) : undefined,
+    });
   };
 
   return (
     <div ref={ref} className="relative" data-tour="portal-notifications">
       <button
         type="button"
-        onClick={handleClick}
+        onClick={handleToggle}
         className="relative rounded-xl p-2.5 text-muted-foreground transition-colors hover:bg-foreground/5 hover:text-foreground"
         aria-label="Notifications"
       >
@@ -658,28 +679,57 @@ function NotificationsBell() {
       </button>
       {open && (
         <div className="absolute right-0 top-full z-50 mt-2 w-80 max-w-[calc(100vw-2rem)] overflow-hidden rounded-xl border border-border bg-popover shadow-lg">
-          <div className="border-b border-border px-4 py-3">
+          <div className="flex items-center justify-between border-b border-border px-4 py-3">
             <p className="text-sm font-semibold text-foreground">Notifications</p>
+            {unread > 0 && (
+              <button
+                type="button"
+                onClick={() => markAll.mutate()}
+                disabled={markAll.isPending}
+                className="text-xs font-medium text-primary hover:underline disabled:opacity-50"
+              >
+                Mark all read
+              </button>
+            )}
           </div>
           <div className="max-h-80 overflow-y-auto">
             {notifications.length === 0 ? (
               <p className="px-4 py-6 text-center text-sm text-muted-foreground">No notifications</p>
             ) : (
-              notifications.map((n) => (
-                <div
-                  key={n.id}
-                  className={cn(
-                    "border-b border-border/50 px-4 py-3 last:border-0",
-                    !n.is_read && "bg-muted/50",
-                  )}
-                >
-                  <p className="text-sm font-medium text-foreground">{n.title}</p>
-                  {n.body && <p className="mt-0.5 text-xs text-muted-foreground">{n.body}</p>}
-                  <p className="mt-1 text-xs text-muted-foreground/70">
-                    {new Date(n.created_at).toLocaleDateString()}
-                  </p>
-                </div>
-              ))
+              notifications.map((n) => {
+                const target = resolveNotificationLink(n);
+                return (
+                  <button
+                    key={n.id}
+                    type="button"
+                    onClick={() => handleNotificationClick(n)}
+                    className={cn(
+                      "flex w-full items-start justify-between gap-2 border-b border-border/50 px-4 py-3 text-left transition-colors last:border-0",
+                      !n.is_read && "bg-muted/50",
+                      target ? "cursor-pointer hover:bg-muted/80" : "cursor-default",
+                    )}
+                  >
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-1.5">
+                        {!n.is_read && (
+                          <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-primary" />
+                        )}
+                        <p className="text-sm font-medium text-foreground">{n.title}</p>
+                      </div>
+                      {n.body && <p className="mt-0.5 text-xs text-muted-foreground">{n.body}</p>}
+                      <p className="mt-1 text-xs text-muted-foreground/70">
+                        {new Date(n.created_at).toLocaleDateString()}
+                      </p>
+                    </div>
+                    {target && (
+                      <ChevronRight
+                        size={14}
+                        className="mt-0.5 shrink-0 text-muted-foreground/70"
+                      />
+                    )}
+                  </button>
+                );
+              })
             )}
           </div>
         </div>
@@ -802,10 +852,10 @@ function NavLinkItem({
         <div
           data-tour={tourSlug}
           className={cn(
-            "flex items-center justify-between gap-3 rounded-xl px-4 py-3 text-sm transition-all cursor-pointer select-none",
+            "flex items-center justify-between gap-3 rounded-[10px] px-4 py-3 text-sm transition-all cursor-pointer select-none outline-none focus-visible:ring-1 focus-visible:ring-[#653F84] dark:focus-visible:ring-[#A77DFF]",
             isSelfActive || isChildActive
-              ? "border border-primary/30 bg-primary/10 font-semibold text-primary"
-              : "border border-transparent text-muted-foreground hover:bg-foreground/5 hover:text-foreground",
+              ? "border-2 border-[#653F84] dark:border-[#A77DFF] bg-transparent font-semibold text-[#653F84] dark:text-[#A77DFF]"
+              : "border-2 border-transparent text-muted-foreground hover:bg-foreground/5 hover:text-foreground",
           )}
           onClick={() => setOpen((v) => !v)}
         >
@@ -830,10 +880,10 @@ function NavLinkItem({
                   onClick={onNavigate}
                   data-tour={`${tourSlug}-${slugifyTourId(child.label)}`}
                   className={cn(
-                    "flex items-center gap-2.5 rounded-lg px-3 py-2 text-xs transition-all",
+                    "flex items-center gap-2.5 rounded-[10px] px-3 py-2 text-xs transition-all outline-none focus-visible:ring-1 focus-visible:ring-[#653F84] dark:focus-visible:ring-[#A77DFF]",
                     childActive
-                      ? "bg-primary/20 font-semibold text-primary"
-                      : "text-muted-foreground hover:bg-foreground/5 hover:text-foreground",
+                      ? "border-2 border-[#653F84] dark:border-[#A77DFF] bg-transparent font-semibold text-[#653F84] dark:text-[#A77DFF]"
+                      : "border-2 border-transparent text-muted-foreground hover:bg-foreground/5 hover:text-foreground",
                   )}
                 >
                   <ChildIcon className="h-4 w-4 shrink-0" />
@@ -853,10 +903,10 @@ function NavLinkItem({
       onClick={onNavigate}
       data-tour={tourSlug}
       className={cn(
-        "flex items-center gap-3 rounded-xl px-4 py-3 text-sm transition-all",
+        "flex items-center gap-3 rounded-[10px] px-4 py-3 text-sm transition-all outline-none focus-visible:ring-1 focus-visible:ring-[#653F84] dark:focus-visible:ring-[#A77DFF]",
         isSelfActive
-          ? "border border-primary/30 bg-primary/10 font-semibold text-primary"
-          : "border border-transparent text-muted-foreground hover:bg-foreground/5 hover:text-foreground",
+          ? "border-2 border-[#653F84] dark:border-[#A77DFF] bg-transparent font-semibold text-[#653F84] dark:text-[#A77DFF]"
+          : "border-2 border-transparent text-muted-foreground hover:bg-foreground/5 hover:text-foreground",
       )}
     >
       <Icon className="h-5 w-5 shrink-0" />
@@ -913,6 +963,23 @@ export function AppShell({ children }: { children: ReactNode }) {
   const navigate = useNavigate();
   const { user, activeRole, logout } = useAuth();
   const [drawerOpen, setDrawerOpen] = useState(false);
+  const [sidebarOpen, setSidebarOpen] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem("sp_sidebar_open") !== "false";
+    } catch {
+      return true;
+    }
+  });
+
+  const toggleSidebar = () => {
+    setSidebarOpen((prev) => {
+      const next = !prev;
+      try {
+        localStorage.setItem("sp_sidebar_open", String(next));
+      } catch { }
+      return next;
+    });
+  };
 
   const navItems = getNavItems(pathname, activeRole);
 
@@ -929,26 +996,26 @@ export function AppShell({ children }: { children: ReactNode }) {
     activeRole === "admin"
       ? "/admin/profile"
       : activeRole === "operations" || activeRole === "coo" || activeRole === "storekeeper"
-      ? "/operations/profile"
-      : activeRole === "ambassador" || activeRole === "teacher"
-      ? "/ambassadors/profile"
-      : activeRole === "applicant"
-      ? "/instructors/status"
-      : activeRole === "instructor" || activeRole === "facilitator"
-      ? "/instructors/profile"
-      : activeRole === "mentor"
-      ? "/mentor/profile"
-      : activeRole === "judge"
-      ? "/judge"
-      // unreachable while the switcher hides observer, kept so a stored
-      // observer value can't break the avatar link
-      : activeRole === "observer"
-      ? "/learn"
-      : activeRole === "lms_author"
-      ? "/lms-authoring/courses"
-      : activeRole === "organization"
-      ? "/organization/programs"
-      : "/interns/profile";
+        ? "/operations/profile"
+        : activeRole === "ambassador" || activeRole === "teacher"
+          ? "/ambassadors/profile"
+          : activeRole === "applicant"
+            ? "/instructors/status"
+            : activeRole === "instructor" || activeRole === "facilitator"
+              ? "/instructors/profile"
+              : activeRole === "mentor"
+                ? "/mentor/profile"
+                : activeRole === "judge"
+                  ? "/judge"
+                  // unreachable while the switcher hides observer, kept so a stored
+                  // observer value can't break the avatar link
+                  : activeRole === "observer"
+                    ? "/learn"
+                    : activeRole === "lms_author"
+                      ? "/lms-authoring/courses"
+                      : activeRole === "organization"
+                        ? "/organization/programs"
+                        : "/interns/profile";
 
   // Body scroll lock + Escape-to-close for the mobile drawer.
   useEffect(() => {
@@ -969,6 +1036,28 @@ export function AppShell({ children }: { children: ReactNode }) {
     setDrawerOpen(false);
   }, [pathname]);
 
+  // Ctrl+B / Cmd+B shortcut to toggle desktop sidebar.
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "b") {
+        const target = e.target as HTMLElement | null;
+        if (
+          target &&
+          (target.tagName === "INPUT" ||
+            target.tagName === "TEXTAREA" ||
+            target.tagName === "SELECT" ||
+            target.isContentEditable)
+        ) {
+          return;
+        }
+        e.preventDefault();
+        toggleSidebar();
+      }
+    };
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
+  }, []);
+
   if (!user) return null;
 
   const activeItem = navItems.find((i) => isActive(pathname, i.to));
@@ -983,131 +1072,161 @@ export function AppShell({ children }: { children: ReactNode }) {
 
   return (
     <TourProvider surface="portal">
-    <div className="min-h-screen">
-      {/* ── Desktop sidebar ───────────────────────────────────────── */}
-      <aside className="fixed inset-y-0 left-0 z-30 hidden w-64 flex-col border-r border-white/10 bg-card/60 backdrop-blur-xl md:flex">
-        <div className="flex h-20 items-center justify-center border-b border-white/10 px-4">
-          <Link to="/" aria-label="SpacePoint home" data-tour="portal-brand">
-            <DomainIcon className="h-11 w-auto" />
-          </Link>
-        </div>
-        <nav className="flex-1 space-y-2 overflow-y-auto px-4 py-6">
-          <NavLinks items={navItems} pathname={pathname} pendingSignature={pendingSignature} />
-        </nav>
-        <div className="border-t border-white/10 px-4 py-6">
-          <button
-            type="button"
-            onClick={handleLogout}
-            className="flex w-full items-center gap-3 rounded-xl px-4 py-3 text-sm text-muted-foreground transition-all hover:bg-foreground/5 hover:text-destructive"
-          >
-            <LogOut className="h-5 w-5 shrink-0" />
-            Sign Out
-          </button>
-        </div>
-      </aside>
-
-      {/* ── Mobile drawer + overlay ─────────────────────────────── */}
-      <div
-        className={cn(
-          "fixed inset-0 z-40 bg-black/60 transition-opacity md:hidden",
-          drawerOpen ? "opacity-100" : "pointer-events-none opacity-0",
-        )}
-        onClick={() => setDrawerOpen(false)}
-      />
-      <div
-        className={cn(
-          "fixed inset-y-0 left-0 z-50 flex w-72 flex-col border-r border-primary/15 bg-background/95 backdrop-blur-xl transition-transform duration-300 md:hidden",
-          drawerOpen ? "translate-x-0" : "-translate-x-full",
-        )}
-      >
-        <div className="flex h-20 shrink-0 items-center justify-between border-b border-white/10 px-6">
-          <DomainIcon className="h-10 w-auto" />
-          <button
-            type="button"
-            onClick={() => setDrawerOpen(false)}
-            className="p-1 text-muted-foreground transition-colors hover:text-foreground"
-            aria-label="Close menu"
-          >
-            <X size={22} />
-          </button>
-        </div>
-        {/* User-info strip */}
-        <div className="flex shrink-0 items-center gap-3 border-b border-white/5 px-6 py-4">
-          <Avatar to={profileTo} size="sm" />
-          <div className="min-w-0">
-            <p className="truncate text-sm font-semibold text-foreground">{user.full_name}</p>
-            {roleLabel && (
-              <p className="text-xs font-medium uppercase tracking-wider text-primary">{roleLabel}</p>
-            )}
+      <div className="min-h-screen">
+        {/* ── Desktop sidebar ───────────────────────────────────────── */}
+        <aside
+          className={cn(
+            "fixed inset-y-0 left-0 z-30 hidden w-64 flex-col rounded-none border-r border-border bg-[#EDEAE6] dark:bg-black transition-transform duration-200 md:flex",
+            sidebarOpen ? "translate-x-0" : "-translate-x-full",
+          )}
+        >
+          <div className="flex h-20 items-center justify-between border-b border-white/10 px-4">
+            <Link to="/" aria-label="SpacePoint home" data-tour="portal-brand">
+              <DomainIcon className="h-11 w-auto" />
+            </Link>
+            <button
+              type="button"
+              onClick={toggleSidebar}
+              className="rounded-lg p-1.5 text-muted-foreground transition-colors hover:bg-foreground/5 hover:text-foreground cursor-pointer"
+              title="Hide sidebar (Ctrl+B)"
+              aria-label="Hide sidebar"
+            >
+              <PanelLeftClose size={18} />
+            </button>
           </div>
-        </div>
-        <nav className="flex-1 space-y-1 overflow-y-auto px-4 py-4">
-          <NavLinks
-            items={navItems}
-            pathname={pathname}
-            pendingSignature={pendingSignature}
-            onNavigate={() => setDrawerOpen(false)}
-          />
-          <RoleSwitcherMobile onNavigate={() => setDrawerOpen(false)} />
-        </nav>
-        <div className="shrink-0 border-t border-white/10 px-4 py-5">
-          <button
-            type="button"
-            onClick={handleLogout}
-            className="flex w-full items-center gap-3 rounded-xl px-4 py-3 text-sm text-muted-foreground transition-all hover:bg-foreground/5 hover:text-destructive"
-          >
-            <LogOut className="h-5 w-5 shrink-0" />
-            Sign Out
-          </button>
-        </div>
-      </div>
+          <nav className="flex-1 space-y-2 overflow-y-auto px-4 py-6">
+            <NavLinks items={navItems} pathname={pathname} pendingSignature={pendingSignature} />
+          </nav>
+          <div className="border-t border-white/10 px-4 py-6">
+            <button
+              type="button"
+              onClick={handleLogout}
+              className="flex w-full items-center gap-3 rounded-xl px-4 py-3 text-sm text-muted-foreground transition-all hover:bg-foreground/5 hover:text-destructive"
+            >
+              <LogOut className="h-5 w-5 shrink-0" />
+              Sign Out
+            </button>
+          </div>
+        </aside>
 
-      {/* ── Content column ──────────────────────────────────────── */}
-      <div className="flex min-h-screen flex-col md:ml-64">
-        {/* Mobile top bar */}
-        <header className="sticky top-0 z-20 flex h-16 shrink-0 items-center justify-between border-b border-white/10 bg-card/60 px-4 backdrop-blur-xl md:hidden">
-          <button
-            type="button"
-            onClick={() => setDrawerOpen(true)}
-            className="-ml-2 rounded-lg p-2 text-muted-foreground transition-colors hover:bg-foreground/5 hover:text-foreground"
-            aria-label="Open menu"
-          >
-            <Menu size={22} />
-          </button>
-          <Link to="/" className="absolute left-1/2 -translate-x-1/2" aria-label="SpacePoint home" data-tour="portal-brand">
-            <DomainIcon className="h-9 w-auto" />
-          </Link>
-          <div className="flex items-center gap-0.5">
-            <PortalTutorialButton compact />
-            <ThemeToggle />
-            <NotificationsBell />
+        {/* ── Mobile drawer + overlay ─────────────────────────────── */}
+        <div
+          className={cn(
+            "fixed inset-0 z-40 bg-black/60 transition-opacity md:hidden",
+            drawerOpen ? "opacity-100" : "pointer-events-none opacity-0",
+          )}
+          onClick={() => setDrawerOpen(false)}
+        />
+        <div
+          className={cn(
+            "fixed inset-y-0 left-0 z-50 flex w-72 flex-col border-r border-primary/15 bg-background/95 backdrop-blur-xl transition-transform duration-300 md:hidden",
+            drawerOpen ? "translate-x-0" : "-translate-x-full",
+          )}
+        >
+          <div className="flex h-20 shrink-0 items-center justify-between border-b border-white/10 px-6">
+            <DomainIcon className="h-10 w-auto" />
+            <button
+              type="button"
+              onClick={() => setDrawerOpen(false)}
+              className="p-1 text-muted-foreground transition-colors hover:text-foreground"
+              aria-label="Close menu"
+            >
+              <X size={22} />
+            </button>
+          </div>
+          {/* User-info strip */}
+          <div className="flex shrink-0 items-center gap-3 border-b border-white/5 px-6 py-4">
             <Avatar to={profileTo} size="sm" />
-          </div>
-        </header>
-
-        {/* Desktop top header */}
-        <header className="sticky top-0 z-20 hidden h-20 shrink-0 items-center justify-between border-b border-white/5 bg-background/60 px-8 backdrop-blur-xl md:flex">
-          <div className="flex items-center gap-3">
-            <h2 className="font-display text-lg font-semibold capitalize text-foreground/90">{pageTitle}</h2>
-          </div>
-          <div className="flex items-center gap-1.5">
-            <PortalTutorialButton />
-            <NotificationsBell />
-            <RoleSwitcher />
-            <ThemeToggle />
-            <div className="mx-1 text-right">
-              <p className="text-sm font-semibold text-foreground">{user.full_name}</p>
+            <div className="min-w-0">
+              <p className="truncate text-sm font-semibold text-foreground">{user.full_name}</p>
               {roleLabel && (
                 <p className="text-xs font-medium uppercase tracking-wider text-primary">{roleLabel}</p>
               )}
             </div>
-            <Avatar to={profileTo} />
           </div>
-        </header>
+          <nav className="flex-1 space-y-1 overflow-y-auto px-4 py-4">
+            <NavLinks
+              items={navItems}
+              pathname={pathname}
+              pendingSignature={pendingSignature}
+              onNavigate={() => setDrawerOpen(false)}
+            />
+            <RoleSwitcherMobile onNavigate={() => setDrawerOpen(false)} />
+          </nav>
+          <div className="shrink-0 border-t border-white/10 px-4 py-5">
+            <button
+              type="button"
+              onClick={handleLogout}
+              className="flex w-full items-center gap-3 rounded-xl px-4 py-3 text-sm text-muted-foreground transition-all hover:bg-foreground/5 hover:text-destructive"
+            >
+              <LogOut className="h-5 w-5 shrink-0" />
+              Sign Out
+            </button>
+          </div>
+        </div>
 
-        <main data-tour="page-workspace" className="flex-1 overflow-x-clip p-4 sm:p-6 lg:p-10">{children}</main>
+        {/* ── Content column ──────────────────────────────────────── */}
+        <div
+          className={cn(
+            "flex min-h-screen flex-col transition-[margin] duration-200",
+            sidebarOpen ? "md:ml-64" : "md:ml-0",
+          )}
+        >
+          {/* Mobile top bar */}
+          <header className="sticky top-0 z-20 flex h-16 shrink-0 items-center justify-between rounded-none border-b border-border bg-[#EDEAE6] dark:bg-black px-4 md:hidden">
+            <button
+              type="button"
+              onClick={() => setDrawerOpen(true)}
+              className="-ml-2 rounded-lg p-2 text-muted-foreground transition-colors hover:bg-foreground/5 hover:text-foreground"
+              aria-label="Open menu"
+            >
+              <Menu size={22} />
+            </button>
+            <Link to="/" className="absolute left-1/2 -translate-x-1/2" aria-label="SpacePoint home" data-tour="portal-brand">
+              <DomainIcon className="h-9 w-auto" />
+            </Link>
+            <div className="flex items-center gap-0.5">
+              <ThemeToggle />
+              <NotificationsBell />
+              <Avatar to={profileTo} size="sm" />
+            </div>
+          </header>
+
+          {/* Desktop top header */}
+          <header className="sticky top-0 z-20 hidden h-20 shrink-0 items-center justify-between rounded-none border-b border-border bg-[#EDEAE6] dark:bg-black px-8 md:flex">
+            <div className="flex items-center gap-3">
+              {!sidebarOpen && (
+                <button
+                  type="button"
+                  onClick={toggleSidebar}
+                  className="rounded-lg p-1.5 text-muted-foreground transition-colors hover:bg-foreground/5 hover:text-foreground cursor-pointer"
+                  title="Show sidebar (Ctrl+B)"
+                  aria-label="Show sidebar"
+                >
+                  <PanelLeftOpen size={18} />
+                </button>
+              )}
+              <h2 className="font-display text-lg font-semibold capitalize text-foreground/90">{pageTitle}</h2>
+            </div>
+            <div className="flex items-center gap-1.5">
+              <PortalTutorialButton />
+              <NotificationsBell />
+              <RoleSwitcher />
+              <ThemeToggle />
+              <div className="mx-1 text-right">
+                <p className="text-sm font-semibold text-foreground">{user.full_name}</p>
+                {roleLabel && (
+                  <p className="text-xs font-medium uppercase tracking-wider text-primary">{roleLabel}</p>
+                )}
+              </div>
+              <Avatar to={profileTo} />
+            </div>
+          </header>
+
+          <main data-tour="page-workspace" className="flex-1 overflow-x-clip p-4 sm:p-6 lg:p-10">{children}</main>
+        </div>
+        <CompleteProfileModal />
       </div>
-    </div>
     </TourProvider>
   );
 }
@@ -1138,7 +1257,7 @@ export function ApplicantShell({ children }: { children: ReactNode }) {
   return (
     <TourProvider surface="applicant">
       <div className="min-h-screen flex flex-col text-white" style={BODY_BACKGROUND}>
-        <header className="sticky top-0 z-20 flex h-16 shrink-0 items-center justify-between border-b border-white/10 bg-card/60 px-4 backdrop-blur-xl sm:px-6">
+        <header className="sticky top-0 z-20 flex h-16 shrink-0 items-center justify-between rounded-none border-b border-border bg-white dark:bg-black px-4 sm:px-6">
           <div className="flex items-center gap-3">
             <Link to="/" aria-label="SpacePoint home" data-tour="applicant-brand" className="shrink-0">
               <img src={PLAIN_LOGO} alt="SpacePoint" className="h-7 sm:h-9 w-auto object-contain" />
@@ -1237,6 +1356,7 @@ export function ApplicantShell({ children }: { children: ReactNode }) {
         )}
         <main data-tour="page-workspace" className="flex-1 overflow-x-clip p-4 sm:p-6 lg:p-10">{children}</main>
         <SiteFooter />
+        <CompleteProfileModal />
       </div>
     </TourProvider>
   );

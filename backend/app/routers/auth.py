@@ -43,6 +43,12 @@ from app.models.instructors.video_submission import VideoSubmission
 from app.models.instructors.application_review import ApplicationReview
 from app.services.instructors.application_videos import get_configured_videos
 from app.models.instructors.invitation_code import InvitationCode
+from app.services.apply_form_config import (
+    enforce_standard_field_requirements,
+    get_role_form_config,
+    save_user_custom_answers,
+    validate_and_snapshot_custom_questions,
+)
 from app.models.lms.invite_grant import UserInvitationCode
 from app.schemas.user import InstructorApply
 from app.services.documents.card_id import format_card_id
@@ -103,6 +109,18 @@ async def _user_out(db: AsyncSession, user: User, profile: ApplicantProfile | No
         instructor_prof = (await db.execute(
             select(InstructorProfile).where(InstructorProfile.user_id == user.id)
         )).scalars().first()
+
+    is_certified_instructor = False
+    if "instructor" in user.role_values:
+        from app.models.instructor_assessment.rating import InstructorCertificationTag
+
+        cert_tag = (await db.execute(
+            select(InstructorCertificationTag.id).where(
+                InstructorCertificationTag.user_id == user.id,
+                func.lower(func.trim(InstructorCertificationTag.label)) == "certified",
+            )
+        )).first()
+        is_certified_instructor = cert_tag is not None
 
     author_can_publish = None
     author_scope_all = None
@@ -166,6 +184,16 @@ async def _user_out(db: AsyncSession, user: User, profile: ApplicantProfile | No
             }
         ]
 
+    from app.services.profile_completion import compute_missing_profile_fields
+
+    missing_profile_fields = await compute_missing_profile_fields(
+        db,
+        user,
+        contact=contact,
+        profile=profile,
+        instructor_prof=instructor_prof,
+    )
+
     return {
         "id": str(user.id),
         "full_name": user.full_name,
@@ -219,6 +247,8 @@ async def _user_out(db: AsyncSession, user: User, profile: ApplicantProfile | No
         "work_status": (instructor_prof.work_status if instructor_prof else None) or (profile.work_status if profile else None),
         "fluent_languages": (instructor_prof.fluent_languages if instructor_prof else None) or (profile.fluent_languages if profile else None),
         "graduated_university": (instructor_prof.graduated_university if instructor_prof else None) or (profile.graduated_university if profile else None),
+        "is_certified_instructor": is_certified_instructor,
+        "missing_profile_fields": missing_profile_fields,
     }
 
 
@@ -333,6 +363,28 @@ async def student_signup(data: StudentSignupRequest, request: Request, db: Async
             detail="An account with this email already exists — log in instead.",
         )
 
+    form_config = await get_role_form_config(db, "student")
+    phone_cfg = next((f for f in form_config["fields"] if f["key"] == "phone"), None)
+    phone_required = bool(phone_cfg["enabled"] and phone_cfg["required"]) if phone_cfg else True
+    if phone_required and not (data.phone and data.phone.strip()):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="Phone number is required.",
+        )
+    standard_values = {
+        "phone": data.phone,
+        "nationality": data.nationality,
+        "date_of_birth": data.date_of_birth,
+        "country": data.country,
+        "city": str(data.city_id) if data.city_id else data.city_other,
+        "invite_code": data.invite_code,
+        "parent_info": bool(data.parent_name and data.parent_phone),
+    }
+    enforce_standard_field_requirements(form_config, standard_values)
+    clean_answers, question_snapshots = await validate_and_snapshot_custom_questions(
+        db, "student", data.answers
+    )
+
     # Invite-code gate: optional as requested — if provided, validated against
     # student/observer pool or ambassador referral; if omitted, regular student signup.
     code = data.invite_code.strip().upper() if data.invite_code and data.invite_code.strip() else None
@@ -362,6 +414,7 @@ async def student_signup(data: StudentSignupRequest, request: Request, db: Async
         contact_roles=["student"],
         role_event_source="lms_signup",
         date_of_birth=data.date_of_birth,
+        nationality=data.nationality.strip() if data.nationality and data.nationality.strip() else None,
         country=data.country,
         city=city.name if city else (data.city_other or None),
     )
@@ -396,6 +449,8 @@ async def student_signup(data: StudentSignupRequest, request: Request, db: Async
     )
     db.add(user)
     await db.flush()  # assign user.id
+    if clean_answers or question_snapshots:
+        await save_user_custom_answers(db, user.id, clean_answers, question_snapshots)
     await assign_nickname(db, user)
     await ensure_card_number(db, user)
 
@@ -440,6 +495,21 @@ async def organization_signup(
             detail="An account with this email already exists — log in instead.",
         )
 
+    org_config = await get_role_form_config(db, "organization")
+    enforce_standard_field_requirements(
+        org_config,
+        {
+            "org_name_arabic": data.org_name_arabic,
+            "org_type": data.org_type,
+            "country": data.country,
+            "city": data.city,
+            "phone": data.phone,
+        },
+    )
+    clean_answers, q_snapshots = await validate_and_snapshot_custom_questions(
+        db, "organization", data.answers
+    )
+
     contact, _ = await resolve_or_create_contact(
         db,
         full_name=data.full_name.strip(),
@@ -482,6 +552,19 @@ async def organization_signup(
     await db.flush()
     contact.organization_id = org.id
 
+    org_answers = {
+        **clean_answers,
+        "organization_name": data.org_name_latin.strip(),
+        "organization_name_arabic": (data.org_name_arabic or "").strip() or None,
+        "organization_type": (data.org_type or "university").strip().lower(),
+        "city": (data.city or "").strip() or None,
+        "country": (data.country or "uae").strip().lower(),
+        "organization_id": str(org.id),
+        "user_id": str(user.id),
+    }
+    if q_snapshots:
+        org_answers["_question_snapshots"] = q_snapshots
+
     # Record partner application so admin can review and approve via Admin > Applications
     existing_app = (await db.execute(
         select(Application).where(Application.email == email, Application.role == "organization")
@@ -492,15 +575,7 @@ async def organization_signup(
         existing_app.phone = data.phone.strip()
         existing_app.country = (data.country or "uae").strip().lower()
         existing_app.password_hash = user.password_hash
-        existing_app.answers = {
-            "organization_name": data.org_name_latin.strip(),
-            "organization_name_arabic": (data.org_name_arabic or "").strip() or None,
-            "organization_type": (data.org_type or "university").strip().lower(),
-            "city": (data.city or "").strip() or None,
-            "country": (data.country or "uae").strip().lower(),
-            "organization_id": str(org.id),
-            "user_id": str(user.id),
-        }
+        existing_app.answers = org_answers
     else:
         app_record = Application(
             role="organization",
@@ -510,18 +585,11 @@ async def organization_signup(
             phone=data.phone.strip(),
             country=(data.country or "uae").strip().lower(),
             password_hash=user.password_hash,
-            answers={
-                "organization_name": data.org_name_latin.strip(),
-                "organization_name_arabic": (data.org_name_arabic or "").strip() or None,
-                "organization_type": (data.org_type or "university").strip().lower(),
-                "city": (data.city or "").strip() or None,
-                "country": (data.country or "uae").strip().lower(),
-                "organization_id": str(org.id),
-                "user_id": str(user.id),
-            },
+            answers=org_answers,
         )
         db.add(app_record)
 
+    await save_user_custom_answers(db, user.id, clean_answers, q_snapshots)
     await db.commit()
     await db.refresh(user)
 
@@ -884,7 +952,6 @@ async def update_me(
     if data.student_id is not None:
         current_user.student_id = data.student_id.strip() or None
         if current_user.contact_id:
-            from app.models.spine.contact import Contact
             contact = await db.get(Contact, current_user.contact_id)
             if contact:
                 contact.student_id = current_user.student_id
@@ -892,17 +959,29 @@ async def update_me(
         current_user.phone = data.phone or None
     if data.country is not None:
         current_user.country = data.country or None
+        if current_user.contact_id:
+            contact = await db.get(Contact, current_user.contact_id)
+            if contact:
+                contact.country = current_user.country
     if data.linkedin_url is not None:
         current_user.linkedin_url = data.linkedin_url or None
     if data.city_id is not None:
         current_user.city_id = data.city_id
+        if current_user.contact_id:
+            city_row = await db.get(City, data.city_id)
+            contact = await db.get(Contact, current_user.contact_id)
+            if contact and city_row:
+                contact.city = city_row.name
     if data.city_other is not None:
         current_user.city_other = data.city_other or None
+        if current_user.contact_id and not current_user.city_id:
+            contact = await db.get(Contact, current_user.contact_id)
+            if contact:
+                contact.city = current_user.city_other
     new_birthdate = data.birthdate or data.date_of_birth
     if new_birthdate is not None:
         current_user.birthdate = new_birthdate
         if current_user.contact_id:
-            from app.models.spine.contact import Contact
             contact = await db.get(Contact, current_user.contact_id)
             if contact:
                 contact.date_of_birth = new_birthdate
@@ -918,7 +997,14 @@ async def update_me(
     profile = await _load_applicant_profile(db, current_user.id)
     wants_applicant_fields = any(
         f is not None
-        for f in (data.city_of_residence_id, data.deliver_city_ids, data.has_own_transportation)
+        for f in (
+            data.city_of_residence_id,
+            data.deliver_city_ids,
+            data.has_own_transportation,
+            data.work_status,
+            data.fluent_languages,
+            data.graduated_university,
+        )
     )
     if profile is None and wants_applicant_fields:
         profile = ApplicantProfile(user_id=current_user.id)
@@ -931,6 +1017,54 @@ async def update_me(
             profile.deliver_city_ids = data.deliver_city_ids
         if data.has_own_transportation is not None:
             profile.has_own_transportation = data.has_own_transportation
+        if data.work_status is not None:
+            profile.work_status = data.work_status.strip() or None
+        if data.fluent_languages is not None:
+            profile.fluent_languages = data.fluent_languages
+        if data.graduated_university is not None:
+            profile.graduated_university = data.graduated_university.strip() or None
+
+    if data.nationality is not None:
+        nat_clean = data.nationality.strip() or None
+        if current_user.contact_id:
+            contact = await db.get(Contact, current_user.contact_id)
+        else:
+            contact, _ = await resolve_or_create_contact(
+                db,
+                full_name=current_user.full_name,
+                phone=current_user.phone,
+                email=current_user.email,
+                contact_roles=current_user.role_values or ["student"],
+                country=current_user.country,
+                date_of_birth=current_user.birthdate,
+                nationality=nat_clean,
+            )
+            current_user.contact_id = contact.id
+        if contact is not None:
+            contact.nationality = nat_clean
+        if profile is not None:
+            profile.nationality = nat_clean
+        if any(r in ("instructor", "facilitator") for r in current_user.role_values):
+            inst_prof = (
+                await db.execute(select(InstructorProfile).where(InstructorProfile.user_id == current_user.id))
+            ).scalars().first()
+            if inst_prof is not None:
+                inst_prof.nationality = nat_clean
+
+    if any(f is not None for f in (data.work_status, data.fluent_languages, data.graduated_university)):
+        if any(r in ("instructor", "facilitator") for r in current_user.role_values):
+            inst_prof = (
+                await db.execute(select(InstructorProfile).where(InstructorProfile.user_id == current_user.id))
+            ).scalars().first()
+            if inst_prof is None:
+                inst_prof = InstructorProfile(user_id=current_user.id)
+                db.add(inst_prof)
+            if data.work_status is not None:
+                inst_prof.work_status = data.work_status.strip() or None
+            if data.fluent_languages is not None:
+                inst_prof.fluent_languages = data.fluent_languages
+            if data.graduated_university is not None:
+                inst_prof.graduated_university = data.graduated_university.strip() or None
 
     if data.university_name is not None:
         u_clean = data.university_name.strip()
@@ -939,14 +1073,12 @@ async def update_me(
             org_row = await resolve_or_create_organization(db, u_clean, org_type="university")
             current_user.organization_id = org_row.id
             if current_user.contact_id:
-                from app.models.spine.contact import Contact
                 c_row = await db.get(Contact, current_user.contact_id)
                 if c_row:
                     c_row.organization_id = org_row.id
         else:
             current_user.organization_id = None
             if current_user.contact_id:
-                from app.models.spine.contact import Contact
                 c_row = await db.get(Contact, current_user.contact_id)
                 if c_row:
                     c_row.organization_id = None
@@ -1090,6 +1222,37 @@ async def instructor_apply(
     if await _email_taken(db, email):
         raise HTTPException(status_code=400, detail="Email already registered")
 
+    from app.services.apply_form_config import (
+        enforce_standard_field_requirements,
+        get_role_form_config,
+        save_user_custom_answers,
+        validate_and_snapshot_custom_questions,
+    )
+
+    inst_config = await get_role_form_config(db, "instructor")
+    enforce_standard_field_requirements(
+        inst_config,
+        {
+            "phone": payload.phone,
+            "birthdate": payload.birthdate.isoformat() if payload.birthdate else None,
+            "nationality": payload.nationality,
+            "work_status": payload.work_status,
+            "fluent_languages": payload.fluent_languages,
+            "graduated_university": payload.graduated_university,
+            "university": payload.university,
+            "highest_degree": payload.highest_degree,
+            "country": payload.country,
+            "city_of_residence_id": str(payload.city_of_residence_id) if payload.city_of_residence_id else None,
+            "deliver_city_ids": payload.deliver_city_ids,
+            "background_areas": payload.background_areas,
+            "invite_code": payload.invite_code,
+            "cv": bool(cv and cv.filename),
+        },
+    )
+    clean_answers, q_snapshots = await validate_and_snapshot_custom_questions(
+        db, "instructor", payload.answers
+    )
+
     code = payload.invite_code.strip().upper() if payload.invite_code else None
     # Code is optional (organic applicants have none) — but if one is
     # supplied it must be valid, so a typo'd/expired code doesn't silently
@@ -1102,8 +1265,10 @@ async def instructor_apply(
         full_name=payload.full_name,
         email=email,
         password_hash=get_password_hash(payload.password),
+        phone=payload.phone.strip() if payload.phone else None,
         roles=[UserRole.applicant],
         country=payload.country,
+        city_id=payload.city_of_residence_id,
         birthdate=payload.birthdate,
         status="active",
         must_change_password=False,
@@ -1173,6 +1338,7 @@ async def instructor_apply(
         await notify(db, referred_by_ambassador_id, "New Instructor Application",
                      f"{payload.full_name} applied as an instructor with your invite code.", type="instructor")
 
+    await save_user_custom_answers(db, user.id, clean_answers, q_snapshots)
     await db.commit()
     await db.refresh(user)
 

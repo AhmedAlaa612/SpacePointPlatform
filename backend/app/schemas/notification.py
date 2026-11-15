@@ -10,6 +10,7 @@ class NotificationOut(BaseModel):
     title: str
     body: Optional[str] = None
     type: Optional[str] = None
+    link: Optional[str] = None
     is_read: bool
     created_at: datetime
 

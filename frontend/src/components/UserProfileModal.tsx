@@ -1,8 +1,11 @@
-import { useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import { createPortal } from "react-dom"
+import { useNavigate } from "@tanstack/react-router"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { X, FileText, ExternalLink, CreditCard, Trash2, Download } from "lucide-react"
+import { useAuth } from "@/context/AuthContext"
 import { getUserProfileApi, getUserStatsApi } from "@/api/auth"
+import { getInstructorPerformanceApi } from "@/api/instructor_assessment"
 import { getUserDossierApi, getUserIdCardApi, downloadUserDocumentsZipApi, type DossierItem } from "@/api/admin/users"
 import { deleteGeneratedDocumentApi } from "@/api/documents"
 import { deleteCertificateApi } from "@/api/instructors/payments_admin"
@@ -61,12 +64,18 @@ function DossierSection({
   userId,
   downloading,
   onDownloadZip,
+  highlightCategory,
+  focusDossier,
 }: {
   userId: string
   downloading?: boolean
   onDownloadZip?: () => void
+  highlightCategory?: string
+  focusDossier?: boolean
 }) {
   const [cardView, setCardView] = useState<string | null>(null)
+  const cardRef = useRef<HTMLDivElement>(null)
+  const focusRef = useRef<HTMLDivElement>(null)
   const qc = useQueryClient()
   const { data, isLoading } = useQuery({
     queryKey: ["admin-user-dossier", userId],
@@ -83,8 +92,20 @@ function DossierSection({
     return acc
   }, {})
 
+  useEffect(() => {
+    if (isLoading) return
+    if (focusRef.current) {
+      focusRef.current.scrollIntoView({ behavior: "smooth", block: "center" })
+    } else if (focusDossier && cardRef.current) {
+      cardRef.current.scrollIntoView({ behavior: "smooth", block: "center" })
+    }
+  }, [isLoading, highlightCategory, focusDossier, userId])
+
+  const isHighlighted = (category: string) =>
+    !!highlightCategory && category.toLowerCase().includes(highlightCategory.toLowerCase())
+
   return (
-    <Card>
+    <Card ref={cardRef} className={focusDossier && !highlightCategory ? "ring-1 ring-primary/50" : undefined}>
       <CardContent className="p-5 flex flex-col gap-3">
         <div className="flex items-center justify-between">
           <p className="text-xs text-muted-foreground font-semibold uppercase tracking-wider">Documents</p>
@@ -111,47 +132,58 @@ function DossierSection({
         ) : Object.keys(groups).length === 0 ? (
           <p className="text-sm text-muted-foreground italic">No documents on file.</p>
         ) : (
-          Object.entries(groups).map(([category, items]) => (
-            <div key={category} className="flex flex-col gap-1.5">
-              <p className="text-[11px] font-semibold text-muted-foreground">{category}</p>
-              {items.map((item, i) => (
-                <div key={i} className="flex items-center gap-2 text-sm px-2.5 py-1.5 rounded-lg bg-muted/50">
-                  {category === "ID Cards" ? <CreditCard size={14} className="text-muted-foreground shrink-0" /> : <FileText size={14} className="text-muted-foreground shrink-0" />}
-                  <div className="min-w-0 flex-1">
-                    <p className="text-foreground truncate">{item.label}</p>
-                    <p className="text-[11px] text-muted-foreground truncate">
-                      {[item.meta, item.date ? new Date(item.date).toLocaleDateString() : null].filter(Boolean).join(" · ")}
-                    </p>
+          Object.entries(groups).map(([category, items]) => {
+            const highlighted = isHighlighted(category)
+            return (
+              <div
+                key={category}
+                ref={highlighted ? focusRef : undefined}
+                className={
+                  highlighted
+                    ? "flex flex-col gap-1.5 rounded-xl p-2 -mx-2 bg-primary/5 ring-1 ring-primary/40"
+                    : "flex flex-col gap-1.5"
+                }
+              >
+                <p className="text-[11px] font-semibold text-muted-foreground">{category}</p>
+                {items.map((item, i) => (
+                  <div key={i} className="flex items-center gap-2 text-sm px-2.5 py-1.5 rounded-lg bg-muted/50">
+                    {category === "ID Cards" ? <CreditCard size={14} className="text-muted-foreground shrink-0" /> : <FileText size={14} className="text-muted-foreground shrink-0" />}
+                    <div className="min-w-0 flex-1">
+                      <p className="text-foreground truncate">{item.label}</p>
+                      <p className="text-[11px] text-muted-foreground truncate">
+                        {[item.meta, item.date ? new Date(item.date).toLocaleDateString() : null].filter(Boolean).join(" · ")}
+                      </p>
+                    </div>
+                    {category === "ID Cards" && item.url ? (
+                      <button
+                        onClick={() => setCardView(new URL(item.url!, window.location.origin).searchParams.get("role") ?? "")}
+                        className="p-1 rounded text-muted-foreground hover:text-primary shrink-0"
+                      >
+                        <ExternalLink size={14} />
+                      </button>
+                    ) : item.url ? (
+                      <a href={item.url} target="_blank" rel="noreferrer" className="p-1 rounded text-muted-foreground hover:text-primary shrink-0">
+                        <ExternalLink size={14} />
+                      </a>
+                    ) : null}
+                    {item.id && DELETABLE_CATEGORIES[category] ? (
+                      <button
+                        onClick={() => {
+                          if (confirm("Are you sure you want to delete this document permanently?")) {
+                            deleteItem.mutate({ category, id: item.id! })
+                          }
+                        }}
+                        disabled={deleteItem.isPending}
+                        className="p-1 rounded text-muted-foreground hover:text-destructive shrink-0"
+                      >
+                        <Trash2 size={14} />
+                      </button>
+                    ) : null}
                   </div>
-                  {category === "ID Cards" && item.url ? (
-                    <button
-                      onClick={() => setCardView(new URL(item.url!, window.location.origin).searchParams.get("role") ?? "")}
-                      className="p-1 rounded text-muted-foreground hover:text-primary shrink-0"
-                    >
-                      <ExternalLink size={14} />
-                    </button>
-                  ) : item.url ? (
-                    <a href={item.url} target="_blank" rel="noreferrer" className="p-1 rounded text-muted-foreground hover:text-primary shrink-0">
-                      <ExternalLink size={14} />
-                    </a>
-                  ) : null}
-                  {item.id && DELETABLE_CATEGORIES[category] ? (
-                    <button
-                      onClick={() => {
-                        if (confirm("Are you sure you want to delete this document permanently?")) {
-                          deleteItem.mutate({ category, id: item.id! })
-                        }
-                      }}
-                      disabled={deleteItem.isPending}
-                      className="p-1 rounded text-muted-foreground hover:text-destructive shrink-0"
-                    >
-                      <Trash2 size={14} />
-                    </button>
-                  ) : null}
-                </div>
-              ))}
-            </div>
-          ))
+                ))}
+              </div>
+            )
+          })
         )}
       </CardContent>
       {cardView && <IdCardDialog userId={userId} role={cardView} onClose={() => setCardView(null)} />}
@@ -162,9 +194,15 @@ function DossierSection({
 interface Props {
   userId: string
   onClose: () => void
+  highlightCategory?: string
+  focusDossier?: boolean
 }
 
-export function UserProfileModal({ userId, onClose }: Props) {
+export function UserProfileModal({ userId, onClose, highlightCategory, focusDossier }: Props) {
+  const { activeRole } = useAuth()
+  const navigate = useNavigate()
+  const isOpsView = activeRole === "operations"
+
   const { data: user, isLoading: loadingUser } = useQuery({
     queryKey: ["user-profile", userId],
     queryFn: () => getUserProfileApi(userId),
@@ -172,8 +210,9 @@ export function UserProfileModal({ userId, onClose }: Props) {
 
   const roles = user?.roles ?? []
   const isAmbassador = roles.includes("ambassador")
-  const isTeacher    = roles.includes("teacher")
+  const isTeacher = roles.includes("teacher")
   const isInstructor = roles.includes("instructor") || roles.includes("facilitator")
+  const canAccessOpsProfile = (isOpsView || activeRole === "admin") && isInstructor
 
   const { data: stats, isLoading: loadingStats } = useQuery({
     queryKey: ["user-stats", userId],
@@ -184,6 +223,18 @@ export function UserProfileModal({ userId, onClose }: Props) {
     // students. `!!user` is the only condition that belongs here.
     enabled: !!user,
   })
+
+  const { data: opsPerf } = useQuery({
+    queryKey: ["instructor-performance", userId],
+    queryFn: () => getInstructorPerformanceApi(userId),
+    enabled: canAccessOpsProfile && !!user,
+    retry: false,
+  })
+
+  const openOpsProfile = () => {
+    onClose()
+    void navigate({ to: `/operations/instructors/${userId}` })
+  }
 
   const isLoading = loadingUser || loadingStats
   const [downloading, setDownloading] = useState(false)
@@ -211,21 +262,34 @@ export function UserProfileModal({ userId, onClose }: Props) {
         <div className="flex items-center justify-between px-5 py-4 border-b border-border shrink-0">
           <p className="text-sm font-semibold text-foreground">Profile</p>
           <div className="flex items-center gap-2">
-            <Button
-              size="sm"
-              variant="outline"
-              disabled={downloading || isLoading || !user}
-              onClick={handleDownloadZip}
-              className="h-8 text-xs gap-1.5"
-              title="Download all uploaded documents in a zip file"
-            >
-              {downloading ? (
-                <span className="w-3.5 h-3.5 border-2 border-primary border-t-transparent rounded-full animate-spin" />
-              ) : (
-                <Download size={13} />
-              )}
-              Download Documents (.zip)
-            </Button>
+            {canAccessOpsProfile && (
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={openOpsProfile}
+                className="h-8 text-xs gap-1.5"
+              >
+                <ExternalLink size={13} />
+                Performance
+              </Button>
+            )}
+            {!isOpsView && (
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={downloading || isLoading || !user}
+                onClick={handleDownloadZip}
+                className="h-8 text-xs gap-1.5"
+                title="Download all uploaded documents in a zip file"
+              >
+                {downloading ? (
+                  <span className="w-3.5 h-3.5 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+                ) : (
+                  <Download size={13} />
+                )}
+                Download Documents (.zip)
+              </Button>
+            )}
             <button
               onClick={onClose}
               className="p-1.5 rounded-lg text-muted-foreground hover:bg-muted transition-colors"
@@ -345,16 +409,24 @@ export function UserProfileModal({ userId, onClose }: Props) {
                         </p>
                       </div>
                       {!roles.includes("organization") && !user.organization_name && (
-                        <div>
-                          <p className="text-xs text-muted-foreground uppercase tracking-wider font-medium mb-0.5">Date of Birth</p>
-                          <p className="text-foreground">
-                            {user.birthdate || user.date_of_birth ? (
-                              new Date(user.birthdate || user.date_of_birth!).toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" })
-                            ) : (
-                              <span className="text-muted-foreground italic">Not set</span>
-                            )}
-                          </p>
-                        </div>
+                        <>
+                          <div>
+                            <p className="text-xs text-muted-foreground uppercase tracking-wider font-medium mb-0.5">Nationality</p>
+                            <p className="text-foreground">
+                              {user.nationality || <span className="text-muted-foreground italic">Not set</span>}
+                            </p>
+                          </div>
+                          <div>
+                            <p className="text-xs text-muted-foreground uppercase tracking-wider font-medium mb-0.5">Date of Birth</p>
+                            <p className="text-foreground">
+                              {user.birthdate || user.date_of_birth ? (
+                                new Date(user.birthdate || user.date_of_birth!).toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" })
+                              ) : (
+                                <span className="text-muted-foreground italic">Not set</span>
+                              )}
+                            </p>
+                          </div>
+                        </>
                       )}
                       {user.created_at && (
                         <div>
@@ -457,15 +529,46 @@ export function UserProfileModal({ userId, onClose }: Props) {
                   <TeacherCard name={user.full_name} stats={stats.teacher} />
                 )}
                 {isInstructor && stats?.instructor && (
-                  <InstructorCard stats={stats.instructor} />
+                  <InstructorCard
+                    stats={stats.instructor}
+                    hideCompensation={isOpsView}
+                    onOpenOpsProfile={canAccessOpsProfile ? openOpsProfile : undefined}
+                    averageRating={opsPerf ? opsPerf.average_rating : undefined}
+                    unratedCohortsCount={opsPerf?.unrated_cohorts_count}
+                    isCertified={opsPerf?.is_certified}
+                  />
+                )}
+                {isInstructor && !stats?.instructor && canAccessOpsProfile && (
+                  <Card>
+                    <CardContent className="p-5 flex items-center justify-between gap-3">
+                      <div>
+                        <p className="text-xs text-muted-foreground font-semibold uppercase tracking-wider">Operations Performance &amp; Rating</p>
+                        <p className="text-sm text-foreground mt-1">
+                          {opsPerf
+                            ? opsPerf.average_rating != null
+                              ? `Overall rating: ${opsPerf.average_rating.toFixed(1)} / 5${opsPerf.unrated_cohorts_count ? ` (${opsPerf.unrated_cohorts_count} unrated)` : ""}`
+                              : "No ratings yet"
+                            : "View delivery history, 10-dimension ratings, and certification"}
+                        </p>
+                      </div>
+                      <Button size="sm" variant="outline" className="gap-1.5 shrink-0" onClick={openOpsProfile}>
+                        <ExternalLink size={13} />
+                        Performance
+                      </Button>
+                    </CardContent>
+                  </Card>
                 )}
                 {stats?.student && <StudentCard stats={stats.student} />}
 
-                <DossierSection
-                  userId={userId}
-                  downloading={downloading}
-                  onDownloadZip={handleDownloadZip}
-                />
+                {!isOpsView && (
+                  <DossierSection
+                    userId={userId}
+                    downloading={downloading}
+                    onDownloadZip={handleDownloadZip}
+                    highlightCategory={highlightCategory}
+                    focusDossier={focusDossier}
+                  />
+                )}
               </>
             )}
           </div>

@@ -186,8 +186,14 @@ async def sign_letter(
 
     admins = (await db.execute(select(User).where(User.roles.any("admin")))).scalars().all()
     for admin in admins:
-        await notify(db, admin.id, "Payment Letter Signed",
-                     f"{current_user.full_name} signed their payment letter — review it in Payments.", type="instructor")
+        await notify(
+            db,
+            admin.id,
+            "Payment Letter Signed",
+            f"{current_user.full_name} signed their payment letter — review it in Payments.",
+            type="instructor",
+            link=f"/instructors/admin/payments?letterId={letter.id}",
+        )
         await send_payment_signed_notification_email(admin.email, current_user.full_name)
 
     await db.commit()

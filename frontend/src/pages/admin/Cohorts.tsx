@@ -1,7 +1,7 @@
-import { useMemo, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
 import { Link, useNavigate } from "@tanstack/react-router"
-import { Plus, Pencil, Trash2, Search, X } from "lucide-react"
+import { Plus, Pencil, Trash2, Search, X, Layers, Calendar, MapPin, Clock, Users } from "lucide-react"
 import type { Cohort, CohortStatus, CohortVisibility, Program } from "@/types/sessions"
 import { getProgramsApi } from "@/api/sessions/programs"
 import { getLocationsApi, getWarehousesApi, getCitiesApi, createLocationApi } from "@/api/inventory"
@@ -97,10 +97,19 @@ export default function Cohorts() {
   })
 
   const { data: programs = [] } = useQuery<Program[]>({ queryKey: ["sessions-programs"], queryFn: getProgramsApi })
-  const { data: cohorts = [], isLoading } = useQuery<Cohort[]>({
+  const { data: rawCohorts = [], isLoading } = useQuery<Cohort[]>({
     queryKey: ["sessions-cohorts", programFilter],
     queryFn: () => getCohortsApi(programFilter || undefined),
   })
+  const cohorts = useMemo(
+    () =>
+      rawCohorts.filter((c) => {
+        const statusStr = String(c.status).toLowerCase()
+        const normName = c.name.trim().toLowerCase()
+        return statusStr !== "draft" && !normName.startsWith("[template]") && normName !== "template"
+      }),
+    [rawCohorts],
+  )
 
   const grouped = useMemo(() => {
     const q = search.trim().toLowerCase()
@@ -127,7 +136,6 @@ export default function Cohorts() {
     <div className="flex flex-col gap-6">
       <PageHeader
         title="Cohorts"
-        subtitle="Real runs of a program — dates, capacity, and the registration desk"
         action={
           <button
             onClick={() => navigate({ to: "/operations/cohorts/new" })}
@@ -248,6 +256,7 @@ function CohortRow({ cohort: c, onEdit, onDelete, deleting }: {
       <Link
         to="/operations/cohorts/$cohortId"
         params={{ cohortId: c.id }}
+        search={{ from: "/operations/cohorts" } as never}
         className="min-w-0 text-left flex-1 block"
       >
         <div className="flex items-center gap-2 flex-wrap">
@@ -263,15 +272,39 @@ function CohortRow({ cohort: c, onEdit, onDelete, deleting }: {
             </span>
           )}
         </div>
-        <p className="text-xs text-muted-foreground truncate mt-0.5">
-          {c.program_name ?? "—"}
-          {c.starts_on ? ` · ${c.starts_on}${c.ends_on && c.ends_on !== c.starts_on ? ` – ${c.ends_on}` : ""}` : ""}
-          {c.location_name ? ` · ${c.location_name}` : c.location ? ` · ${c.location}` : ""}
-          {c.sessions_count != null ? ` · ${c.sessions_count} session${c.sessions_count === 1 ? "" : "s"}` : ""}
-          {c.next_session_date ? ` · next ${c.next_session_date}` : ""}
-        </p>
-        <div className="flex items-center gap-2 mt-1.5">
-          <span className="text-xs text-muted-foreground tabular-nums shrink-0">
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground mt-1.5">
+          <span className="inline-flex items-center gap-1.5">
+            <Layers size={12} className="shrink-0 opacity-70" />
+            <span>{c.program_name ?? "—"}</span>
+          </span>
+          {c.starts_on && (
+            <span className="inline-flex items-center gap-1.5">
+              <Calendar size={12} className="shrink-0 opacity-70" />
+              <span>
+                {c.starts_on}
+                {c.ends_on && c.ends_on !== c.starts_on ? ` – ${c.ends_on}` : ""}
+              </span>
+            </span>
+          )}
+          {(c.location_name || c.location) && (
+            <span className="inline-flex items-center gap-1.5">
+              <MapPin size={12} className="shrink-0 opacity-70" />
+              <span>{c.location_name ?? c.location}</span>
+            </span>
+          )}
+          {c.sessions_count != null && (
+            <span className="inline-flex items-center gap-1.5">
+              <Clock size={12} className="shrink-0 opacity-70" />
+              <span>
+                {c.sessions_count} session{c.sessions_count === 1 ? "" : "s"}
+                {c.next_session_date ? ` (next ${c.next_session_date})` : ""}
+              </span>
+            </span>
+          )}
+        </div>
+        <div className="flex items-center gap-2 mt-2">
+          <span className="inline-flex items-center gap-1.5 text-xs text-muted-foreground tabular-nums shrink-0">
+            <Users size={12} className="shrink-0 opacity-70" />
             {registered}{c.capacity != null ? ` / ${c.capacity}` : ""} registered
           </span>
           {fillPct != null && (
@@ -311,14 +344,14 @@ function CohortRow({ cohort: c, onEdit, onDelete, deleting }: {
 /* Create/edit cohort modal — also reused by CohortDetail.tsx's "Edit"  */
 /* trigger, so this stays exported rather than duplicated.             */
 /* ================================================================== */
-export function CohortModal({ programs, cohort, onClose, onSuccess }: {
-  programs: Program[]; cohort?: Cohort; onClose: () => void; onSuccess: () => void
+export function CohortModal({ programs, cohort, onClose, onSuccess, initialProgramId }: {
+  programs: Program[]; cohort?: Cohort; onClose: () => void; onSuccess: () => void; initialProgramId?: string
 }) {
   const toast = useToast()
   const queryClient = useQueryClient()
   const { hasRole } = useAuth()
   const isEdit = !!cohort
-  const [programId, setProgramId] = useState(cohort?.program_id ?? "")
+  const [programId, setProgramId] = useState(cohort?.program_id ?? initialProgramId ?? "")
   const [name, setName] = useState(cohort?.name ?? "")
   const [startsOn, setStartsOn] = useState(cohort?.starts_on ?? "")
   const [endsOn, setEndsOn] = useState(cohort?.ends_on ?? "")
@@ -339,6 +372,24 @@ const { data: warehouses = [] } = useQuery({
     cohort?.keep_course_access_after_completion ?? true,
   )
   const [error, setError] = useState("")
+
+  const selectedProgram = programs.find((p) => p.id === programId)
+  useEffect(() => {
+    if (!isEdit && selectedProgram) {
+      if (selectedProgram.default_capacity != null && !capacity) {
+        setCapacity(String(selectedProgram.default_capacity))
+      }
+      if (selectedProgram.duration_hours != null && !durationHours) {
+        setDurationHours(String(selectedProgram.duration_hours))
+      }
+      if (selectedProgram.poster_template_url && !posterTemplateUrl) {
+        setPosterTemplateUrl(selectedProgram.poster_template_url)
+      }
+      if (selectedProgram.keep_course_access_after_completion != null) {
+        setKeepCourseAccessAfterCompletion(selectedProgram.keep_course_access_after_completion)
+      }
+    }
+  }, [selectedProgram, isEdit])
 
   // Inline "+ New location" — so ops doesn't have to leave the cohort form
   // to reach the Catalogue page just to add a venue. Only operations/admin

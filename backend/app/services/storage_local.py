@@ -1,6 +1,5 @@
 """Local filesystem storage backend with encryption at rest (STORAGE_BACKEND=local).
 
-GO_LIVE §3.A3 / boss requirement #4:
 - Files live at STORAGE_ROOT/{bucket}/{path}.
 - EVERY file is Fernet-encrypted on write with STORAGE_ENCRYPTION_KEY (all
   buckets, uniformly — no "sensitive-only" carve-outs) and decrypted on read.

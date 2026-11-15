@@ -42,8 +42,9 @@ async def get_rating(
     cohort_id: uuid.UUID, instructor_user_id: uuid.UUID, db: AsyncSession = Depends(get_db),
     current: User = Depends(require_operations),
 ):
-    """This rater's own row for this (cohort, instructor) — a draft if not
-    yet submitted, so the form can resume where they left off."""
+    """This rater's own row for this (cohort, instructor) — falling back to
+    the latest submitted Ops rating on this cohort so any Ops reviewer can view
+    or edit an instructor's cohort evaluation."""
     rating = (await db.execute(
         select(InstructorProgramRating).where(
             InstructorProgramRating.cohort_id == cohort_id,
@@ -51,6 +52,17 @@ async def get_rating(
             InstructorProgramRating.rater_user_id == current.id,
         )
     )).scalars().first()
+    if rating is None:
+        rating = (await db.execute(
+            select(InstructorProgramRating).where(
+                InstructorProgramRating.cohort_id == cohort_id,
+                InstructorProgramRating.instructor_user_id == instructor_user_id,
+                InstructorProgramRating.submitted.is_(True),
+            ).order_by(
+                InstructorProgramRating.submitted_at.desc().nullslast(),
+                InstructorProgramRating.created_at.desc(),
+            )
+        )).scalars().first()
     return _rating_out(rating) if rating else None
 
 
@@ -60,9 +72,9 @@ async def upsert_rating(
     db: AsyncSession = Depends(get_db), current: User = Depends(require_operations),
 ):
     """Autosave keeps calling this with `submit=False`; a deliberate submit
-    sets `submit=True`. `submitted` only ever ratchets forward — once
-    submitted, later autosave-shaped calls are refused rather than silently
-    reopening a finished rating (same contract as `CompetitionScore`)."""
+    sets `submit=True`. Draft autosaves (`submit=False`) cannot overwrite an
+    already-submitted evaluation (409), while explicit submissions
+    (`submit=True`) allow Ops to directly refine a submitted cohort rating."""
     if await db.get(Cohort, cohort_id) is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Cohort not found")
 
@@ -73,7 +85,19 @@ async def upsert_rating(
             InstructorProgramRating.rater_user_id == current.id,
         )
     )).scalars().first()
-    if rating is not None and rating.submitted:
+    if rating is None:
+        rating = (await db.execute(
+            select(InstructorProgramRating).where(
+                InstructorProgramRating.cohort_id == cohort_id,
+                InstructorProgramRating.instructor_user_id == instructor_user_id,
+            ).order_by(
+                InstructorProgramRating.submitted.desc(),
+                InstructorProgramRating.submitted_at.desc().nullslast(),
+                InstructorProgramRating.created_at.desc(),
+            )
+        )).scalars().first()
+
+    if rating is not None and rating.submitted and not body.submit:
         raise HTTPException(status.HTTP_409_CONFLICT, detail="This rating is already submitted")
 
     if rating is None:
@@ -89,6 +113,7 @@ async def upsert_rating(
     rating.recommended = body.recommended
     rating.flag = body.flag
     if body.submit:
+        rating.rater_user_id = current.id
         rating.submitted = True
         rating.submitted_at = datetime.now(timezone.utc)
 

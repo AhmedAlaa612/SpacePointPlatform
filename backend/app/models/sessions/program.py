@@ -62,6 +62,16 @@ class Program(Base):
         ),
         nullable=True,
     )
+    default_team_certificate_template_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey(
+            "program_certificate_templates.id",
+            ondelete="SET NULL",
+            use_alter=True,
+            name="fk_programs_default_team_certificate_template_id",
+        ),
+        nullable=True,
+    )
     keep_course_access_after_completion = Column(
         Boolean, nullable=False, default=True, server_default="true",
     )

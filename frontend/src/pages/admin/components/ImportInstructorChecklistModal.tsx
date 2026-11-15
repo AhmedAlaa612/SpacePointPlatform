@@ -20,7 +20,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog"
 import { useToast } from "@/components/ui/toast"
-import { getProgramsApi } from "@/api/sessions/programs"
+import { getProgramsApi, getProgramTemplateApi, type ProgramTemplate } from "@/api/sessions/programs"
 import { getCohortsApi, getSessionsApi } from "@/api/sessions/cohorts"
 import {
   listChecklistItemsApi,
@@ -112,7 +112,22 @@ export function ImportInstructorChecklistModal({
     queryFn: () => getCohortsApi(selectedProgramId),
     enabled: open && !!selectedProgramId,
   })
-  const cohorts = rawCohorts ?? EMPTY_COHORTS
+  const cohorts = useMemo(
+    () =>
+      (rawCohorts ?? EMPTY_COHORTS).filter((c) => {
+        const statusStr = String(c.status).toLowerCase()
+        const normName = c.name.trim().toLowerCase()
+        return statusStr !== "draft" && !normName.startsWith("[template]") && normName !== "template"
+      }),
+    [rawCohorts],
+  )
+
+  const { data: programTemplate } = useQuery<ProgramTemplate>({
+    queryKey: ["program-template-for-import", selectedProgramId],
+    queryFn: () => getProgramTemplateApi(selectedProgramId),
+    enabled: open && !!selectedProgramId,
+  })
+  const templateSessions = programTemplate?.sessions ?? []
 
   // When program changes, reset source and selection
   const handleProgramChange = (progId: string) => {
@@ -138,10 +153,20 @@ export function ImportInstructorChecklistModal({
     })
   }, [sourceCohortSessions])
 
+  const subSelectorDays = useMemo(() => {
+    if (!source) return []
+    if (source.scope === "programs") return templateSessions
+    if (source.cohortId) return sortedSessions
+    return []
+  }, [source, templateSessions, sortedSessions])
+
   // Effective source scope and owner id
   const effectiveSource = useMemo<{ scope: ChecklistScope; ownerId: string } | null>(() => {
     if (!source) return null
     if (source.scope === "programs") {
+      if (selectedCohortSessionId !== "default") {
+        return { scope: "sessions", ownerId: selectedCohortSessionId }
+      }
       return { scope: "programs", ownerId: source.ownerId }
     }
     if (source.cohortId) {
@@ -450,8 +475,8 @@ export function ImportInstructorChecklistModal({
               </div>
             )}
 
-            {/* Optional Sub-selector for Cohort Sessions / Days */}
-            {source && source.cohortId && sortedSessions.length > 0 && (
+            {/* Optional Sub-selector for Program Template Days or Cohort Sessions */}
+            {source && subSelectorDays.length > 0 && (
               <div className="mt-3 p-3 border border-border rounded-xl bg-card space-y-2">
                 <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground block">
                   Select Day from {source.label}:
@@ -468,7 +493,7 @@ export function ImportInstructorChecklistModal({
                   >
                     Pre-Workshop / Default
                   </button>
-                  {sortedSessions.map((s, idx) => {
+                  {subSelectorDays.map((s, idx) => {
                     const isSelectedSession = selectedCohortSessionId === s.id
                     return (
                       <button
@@ -521,13 +546,14 @@ export function ImportInstructorChecklistModal({
                   <span className="text-xs text-muted-foreground">
                     From source: <strong className="text-foreground">{source.label}</strong>
                     {selectedCohortSessionId !== "default"
-                      ? ` (${
-                          sortedSessions.find((s) => s.id === selectedCohortSessionId)?.title
-                            ? `Day: ${
-                                sortedSessions.find((s) => s.id === selectedCohortSessionId)?.title
-                              }`
-                            : "Selected Day"
-                        })`
+                      ? (() => {
+                          const pickedIdx = subSelectorDays.findIndex(
+                            (s) => s.id === selectedCohortSessionId,
+                          )
+                          const picked = pickedIdx >= 0 ? subSelectorDays[pickedIdx] : undefined
+                          if (!picked) return " (Selected Day)"
+                          return ` (Day ${pickedIdx + 1}${picked.title ? `: ${picked.title}` : ""})`
+                        })()
                       : ""}{" "}
                     ({sourceItems.length} total item{sourceItems.length === 1 ? "" : "s"})
                   </span>

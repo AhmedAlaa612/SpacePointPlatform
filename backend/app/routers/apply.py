@@ -7,13 +7,19 @@ from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, s
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.apply_config import CONFIGURABLE_APPLY_ROLES, ROLES_REQUIRING_CODE, ROLES_WITH_CV, VALID_ROLES
 from app.core.security import get_password_hash
 from app.db.session import get_db
 from app.models.application import Application
-from app.models.inventory.city import City
-from app.core.apply_config import ROLES_REQUIRING_CODE, ROLES_WITH_CV, VALID_ROLES
 from app.models.application_question import ApplicationQuestion
+from app.models.inventory.city import City
 from app.models.user import User
+from app.services.apply_form_config import (
+    enforce_standard_field_requirements,
+    get_hidden_question_ids,
+    get_role_form_config,
+    validate_and_snapshot_custom_questions,
+)
 from app.services.spine.identity import normalize_user_email, user_email_matches
 
 router = APIRouter(prefix="/apply", tags=["apply"])
@@ -33,14 +39,23 @@ def _question_out(q: ApplicationQuestion) -> dict:
 @router.get("/{role}/questions")
 async def list_apply_questions(role: str, db: AsyncSession = Depends(get_db)):
     """Public: active custom questions for a role's apply form."""
-    if role not in VALID_ROLES:
+    if role not in CONFIGURABLE_APPLY_ROLES:
         raise HTTPException(status_code=404, detail="Unknown role")
     rows = (await db.execute(
         select(ApplicationQuestion)
         .where(ApplicationQuestion.audience == role, ApplicationQuestion.is_active.is_(True))
         .order_by(ApplicationQuestion.sort_order, ApplicationQuestion.created_at)
     )).scalars().all()
-    return [_question_out(q) for q in rows]
+    hidden_ids = await get_hidden_question_ids(db, role)
+    return [_question_out(q) for q in rows if str(q.id) not in hidden_ids]
+
+
+@router.get("/{role}/form-config")
+async def get_public_apply_form_config(role: str, db: AsyncSession = Depends(get_db)):
+    """Public: full form field visibility/requiredness + active custom questions for a role."""
+    if role not in CONFIGURABLE_APPLY_ROLES:
+        raise HTTPException(status_code=404, detail="Unknown role")
+    return await get_role_form_config(db, role)
 
 
 @router.post("/{role}", status_code=status.HTTP_201_CREATED)
@@ -52,8 +67,10 @@ async def submit_application(
     phone: Optional[str] = Form(None),
     country: Optional[str] = Form(None),
     city_id: Optional[str] = Form(None),
+    city_other: Optional[str] = Form(None),
     invite_code: Optional[str] = Form(None),
     birthdate: Optional[str] = Form(None),
+    nationality: Optional[str] = Form(None),
     answers: Optional[str] = Form(None),   # JSON string
     cv: Optional[UploadFile] = File(None),
     # Internship request fields (2026-08-20, role="intern" only) — collected
@@ -62,6 +79,8 @@ async def submit_application(
     # ApplicationQuestion-driven answers, which are keyed by question id) so
     # routers/admin/applications.py can read them reliably by name — see
     # HANDOFF_INTERNSHIP.md.
+    university: Optional[str] = Form(None),
+    major: Optional[str] = Form(None),
     university_id_number: Optional[str] = Form(None),
     preferred_city_id: Optional[str] = Form(None),
     requested_start_date: Optional[str] = Form(None),
@@ -71,7 +90,15 @@ async def submit_application(
     import json
     if role not in VALID_ROLES:
         raise HTTPException(status_code=404, detail="Unknown role")
-    if role in ROLES_REQUIRING_CODE and not invite_code:
+
+    form_config = await get_role_form_config(db, role)
+    invite_cfg = next((f for f in form_config["fields"] if f["key"] == "invite_code"), None)
+    invite_required = (
+        bool(invite_cfg["enabled"] and invite_cfg["required"])
+        if (form_config.get("has_custom_override") and invite_cfg)
+        else (role in ROLES_REQUIRING_CODE)
+    )
+    if invite_required and not (invite_code and invite_code.strip()):
         raise HTTPException(status_code=400, detail="Invite code required for this role")
 
     # Canonical normalization at the write boundary (strip + lowercase) —
@@ -91,35 +118,30 @@ async def submit_application(
 
     # Resolve invite code → user
     invited_by_id = None
-    if invite_code:
+    if invite_code and invite_code.strip():
         code = invite_code.strip().upper()
         amb = (await db.execute(
             select(User).where(User.invite_code == code, User.status == "active")
         )).scalars().first()
         if amb:
             invited_by_id = amb.id
-        elif role in ROLES_REQUIRING_CODE:
+        elif invite_required:
             raise HTTPException(status_code=400, detail="Invalid or inactive invite code")
 
-    # CV upload
-    app_id = uuid.uuid4()
-    cv_url = None
-    cv_path = None
-    if cv and cv.filename:
-        from app.services import storage
-        ext = ("." + cv.filename.rsplit(".", 1)[-1]) if "." in cv.filename else ""
-        data = await cv.read()
-        cv_path = f"{role}/{app_id}{ext}"
-        cv_url = await storage.upload_file("cvs", cv_path, data, cv.content_type or "application/pdf")
-
-    parsed_answers = {}
+    parsed_answers: dict = {}
     if answers:
         try:
-            parsed_answers = json.loads(answers)
+            loaded = json.loads(answers)
+            if isinstance(loaded, dict):
+                parsed_answers = loaded
         except Exception:
             pass
     if birthdate:
         parsed_answers["birthdate"] = birthdate
+    if nationality and nationality.strip():
+        parsed_answers["nationality"] = nationality.strip()
+    if city_other:
+        parsed_answers["city_other"] = city_other
 
     if role == "intern":
         if preferred_city_id:
@@ -134,6 +156,8 @@ async def submit_application(
                 raise HTTPException(status_code=400, detail="requested_start_date must be YYYY-MM-DD")
         parsed_answers.update({
             k: v for k, v in {
+                "university": university,
+                "major": major,
                 "university_id_number": university_id_number,
                 "preferred_city_id": preferred_city_id,
                 "requested_start_date": requested_start_date,
@@ -154,6 +178,40 @@ async def submit_application(
             raise HTTPException(status_code=400, detail="Unknown city")
     else:
         city_uuid = None
+
+    standard_values = {
+        "phone": phone,
+        "birthdate": parsed_answers.get("birthdate"),
+        "nationality": parsed_answers.get("nationality"),
+        "country": country,
+        "city": city_id or parsed_answers.get("city_other") or parsed_answers.get("city"),
+        "invite_code": invite_code,
+        "cv": bool(cv and cv.filename),
+        "university": parsed_answers.get("university"),
+        "major": parsed_answers.get("major"),
+        "university_id_number": parsed_answers.get("university_id_number"),
+        "preferred_city_id": parsed_answers.get("preferred_city_id"),
+        "requested_start_date": parsed_answers.get("requested_start_date"),
+        "requested_duration_weeks": parsed_answers.get("requested_duration_weeks"),
+    }
+    enforce_standard_field_requirements(form_config, standard_values)
+
+    parsed_answers, question_snapshots = await validate_and_snapshot_custom_questions(
+        db, role, parsed_answers
+    )
+    if question_snapshots:
+        parsed_answers["_question_snapshots"] = question_snapshots
+
+    # CV upload
+    app_id = uuid.uuid4()
+    cv_url = None
+    cv_path = None
+    if cv and cv.filename:
+        from app.services import storage
+        ext = ("." + cv.filename.rsplit(".", 1)[-1]) if "." in cv.filename else ""
+        data = await cv.read()
+        cv_path = f"{role}/{app_id}{ext}"
+        cv_url = await storage.upload_file("cvs", cv_path, data, cv.content_type or "application/pdf")
 
     app = Application(
         id=app_id,
@@ -176,8 +234,14 @@ async def submit_application(
     from app.services.notification import create_notification as notify
     admins = (await db.execute(select(User).where(User.roles.any("admin")))).scalars().all()
     for admin in admins:
-        await notify(db, admin.id, f"New {role.title()} Application",
-                     f"{full_name} applied as {role}.", type="application")
+        await notify(
+            db,
+            admin.id,
+            f"New {role.title()} Application",
+            f"{full_name} applied as {role}.",
+            type="application",
+            link=f"/admin/applications?id={app_id}",
+        )
 
     await db.commit()
     return {"id": str(app_id), "status": "pending"}

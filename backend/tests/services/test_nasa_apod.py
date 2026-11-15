@@ -75,11 +75,12 @@ async def test_nasa_apod_leap_year_handling():
         200,
         json={
             "media_type": "image",
-            "url": "https://apod.nasa.gov/leap.jpg",
+            "hdurl": "https://apod.nasa.gov/leap_hd.jpg",
+            "url": "https://science.nasa.gov/apod/leap/",
             "title": "Leap Day Wonder",
             "explanation": "Cosmic view",
         },
-        request=httpx.Request("GET", "https://api.nasa.gov/planetary/apod"),
+        request=httpx.Request("GET", "https://science.nasa.gov/wp-json/wp/v2/apod-basic/220228"),
     )
 
     with patch("httpx.AsyncClient.get", new_callable=AsyncMock) as mock_get:
@@ -87,6 +88,7 @@ async def test_nasa_apod_leap_year_handling():
 
         data = await get_nasa_birthday_picture(date(2000, 2, 29))
         assert data["title"] == "Leap Day Wonder"
+        assert data["image_url"] == "https://apod.nasa.gov/leap_hd.jpg"
 
 
 @pytest.mark.asyncio
@@ -124,36 +126,35 @@ async def test_send_birthday_greeting_email_format():
 
 @pytest.mark.asyncio
 async def test_nasa_apod_uses_real_key_first_and_falls_back_to_demo_key():
+    # Service now uses the keyless science.nasa.gov endpoint (ignoring any legacy api_key arg),
+    # retries another year on non-200 / placeholder responses, and returns hdurl when available.
     rate_limited_response = httpx.Response(
         429,
         json={"error": {"code": "OVER_RATE_LIMIT", "message": "Limit exceeded"}},
-        request=httpx.Request("GET", "https://api.nasa.gov/planetary/apod"),
+        request=httpx.Request("GET", "https://science.nasa.gov/wp-json/wp/v2/apod-basic/990310"),
     )
-    success_demo_response = httpx.Response(
+    success_response = httpx.Response(
         200,
         json={
             "media_type": "image",
-            "url": "https://apod.nasa.gov/demo_success.jpg",
+            "hdurl": "https://apod.nasa.gov/demo_success.jpg",
+            "url": "https://science.nasa.gov/apod/990310/",
             "title": "Fallback Demo Nebula",
-            "explanation": "Loaded via DEMO_KEY fallback",
+            "explanation": "Loaded after retry without needing API key",
         },
-        request=httpx.Request("GET", "https://api.nasa.gov/planetary/apod"),
+        request=httpx.Request("GET", "https://science.nasa.gov/wp-json/wp/v2/apod-basic/000310"),
     )
 
     with patch("httpx.AsyncClient.get", new_callable=AsyncMock) as mock_get:
-        mock_get.side_effect = [rate_limited_response, success_demo_response]
+        mock_get.side_effect = [rate_limited_response, success_response]
 
         data = await get_nasa_birthday_picture(date(1999, 3, 10), api_key="MY_REAL_SECRET_KEY")
 
         assert data["title"] == "Fallback Demo Nebula"
         assert data["image_url"] == "https://apod.nasa.gov/demo_success.jpg"
-
-        # Verify first call used real key
-        first_call_params = mock_get.call_args_list[0].kwargs["params"]
-        assert first_call_params["api_key"] == "MY_REAL_SECRET_KEY"
-
-        # Verify second call used DEMO_KEY
-        second_call_params = mock_get.call_args_list[1].kwargs["params"]
-        assert second_call_params["api_key"] == "DEMO_KEY"
+        assert mock_get.call_count == 2
+        # Confirm keyless calls do not send api_key query params
+        for call in mock_get.call_args_list:
+            assert "params" not in call.kwargs or "api_key" not in (call.kwargs.get("params") or {})
 
 

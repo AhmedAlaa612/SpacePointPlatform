@@ -51,16 +51,19 @@ from __future__ import annotations
 import uuid
 from datetime import date, datetime, timedelta, timezone
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.models.lms.arcade_game import ArcadeGameAttempt
 from app.models.lms.cohort_quiz import CohortQuizAttempt
 from app.models.lms.program import (
     LmsProgramAssignment, LmsProgramItem, LmsProgramItemProgress, LmsProgramTeamItemProgress,
 )
+from app.models.missions.design import Design
 from app.models.missions.mission import Mission, MissionAttempt
 from app.models.sessions.cohort import Cohort
 from app.models.sessions.registration import Registration
+from app.models.spine.contact import Contact
 from app.models.team import Team, TeamMember
 from app.models.user import User
 from app.services.lms.program import effective_cohort_program_items
@@ -105,22 +108,59 @@ async def _team_rosters(
     return members_by_team, {u.id: u for u in users}
 
 
-async def _cohort_roster_user_ids(db: AsyncSession, *, cohort_id: uuid.UUID) -> set[uuid.UUID]:
+async def _cohort_roster_user_ids(
+    db: AsyncSession, *, cohort_id: uuid.UUID, mode: str = "participant",
+) -> set[uuid.UUID]:
     """Every student with an active Registration in this cohort, as user
-    ids — the denominator for "registered but not on a team". Same
-    contact_id -> User hop (and the same active-status filter) every other
-    roster query in this codebase uses."""
-    contact_ids = (await db.execute(
-        select(Registration.contact_id).where(
+    ids — resolved via contact_id first, then email fallback, and
+    partitioned by assignment mode (participant vs observer)."""
+    if mode == "observer":
+        return set((await db.execute(
+            select(LmsProgramAssignment.user_id).where(
+                LmsProgramAssignment.cohort_id == cohort_id,
+                LmsProgramAssignment.mode == "observer",
+            )
+        )).scalars().all())
+
+    contact_rows = (await db.execute(
+        select(Contact.id, Contact.email)
+        .join(Registration, Registration.contact_id == Contact.id)
+        .where(
             Registration.cohort_id == cohort_id,
             Registration.status.in_(ACTIVE_REGISTRATION_STATUSES),
         )
-    )).scalars().all()
-    if not contact_ids:
+    )).all()
+    if not contact_rows:
         return set()
-    return set((await db.execute(
-        select(User.id).where(User.contact_id.in_(contact_ids))
-    )).scalars().all())
+
+    contact_ids = [cid for cid, _ in contact_rows]
+    user_rows = (await db.execute(
+        select(User.id, User.contact_id).where(User.contact_id.in_(contact_ids))
+    )).all()
+    matched_cids = {cid for _, cid in user_rows if cid is not None}
+    uid_set = {uid for uid, _ in user_rows}
+
+    fallback_emails = [
+        email.strip().lower()
+        for cid, email in contact_rows
+        if cid not in matched_cids and email and email.strip()
+    ]
+    if fallback_emails:
+        email_uids = (await db.execute(
+            select(User.id).where(func.lower(User.email).in_(fallback_emails))
+        )).scalars().all()
+        uid_set.update(email_uids)
+
+    if mode == "participant" and uid_set:
+        observer_uids = set((await db.execute(
+            select(LmsProgramAssignment.user_id).where(
+                LmsProgramAssignment.cohort_id == cohort_id,
+                LmsProgramAssignment.mode == "observer",
+            )
+        )).scalars().all())
+        uid_set -= observer_uids
+
+    return uid_set
 
 
 async def _individual_done_user_ids(
@@ -198,6 +238,27 @@ async def _individual_done_user_ids(
                 done_by_item[item_id].add(user_id)
                 awaiting_by_item[item_id].discard(user_id)
 
+    arcade_items = [i for i in items if i.item_type == "arcade_game" and getattr(i, "arcade_game_id", None)]
+    if arcade_items and assigned_user_ids:
+        game_ids = list({i.arcade_game_id for i in arcade_items})
+        passed_rows = (await db.execute(
+            select(ArcadeGameAttempt.user_id, ArcadeGameAttempt.game_id, ArcadeGameAttempt.mode).where(
+                ArcadeGameAttempt.game_id.in_(game_ids),
+                ArcadeGameAttempt.user_id.in_(list(assigned_user_ids)),
+                ArcadeGameAttempt.passed.is_(True),
+            )
+        )).all()
+        passed_pairs = {(uid, gid, gmode) for uid, gid, gmode in passed_rows}
+        passed_any_mode = {(uid, gid) for uid, gid, _ in passed_rows}
+        for item in arcade_items:
+            req_mode = getattr(item, "arcade_game_mode", None)
+            for uid in assigned_user_ids:
+                if (req_mode and (uid, item.arcade_game_id, req_mode) in passed_pairs) or (
+                    not req_mode and (uid, item.arcade_game_id) in passed_any_mode
+                ):
+                    done_by_item[item.id].add(uid)
+                    awaiting_by_item[item.id].discard(uid)
+
     return done_by_item, awaiting_by_item, assigned_user_ids, assignment_by_user
 
 
@@ -225,70 +286,114 @@ def _mission_attempt_lookup(
 
 async def _mission_blocks(
     db: AsyncSession, *, items: list[LmsProgramItem], team_progress: list[LmsProgramTeamItemProgress],
-    team_count: int, assigned_user_count: int,
+    team_count: int, assigned_user_count: int, assigned_assignment_ids: set[uuid.UUID] | None = None,
 ) -> tuple[list[dict], dict[uuid.UUID, str], dict[uuid.UUID, str]]:
-    """One row per mission_run mission (not per checklist item — several
-    items can split one run into design steps via `mission_step_key`, the
-    same grouping `team_mission_run_items` and the authoring Missions tab
-    already use), counting the shared `MissionAttempt.status` behind it.
-
-    Team-scoped runs count teams; individual-scoped runs count students.
-    Both read the attempt row directly — no design-dashboard cascade, see
-    the module docstring.
-
-    Also returns `attempt_status`/`title_by_id` — the same lookups this
-    needs to build its own cohort-wide rows are exactly what
-    cohort_team_analytics's per-team pass needs too (_team_mission_runs
-    below), so they're handed back rather than requeried."""
+    """One row per (mission_id, scope) mission_run — team-scoped and
+    individual-scoped runs are kept strictly separate even if both reference
+    the same Mission. Team-scoped runs read `team_progress`; individual-scoped
+    runs read `LmsProgramItemProgress` filtered to `assigned_assignment_ids`."""
     mission_items = [i for i in items if i.item_type == "mission_run" and i.mission_id]
     if not mission_items:
         return [], {}, {}
 
-    item_mission, attempt_ids_by_mission, team_scoped_mission_ids = _mission_attempt_lookup(items, team_progress)
+    item_scope_mission: dict[uuid.UUID, tuple[uuid.UUID, str]] = {
+        i.id: (i.mission_id, "team" if i.scope == "team" else "individual")
+        for i in mission_items
+    }
+    attempt_ids_by_scope_mission: dict[tuple[uuid.UUID, str], set[uuid.UUID]] = {}
+
+    for row in team_progress:
+        key = item_scope_mission.get(row.item_id)
+        if key is not None and key[1] == "team" and row.mission_attempt_id is not None:
+            attempt_ids_by_scope_mission.setdefault(key, set()).add(row.mission_attempt_id)
 
     individual_item_ids = [i.id for i in mission_items if i.scope != "team"]
-    if individual_item_ids:
-        rows = (await db.execute(
-            select(LmsProgramItemProgress.item_id, LmsProgramItemProgress.mission_attempt_id).where(
-                LmsProgramItemProgress.item_id.in_(individual_item_ids),
-                LmsProgramItemProgress.mission_attempt_id.isnot(None),
-            )
-        )).all()
+    if individual_item_ids and (assigned_assignment_ids is None or len(assigned_assignment_ids) > 0):
+        stmt = select(LmsProgramItemProgress.item_id, LmsProgramItemProgress.mission_attempt_id).where(
+            LmsProgramItemProgress.item_id.in_(individual_item_ids),
+            LmsProgramItemProgress.mission_attempt_id.isnot(None),
+        )
+        if assigned_assignment_ids is not None:
+            stmt = stmt.where(LmsProgramItemProgress.assignment_id.in_(assigned_assignment_ids))
+        rows = (await db.execute(stmt)).all()
         for item_id, attempt_id in rows:
-            mission_id = item_mission.get(item_id)
-            if mission_id is not None:
-                attempt_ids_by_mission.setdefault(mission_id, set()).add(attempt_id)
+            key = item_scope_mission.get(item_id)
+            if key is not None and key[1] == "individual":
+                attempt_ids_by_scope_mission.setdefault(key, set()).add(attempt_id)
 
-    all_attempt_ids = {aid for ids in attempt_ids_by_mission.values() for aid in ids}
+    all_attempt_ids = {aid for ids in attempt_ids_by_scope_mission.values() for aid in ids}
     attempts = (
         (await db.execute(select(MissionAttempt).where(MissionAttempt.id.in_(all_attempt_ids)))).scalars().all()
         if all_attempt_ids else []
     )
     attempt_status = {a.id: a.status for a in attempts}
 
+    designs = (
+        (await db.execute(select(Design).where(Design.attempt_id.in_(all_attempt_ids)))).scalars().all()
+        if all_attempt_ids else []
+    )
+    design_by_attempt = {d.attempt_id: d for d in designs}
+
     mission_ids = sorted({i.mission_id for i in mission_items}, key=str)
     missions = (await db.execute(select(Mission).where(Mission.id.in_(mission_ids)))).scalars().all()
     title_by_id = {m.id: m.title for m in missions}
 
+    MADAR_STEP_LABELS = [
+        ("setup", "Setup"),
+        ("orbit", "Orbit"),
+        ("components", "Components"),
+        ("power", "Power"),
+        ("thermal", "Thermal"),
+        ("comms", "Comms"),
+        ("mass", "Mass"),
+        ("simulation", "Simulation"),
+        ("downlink", "Downlink"),
+    ]
+
+    scope_mission_keys = sorted(
+        {(i.mission_id, "team" if i.scope == "team" else "individual") for i in mission_items},
+        key=lambda k: (k[1], str(k[0])),
+    )
+
     out = []
-    for mission_id in mission_ids:
-        is_team = mission_id in team_scoped_mission_ids
+    for mission_id, scope_str in scope_mission_keys:
+        is_team = scope_str == "team"
         total = team_count if is_team else assigned_user_count
-        statuses = [attempt_status.get(aid) for aid in attempt_ids_by_mission.get(mission_id, set())]
+        m_attempt_ids = attempt_ids_by_scope_mission.get((mission_id, scope_str), set())
+        statuses = [attempt_status.get(aid) for aid in m_attempt_ids]
         passed = sum(1 for s in statuses if s == "passed")
-        # Everything that has an attempt but hasn't passed is "started" —
-        # submitted/failed/abandoned included. A failed run is still a
-        # team that showed up, and lumping it with "never opened it" would
-        # hide exactly the teams worth chasing.
         started = sum(1 for s in statuses if s is not None and s != "passed")
+
+        m_designs = [design_by_attempt[aid] for aid in m_attempt_ids if aid in design_by_attempt]
+        step_funnel = []
+        if m_designs:
+            prev_count: int | None = None
+            for step_key, label in MADAR_STEP_LABELS:
+                confirmed_count = sum(1 for d in m_designs if step_key in (d.confirmed_steps or []))
+                pct_val = _pct(confirmed_count, total)
+                dropoff = (
+                    max(0, round(100 * (prev_count - confirmed_count) / prev_count))
+                    if prev_count and prev_count > 0
+                    else 0
+                )
+                prev_count = confirmed_count
+                step_funnel.append({
+                    "step_key": step_key,
+                    "label": label,
+                    "confirmed_count": confirmed_count,
+                    "pct": pct_val,
+                    "dropoff_from_prev_pct": dropoff,
+                })
+
         out.append({
             "mission_id": mission_id,
             "title": title_by_id.get(mission_id, "Mission"),
-            "scope": "team" if is_team else "individual",
+            "scope": scope_str,
             "total": total,
             "passed": passed,
             "in_progress": started,
             "not_started": max(total - passed - started, 0),
+            "step_funnel": step_funnel,
         })
     return out, attempt_status, title_by_id
 
@@ -373,7 +478,7 @@ async def cohort_team_analytics(db: AsyncSession, *, cohort_id: uuid.UUID, mode:
         for u in more_users:
             users_by_id[u.id] = u
 
-    registered_user_ids = await _cohort_roster_user_ids(db, cohort_id=cohort_id)
+    registered_user_ids = await _cohort_roster_user_ids(db, cohort_id=cohort_id, mode=mode)
     on_a_team = {uid for ids in members_by_team.values() for uid in ids}
 
     resolved = await effective_cohort_program_items(db, cohort_id)
@@ -566,6 +671,58 @@ async def cohort_team_analytics(db: AsyncSession, *, cohort_id: uuid.UUID, mode:
                 })
 
         total = len(required_team_items)
+        team_pct_val = _pct(done, total)
+        is_stalled = (
+            done < total
+            and (last_activity is None or (now - last_activity) > timedelta(days=STALLED_AFTER_DAYS))
+        )
+        member_stats = [
+            {
+                "user_id": m.id,
+                "assignment_id": assignment_by_user.get(m.id),
+                "name": m.full_name,
+                "student_id": getattr(m, "student_id", None),
+                "last_login_at": m.last_login_at,
+                "items_total": ind_total,
+                "items_done": sum(1 for item in required_individual_items if m.id in done_users_by_item.get(item.id, set())),
+                "optional_total": ind_opt_total,
+                "optional_done": sum(1 for item in optional_individual_items if m.id in done_users_by_item.get(item.id, set())),
+                "all_total": ind_total + ind_opt_total,
+                "all_done": (
+                    sum(1 for item in required_individual_items if m.id in done_users_by_item.get(item.id, set()))
+                    + sum(1 for item in optional_individual_items if m.id in done_users_by_item.get(item.id, set()))
+                ),
+                "pct": _pct(
+                    sum(1 for item in required_individual_items if m.id in done_users_by_item.get(item.id, set())),
+                    ind_total,
+                ),
+            }
+            for m in members
+        ]
+        active_member_count = sum(
+            1 for ms in member_stats
+            if ms["last_login_at"] is not None and (ms["items_done"] > 0 or ind_total == 0)
+        )
+        distinct_submitter_count = len({
+            p.updated_by_user_id
+            for item in team_items
+            if (p := progress_by_team_item.get((team.id, item.id))) is not None and p.updated_by_user_id is not None
+        })
+        member_pcts = [ms["pct"] for ms in member_stats] if member_stats else [0]
+        if (
+            len(members) >= 2
+            and team_pct_val >= 50
+            and distinct_submitter_count <= 1
+            and (any(ms["last_login_at"] is None for ms in member_stats) or min(member_pcts) < 20)
+        ):
+            collab_status = "solo_carried"
+        elif is_stalled:
+            collab_status = "stalled"
+        elif len(members) >= 2 and (max(member_pcts) - min(member_pcts)) >= 50:
+            collab_status = "imbalanced"
+        else:
+            collab_status = "balanced"
+
         locked_by_user = users_by_id.get(team.final_locked_by) if team.final_locked_by else None
         team_rows.append({
             "team_id": team.id,
@@ -573,29 +730,7 @@ async def cohort_team_analytics(db: AsyncSession, *, cohort_id: uuid.UUID, mode:
             "roster_team_id": team.roster_team_id,
             "is_observer": bool(team.is_observer),
             "member_count": len(member_ids),
-            "members": [
-                {
-                    "user_id": m.id,
-                    "assignment_id": assignment_by_user.get(m.id),
-                    "name": m.full_name,
-                    "student_id": getattr(m, "student_id", None),
-                    "last_login_at": m.last_login_at,
-                    "items_total": ind_total,
-                    "items_done": sum(1 for item in required_individual_items if m.id in done_users_by_item.get(item.id, set())),
-                    "optional_total": ind_opt_total,
-                    "optional_done": sum(1 for item in optional_individual_items if m.id in done_users_by_item.get(item.id, set())),
-                    "all_total": ind_total + ind_opt_total,
-                    "all_done": (
-                        sum(1 for item in required_individual_items if m.id in done_users_by_item.get(item.id, set()))
-                        + sum(1 for item in optional_individual_items if m.id in done_users_by_item.get(item.id, set()))
-                    ),
-                    "pct": _pct(
-                        sum(1 for item in required_individual_items if m.id in done_users_by_item.get(item.id, set())),
-                        ind_total,
-                    ),
-                }
-                for m in members
-            ],
+            "members": member_stats,
             "never_logged_in": sum(1 for m in members if m.last_login_at is None),
             "items_total": total,
             "items_done": done,
@@ -604,15 +739,15 @@ async def cohort_team_analytics(db: AsyncSession, *, cohort_id: uuid.UUID, mode:
             "all_total": total + len(optional_team_items),
             "all_done": done + opt_done,
             "awaiting": awaiting,
-            "pct": _pct(done, total),
+            "pct": team_pct_val,
             "checkpoints": checkpoints_for_team,
             "deliverables": deliverables,
             "quiz_submissions": quiz_subs,
             "last_activity_at": last_activity,
-            "stalled": (
-                done < total
-                and (last_activity is None or (now - last_activity) > timedelta(days=STALLED_AFTER_DAYS))
-            ),
+            "stalled": is_stalled,
+            "collaboration_status": collab_status,
+            "active_member_count": active_member_count,
+            "distinct_submitter_count": distinct_submitter_count,
             "locked": team.final_locked_at is not None,
             "locked_at": team.final_locked_at,
             "locked_by_name": locked_by_user.full_name if locked_by_user else None,
@@ -626,6 +761,7 @@ async def cohort_team_analytics(db: AsyncSession, *, cohort_id: uuid.UUID, mode:
     missions, attempt_status, title_by_id = await _mission_blocks(
         db, items=items, team_progress=team_progress,
         team_count=len(teams), assigned_user_count=len(assigned_user_ids),
+        assigned_assignment_ids=set(assignment_by_user.values()),
     )
     team_mission_runs = _team_mission_runs(
         items=items, progress_by_team_item=progress_by_team_item, team_ids=team_ids,
@@ -634,24 +770,68 @@ async def cohort_team_analytics(db: AsyncSession, *, cohort_id: uuid.UUID, mode:
     for row in team_rows:
         row["mission_runs"] = team_mission_runs.get(row["team_id"], [])
 
-    # ── activity window ─────────────────────────────────────────────────
-    # `updated_at` is a last-write timestamp, not an event log — a team
-    # that replaced a link three times shows up once, on the last day it
-    # touched that deliverable. Enough to see the deadline crunch and the
-    # teams that went quiet, which is what this chart is for; it is
-    # deliberately not billed as a submission count.
+    # ── multi-signal activity window ────────────────────────────────────
     window_start = (now - timedelta(days=ACTIVITY_WINDOW_DAYS - 1)).date()
-    by_day: dict[date, int] = {}
+    team_deliv_by_day: dict[date, int] = {}
     for progress in team_progress:
         if progress.updated_at is None:
             continue
         day = progress.updated_at.astimezone(timezone.utc).date()
         if day >= window_start:
-            by_day[day] = by_day.get(day, 0) + 1
-    activity = [
-        {"date": window_start + timedelta(days=offset), "updates": by_day.get(window_start + timedelta(days=offset), 0)}
-        for offset in range(ACTIVITY_WINDOW_DAYS)
-    ]
+            team_deliv_by_day[day] = team_deliv_by_day.get(day, 0) + 1
+
+    quiz_by_day: dict[date, int] = {}
+    for att in quiz_attempts_by_user_item.values():
+        if att.submitted_at is None:
+            continue
+        day = att.submitted_at.astimezone(timezone.utc).date()
+        if day >= window_start:
+            quiz_by_day[day] = quiz_by_day.get(day, 0) + 1
+
+    course_by_day: dict[date, int] = {}
+    if assignment_by_user:
+        ind_prog_rows = (await db.execute(
+            select(LmsProgramItemProgress.completed_at).where(
+                LmsProgramItemProgress.assignment_id.in_(list(assignment_by_user.values())),
+                LmsProgramItemProgress.completed_at.isnot(None),
+            )
+        )).scalars().all()
+        for completed_at in ind_prog_rows:
+            day = completed_at.astimezone(timezone.utc).date()
+            if day >= window_start:
+                course_by_day[day] = course_by_day.get(day, 0) + 1
+
+    activity = []
+    for offset in range(ACTIVITY_WINDOW_DAYS):
+        d = window_start + timedelta(days=offset)
+        td = team_deliv_by_day.get(d, 0)
+        qs = quiz_by_day.get(d, 0)
+        cc = course_by_day.get(d, 0)
+        activity.append({
+            "date": d,
+            "updates": td + qs + cc,
+            "team_deliverables": td,
+            "quiz_submissions": qs,
+            "course_completions": cc,
+        })
+
+    # ── individual roster summary ───────────────────────────────────────
+    assigned_users_rows = (
+        (await db.execute(select(User).where(User.id.in_(list(assigned_user_ids))))).scalars().all()
+        if assigned_user_ids else []
+    )
+    ind_started_count = 0
+    ind_completed_count = 0
+    ind_pct_sum = 0
+    ind_req_count = len(required_individual_items)
+    for uid in assigned_user_ids:
+        u_done = sum(1 for item in required_individual_items if uid in done_users_by_item.get(item.id, set()))
+        if u_done > 0:
+            ind_started_count += 1
+        if ind_req_count > 0 and u_done == ind_req_count:
+            ind_completed_count += 1
+        ind_pct_sum += _pct(u_done, ind_req_count)
+    ind_never_logged_in = sum(1 for u in assigned_users_rows if u.last_login_at is None)
 
     required_total_per_team = len(required_team_items)
     return {
@@ -681,6 +861,14 @@ async def cohort_team_analytics(db: AsyncSession, *, cohort_id: uuid.UUID, mode:
                 sum(r["items_done"] for r in team_rows),
                 sum(r["items_total"] for r in team_rows),
             ),
+        },
+        "individual_summary": {
+            "registered_count": max(len(registered_user_ids), len(assigned_user_ids)),
+            "assigned_count": len(assigned_user_ids),
+            "started_count": ind_started_count,
+            "completed_count": ind_completed_count,
+            "never_logged_in_count": ind_never_logged_in,
+            "avg_pct": round(ind_pct_sum / len(assigned_user_ids)) if assigned_user_ids else 0,
         },
         "items": item_rows,
         "missions": missions,

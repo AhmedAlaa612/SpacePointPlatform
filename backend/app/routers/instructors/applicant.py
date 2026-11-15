@@ -399,12 +399,46 @@ async def apply_as_student(
     except Exception:
         raise HTTPException(status_code=422, detail="Invalid application payload")
 
+    from app.services.apply_form_config import (
+        enforce_standard_field_requirements,
+        get_role_form_config,
+        save_user_custom_answers,
+        validate_and_snapshot_custom_questions,
+    )
+
+    inst_config = await get_role_form_config(db, "instructor")
+    enforce_standard_field_requirements(
+        inst_config,
+        {
+            "phone": current_user.phone,
+            "nationality": payload.nationality,
+            "work_status": payload.work_status,
+            "fluent_languages": payload.fluent_languages,
+            "graduated_university": payload.graduated_university,
+            "university": payload.university,
+            "highest_degree": payload.highest_degree,
+            "country": payload.country,
+            "city_of_residence_id": str(payload.city_of_residence_id) if payload.city_of_residence_id else None,
+            "deliver_city_ids": payload.deliver_city_ids,
+            "background_areas": payload.background_areas,
+            "invite_code": payload.invite_code,
+            "cv": bool(cv and cv.filename),
+        },
+    )
+    clean_answers, q_snapshots = await validate_and_snapshot_custom_questions(
+        db, "instructor", payload.answers
+    )
+
     code = payload.invite_code.strip().upper() if payload.invite_code else None
     invitation = None
     referred_by_ambassador_id = None
     if code:
         invitation, ambassador = await resolve_invite_code(db, code, kind="instructor")
         referred_by_ambassador_id = ambassador.id if ambassador else None
+        if not current_user.invitation_code_used:
+            current_user.invitation_code_used = code
+        if referred_by_ambassador_id and not current_user.invited_by_id:
+            current_user.invited_by_id = referred_by_ambassador_id
 
     # CV upload
     cv_path = None
@@ -499,6 +533,7 @@ async def apply_as_student(
             f"{current_user.full_name} applied as an instructor with your invite code.", type="instructor"
         )
 
+    await save_user_custom_answers(db, current_user.id, clean_answers, q_snapshots)
     await db.commit()
     await db.refresh(current_user)
 

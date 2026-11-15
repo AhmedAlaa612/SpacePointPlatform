@@ -1,0 +1,1115 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SpacePoint Operations — Programs & Cohorts Wireframe</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <style>
+    /* -------------------------------------------------------------
+       SPACEPOINT STRICT DESIGN SYSTEM (NOVEMBER 2026)
+       - No gradients
+       - No emojis
+       - No explanatory microcopy
+       - Strict palette: Purple, Black, White, Grayscale (+ Rose/Green alerts)
+       - Corner radius: strictly 10px
+       - Large, readable typography (Inter)
+       - Direct on background form layouts (no card nesting)
+    -------------------------------------------------------------- */
+    :root {
+      --bg: #F4F4F5;
+      --surface: #FFFFFF;
+      --surface-subtle: #FAFAFA;
+      --border: #E4E4E7;
+      --border-strong: #D4D4D8;
+      --text: #09090B;
+      --text-muted: #71717A;
+      --text-subtle: #A1A1AA;
+      
+      /* Brand Purple */
+      --purple-primary: #7C3AED;
+      --purple-hover: #6D28D9;
+      --purple-active: #5B21B6;
+      --purple-tint: #F5F3FF;
+      --purple-border: #DDD6FE;
+      
+      /* Alerts & Status Only */
+      --green-text: #15803D;
+      --green-bg: #DCFCE7;
+      --green-border: #BBF7D0;
+      
+      --rose-text: #BE123C;
+      --rose-bg: #FFE4E6;
+      --rose-border: #FECDD3;
+
+      /* Universal Radius */
+      --radius-10: 10px;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background-color: var(--bg);
+      color: var(--text);
+      line-height: 1.5;
+      -webkit-font-smoothing: antialiased;
+      padding: 32px 24px 80px;
+    }
+
+    .container {
+      max-width: 1240px;
+      margin: 0 auto;
+    }
+
+    /* Top bar */
+    .header-bar {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 24px;
+      flex-wrap: wrap;
+      gap: 16px;
+    }
+
+    .header-titles h1 {
+      font-size: 28px;
+      font-weight: 800;
+      letter-spacing: -0.02em;
+      color: var(--text);
+    }
+
+    .header-actions {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    /* Buttons */
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      height: 44px;
+      padding: 0 20px;
+      font-size: 15px;
+      font-weight: 600;
+      border-radius: var(--radius-10);
+      border: 1px solid transparent;
+      cursor: pointer;
+      text-decoration: none;
+      transition: background-color 0.15s ease, border-color 0.15s ease;
+      white-space: nowrap;
+    }
+
+    .btn-primary {
+      background-color: var(--purple-primary);
+      color: #FFFFFF;
+    }
+
+    .btn-primary:hover {
+      background-color: var(--purple-hover);
+    }
+
+    .btn-secondary {
+      background-color: var(--surface);
+      color: var(--text);
+      border-color: var(--border);
+    }
+
+    .btn-secondary:hover {
+      background-color: var(--surface-subtle);
+      border-color: var(--border-strong);
+    }
+
+    .btn-icon-square {
+      width: 44px;
+      height: 44px;
+      padding: 0;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      border-radius: var(--radius-10);
+      border: 1px solid var(--border);
+      background-color: var(--surface);
+      color: var(--text);
+      cursor: pointer;
+      transition: all 0.15s ease;
+    }
+
+    .btn-icon-square:hover {
+      background-color: var(--surface-subtle);
+      border-color: var(--purple-primary);
+      color: var(--purple-primary);
+    }
+
+    /* Controls Bar */
+    .controls-bar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      margin-bottom: 24px;
+      flex-wrap: wrap;
+    }
+
+    .search-input-wrap {
+      flex: 1;
+      min-width: 260px;
+      position: relative;
+    }
+
+    .search-input-wrap svg {
+      position: absolute;
+      left: 14px;
+      top: 50%;
+      transform: translateY(-50%);
+      color: var(--text-muted);
+    }
+
+    .input-field {
+      width: 100%;
+      height: 44px;
+      padding: 0 14px 0 42px;
+      font-size: 15px;
+      font-weight: 500;
+      border-radius: var(--radius-10);
+      border: 1px solid var(--border);
+      background-color: var(--surface);
+      color: var(--text);
+      outline: none;
+      transition: border-color 0.15s ease;
+    }
+
+    .input-field:focus {
+      border-color: var(--purple-primary);
+    }
+
+    .select-field {
+      width: 170px;
+      flex-shrink: 0;
+      height: 44px;
+      padding: 0 34px 0 14px;
+      font-size: 14px;
+      font-weight: 500;
+      border-radius: var(--radius-10);
+      border: 1px solid var(--border);
+      background-color: var(--surface);
+      color: var(--text);
+      outline: none;
+      cursor: pointer;
+      appearance: none;
+      background-image: url("data:image/svg+xml,%3Csvg width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%2371717A' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E");
+      background-repeat: no-repeat;
+      background-position: right 14px center;
+    }
+
+    .view-switcher {
+      display: inline-flex;
+      background-color: #E4E4E7;
+      padding: 3px;
+      border-radius: var(--radius-10);
+      gap: 2px;
+    }
+
+    .view-btn {
+      height: 38px;
+      padding: 0 16px;
+      font-size: 14px;
+      font-weight: 600;
+      border-radius: var(--radius-10);
+      border: none;
+      background: transparent;
+      color: var(--text-muted);
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      transition: all 0.15s ease;
+    }
+
+    .view-btn.active {
+      background-color: var(--surface);
+      color: var(--text);
+      box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+    }
+
+    /* Program Master Card */
+    .program-card {
+      background-color: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-10);
+      margin-bottom: 24px;
+      overflow: hidden;
+    }
+
+    .program-header {
+      padding: 24px;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 16px;
+      flex-wrap: wrap;
+    }
+
+    .program-title-area {
+      flex: 1;
+      min-width: 280px;
+    }
+
+    .program-title-row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+
+    .program-name {
+      font-size: 22px;
+      font-weight: 800;
+      color: var(--text);
+      letter-spacing: -0.01em;
+      cursor: pointer;
+    }
+
+    .program-name:hover {
+      color: var(--purple-primary);
+    }
+
+    .badge-purple {
+      display: inline-flex;
+      align-items: center;
+      padding: 4px 10px;
+      font-size: 12px;
+      font-weight: 700;
+      border-radius: var(--radius-10);
+      text-transform: capitalize;
+      background-color: var(--purple-tint);
+      color: var(--purple-primary);
+      border: 1px solid var(--purple-border);
+    }
+
+    .program-desc {
+      font-size: 14px;
+      color: var(--text-muted);
+      margin-top: 4px;
+    }
+
+    .program-actions {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    /* Cohorts Section Inside Program */
+    .cohorts-container {
+      padding: 20px 24px;
+    }
+
+    .cohort-group {
+      margin-bottom: 20px;
+    }
+
+    .cohort-group:last-child {
+      margin-bottom: 0;
+    }
+
+    .group-label {
+      font-size: 12px;
+      font-weight: 800;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--text-muted);
+      margin-bottom: 12px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .group-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+    }
+
+    .group-dot.green { background-color: var(--green-text); }
+    .group-dot.purple { background-color: var(--purple-primary); }
+    .group-dot.neutral { background-color: var(--text-subtle); }
+
+    .cohort-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
+      gap: 12px;
+    }
+
+    /* Cohort Card */
+    .cohort-item {
+      background-color: var(--surface-subtle);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-10);
+      padding: 18px;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      transition: border-color 0.15s ease;
+      cursor: pointer;
+    }
+
+    .cohort-item:hover {
+      border-color: var(--border-strong);
+    }
+
+    .cohort-item-top {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      margin-bottom: 14px;
+      gap: 8px;
+    }
+
+    .cohort-name {
+      font-size: 16px;
+      font-weight: 700;
+      color: var(--text);
+    }
+
+    .cohort-meta {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+      font-size: 13px;
+      color: var(--text-muted);
+      margin-bottom: 14px;
+    }
+
+    .cohort-meta-item {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .cohort-meta-item svg {
+      width: 14px;
+      height: 14px;
+      color: var(--text-muted);
+      flex-shrink: 0;
+    }
+
+    .cohort-footer {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding-top: 12px;
+      border-top: 1px solid var(--border);
+    }
+
+    .status-pill {
+      font-size: 12px;
+      font-weight: 700;
+      padding: 4px 10px;
+      border-radius: var(--radius-10);
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+    }
+
+    .status-running {
+      background-color: var(--green-bg);
+      color: var(--green-text);
+      border: 1px solid var(--green-border);
+    }
+
+    .status-open {
+      background-color: var(--purple-tint);
+      color: var(--purple-primary);
+      border: 1px solid var(--purple-border);
+    }
+
+    .status-past {
+      background-color: #F4F4F5;
+      color: var(--text-muted);
+      border: 1px solid var(--border);
+    }
+
+    .status-alert {
+      background-color: var(--rose-bg);
+      color: var(--rose-text);
+      border: 1px solid var(--rose-border);
+    }
+
+    /* DIRECT ON BACKGROUND DRAWER */
+    .drawer-overlay {
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background: rgba(0, 0, 0, 0.4);
+      display: none;
+      justify-content: flex-end;
+      z-index: 1000;
+    }
+
+    .drawer-overlay.open {
+      display: flex;
+    }
+
+    .drawer-content {
+      width: 100%;
+      max-width: 600px;
+      height: 100vh;
+      background: var(--bg);
+      padding: 40px 32px;
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+    }
+
+    .drawer-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 28px;
+    }
+
+    .drawer-title {
+      font-size: 24px;
+      font-weight: 800;
+      color: var(--text);
+    }
+
+    .close-btn {
+      width: 36px;
+      height: 36px;
+      border-radius: var(--radius-10);
+      border: 1px solid var(--border);
+      background: var(--surface);
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: var(--text);
+    }
+
+    .form-group {
+      margin-bottom: 22px;
+    }
+
+    .form-label {
+      display: block;
+      font-size: 14px;
+      font-weight: 700;
+      color: var(--text);
+      margin-bottom: 8px;
+    }
+
+    .form-input {
+      width: 100%;
+      height: 46px;
+      padding: 0 16px;
+      font-size: 15px;
+      font-weight: 500;
+      border-radius: var(--radius-10);
+      border: 1px solid var(--border-strong);
+      background-color: var(--surface);
+      color: var(--text);
+      outline: none;
+    }
+
+    .form-input:focus {
+      border-color: var(--purple-primary);
+    }
+
+    .form-row {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 16px;
+    }
+
+    .form-actions {
+      display: flex;
+      gap: 12px;
+      padding-top: 24px;
+      border-top: 1px solid var(--border-strong);
+    }
+
+    .form-actions .btn {
+      flex: 1;
+    }
+
+    .collapse-toggle {
+      border: none;
+      background: transparent;
+      font-size: 12px;
+      font-weight: 700;
+      color: var(--text-muted);
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 6px 0;
+    }
+
+    .collapse-toggle:hover {
+      color: var(--text);
+    }
+
+    /* Global Timeline View */
+    .timeline-view {
+      display: none;
+      background-color: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-10);
+      overflow: hidden;
+    }
+
+    .timeline-view.active {
+      display: block;
+    }
+
+    .table-row {
+      display: grid;
+      grid-template-columns: 180px 1.5fr 1.2fr 1fr 1fr 120px;
+      align-items: center;
+      padding: 16px 20px;
+      border-bottom: 1px solid var(--border);
+      font-size: 14px;
+    }
+
+    .table-head {
+      background-color: var(--surface-subtle);
+      font-weight: 700;
+      font-size: 12px;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: var(--text-muted);
+    }
+
+    .table-row:hover:not(.table-head) {
+      background-color: var(--surface-subtle);
+    }
+  </style>
+</head>
+<body>
+
+  <div class="container">
+    <!-- Top Bar -->
+    <header class="header-bar">
+      <div class="header-titles">
+        <h1>Programs & Cohorts</h1>
+      </div>
+      <div class="header-actions">
+        <button class="btn btn-secondary" onclick="alert('Exporting operational roster')">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
+          Export
+        </button>
+        <button class="btn btn-primary" onclick="openDrawer('program-drawer')">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+          New Program
+        </button>
+      </div>
+    </header>
+
+    <!-- Controls & View Mode -->
+    <section class="controls-bar">
+      <div class="search-input-wrap">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
+        <input type="text" class="input-field" placeholder="Search program, cohort, city, or venue...">
+      </div>
+
+      <select class="select-field">
+        <option value="">All Types</option>
+        <option value="course">Courses</option>
+        <option value="workshop">Workshops</option>
+        <option value="competition">Competitions</option>
+      </select>
+
+      <div class="view-switcher">
+        <button class="view-btn active" id="btn-by-program" onclick="switchView('program')">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7"></rect><rect x="14" y="3" width="7" height="7"></rect><rect x="14" y="14" width="7" height="7"></rect><rect x="3" y="14" width="7" height="7"></rect></svg>
+          By Program
+        </button>
+        <button class="view-btn" id="btn-timeline" onclick="switchView('timeline')">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="8" y1="6" x2="21" y2="6"></line><line x1="8" y1="12" x2="21" y2="12"></line><line x1="8" y1="18" x2="21" y2="18"></line><line x1="3" y1="6" x2="3.01" y2="6"></line><line x1="3" y1="12" x2="3.01" y2="12"></line><line x1="3" y1="18" x2="3.01" y2="18"></line></svg>
+          Operational Worklist
+        </button>
+      </div>
+    </section>
+
+    <!-- VIEW 1: PROGRAM-CENTRIC HIERARCHY -->
+    <main id="program-centric-view">
+
+      <!-- PROGRAM 1: CanSat Master -->
+      <article class="program-card">
+        <div class="program-header">
+          <div class="program-title-area">
+            <div class="program-title-row">
+              <h2 class="program-name" onclick="alert('Navigating to full page for CanSat High Altitude Systems')">CanSat High Altitude Systems</h2>
+              <span class="badge-purple">Course</span>
+            </div>
+            <p class="program-desc">High altitude flight computers, telemetry stations, and payload recovery.</p>
+          </div>
+          <div class="program-actions">
+            <button class="btn btn-primary" onclick="openDrawer('cohort-drawer', 'CanSat High Altitude Systems')">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+              Add Cohort
+            </button>
+            <button class="btn-icon-square" onclick="alert('Navigating to full page for CanSat High Altitude Systems')" title="Manage Program">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"></polyline></svg>
+            </button>
+          </div>
+        </div>
+
+        <div class="cohorts-container">
+          <!-- Running Cohorts -->
+          <div class="cohort-group">
+            <div class="group-label">
+              <span class="group-dot green"></span> Running Now (1)
+            </div>
+            <div class="cohort-grid">
+              <div class="cohort-item">
+                <div>
+                  <div class="cohort-item-top">
+                    <span class="cohort-name">Cohort 12 — Dubai Hub</span>
+                    <span class="status-pill status-running">Running</span>
+                  </div>
+                  <div class="cohort-meta">
+                    <div class="cohort-meta-item">
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect><line x1="16" y1="2" x2="16" y2="6"></line><line x1="8" y1="2" x2="8" y2="6"></line><line x1="3" y1="10" x2="21" y2="10"></line></svg>
+                      <span>Oct 12 – Nov 24</span>
+                    </div>
+                    <div class="cohort-meta-item">
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"></path><circle cx="12" cy="10" r="3"></circle></svg>
+                      <span>SpacePoint Lab 1</span>
+                    </div>
+                    <div class="cohort-meta-item">
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M23 21v-2a4 4 0 0 0-3-3.87"></path><path d="M16 3.13a4 4 0 0 1 0 7.75"></path></svg>
+                      <span>22 / 24 Students</span>
+                    </div>
+                    <div class="cohort-meta-item">
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path><circle cx="12" cy="7" r="4"></circle></svg>
+                      <span>Tariq K. (Lead)</span>
+                    </div>
+                  </div>
+                </div>
+                <div class="cohort-footer">
+                  <span style="font-size: 13px; font-weight: 600; color: var(--text);">Session 4 of 6</span>
+                  <span style="font-size: 13px; font-weight: 700; color: var(--purple-primary);">Manage Cohort →</span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Registration Open / Upcoming -->
+          <div class="cohort-group">
+            <div class="group-label">
+              <span class="group-dot purple"></span> Registration Open & Upcoming (2)
+            </div>
+            <div class="cohort-grid">
+              <div class="cohort-item">
+                <div>
+                  <div class="cohort-item-top">
+                    <span class="cohort-name">Cohort 13 — Abu Dhabi</span>
+                    <span class="status-pill status-open">Registration Open</span>
+                  </div>
+                  <div class="cohort-meta">
+                    <div class="cohort-meta-item">
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect><line x1="16" y1="2" x2="16" y2="6"></line><line x1="8" y1="2" x2="8" y2="6"></line><line x1="3" y1="10" x2="21" y2="10"></line></svg>
+                      <span>Nov 28 – Dec 30</span>
+                    </div>
+                    <div class="cohort-meta-item">
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"></path><circle cx="12" cy="10" r="3"></circle></svg>
+                      <span>Youth Hub AD</span>
+                    </div>
+                    <div class="cohort-meta-item">
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle></svg>
+                      <span>16 / 20 Registered</span>
+                    </div>
+                    <div class="cohort-meta-item">
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path><circle cx="12" cy="7" r="4"></circle></svg>
+                      <span style="color: var(--rose-text); font-weight: 700;">1 TA Needed</span>
+                    </div>
+                  </div>
+                </div>
+                <div class="cohort-footer">
+                  <span class="status-pill status-alert">Staffing Incomplete</span>
+                  <span style="font-size: 13px; font-weight: 700; color: var(--purple-primary);">Manage Cohort →</span>
+                </div>
+              </div>
+
+              <div class="cohort-item">
+                <div>
+                  <div class="cohort-item-top">
+                    <span class="cohort-name">Cohort 14 — Sharjah Campus</span>
+                    <span class="status-pill status-past">Planned</span>
+                  </div>
+                  <div class="cohort-meta">
+                    <div class="cohort-meta-item">
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect><line x1="16" y1="2" x2="16" y2="6"></line><line x1="8" y1="2" x2="8" y2="6"></line><line x1="3" y1="10" x2="21" y2="10"></line></svg>
+                      <span>Jan 10 – Feb 15</span>
+                    </div>
+                    <div class="cohort-meta-item">
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"></path><circle cx="12" cy="10" r="3"></circle></svg>
+                      <span>Sharjah Academy</span>
+                    </div>
+                    <div class="cohort-meta-item">
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle></svg>
+                      <span>0 / 24 Seats</span>
+                    </div>
+                    <div class="cohort-meta-item">
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path><circle cx="12" cy="7" r="4"></circle></svg>
+                      <span>Unassigned</span>
+                    </div>
+                  </div>
+                </div>
+                <div class="cohort-footer">
+                  <span style="font-size: 13px; font-weight: 500; color: var(--text-muted);">Starts in 58 days</span>
+                  <span style="font-size: 13px; font-weight: 700; color: var(--purple-primary);">Manage Cohort →</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </article>
+
+      <!-- PROGRAM 2: CubeSat Engineering Challenge -->
+      <article class="program-card">
+        <div class="program-header">
+          <div class="program-title-area">
+            <div class="program-title-row">
+              <h2 class="program-name" onclick="alert('Navigating to full page for CubeSat Subsystems Engineering')">CubeSat Subsystems Engineering</h2>
+              <span class="badge-purple">Competition</span>
+            </div>
+            <p class="program-desc">FlatSat testing, ground station uplink, and subsystem integration.</p>
+          </div>
+          <div class="program-actions">
+            <button class="btn btn-primary" onclick="openDrawer('cohort-drawer', 'CubeSat Subsystems Engineering')">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+              Add Cohort
+            </button>
+            <button class="btn-icon-square" onclick="alert('Navigating to full page for CubeSat Subsystems Engineering')" title="Manage Program">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"></polyline></svg>
+            </button>
+          </div>
+        </div>
+
+        <div class="cohorts-container">
+          <div class="cohort-group">
+            <div class="group-label">
+              <span class="group-dot purple"></span> Registration Open & Upcoming (1)
+            </div>
+            <div class="cohort-grid">
+              <div class="cohort-item">
+                <div>
+                  <div class="cohort-item-top">
+                    <span class="cohort-name">Winter 2026 Invitational</span>
+                    <span class="status-pill status-open">Registration Open</span>
+                  </div>
+                  <div class="cohort-meta">
+                    <div class="cohort-meta-item">
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect><line x1="16" y1="2" x2="16" y2="6"></line><line x1="8" y1="2" x2="8" y2="6"></line><line x1="3" y1="10" x2="21" y2="10"></line></svg>
+                      <span>Dec 05 – Jan 20</span>
+                    </div>
+                    <div class="cohort-meta-item">
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"></path><circle cx="12" cy="10" r="3"></circle></svg>
+                      <span>Hybrid / Lab 2</span>
+                    </div>
+                    <div class="cohort-meta-item">
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle></svg>
+                      <span>28 / 30 Teams</span>
+                    </div>
+                    <div class="cohort-meta-item">
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path><circle cx="12" cy="7" r="4"></circle></svg>
+                      <span>Fully Staffed</span>
+                    </div>
+                  </div>
+                </div>
+                <div class="cohort-footer">
+                  <span style="font-size: 13px; font-weight: 500; color: var(--text-muted);">Starts in 22 days</span>
+                  <span style="font-size: 13px; font-weight: 700; color: var(--purple-primary);">Manage Cohort →</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </article>
+
+    </main>
+
+    <!-- VIEW 2: GLOBAL OPERATIONAL WORKLIST (TIMELINE) -->
+    <main id="timeline-view" class="timeline-view">
+      <div class="table-row table-head">
+        <div>Status</div>
+        <div>Cohort & Program</div>
+        <div>Dates & Schedule</div>
+        <div>Location / Venue</div>
+        <div>Staffing / Capacity</div>
+        <div style="text-align: right;">Action</div>
+      </div>
+
+      <!-- Row 1: Running -->
+      <div class="table-row">
+        <div><span class="status-pill status-running">Running</span></div>
+        <div>
+          <strong style="display: block; font-weight: 700;">Cohort 12 — Dubai Hub</strong>
+          <span style="font-size: 13px; color: var(--text-muted);">CanSat High Altitude Systems</span>
+        </div>
+        <div>
+          <span>Oct 12 – Nov 24</span>
+          <span style="display: block; font-size: 12px; color: var(--text-muted);">Session 4 of 6</span>
+        </div>
+        <div>SpacePoint Lab 1</div>
+        <div>
+          <span>22 / 24 Students</span>
+          <span style="display: block; font-size: 12px; color: var(--text-muted);">Tariq K. (Staffed)</span>
+        </div>
+        <div style="text-align: right;">
+          <button class="btn btn-secondary btn-sm">Manage</button>
+        </div>
+      </div>
+
+      <!-- Row 2: Open with Alert -->
+      <div class="table-row">
+        <div><span class="status-pill status-alert">1 TA Needed</span></div>
+        <div>
+          <strong style="display: block; font-weight: 700;">Cohort 13 — Abu Dhabi</strong>
+          <span style="font-size: 13px; color: var(--text-muted);">CanSat High Altitude Systems</span>
+        </div>
+        <div>
+          <span>Nov 28 – Dec 30</span>
+          <span style="display: block; font-size: 12px; color: var(--text-muted);">Starts in 16 days</span>
+        </div>
+        <div>Youth Hub AD</div>
+        <div>
+          <span>16 / 20 Seats</span>
+          <span style="display: block; font-size: 12px; color: var(--rose-text); font-weight: 600;">Staffing Alert</span>
+        </div>
+        <div style="text-align: right;">
+          <button class="btn btn-secondary btn-sm">Manage</button>
+        </div>
+      </div>
+
+      <!-- Row 3: Open -->
+      <div class="table-row">
+        <div><span class="status-pill status-open">Open</span></div>
+        <div>
+          <strong style="display: block; font-weight: 700;">Winter 2026 Invitational</strong>
+          <span style="font-size: 13px; color: var(--text-muted);">CubeSat Subsystems Engineering</span>
+        </div>
+        <div>
+          <span>Dec 05 – Jan 20</span>
+          <span style="display: block; font-size: 12px; color: var(--text-muted);">Starts in 22 days</span>
+        </div>
+        <div>Hybrid / Lab 2</div>
+        <div>
+          <span>28 / 30 Teams</span>
+          <span style="display: block; font-size: 12px; color: var(--text-muted);">Fully Staffed</span>
+        </div>
+        <div style="text-align: right;">
+          <button class="btn btn-secondary btn-sm">Manage</button>
+        </div>
+      </div>
+    </main>
+
+  </div>
+
+  <!-- DRAWER: NEW PROGRAM (DIRECT ON BACKGROUND, NO CARD NESTING) -->
+  <div id="program-drawer" class="drawer-overlay" onclick="handleOverlayClick(event, 'program-drawer')">
+    <div class="drawer-content">
+      <div>
+        <div class="drawer-header">
+          <h2 class="drawer-title">New Program Blueprint</h2>
+          <button class="close-btn" onclick="closeDrawer('program-drawer')">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="6"></line></svg>
+          </button>
+        </div>
+
+        <form onsubmit="event.preventDefault(); alert('Program blueprint saved!'); closeDrawer('program-drawer');">
+          <div class="form-group">
+            <label class="form-label">Program Name</label>
+            <input type="text" class="form-input" placeholder="e.g. CanSat High Altitude Challenge" required>
+          </div>
+
+          <div class="form-row">
+            <div class="form-group">
+              <label class="form-label">Program Code</label>
+              <input type="text" class="form-input" placeholder="e.g. CSAT-01" required>
+            </div>
+            <div class="form-group">
+              <label class="form-label">Program Type</label>
+              <select class="form-input select-field" style="background-color: var(--surface);">
+                <option value="course">Course</option>
+                <option value="workshop">Workshop</option>
+                <option value="competition">Competition</option>
+                <option value="info_session">Info Session</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="form-row">
+            <div class="form-group">
+              <label class="form-label">Default Duration (Hours)</label>
+              <input type="number" class="form-input" placeholder="18">
+            </div>
+            <div class="form-group">
+              <label class="form-label">Default Capacity (Students)</label>
+              <input type="number" class="form-input" placeholder="24">
+            </div>
+          </div>
+
+          <div class="form-group">
+            <label class="form-label">Default Hardware Kit</label>
+            <select class="form-input select-field" style="background-color: var(--surface);">
+              <option>CanSat V2 Engineering Kit</option>
+              <option>FlatSat Developer Kit</option>
+              <option>Rocketry Flight Avionics Kit</option>
+              <option>None (Software Only)</option>
+            </select>
+          </div>
+
+          <div class="form-group">
+            <label class="form-label">Staffing Requirements Template</label>
+            <input type="text" class="form-input" placeholder="e.g. 1 Lead Instructor + 1 Teaching Assistant">
+          </div>
+
+          <div class="form-actions">
+            <button type="button" class="btn btn-secondary" onclick="closeDrawer('program-drawer')">Cancel</button>
+            <button type="submit" class="btn btn-primary">Create Program Blueprint</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <!-- DRAWER: ADD COHORT (DIRECT ON BACKGROUND, INHERITING PROGRAM DEFAULTS) -->
+  <div id="cohort-drawer" class="drawer-overlay" onclick="handleOverlayClick(event, 'cohort-drawer')">
+    <div class="drawer-content">
+      <div>
+        <div class="drawer-header">
+          <div>
+            <h2 class="drawer-title">Add Cohort</h2>
+            <p id="cohort-parent-name" style="font-size: 14px; font-weight: 700; color: var(--purple-primary); margin-top: 4px;"></p>
+          </div>
+          <button class="close-btn" onclick="closeDrawer('cohort-drawer')">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="6"></line></svg>
+          </button>
+        </div>
+
+        <form onsubmit="event.preventDefault(); alert('Cohort launched successfully!'); closeDrawer('cohort-drawer');">
+          <div class="form-group">
+            <label class="form-label">Cohort Name / Identifier</label>
+            <input type="text" class="form-input" placeholder="e.g. Cohort 15 — Dubai Silicon Oasis" required>
+          </div>
+
+          <div class="form-row">
+            <div class="form-group">
+              <label class="form-label">Start Date</label>
+              <input type="date" class="form-input" required>
+            </div>
+            <div class="form-group">
+              <label class="form-label">End Date</label>
+              <input type="date" class="form-input" required>
+            </div>
+          </div>
+
+          <div class="form-group">
+            <label class="form-label">Delivery Venue / Location</label>
+            <select class="form-input select-field" style="background-color: var(--surface);">
+              <option>SpacePoint Innovation Lab 1 (Dubai)</option>
+              <option>Youth Hub Abu Dhabi</option>
+              <option>Sharjah Research Technology & Innovation Park</option>
+              <option>Partner Campus (On-site)</option>
+            </select>
+          </div>
+
+          <div class="form-row">
+            <div class="form-group">
+              <label class="form-label">Max Student Capacity</label>
+              <input type="number" class="form-input" value="24">
+            </div>
+            <div class="form-group">
+              <label class="form-label">Hardware Warehouse</label>
+              <select class="form-input select-field" style="background-color: var(--surface);">
+                <option>Main Warehouse (Dubai South)</option>
+                <option>Abu Dhabi Logistics Hub</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="form-group">
+            <label class="form-label">Lead Instructor Assignment</label>
+            <select class="form-input select-field" style="background-color: var(--surface);">
+              <option value="">Open Call (Marketplace Staffing)</option>
+              <option>Tariq K. (Lead Instructor)</option>
+              <option>Sarah M. (Lead Instructor)</option>
+              <option>Omar A. (Lead Instructor)</option>
+            </select>
+          </div>
+
+          <div class="form-actions">
+            <button type="button" class="btn btn-secondary" onclick="closeDrawer('cohort-drawer')">Cancel</button>
+            <button type="submit" class="btn btn-primary">Launch Cohort</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    function switchView(mode) {
+      const programView = document.getElementById('program-centric-view');
+      const timelineView = document.getElementById('timeline-view');
+      const btnProgram = document.getElementById('btn-by-program');
+      const btnTimeline = document.getElementById('btn-timeline');
+
+      if (mode === 'program') {
+        programView.style.display = 'block';
+        timelineView.classList.remove('active');
+        btnProgram.classList.add('active');
+        btnTimeline.classList.remove('active');
+      } else {
+        programView.style.display = 'none';
+        timelineView.classList.add('active');
+        btnProgram.classList.remove('active');
+        btnTimeline.classList.add('active');
+      }
+    }
+
+    function togglePast(id) {
+      const el = document.getElementById(id);
+      if (el.style.display === 'none') {
+        el.style.display = 'block';
+      } else {
+        el.style.display = 'none';
+      }
+    }
+
+    function openDrawer(drawerId, parentProgramName) {
+      const drawer = document.getElementById(drawerId);
+      if (parentProgramName) {
+        document.getElementById('cohort-parent-name').textContent = 'Inheriting defaults from ' + parentProgramName;
+      }
+      drawer.classList.add('open');
+    }
+
+    function closeDrawer(drawerId) {
+      document.getElementById(drawerId).classList.remove('open');
+    }
+
+    function handleOverlayClick(event, drawerId) {
+      if (event.target.id === drawerId) {
+        closeDrawer(drawerId);
+      }
+    }
+  </script>
+</body>
+</html>

@@ -1,10 +1,11 @@
 import { useState } from "react"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
-import { Link, useParams } from "@tanstack/react-router"
+import { Link, useNavigate, useParams, useSearch } from "@tanstack/react-router"
 import * as XLSX from "xlsx"
 import {
   ArrowLeft, CalendarPlus, UserPlus, Upload, Ticket, Mail, Wallet, Ban, FileText, Download, FileSpreadsheet, Copy,
   CheckCircle2, Award, Trash2, Search, Pencil, MoreVertical, Camera, X,
+  Calendar, MapPin, Layers, Package,
 } from "lucide-react"
 import type {
   Cohort, CohortStatus, Program, Session,
@@ -19,22 +20,25 @@ import CohortStaffingPanel from "@/pages/admin/components/CohortStaffingPanel"
 import CohortDayReviewsPanel from "@/pages/admin/components/CohortDayReviewsPanel"
 import { CohortKitsPanel } from "@/pages/admin/components/CohortKitsPanel"
 import { CohortRolesPanel } from "@/pages/admin/components/CohortRolesPanel"
+import { SessionPreQuizOpsPanel } from "@/pages/admin/components/SessionPreQuizOpsPanel"
 import { AssessmentAssignmentPanel } from "@/pages/admin/components/AssessmentAssignmentPanel"
 import { LmsCohortSection } from "@/pages/lms-authoring/components/LmsCohortSection"
 import { CohortConsentsPanel } from "@/pages/admin/components/CohortConsentsPanel"
+import { CohortProgressPanel, CohortAnalysisPanel } from "@/pages/admin/components/CohortProgressAnalysisPanel"
+import { CohortCertificatesPanel } from "@/pages/admin/components/CohortCertificatesPanel"
+import { RosterTab, AssignTab, TeamsTab, RubricTab, JudgesTab, ResultsTab } from "@/pages/admin/CompetitionJudging"
 import { MediaConsentModal } from "@/pages/admin/components/MediaConsentModal"
 import { SessionsTable } from "@/pages/admin/components/SessionsTable"
 import {
   getCohortApi, getSessionsApi,
   generateSessionsApi, addSessionApi,
   getRegistrationsApi, resendTicketApi, resendOnboardingEmailApi, getSetPasswordLinkApi, cancelRegistrationApi, confirmPaymentApi, giveCertificateApi,
-  deleteRegistrationApi, downloadCohortCertificatesApi,
+  deleteRegistrationApi,
   updateCohortApi,
 } from "@/api/sessions/cohorts"
 import { listCohortReportsApi, uploadSessionReportApi, completeCohortApi } from "@/api/sessions/delivery"
 import { listProgramCertificateTemplatesApi } from "@/api/sessions/programCertificateTemplates"
-import { Modal, Field, ModalActions, ConfirmDialog, Spinner, PageHeader, EmptyState } from "@/pages/admin/components/common"
-import { ImportListModal } from "@/pages/admin/components/ImportList"
+import { Modal, Field, ModalActions, ConfirmDialog, Spinner, EmptyState } from "@/pages/admin/components/common"
 import { BulkAssignInstructorModal } from "@/pages/admin/components/BulkAssignInstructorModal"
 import { BulkOpenCallModal } from "@/pages/admin/components/BulkOpenCallModal"
 import { DeskRegisterModal } from "@/pages/admin/components/DeskRegisterModal"
@@ -42,6 +46,7 @@ import { updateContactApi } from "@/api/spine/contacts"
 import { CohortModal, COHORT_STATUS_LABEL, COHORT_STATUS_COLOR, statusOptionsFor } from "@/pages/admin/Cohorts"
 import { ContactDetailModal } from "@/pages/admin/Contacts"
 import { useToast } from "@/components/ui/toast"
+import { useAuth } from "@/context/AuthContext"
 import { Card } from "@/components/ui/card"
 import { ExcuseLetterModal } from "@/components/competitions/ExcuseLetterModal"
 import { getErrorMessage } from "@/lib/utils"
@@ -53,33 +58,34 @@ const WEEKDAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Satur
 
 
 
-/** Sessions and Students are the daily work; Setup is the stuff you touch
- *  once when the cohort is created (2026-08-02). Setup used to sit *between*
- *  the two daily ones, which is what made the page feel endless. */
-type CohortTab = "sessions" | "roles" | "staffing" | "assessment" | "lms" | "students" | "consents" | "setup"
+type CohortTab =
+  | "sessions"
+  | "instructors"
+  | "participants"
+  | "lms"
+  | "progress"
+  | "analysis"
+  | "judging"
+  | "certificates"
+
 const TABS: { key: CohortTab; label: string }[] = [
-  { key: "sessions", label: "Sessions" },
-  // Roles moved out of Staffing (2026-08-28): rate, responsibilities and the
-  // checklist are all "what does this role mean here", one thing ops sets up
-  // before opening a call — separate from running the call itself.
-  { key: "roles", label: "Checklists & Roles" },
-  // Staffing moved out of the Sessions tab (2026-08-24): opening a call,
-  // reading the applicant table and seeing who ended up staffed are one job,
-  // and they were buried under a table that had grown to own the whole tab.
-  { key: "staffing", label: "Staffing" },
-  // Instructor assessment (2026-09) — whether applying to this cohort's
-  // open calls requires passing an assessment first, and which one. Its own
-  // tab rather than folded into Roles/Staffing: it's a one-time on/off
-  // decision about the cohort, not part of running a specific call.
-  { key: "assessment", label: "Assessment" },
-  // LMS checklist/missions/progress/review (2026-09) — the exact same
-  // cohort-scope views `/lms-authoring` already shows, embedded here so
-  // ops never has to leave the cohort page for LMS-checklist work.
-  { key: "lms", label: "LMS" },
-  { key: "students", label: "Students" },
-  { key: "consents", label: "Consents" },
-  { key: "setup", label: "Setup" },
+  { key: "sessions", label: "Sessions & Materials" },
+  { key: "instructors", label: "Instructors" },
+  { key: "participants", label: "Participants" },
+  { key: "lms", label: "LMS Authoring" },
+  { key: "progress", label: "Progress" },
+  { key: "analysis", label: "Analysis" },
+  { key: "judging", label: "Judging" },
+  { key: "certificates", label: "Certificates" },
 ]
+
+type InstructorSubTab = "staffing" | "roles" | "assessment" | "prequiz" | "reviews"
+type ParticipantSubTab = "students" | "assign" | "teams"
+type JudgingSubTab = "rubric" | "judges" | "results"
+
+const WIRE_CARD = "bg-[#231134] text-white border-0 shadow-none rounded-[10px]"
+const WIRE_BTN = "bg-transparent border-[2px] border-[#D7D2CB] rounded-[10px] text-foreground hover:bg-muted/30 transition-colors cursor-pointer"
+const WIRE_CTA = "bg-[#653F84] text-white border-0 rounded-[10px] hover:opacity-90 transition-opacity cursor-pointer"
 
 function CounterChip({ label, value, onClick, tone = "default" }: {
   label: string; value: React.ReactNode; onClick: () => void; tone?: "default" | "alert"
@@ -87,14 +93,13 @@ function CounterChip({ label, value, onClick, tone = "default" }: {
   return (
     <button
       onClick={onClick}
-      className={`flex items-center justify-center gap-1.5 h-9 px-4 rounded-xl border text-sm transition-colors ${
-        tone === "alert"
-          ? "border-red-500/30 bg-red-500/10 text-red-600 dark:text-red-400 hover:bg-red-500/20"
-          : "border-border bg-card text-foreground hover:bg-muted"
-      }`}
+      className={`flex items-center justify-center gap-1.5 h-9 px-4 rounded-[10px] border-[2px] bg-transparent text-sm transition-colors cursor-pointer ${tone === "alert"
+          ? "border-rose-400/80 text-rose-300 hover:bg-rose-500/15"
+          : "border-[#D7D2CB] text-white hover:bg-white/10"
+        }`}
     >
       <span className="font-semibold tabular-nums leading-none flex items-center">{value}</span>
-      <span className="text-xs text-muted-foreground leading-none flex items-center">{label}</span>
+      <span className={`text-xs leading-none flex items-center ${tone === "alert" ? "text-rose-200/85" : "text-white/75"}`}>{label}</span>
     </button>
   )
 }
@@ -105,6 +110,61 @@ function CounterChip({ label, value, onClick, tone = "default" }: {
 /* real route (/operations/cohorts/$cohortId) so it can be linked to   */
 /* and bookmarked, and so a session can link back to its cohort.       */
 /* ================================================================== */
+function resolveCohortBackTarget(
+  from: string | undefined,
+  activeRole: string | null | undefined,
+  cohort?: Cohort,
+): { label: string; to: string; useHistory?: boolean } {
+  if (from?.startsWith("/instructors")) {
+    return { label: "Instructor View", to: from }
+  }
+  if (from?.startsWith("/operations/programs/")) {
+    return { label: cohort?.program_name || "Program", to: from }
+  }
+  if (from?.startsWith("/operations/programs")) {
+    return { label: "Programs", to: from }
+  }
+  if (from?.startsWith("/operations/cohorts")) {
+    return { label: "Cohorts", to: from }
+  }
+  if (from?.startsWith("/")) {
+    return { label: "Back", to: from }
+  }
+  if (activeRole === "instructor") {
+    return { label: "Instructor View", to: "/instructors/sessions", useHistory: true }
+  }
+  return { label: "Cohorts", to: "/operations/cohorts" }
+}
+
+function CohortBackButton({
+  className,
+  cohort,
+}: {
+  className: string
+  cohort?: Cohort
+}) {
+  const navigate = useNavigate()
+  const { from } = useSearch({ strict: false }) as { from?: string }
+  const { activeRole } = useAuth()
+  const target = resolveCohortBackTarget(from, activeRole, cohort)
+
+  const handleClick = () => {
+    if (target.useHistory && window.history.length > 1) {
+      window.history.back()
+      return
+    }
+    const [pathname, rawQuery] = target.to.split("?")
+    const searchObj = rawQuery ? Object.fromEntries(new URLSearchParams(rawQuery)) : undefined
+    void navigate({ to: pathname as never, search: searchObj as never })
+  }
+
+  return (
+    <button type="button" onClick={handleClick} className={`${className} cursor-pointer`}>
+      <ArrowLeft size={14} /> {target.label}
+    </button>
+  )
+}
+
 export default function CohortDetail() {
   const { cohortId } = useParams({ strict: false }) as { cohortId: string }
 
@@ -117,9 +177,7 @@ export default function CohortDetail() {
   if (!cohort) {
     return (
       <div className="flex flex-col gap-4">
-        <Link to="/operations/cohorts" className="inline-flex w-fit items-center gap-1.5 text-sm font-medium text-muted-foreground hover:text-foreground transition-colors">
-          <ArrowLeft size={14} /> Cohorts
-        </Link>
+        <CohortBackButton className="inline-flex w-fit items-center gap-1.5 text-sm font-medium text-muted-foreground hover:text-foreground transition-colors" />
         <p className="text-sm text-muted-foreground">Cohort not found.</p>
       </div>
     )
@@ -155,7 +213,13 @@ function CohortDetailView({ cohort }: { cohort: Cohort }) {
   const [bulkOpenCallOpen, setBulkOpenCallOpen] = useState(false)
   const [completeConfirmOpen, setCompleteConfirmOpen] = useState(false)
   const [sendCertificates, setSendCertificates] = useState(false)
-  const [tab, setTab] = useState<CohortTab>("sessions")
+  const [tab, setTab] = useState<CohortTab>(() => {
+    const t = typeof window !== "undefined" ? new URLSearchParams(window.location.search).get("tab") : null
+    return TABS.some((x) => x.key === t) ? (t as CohortTab) : "sessions"
+  })
+  const [instructorsSub, setInstructorsSub] = useState<InstructorSubTab>("staffing")
+  const [participantsSub, setParticipantsSub] = useState<ParticipantSubTab>("students")
+  const [judgingSub, setJudgingSub] = useState<JudgingSubTab>("results")
 
   const { data: programs = [] } = useQuery<Program[]>({ queryKey: ["sessions-programs"], queryFn: getProgramsApi })
   const { data: registrations = [], isLoading } = useQuery<Registration[]>({
@@ -207,7 +271,7 @@ function CohortDetailView({ cohort }: { cohort: Cohort }) {
     const q = regSearch.trim().toLowerCase()
     if (!q) return true
     return [
-      r.student_name, r.student_phone, r.student_email, r.student_grade, r.student_gender,
+      r.student_name, r.card_id, r.student_phone, r.student_email, r.student_grade, r.student_gender,
       r.student_organization_name, r.guardian_name, r.guardian_phone,
       r.media_consent_parent_name, r.media_consent_parent_phone,
       r.status, r.payment_status,
@@ -322,11 +386,6 @@ function CohortDetailView({ cohort }: { cohort: Cohort }) {
     queryFn: () => listProgramCertificateTemplatesApi(cohort.program_id),
     enabled: !!cohort.program_id,
   })
-  const downloadCertificatesMutation = useMutation({
-    mutationFn: ({ theme, templateId }: { theme: "dark" | "light" | "custom"; templateId?: string }) =>
-      downloadCohortCertificatesApi(cohort.id, cohort.name, theme, templateId),
-    onError: (e: any) => toast.error(getErrorMessage(e, "Failed to download certificates")),
-  })
   // Both refuse server-side once real history is attached (attendance, a
   // certificate) — show the API's reason instead of failing quietly.
   const deleteRegistrationMutation = useMutation({
@@ -368,599 +427,749 @@ function CohortDetailView({ cohort }: { cohort: Cohort }) {
   const unfinishedSessionCount = sessions.filter((s) => !s.completed_at).length
 
   return (
-    <div className="flex flex-col gap-5">
-      <Link to="/operations/cohorts" className="inline-flex w-fit items-center gap-1.5 text-sm font-medium text-muted-foreground hover:text-foreground transition-colors">
-        <ArrowLeft size={14} /> Cohorts
-      </Link>
+    <div className="flex flex-col gap-5 sp-wireframe">
+      <div className="sp-wireframe-header relative overflow-hidden -mx-4 -mt-4 sm:-mx-6 sm:-mt-6 lg:-mx-10 lg:-mt-10 px-4 sm:px-6 lg:px-10 pt-5 bg-[#231134] text-white">
+        <img
+          src="/space-logo-white.png"
+          alt=""
+          aria-hidden="true"
+          className="pointer-events-none select-none absolute bottom-0 right-6 w-48 sm:w-64 opacity-10"
+        />
 
-      <PageHeader
-        title={cohort.name}
-        subtitle={
-          <>
-            {cohort.program_name ?? "—"} ·{" "}
-            <span className={`px-2 py-0.5 rounded-full font-semibold ${COHORT_STATUS_COLOR[cohort.status]}`}>
-              {COHORT_STATUS_LABEL[cohort.status]}
-            </span>
-            {cohort.starts_on ? ` · ${cohort.starts_on}${cohort.ends_on && cohort.ends_on !== cohort.starts_on ? ` – ${cohort.ends_on}` : ""}` : ""}
-            {cohort.location_name ? ` · ${cohort.location_name}` : cohort.location ? ` · ${cohort.location}` : ""}
-            {cohort.effective_warehouse_name ? ` · ${cohort.effective_warehouse_name}` : ""}
-          </>
-        }
-        action={
-          <div className="flex items-center gap-2 flex-wrap">
-            <Link
-              to="/operations/cohorts/$cohortId/judging"
-              params={{ cohortId: cohort.id }}
-              className="flex items-center gap-1.5 h-9 px-3 border border-border rounded-xl text-sm font-medium text-foreground hover:bg-muted transition-colors shrink-0"
-            >
-              <Award size={14} /> Judging
-            </Link>
-            <select
-              value={cohort.status}
-              onChange={(e) => statusMutation.mutate(e.target.value as CohortStatus)}
-              disabled={statusMutation.isPending}
-              title="Change cohort status"
-              className="h-8 px-2.5 border border-border bg-background rounded-lg text-xs font-medium text-foreground hover:bg-muted transition-colors shrink-0 cursor-pointer disabled:opacity-50 disabled:cursor-wait focus:outline-none w-auto max-w-fit"
-            >
-              {statusOptionsFor(cohort.status).map((s) => <option key={s} value={s}>{COHORT_STATUS_LABEL[s]}</option>)}
-            </select>
-            {cohort.status !== "completed" && cohort.status !== "cancelled" && (
+        <div className="relative z-10">
+          <CohortBackButton
+            cohort={cohort}
+            className="inline-flex w-fit items-center gap-1.5 text-sm font-medium text-white/75 hover:text-white transition-colors mb-4"
+          />
+
+          <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
+            <div className="min-w-0 space-y-3">
+              <div className="flex items-center gap-3 flex-wrap">
+                <h1 className="text-2xl font-bold tracking-tight text-white">
+                  {cohort.name}
+                </h1>
+                <span className={`px-2.5 py-0.5 rounded-full text-xs font-semibold ${COHORT_STATUS_COLOR[cohort.status]}`}>
+                  {COHORT_STATUS_LABEL[cohort.status]}
+                </span>
+              </div>
+
+              <div className="flex flex-wrap items-center gap-x-5 gap-y-2 text-xs text-white/85">
+                <div className="inline-flex items-center gap-1.5">
+                  <Layers size={13} className="text-white/55 shrink-0" />
+                  <span className="text-white/55">Program:</span>
+                  <span className="font-medium text-white">{cohort.program_name ?? "—"}</span>
+                </div>
+
+                {cohort.starts_on && (
+                  <div className="inline-flex items-center gap-1.5">
+                    <Calendar size={13} className="text-white/55 shrink-0" />
+                    <span className="text-white/55">Dates:</span>
+                    <span className="font-medium text-white">
+                      {cohort.starts_on}
+                      {cohort.ends_on && cohort.ends_on !== cohort.starts_on ? ` – ${cohort.ends_on}` : ""}
+                    </span>
+                  </div>
+                )}
+
+                {(cohort.location_name || cohort.location) && (
+                  <div className="inline-flex items-center gap-1.5">
+                    <MapPin size={13} className="text-white/55 shrink-0" />
+                    <span className="text-white/55">Location:</span>
+                    <span className="font-medium text-white">{cohort.location_name ?? cohort.location}</span>
+                  </div>
+                )}
+
+                {cohort.effective_warehouse_name && (
+                  <div className="inline-flex items-center gap-1.5">
+                    <Package size={13} className="text-white/55 shrink-0" />
+                    <span className="text-white/55">Warehouse:</span>
+                    <span className="font-medium text-white">{cohort.effective_warehouse_name}</span>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            <div className="flex flex-col gap-2 shrink-0 sm:min-w-[210px]">
               <button
-                onClick={() => { setSendCertificates(false); setCompleteConfirmOpen(true) }}
-                disabled={completeCohortMutation.isPending}
-                className="flex items-center gap-1.5 h-9 px-3 border border-border rounded-xl text-sm font-medium text-foreground hover:bg-muted transition-colors shrink-0 disabled:opacity-50"
+                type="button"
+                onClick={() => setEditOpen(true)}
+                className="flex items-center justify-center gap-1.5 w-full h-9 px-4 rounded-[10px] bg-[#653F84] border-0 text-sm font-medium text-white hover:opacity-90 transition-opacity cursor-pointer"
               >
-                <CheckCircle2 size={14} className="text-emerald-600 dark:text-emerald-400" />
-                {completeCohortMutation.isPending ? "Completing…" : "Complete cohort"}
+                <Pencil size={13} /> Edit
               </button>
-            )}
-            <button
-              onClick={() => setEditOpen(true)}
-              className="flex items-center gap-1.5 h-9 px-3 border border-border rounded-xl text-sm font-medium text-foreground hover:bg-muted transition-colors shrink-0"
-            >
-              <Pencil size={14} /> Edit
-            </button>
-            <button
-              onClick={() => setExcuseModalOpen(true)}
-              className="flex items-center gap-1.5 h-9 px-3 border border-border rounded-xl text-sm font-medium text-foreground hover:bg-muted transition-colors shrink-0"
-              title="Configure default University Excuse & Invitation Letter for this cohort"
-            >
-              <FileText size={14} className="text-primary" /> Excuse Letter
-            </button>
+
+              <div className="grid grid-cols-2 gap-2">
+                <select
+                  value={cohort.status}
+                  onChange={(e) => {
+                    const next = e.target.value as CohortStatus
+                    if (next === "completed") {
+                      setSendCertificates(false)
+                      setCompleteConfirmOpen(true)
+                      return
+                    }
+                    statusMutation.mutate(next)
+                  }}
+                  disabled={statusMutation.isPending || completeCohortMutation.isPending}
+                  title="Change cohort status"
+                  className="h-9 px-2.5 bg-transparent border-2 border-solid border-[#D7D2CB] rounded-[10px] text-xs font-medium text-white hover:bg-white/10 transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-wait focus:outline-none [&>option]:bg-[#231134] [&>option]:text-white"
+                >
+                  {(cohort.status !== "completed" && cohort.status !== "cancelled"
+                    ? [...statusOptionsFor(cohort.status), "completed" as CohortStatus]
+                    : statusOptionsFor(cohort.status)
+                  ).map((s) => (
+                    <option key={s} value={s}>{COHORT_STATUS_LABEL[s]}</option>
+                  ))}
+                </select>
+
+                <Link
+                  to="/operations/cohorts/$cohortId/judging"
+                  params={{ cohortId: cohort.id }}
+                  className="flex items-center justify-center gap-1.5 h-9 px-3 bg-transparent border-2 border-solid border-[#D7D2CB] rounded-[10px] text-xs font-medium text-white hover:bg-white/10 transition-colors cursor-pointer"
+                >
+                  <Award size={13} /> Judging
+                </Link>
+              </div>
+            </div>
           </div>
-        }
-      />
 
-      {/* Three counters that are also navigation — the numbers ops came to
-          check, each one a door into the tab that acts on it. */}
-      <div className="flex flex-wrap gap-2">
-        <CounterChip
-          label="Registered"
-          value={cohort.capacity != null ? `${registrations.length} / ${cohort.capacity}` : `${registrations.length}`}
-          onClick={() => setTab("students")}
-        />
-        <CounterChip label="Sessions" value={sessions.length} onClick={() => setTab("sessions")} />
-        <CounterChip
-          label="Unstaffed"
-          value={unstaffedCount}
-          tone={unstaffedCount > 0 ? "alert" : "default"}
-          onClick={() => setTab("sessions")}
-        />
-      </div>
+          <div className="flex flex-wrap gap-2 mt-5 pb-4">
+            <CounterChip
+              label="Students"
+              value={cohort.capacity != null ? `${registrations.length} / ${cohort.capacity}` : `${registrations.length}`}
+              onClick={() => { setTab("participants"); setParticipantsSub("students") }}
+            />
+            <CounterChip label="Sessions" value={sessions.length} onClick={() => setTab("sessions")} />
+            <CounterChip
+              label="Unstaffed"
+              value={unstaffedCount}
+              tone={unstaffedCount > 0 ? "alert" : "default"}
+              onClick={() => { setTab("instructors"); setInstructorsSub("staffing") }}
+            />
+          </div>
 
-      <div className="flex flex-wrap gap-2">
-        <button
-          onClick={() => setGenerateOpen(true)}
-          className="flex items-center gap-1.5 h-9 px-3 border border-border rounded-xl text-sm font-medium text-foreground hover:bg-muted transition-colors"
-        >
-          <CalendarPlus size={14} /> Generate sessions
-        </button>
-        <button
-          onClick={() => setRegisterOpen(true)}
-          className="flex items-center gap-1.5 h-9 px-3 bg-primary text-primary-foreground rounded-xl text-sm font-medium hover:opacity-90 transition-colors"
-        >
-          <UserPlus size={14} /> Register student
-        </button>
-        <button
-          onClick={() => setImportOpen(true)}
-          className="flex items-center gap-1.5 h-9 px-3 border border-border rounded-xl text-sm font-medium text-foreground hover:bg-muted transition-colors"
-        >
-          <Upload size={14} /> Import list
-        </button>
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <button
-              disabled={downloadCertificatesMutation.isPending}
-              className="flex items-center gap-1.5 h-9 px-3 border border-border rounded-xl text-sm font-medium text-foreground hover:bg-muted transition-colors disabled:opacity-50"
-              title="One merged PDF, one certificate per registered student"
-            >
-              <Award size={14} /> {downloadCertificatesMutation.isPending ? "Preparing…" : "Download certificates"}
-            </button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end" className="w-56 max-h-80 overflow-y-auto">
-            <DropdownMenuItem onClick={() => downloadCertificatesMutation.mutate({ theme: "dark" })}>
-              Dark background
-            </DropdownMenuItem>
-            <DropdownMenuItem onClick={() => downloadCertificatesMutation.mutate({ theme: "light" })}>
-              Light background
-            </DropdownMenuItem>
-            {programTemplates.map((tmpl: ProgramCertificateTemplate) => (
-              <DropdownMenuItem
-                key={tmpl.id}
-                onClick={() => downloadCertificatesMutation.mutate({ theme: "custom", templateId: tmpl.id })}
-                className="truncate"
+          <div className="flex items-center gap-1 border-b border-white/15 overflow-x-auto scrollbar-none no-scrollbar" role="tablist">
+            {TABS.map((t) => (
+              <button
+                key={t.key}
+                role="tab"
+                aria-selected={tab === t.key}
+                onClick={() => setTab(t.key)}
+                className={`h-9 px-3 -mb-px border-b-2 text-sm font-medium transition-colors shrink-0 whitespace-nowrap cursor-pointer ${tab === t.key
+                    ? "border-[#D7D2CB] text-white"
+                    : "border-transparent text-white/70 hover:text-white"
+                  }`}
               >
-                {tmpl.name}
-              </DropdownMenuItem>
+                {t.label}
+              </button>
             ))}
-          </DropdownMenuContent>
-        </DropdownMenu>
-      </div>
-
-      {/* Sessions / Students / Setup — the page used to be five screens of
-          stacked panels with setup wedged between the two things ops touches
-          daily. Nothing is removed, it just stops all being on screen at once. */}
-      <div className="flex items-center gap-1 border-b border-border overflow-x-auto scrollbar-none no-scrollbar" role="tablist">
-        {TABS.map((t) => (
-          <button
-            key={t.key}
-            role="tab"
-            aria-selected={tab === t.key}
-            onClick={() => setTab(t.key)}
-            className={`h-9 px-3 -mb-px border-b-2 text-sm font-medium transition-colors shrink-0 whitespace-nowrap ${
-              tab === t.key
-                ? "border-primary text-foreground"
-                : "border-transparent text-muted-foreground hover:text-foreground"
-            }`}
-          >
-            {t.label}
-          </button>
-        ))}
+          </div>
+        </div>
       </div>
 
       {tab === "sessions" && (
-      <div>
-        <div className="flex items-center justify-between mb-2 flex-wrap gap-2">
-          <p className="text-sm font-semibold text-foreground">
-            Sessions{sessions.length > 0 ? ` (${sessions.length})` : ""}
-          </p>
-          <div className="flex items-center gap-2 flex-wrap">
-            {sessions.length > 0 && (
-              <button
-                onClick={() => { setBulkMode(!bulkMode); setSelectedSessionIds([]) }}
-                className="h-7 px-2.5 border border-border rounded-lg text-xs font-medium text-foreground hover:bg-muted transition-colors"
-              >
-                {bulkMode ? "Cancel" : "Select…"}
-              </button>
+        <div className="space-y-6">
+          <div>
+            <div className="flex items-center justify-between mb-2 flex-wrap gap-2">
+              <p className="text-sm font-semibold text-foreground">
+                Sessions{sessions.length > 0 ? ` (${sessions.length})` : ""}
+              </p>
+              <div className="flex items-center gap-2 flex-wrap">
+                {sessions.length > 0 && (
+                  <button
+                    onClick={() => { setBulkMode(!bulkMode); setSelectedSessionIds([]) }}
+                    className={`h-8 px-3 text-xs font-medium ${WIRE_BTN}`}
+                  >
+                    {bulkMode ? "Cancel" : "Select…"}
+                  </button>
+                )}
+                <button
+                  onClick={() => setGenerateOpen(true)}
+                  className={`flex items-center gap-1.5 h-8 px-3 text-xs font-medium ${WIRE_BTN}`}
+                >
+                  <CalendarPlus size={13} /> Generate sessions
+                </button>
+                <button
+                  onClick={() => setAddSessionOpen(true)}
+                  className={`h-8 px-3 text-xs font-medium ${WIRE_CTA}`}
+                >
+                  + Add session
+                </button>
+              </div>
+            </div>
+
+            {bulkMode && (
+              <div className="flex items-center justify-between gap-2 mb-2 p-2 bg-primary/5 border border-primary/20 rounded-[10px] flex-wrap">
+                <div className="flex items-center gap-2">
+                  <label className="flex items-center gap-1.5 text-xs font-medium text-foreground cursor-pointer select-none">
+                    <input
+                      type="checkbox"
+                      checked={sessions.length > 0 && selectedSessionIds.length === sessions.length}
+                      onChange={() => setSelectedSessionIds(
+                        selectedSessionIds.length === sessions.length ? [] : sessions.map((s) => s.id),
+                      )}
+                    />
+                    Select all
+                  </label>
+                  <span className="text-xs text-muted-foreground">{selectedSessionIds.length} selected</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => setBulkAssignOpen(true)}
+                    disabled={selectedSessionIds.length === 0}
+                    className="h-7 px-2.5 bg-primary text-primary-foreground text-xs font-medium rounded-[10px] hover:opacity-90 disabled:opacity-40"
+                  >
+                    Assign instructor…
+                  </button>
+                  <button
+                    onClick={() => setBulkOpenCallOpen(true)}
+                    disabled={selectedSessionIds.length === 0}
+                    className="h-7 px-2.5 border border-border text-foreground text-xs font-medium rounded-[10px] hover:bg-muted disabled:opacity-40"
+                  >
+                    Open call…
+                  </button>
+                </div>
+              </div>
             )}
-            <button
-              onClick={() => setAddSessionOpen(true)}
-              className="h-7 px-2.5 bg-primary text-primary-foreground rounded-lg text-xs font-medium hover:opacity-90 transition-colors"
-            >
-              + Add session
-            </button>
-          </div>
-        </div>
 
-        {bulkMode && (
-          <div className="flex items-center justify-between gap-2 mb-2 p-2 bg-primary/5 border border-primary/20 rounded-xl flex-wrap">
-            <div className="flex items-center gap-2">
-              <label className="flex items-center gap-1.5 text-xs font-medium text-foreground cursor-pointer select-none">
+            <SessionsTable
+              cohortId={cohort.id}
+              sessions={sessions}
+              bulkMode={bulkMode}
+              selectedSessionIds={selectedSessionIds}
+              onToggleSession={(id) =>
+                setSelectedSessionIds((prev) => prev.includes(id) ? prev.filter((sid) => sid !== id) : [...prev, id])}
+            />
+          </div>
+
+          <Card className={`px-4 ${WIRE_CARD}`}>
+            <MaterialsPanel
+              owner={{ cohort_id: cohort.id }}
+              level="program"
+              inheritedNote="Sessions use these unless they have their own."
+            />
+          </Card>
+
+          <Card className={`px-4 ${WIRE_CARD}`}>
+            <CohortKitsPanel cohort={cohort} />
+          </Card>
+
+          <div>
+            <div className="flex items-center justify-between mb-2">
+              <p className="text-sm font-semibold text-foreground">
+                Reports{cohortReports.length > 0 ? ` (${cohortReports.length})` : ""}
+              </p>
+              <label className="text-xs font-medium text-primary hover:opacity-80 transition-colors cursor-pointer">
+                {uploadReportMutation.isPending ? "Uploading…" : "+ Upload report"}
                 <input
-                  type="checkbox"
-                  checked={sessions.length > 0 && selectedSessionIds.length === sessions.length}
-                  onChange={() => setSelectedSessionIds(
-                    selectedSessionIds.length === sessions.length ? [] : sessions.map((s) => s.id),
-                  )}
+                  type="file" className="hidden" disabled={uploadReportMutation.isPending}
+                  onChange={(e) => { const file = e.target.files?.[0]; if (file) uploadReportMutation.mutate(file); e.target.value = "" }}
                 />
-                Select all
               </label>
-              <span className="text-xs text-muted-foreground">{selectedSessionIds.length} selected</span>
             </div>
-            <div className="flex items-center gap-2">
-              <button
-                onClick={() => setBulkAssignOpen(true)}
-                disabled={selectedSessionIds.length === 0}
-                className="h-7 px-2.5 bg-primary text-primary-foreground text-xs font-medium rounded-lg hover:opacity-90 disabled:opacity-40"
-              >
-                Assign instructor…
-              </button>
-              <button
-                onClick={() => setBulkOpenCallOpen(true)}
-                disabled={selectedSessionIds.length === 0}
-                className="h-7 px-2.5 border border-border text-foreground text-xs font-medium rounded-lg hover:bg-muted disabled:opacity-40"
-              >
-                Open call…
-              </button>
-            </div>
+            {cohortReports.length === 0 ? (
+              <EmptyState title="No reports uploaded yet" />
+            ) : (
+              <div className="flex flex-col gap-1.5">
+                {cohortReports.map((r) => (
+                  <a
+                    key={r.id} href={r.file_url} target="_blank" rel="noreferrer"
+                    className="flex items-center gap-2.5 px-3 py-2 bg-background border border-border rounded-[10px] hover:border-primary/50 transition-colors"
+                  >
+                    <FileText size={14} className="text-muted-foreground shrink-0" />
+                    <div className="min-w-0 flex-1">
+                      <p className="text-sm text-foreground truncate">{r.filename}</p>
+                      <p className="text-xs text-muted-foreground truncate">
+                        {r.uploaded_by_name ?? "Unknown"}{r.notes ? ` · ${r.notes}` : ""}
+                      </p>
+                    </div>
+                    <Download size={13} className="text-muted-foreground shrink-0" />
+                  </a>
+                ))}
+              </div>
+            )}
           </div>
-        )}
 
-        <SessionsTable
-          cohortId={cohort.id}
-          sessions={sessions}
-          bulkMode={bulkMode}
-          selectedSessionIds={selectedSessionIds}
-          onToggleSession={(id) =>
-            setSelectedSessionIds((prev) => prev.includes(id) ? prev.filter((sid) => sid !== id) : [...prev, id])}
-        />
-      </div>
+          {completeWarnings && (
+            <div className="flex items-start gap-2 p-3 rounded-[10px] bg-amber-50 border border-amber-200 text-amber-700 dark:bg-amber-500/10 dark:border-amber-900/50 dark:text-amber-400 text-sm">
+              <CheckCircle2 size={16} className="shrink-0 mt-0.5" />
+              <div>
+                <p className="font-medium">Cohort marked completed.</p>
+                {completeWarnings.map((w) => <p key={w} className="text-xs mt-0.5">{w}</p>)}
+              </div>
+            </div>
+          )}
+        </div>
       )}
 
-      {tab === "roles" && (
-      <div className="space-y-5">
-        <Card className="px-4">
-          <CohortRolesPanel cohort={cohort} sessions={sessions} />
-        </Card>
-      </div>
-      )}
+      {tab === "instructors" && (
+        <div className="space-y-5">
+          <div className="flex items-center gap-2 flex-wrap">
+            {([
+              { key: "staffing", label: "Calls & Staffing" },
+              { key: "roles", label: "Roles & Checklists" },
+              { key: "assessment", label: "Assessment Gate" },
+              { key: "prequiz", label: "Pre-Session Quiz" },
+              { key: "reviews", label: "Day Reviews" },
+            ] as const).map((st) => (
+              <button
+                key={st.key}
+                type="button"
+                onClick={() => setInstructorsSub(st.key)}
+                className={`h-9 px-3.5 rounded-[10px] border-[2px] text-sm font-medium transition-colors cursor-pointer bg-transparent ${instructorsSub === st.key
+                    ? "border-primary text-primary font-semibold"
+                    : "border-[#D7D2CB] text-muted-foreground hover:text-foreground"
+                  }`}
+              >
+                {st.label}
+              </button>
+            ))}
+          </div>
 
-      {tab === "assessment" && (
-      <div className="space-y-5">
-        <Card className="px-4">
-          <AssessmentAssignmentPanel cohortId={cohort.id} />
-        </Card>
-      </div>
+          {instructorsSub === "staffing" && (
+            <div className="space-y-5">
+              <Card className={`px-4 ${WIRE_CARD}`}>
+                <CohortCallsPanel cohort={cohort} sessions={sessions} />
+              </Card>
+              <Card className={`px-4 ${WIRE_CARD}`}>
+                <CohortStaffingPanel cohort={cohort} />
+              </Card>
+            </div>
+          )}
+          {instructorsSub === "roles" && (
+            <Card className={`px-4 ${WIRE_CARD}`}>
+              <CohortRolesPanel cohort={cohort} sessions={sessions} />
+            </Card>
+          )}
+          {instructorsSub === "assessment" && (
+            <Card className={`px-4 ${WIRE_CARD}`}>
+              <AssessmentAssignmentPanel cohortId={cohort.id} />
+            </Card>
+          )}
+          {instructorsSub === "prequiz" && (
+            <Card className={`px-4 ${WIRE_CARD}`}>
+              <SessionPreQuizOpsPanel cohortId={cohort.id} />
+            </Card>
+          )}
+          {instructorsSub === "reviews" && (
+            <Card className={`px-4 ${WIRE_CARD}`}>
+              <CohortDayReviewsPanel cohort={cohort} />
+            </Card>
+          )}
+        </div>
       )}
 
       {tab === "lms" && (
-      <div className="space-y-5">
-        <Card className="px-4">
-          <LmsCohortSection cohortId={cohort.id} cohortName={cohort.name} />
-        </Card>
-      </div>
-      )}
-
-      {tab === "staffing" && (
-      <div className="space-y-5">
-        {/* One "Open a call" entry point, managed and closed as one entity.
-            The old ungrouped "Open call for all" quick action is gone: it
-            wrote to a model this panel couldn't see, so calls opened that way
-            could never be closed as a group. */}
-        <Card className="px-4">
-          <CohortCallsPanel cohort={cohort} sessions={sessions} />
-        </Card>
-        {/* One row per applicant, not per session — see the panel's docstring. */}
-        <Card className="px-4">
-          <CohortStaffingPanel cohort={cohort} />
-        </Card>
-        <Card className="px-4">
-          <CohortDayReviewsPanel cohort={cohort} />
-        </Card>
-      </div>
-      )}
-
-      {tab === "students" && (
-      <div>
-        <p className="text-sm font-semibold text-foreground mb-2">
-          Registrations{registrations.length > 0 ? ` (${registrations.length}${cohort.capacity != null ? ` / ${cohort.capacity}` : ""})` : ""}
-        </p>
-        {registrations.length > 0 && (
-          <div className="flex flex-col sm:flex-row sm:items-center gap-2 mb-2">
-            <div className="relative w-full sm:flex-1 min-w-0">
-              <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none" />
-              <input
-                type="text"
-                dir="auto"
-                value={regSearch}
-                onChange={(e) => setRegSearch(e.target.value)}
-                placeholder="Search name, phone, email, school…"
-                className="w-full h-9 pl-9 pr-8 bg-background border border-border rounded-xl text-xs placeholder:text-muted-foreground focus:outline-none focus:border-primary transition-colors"
-              />
-              {regSearch && (
-                <button
-                  type="button"
-                  onClick={() => setRegSearch("")}
-                  aria-label="Clear search"
-                  className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground p-0.5 rounded-full transition-colors"
-                >
-                  <X size={13} />
-                </button>
-              )}
-            </div>
-            <div className="flex items-center gap-2 flex-wrap sm:flex-nowrap w-full sm:w-auto">
-              <select
-                value={regGenderFilter}
-                onChange={(e) => setRegGenderFilter(e.target.value)}
-                aria-label="Filter registrations by gender"
-                className="flex-1 sm:flex-none sm:w-auto h-9 px-2.5 bg-background border border-border rounded-xl text-xs focus:outline-none focus:border-primary transition-colors cursor-pointer"
-              >
-                <option value="all">Any gender</option>
-                <option value="male">Gender: Male</option>
-                <option value="female">Gender: Female</option>
-                {customGenderOptions.map(([key, label]) => (
-                  <option key={key} value={key}>Gender: {label}</option>
-                ))}
-                <option value="unspecified">Gender: Not specified</option>
-              </select>
-              <select
-                value={regLoginFilter}
-                onChange={(e) => setRegLoginFilter(e.target.value as "all" | "never" | "has_logged_in")}
-                className="flex-1 sm:flex-none sm:w-auto h-9 px-2.5 bg-background border border-border rounded-xl text-xs focus:outline-none focus:border-primary transition-colors cursor-pointer"
-              >
-                <option value="all">Any login status</option>
-                <option value="never">Never logged in</option>
-                <option value="has_logged_in">Has logged in</option>
-              </select>
-              <select
-                value={regConsentFilter}
-                onChange={(e) => setRegConsentFilter(e.target.value as "all" | "consented" | "declined" | "pending")}
-                className="flex-1 sm:flex-none sm:w-auto h-9 px-2.5 bg-background border border-border rounded-xl text-xs focus:outline-none focus:border-primary transition-colors cursor-pointer"
-              >
-                <option value="all">Any media consent</option>
-                <option value="consented">Consent: Granted</option>
-                <option value="declined">Consent: Declined</option>
-                <option value="pending">Consent: Pending</option>
-              </select>
-              <button
-                onClick={handleExportRegistrations}
-                disabled={filteredRegistrations.length === 0}
-                title="Export the rows shown below to an .xlsx file"
-                className="flex items-center justify-center gap-1.5 h-9 px-3 shrink-0 border border-border rounded-xl text-xs font-medium text-foreground hover:bg-muted transition-colors disabled:opacity-50"
-              >
-                <FileSpreadsheet size={14} /> Export
-              </button>
-            </div>
-          </div>
-        )}
-        {drawerError && (
-          <div className="text-xs text-red-600 dark:text-red-400 bg-red-500/10 border border-red-500/30 rounded-xl px-3 py-2 mb-2">
-            {drawerError}
-          </div>
-        )}
-        {isLoading ? <Spinner /> : registrations.length === 0 ? (
-          <EmptyState title="No registrations yet" />
-        ) : filteredRegistrations.length === 0 ? (
-          <EmptyState title={regSearch ? `No registrations match "${regSearch}"` : "No registrations match this filter"} />
-        ) : (
-          <div className="flex flex-col gap-2">
-            {filteredRegistrations.map((r) => {
-              const attendancePct = r.total_cohort_sessions_count
-                ? Math.round(((r.attended_sessions_count ?? 0) / r.total_cohort_sessions_count) * 100)
-                : null
-              return (
-                <div
-                  key={r.id}
-                  className="flex flex-col gap-2 p-3 bg-background border border-border rounded-xl sm:flex-row sm:flex-wrap sm:items-center sm:justify-between sm:gap-3"
-                >
-                  <div
-                    className="min-w-0 flex-1 cursor-pointer group"
-                    onClick={() => setEditRegistrationTarget(r)}
-                  >
-                    <div className="flex items-center gap-1.5 flex-wrap">
-                      <button
-                        onClick={(e) => { e.stopPropagation(); setProfileContactId(r.contact_id) }}
-                        className="text-sm font-medium text-foreground hover:text-primary hover:underline transition-colors break-words w-full sm:w-auto text-left"
-                      >
-                        {r.student_name}
-                      </button>
-                      {r.student_gender && (
-                        <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-muted text-muted-foreground">
-                          {r.student_gender}
-                        </span>
-                      )}
-                      {/* Media Consent Clickable Badge */}
-                      <button
-                        type="button"
-                        onClick={(e) => {
-                          e.stopPropagation()
-                          setConsentTarget(r)
-                        }}
-                        className={`text-xs font-semibold px-2 py-0.5 rounded-full transition-colors cursor-pointer ${
-                          r.media_consent_status === "consented"
-                            ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-400 hover:bg-emerald-200"
-                            : r.media_consent_status === "declined"
-                            ? "bg-red-100 text-red-700 dark:bg-red-500/15 dark:text-red-400 hover:bg-red-200"
-                            : "bg-muted text-muted-foreground hover:bg-muted/80 hover:text-foreground"
-                        }`}
-                        title="Click to view details or change Media Consent state"
-                      >
-                        {r.media_consent_status === "consented"
-                          ? "Consent: Granted"
-                          : r.media_consent_status === "declined"
-                          ? "Consent: Declined"
-                          : "Consent: Pending"}
-                      </button>
-                      {r.ticket_sent ? (
-                        <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-blue-100 text-blue-700 dark:bg-blue-500/15 dark:text-blue-400">
-                          Ticket sent
-                        </span>
-                      ) : (
-                        <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-amber-100 text-amber-700 dark:bg-amber-500/15 dark:text-amber-400">
-                          No ticket
-                        </span>
-                      )}
-                      {r.onboarding_sent ? (
-                        <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-violet-100 text-violet-700 dark:bg-violet-500/15 dark:text-violet-400">
-                          Onboarding sent
-                        </span>
-                      ) : (
-                        <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-amber-100 text-amber-700 dark:bg-amber-500/15 dark:text-amber-400">
-                          No onboarding email
-                        </span>
-                      )}
-                      {r.certificate_issued ? (
-                        <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-400">
-                          Certificate issued
-                        </span>
-                      ) : (
-                        <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-muted text-muted-foreground">
-                          No certificate
-                        </span>
-                      )}
-                      {r.status === "cancelled" && (
-                        <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-red-100 text-red-700 dark:bg-red-500/15 dark:text-red-400">
-                          Cancelled
-                        </span>
-                      )}
-                      {!r.last_login_at && (
-                        <span
-                          className="text-xs font-semibold px-2 py-0.5 rounded-full bg-amber-100 text-amber-700 dark:bg-amber-500/15 dark:text-amber-400"
-                          title="No LMS account exists yet, or one does but nobody's ever logged into it"
-                        >
-                          Never logged in
-                        </span>
-                      )}
-                    </div>
-                    <p className="text-xs text-muted-foreground truncate">
-                      {r.student_phone ?? "—"}
-                      {r.student_email ? ` · ${r.student_email}` : ""}
-                      {r.student_gender ? ` · ${r.student_gender}` : ""}
-                      {r.student_date_of_birth ? ` · DOB: ${r.student_date_of_birth}` : ""}
-                      {r.student_grade ? ` · ${r.student_grade}` : ""}
-                      {r.student_organization_name ? ` · ${r.student_organization_name}` : ""}
-                      {r.guardian_name ? ` · Guardian: ${r.guardian_name} (${r.guardian_phone ?? "—"})` : ""}
-                      {r.price_charged != null ? ` · AED ${r.price_charged}` : ""}
-                      {r.checked_in ? " · Checked in" : ""}
-                      {attendancePct != null ? ` · Attendance ${r.attended_sessions_count ?? 0}/${r.total_cohort_sessions_count} (${attendancePct}%)` : ""}
-                    </p>
-                  </div>
-                  <div className="flex items-center gap-1.5 flex-shrink-0 justify-end border-t border-border/60 pt-2 sm:border-0 sm:pt-0">
-                    <DropdownMenu>
-                      <DropdownMenuTrigger asChild>
-                        <button
-                          className="p-1.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
-                          aria-label={`Actions for ${r.student_name}`}
-                        >
-                          <MoreVertical size={16} />
-                        </button>
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent>
-                        {r.total_cohort_sessions_count ? (
-                          <DropdownMenuItem onClick={() => setAttendanceTarget(r)}>
-                            <Award size={14} /> View attendance
-                          </DropdownMenuItem>
-                        ) : null}
-                        {/* certificate_issued, not certificate_url — student certs
-                            are emailed and never stored, so they have no URL. */}
-                        {r.certificate_url ? (
-                          <DropdownMenuItem asChild>
-                            <a href={r.certificate_url} target="_blank" rel="noreferrer">
-                              <Award size={14} /> Download certificate
-                            </a>
-                          </DropdownMenuItem>
-                        ) : !r.certificate_issued && r.status !== "cancelled" && (
-                          <DropdownMenuItem onClick={() => setCertificateTarget(r)}>
-                            <Award size={14} /> Give certificate
-                          </DropdownMenuItem>
-                        )}
-                        <DropdownMenuItem onClick={() => resendMutation.mutate(r.id)} disabled={resendMutation.isPending}>
-                          <Ticket size={14} /> {r.ticket_sent ? "Resend ticket" : "Send ticket"}
-                        </DropdownMenuItem>
-                        <DropdownMenuItem
-                          onClick={() => resendOnboardingMutation.mutate(r.id)}
-                          disabled={resendOnboardingMutation.isPending}
-                        >
-                          <Mail size={14} /> {r.onboarding_sent ? "Resend onboarding email" : "Send onboarding email"}
-                        </DropdownMenuItem>
-                        <DropdownMenuItem
-                          onClick={() => copySetPasswordLinkMutation.mutate(r.id)}
-                          disabled={copySetPasswordLinkMutation.isPending}
-                        >
-                          <Copy size={14} /> Copy set-password link
-                        </DropdownMenuItem>
-                        <DropdownMenuItem onClick={() => setPaymentTarget(r)}>
-                          <Wallet size={14} /> Confirm payment
-                        </DropdownMenuItem>
-                        <DropdownMenuItem onClick={() => setConsentTarget(r)}>
-                          <Camera size={14} /> Media consent
-                        </DropdownMenuItem>
-                        <DropdownMenuSeparator />
-                        <DropdownMenuItem
-                          variant="destructive"
-                          disabled={r.status === "cancelled" || cancelMutation.isPending}
-                          onClick={() => { setDrawerError(null); setCancelTarget(r) }}
-                        >
-                          <Ban size={14} /> Cancel registration
-                        </DropdownMenuItem>
-                        <DropdownMenuItem
-                          variant="destructive"
-                          disabled={deleteRegistrationMutation.isPending}
-                          onClick={() => { setDrawerError(null); setDeleteTarget(r) }}
-                        >
-                          <Trash2 size={14} /> Delete registration
-                        </DropdownMenuItem>
-                      </DropdownMenuContent>
-                    </DropdownMenu>
-                  </div>
-                </div>
-              )
-            })}
-          </div>
-        )}
-      </div>
-
-      )}
-
-      {tab === "consents" && (
-        <Card className="p-4">
-          <CohortConsentsPanel cohortId={cohort.id} registrations={registrations} />
-        </Card>
-      )}
-
-      {tab === "setup" && (
-      <div className="flex flex-col gap-5">
-      {/* I5-6: cohort-level materials — sessions use these unless they
-          have their own. */}
-      <Card className="px-4">
-        <MaterialsPanel
-          owner={{ cohort_id: cohort.id }}
-          level="program"
-          inheritedNote="Sessions use these unless they have their own."
-        />
-      </Card>
-
-      {/* Phase 3a: same "set a default, session can override" pattern, for
-          kits rather than materials. */}
-      <Card className="px-4">
-        <CohortKitsPanel cohort={cohort} />
-      </Card>
-
-      <div>
-        <div className="flex items-center justify-between mb-2">
-          <p className="text-sm font-semibold text-foreground">
-            Reports{cohortReports.length > 0 ? ` (${cohortReports.length})` : ""}
-          </p>
-          <label className="text-xs font-medium text-primary hover:opacity-80 transition-colors cursor-pointer">
-            {uploadReportMutation.isPending ? "Uploading…" : "+ Upload report"}
-            <input
-              type="file" className="hidden" disabled={uploadReportMutation.isPending}
-              onChange={(e) => { const file = e.target.files?.[0]; if (file) uploadReportMutation.mutate(file); e.target.value = "" }}
-            />
-          </label>
+        <div className="space-y-5">
+          <Card className={`px-4 ${WIRE_CARD}`}>
+            <LmsCohortSection cohortId={cohort.id} cohortName={cohort.name} mode="authoring" />
+          </Card>
         </div>
-        {cohortReports.length === 0 ? (
-          <EmptyState title="No reports uploaded yet" />
-        ) : (
-          <div className="flex flex-col gap-1.5">
-            {cohortReports.map((r) => (
-              <a
-                key={r.id} href={r.file_url} target="_blank" rel="noreferrer"
-                className="flex items-center gap-2.5 px-3 py-2 bg-background border border-border rounded-xl hover:border-primary/50 transition-colors"
+      )}
+
+      {tab === "participants" && (
+        <div className="space-y-5">
+          <div className="flex items-center gap-2 flex-wrap">
+            {([
+              { key: "students", label: "Students" },
+              { key: "teams", label: "Teams" },
+            ] as const).map((st) => (
+              <button
+                key={st.key}
+                type="button"
+                onClick={() => setParticipantsSub(st.key)}
+                className={`h-9 px-3.5 rounded-[10px] border-[2px] text-sm font-medium transition-colors cursor-pointer bg-transparent ${participantsSub === st.key
+                    ? "border-primary text-primary font-semibold"
+                    : "border-[#D7D2CB] text-muted-foreground hover:text-foreground"
+                  }`}
               >
-                <FileText size={14} className="text-muted-foreground shrink-0" />
-                <div className="min-w-0 flex-1">
-                  <p className="text-sm text-foreground truncate">{r.filename}</p>
-                  <p className="text-xs text-muted-foreground truncate">
-                    {r.uploaded_by_name ?? "Unknown"}{r.notes ? ` · ${r.notes}` : ""}
-                  </p>
-                </div>
-                <Download size={13} className="text-muted-foreground shrink-0" />
-              </a>
+                {st.label}
+              </button>
             ))}
           </div>
-        )}
-      </div>
 
-      {completeWarnings && (
-        <div className="flex items-start gap-2 p-3 rounded-xl bg-amber-50 border border-amber-200 text-amber-700 dark:bg-amber-500/10 dark:border-amber-900/50 dark:text-amber-400 text-sm">
-          <CheckCircle2 size={16} className="shrink-0 mt-0.5" />
-          <div>
-            <p className="font-medium">Cohort marked completed.</p>
-            {completeWarnings.map((w) => <p key={w} className="text-xs mt-0.5">{w}</p>)}
-          </div>
+          {participantsSub === "assign" && (
+            <div className="space-y-3">
+              <button
+                type="button"
+                onClick={() => setParticipantsSub("students")}
+                className={`inline-flex items-center gap-1.5 h-8 px-3 text-xs font-medium ${WIRE_BTN}`}
+              >
+                <ArrowLeft size={13} /> Back to Students
+              </button>
+              <AssignTab cohortId={cohort.id} />
+            </div>
+          )}
+          {participantsSub === "teams" && <TeamsTab cohortId={cohort.id} cohortName={cohort.name} />}
+          {participantsSub === "students" && (
+            <div className="space-y-6">
+              <div>
+                <div className="flex items-center justify-between gap-2 mb-2 flex-wrap">
+                  <p className="text-sm font-semibold text-foreground">
+                    Registrations{registrations.length > 0 ? ` (${registrations.length}${cohort.capacity != null ? ` / ${cohort.capacity}` : ""})` : ""}
+                  </p>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <button
+                      type="button"
+                      onClick={() => setParticipantsSub("assign")}
+                      className={`flex items-center gap-1.5 h-8 px-3 text-xs font-medium ${WIRE_BTN}`}
+                    >
+                      Assign existing
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setImportOpen(true)}
+                      className={`flex items-center gap-1.5 h-8 px-3 text-xs font-medium ${WIRE_BTN}`}
+                    >
+                      <Upload size={13} /> Import roster
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setRegisterOpen(true)}
+                      className={`flex items-center gap-1.5 h-8 px-3 text-xs font-medium ${WIRE_CTA}`}
+                    >
+                      <UserPlus size={13} /> Register student
+                    </button>
+                  </div>
+                </div>
+                {registrations.length > 0 && (
+                  <div className="flex flex-col sm:flex-row sm:items-center gap-2 mb-2">
+                    <div className="relative w-full sm:flex-1 min-w-0">
+                      <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none" />
+                      <input
+                        type="text"
+                        dir="auto"
+                        value={regSearch}
+                        onChange={(e) => setRegSearch(e.target.value)}
+                        placeholder="Search name, phone, email, school…"
+                        className="w-full h-9 pl-9 pr-8 bg-background border border-border rounded-xl text-xs placeholder:text-muted-foreground focus:outline-none focus:border-primary transition-colors"
+                      />
+                      {regSearch && (
+                        <button
+                          type="button"
+                          onClick={() => setRegSearch("")}
+                          aria-label="Clear search"
+                          className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground p-0.5 rounded-full transition-colors"
+                        >
+                          <X size={13} />
+                        </button>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-2 flex-wrap sm:flex-nowrap w-full sm:w-auto">
+                      <select
+                        value={regGenderFilter}
+                        onChange={(e) => setRegGenderFilter(e.target.value)}
+                        aria-label="Filter registrations by gender"
+                        className="flex-1 sm:flex-none sm:w-auto h-9 px-2.5 bg-background border border-border rounded-xl text-xs focus:outline-none focus:border-primary transition-colors cursor-pointer"
+                      >
+                        <option value="all">Any gender</option>
+                        <option value="male">Gender: Male</option>
+                        <option value="female">Gender: Female</option>
+                        {customGenderOptions.map(([key, label]) => (
+                          <option key={key} value={key}>Gender: {label}</option>
+                        ))}
+                        <option value="unspecified">Gender: Not specified</option>
+                      </select>
+                      <select
+                        value={regLoginFilter}
+                        onChange={(e) => setRegLoginFilter(e.target.value as "all" | "never" | "has_logged_in")}
+                        className="flex-1 sm:flex-none sm:w-auto h-9 px-2.5 bg-background border border-border rounded-xl text-xs focus:outline-none focus:border-primary transition-colors cursor-pointer"
+                      >
+                        <option value="all">Any login status</option>
+                        <option value="never">Never logged in</option>
+                        <option value="has_logged_in">Has logged in</option>
+                      </select>
+                      <select
+                        value={regConsentFilter}
+                        onChange={(e) => setRegConsentFilter(e.target.value as "all" | "consented" | "declined" | "pending")}
+                        className="flex-1 sm:flex-none sm:w-auto h-9 px-2.5 bg-background border border-border rounded-xl text-xs focus:outline-none focus:border-primary transition-colors cursor-pointer"
+                      >
+                        <option value="all">Any media consent</option>
+                        <option value="consented">Consent: Granted</option>
+                        <option value="declined">Consent: Declined</option>
+                        <option value="pending">Consent: Pending</option>
+                      </select>
+                      <button
+                        onClick={handleExportRegistrations}
+                        disabled={filteredRegistrations.length === 0}
+                        title="Export the rows shown below to an .xlsx file"
+                        className="flex items-center justify-center gap-1.5 h-9 px-3 shrink-0 border border-border rounded-xl text-xs font-medium text-foreground hover:bg-muted transition-colors disabled:opacity-50"
+                      >
+                        <FileSpreadsheet size={14} /> Export
+                      </button>
+                    </div>
+                  </div>
+                )}
+                {drawerError && (
+                  <div className="text-xs text-red-600 dark:text-red-400 bg-red-500/10 border border-red-500/30 rounded-xl px-3 py-2 mb-2">
+                    {drawerError}
+                  </div>
+                )}
+                {isLoading ? <Spinner /> : registrations.length === 0 ? (
+                  <EmptyState title="No registrations yet" />
+                ) : filteredRegistrations.length === 0 ? (
+                  <EmptyState title={regSearch ? `No registrations match "${regSearch}"` : "No registrations match this filter"} />
+                ) : (
+                  <div className="flex flex-col gap-2">
+                    {filteredRegistrations.map((r) => {
+                      const attendancePct = r.total_cohort_sessions_count
+                        ? Math.round(((r.attended_sessions_count ?? 0) / r.total_cohort_sessions_count) * 100)
+                        : null
+                      return (
+                        <div
+                          key={r.id}
+                          className="flex flex-col gap-2 p-3 bg-background border border-border rounded-xl sm:flex-row sm:flex-wrap sm:items-center sm:justify-between sm:gap-3"
+                        >
+                          <div
+                            className="min-w-0 flex-1 cursor-pointer group"
+                            onClick={() => setEditRegistrationTarget(r)}
+                          >
+                            <div className="flex items-center gap-1.5 flex-wrap">
+                              <button
+                                onClick={(e) => { e.stopPropagation(); setProfileContactId(r.contact_id) }}
+                                className="text-sm font-medium text-foreground hover:text-primary hover:underline transition-colors break-words w-full sm:w-auto text-left"
+                              >
+                                {r.student_name}
+                              </button>
+                              {r.card_id && (
+                                <span className="text-xs font-mono font-semibold px-2 py-0.5 rounded-full bg-primary text-white">
+                                  {r.card_id}
+                                </span>
+                              )}
+                              {r.student_gender && (
+                                <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-muted text-muted-foreground">
+                                  {r.student_gender}
+                                </span>
+                              )}
+                              {/* Media Consent Clickable Badge */}
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation()
+                                  setConsentTarget(r)
+                                }}
+                                className={`text-xs font-semibold px-2 py-0.5 rounded-full transition-colors cursor-pointer ${r.media_consent_status === "consented"
+                                    ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-400 hover:bg-emerald-200"
+                                    : r.media_consent_status === "declined"
+                                      ? "bg-red-100 text-red-700 dark:bg-red-500/15 dark:text-red-400 hover:bg-red-200"
+                                      : "bg-muted text-muted-foreground hover:bg-muted/80 hover:text-foreground"
+                                  }`}
+                                title="Click to view details or change Media Consent state"
+                              >
+                                {r.media_consent_status === "consented"
+                                  ? "Consent: Granted"
+                                  : r.media_consent_status === "declined"
+                                    ? "Consent: Declined"
+                                    : "Consent: Pending"}
+                              </button>
+                              {r.ticket_sent ? (
+                                <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-blue-100 text-blue-700 dark:bg-blue-500/15 dark:text-blue-400">
+                                  Ticket sent
+                                </span>
+                              ) : (
+                                <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-amber-100 text-amber-700 dark:bg-amber-500/15 dark:text-amber-400">
+                                  No ticket
+                                </span>
+                              )}
+                              {r.onboarding_sent ? (
+                                <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-violet-100 text-violet-700 dark:bg-violet-500/15 dark:text-violet-400">
+                                  Onboarding sent
+                                </span>
+                              ) : (
+                                <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-amber-100 text-amber-700 dark:bg-amber-500/15 dark:text-amber-400">
+                                  No onboarding email
+                                </span>
+                              )}
+                              {r.certificate_issued ? (
+                                <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-400">
+                                  Certificate issued
+                                </span>
+                              ) : (
+                                <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-muted text-muted-foreground">
+                                  No certificate
+                                </span>
+                              )}
+                              {r.status === "cancelled" && (
+                                <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-red-100 text-red-700 dark:bg-red-500/15 dark:text-red-400">
+                                  Cancelled
+                                </span>
+                              )}
+                              {!r.last_login_at && (
+                                <span
+                                  className="text-xs font-semibold px-2 py-0.5 rounded-full bg-amber-100 text-amber-700 dark:bg-amber-500/15 dark:text-amber-400"
+                                  title="No LMS account exists yet, or one does but nobody's ever logged into it"
+                                >
+                                  Never logged in
+                                </span>
+                              )}
+                            </div>
+                            <p className="text-xs text-muted-foreground truncate">
+                              {r.student_phone ?? "—"}
+                              {r.student_email ? ` · ${r.student_email}` : ""}
+                              {r.student_gender ? ` · ${r.student_gender}` : ""}
+                              {r.student_date_of_birth ? ` · DOB: ${r.student_date_of_birth}` : ""}
+                              {r.student_grade ? ` · ${r.student_grade}` : ""}
+                              {r.student_organization_name ? ` · ${r.student_organization_name}` : ""}
+                              {r.guardian_name ? ` · Guardian: ${r.guardian_name} (${r.guardian_phone ?? "—"})` : ""}
+                              {r.price_charged != null ? ` · AED ${r.price_charged}` : ""}
+                              {r.checked_in ? " · Checked in" : ""}
+                              {attendancePct != null ? ` · Attendance ${r.attended_sessions_count ?? 0}/${r.total_cohort_sessions_count} (${attendancePct}%)` : ""}
+                            </p>
+                          </div>
+                          <div className="flex items-center gap-1.5 flex-shrink-0 justify-end border-t border-border/60 pt-2 sm:border-0 sm:pt-0">
+                            {r.lms_user_id && (
+                              <Link
+                                to="/lms-authoring/students/$userId"
+                                params={{ userId: r.lms_user_id }}
+                                search={{ from: `/operations/cohorts/${cohort.id}?tab=participants` } as never}
+                                onClick={(e) => e.stopPropagation()}
+                                className={`inline-flex items-center h-7 px-2.5 text-xs font-medium ${WIRE_BTN}`}
+                              >
+                                Manage student
+                              </Link>
+                            )}
+                            <DropdownMenu>
+                              <DropdownMenuTrigger asChild>
+                                <button
+                                  className="p-1.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+                                  aria-label={`Actions for ${r.student_name}`}
+                                >
+                                  <MoreVertical size={16} />
+                                </button>
+                              </DropdownMenuTrigger>
+                              <DropdownMenuContent>
+                                {r.lms_user_id && (
+                                  <DropdownMenuItem asChild>
+                                    <Link
+                                      to="/lms-authoring/students/$userId"
+                                      params={{ userId: r.lms_user_id }}
+                                      search={{ from: `/operations/cohorts/${cohort.id}?tab=participants` } as never}
+                                    >
+                                      Manage student
+                                    </Link>
+                                  </DropdownMenuItem>
+                                )}
+                                {r.total_cohort_sessions_count ? (
+                                  <DropdownMenuItem onClick={() => setAttendanceTarget(r)}>
+                                    <Award size={14} /> View attendance
+                                  </DropdownMenuItem>
+                                ) : null}
+                                {/* certificate_issued, not certificate_url — student certs
+                            are emailed and never stored, so they have no URL. */}
+                                {r.certificate_url ? (
+                                  <DropdownMenuItem asChild>
+                                    <a href={r.certificate_url} target="_blank" rel="noreferrer">
+                                      <Award size={14} /> Download certificate
+                                    </a>
+                                  </DropdownMenuItem>
+                                ) : !r.certificate_issued && r.status !== "cancelled" && (
+                                  <DropdownMenuItem onClick={() => setCertificateTarget(r)}>
+                                    <Award size={14} /> Give certificate
+                                  </DropdownMenuItem>
+                                )}
+                                <DropdownMenuItem onClick={() => resendMutation.mutate(r.id)} disabled={resendMutation.isPending}>
+                                  <Ticket size={14} /> {r.ticket_sent ? "Resend ticket" : "Send ticket"}
+                                </DropdownMenuItem>
+                                <DropdownMenuItem
+                                  onClick={() => resendOnboardingMutation.mutate(r.id)}
+                                  disabled={resendOnboardingMutation.isPending}
+                                >
+                                  <Mail size={14} /> {r.onboarding_sent ? "Resend onboarding email" : "Send onboarding email"}
+                                </DropdownMenuItem>
+                                <DropdownMenuItem
+                                  onClick={() => copySetPasswordLinkMutation.mutate(r.id)}
+                                  disabled={copySetPasswordLinkMutation.isPending}
+                                >
+                                  <Copy size={14} /> Copy set-password link
+                                </DropdownMenuItem>
+                                <DropdownMenuItem onClick={() => setPaymentTarget(r)}>
+                                  <Wallet size={14} /> Confirm payment
+                                </DropdownMenuItem>
+                                <DropdownMenuItem onClick={() => setConsentTarget(r)}>
+                                  <Camera size={14} /> Media consent
+                                </DropdownMenuItem>
+                                <DropdownMenuSeparator />
+                                <DropdownMenuItem
+                                  variant="destructive"
+                                  disabled={r.status === "cancelled" || cancelMutation.isPending}
+                                  onClick={() => { setDrawerError(null); setCancelTarget(r) }}
+                                >
+                                  <Ban size={14} /> Cancel registration
+                                </DropdownMenuItem>
+                                <DropdownMenuItem
+                                  variant="destructive"
+                                  disabled={deleteRegistrationMutation.isPending}
+                                  onClick={() => { setDrawerError(null); setDeleteTarget(r) }}
+                                >
+                                  <Trash2 size={14} /> Delete registration
+                                </DropdownMenuItem>
+                              </DropdownMenuContent>
+                            </DropdownMenu>
+                          </div>
+                        </div>
+                      )
+                    })}
+                  </div>
+                )}
+              </div>
+              <Card className="p-4">
+                <CohortConsentsPanel cohortId={cohort.id} registrations={registrations} />
+              </Card>
+            </div>
+          )}
         </div>
-      )}      </div>
+      )}
+
+      {tab === "progress" && (
+        <CohortProgressPanel cohortId={cohort.id} cohortName={cohort.name} />
+      )}
+
+      {tab === "analysis" && (
+        <CohortAnalysisPanel cohortId={cohort.id} />
+      )}
+
+      {tab === "judging" && (
+        <div className="space-y-5">
+          <div className="flex items-center gap-2 flex-wrap">
+            {([
+              { key: "results", label: "Results & Leaderboard" },
+              { key: "rubric", label: "Rubric" },
+              { key: "judges", label: "Judges" },
+            ] as const).map((st) => (
+              <button
+                key={st.key}
+                type="button"
+                onClick={() => setJudgingSub(st.key)}
+                className={`h-9 px-3.5 rounded-[10px] border-[2px] text-sm font-medium transition-colors cursor-pointer bg-transparent ${judgingSub === st.key
+                    ? "border-primary text-primary font-semibold"
+                    : "border-[#D7D2CB] text-muted-foreground hover:text-foreground"
+                  }`}
+              >
+                {st.label}
+              </button>
+            ))}
+          </div>
+
+          {judgingSub === "results" && (
+            <ResultsTab
+              cohortId={cohort.id}
+              cohortName={cohort.name}
+              programId={cohort.program_id}
+            />
+          )}
+          {judgingSub === "rubric" && <RubricTab cohortId={cohort.id} />}
+          {judgingSub === "judges" && <JudgesTab cohortId={cohort.id} />}
+        </div>
+      )}
+
+      {tab === "certificates" && (
+        <CohortCertificatesPanel
+          cohortId={cohort.id}
+          cohortName={cohort.name}
+          programName={programs.find((p) => p.id === cohort.program_id)?.name}
+          programTemplates={programTemplates}
+          onOpenExcuseLetter={() => setExcuseModalOpen(true)}
+        />
       )}
 
       {editOpen && (
@@ -1011,7 +1220,16 @@ function CohortDetailView({ cohort }: { cohort: Cohort }) {
         />
       )}
       {importOpen && (
-        <ImportListModal cohort={cohort} onClose={() => setImportOpen(false)} onImported={invalidateRegistrations} />
+        <Modal
+          title="Import Roster"
+          onClose={() => {
+            setImportOpen(false)
+            invalidateRegistrations()
+          }}
+          maxWidth="max-w-5xl"
+        >
+          <RosterTab cohortId={cohort.id} />
+        </Modal>
       )}
       {paymentTarget && (
         <ConfirmPaymentModal
@@ -1212,11 +1430,10 @@ function GenerateSessionsModal({ cohort, onClose, onGenerated }: {
             {WEEKDAYS.map((w, i) => (
               <button
                 key={w} type="button" onClick={() => toggleWeekday(i)}
-                className={`h-9 px-3 rounded-xl text-sm font-medium border transition-colors ${
-                  weekdays.includes(i)
+                className={`h-9 px-3 rounded-xl text-sm font-medium border transition-colors ${weekdays.includes(i)
                     ? "bg-primary text-primary-foreground border-primary"
                     : "border-border text-foreground hover:bg-muted"
-                }`}
+                  }`}
               >
                 {w.slice(0, 3)}
               </button>

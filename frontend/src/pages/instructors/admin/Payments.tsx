@@ -1,5 +1,6 @@
-import { useRef, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
+import { useLocation, useSearch } from "@tanstack/react-router"
 import { Download, Eye, Plus, Trash2 } from "lucide-react"
 import {
   billSessionsApi, bulkImportConfirmApi, bulkImportPreviewApi, createBatchApi, createLetterApi,
@@ -15,8 +16,15 @@ import { EmptyState, PageHeader, Spinner, StatusPill } from "@/pages/instructors
 import { UserProfileModal } from "@/components/UserProfileModal"
 
 export default function InstructorsAdminPayments() {
+  const { letterId: searchLetterId, status: searchStatus } = useSearch({ strict: false }) as {
+    letterId?: string
+    status?: string
+  }
+  const { hash } = useLocation()
   const qc = useQueryClient()
   const importInputRef = useRef<HTMLInputElement>(null)
+  const todoRef = useRef<HTMLDivElement>(null)
+  const handledLetterIdRef = useRef<string | null>(null)
   const [newLetterOpen, setNewLetterOpen] = useState(false)
   const [selectedInstructor, setSelectedInstructor] = useState("")
   const [importPreview, setImportPreview] = useState<Awaited<ReturnType<typeof bulkImportPreviewApi>> | null>(null)
@@ -24,6 +32,9 @@ export default function InstructorsAdminPayments() {
   const [selectedBatch, setSelectedBatch] = useState("")   // new-letter batch assignment
   const [importBatch, setImportBatch] = useState("")       // bulk-import batch assignment
   const [batchFilter, setBatchFilter] = useState("all")    // letters list filter
+  const [statusFilter, setStatusFilter] = useState<string>(
+    searchStatus === "pending" ? "draft" : searchStatus || "all"
+  )
   const [newBatchName, setNewBatchName] = useState("")
   const [newBatchDesc, setNewBatchDesc] = useState("")
   const [manageLetterId, setManageLetterId] = useState<string | null>(null)
@@ -116,6 +127,30 @@ export default function InstructorsAdminPayments() {
     },
   })
 
+  useEffect(() => {
+    if (searchStatus) {
+      setStatusFilter(searchStatus === "pending" ? "draft" : searchStatus)
+    }
+  }, [searchStatus])
+
+  useEffect(() => {
+    if (!searchLetterId) {
+      handledLetterIdRef.current = null
+      return
+    }
+    if (isLoading || handledLetterIdRef.current === searchLetterId) return
+    if ((letters ?? []).some((l) => l.id === searchLetterId)) {
+      handledLetterIdRef.current = searchLetterId
+      setManageLetterId(searchLetterId)
+    }
+  }, [searchLetterId, letters, isLoading])
+
+  useEffect(() => {
+    if (!isLoading && hash === "todo") {
+      todoRef.current?.scrollIntoView({ behavior: "smooth", block: "start" })
+    }
+  }, [hash, isLoading])
+
   const manageLetter = (letters ?? []).find((l) => l.id === manageLetterId) ?? null
 
   if (isLoading) return <Spinner />
@@ -123,11 +158,14 @@ export default function InstructorsAdminPayments() {
   const allLetters = letters ?? []
   const letterTotal = (l: (typeof allLetters)[number]) =>
     l.sessions.reduce((s, x) => s + (x.compensation_aed || 0), 0) + l.addons.reduce((s, x) => s + (x.amount_aed || 0), 0)
-  const shownLetters = batchFilter === "all"
+  const batchFiltered = batchFilter === "all"
     ? allLetters
     : batchFilter === "none"
       ? allLetters.filter((l) => !l.batch_id)
       : allLetters.filter((l) => l.batch_id === batchFilter)
+  const shownLetters = statusFilter === "all"
+    ? batchFiltered
+    : batchFiltered.filter((l) => l.status === statusFilter)
 
   const summary = {
     paid: allLetters.filter((l) => l.status === "paid").reduce((s, l) => s + letterTotal(l), 0),
@@ -159,7 +197,7 @@ export default function InstructorsAdminPayments() {
       </div>
 
       {/* To-do: instructors with completed sessions not yet on a payment letter */}
-      <div>
+      <div id="todo" ref={todoRef}>
         <div className="flex items-center justify-between mb-3">
           <h2 className="text-sm font-semibold">
             To-do: payment letters <span className="text-muted-foreground font-normal">({(pendingInstructors ?? []).length})</span>
@@ -275,6 +313,15 @@ export default function InstructorsAdminPayments() {
         <div className="flex items-center justify-between gap-3 mb-3 flex-wrap">
           <h2 className="text-sm font-semibold">Payment letters</h2>
           <div className="flex items-center gap-2 flex-wrap w-full sm:w-auto">
+            <div className="flex-1 sm:w-36">
+              <select className="input" value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}>
+                <option value="all">All statuses</option>
+                <option value="draft">Draft (Pending)</option>
+                <option value="published">Published</option>
+                <option value="signed">Signed</option>
+                <option value="paid">Paid</option>
+              </select>
+            </div>
             <div className="flex-1 sm:w-44">
               <select className="input" value={batchFilter} onChange={(e) => setBatchFilter(e.target.value)}>
                 <option value="all">All batches</option>
@@ -292,48 +339,48 @@ export default function InstructorsAdminPayments() {
             {shownLetters.map((l) => {
               const batchName = batches?.find((b) => b.id === l.batch_id)?.name
               return (
-              <div key={l.id} className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-3.5 rounded-xl border border-border bg-card">
-                <div className="text-left min-w-0 flex-1">
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <button className="text-sm font-semibold text-foreground hover:underline text-left" onClick={() => setManageLetterId(l.id)}>
-                      {l.instructor_name}
-                    </button>
-                    {l.instructor_user_id && (
-                      <button
-                        onClick={() => setProfileUserId(l.instructor_user_id!)}
-                        className="text-xs text-muted-foreground hover:text-primary transition-colors shrink-0"
-                      >
-                        View profile →
+                <div key={l.id} className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-3.5 rounded-xl border border-border bg-card">
+                  <div className="text-left min-w-0 flex-1">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <button className="text-sm font-semibold text-foreground hover:underline text-left" onClick={() => setManageLetterId(l.id)}>
+                        {l.instructor_name}
+                      </button>
+                      {l.instructor_user_id && (
+                        <button
+                          onClick={() => setProfileUserId(l.instructor_user_id!)}
+                          className="text-xs text-muted-foreground hover:text-primary transition-colors shrink-0"
+                        >
+                          View profile →
+                        </button>
+                      )}
+                      {batchName && (
+                        <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-primary/10 text-primary border border-primary/20 shrink-0">{batchName}</span>
+                      )}
+                    </div>
+                    <p className="text-xs text-muted-foreground mt-1 break-words">
+                      {l.sessions.length} cohort{l.sessions.length === 1 ? "" : "s"} · AED {letterTotal(l).toLocaleString()} · {l.reference}
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-2 flex-wrap shrink-0 border-t border-border/50 pt-2.5 sm:border-0 sm:pt-0">
+                    <StatusPill status={l.status} />
+                    {(l.pdf_url || l.signed_pdf_url) && (
+                      <a href={l.signed_pdf_url ?? l.pdf_url ?? undefined} target="_blank" rel="noreferrer">
+                        <Button size="sm" variant="outline">
+                          <Download size={14} className="mr-1.5" />
+                          {l.status === "signed" || l.status === "paid" ? "View signed" : "View draft"}
+                        </Button>
+                      </a>
+                    )}
+                    {!l.pdf_url && <Button size="sm" variant="outline" onClick={() => generatePdf.mutate(l.id)}>Generate PDF</Button>}
+                    {l.pdf_url && l.status === "draft" && <Button size="sm" onClick={() => publish.mutate(l.id)}>Publish</Button>}
+                    {l.status === "signed" && <Button size="sm" onClick={() => markPaid.mutate(l.id)}>Mark paid</Button>}
+                    {l.status === "draft" && (
+                      <button onClick={() => removeLetter.mutate(l.id)} className="p-2 text-muted-foreground hover:text-destructive transition-colors" title="Delete letter">
+                        <Trash2 size={16} />
                       </button>
                     )}
-                    {batchName && (
-                      <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-primary/10 text-primary border border-primary/20 shrink-0">{batchName}</span>
-                    )}
                   </div>
-                  <p className="text-xs text-muted-foreground mt-1 break-words">
-                    {l.sessions.length} cohort{l.sessions.length === 1 ? "" : "s"} · AED {letterTotal(l).toLocaleString()} · {l.reference}
-                  </p>
                 </div>
-                <div className="flex items-center gap-2 flex-wrap shrink-0 border-t border-border/50 pt-2.5 sm:border-0 sm:pt-0">
-                  <StatusPill status={l.status} />
-                  {(l.pdf_url || l.signed_pdf_url) && (
-                    <a href={l.signed_pdf_url ?? l.pdf_url ?? undefined} target="_blank" rel="noreferrer">
-                      <Button size="sm" variant="outline">
-                        <Download size={14} className="mr-1.5" />
-                        {l.status === "signed" || l.status === "paid" ? "View signed" : "View draft"}
-                      </Button>
-                    </a>
-                  )}
-                  {!l.pdf_url && <Button size="sm" variant="outline" onClick={() => generatePdf.mutate(l.id)}>Generate PDF</Button>}
-                  {l.pdf_url && l.status === "draft" && <Button size="sm" onClick={() => publish.mutate(l.id)}>Publish</Button>}
-                  {l.status === "signed" && <Button size="sm" onClick={() => markPaid.mutate(l.id)}>Mark paid</Button>}
-                  {l.status === "draft" && (
-                    <button onClick={() => removeLetter.mutate(l.id)} className="p-2 text-muted-foreground hover:text-destructive transition-colors" title="Delete letter">
-                      <Trash2 size={16} />
-                    </button>
-                  )}
-                </div>
-              </div>
               )
             })}
           </div>

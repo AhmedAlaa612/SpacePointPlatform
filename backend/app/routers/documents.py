@@ -257,7 +257,8 @@ async def create_document_request(
             admin.id,
             "New Document Request",
             f"{current_user.full_name} requested a {type_label}{role_label}.",
-            "document_request"
+            "document_request",
+            link=f"/admin/documents?tab=requests&requestId={req.id}",
         )
         
     await db.commit()

@@ -59,28 +59,28 @@ const GROUPS: { key: FieldGroup; title: string; detail: string }[] = [
 const EDITABLE: {
   key: keyof LibraryComponentInput; label: string; group: FieldGroup; wide?: boolean; hint?: string;
 }[] = [
-  { key: "component_name", label: "Name", group: "identity", wide: true },
-  { key: "subsystem", label: "Subsystem", group: "identity" },
-  { key: "component_code", label: "Code", group: "identity", hint: "Internal part code, if you use one." },
-  { key: "tag", label: "Tag", group: "identity", hint: "e.g. Custom, SatKit, MPKit" },
-  { key: "example_role", label: "Role", group: "identity", wide: true, hint: "One line: what job this does on a spacecraft." },
-  { key: "scaled_description", label: "Description", group: "identity", wide: true },
-  { key: "key_specs", label: "Key specs", group: "identity", wide: true },
+    { key: "component_name", label: "Name", group: "identity", wide: true },
+    { key: "subsystem", label: "Subsystem", group: "identity" },
+    { key: "component_code", label: "Code", group: "identity", hint: "Internal part code, if you use one." },
+    { key: "tag", label: "Tag", group: "identity", hint: "e.g. Custom, SatKit, MPKit" },
+    { key: "example_role", label: "Role", group: "identity", wide: true, hint: "One line: what job this does on a spacecraft." },
+    { key: "scaled_description", label: "Description", group: "identity", wide: true },
+    { key: "key_specs", label: "Key specs", group: "identity", wide: true },
 
-  { key: "scaled_mass_g", label: "Mass (g)", group: "physical" },
-  { key: "length_mm", label: "L (mm)", group: "physical" },
-  { key: "width_mm", label: "W (mm)", group: "physical" },
-  { key: "height_mm", label: "H (mm)", group: "physical" },
+    { key: "scaled_mass_g", label: "Mass (g)", group: "physical" },
+    { key: "length_mm", label: "L (mm)", group: "physical" },
+    { key: "width_mm", label: "W (mm)", group: "physical" },
+    { key: "height_mm", label: "H (mm)", group: "physical" },
 
-  { key: "voltage_v", label: "Voltage (V)", group: "electrical" },
-  { key: "current_ma", label: "Current (mA)", group: "electrical" },
-  { key: "data_size", label: "Data size", group: "electrical", hint: "Per measurement, e.g. \"2 MB\"." },
-  { key: "temperature_range", label: "Temp range", group: "electrical" },
+    { key: "voltage_v", label: "Voltage (V)", group: "electrical" },
+    { key: "current_ma", label: "Current (mA)", group: "electrical" },
+    { key: "data_size", label: "Data size", group: "electrical", hint: "Per measurement, e.g. \"2 MB\"." },
+    { key: "temperature_range", label: "Temp range", group: "electrical" },
 
-  { key: "assumed_cost_usd", label: "Cost (USD)", group: "sourcing" },
-  { key: "datasheet_url", label: "Datasheet URL (external link only)", group: "sourcing", wide: true, hint: "Only used if there's no uploaded PDF — see \"Upload datasheet\" on the row below. Most of these are Google Drive links or a manufacturer's own site, i.e. files we don't host and can't protect from being downloaded; upload the org's own copy instead wherever you have one." },
-  { key: "notes", label: "Notes", group: "sourcing", wide: true },
-];
+    { key: "assumed_cost_usd", label: "Cost (USD)", group: "sourcing" },
+    { key: "datasheet_url", label: "Datasheet URL (external link only)", group: "sourcing", wide: true, hint: "Only used if there's no uploaded PDF — see \"Upload datasheet\" on the row below. Most of these are Google Drive links or a manufacturer's own site, i.e. files we don't host and can't protect from being downloaded; upload the org's own copy instead wherever you have one." },
+    { key: "notes", label: "Notes", group: "sourcing", wide: true },
+  ];
 
 /** At-a-glance migration status for the datasheet-hosting pass (2026-08-27)
  *  — most of the 36 real components were seeded pointing at a Google Drive
@@ -327,11 +327,6 @@ export default function LmsDesignLibrary() {
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <h1 className="font-display text-2xl font-extrabold tracking-tight">Component library</h1>
-          <p className="text-xs text-muted-foreground mt-1 max-w-[70ch] leading-relaxed">
-            The shared CubeSat catalog every design mission reads. Edits are visible to all of them —
-            finished designs keep the specs they were built with, but a design still in progress will
-            pick up the change.
-          </p>
         </div>
         <div className="flex items-center gap-2">
           <input
@@ -355,8 +350,7 @@ export default function LmsDesignLibrary() {
           <button
             key={t}
             onClick={() => setLibraryTab(t)}
-            className={`px-3 py-2 text-sm font-medium border-b-2 -mb-px transition-colors cursor-pointer shrink-0 whitespace-nowrap ${
-              libraryTab === t ? "border-primary text-primary" : "border-transparent text-muted-foreground hover:text-foreground"}`}
+            className={`px-3 py-2 text-sm font-medium border-b-2 -mb-px transition-colors cursor-pointer shrink-0 whitespace-nowrap ${libraryTab === t ? "border-primary text-primary" : "border-transparent text-muted-foreground hover:text-foreground"}`}
           >
             {t === "catalog" ? `Shared catalog (${rows.length})` : `Custom components (${customs.length})`}
           </button>
@@ -462,11 +456,10 @@ export default function LmsDesignLibrary() {
                       {!row.is_active && <span className="text-[10px] uppercase tracking-wide text-muted-foreground">retired</span>}
                       {row.tag && (
                         <span
-                          className={`px-1.5 py-0.5 rounded text-[10px] font-bold uppercase tracking-wide ${
-                            row.tag.toLowerCase() === "custom"
+                          className={`px-1.5 py-0.5 rounded text-[10px] font-bold uppercase tracking-wide ${row.tag.toLowerCase() === "custom"
                               ? "bg-violet-500/15 text-violet-600 dark:text-violet-400"
                               : "bg-muted text-muted-foreground"
-                          }`}
+                            }`}
                         >
                           {row.tag}
                         </span>

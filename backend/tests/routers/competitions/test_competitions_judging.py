@@ -472,7 +472,11 @@ async def test_judge_team_detail_groups_multiple_labeled_links_on_a_multi_link_s
     assert submission["submission_multi_link"] is True
     assert len(submission["submitted_links"]) == 3
     assert submission["submitted_links"][0] == {
-        "label": "Member 1 link", "url": "https://example.com/mem1", "text": None,
+        "label": "Member 1 link",
+        "url": "https://example.com/mem1",
+        "text": None,
+        "tag": None,
+        "values": None,
     }
     assert submission["submitted_links"][2]["label"] == "Team link"
 

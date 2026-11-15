@@ -58,3 +58,13 @@ class Certificate(Base):
     learning_path_id = Column(
         UUID(as_uuid=True), ForeignKey("learning_paths.id", ondelete="CASCADE"), nullable=True
     )
+
+    # Team / delivery tracking (2026-11)
+    team_id = Column(UUID(as_uuid=True), ForeignKey("learner_teams.id", ondelete="SET NULL"), nullable=True, index=True)
+    delivery_mode = Column(String(24), nullable=False, default="email", server_default="email")
+    published_at = Column(DateTime(timezone=True), nullable=True)
+    template_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("program_certificate_templates.id", ondelete="SET NULL"),
+        nullable=True,
+    )

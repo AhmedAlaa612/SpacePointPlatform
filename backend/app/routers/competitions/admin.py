@@ -1002,15 +1002,24 @@ async def post_cohort_certificates_send(
 
     # Quickly resolve recipient count to report back to admin
     recip_summary = await certificates_service.get_cohort_certificate_recipients(
-        db, cohort_id=cohort_id, filter_type=body.filter
+        db, cohort_id=cohort_id, filter_type="all" if (body.registration_ids or body.team_ids) else body.filter
     )
     target_ids: list[str] = []
     selected_set = {str(r) for r in body.registration_ids} if body.registration_ids else None
+    selected_teams = {str(t) for t in body.team_ids} if body.team_ids else None
+    want_ind = (body.primary_kind == "individual") or body.also_send_other
+    want_team = (body.primary_kind == "team") or body.also_send_other
+
     for r in recip_summary.get("recipients", []):
         rid_str = str(r["registration_id"])
+        tid_str = str(r["team_id"]) if r.get("team_id") else None
         if selected_set is not None and rid_str not in selected_set:
             continue
-        if body.skip_already_issued and r.get("certificate_issued"):
+        if selected_teams is not None and tid_str not in selected_teams:
+            continue
+        need_ind = want_ind and (not body.skip_already_issued or not r.get("student_cert_issued"))
+        need_team = want_team and (tid_str is not None) and (not body.skip_already_issued or not r.get("team_cert_issued"))
+        if not need_ind and not need_team:
             continue
         target_ids.append(rid_str)
 
@@ -1018,7 +1027,7 @@ async def post_cohort_certificates_send(
         return CompetitionCertificateSendResultOut(
             status="sent",
             sent_count=0,
-            skipped_count=recip_summary.get("total_students", 0),
+            skipped_count=len(recip_summary.get("recipients", [])),
             total_targeted=0,
             recipient_names=[],
             errors=[],
@@ -1028,7 +1037,7 @@ async def post_cohort_certificates_send(
     if body.save_email_to_template and body.template_id:
         try:
             tmpl_uuid = uuid.UUID(str(body.template_id))
-            from app.models.competitions.certificates import ProgramCertificateTemplate
+            from app.models.sessions.program_certificate_template import ProgramCertificateTemplate
             tmpl = await db.get(ProgramCertificateTemplate, tmpl_uuid)
             if tmpl:
                 if body.custom_email_subject is not None:
@@ -1046,8 +1055,17 @@ async def post_cohort_certificates_send(
         str(current.id),
         filter_type=body.filter,
         registration_ids=target_ids,
+        team_ids=[str(t) for t in body.team_ids] if body.team_ids else None,
         theme=body.theme,
         template_id=body.template_id,
+        primary_kind=body.primary_kind,
+        primary_template_id=body.primary_template_id,
+        primary_email_template_id=str(body.primary_email_template_id) if body.primary_email_template_id else None,
+        also_send_other=body.also_send_other,
+        secondary_template_id=body.secondary_template_id,
+        secondary_email_template_id=str(body.secondary_email_template_id) if body.secondary_email_template_id else None,
+        delivery_mode=body.delivery_mode,
+        notify_by_email=body.notify_by_email,
         skip_already_issued=body.skip_already_issued,
         custom_email_subject=body.custom_email_subject,
         custom_email_body=body.custom_email_body,
@@ -1071,6 +1089,7 @@ async def download_cohort_certificates(
     filter: Literal["locked_only", "participation", "at_least_one", "all_completed", "all"] = Query("at_least_one"),
     theme: str = Query("dark"),
     template_id: str | None = Query(None),
+    kind: Literal["individual", "team"] = Query("individual"),
     registration_ids: list[uuid.UUID] | None = Query(None),
     force_certificate_type: Literal["completion", "participation"] | None = Query(None),
     db: AsyncSession = Depends(get_db),
@@ -1083,6 +1102,7 @@ async def download_cohort_certificates(
         filter_type=filter,
         theme=theme,
         template_id=template_id,
+        kind=kind,
         registration_ids=registration_ids,
         force_certificate_type=force_certificate_type,
     )
@@ -1107,7 +1127,9 @@ async def download_cohort_certificates_post(
         filter_type=body.filter,
         theme=body.theme,
         template_id=body.template_id,
+        kind=body.kind,
         registration_ids=body.registration_ids,
+        team_ids=body.team_ids,
         force_certificate_type=body.force_certificate_type,
     )
     return Response(
@@ -1124,10 +1146,7 @@ async def post_cohort_certificates_test_email(
     db: AsyncSession = Depends(get_db),
     _: User = Depends(require_lms_content),
 ):
-    """Send a test certificate email (with a sample PDF) to the given address.
-    Uses the exact template/theme/subject/body config currently selected in the
-    modal. Does NOT write any Certificate record or modify registrations.
-    """
+    """Send a test certificate email (with a sample PDF) to the given address."""
     await _get_cohort_or_404(db, cohort_id)
     result = await certificates_service.send_test_certificate_email(
         db,
@@ -1136,6 +1155,10 @@ async def post_cohort_certificates_test_email(
         recipient_name=body.recipient_name,
         theme=body.theme,
         template_id=body.template_id,
+        kind=body.kind,
+        email_template_id=body.email_template_id,
+        delivery_mode=body.delivery_mode,
+        notify_by_email=body.notify_by_email,
         certificate_type=body.certificate_type,
         custom_email_subject=body.custom_email_subject,
         custom_email_body=body.custom_email_body,

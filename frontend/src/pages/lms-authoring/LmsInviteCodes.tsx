@@ -64,7 +64,6 @@ export default function LmsInviteCodes() {
     <div className="flex flex-col gap-6">
       <PageHeader
         title="Invite codes"
-        subtitle="Students need one of these to sign up. Each code is a batch — filter students by it."
         action={
           <button
             data-tour="invite-new-code-btn"
@@ -90,105 +89,104 @@ export default function LmsInviteCodes() {
           {codes.map((c) => {
             const isExpired = !!c.expires_at && new Date(c.expires_at).getTime() < Date.now()
             return (
-            <div key={c.id} className="flex flex-col bg-card border border-border rounded-2xl overflow-hidden">
-              <div className="flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-4 p-4">
-                <div className="min-w-0 flex-1">
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <span className="font-mono text-sm font-semibold text-foreground">{c.code}</span>
-                    {isExpired ? (
-                      <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-red-500/15 text-red-600 dark:text-red-400 border border-red-500/30">
-                        Expired
-                      </span>
-                    ) : (
-                      <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${
-                        c.is_active
-                          ? "bg-green-500/15 text-green-600 dark:text-green-400"
-                          : "bg-muted text-muted-foreground"
-                      }`}>
-                        {c.is_active ? "Active" : "Inactive"}
-                      </span>
-                    )}
-                    {c.kind === "observer" && (
-                      <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-indigo-500/15 text-indigo-600 dark:text-indigo-400 border border-indigo-500/30">
-                        Observer batch
-                      </span>
-                    )}
-                    {c.label && <span className="text-sm text-muted-foreground">{c.label}</span>}
+              <div key={c.id} className="flex flex-col bg-card border border-border rounded-2xl overflow-hidden">
+                <div className="flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-4 p-4">
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="font-mono text-sm font-semibold text-foreground">{c.code}</span>
+                      {isExpired ? (
+                        <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-red-500/15 text-red-600 dark:text-red-400 border border-red-500/30">
+                          Expired
+                        </span>
+                      ) : (
+                        <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${c.is_active
+                            ? "bg-green-500/15 text-green-600 dark:text-green-400"
+                            : "bg-muted text-muted-foreground"
+                          }`}>
+                          {c.is_active ? "Active" : "Inactive"}
+                        </span>
+                      )}
+                      {c.kind === "observer" && (
+                        <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-indigo-500/15 text-indigo-600 dark:text-indigo-400 border border-indigo-500/30">
+                          Observer batch
+                        </span>
+                      )}
+                      {c.label && <span className="text-sm text-muted-foreground">{c.label}</span>}
+                    </div>
+                    <div className="text-xs text-muted-foreground mt-1 flex items-center gap-1.5 flex-wrap">
+                      <span>{c.signups} signed up · {c.used_count}/{c.max_uses} uses</span>
+                      {c.used_count >= c.max_uses && (
+                        <span className="text-amber-600 dark:text-amber-400">· Limit reached</span>
+                      )}
+                      {c.expires_at && (
+                        <span className={isExpired ? "text-red-600 dark:text-red-400 font-medium" : "text-muted-foreground"}>
+                          · {isExpired ? "Expired on" : "Expires"} {new Date(c.expires_at).toLocaleDateString(undefined, {
+                            month: "short", day: "numeric", year: "numeric", hour: "2-digit", minute: "2-digit",
+                          })}
+                        </span>
+                      )}
+                    </div>
                   </div>
-                  <div className="text-xs text-muted-foreground mt-1 flex items-center gap-1.5 flex-wrap">
-                    <span>{c.signups} signed up · {c.used_count}/{c.max_uses} uses</span>
-                    {c.used_count >= c.max_uses && (
-                      <span className="text-amber-600 dark:text-amber-400">· Limit reached</span>
-                    )}
-                    {c.expires_at && (
-                      <span className={isExpired ? "text-red-600 dark:text-red-400 font-medium" : "text-muted-foreground"}>
-                        · {isExpired ? "Expired on" : "Expires"} {new Date(c.expires_at).toLocaleDateString(undefined, {
-                          month: "short", day: "numeric", year: "numeric", hour: "2-digit", minute: "2-digit",
-                        })}
-                      </span>
-                    )}
-                  </div>
-                </div>
-                <div className="flex items-center gap-1 flex-wrap sm:flex-nowrap sm:shrink-0">
-                  <button
-                    onClick={() => handleCopyLink(c.code)}
-                    className="flex items-center gap-1.5 h-8 px-3 rounded-lg text-xs font-medium text-muted-foreground hover:bg-muted transition-colors"
-                    title="Copy shareable link"
-                  >
-                    {copiedCode === c.code ? (
-                      <>
-                        <Check size={13} className="text-green-600 dark:text-green-400" />
-                        <span className="text-green-600 dark:text-green-400 font-medium">Copied!</span>
-                      </>
-                    ) : (
-                      <>
-                        <Link2 size={13} /> Copy link
-                      </>
-                    )}
-                  </button>
-                  {c.signups > 0 && (
+                  <div className="flex items-center gap-1 flex-wrap sm:flex-nowrap sm:shrink-0">
                     <button
-                      onClick={() => void navigate({
-                        to: "/lms-authoring/students",
-                        search: { invite_code: c.code } as never,
-                      })}
+                      onClick={() => handleCopyLink(c.code)}
                       className="flex items-center gap-1.5 h-8 px-3 rounded-lg text-xs font-medium text-muted-foreground hover:bg-muted transition-colors"
-                      title="See the students who signed up with this code"
+                      title="Copy shareable link"
                     >
-                      <Users size={13} /> Students
+                      {copiedCode === c.code ? (
+                        <>
+                          <Check size={13} className="text-green-600 dark:text-green-400" />
+                          <span className="text-green-600 dark:text-green-400 font-medium">Copied!</span>
+                        </>
+                      ) : (
+                        <>
+                          <Link2 size={13} /> Copy link
+                        </>
+                      )}
                     </button>
-                  )}
-                  <button
-                    onClick={() => setGrantsOpenId(grantsOpenId === c.id ? null : c.id)}
-                    className="flex items-center gap-1.5 h-8 px-3 rounded-lg text-xs font-medium text-muted-foreground hover:bg-muted transition-colors"
-                    title="Free courses/paths this code's students get"
-                  >
-                    <Gift size={13} /> Grants
-                    {grantsOpenId === c.id ? <ChevronUp size={13} /> : <ChevronDown size={13} />}
-                  </button>
-                  <button
-                    onClick={() => toggleMutation.mutate(c)}
-                    disabled={toggleMutation.isPending}
-                    className="h-8 px-3 rounded-lg text-xs font-medium text-muted-foreground hover:bg-muted transition-colors disabled:opacity-50"
-                  >
-                    {c.is_active ? "Deactivate" : "Activate"}
-                  </button>
-                  <button
-                    onClick={() => { setActionError(""); setEditTarget(c) }}
-                    className="h-8 px-3 rounded-lg text-xs font-medium text-foreground hover:bg-muted transition-colors"
-                  >
-                    Edit
-                  </button>
-                  <button
-                    onClick={() => { setActionError(""); setDeleteTarget(c) }}
-                    className="h-8 px-3 rounded-lg text-xs font-medium text-red-600 hover:bg-red-500/10 transition-colors"
-                  >
-                    Delete
-                  </button>
+                    {c.signups > 0 && (
+                      <button
+                        onClick={() => void navigate({
+                          to: "/lms-authoring/students",
+                          search: { invite_code: c.code } as never,
+                        })}
+                        className="flex items-center gap-1.5 h-8 px-3 rounded-lg text-xs font-medium text-muted-foreground hover:bg-muted transition-colors"
+                        title="See the students who signed up with this code"
+                      >
+                        <Users size={13} /> Students
+                      </button>
+                    )}
+                    <button
+                      onClick={() => setGrantsOpenId(grantsOpenId === c.id ? null : c.id)}
+                      className="flex items-center gap-1.5 h-8 px-3 rounded-lg text-xs font-medium text-muted-foreground hover:bg-muted transition-colors"
+                      title="Free courses/paths this code's students get"
+                    >
+                      <Gift size={13} /> Grants
+                      {grantsOpenId === c.id ? <ChevronUp size={13} /> : <ChevronDown size={13} />}
+                    </button>
+                    <button
+                      onClick={() => toggleMutation.mutate(c)}
+                      disabled={toggleMutation.isPending}
+                      className="h-8 px-3 rounded-lg text-xs font-medium text-muted-foreground hover:bg-muted transition-colors disabled:opacity-50"
+                    >
+                      {c.is_active ? "Deactivate" : "Activate"}
+                    </button>
+                    <button
+                      onClick={() => { setActionError(""); setEditTarget(c) }}
+                      className="h-8 px-3 rounded-lg text-xs font-medium text-foreground hover:bg-muted transition-colors"
+                    >
+                      Edit
+                    </button>
+                    <button
+                      onClick={() => { setActionError(""); setDeleteTarget(c) }}
+                      className="h-8 px-3 rounded-lg text-xs font-medium text-red-600 hover:bg-red-500/10 transition-colors"
+                    >
+                      Delete
+                    </button>
+                  </div>
                 </div>
+                {grantsOpenId === c.id && <GrantsPanel code={c} />}
               </div>
-              {grantsOpenId === c.id && <GrantsPanel code={c} />}
-            </div>
             )
           })}
         </div>
@@ -261,7 +259,7 @@ function GrantsPanel({ code }: { code: InviteCode }) {
       code.id,
       pickerType === "course" ? { course_id: pickerId }
         : pickerType === "path" ? { learning_path_id: pickerId }
-        : { cohort_id: pickerId },
+          : { cohort_id: pickerId },
     ),
     onSuccess: () => { setError(""); setPickerId(""); invalidate() },
     onError: (e) => setError(isAxiosError(e) && typeof e.response?.data?.detail === "string" ? e.response.data.detail : "Couldn't add that grant"),
@@ -288,7 +286,7 @@ function GrantsPanel({ code }: { code: InviteCode }) {
               <span className="truncate">
                 {g.product_type === "course" ? g.course_title
                   : g.product_type === "learning_path" ? g.learning_path_title
-                  : g.lms_program_name ? `${g.lms_program_name} (${g.cohort_name})` : g.cohort_name}
+                    : g.lms_program_name ? `${g.lms_program_name} (${g.cohort_name})` : g.cohort_name}
                 <span className="ml-2 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
                   {g.product_type === "course" ? "Course" : g.product_type === "learning_path" ? "Path" : "Program"}
                 </span>
@@ -394,18 +392,16 @@ function InviteCodeModal({ existing, onClose, onSuccess }: {
               <button
                 type="button"
                 onClick={() => setKind("student")}
-                className={`px-3 py-1.5 rounded-lg font-medium transition-colors cursor-pointer ${
-                  kind === "student" ? "bg-background text-foreground shadow-xs font-semibold" : "text-muted-foreground hover:text-foreground"
-                }`}
+                className={`px-3 py-1.5 rounded-lg font-medium transition-colors cursor-pointer ${kind === "student" ? "bg-background text-foreground shadow-xs font-semibold" : "text-muted-foreground hover:text-foreground"
+                  }`}
               >
                 Student batch
               </button>
               <button
                 type="button"
                 onClick={() => setKind("observer")}
-                className={`px-3 py-1.5 rounded-lg font-medium transition-colors cursor-pointer ${
-                  kind === "observer" ? "bg-background text-indigo-600 dark:text-indigo-400 shadow-xs font-semibold" : "text-muted-foreground hover:text-foreground"
-                }`}
+                className={`px-3 py-1.5 rounded-lg font-medium transition-colors cursor-pointer ${kind === "observer" ? "bg-background text-indigo-600 dark:text-indigo-400 shadow-xs font-semibold" : "text-muted-foreground hover:text-foreground"
+                  }`}
               >
                 Observer / Tester batch
               </button>

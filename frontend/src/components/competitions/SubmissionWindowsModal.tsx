@@ -10,29 +10,38 @@ import {
 } from "@/api/competitions"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { useToast } from "@/components/ui/toast"
+import { useAuth } from "@/context/AuthContext"
 import { Spinner } from "@/components/ui/primitives"
 import { cn } from "@/lib/utils"
 
 interface SubmissionWindowsModalProps {
   cohortId: string
-  open: boolean
-  onClose: () => void
+  open?: boolean
+  onClose?: () => void
+  embedded?: boolean
 }
 
-export function SubmissionWindowsModal({ cohortId, open, onClose }: SubmissionWindowsModalProps) {
+export function SubmissionWindowsModal({
+  cohortId,
+  open = true,
+  onClose = () => {},
+  embedded = false,
+}: SubmissionWindowsModalProps) {
+  const { currentUser, activeRole } = useAuth()
+  const isInstructor = activeRole === "instructor" || currentUser?.role === "instructor"
   const toast = useToast()
   const queryClient = useQueryClient()
 
   const { data: initialWindows, isLoading } = useQuery<SubmissionWindowItem[]>({
-    queryKey: ["competitions-submission-windows", cohortId],
-    queryFn: () => getCohortSubmissionWindowsApi(cohortId),
-    enabled: open,
+    queryKey: ["competitions-submission-windows", cohortId, isInstructor],
+    queryFn: () => getCohortSubmissionWindowsApi(cohortId, undefined, isInstructor),
+    enabled: embedded || open,
   })
 
   const { data: checkpoints = [] } = useQuery<CohortCheckpoint[]>({
-    queryKey: ["competitions-cohort-checkpoints", cohortId],
-    queryFn: () => getCohortCheckpointsApi(cohortId),
-    enabled: open,
+    queryKey: ["competitions-cohort-checkpoints", cohortId, isInstructor],
+    queryFn: () => getCohortCheckpointsApi(cohortId, isInstructor),
+    enabled: embedded || open,
   })
 
   const [windows, setWindows] = useState<SubmissionWindowItem[]>([])
@@ -46,27 +55,27 @@ export function SubmissionWindowsModal({ cohortId, open, onClose }: SubmissionWi
   const [isDeadline, setIsDeadline] = useState(false)
 
   useEffect(() => {
-    if (open && initialWindows) {
+    if ((embedded || open) && initialWindows) {
       setWindows(initialWindows)
     }
-  }, [open, initialWindows])
+  }, [embedded, open, initialWindows])
 
   const mutation = useMutation({
     mutationFn: (updated: SubmissionWindowItem[]) =>
-      updateCohortSubmissionWindowsApi(cohortId, updated),
+      updateCohortSubmissionWindowsApi(cohortId, updated, undefined, isInstructor),
     onSuccess: () => {
       toast.success("Submission windows saved successfully")
       queryClient.invalidateQueries({ queryKey: ["competitions-submission-windows", cohortId] })
       queryClient.invalidateQueries({ queryKey: ["competitions-timing-student", cohortId] })
       queryClient.invalidateQueries({ queryKey: ["competitions-leaderboard", cohortId] })
-      onClose()
+      if (!embedded) onClose()
     },
     onError: () => {
       toast.error("Failed to save submission windows")
     },
   })
 
-  if (!open) return null
+  if (!embedded && !open) return null
 
   const activeWindows = windows.filter((w) =>
     selectedGateId === "final"
@@ -126,56 +135,43 @@ export function SubmissionWindowsModal({ cohortId, open, onClose }: SubmissionWi
   const selectedCheckpoint = checkpoints.find((c) => c.id === selectedGateId)
   const currentGateLabel = selectedGateId === "final" ? "Final Submission" : (selectedCheckpoint?.title || "Checkpoint")
 
-  return (
-    <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
-      <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto p-4 sm:p-6 bg-card border-border">
-        <DialogHeader>
-          <div className="flex items-center gap-2 mb-1">
-            <span className="text-[10px] font-bold uppercase tracking-wider text-primary bg-primary/10 border border-primary/20 px-2 py-0.5 rounded-full">
-              Automated Deadlines
-            </span>
-          </div>
-          <DialogTitle className="text-xl font-bold font-display text-foreground">
-            Submission Windows & Timing Incentives
-          </DialogTitle>
-        </DialogHeader>
-
-        {isLoading ? (
-          <div className="py-12 flex justify-center">
-            <Spinner />
-          </div>
-        ) : (
-          <div className="mt-2 space-y-5">
-            {/* Gate Selector */}
-            <div className="flex items-center gap-1.5 p-1 bg-muted/40 rounded-xl overflow-x-auto border border-border">
-              <button
-                type="button"
-                onClick={() => setSelectedGateId("final")}
-                className={cn(
-                  "px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition-colors cursor-pointer",
-                  selectedGateId === "final"
-                    ? "bg-primary text-primary-foreground shadow-sm"
-                    : "text-muted-foreground hover:text-foreground hover:bg-muted/60"
-                )}
-              >
-                Final Submission
-              </button>
-              {checkpoints.map((cp, idx) => (
+  const body = isLoading ? (
+    <div className="py-12 flex justify-center">
+      <Spinner />
+    </div>
+  ) : (
+    <div className="mt-2 space-y-5">
+            {checkpoints.length > 0 && (
+              <div className="flex w-fit max-w-full items-center gap-1.5 p-1 bg-muted/40 rounded-[10px] overflow-x-auto border border-border">
                 <button
-                  key={cp.id}
                   type="button"
-                  onClick={() => setSelectedGateId(cp.id)}
+                  onClick={() => setSelectedGateId("final")}
                   className={cn(
-                    "px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition-colors cursor-pointer",
-                    selectedGateId === cp.id
-                      ? "bg-primary text-primary-foreground shadow-sm"
+                    "px-3 py-1.5 rounded-[10px] text-xs font-semibold whitespace-nowrap transition-colors cursor-pointer",
+                    selectedGateId === "final"
+                      ? "bg-primary text-primary-foreground"
                       : "text-muted-foreground hover:text-foreground hover:bg-muted/60"
                   )}
                 >
-                  {cp.title || `Checkpoint ${idx + 1}`}
+                  Final Submission
                 </button>
-              ))}
-            </div>
+                {checkpoints.map((cp, idx) => (
+                  <button
+                    key={cp.id}
+                    type="button"
+                    onClick={() => setSelectedGateId(cp.id)}
+                    className={cn(
+                      "px-3 py-1.5 rounded-[10px] text-xs font-semibold whitespace-nowrap transition-colors cursor-pointer",
+                      selectedGateId === cp.id
+                        ? "bg-primary text-primary-foreground"
+                        : "text-muted-foreground hover:text-foreground hover:bg-muted/60"
+                    )}
+                  >
+                    {cp.title || `Checkpoint ${idx + 1}`}
+                  </button>
+                ))}
+              </div>
+            )}
 
             {/* Existing Brackets List for current gate */}
             <div>
@@ -330,27 +326,47 @@ export function SubmissionWindowsModal({ cohortId, open, onClose }: SubmissionWi
               </button>
             </div>
 
-            {/* Modal Actions */}
             <div className="flex items-center justify-end gap-2 pt-3 border-t border-border">
-              <button
-                type="button"
-                onClick={onClose}
-                className="px-3.5 py-2 rounded-xl border border-border text-xs font-medium text-foreground hover:bg-muted transition-colors cursor-pointer"
-              >
-                Cancel
-              </button>
+              {!embedded && (
+                <button
+                  type="button"
+                  onClick={onClose}
+                  className="px-3.5 py-2 rounded-[10px] border border-border text-xs font-medium text-foreground hover:bg-muted transition-colors cursor-pointer"
+                >
+                  Cancel
+                </button>
+              )}
               <button
                 type="button"
                 disabled={mutation.isPending}
                 onClick={handleSave}
-                className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-primary text-primary-foreground text-xs font-bold hover:opacity-90 transition-all disabled:opacity-50 cursor-pointer"
+                className="flex items-center gap-1.5 px-4 py-2 rounded-[10px] bg-primary text-primary-foreground text-xs font-bold hover:opacity-90 transition-all disabled:opacity-50 cursor-pointer"
               >
                 <Save size={13} />
                 {mutation.isPending ? "Saving…" : "Save Windows"}
               </button>
             </div>
           </div>
-        )}
+  )
+
+  if (embedded) {
+    return (
+      <div className="bg-card border border-border rounded-[10px] p-4 sm:p-5">
+        <h3 className="text-base font-semibold text-foreground mb-2">Submission Windows</h3>
+        {body}
+      </div>
+    )
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
+      <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto p-4 sm:p-6 bg-card border-border">
+        <DialogHeader>
+          <DialogTitle className="text-xl font-bold font-display text-foreground">
+            Submission Windows & Timing Incentives
+          </DialogTitle>
+        </DialogHeader>
+        {body}
       </DialogContent>
     </Dialog>
   )

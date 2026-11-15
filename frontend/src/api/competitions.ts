@@ -897,6 +897,14 @@ export interface CompetitionAnalyticsItem {
   pct: number
 }
 
+export interface CompetitionMissionStepFunnel {
+  step_key: string
+  label: string
+  confirmed_count: number
+  pct: number
+  dropoff_from_prev_pct?: number
+}
+
 export interface CompetitionAnalyticsMission {
   mission_id: string
   title: string
@@ -905,6 +913,7 @@ export interface CompetitionAnalyticsMission {
   passed: number
   in_progress: number
   not_started: number
+  step_funnel?: CompetitionMissionStepFunnel[]
 }
 
 export interface CompetitionAnalyticsDeliverable {
@@ -990,6 +999,9 @@ export interface CompetitionAnalyticsTeam {
   quiz_submissions?: CompetitionTeamQuizSubmission[]
   last_activity_at: string | null
   stalled: boolean
+  collaboration_status?: "balanced" | "solo_carried" | "imbalanced" | "stalled"
+  active_member_count?: number
+  distinct_submitter_count?: number
   /** Team hit "Final Submit" — its checklist is frozen, only ops can reopen it. */
   locked: boolean
   locked_at?: string | null
@@ -1003,6 +1015,18 @@ export interface CompetitionAnalyticsTeam {
 export interface CompetitionAnalyticsActivity {
   date: string
   updates: number
+  team_deliverables?: number
+  quiz_submissions?: number
+  course_completions?: number
+}
+
+export interface CompetitionIndividualSummary {
+  registered_count: number
+  assigned_count: number
+  started_count: number
+  completed_count: number
+  never_logged_in_count: number
+  avg_pct: number
 }
 
 export interface CompetitionAnalyticsTotals {
@@ -1027,6 +1051,7 @@ export interface CompetitionAnalytics {
   cohort_id: string
   cohort_name: string
   totals: CompetitionAnalyticsTotals
+  individual_summary?: CompetitionIndividualSummary | null
   items: CompetitionAnalyticsItem[]
   missions: CompetitionAnalyticsMission[]
   teams: CompetitionAnalyticsTeam[]
@@ -1034,8 +1059,19 @@ export interface CompetitionAnalytics {
   stalled_after_days: number
 }
 
-export const getCohortTeamAnalyticsApi = (cohortId: string, mode?: "participant" | "observer" | "all") =>
-  api.get<CompetitionAnalytics>(`/competitions/admin/cohorts/${cohortId}/team-analytics`, { params: mode ? { mode } : {} }).then((r) => r.data)
+export const getCohortTeamAnalyticsApi = (
+  cohortId: string,
+  mode?: "participant" | "observer" | "all",
+  instructorScoped?: boolean,
+) =>
+  api
+    .get<CompetitionAnalytics>(
+      instructorScoped
+        ? `/lms/instructor/cohorts/${cohortId}/team-analytics`
+        : `/competitions/admin/cohorts/${cohortId}/team-analytics`,
+      { params: mode ? { mode } : {} },
+    )
+    .then((r) => r.data)
 
 // ── Certificate issuance (2026-09) ──────────────────────────────────────────
 
@@ -1047,12 +1083,11 @@ export interface CompetitionCertificateRecipient {
   email?: string | null
   team_id?: string | null
   team_name?: string | null
+  team_rank?: number | null
   submissions_done: number
   submissions_total: number
   required_submissions_total: number
-  /** Required submissions done — the eligibility-driving count. */
   required_submissions_done?: number
-  /** Optional (bonus-only) submissions done — never drives eligibility. */
   optional_submissions_done?: number
   optional_submissions_total?: number
   team_locked: boolean
@@ -1064,6 +1099,31 @@ export interface CompetitionCertificateRecipient {
   certificate_issued: boolean
   certificate_id?: string | null
   certificate_generated_at?: string | null
+  student_cert_issued?: boolean
+  student_cert_id?: string | null
+  student_cert_generated_at?: string | null
+  student_cert_delivery?: string | null
+  team_cert_issued?: boolean
+  team_cert_id?: string | null
+  team_cert_generated_at?: string | null
+  team_cert_delivery?: string | null
+}
+
+export interface CompetitionCertificateTeam {
+  team_id: string
+  team_name: string
+  rank?: number | null
+  member_count: number
+  required_submissions_done: number
+  required_submissions_total: number
+  optional_submissions_done: number
+  optional_submissions_total: number
+  team_locked: boolean
+  team_cert_issued: boolean
+  team_cert_generated_at?: string | null
+  team_cert_delivery?: string | null
+  member_student_certs_issued: number
+  registration_ids: string[]
 }
 
 export interface CompetitionCertificateRecipientsSummary {
@@ -1073,20 +1133,32 @@ export interface CompetitionCertificateRecipientsSummary {
   total_registered: number
   submission_items_total: number
   required_submissions_total: number
+  optional_submissions_total?: number
   locked_only_count: number
   participation_count: number
   at_least_one_count: number
   all_completed_count: number
   recipients: CompetitionCertificateRecipient[]
+  teams?: CompetitionCertificateTeam[]
   templates?: Array<{
     id: string
     name: string
+    kind?: "individual" | "team" | "both"
     is_default: boolean
     background_type?: string
     email_subject?: string | null
     email_body?: string | null
   }> | null
+  email_templates?: Array<{
+    id: string
+    name: string
+    kind: "individual" | "team" | "combined" | "profile"
+    subject: string
+    body_html: string
+    is_default: boolean
+  }> | null
   default_template_id?: string | null
+  default_team_template_id?: string | null
 }
 
 export type CertificateFilterMode = "locked_only" | "participation" | "all_completed" | "at_least_one" | "all"
@@ -1094,13 +1166,21 @@ export type CertificateFilterMode = "locked_only" | "participation" | "all_compl
 export interface CompetitionCertificateSendIn {
   filter: CertificateFilterMode | "custom"
   registration_ids?: string[] | null
+  team_ids?: string[] | null
   theme?: "dark" | "light" | string
   template_id?: string | null
+  primary_kind?: "individual" | "team"
+  primary_template_id?: string | null
+  primary_email_template_id?: string | null
+  also_send_other?: boolean
+  secondary_template_id?: string | null
+  secondary_email_template_id?: string | null
+  delivery_mode?: "email" | "publish"
+  notify_by_email?: boolean
   skip_already_issued?: boolean
   custom_email_subject?: string | null
   custom_email_body?: string | null
   save_email_to_template?: boolean
-  /** Bulk override: issue every targeted recipient as this type. Omit for earned types. */
   force_certificate_type?: "completion" | "participation" | null
 }
 
@@ -1140,6 +1220,10 @@ export interface CompetitionCertificateTestEmailIn {
   recipient_name?: string
   theme?: string
   template_id?: string | null
+  kind?: "individual" | "team"
+  email_template_id?: string | null
+  delivery_mode?: "email" | "publish"
+  notify_by_email?: boolean
   certificate_type?: "completion" | "participation"
   custom_email_subject?: string | null
   custom_email_body?: string | null
@@ -1165,20 +1249,21 @@ export const downloadCompetitionCertificatesApi = async (
   registrationIds?: string[] | null,
   templateId?: string | null,
   forceCertificateType?: "completion" | "participation" | null,
+  kind: "individual" | "team" = "individual",
 ) => {
   let res
   if (registrationIds && registrationIds.length > 0) {
     res = await api.post(
       `/competitions/admin/cohorts/${cohortId}/certificates/download`,
       {
-        filter, theme, template_id: templateId, registration_ids: registrationIds,
+        filter, theme, template_id: templateId, kind, registration_ids: registrationIds,
         force_certificate_type: forceCertificateType ?? undefined,
       },
       { responseType: "blob" },
     )
   } else {
     res = await api.get(`/competitions/admin/cohorts/${cohortId}/certificates/download`, {
-      params: { filter, theme, template_id: templateId, force_certificate_type: forceCertificateType ?? undefined },
+      params: { filter, theme, template_id: templateId, kind, force_certificate_type: forceCertificateType ?? undefined },
       responseType: "blob",
     })
   }
@@ -1186,8 +1271,7 @@ export const downloadCompetitionCertificatesApi = async (
   const a = document.createElement("a")
   a.href = url
   const safeName = cohortName.replace(/[^a-z0-9]+/gi, "_")
-  const suffix = registrationIds && registrationIds.length > 0 ? `_${registrationIds.length}_selected` : ""
-  a.download = `certificates_${filter}_${safeName}_${theme}${suffix}.pdf`
+  a.download = `${safeName} - ${kind === "team" ? "Team Certificate" : "Certificate"}.pdf`
   document.body.appendChild(a)
   a.click()
   document.body.removeChild(a)
@@ -1204,18 +1288,44 @@ export interface CohortCheckpoint {
   description?: string | null
 }
 
-export const getCohortCheckpointsApi = (cohortId: string) =>
-  api.get<CohortCheckpoint[]>(`/competitions/admin/cohorts/${cohortId}/checkpoints`).then((r) => r.data)
+export const getCohortCheckpointsApi = (cohortId: string, instructorScoped?: boolean) =>
+  api
+    .get<CohortCheckpoint[]>(
+      instructorScoped
+        ? `/lms/instructor/cohorts/${cohortId}/checkpoints`
+        : `/competitions/admin/cohorts/${cohortId}/checkpoints`,
+    )
+    .then((r) => r.data)
 
-export const getCohortSubmissionWindowsApi = (cohortId: string, checkpointId?: string) =>
-  api.get<SubmissionWindowItem[]>(`/competitions/admin/cohorts/${cohortId}/submission-windows`, {
-    params: checkpointId !== undefined ? { checkpoint_id: checkpointId } : undefined,
-  }).then((r) => r.data)
+export const getCohortSubmissionWindowsApi = (
+  cohortId: string,
+  checkpointId?: string,
+  instructorScoped?: boolean,
+) =>
+  api
+    .get<SubmissionWindowItem[]>(
+      instructorScoped
+        ? `/lms/instructor/cohorts/${cohortId}/submission-windows`
+        : `/competitions/admin/cohorts/${cohortId}/submission-windows`,
+      { params: checkpointId !== undefined ? { checkpoint_id: checkpointId } : undefined },
+    )
+    .then((r) => r.data)
 
-export const updateCohortSubmissionWindowsApi = (cohortId: string, windows: SubmissionWindowItem[], checkpointId?: string) =>
-  api.put<SubmissionWindowItem[]>(`/competitions/admin/cohorts/${cohortId}/submission-windows`, { windows }, {
-    params: checkpointId !== undefined ? { checkpoint_id: checkpointId } : undefined,
-  }).then((r) => r.data)
+export const updateCohortSubmissionWindowsApi = (
+  cohortId: string,
+  windows: SubmissionWindowItem[],
+  checkpointId?: string,
+  instructorScoped?: boolean,
+) =>
+  api
+    .put<SubmissionWindowItem[]>(
+      instructorScoped
+        ? `/lms/instructor/cohorts/${cohortId}/submission-windows`
+        : `/competitions/admin/cohorts/${cohortId}/submission-windows`,
+      { windows },
+      { params: checkpointId !== undefined ? { checkpoint_id: checkpointId } : undefined },
+    )
+    .then((r) => r.data)
 
 export const updateTeamTimingAdjustmentApi = (cohortId: string, teamId: string, body: TeamTimingAdjustmentUpdate) =>
   api.patch<TeamScoreBreakdown>(`/competitions/admin/cohorts/${cohortId}/teams/${teamId}/timing-adjustment`, body).then((r) => r.data)

@@ -1,13 +1,13 @@
 import { useState } from "react"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
 import { useNavigate } from "@tanstack/react-router"
-import { Plus, ChevronRight, CloudUpload, Eye } from "lucide-react"
+import { Plus, ChevronRight, CloudUpload, Eye, Lock } from "lucide-react"
 import { PageHeader, EmptyState, Spinner } from "@/components/ui/primitives"
 import { Modal, Field, ModalActions, ConfirmDialog } from "@/pages/admin/components/common"
 import { useToast } from "@/components/ui/toast"
 import { useAuth } from "@/context/AuthContext"
 import {
-  listCoursesApi, createCourseApi, publishCourseApi, unpublishCourseApi, submitCourseForReviewApi, deleteCourseApi,
+  listCoursesApi, createCourseApi, updateCourseApi, publishCourseApi, unpublishCourseApi, submitCourseForReviewApi, deleteCourseApi,
   listInstructorOptionsApi, getCoursesVideoBackendStatusApi, migrateCourseVideosToR2Api,
   type AdminCourse, type CourseKind, type CourseLevel, type CourseVideoBackend,
 } from "@/api/lms_admin"
@@ -22,6 +22,7 @@ export default function LmsCourses() {
   const cannotPublish = activeRole === "lms_author" && !user?.author_can_publish
   const canViewAudit = activeRole === "admin" || activeRole === "operations"
   const [createOpen, setCreateOpen] = useState(false)
+  const [accessTarget, setAccessTarget] = useState<AdminCourse | null>(null)
 
   const [deleteTarget, setDeleteTarget] = useState<AdminCourse | null>(null)
   const [deleteError, setDeleteError] = useState<string | null>(null)
@@ -86,7 +87,6 @@ export default function LmsCourses() {
     <div className="flex flex-col gap-6">
       <PageHeader
         title="LMS"
-        subtitle="Author course content — modules, lessons, quizzes, flashcards, video."
         action={
           <button
             onClick={() => setCreateOpen(true)}
@@ -117,11 +117,24 @@ export default function LmsCourses() {
                   <div className="flex items-center gap-2 flex-wrap">
                     <p className="text-sm font-medium text-foreground truncate">{course.title}</p>
                     <span
-                      className={`text-xs font-semibold px-2 py-0.5 rounded-full ${
-                        course.is_published ? "bg-green-500/15 text-green-600 dark:text-green-400" : "bg-muted text-muted-foreground"
-                      }`}
+                      className={`text-xs font-semibold px-2 py-0.5 rounded-full ${course.is_published ? "bg-green-500/15 text-green-600 dark:text-green-400" : "bg-muted text-muted-foreground"
+                        }`}
                     >
                       {course.is_published ? "Published" : "Draft"}
+                    </span>
+                    <span
+                      className={`text-xs font-semibold px-2 py-0.5 rounded-full ${course.access_mode === "open"
+                          ? "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400"
+                          : course.access_mode === "paid"
+                            ? "bg-primary/15 text-primary"
+                            : "bg-muted text-muted-foreground"
+                        }`}
+                    >
+                      {course.access_mode === "open"
+                        ? "Open"
+                        : course.access_mode === "paid"
+                          ? `Paid${course.price_cents ? ` · $${(course.price_cents / 100).toFixed(2)}` : ""}`
+                          : `Invite-only${course.price_cents ? ` · $${(course.price_cents / 100).toFixed(2)}` : ""}`}
                     </span>
                     {!course.is_published && course.submitted_for_review_at && (
                       <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-amber-500/15 text-amber-600 dark:text-amber-400">
@@ -179,6 +192,13 @@ export default function LmsCourses() {
                 className="flex items-center gap-1.5 flex-wrap sm:flex-nowrap shrink-0 sm:ml-3 pt-2.5 sm:pt-0 border-t border-border/40 sm:border-t-0 justify-end"
                 onClick={(e) => e.stopPropagation()}
               >
+                <button
+                  onClick={() => setAccessTarget(course)}
+                  title="Edit course access"
+                  className="flex items-center gap-1 h-8 px-3 rounded-lg text-xs font-medium border border-border text-foreground hover:bg-muted transition-colors"
+                >
+                  <Lock size={13} /> Access
+                </button>
                 <button
                   onClick={() => void navigate({ to: `/learn/courses/${course.id}/learn`, search: { preview: true } as never })}
                   title="Preview course in student player"
@@ -241,6 +261,18 @@ export default function LmsCourses() {
         <CreateCourseModal
           onClose={() => setCreateOpen(false)}
           onSuccess={(course) => { invalidate(); setCreateOpen(false); void navigate({ to: `/lms-authoring/courses/${course.id}` }) }}
+        />
+      )}
+
+      {accessTarget && (
+        <EditCourseAccessModal
+          course={accessTarget}
+          onClose={() => setAccessTarget(null)}
+          onSaved={() => {
+            invalidate()
+            setAccessTarget(null)
+            toast.success("Course access updated")
+          }}
         />
       )}
 
@@ -391,6 +423,76 @@ function CreateCourseModal({ onClose, onSuccess }: { onClose: () => void; onSucc
           onCancel={onClose} onConfirm={() => mutation.mutate()} loading={mutation.isPending}
           disabled={!title.trim() || (accessMode === "paid" && !(Number(priceDollars) > 0))}
           label="Create course"
+        />
+      </div>
+    </Modal>
+  )
+}
+
+function EditCourseAccessModal({
+  course,
+  onClose,
+  onSaved,
+}: {
+  course: AdminCourse
+  onClose: () => void
+  onSaved: () => void
+}) {
+  const [accessMode, setAccessMode] = useState<"open" | "invite" | "paid">(course.access_mode)
+  const [priceDollars, setPriceDollars] = useState(
+    course.price_cents ? (course.price_cents / 100).toFixed(2) : "",
+  )
+  const [error, setError] = useState<string | null>(null)
+
+  const mutation = useMutation({
+    mutationFn: () =>
+      updateCourseApi(course.id, {
+        access_mode: accessMode,
+        price_cents:
+          (accessMode === "paid" || accessMode === "invite") && priceDollars.trim() && Number(priceDollars) > 0
+            ? Math.round(Number(priceDollars) * 100)
+            : null,
+      }),
+    onSuccess: onSaved,
+    onError: (e: any) => setError(e?.response?.data?.detail ?? "Failed to update course access"),
+  })
+
+  return (
+    <Modal title={`Course access — ${course.title}`} onClose={onClose}>
+      <div className="flex flex-col gap-3">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <Field label="Access">
+            <select
+              value={accessMode}
+              onChange={(e) => setAccessMode(e.target.value as "open" | "invite" | "paid")}
+              className="w-full h-10 px-3 border border-border bg-card text-foreground rounded-xl text-sm focus:outline-none focus:border-primary transition-colors cursor-pointer"
+            >
+              <option value="open">Open — anyone self-enrolls</option>
+              <option value="invite">Invite-only — admin grant only</option>
+              <option value="paid">Paid — Stripe Checkout</option>
+            </select>
+          </Field>
+          {(accessMode === "paid" || accessMode === "invite") && (
+            <Field label={accessMode === "invite" ? "Price (USD, optional)" : "Price (USD)"}>
+              <input
+                value={priceDollars}
+                onChange={(e) => setPriceDollars(e.target.value)}
+                type="number"
+                min="0"
+                step="0.01"
+                placeholder="49.00"
+                className="w-full h-10 px-3 border border-border bg-card text-foreground rounded-xl text-sm focus:outline-none focus:border-primary transition-colors"
+              />
+            </Field>
+          )}
+        </div>
+        {error && <p className="text-xs text-red-500">{error}</p>}
+        <ModalActions
+          onCancel={onClose}
+          onConfirm={() => mutation.mutate()}
+          loading={mutation.isPending}
+          disabled={accessMode === "paid" && !(Number(priceDollars) > 0)}
+          label="Save"
         />
       </div>
     </Modal>

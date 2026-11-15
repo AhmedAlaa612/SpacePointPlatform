@@ -6,7 +6,7 @@
  *  - Role Customization: General vs Lead Facilitator vs Facilitator etc.
  *  - Role Rates & Openings: clean sub-tab for setting platform/program role defaults
  */
-import { useEffect, useState } from "react"
+import { useCallback, useEffect, useRef, useState } from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import {
   ChevronDown,
@@ -48,7 +48,6 @@ import { useToast } from "@/components/ui/toast"
 import { cn, ensureAbsoluteUrl, getErrorMessage } from "@/lib/utils"
 import { MediaPreviewModal } from "@/components/media/MediaPreviewModal"
 import { ChecklistAttachmentPicker } from "./ChecklistAttachmentPicker"
-import { PreSessionQuizAssignmentBar } from "./PreSessionQuizAssignmentBar"
 import { ImportInstructorChecklistModal } from "./ImportInstructorChecklistModal"
 
 interface RoleDraft {
@@ -176,11 +175,10 @@ function ProgramChecklistList({
             dropOnto(line.key)
           }}
           onDragEnd={() => setDragKey(null)}
-          className={`flex flex-col sm:flex-row sm:items-start gap-2 p-2.5 sm:p-2 bg-card border rounded-xl transition-all ${
-            dragKey === line.key
-              ? "opacity-40 border-primary ring-1 ring-primary/40"
-              : "border-border hover:border-border/80"
-          }`}
+          className={`flex flex-col sm:flex-row sm:items-start gap-2 p-2.5 sm:p-2 bg-card border rounded-xl transition-all ${dragKey === line.key
+            ? "opacity-40 border-primary ring-1 ring-primary/40"
+            : "border-border hover:border-border/80"
+            }`}
         >
           {/* Top bar on mobile / Reorder controls on desktop */}
           <div className="flex items-center justify-between sm:justify-start gap-1.5 shrink-0 sm:pt-1 flex-wrap">
@@ -528,6 +526,7 @@ function ProgramDayChecklistEditor({
   roleName,
   dayTitle,
   targetAudience = "instructor",
+  onDirtyChange,
 }: {
   scope: ChecklistScope
   ownerId: string
@@ -536,10 +535,12 @@ function ProgramDayChecklistEditor({
   roleName: string
   dayTitle: string
   targetAudience?: "instructor" | "internal"
+  onDirtyChange?: (saveFn: (() => Promise<void>) | null, isPending: boolean) => void
 }) {
   const qc = useQueryClient()
   const toast = useToast()
   const [draft, setDraft] = useState<ChecklistDraftLine[] | null>(null)
+  const [isDirty, setIsDirty] = useState(false)
   const [error, setError] = useState("")
   const [showImportModal, setShowImportModal] = useState(false)
 
@@ -558,36 +559,60 @@ function ProgramDayChecklistEditor({
 
   useEffect(() => {
     setDraft(null)
+    setIsDirty(false)
     setError("")
   }, [scope, ownerId, roleId, targetAudience])
 
   useEffect(() => {
     if (draft !== null || isLoading) return
     setDraft(toDraftLines(items))
+    setIsDirty(false)
   }, [isLoading, items, draft])
 
   const saveMutation = useMutation({
     mutationFn: () => {
-      const payload = (draft ?? []).map((l, i) => ({
-        title: l.title,
-        description: l.description,
-        requires_proof: l.requires_proof,
-        is_required: l.is_required,
-        material_id: l.material_id,
-        link_url: l.link_url,
-        attachments: l.attachments ?? [],
-        sub_items: l.sub_items ?? [],
-        sort_order: i + 1,
-      }))
+      const payload = (draft ?? [])
+        .filter((l) => l.title.trim() !== "")
+        .map((l, i) => ({
+          title: l.title.trim(),
+          description: l.description,
+          requires_proof: l.requires_proof,
+          is_required: l.is_required,
+          material_id: l.material_id,
+          link_url: l.link_url,
+          attachments: l.attachments ?? [],
+          sub_items: l.sub_items ?? [],
+          sort_order: i + 1,
+        }))
       return setChecklistItemsApi(scope, ownerId, payload, roleId, targetAudience)
     },
-    onSuccess: () => {
+    onSuccess: (saved) => {
       toast.success(`${dayTitle} checklist saved`)
       setError("")
+      setIsDirty(false)
+      if (saved) {
+        setDraft(toDraftLines(saved))
+      }
       qc.invalidateQueries({ queryKey })
     },
     onError: (e: any) => setError(getErrorMessage(e, "Could not save checklist")),
   })
+
+  const saveFnRef = useRef<() => Promise<void>>(async () => { })
+  saveFnRef.current = async () => {
+    await saveMutation.mutateAsync()
+  }
+
+  useEffect(() => {
+    if (!onDirtyChange) return
+    onDirtyChange(isDirty ? () => saveFnRef.current() : null, saveMutation.isPending)
+  }, [isDirty, saveMutation.isPending, onDirtyChange])
+
+  useEffect(() => {
+    return () => {
+      onDirtyChange?.(null, false)
+    }
+  }, [onDirtyChange])
 
   const rows = draft ?? []
 
@@ -614,7 +639,7 @@ function ProgramDayChecklistEditor({
 
           <button
             type="button"
-            onClick={() =>
+            onClick={() => {
               setDraft([
                 ...rows,
                 {
@@ -624,7 +649,8 @@ function ProgramDayChecklistEditor({
                   is_required: true,
                 },
               ])
-            }
+              setIsDirty(true)
+            }}
             className="flex items-center gap-1 h-8 px-2.5 border border-dashed border-border rounded-lg text-xs font-medium text-foreground hover:border-primary/50 hover:bg-primary/5 transition-colors cursor-pointer"
           >
             <Plus size={13} /> Add item
@@ -648,7 +674,10 @@ function ProgramDayChecklistEditor({
       ) : (
         <ProgramChecklistList
           rows={rows}
-          onChange={setDraft}
+          onChange={(nextRows) => {
+            setDraft(nextRows)
+            setIsDirty(true)
+          }}
           availableMaterials={availableMaterials}
           owner={{ program_id: programId }}
           onMaterialUploaded={() => {
@@ -667,6 +696,7 @@ function ProgramDayChecklistEditor({
         targetAudience={targetAudience}
         onImportSuccess={(newItems) => {
           setDraft(toDraftLines(newItems))
+          setIsDirty(false)
           qc.invalidateQueries({ queryKey })
         }}
       />
@@ -675,7 +705,13 @@ function ProgramDayChecklistEditor({
 }
 
 /** Main ProgramRolesPanel */
-export function ProgramRolesPanel({ program }: { program: Program }) {
+export function ProgramRolesPanel({
+  program,
+  onFormChange,
+}: {
+  program: Program
+  onFormChange?: (form: { ensure: () => Promise<void>; isPending: boolean }) => void
+}) {
   const qc = useQueryClient()
   const toast = useToast()
   const [activeTab, setActiveTab] = useState<"days" | "rates">("days")
@@ -684,6 +720,17 @@ export function ProgramRolesPanel({ program }: { program: Program }) {
   const [isInternalChecklist, setIsInternalChecklist] = useState(false)
   const [dayTitleInput, setDayTitleInput] = useState("")
   const [dayDurationInput, setDayDurationInput] = useState("")
+  const checklistSaveRef = useRef<(() => Promise<void>) | null>(null)
+  const [checklistPending, setChecklistPending] = useState(false)
+  const [ratesDirty, setRatesDirty] = useState(false)
+
+  const handleChecklistDirtyChange = useCallback(
+    (saveFn: (() => Promise<void>) | null, isPending: boolean) => {
+      checklistSaveRef.current = saveFn
+      setChecklistPending(isPending)
+    },
+    [],
+  )
 
   // 1. Roles
   const { data: roles = [], isLoading: rolesLoading } = useQuery({
@@ -777,7 +824,10 @@ export function ProgramRolesPanel({ program }: { program: Program }) {
       })
 
   useEffect(() => {
-    if (roles.length && !openingsLoading) setRatesDraft(toRatesDraft())
+    if (roles.length && !openingsLoading) {
+      setRatesDraft(toRatesDraft())
+      setRatesDirty(false)
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [roles, openings, openingsLoading])
 
@@ -805,10 +855,33 @@ export function ProgramRolesPanel({ program }: { program: Program }) {
     onSuccess: () => {
       toast.success("Roles saved")
       setRatesError("")
+      setRatesDirty(false)
       qc.invalidateQueries({ queryKey: ["program-openings-defaults", program.id] })
     },
     onError: (e: any) => setRatesError(getErrorMessage(e, "Could not save roles")),
   })
+
+  const flushUnsavedRef = useRef<() => Promise<void>>(async () => { })
+  flushUnsavedRef.current = async () => {
+    if (checklistSaveRef.current) {
+      await checklistSaveRef.current()
+      checklistSaveRef.current = null
+    }
+    if (ratesDirty) {
+      await saveRatesMutation.mutateAsync()
+    }
+  }
+
+  const ensureSaved = useCallback(async () => {
+    await flushUnsavedRef.current()
+  }, [])
+
+  useEffect(() => {
+    onFormChange?.({
+      ensure: ensureSaved,
+      isPending: saveRatesMutation.isPending || checklistPending,
+    })
+  }, [onFormChange, ensureSaved, saveRatesMutation.isPending, checklistPending])
 
   if (rolesLoading || templateLoading) {
     return <p className="text-xs text-muted-foreground py-2">Loading program template…</p>
@@ -834,7 +907,7 @@ export function ProgramRolesPanel({ program }: { program: Program }) {
       <div className="flex items-center gap-1.5 border-b border-border pb-2.5">
         <button
           type="button"
-          onClick={() => setActiveTab("days")}
+          onClick={() => void ensureSaved().then(() => setActiveTab("days")).catch(() => { })}
           className={cn(
             "h-8 px-3.5 rounded-lg text-xs font-semibold transition-colors cursor-pointer",
             activeTab === "days"
@@ -846,7 +919,7 @@ export function ProgramRolesPanel({ program }: { program: Program }) {
         </button>
         <button
           type="button"
-          onClick={() => setActiveTab("rates")}
+          onClick={() => void ensureSaved().then(() => setActiveTab("rates")).catch(() => { })}
           className={cn(
             "h-8 px-3.5 rounded-lg text-xs font-semibold transition-colors cursor-pointer",
             activeTab === "rates"
@@ -875,7 +948,7 @@ export function ProgramRolesPanel({ program }: { program: Program }) {
               {/* Pre-Workshop Card */}
               <button
                 type="button"
-                onClick={() => setSelectedDayId("default")}
+                onClick={() => void ensureSaved().then(() => setSelectedDayId("default")).catch(() => { })}
                 className={cn(
                   "flex flex-col justify-between min-w-[130px] sm:min-w-[150px] p-2.5 rounded-xl border text-left transition-all shrink-0 cursor-pointer",
                   isDefaultSelected
@@ -910,7 +983,7 @@ export function ProgramRolesPanel({ program }: { program: Program }) {
                   <button
                     key={session.id}
                     type="button"
-                    onClick={() => setSelectedDayId(session.id)}
+                    onClick={() => void ensureSaved().then(() => setSelectedDayId(session.id)).catch(() => { })}
                     className={cn(
                       "flex flex-col justify-between min-w-[130px] sm:min-w-[150px] p-2.5 rounded-xl border text-left transition-all shrink-0 cursor-pointer",
                       isSelected
@@ -1010,9 +1083,9 @@ export function ProgramRolesPanel({ program }: { program: Program }) {
                         deleteDayMutation.mutate(selectedSession.id)
                       }
                     }}
-                    disabled={deleteDayMutation.isPending || templateSessions.length <= 1}
+                    disabled={deleteDayMutation.isPending}
                     className="h-8 px-2.5 text-xs text-muted-foreground hover:text-red-500 hover:bg-red-500/10 border border-border rounded-lg transition-colors disabled:opacity-30 cursor-pointer flex items-center gap-1"
-                    title={templateSessions.length <= 1 ? "Program must have at least one day" : "Delete this day"}
+                    title="Delete this day"
                   >
                     <Trash2 size={13} />
                     <span>Delete Day</span>
@@ -1026,10 +1099,14 @@ export function ProgramRolesPanel({ program }: { program: Program }) {
           <div className="flex items-center gap-1.5 overflow-x-auto pb-1 scrollbar-none no-scrollbar">
             <button
               type="button"
-              onClick={() => {
-                setIsInternalChecklist(false)
-                setActiveRoleId(null)
-              }}
+              onClick={() =>
+                void ensureSaved()
+                  .then(() => {
+                    setIsInternalChecklist(false)
+                    setActiveRoleId(null)
+                  })
+                  .catch(() => { })
+              }
               className={cn(
                 "h-7 px-3 rounded-full text-xs font-medium transition-colors shrink-0 cursor-pointer",
                 !isInternalChecklist && activeRoleId === null
@@ -1047,10 +1124,14 @@ export function ProgramRolesPanel({ program }: { program: Program }) {
                   <button
                     key={role.id}
                     type="button"
-                    onClick={() => {
-                      setIsInternalChecklist(false)
-                      setActiveRoleId(role.id)
-                    }}
+                    onClick={() =>
+                      void ensureSaved()
+                        .then(() => {
+                          setIsInternalChecklist(false)
+                          setActiveRoleId(role.id)
+                        })
+                        .catch(() => { })
+                    }
                     className={cn(
                       "h-7 px-3 rounded-full text-xs font-medium transition-colors shrink-0 cursor-pointer",
                       isRoleActive
@@ -1064,10 +1145,14 @@ export function ProgramRolesPanel({ program }: { program: Program }) {
               })}
             <button
               type="button"
-              onClick={() => {
-                setIsInternalChecklist(true)
-                setActiveRoleId(null)
-              }}
+              onClick={() =>
+                void ensureSaved()
+                  .then(() => {
+                    setIsInternalChecklist(true)
+                    setActiveRoleId(null)
+                  })
+                  .catch(() => { })
+              }
               className={cn(
                 "h-7 px-3 rounded-full text-xs font-medium transition-colors shrink-0 cursor-pointer flex items-center gap-1.5 border border-dashed",
                 isInternalChecklist
@@ -1080,13 +1165,6 @@ export function ProgramRolesPanel({ program }: { program: Program }) {
             </button>
           </div>
 
-          {/* 3.5. Pre-Session Quiz Preset Assignment (Program / Template Session) */}
-          <PreSessionQuizAssignmentBar
-            scope={isDefaultSelected ? "programs" : "sessions"}
-            ownerId={isDefaultSelected ? program.id : selectedDayId}
-            dayTitle={activeDayTitle}
-          />
-
           {/* 4. Active Day & Role Checklist Editor */}
           <div className="p-3 sm:p-4 rounded-xl border border-border bg-card/60">
             <ProgramDayChecklistEditor
@@ -1097,6 +1175,7 @@ export function ProgramRolesPanel({ program }: { program: Program }) {
               roleName={activeRoleName}
               dayTitle={activeDayTitle}
               targetAudience={isInternalChecklist ? "internal" : "instructor"}
+              onDirtyChange={handleChecklistDirtyChange}
             />
           </div>
         </div>
@@ -1146,13 +1225,14 @@ export function ProgramRolesPanel({ program }: { program: Program }) {
                         min={0}
                         placeholder={role.default_rate_aed != null ? String(role.default_rate_aed) : "0"}
                         value={d.amount_aed}
-                        onChange={(e) =>
+                        onChange={(e) => {
+                          setRatesDirty(true)
                           setRatesDraft(
                             (ratesDraft ?? []).map((x, j) =>
                               j === i ? { ...x, amount_aed: e.target.value } : x,
                             ),
                           )
-                        }
+                        }}
                         className="h-8 px-2 border border-border bg-background text-foreground rounded-lg text-xs tabular-nums focus:outline-none focus:border-primary transition-colors"
                       />
                     </label>
@@ -1164,13 +1244,14 @@ export function ProgramRolesPanel({ program }: { program: Program }) {
                         type="number"
                         min={1}
                         value={d.slots}
-                        onChange={(e) =>
+                        onChange={(e) => {
+                          setRatesDirty(true)
                           setRatesDraft(
                             (ratesDraft ?? []).map((x, j) =>
                               j === i ? { ...x, slots: Math.max(1, Number(e.target.value) || 1) } : x,
                             ),
                           )
-                        }
+                        }}
                         className="h-8 px-2 border border-border bg-background text-foreground rounded-lg text-xs tabular-nums focus:outline-none focus:border-primary transition-colors"
                       />
                     </label>
@@ -1184,13 +1265,14 @@ export function ProgramRolesPanel({ program }: { program: Program }) {
                       rows={2}
                       placeholder={role.description || "Role description…"}
                       value={d.responsibilities_override}
-                      onChange={(e) =>
+                      onChange={(e) => {
+                        setRatesDirty(true)
                         setRatesDraft(
                           (ratesDraft ?? []).map((x, j) =>
                             j === i ? { ...x, responsibilities_override: e.target.value } : x,
                           ),
                         )
-                      }
+                      }}
                       className="px-2 py-1.5 border border-border bg-background text-foreground rounded-lg text-xs resize-y focus:outline-none focus:border-primary transition-colors"
                     />
                   </label>

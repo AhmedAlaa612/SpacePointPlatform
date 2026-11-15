@@ -1,16 +1,17 @@
-import { useMemo, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 import { useQuery } from "@tanstack/react-query"
-import { useNavigate } from "@tanstack/react-router"
+import { useNavigate, useSearch } from "@tanstack/react-router"
 import { Search } from "lucide-react"
 import { listApplicantsApi } from "@/api/instructors/admin"
-import { EmptyState, PageHeader, Spinner, StatusPill } from "@/pages/instructors/components/common"
+import { EmptyState, PageHeader, PhaseDeadlineBadge, Spinner, StatusPill } from "@/pages/instructors/components/common"
 
 const PAGE_SIZE = 10
 
 // Order/labels mirror the legacy admin console's status filter dropdown.
 const STATUS_FILTERS: { value: string; label: string }[] = [
   { value: "all", label: "All Statuses" },
-  { value: "in_progress", label: "In Progress" },
+  { value: "pending_onboarding", label: "Pending (In Progress)" },
+  { value: "in_progress", label: "In Progress (Phase 1)" },
   { value: "under_review", label: "Under Review" },
   { value: "under_review_rejected", label: "Under Review — Rejected Items" },
   { value: "research_approved", label: "Research Approved" },
@@ -24,17 +25,30 @@ export function applicantDisplayStatus(a: { status: string; has_rejected_modules
 }
 
 export default function InstructorsAdminApplicants() {
+  const { status: searchStatus } = useSearch({ strict: false }) as { status?: string }
   const navigate = useNavigate()
   const { data: applicants, isLoading } = useQuery({ queryKey: ["admin-applicants"], queryFn: listApplicantsApi })
 
-  const [statusFilter, setStatusFilter] = useState("all")
+  const [statusFilter, setStatusFilter] = useState(searchStatus || "all")
   const [search, setSearch] = useState("")
   const [page, setPage] = useState(1)
 
+  useEffect(() => {
+    if (searchStatus) {
+      setStatusFilter(searchStatus)
+      setPage(1)
+    }
+  }, [searchStatus])
+
   const filtered = useMemo(() => {
     let rows = applicants ?? []
-    if (statusFilter === "under_review_rejected") rows = rows.filter((a) => a.status === "under_review" && a.has_rejected_modules)
-    else if (statusFilter !== "all") rows = rows.filter((a) => a.status === statusFilter)
+    if (statusFilter === "pending_onboarding") {
+      rows = rows.filter((a) => ["in_progress", "phase_1_approved", "research_approved"].includes(a.status))
+    } else if (statusFilter === "under_review_rejected") {
+      rows = rows.filter((a) => a.status === "under_review" && a.has_rejected_modules)
+    } else if (statusFilter !== "all") {
+      rows = rows.filter((a) => a.status === statusFilter)
+    }
     const q = search.trim().toLowerCase()
     if (q) rows = rows.filter((a) => a.full_name.toLowerCase().includes(q) || a.email.toLowerCase().includes(q))
     return rows
@@ -98,6 +112,7 @@ export default function InstructorsAdminApplicants() {
                   <th className="py-3 px-4 font-semibold">Applicant Name</th>
                   <th className="py-3 px-4 font-semibold">City</th>
                   <th className="py-3 px-4 font-semibold">Status</th>
+                  <th className="py-3 px-4 font-semibold">Phase Time Limit</th>
                   <th className="py-3 px-4 font-semibold">Application Start Date</th>
                   <th className="py-3 px-4 font-semibold">Submission Date</th>
                 </tr>
@@ -113,7 +128,7 @@ export default function InstructorsAdminApplicants() {
                       <div className="flex items-center gap-1.5">
                         <p className="font-semibold text-foreground group-hover:text-primary transition-colors">{a.full_name}</p>
                         {a.also_grant_role === "intern" && (
-                          <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-[#d6c7e1] text-[#643f83] shrink-0">
+                          <span className="text-[10px] font-semibold px-2 py-0.5 rounded-[10px] bg-[#653F84] text-white shrink-0">
                             + Intern
                           </span>
                         )}
@@ -122,6 +137,14 @@ export default function InstructorsAdminApplicants() {
                     </td>
                     <td className="py-3.5 px-4 text-muted-foreground">{a.city_of_residence || "—"}</td>
                     <td className="py-3.5 px-4"><StatusPill status={applicantDisplayStatus(a)} /></td>
+                    <td className="py-3.5 px-4">
+                      <PhaseDeadlineBadge
+                        phaseDeadline={a.phase_deadline}
+                        status={a.status}
+                        extensionUsed={a.extension_used}
+                        emptyFallback
+                      />
+                    </td>
                     <td className="py-3.5 px-4 text-muted-foreground whitespace-nowrap">
                       {a.created_at ? new Date(a.created_at).toLocaleDateString() : "—"}
                     </td>

@@ -1,11 +1,18 @@
 import { useState } from "react"
 import { useNavigate } from "@tanstack/react-router"
-import { useQueryClient } from "@tanstack/react-query"
+import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { isAxiosError } from "axios"
 import { Check, GraduationCap, Upload } from "lucide-react"
 import { useAuth } from "@/context/AuthContext"
+import { getPublicFormConfigApi } from "@/api/apply"
 import { tokens } from "@/api/client"
 import { applyAsStudentApi } from "@/api/instructors/applicant"
+import {
+  CustomQuestionsFields,
+  isFieldEnabled,
+  isFieldRequired,
+  validateCustomQuestionAnswers,
+} from "@/components/apply/CustomQuestionsFields"
 import {
   Dialog,
   DialogContent,
@@ -55,9 +62,22 @@ export function ApplyAsInstructorModal({ open, onOpenChange }: ApplyAsInstructor
   )
   const [inviteCode, setInviteCode] = useState("")
   const [cvFile, setCvFile] = useState<File | null>(null)
+  const [answers, setAnswers] = useState<Record<string, string>>({})
 
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+
+  const { data: formConfig } = useQuery({
+    queryKey: ["apply-form-config", "instructor"],
+    queryFn: () => getPublicFormConfigApi("instructor"),
+    enabled: open,
+  })
+  const fields = formConfig?.fields
+  const questions = formConfig?.questions ?? []
+  const cvEnabled = isFieldEnabled(fields, "cv", true)
+  const cvRequired = isFieldRequired(fields, "cv", true)
+  const codeEnabled = isFieldEnabled(fields, "invite_code", true)
+  const codeRequired = isFieldRequired(fields, "invite_code", false)
 
   const countryCities = useCitiesForCountry(country)
 
@@ -75,8 +95,12 @@ export function ApplyAsInstructorModal({ open, onOpenChange }: ApplyAsInstructor
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (!cvFile) {
+    if (cvRequired && !cvFile) {
       setError("Please upload your CV / resume (PDF format).")
+      return
+    }
+    if (codeRequired && !inviteCode.trim()) {
+      setError("Referral / invite code is required.")
       return
     }
     if (backgroundAreas.length === 0) {
@@ -85,6 +109,11 @@ export function ApplyAsInstructorModal({ open, onOpenChange }: ApplyAsInstructor
     }
     if (countryCities.length > 0 && deliverCityIds.length === 0) {
       setError("Please select at least one city where you can deliver workshops.")
+      return
+    }
+    const qErr = validateCustomQuestionAnswers(questions, answers)
+    if (qErr) {
+      setError(qErr)
       return
     }
 
@@ -107,6 +136,7 @@ export function ApplyAsInstructorModal({ open, onOpenChange }: ApplyAsInstructor
         background_other: backgroundAreas.includes("Other") ? backgroundOther.trim() : undefined,
         has_own_transportation: hasTransportation,
         invite_code: inviteCode.trim() ? inviteCode.trim().toUpperCase() : undefined,
+        answers,
       }
 
       const res = await applyAsStudentApi(payload, cvFile)
@@ -329,11 +359,10 @@ export function ApplyAsInstructorModal({ open, onOpenChange }: ApplyAsInstructor
                     key={bg}
                     type="button"
                     onClick={() => toggleBackground(bg)}
-                    className={`px-3 py-1.5 rounded-lg border text-xs font-medium transition-colors flex items-center gap-1.5 ${
-                      active
+                    className={`px-3 py-1.5 rounded-lg border text-xs font-medium transition-colors flex items-center gap-1.5 ${active
                         ? "border-primary bg-primary/10 text-primary"
                         : "border-border bg-card text-muted-foreground hover:text-foreground"
-                    }`}
+                      }`}
                   >
                     {active && <Check size={12} />}
                     {bg}
@@ -384,43 +413,58 @@ export function ApplyAsInstructorModal({ open, onOpenChange }: ApplyAsInstructor
           </div>
 
           {/* CV Upload */}
-          <div>
-            <label className="text-xs font-medium text-foreground block mb-1">
-              CV / Resume (PDF)
-            </label>
-            <div className="flex items-center gap-3">
-              <label className="relative cursor-pointer h-9 px-3 bg-secondary text-secondary-foreground font-semibold text-xs rounded-xl hover:opacity-90 transition-opacity flex items-center gap-1.5 shrink-0">
-                <Upload size={14} />
-                {cvFile ? "Replace File" : "Choose PDF"}
-                <input
-                  type="file"
-                  accept="application/pdf"
-                  className="hidden"
-                  onChange={(e) => {
-                    const f = e.target.files?.[0]
-                    if (f) setCvFile(f)
-                  }}
-                />
+          {cvEnabled && (
+            <div>
+              <label className="text-xs font-medium text-foreground block mb-1">
+                CV / Resume (PDF){cvRequired && <span className="text-destructive"> *</span>}
               </label>
-              <span className="text-xs text-muted-foreground truncate">
-                {cvFile ? cvFile.name : "No file selected"}
-              </span>
+              <div className="flex items-center gap-3">
+                <label className="relative cursor-pointer h-9 px-3 bg-secondary text-secondary-foreground font-semibold text-xs rounded-xl hover:opacity-90 transition-opacity flex items-center gap-1.5 shrink-0">
+                  <Upload size={14} />
+                  {cvFile ? "Replace File" : "Choose PDF"}
+                  <input
+                    type="file"
+                    accept="application/pdf"
+                    className="hidden"
+                    onChange={(e) => {
+                      const f = e.target.files?.[0]
+                      if (f) setCvFile(f)
+                    }}
+                  />
+                </label>
+                <span className="text-xs text-muted-foreground truncate">
+                  {cvFile ? cvFile.name : "No file selected"}
+                </span>
+              </div>
             </div>
-          </div>
+          )}
 
           {/* Invite Code */}
-          <div>
-            <label className="text-xs font-medium text-foreground block mb-1">
-              Referral Code (Optional)
-            </label>
-            <input
-              type="text"
-              className="input w-full uppercase"
-              value={inviteCode}
-              onChange={(e) => setInviteCode(e.target.value)}
-              placeholder="e.g. REF-1234"
-            />
-          </div>
+          {codeEnabled && (
+            <div>
+              <label className="text-xs font-medium text-foreground block mb-1">
+                Referral Code {codeRequired ? <span className="text-destructive">*</span> : "(Optional)"}
+              </label>
+              <input
+                type="text"
+                className="input w-full uppercase"
+                value={inviteCode}
+                onChange={(e) => setInviteCode(e.target.value)}
+                placeholder="e.g. REF-1234"
+              />
+            </div>
+          )}
+
+          {questions.length > 0 && (
+            <div className="pt-2 border-t border-border">
+              <CustomQuestionsFields
+                questions={questions}
+                answers={answers}
+                onChange={setAnswers}
+                labelClassName="text-xs font-medium text-foreground block mb-1"
+              />
+            </div>
+          )}
 
           <DialogFooter className="mt-2">
             <Button

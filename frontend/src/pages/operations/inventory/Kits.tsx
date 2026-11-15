@@ -10,6 +10,7 @@ import {
   Pencil,
   Plus,
   Search,
+  Users,
   X,
 } from "lucide-react"
 import type { KitListItem, KitStatus } from "@/types/inventory"
@@ -107,9 +108,20 @@ export default function Kits() {
       <div className="flex items-start justify-between gap-3 flex-wrap">
         <div>
           <h1 className="text-xl font-bold text-foreground tracking-tight">Kits</h1>
-          <p className="text-sm text-muted-foreground mt-0.5">
-            {kits.length} kit{kits.length === 1 ? "" : "s"} · {out} out with someone · {short} incomplete
-          </p>
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-muted-foreground mt-1">
+            <span className="inline-flex items-center gap-1.5">
+              <Layers className="w-3.5 h-3.5 text-muted-foreground/80 shrink-0" />
+              {kits.length} kit{kits.length === 1 ? "" : "s"}
+            </span>
+            <span className="inline-flex items-center gap-1.5">
+              <Users className="w-3.5 h-3.5 text-muted-foreground/80 shrink-0" />
+              {out} out with someone
+            </span>
+            <span className="inline-flex items-center gap-1.5">
+              <AlertTriangle className="w-3.5 h-3.5 text-muted-foreground/80 shrink-0" />
+              {short} incomplete
+            </span>
+          </div>
         </div>
         {canManage && (
           <button
@@ -138,7 +150,7 @@ export default function Kits() {
             setLocationId(e.target.value)
             setWarehouseId("") // reset warehouse filter if location changes
           }}
-          className="h-9 px-3 border border-border bg-card text-foreground rounded-xl text-sm cursor-pointer focus:outline-none focus:border-primary"
+          className="h-9 px-3 w-auto max-w-fit border border-border bg-card text-foreground rounded-xl text-sm cursor-pointer focus:outline-none focus:border-primary"
         >
           <option value="">All locations</option>
           {locations.map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}
@@ -146,7 +158,7 @@ export default function Kits() {
         <select
           value={warehouseId}
           onChange={(e) => setWarehouseId(e.target.value)}
-          className="h-9 px-3 border border-border bg-card text-foreground rounded-xl text-sm cursor-pointer focus:outline-none focus:border-primary"
+          className="h-9 px-3 w-auto max-w-fit border border-border bg-card text-foreground rounded-xl text-sm cursor-pointer focus:outline-none focus:border-primary"
         >
           <option value="">Any warehouse</option>
           {warehouses.map((w) => (
@@ -158,32 +170,62 @@ export default function Kits() {
         <select
           value={status}
           onChange={(e) => setStatus(e.target.value)}
-          className="h-9 px-3 border border-border bg-card text-foreground rounded-xl text-sm cursor-pointer focus:outline-none focus:border-primary"
+          className="h-9 px-3 w-auto max-w-fit border border-border bg-card text-foreground rounded-xl text-sm cursor-pointer focus:outline-none focus:border-primary"
         >
           <option value="">Any status</option>
           {Object.entries(STATUS_LABEL).map(([v, label]) => <option key={v} value={v}>{label}</option>)}
         </select>
         <button
+          type="button"
+          role="switch"
+          aria-checked={availableOnly}
           onClick={() => setAvailableOnly((v) => !v)}
-          className={cn(
-            "h-9 px-3 rounded-xl text-sm font-medium border transition-colors cursor-pointer",
-            availableOnly
-              ? "border-primary/30 bg-primary/10 text-primary"
-              : "border-border text-muted-foreground hover:bg-muted",
-          )}
+          className="inline-flex items-center gap-2 h-9 px-2.5 text-sm text-muted-foreground hover:text-foreground transition-colors cursor-pointer select-none"
         >
-          Available only
+          <span
+            className={cn(
+              "relative inline-flex h-5 w-9 shrink-0 items-center rounded-full border transition-colors",
+              availableOnly
+                ? "bg-primary border-primary"
+                : "bg-muted border-border",
+            )}
+          >
+            <span
+              className={cn(
+                "inline-block h-3.5 w-3.5 rounded-full bg-white shadow-sm transition-transform",
+                availableOnly ? "translate-x-4" : "translate-x-0.5",
+              )}
+            />
+          </span>
+          <span className={availableOnly ? "text-foreground font-medium" : undefined}>
+            Available only
+          </span>
         </button>
         <button
+          type="button"
+          role="switch"
+          aria-checked={completeOnly}
           onClick={() => setCompleteOnly((v) => !v)}
-          className={cn(
-            "h-9 px-3 rounded-xl text-sm font-medium border transition-colors cursor-pointer",
-            completeOnly
-              ? "border-primary/30 bg-primary/10 text-primary"
-              : "border-border text-muted-foreground hover:bg-muted",
-          )}
+          className="inline-flex items-center gap-2 h-9 px-2.5 text-sm text-muted-foreground hover:text-foreground transition-colors cursor-pointer select-none"
         >
-          Complete only
+          <span
+            className={cn(
+              "relative inline-flex h-5 w-9 shrink-0 items-center rounded-full border transition-colors",
+              completeOnly
+                ? "bg-primary border-primary"
+                : "bg-muted border-border",
+            )}
+          >
+            <span
+              className={cn(
+                "inline-block h-3.5 w-3.5 rounded-full bg-white shadow-sm transition-transform",
+                completeOnly ? "translate-x-4" : "translate-x-0.5",
+              )}
+            />
+          </span>
+          <span className={completeOnly ? "text-foreground font-medium" : undefined}>
+            Complete only
+          </span>
         </button>
       </div>
 

@@ -11,7 +11,7 @@ Tests:
 
 import io
 import uuid
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 from pypdf import PdfReader
 import pytest
@@ -29,6 +29,7 @@ from app.models.sessions.registration import Registration
 from app.models.spine.contact import Contact
 from app.models.team import Team, TeamMember
 from app.models.user import User
+from app.services.competitions.certificates import send_cohort_certificates
 from app.services.sessions.registration import register
 from app.services.teams import create_team
 
@@ -199,8 +200,7 @@ async def test_send_cohort_certificates(db, client):
     await db.commit()
 
     # Send certificates for students with 'all_completed'
-    with patch("app.services.competitions.certificates.try_send_email") as mock_email:
-        mock_email.return_value = None
+    with patch("app.routers.competitions.admin.safe_enqueue", new_callable=AsyncMock, return_value="inline") as mock_enq:
         send_resp = await client.post(
             f"/competitions/admin/cohorts/{cohort.id}/certificates/send",
             headers=_headers(ops),
@@ -208,6 +208,20 @@ async def test_send_cohort_certificates(db, client):
         )
         assert send_resp.status_code == 200, send_resp.text
         res = send_resp.json()
+        assert res["total_targeted"] == 1
+        assert res["status"] == "inline"
+        mock_enq.assert_awaited_once()
+
+    with patch("app.services.competitions.certificates.try_send_email") as mock_email:
+        mock_email.return_value = None
+        res = await send_cohort_certificates(
+            db,
+            cohort_id=cohort.id,
+            actor_user_id=ops.id,
+            filter_type="all_completed",
+            theme="dark",
+            skip_already_issued=True,
+        )
         assert res["sent_count"] == 1
         assert mock_email.called
         call_args = mock_email.call_args[0]
@@ -225,28 +239,53 @@ async def test_send_cohort_certificates(db, client):
     assert r2.status == "completed"
 
     # Re-sending with skip_already_issued=True should skip Student Beta
-    with patch("app.services.competitions.certificates.try_send_email") as mock_email:
+    with patch("app.routers.competitions.admin.safe_enqueue", new_callable=AsyncMock, return_value="inline") as mock_enq:
         send_again = await client.post(
             f"/competitions/admin/cohorts/{cohort.id}/certificates/send",
             headers=_headers(ops),
             json={"filter": "all_completed", "theme": "dark", "skip_already_issued": True},
         )
         assert send_again.status_code == 200
-        res2 = send_again.json()
+        res2_http = send_again.json()
+        assert res2_http["total_targeted"] == 0
+        assert res2_http["skipped_count"] == 1
+        mock_enq.assert_not_awaited()
+
+    with patch("app.services.competitions.certificates.try_send_email") as mock_email:
+        res2 = await send_cohort_certificates(
+            db,
+            cohort_id=cohort.id,
+            actor_user_id=ops.id,
+            filter_type="all_completed",
+            theme="dark",
+            skip_already_issued=True,
+        )
         assert res2["sent_count"] == 0
         assert res2["skipped_count"] == 1
         assert not mock_email.called
 
     # Explicitly selecting Student Alpha only should send only to Student Alpha
-    with patch("app.services.competitions.certificates.try_send_email") as mock_email:
-        mock_email.return_value = None
+    with patch("app.routers.competitions.admin.safe_enqueue", new_callable=AsyncMock, return_value="inline") as mock_enq:
         send_alpha = await client.post(
             f"/competitions/admin/cohorts/{cohort.id}/certificates/send",
             headers=_headers(ops),
             json={"filter": "at_least_one", "theme": "dark", "registration_ids": [str(r1.id)], "skip_already_issued": False},
         )
         assert send_alpha.status_code == 200
-        res_alpha = send_alpha.json()
+        assert send_alpha.json()["total_targeted"] == 1
+        mock_enq.assert_awaited_once()
+
+    with patch("app.services.competitions.certificates.try_send_email") as mock_email:
+        mock_email.return_value = None
+        res_alpha = await send_cohort_certificates(
+            db,
+            cohort_id=cohort.id,
+            actor_user_id=ops.id,
+            filter_type="at_least_one",
+            theme="dark",
+            registration_ids=[r1.id],
+            skip_already_issued=False,
+        )
         assert res_alpha["sent_count"] == 1
         assert res_alpha["recipient_names"] == ["Student Alpha"]
         assert mock_email.called
@@ -419,8 +458,7 @@ async def test_locked_only_and_participation_filters_and_custom_emails(db, clien
     assert part_data["recipients"][0]["team_locked"] is False
 
     # 3. Test sending with custom email override & save_email_to_template
-    with patch("app.services.competitions.certificates.try_send_email") as mock_email:
-        mock_email.return_value = None
+    with patch("app.routers.competitions.admin.safe_enqueue", new_callable=AsyncMock, return_value="inline") as mock_enq:
         send_resp = await client.post(
             f"/competitions/admin/cohorts/{cohort.id}/certificates/send",
             headers=_headers(ops),
@@ -433,7 +471,27 @@ async def test_locked_only_and_participation_filters_and_custom_emails(db, clien
             },
         )
         assert send_resp.status_code == 200, send_resp.text
-        res = send_resp.json()
+        res_http = send_resp.json()
+        assert res_http["total_targeted"] == 1
+        mock_enq.assert_awaited_once()
+
+    # Check that custom template email copy was updated synchronously in DB
+    await db.refresh(custom_template)
+    assert custom_template.email_subject == "Custom Header for {student_name}"
+    assert custom_template.email_body == "<p>Hello {student_name}, congrats to {team_name}!</p>"
+
+    with patch("app.services.competitions.certificates.try_send_email") as mock_email:
+        mock_email.return_value = None
+        res = await send_cohort_certificates(
+            db,
+            cohort_id=cohort.id,
+            actor_user_id=ops.id,
+            filter_type="locked_only",
+            template_id=str(custom_template.id),
+            custom_email_subject="Custom Header for {student_name}",
+            custom_email_body="<p>Hello {student_name}, congrats to {team_name}!</p>",
+            save_email_to_template=True,
+        )
         assert res["sent_count"] == 1
         assert mock_email.called
         call_args = mock_email.call_args[0]
@@ -441,11 +499,6 @@ async def test_locked_only_and_participation_filters_and_custom_emails(db, clien
         assert call_args[1] == "Custom Header for Locked Student Alpha"
         # body check
         assert "Hello Locked Student Alpha, congrats to Team Locked!" in call_args[2]
-
-    # Check that custom template email copy was updated in DB
-    await db.refresh(custom_template)
-    assert custom_template.email_subject == "Custom Header for {student_name}"
-    assert custom_template.email_body == "<p>Hello {student_name}, congrats to {team_name}!</p>"
 
 
 @pytest.mark.asyncio

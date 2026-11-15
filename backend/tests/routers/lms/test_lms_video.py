@@ -307,12 +307,16 @@ async def test_streaming_routes_require_a_valid_matching_unexpired_token(db, cli
     mismatched = await client.get(f"/videos/{video.id}/playlist", params={"token": wrong_video_token})
     assert mismatched.status_code == http_status.HTTP_403_FORBIDDEN
 
-    # valid token, but for a student who is NOT enrolled -> 404, not 403
+    # Not-enrolled student cannot mint a video token -> 404, not 403
+    # (enrollment gate runs at token issuance in GET /videos/{id}/token;
+    # deleted/unknown user token still fails on /playlist with 403).
     stranger = await _user(db, roles=["student"])
     await db.commit()
-    stranger_token = create_video_token(stranger.id, video.id)
-    not_enrolled = await client.get(f"/videos/{video.id}/playlist", params={"token": stranger_token})
-    assert not_enrolled.status_code == http_status.HTTP_404_NOT_FOUND
+    not_enrolled_tok = await client.get(f"/videos/{video.id}/token", headers=_headers(stranger))
+    assert not_enrolled_tok.status_code == http_status.HTTP_404_NOT_FOUND
+    deleted_user_token = create_video_token(uuid.uuid4(), video.id)
+    deleted_user_resp = await client.get(f"/videos/{video.id}/playlist", params={"token": deleted_user_token})
+    assert deleted_user_resp.status_code == http_status.HTTP_403_FORBIDDEN
 
     # path traversal in the segment name -> 404, never touches storage
     traversal = await client.get(f"/videos/{video.id}/segment/..%2F..%2Fetc%2Fpasswd", params={"token": token})

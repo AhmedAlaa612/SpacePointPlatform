@@ -14,6 +14,7 @@ export const createProgramApi = (data: {
   pricing_model: PricingModel
   description?: string
   price?: number
+  duration_hours?: number | null
   default_capacity?: number
   active?: boolean
   completion_rule_type?: CompletionRuleType
@@ -31,11 +32,13 @@ export const updateProgramApi = (
     pricing_model: PricingModel
     description: string | null
     price: number | null
+    duration_hours: number | null
     default_capacity: number | null
     active: boolean
     completion_rule_type: CompletionRuleType
     completion_rule_value: number
     default_assessment_config_id: string | null
+    poster_template_url?: string | null
     keep_course_access_after_completion: boolean
   }>
 ) => api.patch<Program>(`/sessions/programs/${id}`, data).then((r) => r.data)
@@ -62,7 +65,7 @@ export interface TemplateDay {
 
 export interface ProgramTemplate {
   program_id: string
-  template_cohort_id: string
+  template_cohort_id: string | null
   days_count: number
   sessions: TemplateDay[]
 }

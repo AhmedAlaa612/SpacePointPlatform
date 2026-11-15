@@ -196,7 +196,7 @@ async def test_admin_post_put_delete_flow_reflects_on_public(db, client):
             "logo_url": "/assets/img/test.png",
             "website_url": "https://example.com",
             "tier": "academic",
-            "display_order": 0,
+            "display_order": 1,
         },
         headers=_headers(admin),
     )

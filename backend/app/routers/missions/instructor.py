@@ -1,14 +1,6 @@
 """Cohort-scoped instructor Missions surface (2026-08-17) —
 `/missions/instructor/*`.
 
-The boss's own ask (delivered 2026-08-16, alongside the August Build
-Brief): instructors track and control their own cohort's Design mission
-runs — progress, step-gating, review — without becoming ops/facilitator
-generally. A deliberate reversal of Design v2 D1's "instructors stay out
-of the mission entirely" call, this time shipped with the UI in the same
-change so it can't go inert the way `design_step_gates` did the first time
-(see `models/missions/gate.py`).
-
 `instructor` gets a brand-new access path here — not an extension of
 `/missions/admin`, which stays gated to operations/facilitator/admin
 exactly as before. Cohort scoping is per-route, via
@@ -24,7 +16,7 @@ same static-path-before-dynamic-`/missions/{mission_id}` reasoning
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.dependencies import get_current_active_user, require_instructor_missions
@@ -61,7 +53,16 @@ router = APIRouter(
 async def my_cohorts(db: AsyncSession = Depends(get_db), current: User = Depends(get_current_active_user)):
     """Cohorts this instructor may act on — every cohort, for staff."""
     allowed = await instructor_cohort_ids(db, user=current)
-    query = select(Cohort).join(Program, Program.id == Cohort.program_id).order_by(Cohort.name)
+    query = (
+        select(Cohort)
+        .join(Program, Program.id == Cohort.program_id)
+        .where(
+            Cohort.status != "draft",
+            ~Cohort.name.ilike("[Template]%"),
+            func.lower(func.trim(Cohort.name)) != "template",
+        )
+        .order_by(Cohort.name)
+    )
     if allowed is not None:
         if not allowed:
             return []

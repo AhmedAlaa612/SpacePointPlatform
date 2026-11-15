@@ -94,7 +94,7 @@ async def test_the_briefing_states_the_variants_limits_up_front(db, client):
 
     limits = (await client.get(f"/missions/design/briefing/{mission.id}", headers=_h(student))).json()["limits"]
     keys = {limit["key"] for limit in limits}
-    assert {"storage", "cost", "link", "battery", "downlink"} <= keys
+    assert {"storage", "cost", "link", "downlink"} <= keys
 
 
 @pytest.mark.asyncio

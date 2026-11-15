@@ -1061,6 +1061,10 @@ async def _assign_team_mission_run(
     except IntegrityError:
         await db.refresh(team_progress)
         return False
+    except HTTPException as exc:
+        if exc.status_code == status.HTTP_404_NOT_FOUND and "no variants" in str(exc.detail).lower():
+            return False
+        raise
     return True
 
 

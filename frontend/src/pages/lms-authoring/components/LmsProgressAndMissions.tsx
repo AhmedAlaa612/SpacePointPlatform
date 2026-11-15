@@ -860,7 +860,7 @@ export function ProgressPanel({
               <select
                 value={sortBy}
                 onChange={(e) => setSortBy(e.target.value as any)}
-                className="h-8 px-2.5 border border-border bg-background text-foreground rounded-lg text-xs font-medium cursor-pointer focus:outline-none focus:border-primary"
+                className="h-8 w-auto max-w-fit shrink-0 px-2.5 border border-border bg-background text-foreground rounded-[10px] text-xs font-medium cursor-pointer focus:outline-none focus:border-primary"
                 aria-label="Sort individual progress"
               >
                 <option value="progress_desc">Sort: Highest progress</option>

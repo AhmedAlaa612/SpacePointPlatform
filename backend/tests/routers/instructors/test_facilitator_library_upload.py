@@ -52,7 +52,10 @@ async def test_video_upload_round_trips_as_a_file_resource(client, db):
     body = resp.json()
     assert body["format"] == "MP4"
     assert body["resource_type"] == "file"
-    assert body["file_url"]  # a resolved signed URL, not blank (only PDFs are)
+    assert body["file_url"] == ""  # HLS-encrypted uploads stream via video_info.video_id + /videos/{id}/token
+    assert body["video_info"]["provider"] == "upload"
+    assert body["video_info"]["mode"] == "hls_encrypted"
+    assert body["video_info"]["video_id"]
 
 
 @pytest.mark.asyncio
@@ -130,9 +133,9 @@ async def test_uploaded_video_carries_video_info_too(client, db):
     assert resp.status_code == 201, resp.text
     info = resp.json()["video_info"]
     assert info["provider"] == "upload"
-    assert info["mode"] == "direct"
-    assert info["status"] == "ready"
-    assert info["url"]
+    assert info["mode"] == "hls_encrypted"
+    assert info["status"] == "pending"
+    assert info["video_id"]
 
 
 @pytest.mark.asyncio

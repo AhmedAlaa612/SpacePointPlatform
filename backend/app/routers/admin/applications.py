@@ -8,6 +8,7 @@ from pydantic import BaseModel
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.apply_config import CONFIGURABLE_APPLY_ROLES
 from app.core.dependencies import require_admin
 from app.db.session import get_db
 from app.models.application import Application
@@ -20,6 +21,13 @@ from app.models.spine.contact import Contact
 from app.models.spine.organization import Organization
 from app.models.user import User
 from app.services import storage
+from app.services.apply_footprint import get_platform_footprint
+from app.services.apply_form_config import (
+    get_role_form_config,
+    resolve_answers_with_questions,
+    set_question_visibility,
+    set_role_form_config,
+)
 from app.services.documents.id_card import ensure_card_number
 from app.schemas.internship import InternshipApprove
 from app.services.email import send_application_approved_email, send_moved_to_onboarding_email
@@ -89,7 +97,7 @@ async def get_application(
     app = (await db.execute(select(Application).where(Application.id == app_id))).scalars().first()
     if not app:
         raise HTTPException(status_code=404, detail="Application not found")
-    out = await _app_out(db, app)
+    out = await _app_out(db, app, include_detail=True)
     cv_path = app.cv_path or (_path_from_url(app.cv_url) if app.cv_url else None)
     if cv_path:
         try:
@@ -369,24 +377,93 @@ async def onboard_application(
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
-async def _app_out(db: AsyncSession, a: Application) -> dict:
+async def _app_out(db: AsyncSession, a: Application, *, include_detail: bool = False) -> dict:
+    answers = a.answers or {}
     city_name = None
     if a.city_id:
         city = await db.get(City, a.city_id)
         city_name = city.name if city else None
     if not city_name:
-        city_name = (a.answers or {}).get("city_other") or (a.answers or {}).get("city")
-    return {
+        city_name = answers.get("city_other") or answers.get("city")
+
+    invited_by = None
+    if a.invited_by_id:
+        inviter = await db.get(User, a.invited_by_id)
+        if inviter:
+            invited_by = {
+                "id": str(inviter.id),
+                "full_name": inviter.full_name,
+                "email": inviter.email,
+            }
+
+    reviewed_by_name = None
+    if a.reviewed_by:
+        reviewer = await db.get(User, a.reviewed_by)
+        reviewed_by_name = reviewer.full_name if reviewer else None
+
+    intern_details = None
+    if a.role == "intern":
+        pref_city_id = answers.get("preferred_city_id")
+        pref_city_name = None
+        if pref_city_id:
+            try:
+                pc = await db.get(City, uuid.UUID(str(pref_city_id)))
+                pref_city_name = pc.name if pc else None
+            except ValueError:
+                pref_city_name = None
+        intern_details = {
+            "university": answers.get("university"),
+            "major": answers.get("major"),
+            "university_id_number": answers.get("university_id_number"),
+            "preferred_city_id": str(pref_city_id) if pref_city_id else None,
+            "preferred_city_name": pref_city_name,
+            "requested_start_date": answers.get("requested_start_date"),
+            "requested_duration_weeks": answers.get("requested_duration_weeks"),
+        }
+
+    organization_details = None
+    if a.role == "organization":
+        org = None
+        org_id_str = answers.get("organization_id")
+        if org_id_str:
+            try:
+                org = await db.get(Organization, uuid.UUID(str(org_id_str)))
+            except ValueError:
+                org = None
+        organization_details = {
+            "organization_id": str(org.id) if org else (str(org_id_str) if org_id_str else None),
+            "organization_name": org.name_latin if org else answers.get("organization_name"),
+            "organization_name_arabic": org.name_arabic if org else answers.get("organization_name_arabic"),
+            "organization_type": org.org_type if org else answers.get("organization_type"),
+            "city": org.city if org else answers.get("city"),
+            "website": answers.get("website"),
+            "is_approved": org.is_approved if org else None,
+        }
+
+    resolved_answers = await resolve_answers_with_questions(db, answers, audience=a.role)
+
+    out = {
         "id": str(a.id), "role": a.role, "status": a.status,
         "full_name": a.full_name, "email": a.email,
         "phone": a.phone, "country": a.country, "city": city_name,
+        "city_id": str(a.city_id) if a.city_id else None,
+        "city_other": answers.get("city_other"),
+        "birthdate": answers.get("birthdate"),
         "invite_code": a.invite_code,
+        "invited_by": invited_by,
         "has_cv": bool(a.cv_path or a.cv_url),
         "answers": a.answers,
+        "resolved_answers": resolved_answers,
+        "intern_details": intern_details,
+        "organization_details": organization_details,
         "admin_notes": a.admin_notes,
+        "reviewed_by_name": reviewed_by_name,
         "created_at": a.created_at.isoformat() if a.created_at else None,
         "reviewed_at": a.reviewed_at.isoformat() if a.reviewed_at else None,
     }
+    if include_detail:
+        out["platform_footprint"] = await get_platform_footprint(db, a.email, exclude_app_id=a.id)
+    return out
 
 
 def _path_from_url(url: str) -> str:
@@ -405,7 +482,17 @@ async def _get_pending(db, app_id: uuid.UUID) -> Application:
     return app
 
 
-# ── Apply questions (admin-managed custom form per role) ──────────────────────
+# ── Apply form config & custom questions (admin-managed per role) ──────────────
+
+class FormFieldConfigItem(BaseModel):
+    key: str
+    enabled: bool = True
+    required: bool = False
+
+
+class FormConfigUpdateBody(BaseModel):
+    fields: list[FormFieldConfigItem]
+
 
 class QuestionBody(BaseModel):
     audience: str
@@ -420,8 +507,17 @@ class QuestionUpdate(BaseModel):
     question_text: Optional[str] = None
     question_type: Optional[str] = None
     required: Optional[bool] = None
+    enabled: Optional[bool] = None
     options: Optional[list[str]] = None
     sort_order: Optional[int] = None
+
+
+class QuestionReorderBody(BaseModel):
+    audience: str
+    ordered_ids: list[uuid.UUID]
+
+
+VALID_QUESTION_TYPES = {"text", "textarea", "number", "date", "url", "radio", "multiple_choice"}
 
 
 def _question_out(q: ApplicationQuestion) -> dict:
@@ -432,8 +528,22 @@ def _question_out(q: ApplicationQuestion) -> dict:
     }
 
 
+@router.get("/applications/form-config/{audience}")
+async def get_form_config(audience: str, db: AsyncSession = Depends(get_db), _: User = Depends(require_admin)):
+    return await get_role_form_config(db, audience)
+
+
+@router.put("/applications/form-config/{audience}")
+async def update_form_config(
+    audience: str, body: FormConfigUpdateBody, db: AsyncSession = Depends(get_db), _: User = Depends(require_admin)
+):
+    return await set_role_form_config(db, audience, [f.model_dump() for f in body.fields])
+
+
 @router.get("/applications/questions/list")
 async def list_questions(audience: str, db: AsyncSession = Depends(get_db), _: User = Depends(require_admin)):
+    if audience not in CONFIGURABLE_APPLY_ROLES:
+        raise HTTPException(status_code=404, detail=f"Unknown application role: {audience}")
     rows = (await db.execute(
         select(ApplicationQuestion)
         .where(ApplicationQuestion.audience == audience, ApplicationQuestion.is_active.is_(True))
@@ -444,12 +554,16 @@ async def list_questions(audience: str, db: AsyncSession = Depends(get_db), _: U
 
 @router.post("/applications/questions")
 async def create_question(body: QuestionBody, db: AsyncSession = Depends(get_db), _: User = Depends(require_admin)):
+    if body.audience not in CONFIGURABLE_APPLY_ROLES:
+        raise HTTPException(status_code=400, detail=f"Unsupported audience: {body.audience}")
+    if body.question_type not in VALID_QUESTION_TYPES:
+        raise HTTPException(status_code=400, detail=f"Unsupported question_type: {body.question_type}")
     max_order = (await db.execute(
         select(func.coalesce(func.max(ApplicationQuestion.sort_order), 0))
         .where(ApplicationQuestion.audience == body.audience)
     )).scalar() or 0
     q = ApplicationQuestion(
-        audience=body.audience, question_text=body.question_text,
+        audience=body.audience, question_text=body.question_text.strip(),
         question_type=body.question_type, required=body.required,
         options=body.options, sort_order=max_order + 1,
     )
@@ -466,11 +580,50 @@ async def update_question(
     q = (await db.execute(select(ApplicationQuestion).where(ApplicationQuestion.id == qid))).scalars().first()
     if not q:
         raise HTTPException(status_code=404, detail="Question not found")
-    for field, val in body.model_dump(exclude_unset=True).items():
+    updates = body.model_dump(exclude_unset=True)
+    if "audience" in updates and updates["audience"] not in CONFIGURABLE_APPLY_ROLES:
+        raise HTTPException(status_code=400, detail=f"Unsupported audience: {updates['audience']}")
+    if "question_type" in updates and updates["question_type"] not in VALID_QUESTION_TYPES:
+        raise HTTPException(status_code=400, detail=f"Unsupported question_type: {updates['question_type']}")
+    if "question_text" in updates and isinstance(updates["question_text"], str):
+        updates["question_text"] = updates["question_text"].strip()
+    enabled_update = updates.pop("enabled", None)
+    for field, val in updates.items():
         setattr(q, field, val)
+    if enabled_update is not None:
+        await set_question_visibility(db, q.audience, str(q.id), bool(enabled_update))
     await db.commit()
     await db.refresh(q)
-    return _question_out(q)
+    out = _question_out(q)
+    if enabled_update is not None:
+        out["enabled"] = bool(enabled_update)
+    return out
+
+
+@router.post("/applications/questions/reorder")
+async def reorder_questions(
+    body: QuestionReorderBody, db: AsyncSession = Depends(get_db), _: User = Depends(require_admin)
+):
+    if body.audience not in CONFIGURABLE_APPLY_ROLES:
+        raise HTTPException(status_code=400, detail=f"Unsupported audience: {body.audience}")
+    rows = (await db.execute(
+        select(ApplicationQuestion)
+        .where(ApplicationQuestion.audience == body.audience, ApplicationQuestion.is_active.is_(True))
+    )).scalars().all()
+    by_id = {q.id: q for q in rows}
+    seen: set[uuid.UUID] = set()
+    order_idx = 0
+    for qid in body.ordered_ids:
+        if qid in by_id and qid not in seen:
+            by_id[qid].sort_order = order_idx
+            seen.add(qid)
+            order_idx += 1
+    for q in sorted(rows, key=lambda r: (r.sort_order, r.created_at)):
+        if q.id not in seen:
+            q.sort_order = order_idx
+            order_idx += 1
+    await db.commit()
+    return [_question_out(q) for q in sorted(rows, key=lambda r: r.sort_order)]
 
 
 @router.delete("/applications/questions/{qid}")

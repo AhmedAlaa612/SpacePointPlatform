@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect } from "react"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
+import { useSearch } from "@tanstack/react-router"
 import { FileText, CheckCircle2, XCircle, AlertCircle, Eye, HardDrive, Edit3, Trash2, Download, Upload, RefreshCw } from "lucide-react"
 import {
   listDocumentRequestsApi,
@@ -39,10 +40,17 @@ const statusBadgeColor: Record<string, string> = {
 }
 
 export default function AdminDocuments() {
+  const { tab: searchTab, requestId: searchRequestId } = useSearch({ strict: false }) as {
+    tab?: string
+    requestId?: string
+  }
   const queryClient = useQueryClient()
-  const [activeTab, setActiveTab] = useState<"requests" | "storage" | "templates">("requests")
+  const [activeTab, setActiveTab] = useState<"requests" | "storage" | "templates">(
+    searchTab === "storage" || searchTab === "templates" ? searchTab : "requests"
+  )
   const [filter, setFilter] = useState<string>("all")
-  
+  const handledRequestIdRef = useRef<string | null>(null)
+
   // State for request modals
   const [approveRequest, setApproveRequest] = useState<DocumentRequest | null>(null)
   const [rejectRequest, setRejectRequest] = useState<DocumentRequest | null>(null)
@@ -144,7 +152,7 @@ export default function AdminDocuments() {
     const sigTitle = systemSettings?.admin_signatory_title || "Co-Founder & CEO of SpacePoint"
     setSignatoryName(sigName)
     setSignatoryTitle(sigTitle)
-    
+
     // Helper to format dates
     const formatDate = (dateStr?: string) => {
       const d = dateStr ? new Date(dateStr) : new Date()
@@ -154,16 +162,42 @@ export default function AdminDocuments() {
       const year = d.getFullYear()
       return `${day} ${month} ${year}`
     }
-    
+
     setDocumentDate(formatDate())
-    
+
     // Find matching template
     const matchingTemplate = templates.find(t => t.key === req.type || t.key.includes(req.type))
     setDocumentTitle(matchingTemplate?.name || DOCUMENT_TYPE_LABELS[req.type] || "Document")
-    
+
     // Keep template text completely raw with placeholders
     setRecommendationText(matchingTemplate?.body_text || "")
   }
+
+  useEffect(() => {
+    if (searchTab === "requests" || searchTab === "storage" || searchTab === "templates") {
+      setActiveTab(searchTab)
+    }
+  }, [searchTab])
+
+  useEffect(() => {
+    if (!searchRequestId) {
+      handledRequestIdRef.current = null
+      return
+    }
+    setActiveTab("requests")
+    if (loadingRequests || handledRequestIdRef.current === searchRequestId) return
+    const match = requests.find((r) => r.id === searchRequestId)
+    if (!match) {
+      if (filter !== "all") setFilter("all")
+      return
+    }
+    handledRequestIdRef.current = searchRequestId
+    if (match.status === "pending") {
+      handleOpenApprove(match)
+    } else {
+      setViewRequest(match)
+    }
+  }, [searchRequestId, requests, loadingRequests, filter])
 
   const handleConfirmApprove = () => {
     if (!approveRequest) return
@@ -302,7 +336,7 @@ export default function AdminDocuments() {
                         >
                           <XCircle size={14} /> Reject
                         </button>
-                        
+
                         {!req.file_url ? (
                           <button
                             onClick={() => handleOpenApprove(req)}

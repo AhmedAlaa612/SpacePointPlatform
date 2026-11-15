@@ -52,7 +52,14 @@ async def create_lead(
     # Notify admins — find them and notify each
     admins = (await db.execute(select(User).where(User.roles.any("admin")))).scalars().all()
     for admin in admins:
-        await notify(db, admin.id, "New Lead Submitted", f"{current_user.full_name} submitted a lead for {_lead_label(lead)}.", type="ambassador")
+        await notify(
+            db,
+            admin.id,
+            "New Lead Submitted",
+            f"{current_user.full_name} submitted a lead for {_lead_label(lead)}.",
+            type="ambassador",
+            link="/ambassadors/admin/leads",
+        )
     await db.commit()
     await db.refresh(lead)
     return lead
@@ -209,8 +216,14 @@ async def add_comment(
     else:
         admins = (await db.execute(select(User).where(User.roles.any("admin")))).scalars().all()
         for admin in admins:
-            await notify(db, admin.id, "New comment on a lead",
-                         f"{current_user.full_name} commented on lead '{lead.contact_name}'.", type="ambassador")
+            await notify(
+                db,
+                admin.id,
+                "New comment on a lead",
+                f"{current_user.full_name} commented on lead '{lead.contact_name}'.",
+                type="ambassador",
+                link="/ambassadors/admin/leads",
+            )
 
     await db.commit()
     await db.refresh(comment)

@@ -27,7 +27,8 @@ class StudentSignupRequest(BaseModel):
     full_name: str
     email: EmailStr
     password: str
-    phone: str
+    phone: str | None = None
+    nationality: str | None = None
     date_of_birth: date | None = None
     invite_code: str | None = None
     parent_name: str | None = None
@@ -38,14 +39,17 @@ class StudentSignupRequest(BaseModel):
     # Free-text fallback (2026-08-08) — "Other" city for countries the
     # pickers have no SpacePoint city for; stored on users.city_other.
     city_other: str | None = None
+    answers: dict | None = None
 
     @field_validator("phone")
     @classmethod
-    def validate_phone(cls, v: str) -> str:
+    def validate_phone(cls, v: str | None) -> str | None:
+        if v is None:
+            return None
         s = v.strip()
         if len(s) > 20:
             raise ValueError("Phone number must not exceed 20 characters")
-        return s
+        return s or None
 
     @field_validator("parent_phone")
     @classmethod
@@ -154,6 +158,8 @@ class UserOut(BaseModel):
     organization_type: str | None = None
     organization_country: str | None = None
     organization_city: str | None = None
+    is_certified_instructor: bool = False
+    missing_profile_fields: list[str] = []
 
 
 class OrganizationSignupRequest(BaseModel):
@@ -166,6 +172,7 @@ class OrganizationSignupRequest(BaseModel):
     email: EmailStr
     phone: str
     password: str
+    answers: dict | None = None
 
     @classmethod
     def _clean_email(cls, v: object) -> object:
@@ -183,6 +190,7 @@ class UpdateMeRequest(BaseModel):
     university_name: str | None = None
     phone: str | None = None
     country: str | None = None
+    nationality: str | None = None
     linkedin_url: str | None = None
     birthdate: date | None = None
     date_of_birth: date | None = None
@@ -191,6 +199,9 @@ class UpdateMeRequest(BaseModel):
     city_of_residence_id: UUID | None = None
     deliver_city_ids: list[UUID] | None = None
     has_own_transportation: bool | None = None
+    work_status: str | None = None
+    fluent_languages: list[str] | None = None
+    graduated_university: str | None = None
     org_name_latin: str | None = None
     org_name_arabic: str | None = None
     org_type: str | None = None
