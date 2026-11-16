@@ -964,7 +964,16 @@ async def send_cohort_certificates(
                 ):
                     if not do_issue or layout is None:
                         continue
-                    pdf_bytes = await asyncio.to_thread(_build_pdf, contact.full_name, layout, rec_info, cert_type_str)
+                    # The name on the certificate follows the kind: team
+                    # certificates carry the team's name, individual ones the
+                    # student's (2026-11 — team certs used to print the student
+                    # name because contact.full_name was hardcoded for both
+                    # kinds). A missing team name falls back to the student
+                    # name rather than printing a blank line.
+                    rec_name = contact.full_name
+                    if kind_key == "team":
+                        rec_name = (rec_info.get("team_name") or "").strip() or contact.full_name
+                    pdf_bytes = await asyncio.to_thread(_build_pdf, rec_name, layout, rec_info, cert_type_str)
                     prefix = "team" if kind_key == "team" else "student"
                     storage_path = f"cohort_{cohort.id}/{prefix}_{contact.id}_{reg.id}.pdf"
                     try:
@@ -1188,7 +1197,13 @@ async def render_cohort_certificates_pdf(
             team_name=rec_info.get("team_name"),
             rank=rec_info.get("team_rank"),
         )
-        pages.append(await asyncio.to_thread(_render, r["student_name"], student_body))
+        # Same kind-driven name rule as send_cohort_certificates: the bulk/
+        # preview PDF must match what will actually be emailed — team kind
+        # carries the team's name, individual the student's.
+        rec_name = r["student_name"]
+        if kind == "team":
+            rec_name = (r.get("team_name") or "").strip() or r["student_name"]
+        pages.append(await asyncio.to_thread(_render, rec_name, student_body))
 
     merged = await asyncio.to_thread(merge_certificate_pdfs, pages)
     filename = _safe_pdf_filename(program.name, kind)
@@ -1263,7 +1278,9 @@ async def send_test_certificate_email(
         rank=1,
     )
 
-    effective_name = recipient_name.strip() if recipient_name and recipient_name.strip() else "Test Recipient"
+    effective_name = recipient_name.strip() if recipient_name and recipient_name.strip() else (
+        "Sample Team" if kind == "team" else "Test Recipient"
+    )
 
     cert_bytes = await asyncio.to_thread(
         generate_completion_certificate_pdf,
