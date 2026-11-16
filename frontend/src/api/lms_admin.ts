@@ -1149,7 +1149,16 @@ export interface CohortQuizAnalysisQuiz {
 export interface CohortQuizTextResponse {
   user_id: string;
   student_name: string;
+  // Matches the backend key exactly (services/lms/cohort_quiz.py) — it was
+  // "text" here before, which silently dropped every open-ended answer.
+  text_response: string;
+}
+
+export interface CohortQuizOptionStat {
+  index: number;
   text: string;
+  is_correct: boolean;
+  count: number;
 }
 
 export interface CohortQuizQuestionAnalysis {
@@ -1167,6 +1176,7 @@ export interface CohortQuizQuestionAnalysis {
   total_answers: number;
   accuracy_pct: number | null;
   text_responses?: CohortQuizTextResponse[];
+  option_distribution?: CohortQuizOptionStat[];
 }
 
 export interface CohortQuizAnalysisOut {
@@ -1182,6 +1192,21 @@ export const getCohortQuizAnalysisApi = (cohortId: string, mode?: string) =>
   api.get<CohortQuizAnalysisOut>(`/lms/admin/cohorts/${cohortId}/quiz-analysis`, {
     params: mode ? { mode } : {},
   }).then((r) => r.data);
+
+/** .xlsx with one matrix sheet per quiz (row per student, column per
+ * question) plus a long-format Answer Details sheet (2026-11). */
+export const downloadCohortQuizAnswersApi = async (cohortId: string, mode?: string) => {
+  const res = await api.get(`/lms/admin/cohorts/${cohortId}/quiz-answers-export.xlsx`, {
+    responseType: "blob",
+    params: mode ? { mode } : {},
+  });
+  const url = URL.createObjectURL(res.data as Blob)
+  const a = document.createElement("a")
+  a.href = url
+  a.download = "cohort_quiz_answers.xlsx"
+  a.click()
+  URL.revokeObjectURL(url)
+};
 
 export const listLearningPathsApi = () =>
   api.get<AdminLearningPath[]>("/lms/admin/learning-paths").then((r) => r.data);

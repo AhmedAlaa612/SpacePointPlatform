@@ -2,10 +2,12 @@ import { useState, useMemo } from "react"
 import { useQuery } from "@tanstack/react-query"
 import {
   AlertTriangle,
+  BarChart3,
   CheckCircle2,
   ChevronDown,
   ChevronRight,
   Clock,
+  Download,
   Layers,
   MessageSquare,
   RefreshCw,
@@ -16,7 +18,7 @@ import {
   Search,
 } from "lucide-react"
 import { getCohortTeamAnalyticsApi } from "@/api/competitions"
-import { getCohortQuizAnalysisApi, type CohortQuizAnalysisOut } from "@/api/lms_admin"
+import { downloadCohortQuizAnswersApi, getCohortQuizAnalysisApi, type CohortQuizAnalysisOut } from "@/api/lms_admin"
 import { AnalysisFunnelWidget } from "@/components/ui/AnalysisFunnelWidget"
 import { EmptyState, Spinner } from "@/components/ui/primitives"
 import { useAuth } from "@/context/AuthContext"
@@ -42,6 +44,16 @@ export function CohortQuizAnalysisPanel({ cohortId }: { cohortId: string }) {
   >("most_wrong")
   const [questionSearch, setQuestionSearch] = useState<string>("")
   const [expandedTextIds, setExpandedTextIds] = useState<Record<string, boolean>>({})
+  const [exporting, setExporting] = useState(false)
+
+  const handleExport = async () => {
+    setExporting(true)
+    try {
+      await downloadCohortQuizAnswersApi(cohortId, rosterMode)
+    } finally {
+      setExporting(false)
+    }
+  }
 
   const teamMode = rosterMode === "observer" ? "observer" : rosterMode === "all" ? "all" : "participant"
 
@@ -229,14 +241,24 @@ export function CohortQuizAnalysisPanel({ cohortId }: { cohortId: string }) {
           )}
         </div>
 
-        <button
-          onClick={() => refetch()}
-          disabled={isRefetching}
-          className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs text-muted-foreground hover:text-foreground bg-background border border-border rounded-lg transition disabled:opacity-50 cursor-pointer self-start sm:self-auto"
-        >
-          <RefreshCw size={13} className={isRefetching ? "animate-spin" : ""} />
-          Refresh
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={handleExport}
+            disabled={exporting || !hasQuizData || !analysis}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs text-muted-foreground hover:text-foreground bg-background border border-border rounded-lg transition disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer self-start sm:self-auto"
+          >
+            <Download size={13} className={exporting ? "animate-pulse" : ""} />
+            {exporting ? "Exporting…" : "Export Excel"}
+          </button>
+          <button
+            onClick={() => refetch()}
+            disabled={isRefetching}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs text-muted-foreground hover:text-foreground bg-background border border-border rounded-lg transition disabled:opacity-50 cursor-pointer self-start sm:self-auto"
+          >
+            <RefreshCw size={13} className={isRefetching ? "animate-spin" : ""} />
+            Refresh
+          </button>
+        </div>
       </div>
 
       {/* Executive Individual Funnel */}
@@ -421,6 +443,9 @@ export function CohortQuizAnalysisPanel({ cohortId }: { cohortId: string }) {
               const wrongPct = q.total_answers > 0 ? Math.round((wrongSelected / q.total_answers) * 100) : 0
               const timeoutPct = q.total_answers > 0 ? Math.round((timeoutCount / q.total_answers) * 100) : 0
               const textResponses = q.text_responses ?? []
+              const optionDist = q.option_distribution ?? []
+              const answeredCount = optionDist.reduce((acc, o) => acc + o.count, 0)
+              const blankCount = Math.max(q.total_answers - answeredCount, 0)
               const qKey = `${q.question_id}-${q.quiz_id}-${idx}`
               const textExpanded = Boolean(expandedTextIds[qKey])
               return (
@@ -504,6 +529,19 @@ export function CohortQuizAnalysisPanel({ cohortId }: { cohortId: string }) {
                         <span className="text-muted-foreground text-[11px] font-mono">
                           {q.total_answers} total
                         </span>
+
+                        {/* Per-option distribution toggle (who picked what) */}
+                        {optionDist.length > 0 && (
+                          <button
+                            type="button"
+                            onClick={() => setExpandedTextIds((prev) => ({ ...prev, [qKey]: !prev[qKey] }))}
+                            className="inline-flex items-center gap-1.5 text-xs font-medium text-primary hover:underline cursor-pointer"
+                          >
+                            <BarChart3 size={12} />
+                            {textExpanded ? "Hide answers" : "View answers"}
+                            {textExpanded ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
+                          </button>
+                        )}
                       </div>
                     )}
 
@@ -542,13 +580,57 @@ export function CohortQuizAnalysisPanel({ cohortId }: { cohortId: string }) {
                     )}
                   </div>
 
+                  {/* Expandable MCQ Option Distribution — how many students
+                      picked each option, correct one highlighted. */}
+                  {optionDist.length > 0 && textExpanded && (
+                    <div className="mt-1 pt-3 border-t border-border/60 flex flex-col gap-2.5">
+                      {optionDist.map((opt) => {
+                        const pickPct = q.total_answers > 0 ? Math.round((opt.count / q.total_answers) * 100) : 0
+                        return (
+                          <div key={opt.index} className="flex flex-col gap-1">
+                            <div className="flex items-center justify-between gap-3 text-xs">
+                              <span
+                                className={`min-w-0 flex items-center gap-1.5 ${
+                                  opt.is_correct ? "font-semibold text-emerald-500" : "text-foreground/80"
+                                }`}
+                              >
+                                {opt.is_correct && <CheckCircle2 size={12} className="shrink-0" />}
+                                <span className="truncate">{opt.text}</span>
+                              </span>
+                              <span className="text-[11px] font-mono text-muted-foreground shrink-0">
+                                {opt.count} picked ({pickPct}%)
+                              </span>
+                            </div>
+                            <div className="h-1.5 rounded-full bg-muted overflow-hidden">
+                              <div
+                                className={`h-full rounded-full transition-all ${opt.is_correct ? "bg-emerald-500" : "bg-rose-400/70"}`}
+                                style={{ width: `${pickPct}%` }}
+                              />
+                            </div>
+                          </div>
+                        )
+                      })}
+                      {blankCount > 0 && (
+                        <div className="flex items-center justify-between gap-3 text-xs">
+                          <span className="text-muted-foreground inline-flex items-center gap-1.5">
+                            <Clock size={12} />
+                            No answer (timed out / blank)
+                          </span>
+                          <span className="text-[11px] font-mono text-muted-foreground shrink-0">
+                            {blankCount} ({q.total_answers > 0 ? Math.round((blankCount / q.total_answers) * 100) : 0}%)
+                          </span>
+                        </div>
+                      )}
+                    </div>
+                  )}
+
                   {/* Expandable Open-Ended Text Responses */}
                   {q.accuracy_pct === null && textExpanded && textResponses.length > 0 && (
                     <div className="mt-1 pt-3 border-t border-border/60 flex flex-col gap-2 max-h-64 overflow-y-auto">
                       {textResponses.map((resp, rIdx) => (
                         <div key={`${resp.user_id}-${rIdx}`} className="p-2.5 rounded-lg bg-muted/40 border border-border/60 text-xs">
                           <span className="font-semibold text-foreground">{resp.student_name}: </span>
-                          <span className="text-muted-foreground whitespace-pre-wrap">{resp.text}</span>
+                          <span className="text-muted-foreground whitespace-pre-wrap">{resp.text_response}</span>
                         </div>
                       ))}
                     </div>

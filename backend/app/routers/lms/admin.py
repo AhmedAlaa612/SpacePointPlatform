@@ -17,6 +17,7 @@ from typing import Literal
 
 from arq.connections import ArqRedis
 from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, status
+from fastapi.responses import Response
 from pydantic import BaseModel, ValidationError
 from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -125,6 +126,7 @@ from app.services.lms.admin_progress import (
     student_design_runs,
 )
 from app.services.lms import cohort_quiz as cohort_quiz_service
+from app.services.lms import cohort_quiz_export as cohort_quiz_export_service
 from app.services.lms.author_access import (
     check_checkpoint_access,
     check_course_access,
@@ -3238,6 +3240,33 @@ async def cohort_quiz_analysis(
     effective_mode = "all" if include_observers else mode
     return await cohort_quiz_service.get_cohort_quiz_analysis(
         db, cohort_id=cohort_id, mode=effective_mode,
+    )
+
+
+@router.get("/cohorts/{cohort_id}/quiz-answers-export.xlsx")
+async def cohort_quiz_answers_export(
+    cohort_id: uuid.UUID,
+    mode: Literal["student", "observer", "all"] = Query("student"),
+    db: AsyncSession = Depends(get_db),
+    current: User = Depends(get_current_active_user),
+) -> Response:
+    """Export every submitted cohort-quiz answer for a cohort as an .xlsx
+    workbook — one matrix sheet per quiz (one row per student, one column per
+    question in template order) plus a long-format Answer Details sheet."""
+    cohort = await db.get(Cohort, cohort_id)
+    if cohort is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Cohort not found")
+    await _enforce_cohort_lms_access(db, cohort_id, current)
+    xlsx_bytes = await cohort_quiz_export_service.export_cohort_quiz_answers_workbook(
+        db, cohort_id=cohort_id, mode=mode,
+    )
+    return Response(
+        content=xlsx_bytes,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={
+            "Content-Disposition": 'attachment; filename="cohort_quiz_answers.xlsx"',
+            "Cache-Control": "no-cache",
+        },
     )
 
 

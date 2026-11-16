@@ -792,6 +792,11 @@ async def get_cohort_quiz_analysis(
             CohortQuizAttempt.user_id,
             LmsProgramItem.title.label("quiz_title"),
             _User.full_name.label("student_name"),
+            # Picked option(s) + the question's own options JSONB — feeds the
+            # per-option distribution bars in the analysis UI (2026-11).
+            CohortQuizAnswer.selected_option_index,
+            CohortQuizAnswer.selected_option_indices,
+            CohortQuizQuestion.options,
         )
         .join(CohortQuizAttempt, CohortQuizAnswer.attempt_id == CohortQuizAttempt.id)
         .outerjoin(CohortQuizQuestion, CohortQuizAnswer.question_id == CohortQuizQuestion.id)
@@ -822,6 +827,7 @@ async def get_cohort_quiz_analysis(
     for (
         qid, topic, is_correct, timed_out, text_response,
         prompt, difficulty, question_type, p_item_id, uid, q_title, student_name,
+        sel_option_index, sel_option_indices, options_json,
     ) in ans_rows:
         qid_str = str(qid) if qid else "unknown"
         p_item_id_str = str(p_item_id) if p_item_id else "unknown"
@@ -843,9 +849,38 @@ async def get_cohort_quiz_analysis(
                 "total_answers": 0,
                 "accuracy_pct": 0,
                 "text_responses": [],
+                # [{index, text, is_correct, count}] — built from the first
+                # answer row's options snapshot; None until we see options.
+                "option_distribution": None,
             }
 
         q_stat = questions_map[key]
+
+        # Build the per-option distribution from the question's own options
+        # JSONB (first answer row's snapshot wins — options are effectively
+        # immutable once answered, and multi-select answers increment each
+        # picked option). Indices beyond the snapshot are ignored rather
+        # than trusted, same posture as the grading logic.
+        if q_stat["option_distribution"] is None and options_json:
+            q_stat["option_distribution"] = [
+                {
+                    "index": i,
+                    "text": (opt.get("text") or f"Option {i + 1}") if isinstance(opt, dict) else f"Option {i + 1}",
+                    "is_correct": bool(opt.get("is_correct")) if isinstance(opt, dict) else False,
+                    "count": 0,
+                }
+                for i, opt in enumerate(options_json)
+            ]
+        picked: list[int] = []
+        if sel_option_index is not None:
+            picked = [sel_option_index]
+        elif sel_option_indices:
+            picked = [i for i in sel_option_indices if isinstance(i, int)]
+        if q_stat["option_distribution"] is not None:
+            for oi in picked:
+                if 0 <= oi < len(q_stat["option_distribution"]):
+                    q_stat["option_distribution"][oi]["count"] += 1
+
         q_stat["total_answers"] += 1
         if is_correct is True:
             q_stat["correct_count"] += 1
@@ -863,6 +898,8 @@ async def get_cohort_quiz_analysis(
             })
 
     for q_stat in questions_map.values():
+        if q_stat["option_distribution"] is None:
+            q_stat["option_distribution"] = []
         scorable = q_stat["correct_count"] + q_stat["incorrect_count"]
         if scorable > 0:
             q_stat["accuracy_pct"] = round((q_stat["correct_count"] / scorable) * 100)
