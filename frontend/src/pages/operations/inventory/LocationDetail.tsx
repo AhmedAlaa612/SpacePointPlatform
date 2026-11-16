@@ -397,15 +397,28 @@ export default function LocationDetail() {
                   key={c.id}
                   type="button"
                   onClick={() => setCabinFilterId(cabinFilterId === c.id ? "" : c.id)}
+                  title={c.description || undefined}
                   className={cn(
-                    "px-2.5 py-1 rounded-lg text-xs font-medium border transition-colors cursor-pointer flex items-center gap-1",
+                    "px-2.5 py-1 rounded-lg text-xs font-medium border transition-colors cursor-pointer flex text-left",
+                    // Described cabins grow a second (clamped) line; bare ones
+                    // keep the original single-line pill. max-width keeps long
+                    // descriptions from becoming oversized pills — flex-shrink
+                    // handles narrow (mobile) lines, so nothing ever overflows.
+                    c.description ? "items-start gap-1.5 max-w-[280px]" : "items-center gap-1",
                     cabinFilterId === c.id
                       ? "bg-primary text-primary-foreground border-primary"
                       : "border-border text-muted-foreground hover:bg-muted",
                   )}
                 >
-                  <MapPin size={10} />
-                  <span>{c.name}</span>
+                  <MapPin size={10} className={cn("shrink-0", c.description && "mt-0.5")} />
+                  <span className={cn("min-w-0", c.description && "flex flex-col")}>
+                    <span>{c.name}</span>
+                    {c.description && (
+                      <span className="text-[10px] leading-snug font-normal opacity-75 line-clamp-2">
+                        {c.description}
+                      </span>
+                    )}
+                  </span>
                 </button>
               ))}
               <button

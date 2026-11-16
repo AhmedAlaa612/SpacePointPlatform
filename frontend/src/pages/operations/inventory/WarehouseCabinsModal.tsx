@@ -330,6 +330,7 @@ export function WarehouseCabinsModal({
                           setSelectedBoxId(null)
                         }}
                         style={{ left: `${c.pin_x}%`, top: `${c.pin_y}%` }}
+                        title={c.description || undefined}
                         className={cn(
                           "absolute -translate-x-1/2 -translate-y-1/2 flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-bold shadow-md transition-all cursor-pointer z-10 whitespace-nowrap",
                           isSelected
@@ -433,10 +434,21 @@ export function WarehouseCabinsModal({
                         isSelected ? "bg-primary/10" : "hover:bg-muted/40",
                       )}
                     >
-                      <div className="min-w-0 flex-1 flex items-center gap-1.5">
-                        <span className="font-semibold text-foreground truncate">{c.name}</span>
-                        {c.pin_x !== null && c.pin_x !== undefined && (
-                          <MapPin size={10} className="text-emerald-500 shrink-0" />
+                      <div className="min-w-0 flex-1 flex flex-col gap-0.5">
+                        <div className="flex items-center gap-1.5">
+                          <span className="font-semibold text-foreground truncate">{c.name}</span>
+                          {c.pin_x !== null && c.pin_x !== undefined && (
+                            <MapPin size={10} className="text-emerald-500 shrink-0" />
+                          )}
+                        </div>
+                        {/* Cabinet 1A/1B-style sub-location notes live here — show them, clamped */}
+                        {c.description && (
+                          <span
+                            className="text-[10px] leading-snug text-muted-foreground line-clamp-2"
+                            title={c.description}
+                          >
+                            {c.description}
+                          </span>
                         )}
                       </div>
 
