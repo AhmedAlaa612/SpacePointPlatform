@@ -358,7 +358,27 @@ async def test_team_checkpoints_and_individual_by_team_ids(db: AsyncSession, mon
         title="Checkpoint 2",
         scope="team",
     )
-    db.add_all([cp1, cp2])
+    sub_team = LmsProgramItem(
+        id=uuid.uuid4(),
+        owner_type="program",
+        owner_id=lms_prog.id,
+        position=3,
+        item_type="submission",
+        title="Team Slide Deck",
+        scope="team",
+        optional=False,
+    )
+    sub_ind = LmsProgramItem(
+        id=uuid.uuid4(),
+        owner_type="program",
+        owner_id=lms_prog.id,
+        position=4,
+        item_type="submission",
+        title="Personal Reflection",
+        scope="individual",
+        optional=False,
+    )
+    db.add_all([cp1, cp2, sub_team, sub_ind])
     await db.flush()
 
     c1 = Contact(id=uuid.uuid4(), full_name="Alice One", email=f"a1_{uuid.uuid4().hex[:6]}@example.com")
@@ -379,6 +399,7 @@ async def test_team_checkpoints_and_individual_by_team_ids(db: AsyncSession, mon
         TeamMember(team_id=t1.id, user_id=u1.id),
         TeamMember(team_id=t2.id, user_id=u2.id),
         LmsProgramTeamItemProgress(id=uuid.uuid4(), team_id=t1.id, item_id=cp1.id, status="done"),
+        LmsProgramTeamItemProgress(id=uuid.uuid4(), team_id=t1.id, item_id=sub_team.id, status="done"),
     ])
     await db.flush()
 
@@ -389,9 +410,12 @@ async def test_team_checkpoints_and_individual_by_team_ids(db: AsyncSession, mon
 
     teams_by_id = {t["team_id"]: t for t in summary["teams"]}
     assert teams_by_id[t1.id]["completed_checkpoint_ids"] == [cp1.id]
+    assert teams_by_id[t1.id]["required_submissions_done"] == 1
+    assert teams_by_id[t1.id]["required_submissions_total"] == 1
     assert teams_by_id[t2.id]["completed_checkpoint_ids"] == []
     recs_by_id = {r["registration_id"]: r for r in summary["recipients"]}
     assert recs_by_id[r1.id]["completed_checkpoint_ids"] == [cp1.id]
+    assert recs_by_id[r1.id]["required_submissions_total"] == 2
     assert recs_by_id[r2.id]["completed_checkpoint_ids"] == []
 
     # Send ONLY individual certificate when filtering by team_ids

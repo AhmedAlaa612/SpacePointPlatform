@@ -184,6 +184,18 @@ async def get_cohort_certificate_recipients(
     total_required = len(required_item_ids)
     total_optional = len(optional_item_ids)
 
+    # Team rows only measure team-scoped submissions when any exist (individual-scoped
+    # items belong per-member, not on a single team row — matching team_final_submit_readiness).
+    team_scoped_sub_ids = {i.id for i in submission_items if i.scope == "team"}
+    if team_scoped_sub_ids:
+        team_required_item_ids = required_item_ids & team_scoped_sub_ids
+        team_optional_item_ids = optional_item_ids & team_scoped_sub_ids
+    else:
+        team_required_item_ids = required_item_ids
+        team_optional_item_ids = optional_item_ids
+    team_total_required = len(team_required_item_ids)
+    team_total_optional = len(team_optional_item_ids)
+
     # 2. Active registrations
     registrations = (await db.execute(
         select(Registration).where(
@@ -523,9 +535,9 @@ async def get_cohort_certificate_recipients(
     for t in teams:
         t_recs = recs_by_team.get(t.id, [])
         t_sub_ids = team_submitted_items.get(t.id, set())
-        t_req_done = len(t_sub_ids & required_item_ids)
-        t_opt_done = len(t_sub_ids & optional_item_ids)
-        if not t_req_done and t_recs:
+        t_req_done = len(t_sub_ids & team_required_item_ids)
+        t_opt_done = len(t_sub_ids & team_optional_item_ids)
+        if not team_scoped_sub_ids and not t_req_done and t_recs:
             t_req_done = max((r["required_submissions_done"] for r in t_recs), default=0)
             t_opt_done = max((r["optional_submissions_done"] for r in t_recs), default=0)
 
@@ -543,9 +555,9 @@ async def get_cohort_certificate_recipients(
             "rank": team_rank.get(t.id),
             "member_count": len(t_recs),
             "required_submissions_done": t_req_done,
-            "required_submissions_total": total_required,
+            "required_submissions_total": team_total_required,
             "optional_submissions_done": t_opt_done,
-            "optional_submissions_total": total_optional,
+            "optional_submissions_total": team_total_optional,
             "team_locked": bool(t.final_locked_at is not None),
             "team_cert_issued": t_cert_issued,
             "team_cert_generated_at": latest_team_cert_at,
