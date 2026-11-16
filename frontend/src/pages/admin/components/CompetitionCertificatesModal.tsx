@@ -6,6 +6,7 @@ import {
   Check,
   Circle,
   Download,
+  Flag,
   Loader2,
   Lock,
   Mail,
@@ -115,21 +116,21 @@ export function CompetitionCertificatesModal({
   const recipients = useMemo(() => summary?.recipients ?? [], [summary?.recipients])
   const teams = useMemo(() => summary?.teams ?? [], [summary?.teams])
 
-  const matchesCheckpoint = useMemo(() => {
-    return (completedIds?: string[]) => {
-      if (checkpointFilter === "all") return true
+  const matchesCheckpointIds = useMemo(() => {
+    return (completedIds: string[] | undefined, filterValue: string) => {
+      if (filterValue === "all") return true
       const done = completedIds ?? []
-      if (checkpointFilter === "all_completed") {
+      if (filterValue === "all_completed") {
         return checkpoints.length > 0 && checkpoints.every((cp) => done.includes(cp.item_id))
       }
-      return done.includes(checkpointFilter)
+      return done.includes(filterValue)
     }
-  }, [checkpointFilter, checkpoints])
+  }, [checkpoints])
 
   const filteredStudents = useMemo(() => {
     const q = search.trim().toLowerCase()
     return recipients.filter((r) => {
-      if (!matchesCheckpoint(r.completed_checkpoint_ids)) return false
+      if (!matchesCheckpointIds(r.completed_checkpoint_ids, checkpointFilter)) return false
       if (!q) return true
       return (
         r.student_name.toLowerCase().includes(q) ||
@@ -137,25 +138,73 @@ export function CompetitionCertificatesModal({
         (r.team_name ?? "").toLowerCase().includes(q)
       )
     })
-  }, [recipients, search, matchesCheckpoint])
+  }, [recipients, search, checkpointFilter, matchesCheckpointIds])
 
   const filteredTeams = useMemo(() => {
     const q = search.trim().toLowerCase()
     return teams.filter((t) => {
-      if (!matchesCheckpoint(t.completed_checkpoint_ids)) return false
+      if (!matchesCheckpointIds(t.completed_checkpoint_ids, checkpointFilter)) return false
       if (!q) return true
       return t.team_name.toLowerCase().includes(q)
     })
-  }, [teams, search, matchesCheckpoint])
+  }, [teams, search, checkpointFilter, matchesCheckpointIds])
+
+  const checkpointCounts = useMemo(() => {
+    const counts: Record<string, number> = { all_completed: 0 }
+    for (const cp of checkpoints) counts[cp.item_id] = 0
+    const rows = view === "students" ? recipients : teams
+    for (const row of rows) {
+      const done = row.completed_checkpoint_ids ?? []
+      for (const cp of checkpoints) {
+        if (done.includes(cp.item_id)) counts[cp.item_id] += 1
+      }
+      if (checkpoints.length > 0 && checkpoints.every((cp) => done.includes(cp.item_id))) {
+        counts.all_completed += 1
+      }
+    }
+    return counts
+  }, [checkpoints, view, recipients, teams])
+
+  const matchingIdsForCheckpoint = (nextFilter: string, targetView: ViewMode = view) => {
+    const q = search.trim().toLowerCase()
+    if (targetView === "students") {
+      return recipients
+        .filter((r) => {
+          if (!matchesCheckpointIds(r.completed_checkpoint_ids, nextFilter)) return false
+          if (!q) return true
+          return (
+            r.student_name.toLowerCase().includes(q) ||
+            (r.email ?? "").toLowerCase().includes(q) ||
+            (r.team_name ?? "").toLowerCase().includes(q)
+          )
+        })
+        .map((r) => r.registration_id)
+    }
+    return teams
+      .filter((t) => {
+        if (!matchesCheckpointIds(t.completed_checkpoint_ids, nextFilter)) return false
+        if (!q) return true
+        return t.team_name.toLowerCase().includes(q)
+      })
+      .map((t) => t.team_id)
+  }
 
   const switchView = (next: ViewMode) => {
     setView(next)
-    setSelectedIds(new Set())
+    if (checkpointFilter !== "all") {
+      setSelectedIds(new Set(matchingIdsForCheckpoint(checkpointFilter, next)))
+    } else {
+      setSelectedIds(new Set())
+    }
   }
 
   const handleCheckpointChange = (nextFilter: string) => {
     setCheckpointFilter(nextFilter)
-    setSelectedIds(new Set())
+    if (nextFilter === "all") {
+      setSelectedIds(new Set())
+    } else {
+      setSelectedIds(new Set(matchingIdsForCheckpoint(nextFilter, view)))
+    }
   }
 
   const toggleRow = (id: string) => {
@@ -544,24 +593,6 @@ export function CompetitionCertificatesModal({
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
-          {checkpoints.length > 0 && (
-            <select
-              aria-label="Filter by checkpoint"
-              value={checkpointFilter}
-              onChange={(e) => handleCheckpointChange(e.target.value)}
-              className="h-8 px-2.5 rounded-[10px] border border-border bg-background text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
-            >
-              <option value="all">All checkpoints</option>
-              {checkpoints.length > 1 && (
-                <option value="all_completed">Completed all checkpoints</option>
-              )}
-              {checkpoints.map((cp) => (
-                <option key={cp.item_id} value={cp.item_id}>
-                  Completed: {cp.title}
-                </option>
-              ))}
-            </select>
-          )}
           <div className="relative">
             <Search className="w-3.5 h-3.5 text-muted-foreground absolute left-2.5 top-1/2 -translate-y-1/2" />
             <input
@@ -584,7 +615,61 @@ export function CompetitionCertificatesModal({
         </div>
       </div>
 
+      {checkpoints.length > 0 && (
+        <div className="flex flex-wrap items-center gap-2 text-xs">
+          <span className="inline-flex items-center gap-1.5 text-muted-foreground font-medium">
+            <Flag className="w-3.5 h-3.5 text-primary" />
+            <span>Checkpoint filter:</span>
+          </span>
+          <button
+            type="button"
+            onClick={() => handleCheckpointChange("all")}
+            className={`px-3 py-1 rounded-[10px] border transition-colors cursor-pointer ${
+              checkpointFilter === "all"
+                ? "bg-primary text-primary-foreground border-transparent font-medium"
+                : "border-border text-foreground hover:bg-muted/50"
+            }`}
+          >
+            All ({view === "students" ? recipients.length : teams.length})
+          </button>
+          {checkpoints.map((cp) => {
+            const active = checkpointFilter === cp.item_id
+            const count = checkpointCounts[cp.item_id] ?? 0
+            return (
+              <button
+                key={cp.item_id}
+                type="button"
+                onClick={() => handleCheckpointChange(active ? "all" : cp.item_id)}
+                className={`px-3 py-1 rounded-[10px] border transition-colors cursor-pointer ${
+                  active
+                    ? "bg-primary text-primary-foreground border-transparent font-medium"
+                    : "border-border text-foreground hover:bg-muted/50"
+                }`}
+              >
+                {cp.title} ({count})
+              </button>
+            )
+          })}
+          {checkpoints.length > 1 && (
+            <button
+              type="button"
+              onClick={() =>
+                handleCheckpointChange(checkpointFilter === "all_completed" ? "all" : "all_completed")
+              }
+              className={`px-3 py-1 rounded-[10px] border transition-colors cursor-pointer ${
+                checkpointFilter === "all_completed"
+                  ? "bg-primary text-primary-foreground border-transparent font-medium"
+                  : "border-border text-foreground hover:bg-muted/50"
+              }`}
+            >
+              All checkpoints ({checkpointCounts.all_completed ?? 0})
+            </button>
+          )}
+        </div>
+      )}
+
       <div className="flex flex-wrap items-center gap-2 text-xs">
+        <span className="text-muted-foreground font-medium">Quick select:</span>
         {(view === "students"
           ? [
             { id: "all", label: "All" },
@@ -694,13 +779,26 @@ export function CompetitionCertificatesModal({
                       )}
                     </td>
                     <td className="p-3">
-                      {renderProgressChips(
-                        r.required_submissions_done ?? r.submissions_done,
-                        r.required_submissions_total,
-                        r.optional_submissions_done ?? 0,
-                        r.optional_submissions_total ?? 0,
-                        r.team_locked
-                      )}
+                      <div className="flex flex-wrap items-center gap-1.5">
+                        {renderProgressChips(
+                          r.required_submissions_done ?? r.submissions_done,
+                          r.required_submissions_total,
+                          r.optional_submissions_done ?? 0,
+                          r.optional_submissions_total ?? 0,
+                          r.team_locked
+                        )}
+                        {checkpoints.length > 0 && r.team_id && (
+                          <span
+                            className={`px-2 py-0.5 rounded-[10px] border text-xs ${
+                              (r.completed_checkpoint_ids?.length ?? 0) >= checkpoints.length
+                                ? "border-emerald-500/50 text-emerald-500"
+                                : "border-border text-muted-foreground"
+                            }`}
+                          >
+                            Checkpoints {r.completed_checkpoint_ids?.length ?? 0}/{checkpoints.length}
+                          </span>
+                        )}
+                      </div>
                     </td>
                     <td className="p-3">{renderStatus(sIssued, r.student_cert_generated_at ?? r.certificate_generated_at)}</td>
                     <td className="p-3">{renderStatus(tIssued, r.team_cert_generated_at, !r.team_id)}</td>
