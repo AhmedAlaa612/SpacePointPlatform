@@ -1084,6 +1084,7 @@ export interface CompetitionCertificateRecipient {
   team_id?: string | null
   team_name?: string | null
   team_rank?: number | null
+  completed_checkpoint_ids?: string[]
   submissions_done: number
   submissions_total: number
   required_submissions_total: number
@@ -1123,7 +1124,14 @@ export interface CompetitionCertificateTeam {
   team_cert_generated_at?: string | null
   team_cert_delivery?: string | null
   member_student_certs_issued: number
+  completed_checkpoint_ids?: string[]
   registration_ids: string[]
+}
+
+export interface CompetitionCertificateCheckpoint {
+  item_id: string
+  title: string
+  position: number
 }
 
 export interface CompetitionCertificateRecipientsSummary {
@@ -1138,6 +1146,7 @@ export interface CompetitionCertificateRecipientsSummary {
   participation_count: number
   at_least_one_count: number
   all_completed_count: number
+  checkpoints?: CompetitionCertificateCheckpoint[]
   recipients: CompetitionCertificateRecipient[]
   teams?: CompetitionCertificateTeam[]
   templates?: Array<{

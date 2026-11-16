@@ -297,3 +297,120 @@ async def test_my_certificates_returns_student_and_team_certificates(
     assert by_type[CertificateType.team_completion.value]["team_name"] == "Orbiters"
     assert by_type[CertificateType.team_completion.value]["url"].startswith("https://files.example.com/")
 
+
+@pytest.mark.asyncio
+async def test_team_checkpoints_and_individual_by_team_ids(db: AsyncSession, monkeypatch):
+    await _ensure_test_team_columns(db)
+    from app.models.lms.program import LmsProgram, LmsProgramItem, LmsProgramTeamItemProgress
+    from app.models.sessions.program_certificate_template import ProgramCertificateTemplate
+
+    async def fake_send_email(to, subject, body, html=False, attachments=None):
+        return None
+
+    async def fake_upload(bucket, path, data, content_type):
+        return path
+
+    monkeypatch.setattr("app.services.competitions.certificates.try_send_email", fake_send_email)
+    monkeypatch.setattr("app.services.competitions.certificates.storage.upload_to_path", fake_upload)
+
+    actor = User(
+        id=uuid.uuid4(),
+        email=f"ops_{uuid.uuid4().hex[:8]}@example.com",
+        password_hash="x",
+        full_name="Ops",
+        roles=["operations"],
+        status="active",
+    )
+    prog = Program(id=uuid.uuid4(), code=f"P-{uuid.uuid4().hex[:6]}", name="Space Cup", program_type="competition", pricing_model="free")
+    cohort = Cohort(id=uuid.uuid4(), program_id=prog.id, name="Cohort 1")
+    db.add_all([actor, prog])
+    await db.flush()
+    db.add(cohort)
+    await db.flush()
+
+    tpl = ProgramCertificateTemplate(
+        id=uuid.uuid4(),
+        program_id=prog.id,
+        name="Any Use Template",
+        kind="team",
+        is_default=False,
+        background_type="dark",
+    )
+    lms_prog = LmsProgram(id=uuid.uuid4(), program_id=prog.id, name="Space Cup Checklist")
+    db.add_all([tpl, lms_prog])
+    await db.flush()
+
+    cp1 = LmsProgramItem(
+        id=uuid.uuid4(),
+        owner_type="program",
+        owner_id=lms_prog.id,
+        position=1,
+        item_type="checkpoint",
+        title="Checkpoint 1",
+        scope="team",
+    )
+    cp2 = LmsProgramItem(
+        id=uuid.uuid4(),
+        owner_type="program",
+        owner_id=lms_prog.id,
+        position=2,
+        item_type="checkpoint",
+        title="Checkpoint 2",
+        scope="team",
+    )
+    db.add_all([cp1, cp2])
+    await db.flush()
+
+    c1 = Contact(id=uuid.uuid4(), full_name="Alice One", email=f"a1_{uuid.uuid4().hex[:6]}@example.com")
+    c2 = Contact(id=uuid.uuid4(), full_name="Bob Two", email=f"b2_{uuid.uuid4().hex[:6]}@example.com")
+    u1 = User(id=uuid.uuid4(), email=c1.email, password_hash="x", full_name="Alice One", contact_id=c1.id, roles=["student"], status="active")
+    u2 = User(id=uuid.uuid4(), email=c2.email, password_hash="x", full_name="Bob Two", contact_id=c2.id, roles=["student"], status="active")
+    db.add_all([c1, c2, u1, u2])
+    await db.flush()
+
+    r1 = Registration(id=uuid.uuid4(), cohort_id=cohort.id, contact_id=c1.id, status="registered", ticket_token=uuid.uuid4().hex, registered_via="admin")
+    r2 = Registration(id=uuid.uuid4(), cohort_id=cohort.id, contact_id=c2.id, status="registered", ticket_token=uuid.uuid4().hex, registered_via="admin")
+    t1 = Team(id=uuid.uuid4(), cohort_id=cohort.id, name="Alpha Team", join_code="ALP111")
+    t2 = Team(id=uuid.uuid4(), cohort_id=cohort.id, name="Beta Team", join_code="BET222")
+    db.add_all([r1, r2, t1, t2])
+    await db.flush()
+
+    db.add_all([
+        TeamMember(team_id=t1.id, user_id=u1.id),
+        TeamMember(team_id=t2.id, user_id=u2.id),
+        LmsProgramTeamItemProgress(id=uuid.uuid4(), team_id=t1.id, item_id=cp1.id, status="done"),
+    ])
+    await db.flush()
+
+    summary = await get_cohort_certificate_recipients(db, cohort_id=cohort.id)
+    assert [c["title"] for c in summary["checkpoints"]] == ["Checkpoint 1", "Checkpoint 2"]
+    tpl_entry = next(t for t in summary["templates"] if t["id"] == str(tpl.id))
+    assert tpl_entry["kind"] == "both"
+
+    teams_by_id = {t["team_id"]: t for t in summary["teams"]}
+    assert teams_by_id[t1.id]["completed_checkpoint_ids"] == [cp1.id]
+    assert teams_by_id[t2.id]["completed_checkpoint_ids"] == []
+    recs_by_id = {r["registration_id"]: r for r in summary["recipients"]}
+    assert recs_by_id[r1.id]["completed_checkpoint_ids"] == [cp1.id]
+    assert recs_by_id[r2.id]["completed_checkpoint_ids"] == []
+
+    # Send ONLY individual certificate when filtering by team_ids
+    send_res = await send_cohort_certificates(
+        db,
+        cohort_id=cohort.id,
+        actor_user_id=actor.id,
+        team_ids=[t1.id],
+        primary_kind="individual",
+        primary_template_id=str(tpl.id),
+        also_send_other=False,
+        delivery_mode="publish",
+        notify_by_email=False,
+    )
+    assert send_res["sent_count"] == 1
+    assert send_res["recipient_names"] == ["Alice One"]
+
+    r1_certs = (await db.execute(select(Certificate).where(Certificate.registration_id == r1.id))).scalars().all()
+    assert [c.type for c in r1_certs] == [CertificateType.student_completion]
+    r2_certs = (await db.execute(select(Certificate).where(Certificate.registration_id == r2.id))).scalars().all()
+    assert r2_certs == []
+

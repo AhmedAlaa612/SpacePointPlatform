@@ -880,6 +880,12 @@ class CompetitionAnalyticsOut(BaseModel):
 
 # ── Certificates (2026-09) ───────────────────────────────────────────────────
 
+class CompetitionCertificateCheckpointOut(BaseModel):
+    item_id: UUID
+    title: str
+    position: int
+
+
 class CompetitionCertificateRecipientOut(BaseModel):
     registration_id: UUID
     user_id: UUID | None = None
@@ -889,6 +895,7 @@ class CompetitionCertificateRecipientOut(BaseModel):
     team_id: UUID | None = None
     team_name: str | None = None
     team_rank: int | None = None
+    completed_checkpoint_ids: list[UUID] = []
     submissions_done: int
     submissions_total: int
     required_submissions_total: int
@@ -930,6 +937,7 @@ class CompetitionCertificateTeamOut(BaseModel):
     team_cert_generated_at: datetime | None = None
     team_cert_delivery: str | None = None
     member_student_certs_issued: int = 0
+    completed_checkpoint_ids: list[UUID] = []
     registration_ids: list[UUID] = []
 
 
@@ -945,6 +953,7 @@ class CompetitionCertificateRecipientsSummaryOut(BaseModel):
     participation_count: int = 0
     at_least_one_count: int
     all_completed_count: int
+    checkpoints: list[CompetitionCertificateCheckpointOut] = []
     recipients: list[CompetitionCertificateRecipientOut]
     teams: list[CompetitionCertificateTeamOut] = []
     templates: list[dict] | None = None

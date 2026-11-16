@@ -157,6 +157,14 @@ async def get_cohort_certificate_recipients(
     # 1. Effective checklist items for this cohort
     resolved = await effective_cohort_program_items(db, cohort_id)
     items: list[LmsProgramItem] = resolved[1] if resolved else []
+    checkpoint_items = sorted(
+        [i for i in items if i.item_type == "checkpoint"],
+        key=lambda i: i.position,
+    )
+    checkpoint_list = [
+        {"item_id": cp.id, "title": cp.title, "position": cp.position}
+        for cp in checkpoint_items
+    ]
 
     # Identify submission items: items explicitly typed as 'submission',
     # or team deliverables if none are explicitly typed as 'submission'
@@ -220,7 +228,7 @@ async def get_cohort_certificate_recipients(
         available_templates.append({
             "id": str(t.id),
             "name": t.name,
-            "kind": t_kind,
+            "kind": "both",
             "is_default": is_def,
             "background_type": t.background_type,
             "email_subject": t.email_subject,
@@ -258,6 +266,7 @@ async def get_cohort_certificate_recipients(
             "optional_submissions_total": total_optional,
             "at_least_one_count": 0,
             "all_completed_count": 0,
+            "checkpoints": checkpoint_list,
             "recipients": [],
             "teams": [],
             "templates": available_templates,
@@ -337,6 +346,24 @@ async def get_cohort_certificate_recipients(
             )
             if is_submitted:
                 team_submitted_items[p.team_id].add(p.item_id)
+
+    # 5b. Completed (locked) checkpoint gates per team
+    team_completed_checkpoints: dict[uuid.UUID, list[uuid.UUID]] = {t.id: [] for t in teams}
+    cp_item_ids = {cp.id for cp in checkpoint_items}
+    if team_by_id and cp_item_ids:
+        cp_done_rows = (await db.execute(
+            select(LmsProgramTeamItemProgress.team_id, LmsProgramTeamItemProgress.item_id).where(
+                LmsProgramTeamItemProgress.team_id.in_(team_by_id.keys()),
+                LmsProgramTeamItemProgress.item_id.in_(cp_item_ids),
+                LmsProgramTeamItemProgress.status == "done",
+            )
+        )).all()
+        cp_done_by_team: dict[uuid.UUID, set[uuid.UUID]] = {}
+        for tid, iid in cp_done_rows:
+            cp_done_by_team.setdefault(tid, set()).add(iid)
+        for tid in team_by_id:
+            done_set = cp_done_by_team.get(tid, set())
+            team_completed_checkpoints[tid] = [cp.id for cp in checkpoint_items if cp.id in done_set]
 
     # 6. Load individual progress for individual submission items
     user_ids = [u.id for u in users_by_contact.values()]
@@ -457,6 +484,7 @@ async def get_cohort_certificate_recipients(
             "team_id": team.id if team else None,
             "team_name": team.name if team else None,
             "team_rank": team_rank.get(team.id) if team else None,
+            "completed_checkpoint_ids": team_completed_checkpoints.get(team.id, []) if team else [],
             "submissions_done": submissions_done,
             "submissions_total": len(submission_items),
             "required_submissions_total": total_required,
@@ -523,6 +551,7 @@ async def get_cohort_certificate_recipients(
             "team_cert_generated_at": latest_team_cert_at,
             "team_cert_delivery": t_delivery,
             "member_student_certs_issued": member_student_certs,
+            "completed_checkpoint_ids": team_completed_checkpoints.get(t.id, []),
             "registration_ids": [r["registration_id"] for r in t_recs],
         })
 
@@ -540,6 +569,7 @@ async def get_cohort_certificate_recipients(
         "participation_count": participation_count,
         "at_least_one_count": at_least_one_count,
         "all_completed_count": all_completed_count,
+        "checkpoints": checkpoint_list,
         "recipients": recipients,
         "teams": teams_summary,
         "templates": available_templates,
@@ -570,10 +600,10 @@ async def _resolve_certificate_template(
         except (ValueError, TypeError):
             selected_template = None
 
-    # 2. If template_id is None or 'default', check program default for this kind
+    # 2. If template_id is None or 'default', check program default
     if selected_template is None and (template_id is None or template_id == "default"):
         default_field = (
-            getattr(program, "default_team_certificate_template_id", None)
+            (getattr(program, "default_team_certificate_template_id", None) or program.default_certificate_template_id)
             if kind == "team"
             else program.default_certificate_template_id
         )
@@ -583,7 +613,6 @@ async def _resolve_certificate_template(
             selected_template = (await db.execute(
                 select(ProgramCertificateTemplate).where(
                     ProgramCertificateTemplate.program_id == program.id,
-                    ProgramCertificateTemplate.kind == kind,
                     ProgramCertificateTemplate.is_default.is_(True),
                 )
             )).scalars().first()

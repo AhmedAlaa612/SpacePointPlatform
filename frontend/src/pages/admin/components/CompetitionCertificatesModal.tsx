@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react"
+import { useMemo, useState } from "react"
 import { createPortal } from "react-dom"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import {
@@ -48,16 +48,18 @@ export function CompetitionCertificatesModal({
   const queryClient = useQueryClient()
 
   const [view, setView] = useState<ViewMode>("students")
+  const [issueKind, setIssueKind] = useState<"individual" | "team">("individual")
   const [search, setSearch] = useState("")
+  const [checkpointFilter, setCheckpointFilter] = useState<string>("all")
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
 
-  const [primaryTemplateId, setPrimaryTemplateId] = useState<string>("dark")
-  const [primaryEmailTemplateId, setPrimaryEmailTemplateId] = useState<string>("")
+  const [primaryTemplateOverride, setPrimaryTemplateId] = useState<string | null>(null)
+  const [primaryEmailOverride, setPrimaryEmailTemplateId] = useState<string | null>(null)
   const [deliveryMode, setDeliveryMode] = useState<"email" | "publish">("email")
   const [notifyByEmail, setNotifyByEmail] = useState(false)
 
   const [alsoSendOther, setAlsoSendOther] = useState(false)
-  const [secondaryTemplateId, setSecondaryTemplateId] = useState<string>("dark")
+  const [secondaryTemplateOverride, setSecondaryTemplateId] = useState<string | null>(null)
   const willSendEmail = deliveryMode === "email" || notifyByEmail
 
   const [skipAlreadyIssued, setSkipAlreadyIssued] = useState(true)
@@ -71,68 +73,89 @@ export function CompetitionCertificatesModal({
     enabled: open && !!cohortId,
   })
 
-  const individualTemplates = useMemo(
-    () => (summary?.templates ?? []).filter((t) => !t.kind || t.kind === "individual" || t.kind === "both"),
-    [summary?.templates]
-  )
-  const teamTemplates = useMemo(
-    () => (summary?.templates ?? []).filter((t) => t.kind === "team" || t.kind === "both"),
-    [summary?.templates]
-  )
-  const emailTemplates = summary?.email_templates ?? []
+  const allTemplates = useMemo(() => summary?.templates ?? [], [summary?.templates])
+  const emailTemplates = useMemo(() => summary?.email_templates ?? [], [summary?.email_templates])
+  const checkpoints = useMemo(() => summary?.checkpoints ?? [], [summary?.checkpoints])
 
-  useEffect(() => {
-    if (!summary) return
-    const primaryList = view === "students" ? individualTemplates : teamTemplates
-    const secondaryList = view === "students" ? teamTemplates : individualTemplates
-    const primaryDef =
-      (view === "students" ? summary.default_template_id : summary.default_team_template_id) ||
-      primaryList.find((t) => t.is_default)?.id ||
-      primaryList[0]?.id ||
+  const defaultPrimaryTemplateId = useMemo(() => {
+    if (!summary) return "dark"
+    return (
+      (issueKind === "team" ? summary.default_team_template_id : null) ||
+      summary.default_template_id ||
+      allTemplates.find((t) => t.is_default)?.id ||
+      allTemplates[0]?.id ||
       "dark"
-    const secondaryDef =
-      (view === "students" ? summary.default_team_template_id : summary.default_template_id) ||
-      secondaryList.find((t) => t.is_default)?.id ||
-      secondaryList[0]?.id ||
-      "dark"
-    setPrimaryTemplateId(primaryDef)
-    setSecondaryTemplateId(secondaryDef)
-  }, [summary, view, individualTemplates, teamTemplates])
+    )
+  }, [summary, issueKind, allTemplates])
 
-  useEffect(() => {
-    if (emailTemplates.length === 0) return
-    const wantedPrimaryKind = deliveryMode === "publish" ? "profile" : view === "students" ? "individual" : "team"
+  const defaultSecondaryTemplateId = useMemo(() => {
+    if (!summary) return "dark"
+    return (
+      (issueKind === "individual" ? summary.default_team_template_id : summary.default_template_id) ||
+      allTemplates.find((t) => t.is_default)?.id ||
+      allTemplates[0]?.id ||
+      "dark"
+    )
+  }, [summary, issueKind, allTemplates])
+
+  const defaultPrimaryEmailTemplateId = useMemo(() => {
+    if (emailTemplates.length === 0) return ""
+    const wantedPrimaryKind = deliveryMode === "publish" ? "profile" : issueKind
     const pMatch =
       emailTemplates.find((e) => e.kind === wantedPrimaryKind && e.is_default) ||
       emailTemplates.find((e) => e.kind === wantedPrimaryKind) ||
       emailTemplates[0]
-    if (pMatch) setPrimaryEmailTemplateId(pMatch.id)
-  }, [emailTemplates, view, deliveryMode])
+    return pMatch?.id ?? ""
+  }, [emailTemplates, issueKind, deliveryMode])
 
-  const recipients = summary?.recipients ?? []
-  const teams = summary?.teams ?? []
+  const primaryTemplateId = primaryTemplateOverride ?? defaultPrimaryTemplateId
+  const secondaryTemplateId = secondaryTemplateOverride ?? defaultSecondaryTemplateId
+  const primaryEmailTemplateId = primaryEmailOverride ?? defaultPrimaryEmailTemplateId
+
+  const recipients = useMemo(() => summary?.recipients ?? [], [summary?.recipients])
+  const teams = useMemo(() => summary?.teams ?? [], [summary?.teams])
+
+  const matchesCheckpoint = useMemo(() => {
+    return (completedIds?: string[]) => {
+      if (checkpointFilter === "all") return true
+      const done = completedIds ?? []
+      if (checkpointFilter === "all_completed") {
+        return checkpoints.length > 0 && checkpoints.every((cp) => done.includes(cp.item_id))
+      }
+      return done.includes(checkpointFilter)
+    }
+  }, [checkpointFilter, checkpoints])
 
   const filteredStudents = useMemo(() => {
     const q = search.trim().toLowerCase()
-    if (!q) return recipients
-    return recipients.filter(
-      (r) =>
+    return recipients.filter((r) => {
+      if (!matchesCheckpoint(r.completed_checkpoint_ids)) return false
+      if (!q) return true
+      return (
         r.student_name.toLowerCase().includes(q) ||
         (r.email ?? "").toLowerCase().includes(q) ||
         (r.team_name ?? "").toLowerCase().includes(q)
-    )
-  }, [recipients, search])
+      )
+    })
+  }, [recipients, search, matchesCheckpoint])
 
   const filteredTeams = useMemo(() => {
     const q = search.trim().toLowerCase()
-    if (!q) return teams
-    return teams.filter((t) => t.team_name.toLowerCase().includes(q))
-  }, [teams, search])
+    return teams.filter((t) => {
+      if (!matchesCheckpoint(t.completed_checkpoint_ids)) return false
+      if (!q) return true
+      return t.team_name.toLowerCase().includes(q)
+    })
+  }, [teams, search, matchesCheckpoint])
 
   const switchView = (next: ViewMode) => {
     setView(next)
     setSelectedIds(new Set())
-    setAlsoSendOther(false)
+  }
+
+  const handleCheckpointChange = (nextFilter: string) => {
+    setCheckpointFilter(nextFilter)
+    setSelectedIds(new Set())
   }
 
   const toggleRow = (id: string) => {
@@ -152,14 +175,17 @@ export function CompetitionCertificatesModal({
         const reqTotal = r.required_submissions_total
         const optDone = r.optional_submissions_done ?? 0
         const optTotal = r.optional_submissions_total ?? 0
-        const issued = r.student_cert_issued ?? r.certificate_issued
+        const issued =
+          issueKind === "team"
+            ? (r.team_cert_issued ?? false)
+            : (r.student_cert_issued ?? r.certificate_issued)
         if (
           mode === "all" ||
           (mode === "mandatory" && reqTotal > 0 && reqDone >= reqTotal) ||
           (mode === "completed" && reqTotal > 0 && reqDone >= reqTotal && optDone >= optTotal) ||
           (mode === "one" && reqDone >= 1) ||
           (mode === "locked" && r.team_locked) ||
-          (mode === "new" && !issued) ||
+          (mode === "new" && !issued && (issueKind === "individual" || Boolean(r.team_id))) ||
           (mode === "noteam" && !r.team_id)
         ) {
           next.add(r.registration_id)
@@ -167,6 +193,10 @@ export function CompetitionCertificatesModal({
       }
     } else {
       for (const t of filteredTeams) {
+        const teamNeedsCert =
+          issueKind === "individual"
+            ? t.member_student_certs_issued < t.member_count
+            : !t.team_cert_issued
         if (
           mode === "all" ||
           (mode === "mandatory" && t.required_submissions_total > 0 && t.required_submissions_done >= t.required_submissions_total) ||
@@ -178,7 +208,7 @@ export function CompetitionCertificatesModal({
           (mode === "locked" && t.team_locked) ||
           (mode === "ranked" && t.rank != null) ||
           (mode === "unranked" && t.rank == null) ||
-          (mode === "new" && !t.team_cert_issued)
+          (mode === "new" && teamNeedsCert)
         ) {
           next.add(t.team_id)
         }
@@ -194,7 +224,7 @@ export function CompetitionCertificatesModal({
         filter: "custom",
         registration_ids: view === "students" ? ids : undefined,
         team_ids: view === "teams" ? ids : undefined,
-        primary_kind: view === "students" ? "individual" : "team",
+        primary_kind: issueKind,
         primary_template_id: primaryTemplateId,
         primary_email_template_id: primaryEmailTemplateId || null,
         also_send_other: alsoSendOther,
@@ -220,20 +250,26 @@ export function CompetitionCertificatesModal({
     mutationFn: async () => {
       const ids = Array.from(selectedIds)
       if (view === "students") {
+        const targetRegIds =
+          ids.length > 0
+            ? ids
+            : search.trim() || checkpointFilter !== "all"
+              ? filteredStudents.map((r) => r.registration_id)
+              : undefined
         await downloadCompetitionCertificatesApi(
           cohortId,
           programName || cohortName,
           "all",
           "dark",
-          ids.length > 0 ? ids : undefined,
+          targetRegIds,
           primaryTemplateId,
           null,
-          "individual"
+          issueKind
         )
       } else {
-        const regIds = teams
-          .filter((t) => ids.length === 0 || ids.includes(t.team_id))
-          .flatMap((t) => t.registration_ids)
+        const targetTeams =
+          ids.length > 0 ? filteredTeams.filter((t) => ids.includes(t.team_id)) : filteredTeams
+        const regIds = targetTeams.flatMap((t) => t.registration_ids)
         await downloadCompetitionCertificatesApi(
           cohortId,
           programName || cohortName,
@@ -242,7 +278,7 @@ export function CompetitionCertificatesModal({
           regIds.length > 0 ? regIds : undefined,
           primaryTemplateId,
           null,
-          "team"
+          issueKind
         )
       }
     },
@@ -255,7 +291,7 @@ export function CompetitionCertificatesModal({
       return sendTestCertificateEmailApi(cohortId, {
         to_email: testEmailAddress.trim(),
         template_id: primaryTemplateId,
-        kind: view === "students" ? "individual" : "team",
+        kind: issueKind,
         email_template_id: primaryEmailTemplateId || null,
         delivery_mode: deliveryMode,
         notify_by_email: deliveryMode === "publish" ? notifyByEmail : true,
@@ -270,8 +306,9 @@ export function CompetitionCertificatesModal({
 
   const unrankedSelected = useMemo(() => {
     if (view !== "teams") return false
+    if (issueKind !== "team" && !alsoSendOther) return false
     return teams.some((t) => selectedIds.has(t.team_id) && t.rank == null)
-  }, [view, teams, selectedIds])
+  }, [view, issueKind, alsoSendOther, teams, selectedIds])
 
   const selectedTeamMemberCount = useMemo(() => {
     if (view !== "teams") return 0
@@ -280,8 +317,8 @@ export function CompetitionCertificatesModal({
 
   if (!open) return null
 
-  const primaryOptions = view === "students" ? individualTemplates : teamTemplates
-  const secondaryOptions = view === "students" ? teamTemplates : individualTemplates
+  const primaryOptions = allTemplates
+  const secondaryOptions = allTemplates
 
   const renderProgressChips = (
     reqDone: number,
@@ -342,6 +379,47 @@ export function CompetitionCertificatesModal({
   const body = (
     <div className="space-y-4">
       <div className="bg-card border border-border rounded-[10px] p-4 space-y-3">
+        <div className="flex flex-wrap items-center justify-between gap-3 pb-2 border-b border-border">
+          <div className="flex flex-wrap items-center gap-3">
+            <span className="text-xs font-medium text-muted-foreground">Certificate to issue</span>
+            <div className="inline-flex rounded-[10px] border border-border overflow-hidden text-xs">
+              <button
+                type="button"
+                onClick={() => {
+                  setIssueKind("individual")
+                  setPrimaryEmailTemplateId(null)
+                }}
+                className={`px-3 py-1.5 font-medium transition-colors cursor-pointer ${
+                  issueKind === "individual"
+                    ? "bg-primary text-primary-foreground"
+                    : "text-foreground hover:bg-muted/50"
+                }`}
+              >
+                Individual certificates
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setIssueKind("team")
+                  setPrimaryEmailTemplateId(null)
+                }}
+                className={`px-3 py-1.5 font-medium transition-colors cursor-pointer ${
+                  issueKind === "team"
+                    ? "bg-primary text-primary-foreground"
+                    : "text-foreground hover:bg-muted/50"
+                }`}
+              >
+                Team certificates
+              </button>
+            </div>
+          </div>
+          {view === "teams" && issueKind === "individual" && (
+            <span className="text-xs text-muted-foreground">
+              Members of selected teams will each receive an individual certificate.
+            </span>
+          )}
+        </div>
+
         <div className={`grid grid-cols-1 ${willSendEmail ? "md:grid-cols-2" : ""} gap-4`}>
           <label className="space-y-1.5">
             <span className="text-xs font-medium text-muted-foreground block">1. Certificate template</span>
@@ -410,7 +488,10 @@ export function CompetitionCertificatesModal({
               type="radio"
               name={`delivery-${cohortId}`}
               checked={deliveryMode === "email"}
-              onChange={() => setDeliveryMode("email")}
+              onChange={() => {
+                setDeliveryMode("email")
+                setPrimaryEmailTemplateId(null)
+              }}
               className="accent-primary"
             />
             <span>Email with PDF attached</span>
@@ -420,7 +501,10 @@ export function CompetitionCertificatesModal({
               type="radio"
               name={`delivery-${cohortId}`}
               checked={deliveryMode === "publish"}
-              onChange={() => setDeliveryMode("publish")}
+              onChange={() => {
+                setDeliveryMode("publish")
+                setPrimaryEmailTemplateId(null)
+              }}
               className="accent-primary"
             />
             <span>Publish to profile only</span>
@@ -460,6 +544,24 @@ export function CompetitionCertificatesModal({
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
+          {checkpoints.length > 0 && (
+            <select
+              aria-label="Filter by checkpoint"
+              value={checkpointFilter}
+              onChange={(e) => handleCheckpointChange(e.target.value)}
+              className="h-8 px-2.5 rounded-[10px] border border-border bg-background text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
+            >
+              <option value="all">All checkpoints</option>
+              {checkpoints.length > 1 && (
+                <option value="all_completed">Completed all checkpoints</option>
+              )}
+              {checkpoints.map((cp) => (
+                <option key={cp.item_id} value={cp.item_id}>
+                  Completed: {cp.title}
+                </option>
+              ))}
+            </select>
+          )}
           <div className="relative">
             <Search className="w-3.5 h-3.5 text-muted-foreground absolute left-2.5 top-1/2 -translate-y-1/2" />
             <input
@@ -560,11 +662,12 @@ export function CompetitionCertificatesModal({
               {filteredStudents.map((r: CompetitionCertificateRecipient) => {
                 const sIssued = r.student_cert_issued ?? r.certificate_issued
                 const tIssued = r.team_cert_issued ?? false
+                const primaryIssued = issueKind === "team" ? tIssued : sIssued
                 const checked = selectedIds.has(r.registration_id)
                 return (
                   <tr
                     key={r.registration_id}
-                    className={`border-t border-border ${sIssued && skipAlreadyIssued ? "opacity-65" : ""}`}
+                    className={`border-t border-border ${primaryIssued && skipAlreadyIssued ? "opacity-65" : ""}`}
                   >
                     <td className="p-3">
                       <input
@@ -643,10 +746,13 @@ export function CompetitionCertificatesModal({
             <tbody>
               {filteredTeams.map((t: CompetitionCertificateTeam) => {
                 const checked = selectedIds.has(t.team_id)
+                const allMembersHaveStudentCert = t.member_count > 0 && t.member_student_certs_issued >= t.member_count
+                const primaryIssued = issueKind === "individual" ? allMembersHaveStudentCert : t.team_cert_issued
+                const doneCheckpoints = t.completed_checkpoint_ids?.length ?? 0
                 return (
                   <tr
                     key={t.team_id}
-                    className={`border-t border-border ${t.team_cert_issued && skipAlreadyIssued ? "opacity-65" : ""}`}
+                    className={`border-t border-border ${primaryIssued && skipAlreadyIssued ? "opacity-65" : ""}`}
                   >
                     <td className="p-3">
                       <input
@@ -660,13 +766,26 @@ export function CompetitionCertificatesModal({
                     <td className="p-3 font-medium text-foreground">{t.team_name}</td>
                     <td className="p-3 text-foreground">{t.member_count}</td>
                     <td className="p-3">
-                      {renderProgressChips(
-                        t.required_submissions_done,
-                        t.required_submissions_total,
-                        t.optional_submissions_done,
-                        t.optional_submissions_total,
-                        t.team_locked
-                      )}
+                      <div className="flex flex-wrap items-center gap-1.5">
+                        {renderProgressChips(
+                          t.required_submissions_done,
+                          t.required_submissions_total,
+                          t.optional_submissions_done,
+                          t.optional_submissions_total,
+                          t.team_locked
+                        )}
+                        {checkpoints.length > 0 && (
+                          <span
+                            className={`px-2 py-0.5 rounded-[10px] border text-xs ${
+                              doneCheckpoints >= checkpoints.length
+                                ? "border-emerald-500/50 text-emerald-500"
+                                : "border-border text-muted-foreground"
+                            }`}
+                          >
+                            Checkpoints {doneCheckpoints}/{checkpoints.length}
+                          </span>
+                        )}
+                      </div>
                     </td>
                     <td className="p-3">{renderStatus(t.team_cert_issued, t.team_cert_generated_at)}</td>
                     <td className="p-3 text-xs text-muted-foreground">
@@ -697,8 +816,8 @@ export function CompetitionCertificatesModal({
               className="w-[18px] h-[18px] accent-primary cursor-pointer"
             />
             <span>
-              {view === "students"
-                ? "Also send their team certificate"
+              {issueKind === "individual"
+                ? "Also send team certificate"
                 : "Also send each member their student certificate"}
             </span>
           </label>
@@ -718,7 +837,7 @@ export function CompetitionCertificatesModal({
           <div className="pt-2 border-t border-border">
             <label className="space-y-1.5 block max-w-md">
               <span className="text-xs font-medium text-muted-foreground block">
-                {view === "students" ? "Team certificate template" : "Student certificate template"}
+                {issueKind === "individual" ? "Team certificate template" : "Student certificate template"}
               </span>
               <select
                 value={secondaryTemplateId}

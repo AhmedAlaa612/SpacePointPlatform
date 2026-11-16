@@ -94,8 +94,6 @@ export function ProgramCertificateStudioModal({ program, onClose, onUpdated, emb
   const [sigWidth, setSigWidth] = useState(140)
   const [sigHeight, setSigHeight] = useState(50)
 
-  const [kind, setKind] = useState<"individual" | "team">("individual")
-
   // Sample student name for live testing
   const [testStudentName, setTestStudentName] = useState("Ahmed Mubarak Albalushi")
   const [isUploadingBg, setIsUploadingBg] = useState(false)
@@ -118,7 +116,6 @@ export function ProgramCertificateStudioModal({ program, onClose, onUpdated, emb
       setBodyColor("#9778be")
       setBodyMaxWidth(600)
       setShowSignature(false)
-      setKind("individual")
     } else if (activeTab === "stock_light") {
       setName("Stock Light Default")
       setBackgroundType("light")
@@ -133,9 +130,7 @@ export function ProgramCertificateStudioModal({ program, onClose, onUpdated, emb
       setBodyColor("#67388f")
       setBodyMaxWidth(600)
       setShowSignature(false)
-      setKind("individual")
     } else if (activeTab === "new") {
-      setKind("individual")
       setName("New Program Certificate")
       setBackgroundType("custom")
       setBgFilePath(null)
@@ -157,7 +152,6 @@ export function ProgramCertificateStudioModal({ program, onClose, onUpdated, emb
     } else {
       const existing = templates.find((t) => t.id === activeTab)
       if (existing) {
-        setKind(existing.kind === "team" ? "team" : "individual")
         setName(existing.name)
         setBackgroundType(existing.background_type)
         setBgFilePath(existing.background_file_path ?? null)
@@ -202,7 +196,7 @@ export function ProgramCertificateStudioModal({ program, onClose, onUpdated, emb
     mutationFn: async () => {
       const payload: ProgramCertificateTemplateCreate = {
         name,
-        kind,
+        kind: currentCustomTemplate?.kind ?? "individual",
         is_default: isCurrentlyDefault,
         background_type: backgroundType,
         background_file_path: bgFilePath,
@@ -555,37 +549,6 @@ export function ProgramCertificateStudioModal({ program, onClose, onUpdated, emb
                     placeholder="e.g. Space Race Champion Finalist"
                     className="w-full h-9 px-3 rounded-[10px] border border-border bg-background text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
                   />
-                </div>
-
-                {/* Template Kind */}
-                <div>
-                  <label className="text-xs text-muted-foreground font-medium uppercase tracking-wider mb-1 block">
-                    Certificate Type
-                  </label>
-                  <div className="grid grid-cols-2 gap-1.5">
-                    <button
-                      type="button"
-                      onClick={() => setKind("individual")}
-                      className={`h-8 rounded-[10px] text-xs font-medium border transition-colors ${
-                        kind === "individual"
-                          ? "border-primary bg-primary/10 text-primary font-semibold"
-                          : "border-border text-muted-foreground hover:text-foreground"
-                      }`}
-                    >
-                      Individual
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setKind("team")}
-                      className={`h-8 rounded-[10px] text-xs font-medium border transition-colors ${
-                        kind === "team"
-                          ? "border-primary bg-primary/10 text-primary font-semibold"
-                          : "border-border text-muted-foreground hover:text-foreground"
-                      }`}
-                    >
-                      Team
-                    </button>
-                  </div>
                 </div>
 
                 {/* Background Image Selection */}
