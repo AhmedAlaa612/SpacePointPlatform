@@ -164,24 +164,56 @@ function DayCard({ d, onDone, linkToSession, defaultOpen }: {
               )}
               <ul className="space-y-1.5">
                 {(detail.data?.checklist ?? []).map((line) => (
-                  <li key={line.item_id} className="flex items-start gap-2 text-xs">
-                    <span className={line.is_done ? "text-emerald-600 dark:text-emerald-400" : "text-muted-foreground"}>
-                      {line.is_done ? "✔" : "☐"}
-                    </span>
-                    <span className="min-w-0 flex-1">
-                      {line.title}
-                      {line.requires_proof && !line.proof_url && (
-                        <span className="text-amber-600 dark:text-amber-400"> · no photo</span>
+                  <li key={line.item_id} className="space-y-1 text-xs">
+                    <div className="flex items-start gap-2">
+                      <span className={line.is_done ? "text-emerald-600 dark:text-emerald-400" : "text-muted-foreground"}>
+                        {line.is_done ? "✔" : "☐"}
+                      </span>
+                      <span className="min-w-0 flex-1">
+                        {line.title}
+                        {line.requires_proof && !line.proof_url && (
+                          <span className="text-amber-600 dark:text-amber-400"> · no photo</span>
+                        )}
+                        {line.note && <span className="text-muted-foreground italic"> — {line.note}</span>}
+                      </span>
+                      {line.proof_url && (
+                        <a
+                          href={line.proof_url} target="_blank" rel="noreferrer"
+                          className="inline-flex items-center gap-1 text-primary hover:underline shrink-0"
+                        >
+                          <ImageIcon size={11} /> photo
+                        </a>
                       )}
-                      {line.note && <span className="text-muted-foreground italic"> — {line.note}</span>}
-                    </span>
-                    {line.proof_url && (
-                      <a
-                        href={line.proof_url} target="_blank" rel="noreferrer"
-                        className="inline-flex items-center gap-1 text-primary hover:underline shrink-0"
-                      >
-                        <ImageIcon size={11} /> photo
-                      </a>
+                    </div>
+                    {line.sub_items && line.sub_items.length > 0 && (
+                      <ul className="pl-5 space-y-1">
+                        {line.sub_items.map((sub) => {
+                          const subDone = (line.completed_sub_items || []).includes(sub.id)
+                          const subProofUrl = line.sub_item_proof_urls?.[sub.id]
+                          return (
+                            <li key={sub.id} className="flex items-start gap-2 text-[11px] text-muted-foreground">
+                              <span className={subDone ? "text-emerald-600 dark:text-emerald-400" : "text-muted-foreground"}>
+                                {subDone ? "✔" : "☐"}
+                              </span>
+                              <span className="min-w-0 flex-1">
+                                {sub.title}
+                                {sub.is_required === false && <span> · optional</span>}
+                                {sub.requires_proof && !subProofUrl && (
+                                  <span className="text-amber-600 dark:text-amber-400"> · no photo</span>
+                                )}
+                              </span>
+                              {subProofUrl && (
+                                <a
+                                  href={subProofUrl} target="_blank" rel="noreferrer"
+                                  className="inline-flex items-center gap-1 text-primary hover:underline shrink-0"
+                                >
+                                  <ImageIcon size={10} /> photo
+                                </a>
+                              )}
+                            </li>
+                          )
+                        })}
+                      </ul>
                     )}
                   </li>
                 ))}

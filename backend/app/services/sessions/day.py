@@ -52,6 +52,79 @@ ATT_STATUSES = {"present", "absent"}
 DAY_STATUSES = {"draft", "submitted", "changes_required", "approved"}
 
 
+def _normalize_sub_items(raw: list | None, *, fresh_ids: bool = False) -> list[dict]:
+    out: list[dict] = []
+    for s in (raw or []):
+        if isinstance(s, dict) and s.get("title"):
+            out.append({
+                "id": str(uuid4()) if fresh_ids else str(s.get("id") or uuid4()),
+                "title": str(s.get("title", "")).strip(),
+                "is_required": bool(s.get("is_required", True)),
+                "requires_proof": bool(s.get("requires_proof", False)),
+            })
+    return out
+
+
+async def _validate_proof_reports(
+    db: AsyncSession, session_id: UUID, report_ids: list[UUID],
+) -> None:
+    if not report_ids:
+        return
+    unique_ids = list(set(report_ids))
+    rows = (await db.execute(
+        select(SessionReport).where(SessionReport.id.in_(unique_ids))
+    )).scalars().all()
+    by_id = {r.id: r for r in rows}
+    for rid in unique_ids:
+        report = by_id.get(rid)
+        if report is None or report.session_id != session_id:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Proof upload not found for this session")
+
+
+def _merge_sub_item_proofs(
+    existing: dict | None, updates: dict[str, UUID | None] | None,
+) -> dict[str, str]:
+    merged: dict[str, str] = {str(k): str(v) for k, v in (existing or {}).items() if v}
+    for k, v in (updates or {}).items():
+        key = str(k)
+        if v is None:
+            merged.pop(key, None)
+        else:
+            merged[key] = str(v)
+    return merged
+
+
+async def _resolve_report_urls(db: AsyncSession, report_ids: set[UUID]) -> dict[UUID, str]:
+    if not report_ids:
+        return {}
+    rows = (await db.execute(
+        select(SessionReport).where(SessionReport.id.in_(list(report_ids)))
+    )).scalars().all()
+    urls: dict[UUID, str] = {}
+    for report in rows:
+        urls[report.id] = await resolve_report_url(report)
+    return urls
+
+
+def _extract_sub_item_proof_maps(
+    raw_map: dict | None, proof_urls: dict[UUID, str],
+) -> tuple[dict[str, str], dict[str, str]]:
+    proof_ids_out: dict[str, str] = {}
+    urls_out: dict[str, str] = {}
+    for sub_id, report_id_str in (raw_map or {}).items():
+        if not report_id_str:
+            continue
+        try:
+            rid = UUID(str(report_id_str))
+        except (ValueError, TypeError):
+            continue
+        url = proof_urls.get(rid)
+        if url:
+            proof_ids_out[str(sub_id)] = str(rid)
+            urls_out[str(sub_id)] = url
+    return proof_ids_out, urls_out
+
+
 # ── checklist templates (ops) ───────────────────────────────────────────────
 
 async def _items_at_level(
@@ -179,15 +252,7 @@ async def set_checklist_items(
                     primary_link_url = a["url"]
                     break
 
-        sub_items_raw = line.get("sub_items") or []
-        sub_items = []
-        for s in sub_items_raw:
-            if isinstance(s, dict) and s.get("title"):
-                sub_items.append({
-                    "id": str(s.get("id") or uuid4()),
-                    "title": str(s.get("title", "")).strip(),
-                    "is_required": bool(s.get("is_required", True)),
-                })
+        sub_items = _normalize_sub_items(line.get("sub_items"), fresh_ids=False)
 
         item = DeliveryChecklistItem(
             id=uuid4(), program_id=program_id, cohort_id=cohort_id, session_id=session_id, role_id=role_id,
@@ -301,16 +366,7 @@ async def import_checklist_items(
             else:
                 cloned_attachments.append(att)
 
-        cloned_sub_items = []
-        for s in (src.sub_items or []):
-            if isinstance(s, dict):
-                cloned_sub_items.append({
-                    "id": str(uuid4()),
-                    "title": s.get("title", ""),
-                    "is_required": bool(s.get("is_required", True)),
-                })
-            else:
-                cloned_sub_items.append(s)
+        cloned_sub_items = _normalize_sub_items(src.sub_items, fresh_ids=True)
 
         new_item = DeliveryChecklistItem(
             id=uuid4(),
@@ -647,20 +703,26 @@ async def get_internal_checklist_for_session(
         )).scalars().all()
         user_names = {u.id: u.full_name or u.email for u in u_rows}
 
-    report_ids = [p.proof_report_id for p in progress_rows if p.proof_report_id]
-    proof_urls = {}
-    if report_ids:
-        r_rows = (await db.execute(
-            select(SessionReport).where(SessionReport.id.in_(report_ids))
-        )).scalars().all()
-        for r in r_rows:
-            proof_urls[r.id] = await resolve_report_url(r.file_ref)
+    report_ids: set[UUID] = set()
+    for p in progress_rows:
+        if p.proof_report_id:
+            report_ids.add(p.proof_report_id)
+        for rid_str in (p.sub_item_proofs or {}).values():
+            try:
+                if rid_str:
+                    report_ids.add(UUID(str(rid_str)))
+            except (ValueError, TypeError):
+                pass
+    proof_urls = await _resolve_report_urls(db, report_ids)
 
     out = []
     for item in items:
         prog = progress_by_item.get(item.id)
         mat_info = materials_by_id.get(item.material_id) if item.material_id else None
         item_atts = hydrated_attachments.get(item.id, [])
+        sub_proof_ids, sub_proof_urls = _extract_sub_item_proof_maps(
+            prog.sub_item_proofs if prog else None, proof_urls,
+        )
         out.append({
             "item_id": item.id,
             "title": item.title,
@@ -677,6 +739,8 @@ async def get_internal_checklist_for_session(
             "attachments": item_atts,
             "sub_items": item.sub_items or [],
             "completed_sub_items": prog.completed_sub_items if prog and prog.completed_sub_items else [],
+            "sub_item_proofs": sub_proof_ids,
+            "sub_item_proof_urls": sub_proof_urls,
             "is_done": prog.is_done if prog else False,
             "proof_report_id": prog.proof_report_id if prog else None,
             "proof_url": proof_urls.get(prog.proof_report_id) if prog and prog.proof_report_id else None,
@@ -698,7 +762,15 @@ async def set_internal_checklist_progress(
     proof_report_id: UUID | None = None,
     note: str | None = None,
     completed_sub_items: list[str] | None = None,
+    sub_item_proofs: dict[str, UUID | None] | None = None,
 ) -> SessionOpsChecklistProgress:
+    check_ids: list[UUID] = []
+    if proof_report_id is not None:
+        check_ids.append(proof_report_id)
+    if sub_item_proofs:
+        check_ids.extend(rid for rid in sub_item_proofs.values() if rid is not None)
+    await _validate_proof_reports(db, session_id, check_ids)
+
     prog = await db.scalar(
         select(SessionOpsChecklistProgress).where(
             SessionOpsChecklistProgress.session_id == session_id,
@@ -714,6 +786,7 @@ async def set_internal_checklist_progress(
             proof_report_id=proof_report_id,
             note=note,
             completed_sub_items=completed_sub_items if completed_sub_items is not None else [],
+            sub_item_proofs=_merge_sub_item_proofs(None, sub_item_proofs),
             completed_by=actor_user_id if is_done else None,
             updated_at=datetime.now(timezone.utc),
         )
@@ -726,6 +799,8 @@ async def set_internal_checklist_progress(
             prog.note = note
         if completed_sub_items is not None:
             prog.completed_sub_items = completed_sub_items
+        if sub_item_proofs is not None:
+            prog.sub_item_proofs = _merge_sub_item_proofs(prog.sub_item_proofs, sub_item_proofs)
         prog.completed_by = actor_user_id if is_done else None
         prog.updated_at = datetime.now(timezone.utc)
     await db.flush()
@@ -792,6 +867,7 @@ async def set_checklist_progress(
     checklist_item_id: UUID, is_done: bool | None = None,
     proof_report_id: UUID | None = None, note: str | None = None,
     completed_sub_items: list[str] | None = None,
+    sub_item_proofs: dict[str, UUID | None] | None = None,
 ) -> InstructorChecklistProgress:
     """Tick an item, attach proof to it, or both."""
     session = await _get_deliverable_session(db, session_id, user)
@@ -803,10 +879,12 @@ async def set_checklist_progress(
     if checklist_item_id not in valid_ids:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="That item isn't on this session's checklist")
 
+    check_ids: list[UUID] = []
     if proof_report_id is not None:
-        report = await db.get(SessionReport, proof_report_id)
-        if report is None or report.session_id != session_id:
-            raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Proof upload not found for this session")
+        check_ids.append(proof_report_id)
+    if sub_item_proofs:
+        check_ids.extend(rid for rid in sub_item_proofs.values() if rid is not None)
+    await _validate_proof_reports(db, session_id, check_ids)
 
     row = (await db.execute(
         select(InstructorChecklistProgress).where(
@@ -818,12 +896,15 @@ async def set_checklist_progress(
         row = InstructorChecklistProgress(
             id=uuid4(), day_id=day.id, checklist_item_id=checklist_item_id,
             completed_sub_items=completed_sub_items if completed_sub_items is not None else [],
+            sub_item_proofs=_merge_sub_item_proofs(None, sub_item_proofs),
         )
         db.add(row)
     if is_done is not None:
         row.is_done = is_done
     if completed_sub_items is not None:
         row.completed_sub_items = completed_sub_items
+    if sub_item_proofs is not None:
+        row.sub_item_proofs = _merge_sub_item_proofs(row.sub_item_proofs, sub_item_proofs)
     if proof_report_id is not None:
         row.proof_report_id = proof_report_id
     if note is not None:
@@ -861,6 +942,17 @@ async def _missing_requirements(
             missing.append(f"'{item.title}' isn't ticked")
         elif item.requires_proof and (row is None or row.proof_report_id is None):
             missing.append(f"'{item.title}' needs a photo")
+
+        done_subs = set(row.completed_sub_items or []) if row else set()
+        sub_proofs = (row.sub_item_proofs or {}) if row else {}
+        for sub in (item.sub_items or []):
+            if not isinstance(sub, dict):
+                continue
+            sub_id = str(sub.get("id") or "")
+            sub_title = sub.get("title") or "Sub-topic"
+            sub_required = sub.get("is_required", True) is not False
+            if sub.get("requires_proof") and (sub_required or sub_id in done_subs) and not sub_proofs.get(sub_id):
+                missing.append(f"'{item.title} — {sub_title}' needs a photo")
     return missing
 
 
@@ -1045,14 +1137,25 @@ async def get_day_detail(db: AsyncSession, session_id: UUID, user: User, *, for_
         )).scalars().all()
     }
 
+    report_ids: set[UUID] = set()
+    for p in progress.values():
+        if p.proof_report_id:
+            report_ids.add(p.proof_report_id)
+        for rid_str in (p.sub_item_proofs or {}).values():
+            try:
+                if rid_str:
+                    report_ids.add(UUID(str(rid_str)))
+            except (ValueError, TypeError):
+                pass
+    proof_urls = await _resolve_report_urls(db, report_ids)
+
     checklist = []
     for item in items:
         row = progress.get(item.id)
-        proof_url = None
-        if row is not None and row.proof_report_id is not None:
-            report = await db.get(SessionReport, row.proof_report_id)
-            if report is not None:
-                proof_url = await resolve_report_url(report)
+        proof_url = proof_urls.get(row.proof_report_id) if (row and row.proof_report_id) else None
+        sub_proof_ids, sub_proof_urls = _extract_sub_item_proof_maps(
+            row.sub_item_proofs if row else None, proof_urls,
+        )
         checklist.append({
             "item_id": item.id,
             "title": item.title,
@@ -1067,6 +1170,8 @@ async def get_day_detail(db: AsyncSession, session_id: UUID, user: User, *, for_
             "attachments": hydrated_attachments.get(item.id, []),
             "sub_items": item.sub_items or [],
             "completed_sub_items": row.completed_sub_items if row and row.completed_sub_items else [],
+            "sub_item_proofs": sub_proof_ids,
+            "sub_item_proof_urls": sub_proof_urls,
         })
 
     missing = await _missing_requirements(db, session, day)

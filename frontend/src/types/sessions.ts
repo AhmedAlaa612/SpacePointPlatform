@@ -773,6 +773,7 @@ export interface ChecklistSubItem {
   id: string;
   title: string;
   is_required?: boolean;
+  requires_proof?: boolean;
 }
 
 export interface ChecklistItem {
@@ -813,6 +814,8 @@ export interface OpsChecklistItem {
   attachments?: ChecklistAttachment[];
   sub_items?: ChecklistSubItem[];
   completed_sub_items?: string[];
+  sub_item_proofs?: Record<string, string>;
+  sub_item_proof_urls?: Record<string, string>;
   is_done: boolean;
   proof_report_id?: string | null;
   proof_url?: string | null;
@@ -841,6 +844,8 @@ export interface ChecklistLine {
   attachments?: ChecklistAttachment[];
   sub_items?: ChecklistSubItem[];
   completed_sub_items?: string[];
+  sub_item_proofs?: Record<string, string>;
+  sub_item_proof_urls?: Record<string, string>;
 }
 
 export interface DayDetail {

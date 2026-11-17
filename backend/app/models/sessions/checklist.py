@@ -68,7 +68,7 @@ class DeliveryChecklistItem(Base):
     attachments = Column(JSONB, nullable=False, default=list, server_default="[]")
     # Sub-topics / sub-tasks (one-level breakdown of a parent checklist item,
     # matching rubric criteria's sub_criteria pattern).
-    # Each entry: {"id": str, "title": str, "is_required": bool}
+    # Each entry: {"id": str, "title": str, "is_required": bool, "requires_proof": bool}
     sub_items = Column(JSONB, nullable=False, default=list, server_default="[]")
 
     title = Column(String(255), nullable=False)
@@ -171,6 +171,8 @@ class InstructorChecklistProgress(Base):
     is_done = Column(Boolean, nullable=False, default=False, server_default="false")
     # Completed sub-item IDs (list of string IDs)
     completed_sub_items = Column(JSONB, nullable=False, default=list, server_default="[]")
+    # Map of sub_item_id -> proof SessionReport UUID string
+    sub_item_proofs = Column(JSONB, nullable=False, default=dict, server_default="{}")
     proof_report_id = Column(
         UUID(as_uuid=True), ForeignKey("session_reports.id", ondelete="SET NULL"), nullable=True
     )
@@ -203,6 +205,8 @@ class SessionOpsChecklistProgress(Base):
     is_done = Column(Boolean, nullable=False, default=False, server_default="false")
     # Completed sub-item IDs (list of string IDs)
     completed_sub_items = Column(JSONB, nullable=False, default=list, server_default="[]")
+    # Map of sub_item_id -> proof SessionReport UUID string
+    sub_item_proofs = Column(JSONB, nullable=False, default=dict, server_default="{}")
     proof_report_id = Column(
         UUID(as_uuid=True), ForeignKey("session_reports.id", ondelete="SET NULL"), nullable=True
     )

@@ -732,7 +732,9 @@ function ChecklistRow({
 }) {
   const toast = useToast()
   const fileRef = useRef<HTMLInputElement>(null)
+  const subFileRefs = useRef<Record<string, HTMLInputElement | null>>({})
   const [busy, setBusy] = useState(false)
+  const [busySubId, setBusySubId] = useState<string | null>(null)
   const [error, setError] = useState("")
 
   const tick = useMutation({
@@ -818,6 +820,34 @@ function ChecklistRow({
     }
   }
 
+  const attachSubPhoto = async (subId: string, subTitle: string, file: File) => {
+    setBusySubId(subId)
+    setError("")
+    try {
+      const report = await uploadSessionReportApi(cohortId, {
+        file,
+        sessionId,
+        notes: `${line.title} — ${subTitle}`,
+      })
+      const currentDone = line.completed_sub_items || []
+      const nextDone = currentDone.includes(subId) ? currentDone : [...currentDone, subId]
+      const allRequired = (line.sub_items || []).filter((s) => s.is_required !== false)
+      const allRequiredDone = allRequired.length > 0 && allRequired.every((s) => nextDone.includes(s.id))
+      const autoIsDone = allRequired.length > 0 ? allRequiredDone : line.is_done
+
+      await setChecklistProgressApi(sessionId, line.item_id, {
+        sub_item_proofs: { [subId]: report.id },
+        completed_sub_items: nextDone,
+        is_done: autoIsDone,
+      })
+      onChanged()
+    } catch (e) {
+      setError(getErrorMessage(e, "Couldn't upload that photo"))
+    } finally {
+      setBusySubId(null)
+    }
+  }
+
   const needsPhoto = line.requires_proof && !line.proof_url
 
   return (
@@ -879,19 +909,70 @@ function ChecklistRow({
             </span>
             {line.sub_items.map((sub, sIdx) => {
               const isSubDone = (line.completed_sub_items || []).includes(sub.id)
+              const subProofUrl = line.sub_item_proof_urls?.[sub.id]
+              const subNeedsPhoto = Boolean(sub.requires_proof) && !subProofUrl
+              const isSubBusy = busySubId === sub.id
               return (
-                <div key={sub.id || sIdx} className="flex items-start gap-2 text-xs">
-                  <input
-                    type="checkbox"
-                    checked={isSubDone}
-                    disabled={locked || toggleSubItem.isPending}
-                    onChange={() => toggleSubItem.mutate(sub.id)}
-                    className="shrink-0 rounded text-primary focus:ring-primary border-border bg-background size-3.5 cursor-pointer mt-0.5"
-                  />
-                  <span className={cn("transition-colors min-w-0 break-words", isSubDone && "line-through text-muted-foreground")}>
-                    {sub.title}
-                    {sub.is_required === false && <span className="text-[10px] text-muted-foreground"> · optional</span>}
-                  </span>
+                <div key={sub.id || sIdx} className="flex items-start justify-between gap-2 text-xs">
+                  <div className="flex items-start gap-2 min-w-0 flex-1">
+                    <input
+                      type="checkbox"
+                      checked={isSubDone}
+                      disabled={locked || toggleSubItem.isPending}
+                      onChange={() => toggleSubItem.mutate(sub.id)}
+                      className="shrink-0 rounded text-primary focus:ring-primary border-border bg-background size-3.5 cursor-pointer mt-0.5"
+                    />
+                    <span className={cn("transition-colors min-w-0 break-words", isSubDone && "line-through text-muted-foreground")}>
+                      {sub.title}
+                      {sub.is_required === false && <span className="text-[10px] text-muted-foreground"> · optional</span>}
+                    </span>
+                  </div>
+                  {sub.requires_proof && (
+                    <div className="shrink-0 flex items-center gap-1.5">
+                      {subProofUrl ? (
+                        <a
+                          href={subProofUrl}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="inline-flex items-center gap-1 text-[11px] text-primary hover:underline"
+                        >
+                          <ImageIcon size={11} /> photo
+                        </a>
+                      ) : (
+                        <span className="text-[10px] font-semibold text-amber-600 dark:text-amber-400">
+                          photo needed
+                        </span>
+                      )}
+                      {!locked && (
+                        <>
+                          <input
+                            ref={(el) => { subFileRefs.current[sub.id] = el }}
+                            type="file"
+                            accept="image/*"
+                            className="hidden"
+                            onChange={(e) => {
+                              const f = e.target.files?.[0]
+                              if (f) void attachSubPhoto(sub.id, sub.title, f)
+                              e.target.value = ""
+                            }}
+                          />
+                          <button
+                            type="button"
+                            disabled={isSubBusy}
+                            onClick={() => subFileRefs.current[sub.id]?.click()}
+                            className={`p-1 rounded-md border transition-colors disabled:opacity-50 ${
+                              subNeedsPhoto
+                                ? "border-amber-500/40 text-amber-600 dark:text-amber-400 hover:bg-amber-500/10"
+                                : "border-border text-muted-foreground hover:bg-muted"
+                            }`}
+                            aria-label={`Attach a photo for ${sub.title}`}
+                          >
+                            <Camera size={12} />
+                          </button>
+                        </>
+                      )}
+                    </div>
+                  )}
                 </div>
               )
             })}

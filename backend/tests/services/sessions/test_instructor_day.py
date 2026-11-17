@@ -601,3 +601,122 @@ async def test_session_board_done_is_paginated(db):
 
     seen = {r["session_id"] for r in page1["done"]} | {r["session_id"] for r in page2["done"]}
     assert seen == {s.id for s in sessions}, "no overlap and nothing missing across pages"
+
+
+@pytest.mark.asyncio
+async def test_sub_items_require_photo_for_instructor_and_ops(db):
+    """Sub-items on both instructor and internal ops checklists support
+    `requires_proof` and store/resolve per-sub-item proof uploads."""
+    _p, cohort, sessions = await _make(db, session_count=1)
+    session = sessions[0]
+    ops = await _ops(db)
+    instructor = await _instructor(db)
+    await _assign(db, session, instructor)
+
+    sub_req_id = "sub-photo-req"
+    sub_opt_id = "sub-no-photo"
+    await svc.set_checklist_items(
+        db,
+        actor_user_id=ops.id,
+        cohort_id=cohort.id,
+        target_audience="instructor",
+        lines=[
+            {
+                "title": "Classroom Setup",
+                "requires_proof": False,
+                "is_required": True,
+                "sub_items": [
+                    {"id": sub_req_id, "title": "Take projector photo", "is_required": True, "requires_proof": True},
+                    {"id": sub_opt_id, "title": "Unlock door", "is_required": True, "requires_proof": False},
+                ],
+            }
+        ],
+    )
+
+    ops_sub_id = "ops-sub-photo"
+    await svc.set_checklist_items(
+        db,
+        actor_user_id=ops.id,
+        cohort_id=cohort.id,
+        target_audience="internal",
+        lines=[
+            {
+                "title": "Prep Kit",
+                "requires_proof": False,
+                "is_required": True,
+                "sub_items": [
+                    {"id": ops_sub_id, "title": "Pack photo", "is_required": True, "requires_proof": True},
+                ],
+            }
+        ],
+    )
+
+    await svc.check_in(db, session.id, instructor, att_status="present")
+    inst_items = await svc.list_checklist_items(db, cohort_id=cohort.id, target_audience="instructor")
+    assert inst_items[0].sub_items[0]["requires_proof"] is True
+    assert inst_items[0].sub_items[1]["requires_proof"] is False
+
+    # Ticking parent without uploading the subtask photo must still block submission
+    await svc.set_checklist_progress(
+        db,
+        session.id,
+        instructor,
+        checklist_item_id=inst_items[0].id,
+        is_done=True,
+        completed_sub_items=[sub_req_id, sub_opt_id],
+    )
+    detail_before = await svc.get_day_detail(db, session.id, instructor)
+    assert detail_before["can_submit"] is False
+    assert "'Classroom Setup — Take projector photo' needs a photo" in detail_before["missing"]
+
+    # Upload a proof report and attach it to the subtask
+    from app.models.sessions.session_report import SessionReport
+    report = SessionReport(
+        id=uuid.uuid4(),
+        cohort_id=cohort.id,
+        session_id=session.id,
+        uploaded_by=instructor.id,
+        file_ref="fake_subtask_photo.jpg",
+        notes="Classroom Setup — Take projector photo",
+    )
+    db.add(report)
+    await db.flush()
+
+    await svc.set_checklist_progress(
+        db,
+        session.id,
+        instructor,
+        checklist_item_id=inst_items[0].id,
+        sub_item_proofs={sub_req_id: report.id},
+    )
+    detail_after = await svc.get_day_detail(db, session.id, instructor)
+    assert detail_after["can_submit"] is True
+    assert detail_after["checklist"][0]["sub_item_proofs"] == {sub_req_id: str(report.id)}
+    assert sub_req_id in detail_after["checklist"][0]["sub_item_proof_urls"]
+
+    # Verify ops internal checklist subtask proof storage and URL resolution
+    ops_items = await svc.list_checklist_items(db, cohort_id=cohort.id, target_audience="internal")
+    ops_report = SessionReport(
+        id=uuid.uuid4(),
+        cohort_id=cohort.id,
+        session_id=session.id,
+        uploaded_by=ops.id,
+        file_ref="fake_ops_sub_photo.jpg",
+        notes="Prep Kit — Pack photo",
+    )
+    db.add(ops_report)
+    await db.flush()
+
+    await svc.set_internal_checklist_progress(
+        db,
+        session_id=session.id,
+        checklist_item_id=ops_items[0].id,
+        actor_user_id=ops.id,
+        is_done=True,
+        completed_sub_items=[ops_sub_id],
+        sub_item_proofs={ops_sub_id: ops_report.id},
+    )
+    ops_list = await svc.get_internal_checklist_for_session(db, session.id)
+    assert ops_list[0]["sub_items"][0]["requires_proof"] is True
+    assert ops_list[0]["sub_item_proofs"] == {ops_sub_id: str(ops_report.id)}
+    assert ops_sub_id in ops_list[0]["sub_item_proof_urls"]

@@ -2,13 +2,13 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { PdfViewer } from "@/components/documents/PdfViewer"
 import { VideoPlayer as GeneralVideoPlayer, type VideoPlaybackInfo } from "@/components/video/VideoPlayer"
 import { VideoPlayer as CourseVideoPlayer } from "@/pages/learn/VideoPlayer"
-import { FileText, Video as VideoIcon } from "lucide-react"
+import { FileText, Image as ImageIcon, Video as VideoIcon } from "lucide-react"
 
 export interface MediaPreviewModalProps {
   open: boolean
   onClose: () => void
   title: string
-  type: "pdf" | "video"
+  type: "pdf" | "video" | "image"
   url?: string | null
   videoInfo?: VideoPlaybackInfo | null
   // When previewing course module videos with checkpoints:
@@ -29,6 +29,7 @@ export function MediaPreviewModal({
   transcodeStatus,
 }: MediaPreviewModalProps) {
   const isPdf = type === "pdf"
+  const isImage = type === "image"
 
   return (
     <Dialog open={open} onOpenChange={(v) => { if (!v) onClose() }}>
@@ -43,6 +44,8 @@ export function MediaPreviewModal({
           <div className="flex items-center gap-2 min-w-0">
             {isPdf ? (
               <FileText className="size-5 text-primary shrink-0" />
+            ) : isImage ? (
+              <ImageIcon className="size-5 text-primary shrink-0" />
             ) : (
               <VideoIcon className="size-5 text-primary shrink-0" />
             )}
@@ -56,6 +59,26 @@ export function MediaPreviewModal({
               <PdfViewer url={url} className="flex flex-col gap-3 flex-1 min-h-0" />
             ) : (
               <div className="p-8 text-center text-muted-foreground text-sm">No PDF URL available to preview.</div>
+            )
+          ) : isImage ? (
+            url ? (
+              <div className="w-full flex flex-col items-center gap-3">
+                <img
+                  src={url}
+                  alt={title}
+                  className="max-h-[75vh] max-w-full rounded-xl object-contain border border-border/60 bg-muted/20"
+                />
+                <a
+                  href={url}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="text-xs font-medium text-primary hover:underline"
+                >
+                  Open original image
+                </a>
+              </div>
+            ) : (
+              <div className="p-8 text-center text-muted-foreground text-sm">No image URL available to preview.</div>
             )
           ) : (
             // Video preview: Course module video with checkpoints, or general video player

@@ -151,7 +151,7 @@ export function SessionOpsChecklistPanel({
         open={!!previewMedia}
         onClose={() => setPreviewMedia(null)}
         title={previewMedia?.title ?? "Document preview"}
-        type={previewMedia?.type === "video" ? "video" : "pdf"}
+        type={previewMedia?.type ?? "pdf"}
         url={previewMedia?.url}
       />
     </div>
@@ -173,7 +173,9 @@ function ChecklistRow({
 }) {
   const toast = useToast()
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const subFileInputRefs = useRef<Record<string, HTMLInputElement | null>>({})
   const [uploading, setUploading] = useState(false)
+  const [uploadingSubId, setUploadingSubId] = useState<string | null>(null)
 
   const toggleMutation = useMutation({
     mutationFn: (newDone: boolean) => {
@@ -225,6 +227,7 @@ function ChecklistRow({
         is_done: true,
         proof_report_id: report.id,
         note: item.note,
+        completed_sub_items: item.completed_sub_items,
       })
       toast.success("Proof uploaded and item completed")
       onChanged()
@@ -232,6 +235,43 @@ function ChecklistRow({
       toast.error(getErrorMessage(err, "Failed to upload proof"))
     } finally {
       setUploading(false)
+      e.target.value = ""
+    }
+  }
+
+  const handleSubFileUpload = async (
+    subId: string,
+    subTitle: string,
+    e: React.ChangeEvent<HTMLInputElement>,
+  ) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    setUploadingSubId(subId)
+    try {
+      const report = await uploadSessionReportApi(cohortId, {
+        file,
+        sessionId,
+        notes: `Proof for: ${item.title} — ${subTitle}`,
+      })
+      const currentDone = item.completed_sub_items || []
+      const nextDone = currentDone.includes(subId) ? currentDone : [...currentDone, subId]
+      const allRequired = (item.sub_items || []).filter((s) => s.is_required !== false)
+      const allRequiredDone = allRequired.length > 0 && allRequired.every((s) => nextDone.includes(s.id))
+      const autoIsDone = allRequired.length > 0 ? allRequiredDone : item.is_done
+
+      await setInternalChecklistProgressApi(sessionId, item.item_id, {
+        is_done: autoIsDone,
+        proof_report_id: item.proof_report_id,
+        note: item.note,
+        completed_sub_items: nextDone,
+        sub_item_proofs: { [subId]: report.id },
+      })
+      toast.success("Sub-topic photo uploaded")
+      onChanged()
+    } catch (err) {
+      toast.error(getErrorMessage(err, "Failed to upload photo"))
+    } finally {
+      setUploadingSubId(null)
       e.target.value = ""
     }
   }
@@ -380,25 +420,68 @@ function ChecklistRow({
               </span>
               {item.sub_items.map((sub, sIdx) => {
                 const isSubDone = (item.completed_sub_items || []).includes(sub.id)
+                const subProofUrl = item.sub_item_proof_urls?.[sub.id]
+                const isSubUploading = uploadingSubId === sub.id
                 return (
-                  <div key={sub.id || sIdx} className="flex items-start gap-2 text-xs">
-                    <button
-                      type="button"
-                      onClick={() => toggleSubItemMutation.mutate(sub.id)}
-                      disabled={toggleSubItemMutation.isPending}
-                      className="text-muted-foreground hover:text-foreground shrink-0 cursor-pointer transition-colors mt-0.5"
-                      title={isSubDone ? "Mark incomplete" : "Mark completed"}
-                    >
-                      {isSubDone ? (
-                        <CheckCircle2 size={15} className="text-emerald-600 dark:text-emerald-400" />
-                      ) : (
-                        <Circle size={15} className="text-muted-foreground hover:text-primary" />
+                  <div key={sub.id || sIdx} className="flex items-start justify-between gap-2 text-xs">
+                    <div className="flex items-start gap-2 min-w-0 flex-1">
+                      <button
+                        type="button"
+                        onClick={() => toggleSubItemMutation.mutate(sub.id)}
+                        disabled={toggleSubItemMutation.isPending}
+                        className="text-muted-foreground hover:text-foreground shrink-0 cursor-pointer transition-colors mt-0.5"
+                        title={isSubDone ? "Mark incomplete" : "Mark completed"}
+                      >
+                        {isSubDone ? (
+                          <CheckCircle2 size={15} className="text-emerald-600 dark:text-emerald-400" />
+                        ) : (
+                          <Circle size={15} className="text-muted-foreground hover:text-primary" />
+                        )}
+                      </button>
+                      <span className={cn("transition-colors min-w-0 break-words", isSubDone && "line-through text-muted-foreground")}>
+                        <FormattedText text={sub.title} />
+                        {sub.is_required === false && <span className="text-[10px] text-muted-foreground"> · optional</span>}
+                      </span>
+                      {sub.requires_proof && !subProofUrl && (
+                        <span className="inline-flex items-center gap-0.5 text-[10px] font-medium text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-500/10 px-1.5 py-0.5 rounded-full border border-amber-200 dark:border-amber-500/20 shrink-0">
+                          <ImageIcon size={10} /> Photo required
+                        </span>
                       )}
-                    </button>
-                    <span className={cn("transition-colors min-w-0 break-words", isSubDone && "line-through text-muted-foreground")}>
-                      <FormattedText text={sub.title} />
-                      {sub.is_required === false && <span className="text-[10px] text-muted-foreground"> · optional</span>}
-                    </span>
+                    </div>
+                    {sub.requires_proof && (
+                      <div className="flex items-center gap-1.5 shrink-0">
+                        {subProofUrl && (
+                          <button
+                            type="button"
+                            onClick={() =>
+                              onPreview({
+                                title: `Proof: ${sub.title}`,
+                                type: subProofUrl.toLowerCase().includes(".pdf") ? "pdf" : "image",
+                                url: ensureAbsoluteUrl(subProofUrl),
+                              })
+                            }
+                            className="inline-flex items-center gap-1 text-[11px] font-medium text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-500/10 hover:bg-emerald-100 border border-emerald-200 dark:border-emerald-500/20 px-2 py-0.5 rounded-md transition-colors cursor-pointer"
+                          >
+                            <ImageIcon size={11} /> View
+                          </button>
+                        )}
+                        <button
+                          type="button"
+                          onClick={() => subFileInputRefs.current[sub.id]?.click()}
+                          disabled={isSubUploading}
+                          className="inline-flex items-center gap-1 text-[11px] font-medium text-foreground bg-muted hover:bg-muted/80 border border-border px-2 py-0.5 rounded-md transition-colors cursor-pointer disabled:opacity-50"
+                        >
+                          <Upload size={11} /> {isSubUploading ? "Uploading…" : subProofUrl ? "Replace" : "Upload Photo"}
+                        </button>
+                        <input
+                          ref={(el) => { subFileInputRefs.current[sub.id] = el }}
+                          type="file"
+                          accept="image/*,.pdf"
+                          className="hidden"
+                          onChange={(e) => { void handleSubFileUpload(sub.id, sub.title, e) }}
+                        />
+                      </div>
+                    )}
                   </div>
                 )
               })}

@@ -102,6 +102,7 @@ export const setInternalChecklistProgressApi = (
     proof_report_id?: string | null
     note?: string | null
     completed_sub_items?: string[]
+    sub_item_proofs?: Record<string, string | null>
   },
 ) =>
   api.post<{ ok: boolean }>(`/sessions/${sessionId}/internal-checklist/${itemId}`, body).then((r) => r.data)
@@ -128,6 +129,7 @@ export const setChecklistProgressApi = (sessionId: string, itemId: string, body:
   proof_report_id?: string | null
   note?: string | null
   completed_sub_items?: string[]
+  sub_item_proofs?: Record<string, string | null>
 }) =>
   api.put<DayDetail>(`/sessions/${sessionId}/delivery/checklist/${itemId}`, body)
     .then((r) => r.data)

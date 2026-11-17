@@ -684,9 +684,12 @@ export function ImportInstructorChecklistModal({
                                   {item.sub_items.map((sub, sIdx) => (
                                     <span
                                       key={sub.id || sIdx}
-                                      className="text-[10px] text-muted-foreground bg-muted/60 px-1.5 py-0.5 rounded"
+                                      className="inline-flex items-center gap-1 text-[10px] text-muted-foreground bg-muted/60 px-1.5 py-0.5 rounded"
                                     >
-                                      ↳ {sub.title}
+                                      <span>↳ {sub.title}</span>
+                                      {sub.requires_proof && (
+                                        <Camera className="w-2.5 h-2.5 text-amber-500 shrink-0" />
+                                      )}
                                     </span>
                                   ))}
                                 </div>

@@ -43,12 +43,14 @@ class ChecklistSubItemIn(BaseModel):
     id: str | None = None
     title: str
     is_required: bool = True
+    requires_proof: bool = False
 
 
 class ChecklistSubItemOut(BaseModel):
     id: str
     title: str
     is_required: bool = True
+    requires_proof: bool = False
 
 
 class ChecklistItemIn(BaseModel):
@@ -120,6 +122,8 @@ class OpsChecklistItemOut(BaseModel):
     attachments: list[ChecklistAttachmentOut] = []
     sub_items: list[ChecklistSubItemOut] = []
     completed_sub_items: list[str] = []
+    sub_item_proofs: dict[str, UUID] = {}
+    sub_item_proof_urls: dict[str, str] = {}
     is_done: bool = False
     proof_report_id: UUID | None = None
     proof_url: str | None = None
@@ -134,6 +138,7 @@ class OpsChecklistProgressIn(BaseModel):
     proof_report_id: UUID | None = None
     note: str | None = None
     completed_sub_items: list[str] | None = None
+    sub_item_proofs: dict[str, UUID | None] | None = None
 
 
 # ── the instructor's day ────────────────────────────────────────────────────
@@ -151,6 +156,7 @@ class ChecklistProgressIn(BaseModel):
     proof_report_id: UUID | None = None
     note: str | None = None
     completed_sub_items: list[str] | None = None
+    sub_item_proofs: dict[str, UUID | None] | None = None
 
 
 class SubmitDayIn(BaseModel):
@@ -173,6 +179,8 @@ class ChecklistLineOut(BaseModel):
     attachments: list[ChecklistAttachmentOut] = []
     sub_items: list[ChecklistSubItemOut] = []
     completed_sub_items: list[str] = []
+    sub_item_proofs: dict[str, UUID] = {}
+    sub_item_proof_urls: dict[str, str] = {}
 
 
 class DayDetailOut(BaseModel):

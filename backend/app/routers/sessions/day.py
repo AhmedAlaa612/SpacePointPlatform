@@ -222,6 +222,7 @@ async def set_internal_checklist_item_progress(
         db, session_id=session_id, checklist_item_id=item_id, actor_user_id=current_user.id,
         is_done=body.is_done, proof_report_id=body.proof_report_id, note=body.note,
         completed_sub_items=body.completed_sub_items,
+        sub_item_proofs=body.sub_item_proofs,
     )
     await db.commit()
     return {"ok": True}
@@ -277,6 +278,7 @@ async def set_checklist_progress(
         db, session_id, current_user, checklist_item_id=item_id,
         is_done=body.is_done, proof_report_id=body.proof_report_id, note=body.note,
         completed_sub_items=body.completed_sub_items,
+        sub_item_proofs=body.sub_item_proofs,
     )
     await db.commit()
     return await svc.get_day_detail(db, session_id, current_user)

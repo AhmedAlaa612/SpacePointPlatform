@@ -83,6 +83,7 @@ export function toDraftLines(items: ChecklistItem[]): ChecklistDraftLine[] {
       id: s.id || `sub-${Math.random().toString(36).substring(2, 9)}`,
       title: s.title,
       is_required: s.is_required !== false,
+      requires_proof: Boolean(s.requires_proof),
     }))
     return {
       key: i.id || `item-${Math.random().toString(36).substring(2, 9)}`,
@@ -284,6 +285,7 @@ function ReorderableChecklistList({
                   id: `sub-${Date.now()}-0`,
                   title: "",
                   is_required: true,
+                  requires_proof: false,
                 },
               ],
             }
@@ -601,6 +603,21 @@ function ReorderableChecklistList({
                       <span className="hidden sm:inline">Required</span>
                       <span className="sm:hidden">Req</span>
                     </label>
+                    <label className="flex items-center gap-1 text-[11px] text-muted-foreground cursor-pointer select-none px-1.5 py-0.5 rounded hover:bg-muted/50 shrink-0">
+                      <input
+                        type="checkbox"
+                        checked={Boolean(sub.requires_proof)}
+                        onChange={(e) => {
+                          const nextSubs = (line.sub_items ?? []).map((s, idx) =>
+                            idx === subIdx ? { ...s, requires_proof: e.target.checked } : s
+                          )
+                          onChange(rows.map((r, j) => (j === i ? { ...r, sub_items: nextSubs } : r)))
+                        }}
+                        className="rounded border-border text-primary focus:ring-primary size-3"
+                      />
+                      <ImageIcon size={11} />
+                      <span>Photo</span>
+                    </label>
                     <button
                       type="button"
                       onClick={() => {
@@ -624,6 +641,7 @@ function ReorderableChecklistList({
                         id: `sub-${Date.now()}-${(line.sub_items ?? []).length}`,
                         title: "",
                         is_required: true,
+                        requires_proof: false,
                       },
                     ]
                     onChange(rows.map((r, j) => (j === i ? { ...r, sub_items: nextSubs } : r)))
