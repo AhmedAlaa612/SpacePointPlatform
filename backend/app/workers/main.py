@@ -58,7 +58,11 @@ class WorkerSettings:
         send_call_invite_emails,
         send_cohort_call_invite_emails,
         send_inventory_reminders,
-        func(send_cohort_certificates_job, timeout=600),
+        # 2h: a cohort-wide send renders a PDF + SMTP-sends per recipient at
+        # ~40s each, so ~100 recipients ≈ 70 min. The old 600s cap killed big
+        # batches mid-flight (and arq's retry of a timed-out run crashed on a
+        # KeyError in run_job cleanup, ending the retry chain).
+        func(send_cohort_certificates_job, timeout=7200),
         # arq's default job_timeout is 300s — fine for every other job here.
         # transcode_video is CPU-bound and runs long; it's on a separate queue
         # with max_jobs=1 (see VideoWorkerSettings below) to avoid blocking
