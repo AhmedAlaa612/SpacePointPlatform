@@ -131,6 +131,7 @@ from app.services.lms.author_access import (
     check_checkpoint_access,
     check_course_access,
     check_course_publish_access,
+    check_course_read_access,
     check_invite_code_access,
     check_item_access,
     check_learning_path_access,
@@ -1224,22 +1225,19 @@ async def list_courses(
         from app.services.website_events import resolve_user_organization
         org = await resolve_user_organization(db, current)
         if org:
-            if for_picker:
-                conds = [Course.organization_id == org.id]
-                if org.course_scope_all:
-                    conds.append(Course.is_published.is_(True))
-                elif org.allowed_course_ids:
-                    allowed_uuids = []
-                    for cid in org.allowed_course_ids:
-                        try:
-                            allowed_uuids.append(uuid.UUID(cid))
-                        except Exception:
-                            pass
-                    if allowed_uuids:
-                        conds.append(Course.id.in_(allowed_uuids))
-                stmt = stmt.where(or_(*conds))
-            else:
-                stmt = stmt.where(or_(Course.organization_id == org.id, Course.created_by == current.id))
+            conds = [Course.organization_id == org.id, Course.created_by == current.id]
+            if org.course_scope_all:
+                conds.append(Course.is_published.is_(True))
+            elif org.allowed_course_ids:
+                allowed_uuids = []
+                for cid in org.allowed_course_ids:
+                    try:
+                        allowed_uuids.append(uuid.UUID(str(cid)))
+                    except Exception:
+                        pass
+                if allowed_uuids:
+                    conds.append(Course.id.in_(allowed_uuids))
+            stmt = stmt.where(or_(*conds))
         else:
             stmt = stmt.where(Course.created_by == current.id)
     elif not scope_all:
@@ -1281,7 +1279,7 @@ async def get_course(
     course = await db.get(Course, course_id)
     if course is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Course not found")
-    await check_course_access(db, current, course)
+    await check_course_read_access(db, current, course)
     return await _course_admin_out(db, course, current)
 
 
@@ -1527,7 +1525,7 @@ async def list_modules(
     course = await db.get(Course, course_id)
     if course is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Course not found")
-    await check_course_access(db, current, course)
+    await check_course_read_access(db, current, course)
     rows = (await db.execute(
         select(CourseModule).where(CourseModule.course_id == course_id).order_by(CourseModule.position)
     )).scalars().all()

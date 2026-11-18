@@ -902,3 +902,54 @@ async def test_admin_create_org_account_and_readiness_assessment_scoping(db, cli
         json={"preset_id": own_preset["id"]},
     )
     assert assign_own.status_code == 200, assign_own.text
+
+
+async def test_org_shared_courses_visible_and_read_only(db, client, sent_emails):
+    from app.models.lms.course import Course
+
+    owner, org = await _seed_org(db)
+    admin = await _make_user(db, roles=["admin"])
+
+    shared_course = Course(
+        id=uuid.uuid4(),
+        title="Shared Platform Course",
+        created_by=admin.id,
+        organization_id=None,
+        is_published=True,
+    )
+    hidden_course = Course(
+        id=uuid.uuid4(),
+        title="Hidden Platform Course",
+        created_by=admin.id,
+        organization_id=None,
+        is_published=True,
+    )
+    db.add_all([shared_course, hidden_course])
+    await db.flush()
+
+    org.allowed_course_ids = [str(shared_course.id)]
+    await db.flush()
+
+    list_resp = await client.get("/lms/admin/courses", headers=_headers(owner))
+    assert list_resp.status_code == 200, list_resp.text
+    ids = {c["id"] for c in list_resp.json()}
+    assert str(shared_course.id) in ids
+    assert str(hidden_course.id) not in ids
+
+    detail_resp = await client.get(f"/lms/admin/courses/{shared_course.id}", headers=_headers(owner))
+    assert detail_resp.status_code == 200, detail_resp.text
+
+    mods_resp = await client.get(f"/lms/admin/courses/{shared_course.id}/modules", headers=_headers(owner))
+    assert mods_resp.status_code == 200, mods_resp.text
+
+    patch_resp = await client.patch(
+        f"/lms/admin/courses/{shared_course.id}",
+        headers=_headers(owner),
+        json={"title": "Hacked"},
+    )
+    assert patch_resp.status_code == 404
+
+    # Invite email copy no longer mentions managing programs, cohorts and landing pages
+    await _add_member(db, client, owner, org_role="instructor")
+    assert len(sent_emails) == 1
+    assert "programs, cohorts and landing pages" not in sent_emails[0][2]

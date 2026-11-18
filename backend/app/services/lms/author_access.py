@@ -72,6 +72,26 @@ async def check_course_access(db: AsyncSession, user: User, course: Course) -> N
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Course not found")
 
 
+async def check_course_read_access(db: AsyncSession, user: User, course: Course) -> None:
+    """Allows org users read-only access to SpacePoint courses shared with their organization."""
+    if "organization" in user.role_values and not any(
+        r in user.role_values for r in ("admin", "operations", "facilitator")
+    ):
+        from app.services.website_events import resolve_user_organization
+
+        org = await resolve_user_organization(db, user)
+        if org is not None:
+            if course.organization_id == org.id or course.created_by == user.id:
+                return
+            if org.course_scope_all and course.is_published:
+                return
+            allowed_ids = {str(cid) for cid in (org.allowed_course_ids or [])}
+            if str(course.id) in allowed_ids:
+                return
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Course not found")
+    await check_course_access(db, user, course)
+
+
 async def check_course_publish_access(db: AsyncSession, user: User, course: Course) -> None:
     """Checks course scope and raises 403 if the user cannot publish directly."""
     await check_course_access(db, user, course)

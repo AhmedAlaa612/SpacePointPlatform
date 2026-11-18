@@ -312,8 +312,7 @@ async def send_org_team_invite_email(
     stateless set-password link used for admin-created accounts."""
     body = (
         f"Hi {name},\n\n"
-        f"{org_name} has added you to their team on the SpacePoint portal, so you "
-        "can help manage their programs, cohorts and landing pages.\n\n"
+        f"{org_name} has added you to their team on the SpacePoint portal.\n\n"
         f"Set your password here: {set_password_link}\n"
         "(This link is valid for 7 days.)\n\n"
         "— SpacePoint"
@@ -344,8 +343,7 @@ async def send_org_team_added_email(
     link."""
     body = (
         f"Hi {name},\n\n"
-        f"{org_name} has added you to their team on the SpacePoint portal, so you "
-        "can help manage their programs, cohorts and landing pages.\n\n"
+        f"{org_name} has added you to their team on the SpacePoint portal.\n\n"
         f"Sign in with your existing SpacePoint account: {login_url}\n"
         "(Forgot your password? Use \"Forgot password\" on the sign-in page.)\n\n"
         "— SpacePoint"
