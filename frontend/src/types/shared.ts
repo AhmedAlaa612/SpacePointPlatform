@@ -80,6 +80,8 @@ export interface User {
   organization_type?: string | null;
   organization_country?: string | null;
   organization_city?: string | null;
+  /** Sandbox role inside a partner organization. */
+  org_role?: "owner" | "coordinator" | "instructor" | "judge" | "observer" | null;
   is_certified_instructor?: boolean;
   org_is_approved?: boolean;
   org_can_publish_events?: boolean;

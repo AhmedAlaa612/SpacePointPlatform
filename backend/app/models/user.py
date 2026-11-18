@@ -96,6 +96,14 @@ class User(Base):
         UUID(as_uuid=True), ForeignKey("organizations.id", ondelete="SET NULL"),
         nullable=True, index=True,
     )
+    # Sandbox role inside the partner organization (2026-11-18). This is what
+    # the person *does for that org* — `owner | coordinator | instructor |
+    # judge | observer` — and is deliberately separate from `roles` above:
+    # `roles` is the global capability set (an org instructor still needs the
+    # global `instructor` role to hit the delivery endpoints), while
+    # `org_role` is the per-organization intent the org Team page manages and
+    # the sandbox fence reads. NULL for people who aren't on a partner team.
+    org_role = Column(String(32), nullable=True, index=True)
 
     # Live Games (Phase 2C, 8-1). Students-only public identity: auto-
     # generated at account creation (services/nicknames.py), never a real

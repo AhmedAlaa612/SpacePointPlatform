@@ -4,7 +4,7 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
-from sqlalchemy import func, or_, select
+from sqlalchemy import delete, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
@@ -31,9 +31,10 @@ from app.models.lms.program import (
     LmsProgramTeamItemProgress,
 )
 from app.models.sessions.cohort import Cohort
+from app.models.competitions.judging import CompetitionJudge
 from app.models.sessions.program import Program
 from app.models.sessions.registration import Registration
-from app.models.sessions.session import Session
+from app.models.sessions.session import Session, SessionInstructor
 from app.models.spine.contact import Contact
 from app.models.spine.organization import Organization
 from app.models.team import Team, TeamMember
@@ -45,6 +46,7 @@ from app.schemas.website_event import (
     MegaEventUpdate,
     OrgTeamMemberCreateIn,
     OrgTeamMemberOut,
+    OrgTeamMemberUpdateIn,
     OrganizationAccountCreateIn,
     OrganizationDetailOut,
     OrganizationSummaryOut,
@@ -59,6 +61,7 @@ from app.services.email import (
     send_org_team_invite_email,
     send_password_set_link_email,
 )
+from app.services.org_access import effective_org_role, global_roles_for_org_role, normalize_org_role
 from app.services.sessions.registration import ACTIVE_REGISTRATION_STATUSES
 from app.services.spine.identity import (
     normalize_user_email,
@@ -860,12 +863,22 @@ async def admin_get_organization_detail(
 
     team_out = []
     for uid, u in team_user_map.items():
-        if org.owner_user_id == uid:
-            role_label = "Owner"
-        elif u.organization_id == org.id:
-            role_label = "Coordinator"
-        else:
-            role_label = "Observer"
+        is_primary_owner = org.owner_user_id == uid
+        sandbox_role = "owner" if is_primary_owner else (effective_org_role(u) or "observer")
+        # Affiliation is not membership: skip students/trainees whose profile
+        # merely points at this organization. Observers assigned to at least
+        # one cohort are still included (they're in team_user_map above).
+        if not is_primary_owner and u.org_role is None and "organization" not in u.role_values:
+            if not obs_cohorts_by_user.get(uid):
+                continue
+            sandbox_role = "observer"
+        role_label = {
+            "owner": "Owner",
+            "coordinator": "Coordinator",
+            "instructor": "Instructor",
+            "judge": "Judge",
+            "observer": "Observer",
+        }.get(sandbox_role, "Coordinator")
         team_out.append(
             {
                 "user_id": u.id,
@@ -873,6 +886,7 @@ async def admin_get_organization_detail(
                 "email": u.email,
                 "phone": u.phone,
                 "role": role_label,
+                "org_role": sandbox_role,
                 "card_id": _user_card_id(u),
                 "status": u.status,
                 # `must_change_password` is set on invite and cleared by
@@ -881,7 +895,7 @@ async def admin_get_organization_detail(
                 "observer_cohorts": obs_cohorts_by_user.get(u.id, []),
             }
         )
-    role_rank = {"Owner": 0, "Coordinator": 1, "Observer": 2}
+    role_rank = {"Owner": 0, "Coordinator": 1, "Instructor": 2, "Judge": 3, "Observer": 4}
     team_out.sort(key=lambda m: (role_rank.get(m["role"], 9), m["full_name"].lower()))
 
     # Invite code batches
@@ -1529,6 +1543,7 @@ async def admin_add_organization_member(
         password=body.password,
         phone=body.phone,
         role_event_source="admin_org_team_member",
+        org_role=body.org_role,
     )
 
     base = (settings.FRONTEND_URL or "http://localhost:5173").rstrip("/")
@@ -1548,9 +1563,127 @@ async def admin_add_organization_member(
         status=user.status,
         created_at=user.created_at,
         is_owner=False,
+        org_role=effective_org_role(user) or body.org_role,
         invite_email_sent=email_sent,
         existing_account=not created,
     )
+
+
+@router.patch("/organizations/{org_id}/members/{user_id}", response_model=OrgTeamMemberOut)
+async def admin_update_organization_member(
+    org_id: UUID,
+    user_id: UUID,
+    body: OrgTeamMemberUpdateIn,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_website_admin),
+):
+    """Admin/ops set a member's sandbox role from the Ops organization Team tab."""
+    org = await db.get(Organization, org_id)
+    if org is None:
+        raise HTTPException(status_code=404, detail="Organization not found")
+    if user_id == org.owner_user_id:
+        raise HTTPException(status_code=400, detail="The organization primary owner's role cannot be changed")
+
+    user = await db.get(User, user_id)
+    is_member = user is not None and (user.organization_id == org.id or user.org_role is not None)
+    if not is_member:
+        raise HTTPException(status_code=404, detail="User is not associated with this organization")
+
+    role = normalize_org_role(body.org_role)
+    user.org_role = role
+    merged = list(user.roles or [])
+    existing_values = {r.value if hasattr(r, "value") else str(r) for r in merged}
+    for needed in global_roles_for_org_role(role):
+        if needed.value not in existing_values:
+            merged.append(needed)
+    user.roles = merged
+    await db.commit()
+    await db.refresh(user)
+
+    return OrgTeamMemberOut(
+        id=user.id,
+        full_name=user.full_name,
+        email=user.email,
+        phone=user.phone,
+        status=user.status,
+        created_at=user.created_at,
+        is_owner=False,
+        org_role=role,
+        invite_pending=bool(user.must_change_password),
+    )
+
+
+@router.delete("/organizations/{org_id}/members/{user_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def admin_remove_organization_member(
+    org_id: UUID,
+    user_id: UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_website_admin),
+):
+    """Detach a member without deleting the account (same rule as the org's own
+    Team page — an account can be a student elsewhere)."""
+    org = await db.get(Organization, org_id)
+    if org is None:
+        raise HTTPException(status_code=404, detail="Organization not found")
+    if user_id == org.owner_user_id:
+        raise HTTPException(status_code=400, detail="Cannot remove the organization primary owner")
+
+    user = await db.get(User, user_id)
+    if user is None or (user.organization_id != org.id and user.org_role is None):
+        raise HTTPException(status_code=404, detail="User is not associated with this organization")
+
+    previous_role = effective_org_role(user)
+    org_cohort_ids = select(Cohort.id).where(Cohort.organization_id == org.id)
+    org_session_ids = select(Session.id).where(Session.cohort_id.in_(org_cohort_ids))
+
+    await db.execute(
+        delete(SessionInstructor).where(
+            SessionInstructor.user_id == user.id,
+            SessionInstructor.session_id.in_(org_session_ids),
+        )
+    )
+    await db.execute(
+        delete(CompetitionJudge).where(
+            CompetitionJudge.user_id == user.id,
+            CompetitionJudge.cohort_id.in_(org_cohort_ids),
+        )
+    )
+    await db.execute(
+        delete(LmsProgramAssignment).where(
+            LmsProgramAssignment.user_id == user.id,
+            LmsProgramAssignment.cohort_id.in_(org_cohort_ids),
+        )
+    )
+
+    keep_instructor = await db.scalar(
+        select(func.count()).select_from(SessionInstructor).where(
+            SessionInstructor.user_id == user.id,
+            ~SessionInstructor.session_id.in_(org_session_ids),
+        )
+    )
+    keep_judge = await db.scalar(
+        select(func.count()).select_from(CompetitionJudge).where(
+            CompetitionJudge.user_id == user.id,
+            ~CompetitionJudge.cohort_id.in_(org_cohort_ids),
+        )
+    )
+    drop_roles = {"organization"}
+    if previous_role == "instructor" and not keep_instructor:
+        drop_roles.add("instructor")
+    if previous_role == "judge" and not keep_judge:
+        drop_roles.add("judge")
+    user.roles = [
+        r for r in (user.roles or [])
+        if (r.value if hasattr(r, "value") else str(r)) not in drop_roles
+    ]
+    user.organization_id = None
+    user.org_role = None
+    if user.contact_id:
+        contact = await db.get(Contact, user.contact_id)
+        if contact is not None and contact.organization_id == org.id:
+            contact.organization_id = None
+    await db.commit()
+    return None
 
 
 @router.post("/organizations/{org_id}/courses/{course_id}/publish")

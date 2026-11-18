@@ -437,6 +437,7 @@ class OrgTeamMemberDetailOut(BaseModel):
     email: str
     phone: str | None = None
     role: str
+    org_role: str = "coordinator"
     card_id: str | None = None
     status: str
     invite_pending: bool = False
@@ -464,6 +465,8 @@ class OrgTeamMemberOut(BaseModel):
     status: str
     created_at: datetime
     is_owner: bool = False
+    # Sandbox role inside the organization: owner|coordinator|instructor|judge|observer
+    org_role: str = "coordinator"
     # Only meaningful on create: whether the set-password invite email went out.
     invite_email_sent: bool = False
     # Invited but hasn't set a password / signed in yet.
@@ -479,3 +482,9 @@ class OrgTeamMemberCreateIn(BaseModel):
     # sets their own via the "Reset Link" flow.
     password: str | None = None
     phone: str | None = None
+    # coordinator|instructor|judge|observer — see services/org_access.py.
+    org_role: str = "coordinator"
+
+
+class OrgTeamMemberUpdateIn(BaseModel):
+    org_role: str

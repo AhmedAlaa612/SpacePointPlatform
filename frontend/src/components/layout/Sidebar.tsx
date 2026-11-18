@@ -305,7 +305,23 @@ const DOMAIN_TITLE: Record<string, string> = {
  * old Navbar (admin browsing /interns gets interns nav, etc.). Only difference:
  * each item now carries a lucide icon via `mk`.
  */
-function getNavItems(pathname: string, activeRole: Role | null): NavItem[] {
+function getNavItems(
+  pathname: string,
+  activeRole: Role | null,
+  orgRole: "owner" | "coordinator" | "instructor" | "judge" | "observer" | null = null
+): NavItem[] {
+  // Organization sandbox: an org's own instructor/judge gets a narrow delivery
+  // surface only — no payments, payouts, contracts, library or marketplace.
+  if (orgRole === "instructor") {
+    return [
+      mk("Sessions", "/instructors/my-sessions"),
+      mk("Learn", "/learn"),
+    ];
+  }
+  if (orgRole === "judge") {
+    return [mk("Judging", "/organization/programs"), mk("Learn", "/learn")];
+  }
+
   if (activeRole === "organization" || pathname.startsWith("/organization")) {
     return [
       mk("Programs & Cohorts", "/organization/programs"),
@@ -981,12 +997,16 @@ export function AppShell({ children }: { children: ReactNode }) {
     });
   };
 
-  const navItems = getNavItems(pathname, activeRole);
+  const navItems = getNavItems(pathname, activeRole, user?.org_role ?? null);
 
   const { data: paySummary } = useQuery({
     queryKey: ["instructor-payment-summary"],
     queryFn: getPaymentSummaryApi,
-    enabled: !!user && activeRole === "instructor",
+    enabled:
+      !!user &&
+      activeRole === "instructor" &&
+      user.org_role !== "instructor" &&
+      user.org_role !== "judge",
     staleTime: 30_000,
     refetchInterval: 60_000,
   });

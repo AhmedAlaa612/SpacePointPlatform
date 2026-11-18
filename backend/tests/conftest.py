@@ -76,6 +76,7 @@ async def _engine():
         await conn.execute(text("ALTER TABLE lms_program_team_item_progress ADD COLUMN IF NOT EXISTS penalty_notes VARCHAR(255);"))
         await conn.execute(text("ALTER TABLE instructor_checklist_progress ADD COLUMN IF NOT EXISTS sub_item_proofs JSONB NOT NULL DEFAULT '{}'::jsonb;"))
         await conn.execute(text("ALTER TABLE session_ops_checklist_progress ADD COLUMN IF NOT EXISTS sub_item_proofs JSONB NOT NULL DEFAULT '{}'::jsonb;"))
+        await conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS org_role VARCHAR(32);"))
     yield engine
     await engine.dispose()
 

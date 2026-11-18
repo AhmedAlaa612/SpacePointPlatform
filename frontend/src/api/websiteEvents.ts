@@ -355,6 +355,7 @@ export interface OrgTeamMemberDetail {
   email: string
   phone: string | null
   role: string
+  org_role: OrgSandboxRole
   card_id: string | null
   status: string
   invite_pending: boolean
@@ -424,12 +425,23 @@ export interface OrganizationAccountUpdatePayload {
   max_observers_per_cohort?: number | null
 }
 
+export type OrgSandboxRole = "owner" | "coordinator" | "instructor" | "judge" | "observer"
+export const ORG_ASSIGNABLE_ROLES: { value: Exclude<OrgSandboxRole, "owner">; label: string; hint: string }[] = [
+  { value: "coordinator", label: "Coordinator", hint: "Runs programs, cohorts, students and the team" },
+  { value: "instructor", label: "Instructor", hint: "Delivers assigned sessions, takes attendance" },
+  { value: "judge", label: "Judge", hint: "Scores competition teams for assigned cohorts" },
+  { value: "observer", label: "Observer", hint: "Read-only view of assigned cohorts" },
+]
+
 export interface OrgTeamMember {
   id: string
   email: string
   full_name: string
-  is_active: boolean
+  phone?: string | null
+  is_active?: boolean
+  status?: string
   is_owner: boolean
+  org_role?: OrgSandboxRole
   created_at?: string
   invite_email_sent?: boolean
   invite_pending?: boolean
@@ -501,11 +513,19 @@ export const createOrganizationMemberResetLink = (orgId: string, userId: string)
 
 export const createOrganizationMember = (
   orgId: string,
-  payload: { full_name: string; email: string; phone?: string | null }
+  payload: { full_name: string; email: string; phone?: string | null; org_role?: string }
 ) =>
   api
     .post<OrgTeamMember>(`/admin/website/organizations/${orgId}/members`, payload)
     .then((r) => r.data)
+
+export const updateOrganizationMember = (orgId: string, userId: string, org_role: string) =>
+  api
+    .patch<OrgTeamMember>(`/admin/website/organizations/${orgId}/members/${userId}`, { org_role })
+    .then((r) => r.data)
+
+export const removeOrganizationMember = (orgId: string, userId: string) =>
+  api.delete(`/admin/website/organizations/${orgId}/members/${userId}`)
 
 export const toggleOrganizationCoursePublish = (orgId: string, courseId: string, is_published: boolean) =>
   api
@@ -545,8 +565,16 @@ export const getMyOrganizationContext = () =>
 export const getOrganizationTeamApi = () =>
   api.get<OrgTeamMember[]>("/organization/team").then((r) => r.data)
 
-export const addOrganizationTeamMemberApi = (payload: { email: string; full_name: string; password?: string }) =>
-  api.post<OrgTeamMember>("/organization/team", payload).then((r) => r.data)
+export const addOrganizationTeamMemberApi = (payload: {
+  email: string
+  full_name: string
+  password?: string
+  phone?: string | null
+  org_role?: string
+}) => api.post<OrgTeamMember>("/organization/team", payload).then((r) => r.data)
+
+export const updateOrganizationTeamMemberApi = (userId: string, org_role: string) =>
+  api.patch<OrgTeamMember>(`/organization/team/${userId}`, { org_role }).then((r) => r.data)
 
 export const removeOrganizationTeamMemberApi = (userId: string) =>
   api.delete(`/organization/team/${userId}`)

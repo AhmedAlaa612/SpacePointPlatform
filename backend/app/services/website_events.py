@@ -13,6 +13,7 @@ from app.models.spine.organization import Organization
 from app.models.user import User
 from app.models.website_event import MegaEvent, WebsiteEvent
 from app.services.documents.id_card import ensure_card_number
+from app.services.org_access import global_roles_for_org_role, normalize_org_role
 from app.services.spine.identity import (
     normalize_user_email,
     resolve_or_create_contact,
@@ -81,6 +82,7 @@ async def build_organization_team_member(
     password: str | None = None,
     phone: str | None = None,
     role_event_source: str = "org_team_member",
+    org_role: str = "coordinator",
 ) -> tuple[User, bool]:
     """Create a portal account linked to `org` as a team member.
 
@@ -95,7 +97,14 @@ async def build_organization_team_member(
     their existing password keeps working (returns `(user, False)` so the
     caller can email a "you've been added" notice rather than a password link).
     A previous assignment to another organization is overwritten (last-in-wins).
+
+    `org_role` is the sandbox role (`coordinator | instructor | judge |
+    observer`) and drives which global roles the account is granted: an org
+    instructor/judge also gets `instructor`/`judge` so the existing delivery
+    and judging endpoints work, and every team member keeps `organization`.
     """
+    sandbox_role = normalize_org_role(org_role)
+    needed_roles = global_roles_for_org_role(sandbox_role)
     normalized = normalize_user_email(email)
     existing = (
         await db.execute(select(User).where(user_email_matches(normalized)))
@@ -124,8 +133,12 @@ async def build_organization_team_member(
         # moves them there instead of refusing. (Deliberate 2026-11-18 — the
         # single organization_id column is an assignment, not a history.)
         existing.organization_id = org.id
-        if "organization" not in existing.role_values:
-            existing.roles = list(existing.roles or []) + [UserRole.organization]
+        existing.org_role = sandbox_role
+        merged = [*(existing.roles or [])]
+        for needed in needed_roles:
+            if needed.value not in [r.value if isinstance(r, UserRole) else str(r) for r in merged]:
+                merged.append(needed)
+        existing.roles = merged
         if existing.contact_id:
             contact = await db.get(Contact, existing.contact_id)
             if contact is not None:
@@ -148,11 +161,12 @@ async def build_organization_team_member(
         full_name=full_name.strip(),
         email=normalized,
         password_hash=get_password_hash((password or "").strip() or secrets.token_urlsafe(32)),
-        roles=[UserRole.organization],
+        roles=needed_roles,
         status="active",
         must_change_password=not (password or "").strip(),
         contact_id=contact.id if contact else None,
         organization_id=org.id,
+        org_role=sandbox_role,
         phone=(phone or "").strip() or None,
         country=org.country or "uae",
         city_other=org.city,

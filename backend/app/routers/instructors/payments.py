@@ -27,6 +27,7 @@ from app.services.email import (
     send_payment_signed_notification_email,
 )
 from app.services.notification import create_notification as notify
+from app.services.org_access import is_sandbox_instructor_or_judge, reject_sandbox_marketplace
 
 router = APIRouter(prefix="/payments", tags=["instructors-payments"])
 
@@ -48,6 +49,8 @@ async def _letter_with_children(db: AsyncSession, letter: PaymentLetter) -> Paym
 
 @router.get("/letters", response_model=list[PaymentLetterOut])
 async def list_my_letters(db: AsyncSession = Depends(get_db), current_user: User = Depends(require_instructor)):
+    if is_sandbox_instructor_or_judge(current_user):
+        return []
     letters = (await db.execute(
         select(PaymentLetter).where(
             PaymentLetter.instructor_user_id == current_user.id, PaymentLetter.is_published.is_(True)
@@ -60,6 +63,7 @@ async def list_my_letters(db: AsyncSession = Depends(get_db), current_user: User
 async def get_letter(
     letter_id: uuid.UUID, db: AsyncSession = Depends(get_db), current_user: User = Depends(require_instructor)
 ):
+    reject_sandbox_marketplace(current_user)
     letter = (await db.execute(
         select(PaymentLetter).where(PaymentLetter.id == letter_id, PaymentLetter.instructor_user_id == current_user.id)
     )).scalars().first()
@@ -75,6 +79,7 @@ async def sign_letter(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_instructor),
 ):
+    reject_sandbox_marketplace(current_user)
     letter = (await db.execute(
         select(PaymentLetter).where(
             PaymentLetter.id == letter_id,
@@ -204,6 +209,7 @@ async def sign_letter(
 async def download_letter(
     letter_id: uuid.UUID, db: AsyncSession = Depends(get_db), current_user: User = Depends(require_instructor)
 ):
+    reject_sandbox_marketplace(current_user)
     letter = (await db.execute(
         select(PaymentLetter).where(PaymentLetter.id == letter_id, PaymentLetter.instructor_user_id == current_user.id)
     )).scalars().first()
@@ -218,6 +224,8 @@ async def download_letter(
 
 @router.get("/summary", response_model=PaymentSummaryOut)
 async def payment_summary(db: AsyncSession = Depends(get_db), current_user: User = Depends(require_instructor)):
+    if is_sandbox_instructor_or_judge(current_user):
+        return PaymentSummaryOut(total_earned_aed=0, total_hours=0, total_sessions=0, pending_signature=0)
     letters = (await db.execute(
         select(PaymentLetter.id, PaymentLetter.status).where(
             PaymentLetter.instructor_user_id == current_user.id, PaymentLetter.is_published.is_(True)

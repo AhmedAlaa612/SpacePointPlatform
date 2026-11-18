@@ -158,6 +158,9 @@ class UserOut(BaseModel):
     organization_type: str | None = None
     organization_country: str | None = None
     organization_city: str | None = None
+    # Sandbox role in the partner organization (owner|coordinator|instructor|
+    # judge|observer), used to hide SpacePoint marketplace/payout surfaces.
+    org_role: str | None = None
     is_certified_instructor: bool = False
     missing_profile_fields: list[str] = []
 

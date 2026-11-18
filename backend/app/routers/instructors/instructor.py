@@ -20,6 +20,7 @@ from app.models.instructors.instructor_profile import InstructorProfile
 from app.models.instructors.payment import InstructorBankDetails
 from app.models.user import User
 from app.services.documents.compliance import evaluate_instructor_compliance
+from app.services.org_access import reject_sandbox_marketplace
 from app.schemas.instructors.instructor import (
     BankDetailsOut,
     BankDetailsUpdate,
@@ -187,6 +188,7 @@ async def sign_contract(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_instructor),
 ):
+    reject_sandbox_marketplace(current_user)
     profile = (await db.execute(
         select(InstructorProfile).where(InstructorProfile.user_id == current_user.id)
     )).scalars().first()

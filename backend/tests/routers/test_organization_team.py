@@ -7,7 +7,7 @@ Regression coverage for the "Add Team Member" blank screen:
 """
 
 import uuid
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 
 import pytest
 from jose import jwt
@@ -267,3 +267,239 @@ async def test_invite_moves_account_from_another_org(db, client, sent_emails):
     assert student.organization_id == org.id
     assert "organization" in student.role_values
     assert len(sent_emails) == 1
+
+
+# -- Sandbox roles & staffing (2026-11-18) ------------------------------------
+
+from app.models.competitions.judging import CompetitionJudge
+from app.models.sessions.cohort import Cohort
+from app.models.sessions.delivery_role import DeliveryRole
+from app.models.sessions.pre_session_quiz import PreSessionQuizAssignment, PreSessionQuizPreset
+from app.models.sessions.program import Program
+from app.models.sessions.session import Session, SessionInstructor
+
+
+async def _seed_cohort(db, org: Organization, *, sessions: int = 1):
+    from sqlalchemy import select
+
+    role = (await db.execute(select(DeliveryRole).limit(1))).scalars().first()
+    if role is None:
+        role = DeliveryRole(id=uuid.uuid4(), name=f"Lead {uuid.uuid4().hex[:6]}", sort_order=1, is_active=True)
+        db.add(role)
+        await db.flush()
+
+    program = Program(
+        id=uuid.uuid4(),
+        code=f"ORG-{uuid.uuid4().hex[:6]}",
+        name="Partner Program",
+        program_type="workshop",
+        pricing_model="free",
+        organization_id=org.id,
+    )
+    db.add(program)
+    await db.flush()
+
+    cohort = Cohort(
+        id=uuid.uuid4(),
+        program_id=program.id,
+        name="Partner Cohort",
+        status="registration_open",
+        organization_id=org.id,
+    )
+    db.add(cohort)
+    await db.flush()
+
+    session_rows = []
+    for idx in range(sessions):
+        s = Session(
+            id=uuid.uuid4(),
+            cohort_id=cohort.id,
+            title=f"Session {idx + 1}",
+            meeting_date=date.today(),
+            staffing_status="unstaffed",
+        )
+        db.add(s)
+        session_rows.append(s)
+    await db.flush()
+    return program, cohort, session_rows
+
+
+async def _add_member(db, client, owner, *, org_role: str, email: str | None = None):
+    email = email or f"member-{uuid.uuid4().hex[:8]}@example.com"
+    resp = await client.post(
+        "/organization/team",
+        headers=_headers(owner),
+        json={"full_name": "Sandbox Member", "email": email, "org_role": org_role},
+    )
+    assert resp.status_code == 201, resp.text
+    return resp.json(), email
+
+
+async def test_add_instructor_grants_instructor_role_and_org_role(db, client, sent_emails):
+    owner, org = await _seed_org(db)
+    body, _email = await _add_member(db, client, owner, org_role="instructor")
+
+    assert body["org_role"] == "instructor"
+    from sqlalchemy import select
+
+    member = (await db.execute(select(User).where(User.id == uuid.UUID(body["id"])))).scalars().first()
+    assert member.org_role == "instructor"
+    assert "instructor" in member.role_values
+    assert "organization" in member.role_values
+
+
+async def test_add_judge_grants_judge_role(db, client, sent_emails):
+    owner, org = await _seed_org(db)
+    body, _email = await _add_member(db, client, owner, org_role="judge")
+
+    from sqlalchemy import select
+
+    member = (await db.execute(select(User).where(User.id == uuid.UUID(body["id"])))).scalars().first()
+    assert member.org_role == "judge"
+    assert "judge" in member.role_values
+
+
+async def test_team_list_hides_students_who_are_merely_affiliated(db, client):
+    owner, org = await _seed_org(db)
+    student = await _make_user(db, roles=["student"])
+    student.organization_id = org.id
+    await db.flush()
+
+    resp = await client.get("/organization/team", headers=_headers(owner))
+    assert resp.status_code == 200, resp.text
+    ids = {row["id"] for row in resp.json()}
+    assert str(owner.id) in ids
+    assert str(student.id) not in ids
+    owner_row = next(row for row in resp.json() if row["id"] == str(owner.id))
+    assert owner_row["org_role"] == "owner"
+
+
+async def test_patch_team_member_role(db, client, sent_emails):
+    owner, org = await _seed_org(db)
+    body, _email = await _add_member(db, client, owner, org_role="coordinator")
+
+    resp = await client.patch(
+        f"/organization/team/{body['id']}",
+        headers=_headers(owner),
+        json={"org_role": "judge"},
+    )
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["org_role"] == "judge"
+
+    from sqlalchemy import select
+
+    member = (await db.execute(select(User).where(User.id == uuid.UUID(body["id"])))).scalars().first()
+    assert member.org_role == "judge"
+    assert "judge" in member.role_values
+
+
+async def test_instructor_cannot_manage_team(db, client, sent_emails):
+    owner, org = await _seed_org(db)
+    body, member_email = await _add_member(db, client, owner, org_role="instructor")
+    from sqlalchemy import select
+
+    member = (await db.execute(select(User).where(User.id == uuid.UUID(body["id"])))).scalars().first()
+
+    resp = await client.post(
+        "/organization/team",
+        headers=_headers(member),
+        json={"full_name": "Nope", "email": f"nope-{uuid.uuid4().hex[:6]}@example.com"},
+    )
+    assert resp.status_code == 403
+
+
+async def test_remove_member_detaches_instead_of_deleting(db, client, sent_emails):
+    owner, org = await _seed_org(db)
+    body, _email = await _add_member(db, client, owner, org_role="instructor")
+
+    resp = await client.delete(f"/organization/team/{body['id']}", headers=_headers(owner))
+    assert resp.status_code == 204, resp.text
+
+    from sqlalchemy import select
+
+    member = (await db.execute(select(User).where(User.id == uuid.UUID(body["id"])))).scalars().first()
+    assert member is not None  # account survives
+    assert member.organization_id is None
+    assert member.org_role is None
+    assert "organization" not in member.role_values
+    assert "instructor" not in member.role_values
+
+
+async def test_assign_instructor_to_cohort_and_sessions(db, client, sent_emails):
+    owner, org = await _seed_org(db)
+    body, _email = await _add_member(db, client, owner, org_role="instructor")
+    instructor_id = uuid.UUID(body["id"])
+    _program, cohort, sessions = await _seed_cohort(db, org, sessions=2)
+
+    resp = await client.post(
+        f"/organization/cohorts/{cohort.id}/instructors",
+        headers=_headers(owner),
+        json={"user_id": str(instructor_id)},
+    )
+    assert resp.status_code == 201, resp.text
+    assert resp.json()["assigned"] == 2
+
+    from sqlalchemy import func, select
+
+    count = await db.scalar(
+        select(func.count(SessionInstructor.id)).where(SessionInstructor.user_id == instructor_id)
+    )
+    assert count == 2
+
+    staff = await client.get(f"/organization/cohorts/{cohort.id}/staff", headers=_headers(owner))
+    assert staff.status_code == 200, staff.text
+    row = next(r for r in staff.json()["instructors"] if r["user_id"] == str(instructor_id))
+    assert row["sessions_count"] == 2
+
+
+async def test_assign_judge_to_cohort(db, client, sent_emails):
+    owner, org = await _seed_org(db)
+    body, _email = await _add_member(db, client, owner, org_role="judge")
+    _program, cohort, _sessions = await _seed_cohort(db, org)
+
+    resp = await client.post(
+        f"/organization/cohorts/{cohort.id}/judges",
+        headers=_headers(owner),
+        json={"user_id": body["id"]},
+    )
+    assert resp.status_code == 201, resp.text
+
+    from sqlalchemy import select
+
+    row = (
+        await db.execute(
+            select(CompetitionJudge).where(
+                CompetitionJudge.cohort_id == cohort.id,
+                CompetitionJudge.user_id == uuid.UUID(body["id"]),
+            )
+        )
+    ).scalars().first()
+    assert row is not None
+
+
+async def test_set_and_read_cohort_readiness(db, client, sent_emails):
+    owner, org = await _seed_org(db)
+    _program, cohort, _sessions = await _seed_cohort(db, org)
+    preset = PreSessionQuizPreset(id=uuid.uuid4(), name="Readiness", question_ids=[])
+    db.add(preset)
+    await db.flush()
+
+    resp = await client.put(
+        f"/organization/cohorts/{cohort.id}/readiness",
+        headers=_headers(owner),
+        json={"preset_id": str(preset.id)},
+    )
+    assert resp.status_code == 200, resp.text
+
+    from sqlalchemy import select
+
+    assign = (
+        await db.execute(
+            select(PreSessionQuizAssignment).where(PreSessionQuizAssignment.cohort_id == cohort.id)
+        )
+    ).scalars().first()
+    assert assign is not None and assign.preset_id == preset.id
+
+    read = await client.get(f"/organization/cohorts/{cohort.id}/readiness", headers=_headers(owner))
+    assert read.status_code == 200, read.text
+    assert read.json()["preset"]["name"] == "Readiness"

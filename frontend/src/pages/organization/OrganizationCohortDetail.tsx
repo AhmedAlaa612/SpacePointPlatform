@@ -21,10 +21,29 @@ import {
   Eye,
   X,
   Pencil,
+  GraduationCap,
+  Gavel,
+  ClipboardCheck,
+  UserPlus,
 } from "lucide-react"
 import { useToast } from "@/components/ui/toast"
 import { downloadCompetitionRosterTemplateApi } from "@/api/competitions"
 import { getOrganizationTeamApi } from "@/api/websiteEvents"
+import type { OrgTeamMember } from "@/api/websiteEvents"
+import {
+  assignOrgInstructor,
+  assignOrgJudge,
+  getOrgCohortReadiness,
+  getOrgCohortStaff,
+  getOrgReadinessPresets,
+  setOrgCohortReadiness,
+  unassignOrgInstructor,
+  unassignOrgJudge,
+  type OrgCohortStaff,
+  type OrgCohortReadiness,
+  type OrgInstructorReadiness,
+  type OrgReadinessPreset,
+} from "@/api/organizationSandbox"
 import {
   getOrgCohortDetailApi,
   getOrgCohortRegistrationsApi,
@@ -44,7 +63,7 @@ import {
 } from "@/api/organizationPrograms"
 import { LmsCohortSection } from "@/pages/lms-authoring/components/LmsCohortSection"
 
-type TabKey = "milestones" | "students" | "sessions"
+type TabKey = "milestones" | "students" | "sessions" | "staff"
 
 export default function OrganizationCohortDetail() {
   const { cohortId } = useParams({ strict: false }) as { cohortId: string }
@@ -82,6 +101,8 @@ export default function OrganizationCohortDetail() {
     void qc.invalidateQueries({ queryKey: ["org-cohort-detail", cohortId] })
     void qc.invalidateQueries({ queryKey: ["org-cohort-registrations", cohortId] })
     void qc.invalidateQueries({ queryKey: ["org-cohort-observers", cohortId] })
+    void qc.invalidateQueries({ queryKey: ["org-cohort-staff", cohortId] })
+    void qc.invalidateQueries({ queryKey: ["org-cohort-readiness", cohortId] })
   }
 
   const removeObserverMut = useMutation({
@@ -114,6 +135,86 @@ export default function OrganizationCohortDetail() {
     },
     onError: (err: any) => {
       toast.error(err?.response?.data?.detail ?? "Failed to delete session")
+    },
+  })
+
+  const { data: staff, isLoading: staffLoading } = useQuery<OrgCohortStaff>({
+    queryKey: ["org-cohort-staff", cohortId],
+    queryFn: () => getOrgCohortStaff(cohortId),
+    enabled: Boolean(cohortId) && activeTab === "staff",
+  })
+
+  const { data: team = [] } = useQuery({
+    queryKey: ["org-team-members"],
+    queryFn: getOrganizationTeamApi,
+    enabled: Boolean(cohortId) && activeTab === "staff",
+  })
+
+  const { data: readinessPresets = [] } = useQuery({
+    queryKey: ["org-readiness-presets"],
+    queryFn: getOrgReadinessPresets,
+    enabled: Boolean(cohortId) && activeTab === "staff",
+  })
+
+  const { data: cohortReadiness } = useQuery<OrgCohortReadiness>({
+    queryKey: ["org-cohort-readiness", cohortId],
+    queryFn: () => getOrgCohortReadiness(cohortId),
+    enabled: Boolean(cohortId) && activeTab === "staff",
+  })
+
+  const assignInstructorMut = useMutation({
+    mutationFn: (userId: string) => assignOrgInstructor(cohortId, { user_id: userId }),
+    onSuccess: () => {
+      toast.success("Instructor assigned to the cohort sessions")
+      invalidate()
+    },
+    onError: (err: any) => {
+      toast.error(err?.response?.data?.detail ?? "Failed to assign instructor")
+    },
+  })
+
+  const unassignInstructorMut = useMutation({
+    mutationFn: (userId: string) => unassignOrgInstructor(cohortId, userId),
+    onSuccess: () => {
+      toast.success("Instructor removed from this cohort")
+      invalidate()
+    },
+    onError: (err: any) => {
+      toast.error(err?.response?.data?.detail ?? "Failed to unassign instructor")
+    },
+  })
+
+  const assignJudgeMut = useMutation({
+    mutationFn: (userId: string) => assignOrgJudge(cohortId, userId),
+    onSuccess: () => {
+      toast.success("Judge assigned to this cohort")
+      invalidate()
+    },
+    onError: (err: any) => {
+      toast.error(err?.response?.data?.detail ?? "Failed to assign judge")
+    },
+  })
+
+  const unassignJudgeMut = useMutation({
+    mutationFn: (userId: string) => unassignOrgJudge(cohortId, userId),
+    onSuccess: () => {
+      toast.success("Judge removed from this cohort")
+      invalidate()
+    },
+    onError: (err: any) => {
+      toast.error(err?.response?.data?.detail ?? "Failed to unassign judge")
+    },
+  })
+
+  const readinessMut = useMutation({
+    mutationFn: (presetId: string | null) => setOrgCohortReadiness(cohortId, presetId),
+    onSuccess: () => {
+      toast.success("Readiness quiz updated")
+      void qc.invalidateQueries({ queryKey: ["org-cohort-readiness", cohortId] })
+      void qc.invalidateQueries({ queryKey: ["org-cohort-staff", cohortId] })
+    },
+    onError: (err: any) => {
+      toast.error(err?.response?.data?.detail ?? "Failed to update readiness quiz")
     },
   })
 
@@ -246,6 +347,11 @@ export default function OrganizationCohortDetail() {
             key: "sessions",
             label: `Sessions (${cohort.sessions?.length || 0})`,
             icon: Clock,
+          },
+          {
+            key: "staff",
+            label: "Team & Readiness",
+            icon: GraduationCap,
           },
         ].map((t) => {
           const Icon = t.icon
@@ -632,6 +738,22 @@ export default function OrganizationCohortDetail() {
         </div>
       )}
 
+      {/* 4. TEAM & READINESS */}
+      {activeTab === "staff" && (
+        <CohortStaffPanel
+          staff={staff}
+          loading={staffLoading}
+          team={team}
+          presets={readinessPresets}
+          readiness={cohortReadiness}
+          onAssignInstructor={(userId) => assignInstructorMut.mutate(userId)}
+          onUnassignInstructor={(userId) => unassignInstructorMut.mutate(userId)}
+          onAssignJudge={(userId) => assignJudgeMut.mutate(userId)}
+          onUnassignJudge={(userId) => unassignJudgeMut.mutate(userId)}
+          onSetReadiness={(presetId) => readinessMut.mutate(presetId)}
+        />
+      )}
+
       {/* ── Edit Cohort Modal ─────────────────────────────────────────────── */}
       {editCohortOpen && (
         <EditCohortModal
@@ -696,6 +818,374 @@ export default function OrganizationCohortDetail() {
 }
 
 // ── Modals & Sub-components ──────────────────────────────────────────────────
+
+function ReadinessBadge({ readiness }: { readiness: OrgInstructorReadiness | null }) {
+  if (!readiness) {
+    return (
+      <span className="inline-flex items-center text-[10px] font-semibold px-2 py-0.5 rounded-full bg-muted text-muted-foreground">
+        Not started
+      </span>
+    )
+  }
+  const pct = Math.round(readiness.final_score || 0)
+  if (readiness.passed) {
+    return (
+      <span className="inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-600 dark:text-emerald-400">
+        <CheckCircle2 className="w-2.5 h-2.5" /> Passed · {pct}%
+      </span>
+    )
+  }
+  return (
+    <span className="inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-full bg-amber-500/15 text-amber-600 dark:text-amber-400">
+      <Clock className="w-2.5 h-2.5" />
+      {readiness.status === "submitted" ? "Awaiting review" : "In progress"} · {pct}%
+    </span>
+  )
+}
+
+function CohortStaffPanel({
+  staff,
+  loading,
+  team,
+  presets,
+  readiness,
+  onAssignInstructor,
+  onUnassignInstructor,
+  onAssignJudge,
+  onUnassignJudge,
+  onSetReadiness,
+}: {
+  staff?: OrgCohortStaff
+  loading: boolean
+  team: OrgTeamMember[]
+  presets: OrgReadinessPreset[]
+  readiness?: OrgCohortReadiness
+  onAssignInstructor: (userId: string) => void
+  onUnassignInstructor: (userId: string) => void
+  onAssignJudge: (userId: string) => void
+  onUnassignJudge: (userId: string) => void
+  onSetReadiness: (presetId: string | null) => void
+}) {
+  const [instructorId, setInstructorId] = useState("")
+  const [judgeId, setJudgeId] = useState("")
+  const [presetDraft, setPresetDraft] = useState<string | null>(null)
+  const presetId = presetDraft ?? readiness?.preset?.id ?? ""
+
+  const instructors = staff?.instructors ?? []
+  const judges = staff?.judges ?? []
+  const assignedInstructorIds = new Set(instructors.map((i) => i.user_id))
+  const assignedJudgeIds = new Set(judges.map((j) => j.user_id))
+
+  const instructorCandidates = team.filter(
+    (m) => m.org_role === "instructor" && !assignedInstructorIds.has(m.id)
+  )
+  const judgeCandidates = team.filter((m) => m.org_role === "judge" && !assignedJudgeIds.has(m.id))
+
+  return (
+    <div className="space-y-4">
+      {/* Instructors */}
+      <div className="rounded-2xl border border-border bg-card overflow-hidden">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-4 border-b border-border">
+          <div>
+            <h3 className="text-sm font-bold text-foreground flex items-center gap-2">
+              <GraduationCap className="w-4 h-4 text-primary" /> Cohort Instructors
+            </h3>
+            <p className="text-xs text-muted-foreground mt-0.5">
+              Assign your team's instructors to the cohort. They get the sessions, attendance and
+              their readiness quiz in their own portal.
+            </p>
+          </div>
+          <div className="flex items-center gap-2 shrink-0">
+            <select
+              value={instructorId}
+              onChange={(e) => setInstructorId(e.target.value)}
+              className="h-8 px-2.5 rounded-lg border border-border bg-background text-xs text-foreground focus:outline-none focus:border-primary min-w-[180px]"
+            >
+              <option value="">Choose instructor…</option>
+              {instructorCandidates.map((m) => (
+                <option key={m.id} value={m.id}>
+                  {m.full_name}
+                </option>
+              ))}
+            </select>
+            <button
+              type="button"
+              disabled={!instructorId}
+              onClick={() => {
+                onAssignInstructor(instructorId)
+                setInstructorId("")
+              }}
+              className="inline-flex items-center gap-1.5 h-8 px-3 rounded-lg bg-primary text-primary-foreground text-xs font-semibold hover:opacity-90 transition disabled:opacity-50"
+            >
+              <UserPlus className="w-3.5 h-3.5" /> Assign
+            </button>
+          </div>
+        </div>
+
+        {instructorCandidates.length === 0 && !instructors.length && (
+          <div className="p-4 text-xs text-muted-foreground border-b border-border bg-muted/20">
+            No team members have the Instructor role yet.{" "}
+            <Link to="/organization/team" className="font-semibold text-primary hover:underline">
+              Add an instructor on the Team page
+            </Link>
+            .
+          </div>
+        )}
+
+        {loading ? (
+          <div className="p-8 text-center text-xs text-muted-foreground">Loading staffing…</div>
+        ) : instructors.length === 0 ? (
+          <div className="p-8 text-center text-xs text-muted-foreground">
+            No instructors assigned to this cohort yet.
+          </div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-left text-xs">
+              <thead className="bg-muted/40 text-muted-foreground uppercase text-[10px] tracking-wider border-b border-border">
+                <tr>
+                  <th className="py-3 px-4">Instructor</th>
+                  <th className="py-3 px-4">Sessions</th>
+                  <th className="py-3 px-4">Attendance</th>
+                  <th className="py-3 px-4">Readiness</th>
+                  <th className="py-3 px-4 text-right">Actions</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-border">
+                {instructors.map((ins) => (
+                  <tr key={ins.user_id} className="hover:bg-muted/20 transition">
+                    <td className="py-3 px-4">
+                      <span className="font-semibold text-foreground block">{ins.full_name}</span>
+                      <span className="text-[11px] text-muted-foreground">{ins.email}</span>
+                    </td>
+                    <td className="py-3 px-4 text-muted-foreground">
+                      {ins.completed_sessions} / {ins.sessions_count} completed
+                    </td>
+                    <td className="py-3 px-4 text-muted-foreground">
+                      <span className="text-emerald-600 dark:text-emerald-400 font-semibold">
+                        {ins.attendance_present}
+                      </span>{" "}
+                      present ·{" "}
+                      <span className="text-destructive font-semibold">{ins.attendance_absent}</span>{" "}
+                      absent
+                    </td>
+                    <td className="py-3 px-4">
+                      <ReadinessBadge readiness={ins.readiness} />
+                    </td>
+                    <td className="py-3 px-4 text-right">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (
+                            window.confirm(
+                              `Remove ${ins.full_name} from all sessions in this cohort?`
+                            )
+                          ) {
+                            onUnassignInstructor(ins.user_id)
+                          }
+                        }}
+                        className="inline-flex items-center gap-1 text-xs text-destructive hover:underline"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" /> Unassign
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+
+      {/* Judges */}
+      <div className="rounded-2xl border border-border bg-card overflow-hidden">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-4 border-b border-border">
+          <div>
+            <h3 className="text-sm font-bold text-foreground flex items-center gap-2">
+              <Gavel className="w-4 h-4 text-primary" /> Competition Judges
+            </h3>
+            <p className="text-xs text-muted-foreground mt-0.5">
+              Judges only see the competitions of the cohorts you assign them to.
+            </p>
+          </div>
+          <div className="flex items-center gap-2 shrink-0">
+            <select
+              value={judgeId}
+              onChange={(e) => setJudgeId(e.target.value)}
+              className="h-8 px-2.5 rounded-lg border border-border bg-background text-xs text-foreground focus:outline-none focus:border-primary min-w-[180px]"
+            >
+              <option value="">Choose judge…</option>
+              {judgeCandidates.map((m) => (
+                <option key={m.id} value={m.id}>
+                  {m.full_name}
+                </option>
+              ))}
+            </select>
+            <button
+              type="button"
+              disabled={!judgeId}
+              onClick={() => {
+                onAssignJudge(judgeId)
+                setJudgeId("")
+              }}
+              className="inline-flex items-center gap-1.5 h-8 px-3 rounded-lg bg-primary text-primary-foreground text-xs font-semibold hover:opacity-90 transition disabled:opacity-50"
+            >
+              <UserPlus className="w-3.5 h-3.5" /> Assign
+            </button>
+          </div>
+        </div>
+
+        {judgeCandidates.length === 0 && !judges.length && (
+          <div className="p-4 text-xs text-muted-foreground border-b border-border bg-muted/20">
+            No team members have the Judge role yet.{" "}
+            <Link to="/organization/team" className="font-semibold text-primary hover:underline">
+              Add a judge on the Team page
+            </Link>
+            .
+          </div>
+        )}
+
+        {judges.length === 0 ? (
+          <div className="p-8 text-center text-xs text-muted-foreground">
+            No judges assigned to this cohort yet.
+          </div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-left text-xs">
+              <thead className="bg-muted/40 text-muted-foreground uppercase text-[10px] tracking-wider border-b border-border">
+                <tr>
+                  <th className="py-3 px-4">Judge</th>
+                  <th className="py-3 px-4">Contact</th>
+                  <th className="py-3 px-4">Account</th>
+                  <th className="py-3 px-4 text-right">Actions</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-border">
+                {judges.map((j) => (
+                  <tr key={j.user_id} className="hover:bg-muted/20 transition">
+                    <td className="py-3 px-4 font-semibold text-foreground">{j.full_name}</td>
+                    <td className="py-3 px-4 text-muted-foreground">
+                      {j.email}
+                      {j.phone ? ` · ${j.phone}` : ""}
+                    </td>
+                    <td className="py-3 px-4 text-muted-foreground uppercase">{j.status}</td>
+                    <td className="py-3 px-4 text-right">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (window.confirm(`Remove ${j.full_name} from this cohort's judging?`)) {
+                            onUnassignJudge(j.user_id)
+                          }
+                        }}
+                        className="inline-flex items-center gap-1 text-xs text-destructive hover:underline"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" /> Unassign
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+
+      {/* Readiness quiz */}
+      <div className="rounded-2xl border border-border bg-card overflow-hidden">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-4 border-b border-border">
+          <div>
+            <h3 className="text-sm font-bold text-foreground flex items-center gap-2">
+              <ClipboardCheck className="w-4 h-4 text-primary" /> Pre-Session Readiness Quiz
+            </h3>
+            <p className="text-xs text-muted-foreground mt-0.5">
+              Instructors must pass this quiz before they can start a session in this cohort.
+            </p>
+          </div>
+          <div className="flex items-center gap-2 shrink-0">
+            <select
+              value={presetId}
+              onChange={(e) => setPresetDraft(e.target.value)}
+              className="h-8 px-2.5 rounded-lg border border-border bg-background text-xs text-foreground focus:outline-none focus:border-primary min-w-[220px]"
+            >
+              <option value="">No readiness quiz</option>
+              {presets.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.name} ({p.question_count} questions)
+                </option>
+              ))}
+            </select>
+            <button
+              type="button"
+              onClick={() => onSetReadiness(presetId || null)}
+              className="inline-flex items-center gap-1.5 h-8 px-3 rounded-lg border border-border bg-background text-xs font-semibold text-foreground hover:bg-muted transition"
+            >
+              Save
+            </button>
+          </div>
+        </div>
+
+        <div className="p-4 border-b border-border bg-muted/20 text-xs text-muted-foreground">
+          Currently assigned:{" "}
+          <span className="font-semibold text-foreground">
+            {readiness?.preset ? readiness.preset.name : "None"}
+          </span>
+          {readiness?.preset?.description ? ` — ${readiness.preset.description}` : ""}
+        </div>
+
+        {!readiness || readiness.instructors.length === 0 ? (
+          <div className="p-8 text-center text-xs text-muted-foreground">
+            No instructor readiness results yet. Results appear here once instructors take the quiz.
+          </div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-left text-xs">
+              <thead className="bg-muted/40 text-muted-foreground uppercase text-[10px] tracking-wider border-b border-border">
+                <tr>
+                  <th className="py-3 px-4">Instructor</th>
+                  <th className="py-3 px-4">Score</th>
+                  <th className="py-3 px-4">Submitted</th>
+                  <th className="py-3 px-4">Status</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-border">
+                {readiness.instructors.map((r) => (
+                  <tr key={r.user_id} className="hover:bg-muted/20 transition">
+                    <td className="py-3 px-4">
+                      <span className="font-semibold text-foreground block">{r.full_name}</span>
+                      <span className="text-[11px] text-muted-foreground">{r.email}</span>
+                    </td>
+                    <td className="py-3 px-4 text-foreground font-semibold">
+                      {Math.round(r.final_score || 0)}% of {r.total_questions} questions
+                    </td>
+                    <td className="py-3 px-4 text-muted-foreground">
+                      {r.submitted_at ? new Date(r.submitted_at).toLocaleDateString() : "—"}
+                    </td>
+                    <td className="py-3 px-4">
+                      <ReadinessBadge
+                        readiness={{
+                          status: r.status,
+                          final_score: r.final_score,
+                          total_questions: r.total_questions,
+                          submitted_at: r.submitted_at,
+                          passed: r.passed,
+                        }}
+                      />
+                      {r.pending_review_count > 0 && (
+                        <span className="ml-2 text-[10px] text-muted-foreground">
+                          {r.pending_review_count} pending review
+                        </span>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
 
 function AddObserverModal({
   cohortId,

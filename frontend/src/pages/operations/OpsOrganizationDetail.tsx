@@ -29,12 +29,16 @@ import {
   Users,
 } from "lucide-react"
 import {
+  ORG_ASSIGNABLE_ROLES,
   createOrganizationMember,
   createOrganizationMemberResetLink,
   getAdminOrganizationDetail,
   getAdminOrganizationResetLink,
+  removeOrganizationMember,
   toggleOrganizationCoursePublish,
   updateAdminOrganizationAccount,
+  updateOrganizationMember,
+  type OrgSandboxRole,
 } from "@/api/websiteEvents"
 import {
   OrgAccountModal,
@@ -148,6 +152,25 @@ export default function OpsOrganizationDetail() {
       }
     },
     onError: (err) => toast.error(getErrorMessage(err, "Could not generate member reset link")),
+  })
+
+  const memberRoleMut = useMutation({
+    mutationFn: ({ userId, orgRole }: { userId: string; orgRole: string }) =>
+      updateOrganizationMember(orgId, userId, orgRole),
+    onSuccess: () => {
+      invalidateOrgQueries()
+      toast.success("Member role updated")
+    },
+    onError: (err) => toast.error(getErrorMessage(err, "Could not update member role")),
+  })
+
+  const removeMemberMut = useMutation({
+    mutationFn: (userId: string) => removeOrganizationMember(orgId, userId),
+    onSuccess: () => {
+      invalidateOrgQueries()
+      toast.success("Member removed from this organization")
+    },
+    onError: (err) => toast.error(getErrorMessage(err, "Could not remove member")),
   })
 
   const coursePublishMut = useMutation({
@@ -1401,7 +1424,7 @@ export default function OpsOrganizationDetail() {
                     <th className="py-3 pr-4 font-semibold uppercase">Card ID</th>
                     <th className="py-3 pr-4 font-semibold uppercase">Observer Cohorts</th>
                     <th className="py-3 pr-4 font-semibold uppercase">Account Status</th>
-                    <th className="py-3 text-right font-semibold uppercase">Credentials</th>
+                    <th className="py-3 text-right font-semibold uppercase">Actions</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-border">
@@ -1409,18 +1432,30 @@ export default function OpsOrganizationDetail() {
                     <tr key={m.user_id} className="hover:bg-muted/40">
                       <td className="py-3.5 pr-4 font-bold text-foreground">{m.full_name}</td>
                       <td className="py-3.5 pr-4">
-                        <span
-                          className={cn(
-                            "rounded-[10px] border px-2.5 py-1 font-semibold",
-                            m.role === "Owner"
-                              ? "border-primary/30 bg-primary/10 text-primary"
-                              : m.role === "Coordinator"
-                              ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300"
-                              : "border-border bg-muted text-foreground"
-                          )}
-                        >
-                          {m.role}
-                        </span>
+                        {m.role === "Owner" ? (
+                          <span className="rounded-[10px] border border-primary/30 bg-primary/10 px-2.5 py-1 font-semibold text-primary">
+                            Owner
+                          </span>
+                        ) : (
+                          <select
+                            aria-label={`Role for ${m.full_name}`}
+                            value={m.org_role ?? "observer"}
+                            disabled={memberRoleMut.isPending}
+                            onChange={(e) =>
+                              memberRoleMut.mutate({
+                                userId: m.user_id,
+                                orgRole: e.target.value,
+                              })
+                            }
+                            className="h-8 rounded-[10px] border border-border bg-background px-2 text-xs font-semibold text-foreground focus:border-primary focus:outline-none"
+                          >
+                            {ORG_ASSIGNABLE_ROLES.map((r) => (
+                              <option key={r.value} value={r.value}>
+                                {r.label}
+                              </option>
+                            ))}
+                          </select>
+                        )}
                       </td>
                       <td className="py-3.5 pr-4 text-muted-foreground">
                         <div>{m.email}</div>
@@ -1466,21 +1501,43 @@ export default function OpsOrganizationDetail() {
                         </span>
                       </td>
                       <td className="py-3.5 text-right">
-                        <Button
-                          type="button"
-                          variant="outline"
-                          size="sm"
-                          className="h-7 rounded-[10px] px-3 text-xs font-semibold"
-                          disabled={memberResetMut.isPending}
-                          onClick={() => memberResetMut.mutate(m.user_id)}
-                        >
-                          {copiedKey === `member-${m.user_id}` ? (
-                            <Check className="h-3.5 w-3.5 text-emerald-500" />
-                          ) : (
-                            <KeyRound className="h-3.5 w-3.5" />
+                        <div className="inline-flex items-center justify-end gap-2">
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            className="h-7 rounded-[10px] px-3 text-xs font-semibold"
+                            disabled={memberResetMut.isPending}
+                            onClick={() => memberResetMut.mutate(m.user_id)}
+                          >
+                            {copiedKey === `member-${m.user_id}` ? (
+                              <Check className="h-3.5 w-3.5 text-emerald-500" />
+                            ) : (
+                              <KeyRound className="h-3.5 w-3.5" />
+                            )}
+                            Send Link
+                          </Button>
+                          {m.role !== "Owner" && (
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              className="h-7 rounded-[10px] px-3 text-xs font-semibold text-destructive hover:text-destructive"
+                              disabled={removeMemberMut.isPending}
+                              onClick={() => {
+                                if (
+                                  window.confirm(
+                                    `Remove ${m.full_name} from ${org.name_latin}? They lose all org access and cohort assignments.`
+                                  )
+                                ) {
+                                  removeMemberMut.mutate(m.user_id)
+                                }
+                              }}
+                            >
+                              Remove
+                            </Button>
                           )}
-                          Send Link
-                        </Button>
+                        </div>
                       </td>
                     </tr>
                   ))}
@@ -1533,6 +1590,7 @@ function InviteOrgMemberModal({
   const [fullName, setFullName] = useState("")
   const [email, setEmail] = useState("")
   const [phone, setPhone] = useState("")
+  const [orgRole, setOrgRole] = useState<Exclude<OrgSandboxRole, "owner">>("coordinator")
 
   const mut = useMutation({
     mutationFn: () =>
@@ -1540,6 +1598,7 @@ function InviteOrgMemberModal({
         full_name: fullName.trim(),
         email: email.trim(),
         phone: phone.trim() || null,
+        org_role: orgRole,
       }),
     onSuccess: (res) => {
       if (res.existing_account) {
@@ -1601,6 +1660,23 @@ function InviteOrgMemberModal({
               placeholder="+971 50 000 0000"
               className="h-9 rounded-[10px] border border-border bg-background px-3 text-sm focus:border-primary focus:outline-none"
             />
+          </label>
+          <label className="flex flex-col gap-1">
+            <span className="text-xs font-semibold text-muted-foreground">Organization Role</span>
+            <select
+              value={orgRole}
+              onChange={(e) => setOrgRole(e.target.value as Exclude<OrgSandboxRole, "owner">)}
+              className="h-9 rounded-[10px] border border-border bg-background px-3 text-sm text-foreground focus:border-primary focus:outline-none"
+            >
+              {ORG_ASSIGNABLE_ROLES.map((r) => (
+                <option key={r.value} value={r.value}>
+                  {r.label}
+                </option>
+              ))}
+            </select>
+            <span className="text-[11px] text-muted-foreground">
+              {ORG_ASSIGNABLE_ROLES.find((r) => r.value === orgRole)?.hint}
+            </span>
           </label>
         </div>
 

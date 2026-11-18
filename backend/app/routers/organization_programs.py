@@ -13,17 +13,26 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.dependencies import require_organization_account
 from app.db.session import get_db
+from app.models.competitions.judging import CompetitionJudge
 from app.models.enums import UserRole
 from app.models.lms.program import LmsProgram, LmsProgramAssignment, LmsProgramCohortOverride, LmsProgramItem
+from app.models.sessions.attendance import AttendanceRecord
 from app.models.sessions.cohort import Cohort
+from app.models.sessions.delivery_role import DeliveryRole
+from app.models.sessions.pre_session_quiz import (
+    PreSessionQuizAssignment,
+    PreSessionQuizAttempt,
+    PreSessionQuizPreset,
+)
 from app.models.sessions.program import Program
 from app.models.sessions.registration import Registration
-from app.models.sessions.session import Session
+from app.models.sessions.session import Session, SessionInstructor
 from app.models.spine.contact import Contact
 from app.models.spine.organization import Organization
 from app.models.user import User
 from app.models.website_event import WebsiteEvent
 from app.services.lms.ops_integration import sync_registration_lms
+from app.services.org_access import effective_org_role, global_roles_for_org_role, require_org_manager
 from app.services.sessions.registration import ACTIVE_REGISTRATION_STATUSES, register
 from app.services.spine.identity import normalize_user_email, resolve_or_create_contact
 from app.services.website_events import resolve_user_organization
@@ -237,6 +246,22 @@ class SessionUpdateIn(BaseModel):
     location: str | None = None
 
 
+class AssignOrgInstructorIn(BaseModel):
+    user_id: uuid.UUID
+    role_id: uuid.UUID | None = None
+    # None = every session in the cohort (the "assign them to a cohort" action);
+    # otherwise only these sessions.
+    session_ids: list[uuid.UUID] | None = None
+
+
+class AssignOrgJudgeIn(BaseModel):
+    user_id: uuid.UUID
+
+
+class OrgReadinessAssignIn(BaseModel):
+    preset_id: uuid.UUID | None = None
+
+
 # ── Programs Endpoints ───────────────────────────────────────────────────────
 @router.get("/programs-overview")
 async def get_organization_programs_overview(
@@ -421,6 +446,7 @@ async def create_organization_program(
     db: AsyncSession = Depends(get_db),
 ):
     org = await _get_org_or_400(db, current_user)
+    require_org_manager(current_user)
     _ensure_org_approved(org, current_user)
 
     if org.max_programs is not None and not _is_admin_or_ops(current_user):
@@ -498,6 +524,7 @@ async def update_organization_program(
     db: AsyncSession = Depends(get_db),
 ):
     org = await _get_org_or_400(db, current_user)
+    require_org_manager(current_user)
     program = await db.get(Program, program_id)
     if program is None or (program.organization_id != org.id and not _is_admin_or_ops(current_user)):
         raise HTTPException(status_code=404, detail="Program not found")
@@ -559,6 +586,7 @@ async def delete_organization_program(
     db: AsyncSession = Depends(get_db),
 ):
     org = await _get_org_or_400(db, current_user)
+    require_org_manager(current_user)
     program = await db.get(Program, program_id)
     if program is None or (program.organization_id != org.id and not _is_admin_or_ops(current_user)):
         raise HTTPException(status_code=404, detail="Program not found")
@@ -585,6 +613,7 @@ async def create_organization_cohort(
     db: AsyncSession = Depends(get_db),
 ):
     org = await _get_org_or_400(db, current_user)
+    require_org_manager(current_user)
     _ensure_org_approved(org, current_user)
 
     program = await db.get(Program, body.program_id)
@@ -755,6 +784,7 @@ async def update_organization_cohort(
     db: AsyncSession = Depends(get_db),
 ):
     org = await _get_org_or_400(db, current_user)
+    require_org_manager(current_user)
     cohort = await db.get(Cohort, cohort_id)
     if cohort is None or (cohort.organization_id != org.id and not _is_admin_or_ops(current_user)):
         raise HTTPException(status_code=404, detail="Cohort not found")
@@ -793,6 +823,7 @@ async def duplicate_organization_cohort(
     """Duplicates a cohort and clones its full milestone checklist items so the
     organization can reuse its setup for a new batch in 1 click."""
     org = await _get_org_or_400(db, current_user)
+    require_org_manager(current_user)
     source = await db.get(Cohort, cohort_id)
     if source is None or (source.organization_id != org.id and not _is_admin_or_ops(current_user)):
         raise HTTPException(status_code=404, detail="Source cohort not found")
@@ -940,6 +971,7 @@ async def register_student_to_cohort(
     db: AsyncSession = Depends(get_db),
 ):
     org = await _get_org_or_400(db, current_user)
+    require_org_manager(current_user)
     _ensure_org_approved(org, current_user)
     cohort = await db.get(Cohort, cohort_id)
     if cohort is None or (cohort.organization_id != org.id and not _is_admin_or_ops(current_user)):
@@ -1007,6 +1039,7 @@ async def bulk_import_students_to_cohort(
     db: AsyncSession = Depends(get_db),
 ):
     org = await _get_org_or_400(db, current_user)
+    require_org_manager(current_user)
     _ensure_org_approved(org, current_user)
     cohort = await db.get(Cohort, cohort_id)
     if cohort is None or (cohort.organization_id != org.id and not _is_admin_or_ops(current_user)):
@@ -1085,6 +1118,7 @@ async def cancel_cohort_registration(
     db: AsyncSession = Depends(get_db),
 ):
     org = await _get_org_or_400(db, current_user)
+    require_org_manager(current_user)
     cohort = await db.get(Cohort, cohort_id)
     if cohort is None or (cohort.organization_id != org.id and not _is_admin_or_ops(current_user)):
         raise HTTPException(status_code=404, detail="Cohort not found")
@@ -1143,6 +1177,7 @@ async def add_cohort_observer(
     db: AsyncSession = Depends(get_db),
 ):
     org = await _get_org_or_400(db, current_user)
+    require_org_manager(current_user)
     cohort = await db.get(Cohort, cohort_id)
     if cohort is None or (cohort.organization_id != org.id and not _is_admin_or_ops(current_user)):
         raise HTTPException(status_code=404, detail="Cohort not found")
@@ -1214,6 +1249,7 @@ async def remove_cohort_observer(
     db: AsyncSession = Depends(get_db),
 ):
     org = await _get_org_or_400(db, current_user)
+    require_org_manager(current_user)
     cohort = await db.get(Cohort, cohort_id)
     if cohort is None or (cohort.organization_id != org.id and not _is_admin_or_ops(current_user)):
         raise HTTPException(status_code=404, detail="Cohort not found")
@@ -1276,6 +1312,7 @@ async def create_cohort_session(
     db: AsyncSession = Depends(get_db),
 ):
     org = await _get_org_or_400(db, current_user)
+    require_org_manager(current_user)
     cohort = await db.get(Cohort, cohort_id)
     if cohort is None or (cohort.organization_id != org.id and not _is_admin_or_ops(current_user)):
         raise HTTPException(status_code=404, detail="Cohort not found")
@@ -1314,6 +1351,7 @@ async def update_cohort_session(
     db: AsyncSession = Depends(get_db),
 ):
     org = await _get_org_or_400(db, current_user)
+    require_org_manager(current_user)
     cohort = await db.get(Cohort, cohort_id)
     if cohort is None or (cohort.organization_id != org.id and not _is_admin_or_ops(current_user)):
         raise HTTPException(status_code=404, detail="Cohort not found")
@@ -1350,6 +1388,7 @@ async def delete_cohort_session(
     db: AsyncSession = Depends(get_db),
 ):
     org = await _get_org_or_400(db, current_user)
+    require_org_manager(current_user)
     cohort = await db.get(Cohort, cohort_id)
     if cohort is None or (cohort.organization_id != org.id and not _is_admin_or_ops(current_user)):
         raise HTTPException(status_code=404, detail="Cohort not found")
@@ -1361,3 +1400,439 @@ async def delete_cohort_session(
     await db.delete(s)
     await db.commit()
     return None
+
+
+# ── Sandbox staffing: org instructors & judges ───────────────────────────────
+async def _cohort_or_404(db: AsyncSession, org: Organization, cohort_id: uuid.UUID, current_user: User) -> Cohort:
+    cohort = await db.get(Cohort, cohort_id)
+    if cohort is None or (cohort.organization_id != org.id and not _is_admin_or_ops(current_user)):
+        raise HTTPException(status_code=404, detail="Cohort not found")
+    return cohort
+
+
+async def _default_delivery_role_id(db: AsyncSession) -> uuid.UUID:
+    role = (
+        await db.execute(
+            select(DeliveryRole)
+            .where(DeliveryRole.is_active.is_(True))
+            .order_by(DeliveryRole.sort_order.asc())
+            .limit(1)
+        )
+    ).scalars().first()
+    if role is None:
+        raise HTTPException(
+            status_code=400,
+            detail="No delivery roles are configured yet — ask SpacePoint Operations to add one",
+        )
+    return role.id
+
+
+async def _org_instructor_or_400(db: AsyncSession, org: Organization, user_id: uuid.UUID) -> User:
+    user = await db.get(User, user_id)
+    if (
+        user is None
+        or user.organization_id != org.id
+        or effective_org_role(user) != "instructor"
+    ):
+        raise HTTPException(
+            status_code=400,
+            detail="Pick a team member whose organization role is Instructor",
+        )
+    if "instructor" not in user.role_values:
+        merged = list(user.roles or [])
+        merged.append(UserRole.instructor)
+        user.roles = merged
+    return user
+
+
+async def _org_judge_or_400(db: AsyncSession, org: Organization, user_id: uuid.UUID) -> User:
+    user = await db.get(User, user_id)
+    if user is None or user.organization_id != org.id or effective_org_role(user) != "judge":
+        raise HTTPException(
+            status_code=400,
+            detail="Pick a team member whose organization role is Judge",
+        )
+    if "judge" not in user.role_values:
+        merged = list(user.roles or [])
+        merged.append(UserRole.judge)
+        user.roles = merged
+    return user
+
+
+@router.get("/cohorts/{cohort_id}/staff")
+async def get_cohort_staff(
+    cohort_id: uuid.UUID,
+    current_user: User = Depends(require_organization_account),
+    db: AsyncSession = Depends(get_db),
+):
+    """The org's staffing board: every instructor/judge on the team, what they
+    are assigned to, attendance they recorded and their readiness result."""
+    org = await _get_org_or_400(db, current_user)
+    require_org_manager(current_user)
+    cohort = await _cohort_or_404(db, org, cohort_id, current_user)
+
+    sessions = (
+        await db.execute(
+            select(Session)
+            .where(Session.cohort_id == cohort.id)
+            .order_by(Session.meeting_date.asc().nullslast(), Session.created_at.asc())
+        )
+    ).scalars().all()
+    session_ids = [s.id for s in sessions]
+
+    role_names = {
+        r.id: r.name for r in (await db.execute(select(DeliveryRole))).scalars().all()
+    }
+
+    assignments: list[tuple[SessionInstructor, User]] = []
+    if session_ids:
+        assignments = list(
+            (
+                await db.execute(
+                    select(SessionInstructor, User)
+                    .join(User, User.id == SessionInstructor.user_id)
+                    .where(SessionInstructor.session_id.in_(session_ids))
+                )
+            ).all()
+        )
+
+    attendance: dict[uuid.UUID, dict[str, int]] = {}
+    if session_ids:
+        att_rows = (
+            await db.execute(
+                select(
+                    AttendanceRecord.session_id,
+                    AttendanceRecord.att_status,
+                    func.count(AttendanceRecord.id),
+                )
+                .where(AttendanceRecord.session_id.in_(session_ids))
+                .group_by(AttendanceRecord.session_id, AttendanceRecord.att_status)
+            )
+        ).all()
+        for sid, status_value, count in att_rows:
+            attendance.setdefault(sid, {})[status_value] = int(count)
+
+    team = (
+        await db.execute(select(User).where(User.organization_id == org.id))
+    ).scalars().all()
+    instructor_map: dict[uuid.UUID, User] = {
+        u.id: u for u in team if effective_org_role(u) == "instructor"
+    }
+    # An assignment whose person is no longer flagged instructor still shows up
+    # rather than silently disappearing from the board.
+    for _si, assigned_user in assignments:
+        instructor_map.setdefault(assigned_user.id, assigned_user)
+
+    attempt_by_user: dict[uuid.UUID, PreSessionQuizAttempt] = {}
+    if instructor_map:
+        attempts = (
+            await db.execute(
+                select(PreSessionQuizAttempt).where(
+                    PreSessionQuizAttempt.cohort_id == cohort.id,
+                    PreSessionQuizAttempt.user_id.in_(instructor_map.keys()),
+                )
+            )
+        ).scalars().all()
+        attempt_by_user = {a.user_id: a for a in attempts}
+
+    session_by_id = {s.id: s for s in sessions}
+    by_instructor: dict[uuid.UUID, list[SessionInstructor]] = {}
+    for si, _u in assignments:
+        by_instructor.setdefault(si.user_id, []).append(si)
+
+    instructors_out = []
+    for uid, person in instructor_map.items():
+        rows = by_instructor.get(uid, [])
+        assigned_sessions = [session_by_id[r.session_id] for r in rows if r.session_id in session_by_id]
+        present = sum(attendance.get(sid, {}).get("present", 0) for sid in (s.id for s in assigned_sessions))
+        absent = sum(attendance.get(sid, {}).get("absent", 0) for sid in (s.id for s in assigned_sessions))
+        attempt = attempt_by_user.get(uid)
+        instructors_out.append(
+            {
+                "user_id": str(uid),
+                "full_name": person.full_name,
+                "email": person.email,
+                "phone": person.phone,
+                "status": person.status,
+                "session_ids": [str(s.id) for s in assigned_sessions],
+                "sessions_count": len(assigned_sessions),
+                "completed_sessions": sum(1 for s in assigned_sessions if s.completed_at is not None),
+                "attendance_present": present,
+                "attendance_absent": absent,
+                "roles": [role_names.get(r.role_id, "") for r in rows],
+                "readiness": (
+                    {
+                        "status": attempt.status,
+                        "final_score": attempt.final_score,
+                        "total_questions": attempt.total_questions,
+                        "submitted_at": attempt.submitted_at.isoformat() if attempt.submitted_at else None,
+                        "passed": attempt.status == "completed",
+                    }
+                    if attempt is not None
+                    else None
+                ),
+            }
+        )
+    instructors_out.sort(key=lambda r: (-r["sessions_count"], r["full_name"].lower()))
+
+    judge_rows = (
+        await db.execute(
+            select(CompetitionJudge, User)
+            .join(User, User.id == CompetitionJudge.user_id)
+            .where(CompetitionJudge.cohort_id == cohort.id)
+        )
+    ).all()
+
+    return {
+        "cohort_id": str(cohort.id),
+        "sessions": [
+            {
+                "id": str(s.id),
+                "title": s.title,
+                "meeting_date": s.meeting_date.isoformat() if s.meeting_date else None,
+                "started_at": s.started_at.isoformat() if s.started_at else None,
+                "completed_at": s.completed_at.isoformat() if s.completed_at else None,
+                "staffing_status": s.staffing_status,
+            }
+            for s in sessions
+        ],
+        "instructors": instructors_out,
+        "judges": [
+            {
+                "user_id": str(u.id),
+                "full_name": u.full_name,
+                "email": u.email,
+                "phone": u.phone,
+                "status": u.status,
+                "onboarding_sent_at": j.onboarding_sent_at.isoformat() if j.onboarding_sent_at else None,
+            }
+            for j, u in judge_rows
+        ],
+    }
+
+
+@router.post("/cohorts/{cohort_id}/instructors", status_code=status.HTTP_201_CREATED)
+async def assign_instructor_to_cohort(
+    cohort_id: uuid.UUID,
+    body: AssignOrgInstructorIn,
+    current_user: User = Depends(require_organization_account),
+    db: AsyncSession = Depends(get_db),
+):
+    """Assign an org instructor to the whole cohort (one `SessionInstructor` per
+    session — the same shape Ops staffing writes)."""
+    org = await _get_org_or_400(db, current_user)
+    require_org_manager(current_user)
+    cohort = await _cohort_or_404(db, org, cohort_id, current_user)
+    await _org_instructor_or_400(db, org, body.user_id)
+
+    sessions = (
+        await db.execute(select(Session).where(Session.cohort_id == cohort.id))
+    ).scalars().all()
+    if body.session_ids is not None:
+        wanted = set(body.session_ids)
+        sessions = [s for s in sessions if s.id in wanted]
+    if not sessions:
+        raise HTTPException(status_code=400, detail="This cohort has no sessions to assign yet")
+
+    role_id = body.role_id or await _default_delivery_role_id(db)
+    created = 0
+    for s in sessions:
+        existing = (
+            await db.execute(
+                select(SessionInstructor).where(
+                    SessionInstructor.session_id == s.id,
+                    SessionInstructor.user_id == body.user_id,
+                )
+            )
+        ).scalars().first()
+        if existing is not None:
+            if body.role_id is not None:
+                existing.role_id = body.role_id
+            continue
+        db.add(
+            SessionInstructor(
+                session_id=s.id,
+                user_id=body.user_id,
+                role_id=role_id,
+            )
+        )
+        s.staffing_status = "staffed"
+        created += 1
+    await db.commit()
+    return {"assigned": created}
+
+
+@router.delete("/cohorts/{cohort_id}/instructors/{user_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def unassign_instructor_from_cohort(
+    cohort_id: uuid.UUID,
+    user_id: uuid.UUID,
+    current_user: User = Depends(require_organization_account),
+    db: AsyncSession = Depends(get_db),
+):
+    org = await _get_org_or_400(db, current_user)
+    require_org_manager(current_user)
+    cohort = await _cohort_or_404(db, org, cohort_id, current_user)
+
+    session_ids = select(Session.id).where(Session.cohort_id == cohort.id)
+    await db.execute(
+        sa_delete(SessionInstructor).where(
+            SessionInstructor.user_id == user_id,
+            SessionInstructor.session_id.in_(session_ids),
+        )
+    )
+    await db.commit()
+    return None
+
+
+@router.post("/cohorts/{cohort_id}/judges", status_code=status.HTTP_201_CREATED)
+async def assign_judge_to_cohort(
+    cohort_id: uuid.UUID,
+    body: AssignOrgJudgeIn,
+    current_user: User = Depends(require_organization_account),
+    db: AsyncSession = Depends(get_db),
+):
+    """Give an org judge the cohort's competition — one `CompetitionJudge` row,
+    the exact same assignment Ops writes."""
+    org = await _get_org_or_400(db, current_user)
+    require_org_manager(current_user)
+    cohort = await _cohort_or_404(db, org, cohort_id, current_user)
+    await _org_judge_or_400(db, org, body.user_id)
+
+    existing = (
+        await db.execute(
+            select(CompetitionJudge).where(
+                CompetitionJudge.cohort_id == cohort.id,
+                CompetitionJudge.user_id == body.user_id,
+            )
+        )
+    ).scalars().first()
+    if existing is None:
+        db.add(CompetitionJudge(cohort_id=cohort.id, user_id=body.user_id))
+        await db.commit()
+    return {"assigned": True}
+
+
+@router.delete("/cohorts/{cohort_id}/judges/{user_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def unassign_judge_from_cohort(
+    cohort_id: uuid.UUID,
+    user_id: uuid.UUID,
+    current_user: User = Depends(require_organization_account),
+    db: AsyncSession = Depends(get_db),
+):
+    org = await _get_org_or_400(db, current_user)
+    require_org_manager(current_user)
+    cohort = await _cohort_or_404(db, org, cohort_id, current_user)
+
+    existing = (
+        await db.execute(
+            select(CompetitionJudge).where(
+                CompetitionJudge.cohort_id == cohort.id,
+                CompetitionJudge.user_id == user_id,
+            )
+        )
+    ).scalars().first()
+    if existing is not None:
+        await db.delete(existing)
+        await db.commit()
+    return None
+
+
+@router.get("/readiness-presets")
+async def list_org_readiness_presets(
+    current_user: User = Depends(require_organization_account),
+    db: AsyncSession = Depends(get_db),
+):
+    """Presets the org can assign as instructor readiness for a cohort."""
+    from app.services.sessions import pre_session_quiz as quiz_svc
+
+    presets = await quiz_svc.list_presets(db)
+    return [
+        {
+            "id": p.get("id"),
+            "name": p.get("name"),
+            "description": p.get("description"),
+            "preset_type": p.get("preset_type"),
+            "question_count": len(p.get("question_ids") or []),
+            "phases_count": len(p.get("phases") or []),
+        }
+        for p in presets
+    ]
+
+
+@router.get("/cohorts/{cohort_id}/readiness")
+async def get_org_cohort_readiness(
+    cohort_id: uuid.UUID,
+    current_user: User = Depends(require_organization_account),
+    db: AsyncSession = Depends(get_db),
+):
+    """The readiness preset assigned to this cohort plus every org instructor's
+    attempt — the org-side view Ops already has."""
+    from app.services.sessions import pre_session_quiz as quiz_svc
+
+    org = await _get_org_or_400(db, current_user)
+    require_org_manager(current_user)
+    cohort = await _cohort_or_404(db, org, cohort_id, current_user)
+
+    assignment = await quiz_svc.get_assignment_for_scope(db, "cohorts", cohort.id)
+    preset = None
+    if assignment.get("preset_id"):
+        hydrated = await quiz_svc.get_preset_hydrated(db, assignment["preset_id"])
+        if hydrated:
+            preset = {
+                "id": hydrated.get("id"),
+                "name": hydrated.get("name"),
+                "description": hydrated.get("description"),
+                "question_count": len(hydrated.get("question_ids") or []),
+            }
+
+    attempts = (
+        await db.execute(
+            select(PreSessionQuizAttempt, User)
+            .join(User, User.id == PreSessionQuizAttempt.user_id)
+            .where(PreSessionQuizAttempt.cohort_id == cohort.id)
+            .order_by(PreSessionQuizAttempt.started_at.desc())
+        )
+    ).all()
+
+    return {
+        "preset": preset,
+        "instructors": [
+            {
+                "user_id": str(u.id),
+                "full_name": u.full_name,
+                "email": u.email,
+                "status": a.status,
+                "final_score": a.final_score,
+                "total_questions": a.total_questions,
+                "pending_review_count": a.pending_review_count,
+                "submitted_at": a.submitted_at.isoformat() if a.submitted_at else None,
+                "passed": a.status == "completed",
+            }
+            for a, u in attempts
+        ],
+    }
+
+
+@router.put("/cohorts/{cohort_id}/readiness")
+async def set_org_cohort_readiness(
+    cohort_id: uuid.UUID,
+    body: OrgReadinessAssignIn,
+    current_user: User = Depends(require_organization_account),
+    db: AsyncSession = Depends(get_db),
+):
+    """Assign (or clear) the Instructor Readiness quiz for a cohort. The
+    existing session-start gate already refuses an instructor who hasn't
+    passed a cohort-level preset."""
+    from app.services.sessions import pre_session_quiz as quiz_svc
+
+    org = await _get_org_or_400(db, current_user)
+    require_org_manager(current_user)
+    cohort = await _cohort_or_404(db, org, cohort_id, current_user)
+    return await quiz_svc.set_assignment_for_scope(
+        db,
+        "cohorts",
+        cohort.id,
+        body.preset_id,
+        clear_override=body.preset_id is None,
+    )
+

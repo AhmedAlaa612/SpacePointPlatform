@@ -29,6 +29,7 @@ from app.models.user import User
 from app.schemas.sessions.cohorts import BulkActionError, SessionInstructorOut, SessionOut
 from app.services.instructor_assessment.gate import is_assessment_required, resolve_cohort_call_id_for_session
 from app.services.instructor_assessment.ranking import get_active_weights, get_ranking_fields
+from app.services.org_access import is_sandbox_instructor_or_judge
 from app.services.sessions import openings as openings_svc
 from app.schemas.sessions.staffing import (
     AddonSummary,
@@ -375,6 +376,8 @@ async def list_available_sessions(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_instructor_or_facilitator),
 ):
+    if is_sandbox_instructor_or_judge(current_user):
+        return []
     rows = await staffing.list_available_sessions(db, current_user)
     out = []
     for s, c, p, count, interest in rows:
@@ -450,6 +453,8 @@ async def list_available_work(
     that same list with anything already covered by a cohort card filtered
     out, so nothing appears twice.
     """
+    if is_sandbox_instructor_or_judge(current_user):
+        return AvailableWorkOut(cohort_calls=[], single_sessions=[])
     cohort_calls = await cohort_staffing.list_available_cohort_calls(db, current_user)
     grouped_session_ids = {
         s["session_id"] for card in cohort_calls for s in card["sessions"]

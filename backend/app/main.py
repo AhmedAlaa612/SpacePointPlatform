@@ -157,6 +157,23 @@ async def lifespan(app: FastAPI):
             await db.execute(text("ALTER TABLE website_events ADD COLUMN IF NOT EXISTS default_language VARCHAR(8) DEFAULT 'en';"))
             await db.execute(text("ALTER TABLE website_events ADD COLUMN IF NOT EXISTS ar_content JSONB DEFAULT '{}'::jsonb;"))
             await db.execute(text("ALTER TABLE pre_session_quiz_presets ADD COLUMN IF NOT EXISTS phases JSONB DEFAULT '[]'::jsonb;"))
+            # Sandbox role inside a partner organization (2026-11-18). Backfill
+            # is idempotent and only touches partner orgs (owner_user_id set) —
+            # a school row a student is merely affiliated with never becomes a
+            # membership.
+            await db.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS org_role VARCHAR(32);"))
+            await db.execute(text(
+                "UPDATE users SET org_role = 'owner' "
+                "WHERE org_role IS NULL AND id IN "
+                "(SELECT owner_user_id FROM organizations WHERE owner_user_id IS NOT NULL);"
+            ))
+            await db.execute(text(
+                "UPDATE users u SET org_role = 'coordinator' "
+                "FROM organizations o "
+                "WHERE u.organization_id = o.id AND o.owner_user_id IS NOT NULL "
+                "AND u.id <> o.owner_user_id AND u.org_role IS NULL "
+                "AND 'organization' = ANY(u.roles::text[]);"
+            ))
             await db.execute(text("UPDATE cohorts SET checklist_title_override = 'testcohortname', name = 'Cohort Test' WHERE name = 'testcohortname';"))
             await db.commit()
             await ensure_default_events_seeded(db)
