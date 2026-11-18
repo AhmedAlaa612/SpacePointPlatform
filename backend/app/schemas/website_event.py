@@ -463,6 +463,8 @@ class OrgTeamMemberOut(BaseModel):
     status: str
     created_at: datetime
     is_owner: bool = False
+    # Only meaningful on create: whether the set-password invite email went out.
+    invite_email_sent: bool = False
 
 
 class OrgTeamMemberCreateIn(BaseModel):

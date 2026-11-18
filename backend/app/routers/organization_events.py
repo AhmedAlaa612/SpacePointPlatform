@@ -1,13 +1,14 @@
 import secrets
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import settings
 from app.core.dependencies import require_organization_account
-from app.core.security import get_password_hash
+from app.core.security import create_password_set_token, get_password_hash
 from app.db.session import get_db
 from app.models.enums import UserRole
 from app.models.spine.contact import Contact
@@ -22,6 +23,7 @@ from app.schemas.website_event import (
     WebsiteEventUpdate,
 )
 from app.services.documents.id_card import ensure_card_number
+from app.services.email import send_org_team_invite_email
 from app.services.spine.identity import normalize_user_email, resolve_or_create_contact, user_email_matches
 from app.services.website_events import (
     ensure_default_events_seeded,
@@ -298,6 +300,15 @@ async def add_organization_team_member(
     await db.commit()
     await db.refresh(user)
 
+    token = create_password_set_token(user.id, expires_delta=timedelta(days=3))
+    base = (settings.FRONTEND_URL or "http://localhost:5173").rstrip("/")
+    invite_sent = await send_org_team_invite_email(
+        user.email,
+        user.full_name,
+        org.name_latin,
+        f"{base}/set-password?token={token}",
+    )
+
     return OrgTeamMemberOut(
         id=user.id,
         full_name=user.full_name,
@@ -306,6 +317,7 @@ async def add_organization_team_member(
         status=user.status,
         created_at=user.created_at,
         is_owner=False,
+        invite_email_sent=invite_sent,
     )
 
 

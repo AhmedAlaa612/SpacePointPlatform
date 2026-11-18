@@ -197,7 +197,11 @@ function AddTeamMemberModal({
         password: password.trim() || undefined,
       }),
     onSuccess: (res) => {
-      toast.success(`Added ${res.full_name} to the team!`)
+      toast.success(
+        res.invite_email_sent
+          ? `Added ${res.full_name} — invite email sent!`
+          : `Added ${res.full_name}. Email not sent — use "Reset Link" to share it.`
+      )
       onSuccess()
     },
     onError: (err: any) => {

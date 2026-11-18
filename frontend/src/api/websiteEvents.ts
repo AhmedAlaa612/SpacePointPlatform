@@ -430,6 +430,7 @@ export interface OrgTeamMember {
   is_active: boolean
   is_owner: boolean
   created_at?: string
+  invite_email_sent?: boolean
 }
 
 // ── Admin Endpoints ──────────────────────────────────────────────────────────
