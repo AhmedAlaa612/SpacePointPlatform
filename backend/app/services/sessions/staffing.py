@@ -828,12 +828,25 @@ async def list_eligible_instructors(
     superset."""
     session = await _get_session(db, session_id)  # 404 if the session doesn't exist
     session_city_id = await _resolve_session_city_id(db, session)
+    cohort = await db.get(Cohort, session.cohort_id)
+    program = await db.get(Program, cohort.program_id) if cohort else None
+    org_id = (cohort.organization_id if cohort else None) or (program.organization_id if program else None)
 
-    users = (await db.execute(
-        select(User)
-        .where(User.roles.any("instructor") | User.roles.any("facilitator"))
-        .order_by(User.full_name.asc())
-    )).scalars().all()
+    if org_id is not None:
+        from app.services.org_access import effective_org_role
+
+        org_users = (await db.execute(
+            select(User)
+            .where(User.organization_id == org_id)
+            .order_by(User.full_name.asc())
+        )).scalars().all()
+        users = [u for u in org_users if effective_org_role(u) == "instructor"]
+    else:
+        users = (await db.execute(
+            select(User)
+            .where(User.roles.any("instructor") | User.roles.any("facilitator"))
+            .order_by(User.full_name.asc())
+        )).scalars().all()
     interests = {
         i.user_id: i for i in (await db.execute(
             select(InstructorInterest).where(InstructorInterest.session_id == session_id)

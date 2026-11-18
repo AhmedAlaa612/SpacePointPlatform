@@ -5,6 +5,7 @@ import { ArrowLeft, ArrowUpRight, Award, Copy, Download, Eye, FileText, Mail, Me
 import { getCohortApi, getCohortsApi } from "@/api/sessions/cohorts"
 import type { Cohort } from "@/types/sessions"
 import { searchStaffApi, listInviteCodesApi, type StaffOption } from "@/api/lms_admin"
+import { getOrganizationTeamApi, type OrgTeamMember } from "@/api/websiteEvents"
 import { UserProfileModal } from "@/components/UserProfileModal"
 import { CompetitionCertificatesModal } from "@/pages/admin/components/CompetitionCertificatesModal"
 import { TeamScoreBreakdownModal } from "@/components/competitions/TeamScoreBreakdownModal"
@@ -1899,6 +1900,8 @@ export function RubricTab({ cohortId }: { cohortId: string }) {
 export function JudgesTab({ cohortId }: { cohortId: string }) {
   const toast = useToast()
   const queryClient = useQueryClient()
+  const isOrgSurface =
+    typeof window !== "undefined" && window.location.pathname.startsWith("/organization")
   const { data: judges = [], isLoading } = useQuery<CompetitionJudgeProgress[]>({
     queryKey: ["competitions-judges", cohortId],
     queryFn: () => getCohortJudgesApi(cohortId),
@@ -1911,24 +1914,41 @@ export function JudgesTab({ cohortId }: { cohortId: string }) {
   const { data: staffOptions = [] } = useQuery<StaffOption[]>({
     queryKey: ["staff-search-for-judge", staffQuery],
     queryFn: () => searchStaffApi({ q: staffQuery.trim() }),
-    enabled: staffQuery.trim().length >= 2,
+    enabled: !isOrgSurface && staffQuery.trim().length >= 2,
+  })
+  const { data: orgTeam = [] } = useQuery<OrgTeamMember[]>({
+    queryKey: ["org-team-members", cohortId],
+    queryFn: () => getOrganizationTeamApi({ cohort_id: cohortId }),
+    enabled: isOrgSurface,
   })
   const alreadyJudging = new Set(judges.map((j) => j.email))
+  const orgJudgeCandidates = orgTeam.filter(
+    (m) => m.org_role === "judge" && !alreadyJudging.has(m.email),
+  )
+
+  const invalidateJudges = () => {
+    void queryClient.invalidateQueries({ queryKey: ["competitions-judges", cohortId] })
+    void queryClient.invalidateQueries({ queryKey: ["org-cohort-staff", cohortId] })
+    void queryClient.invalidateQueries({ queryKey: ["org-team-members", cohortId] })
+  }
 
   const inviteMutation = useMutation({
-    mutationFn: () => inviteCohortJudgeApi(cohortId, {
-      name: name.trim(), email: email.trim(), send_email: sendJudgeEmail,
-    }),
+    mutationFn: (override?: { name: string; email: string }) =>
+      inviteCohortJudgeApi(cohortId, {
+        name: (override?.name ?? name).trim(),
+        email: (override?.email ?? email).trim(),
+        send_email: sendJudgeEmail,
+      }),
     onSuccess: () => {
       toast.success("Judge added")
       setName(""); setEmail(""); setStaffQuery(""); setSendJudgeEmail(true)
-      queryClient.invalidateQueries({ queryKey: ["competitions-judges", cohortId] })
+      invalidateJudges()
     },
     onError: (e: any) => toast.error(getErrorMessage(e, "Failed to add judge")),
   })
   const revokeMutation = useMutation({
     mutationFn: (userId: string) => revokeCohortJudgeApi(cohortId, userId),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["competitions-judges", cohortId] }),
+    onSuccess: () => invalidateJudges(),
     onError: (e: any) => toast.error(getErrorMessage(e, "Failed to remove judge")),
   })
   const resendOnboardingMutation = useMutation({
@@ -1951,44 +1971,74 @@ export function JudgesTab({ cohortId }: { cohortId: string }) {
       <div className="rounded-2xl border border-border bg-card p-4 sm:p-5 flex flex-col gap-4 min-w-0">
         <h3 className="text-sm font-bold text-foreground">Add a Judge</h3>
 
-        <div className="flex flex-col gap-2">
-          <Field label="Add an existing staff account">
-            <div className="relative">
-              <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
-              <input
-                value={staffQuery} onChange={(e) => setStaffQuery(e.target.value)}
-                placeholder="Search staff by name or email…"
-                className="w-full h-10 pl-9 pr-3 border border-border bg-background text-foreground rounded-xl text-sm focus:outline-none focus:border-primary transition-colors"
-              />
-            </div>
-          </Field>
-          {staffQuery.trim().length >= 2 && (
-            <div className="flex flex-col gap-1 border border-border rounded-xl p-1.5 bg-background max-h-56 overflow-y-auto">
-              {staffOptions.length === 0 ? (
-                <p className="text-xs text-muted-foreground px-2 py-1.5">No matching staff account.</p>
-              ) : (
-                staffOptions.map((u) => {
-                  const already = alreadyJudging.has(u.email)
-                  return (
-                    <button
-                      key={u.id}
-                      type="button"
-                      disabled={already}
-                      onClick={() => { setName(u.full_name); setEmail(u.email); setStaffQuery("") }}
-                      className="flex items-center justify-between text-left px-2.5 py-2 rounded-lg text-sm hover:bg-muted transition-colors disabled:opacity-40 disabled:cursor-not-allowed gap-2 cursor-pointer"
-                    >
-                      <div className="min-w-0 flex-1">
-                        <p className="text-foreground font-medium truncate text-sm">{u.full_name}</p>
-                        <p className="text-muted-foreground text-xs truncate">{u.email}</p>
-                      </div>
-                      {already && <span className="text-xs text-muted-foreground shrink-0 font-medium">Already judging</span>}
-                    </button>
-                  )
-                })
-              )}
-            </div>
-          )}
-        </div>
+        {isOrgSurface ? (
+          <div className="flex flex-col gap-2">
+            <Field label="Assign an organization judge">
+              <div className="flex items-center gap-2">
+                <select
+                  value=""
+                  onChange={(e) => {
+                    const picked = orgJudgeCandidates.find((m) => m.id === e.target.value)
+                    if (picked) {
+                      inviteMutation.mutate({ name: picked.full_name, email: picked.email })
+                    }
+                  }}
+                  className="w-full h-10 px-3 border border-border bg-background text-foreground rounded-xl text-sm focus:outline-none focus:border-primary"
+                >
+                  <option value="">
+                    {orgJudgeCandidates.length === 0
+                      ? "No unassigned judges on org team — invite below"
+                      : "Pick an org judge to assign…"}
+                  </option>
+                  {orgJudgeCandidates.map((m) => (
+                    <option key={m.id} value={m.id}>
+                      {m.full_name} ({m.email})
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </Field>
+          </div>
+        ) : (
+          <div className="flex flex-col gap-2">
+            <Field label="Add an existing staff account">
+              <div className="relative">
+                <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
+                <input
+                  value={staffQuery} onChange={(e) => setStaffQuery(e.target.value)}
+                  placeholder="Search staff by name or email…"
+                  className="w-full h-10 pl-9 pr-3 border border-border bg-background text-foreground rounded-xl text-sm focus:outline-none focus:border-primary transition-colors"
+                />
+              </div>
+            </Field>
+            {staffQuery.trim().length >= 2 && (
+              <div className="flex flex-col gap-1 border border-border rounded-xl p-1.5 bg-background max-h-56 overflow-y-auto">
+                {staffOptions.length === 0 ? (
+                  <p className="text-xs text-muted-foreground px-2 py-1.5">No matching staff account.</p>
+                ) : (
+                  staffOptions.map((u) => {
+                    const already = alreadyJudging.has(u.email)
+                    return (
+                      <button
+                        key={u.id}
+                        type="button"
+                        disabled={already}
+                        onClick={() => { setName(u.full_name); setEmail(u.email); setStaffQuery("") }}
+                        className="flex items-center justify-between text-left px-2.5 py-2 rounded-lg text-sm hover:bg-muted transition-colors disabled:opacity-40 disabled:cursor-not-allowed gap-2 cursor-pointer"
+                      >
+                        <div className="min-w-0 flex-1">
+                          <p className="text-foreground font-medium truncate text-sm">{u.full_name}</p>
+                          <p className="text-muted-foreground text-xs truncate">{u.email}</p>
+                        </div>
+                        {already && <span className="text-xs text-muted-foreground shrink-0 font-medium">Already judging</span>}
+                      </button>
+                    )
+                  })
+                )}
+              </div>
+            )}
+          </div>
+        )}
 
         <div className="relative flex items-center my-0.5">
           <div className="flex-grow border-t border-border" />
@@ -2027,7 +2077,7 @@ export function JudgesTab({ cohortId }: { cohortId: string }) {
 
             <button
               type="button"
-              onClick={() => inviteMutation.mutate()}
+              onClick={() => inviteMutation.mutate(undefined)}
               disabled={inviteMutation.isPending || !name.trim() || !email.trim()}
               className="w-full sm:w-auto flex items-center justify-center gap-1.5 h-10 px-5 bg-primary text-primary-foreground rounded-xl text-sm font-medium hover:opacity-90 transition-colors disabled:opacity-50 cursor-pointer shrink-0"
             >

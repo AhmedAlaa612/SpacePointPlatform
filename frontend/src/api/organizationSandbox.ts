@@ -10,6 +10,10 @@ export interface OrgCohortStaffSession {
   started_at: string | null
   completed_at: string | null
   staffing_status: string
+  attendance_present?: number
+  attendance_absent?: number
+  attendance_total?: number
+  instructors?: { user_id: string; full_name: string }[]
 }
 
 export interface OrgInstructorReadiness {

@@ -122,19 +122,48 @@ async def invite_judge(
     # Canonical normalization on the way in + case-insensitive lookup, so a
     # legacy mixed-case row is reused rather than colliding (prod incident
     # 2026-09-30). The User model validator enforces the same form on insert.
-    email = normalize_user_email(email)
-    user = (await db.execute(select(User).where(user_email_matches(email)))).scalar_one_or_none()
-    is_new = user is None
-    if user is None:
-        user = User(
-            id=uuid.uuid4(), full_name=name, email=email,
-            password_hash=get_password_hash(secrets.token_urlsafe(24)),
-            roles=["judge"], status="active", must_change_password=True,
-        )
-        db.add(user)
-        await db.flush()
-    elif "judge" not in user.role_values:
-        user.roles = [*user.roles, "judge"]
+    cohort = await db.get(Cohort, cohort_id)
+    program = await db.get(Program, cohort.program_id) if cohort else None
+    org_id = (cohort.organization_id if cohort else None) or (program.organization_id if program else None)
+
+    if org_id is not None:
+        from app.models.spine.organization import Organization
+        from app.services.website_events import build_organization_team_member
+
+        org = await db.get(Organization, org_id)
+        if org is None:
+            raise HTTPException(404, detail="Organization not found")
+        email_norm = normalize_user_email(email)
+        user = (await db.execute(select(User).where(user_email_matches(email_norm)))).scalar_one_or_none()
+        if user is not None and user.organization_id == org.id:
+            if user.id != org.owner_user_id and getattr(user, "org_role", None) not in ("owner", "coordinator"):
+                user.org_role = "judge"
+            if "organization" not in user.role_values:
+                user.roles = [*user.roles, "organization"]
+            is_new = False
+        else:
+            user, is_new = await build_organization_team_member(
+                db,
+                org=org,
+                full_name=name,
+                email=email_norm,
+                role_event_source="org_competition_judge",
+                org_role="judge",
+            )
+    else:
+        email = normalize_user_email(email)
+        user = (await db.execute(select(User).where(user_email_matches(email)))).scalar_one_or_none()
+        is_new = user is None
+        if user is None:
+            user = User(
+                id=uuid.uuid4(), full_name=name, email=email,
+                password_hash=get_password_hash(secrets.token_urlsafe(24)),
+                roles=["judge"], status="active", must_change_password=True,
+            )
+            db.add(user)
+            await db.flush()
+        elif "judge" not in user.role_values:
+            user.roles = [*user.roles, "judge"]
 
     assignment = await db.scalar(
         select(CompetitionJudge).where(

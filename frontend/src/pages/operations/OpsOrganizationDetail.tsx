@@ -882,7 +882,7 @@ export default function OpsOrganizationDetail() {
                         <td className="py-3.5 text-right">
                           <Button asChild variant="outline" size="sm" className="h-7 rounded-[10px] px-3 text-xs font-semibold">
                             <Link
-                              to="/operations/cohorts/$cohortId"
+                              to="/organization/programs/$cohortId"
                               params={{ cohortId: c.id }}
                               search={{ from: `/operations/organizations/${orgId}` } as never}
                             >

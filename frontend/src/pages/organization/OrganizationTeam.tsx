@@ -42,7 +42,7 @@ export default function OrganizationTeam() {
 
   const { data: team = [], isLoading } = useQuery({
     queryKey: ["org-team-members"],
-    queryFn: getOrganizationTeamApi,
+    queryFn: () => getOrganizationTeamApi(),
   })
 
   const invalidate = () => {

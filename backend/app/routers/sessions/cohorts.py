@@ -242,7 +242,11 @@ async def list_cohorts(
         )
         .join(Program, Program.id == Cohort.program_id)
         .outerjoin(Location, Location.id == Cohort.location_id)
-        .where(*_real_cohort_clauses())
+        .where(
+            *_real_cohort_clauses(),
+            Cohort.organization_id.is_(None),
+            Program.organization_id.is_(None),
+        )
     )
     if program_id is not None:
         stmt = stmt.where(Cohort.program_id == program_id)

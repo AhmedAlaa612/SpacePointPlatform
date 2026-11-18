@@ -1,7 +1,7 @@
 from datetime import datetime, timedelta, timezone
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import delete, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -13,6 +13,7 @@ from app.models.competitions.judging import CompetitionJudge
 from app.models.lms.program import LmsProgramAssignment
 from app.models.sessions.cohort import Cohort
 from app.models.sessions.session import Session, SessionInstructor
+from app.models.spine.organization import Organization
 from app.models.user import User
 from app.models.website_event import MegaEvent, WebsiteEvent
 from app.schemas.website_event import (
@@ -238,10 +239,27 @@ async def delete_organization_event(
 # ── Organization Team Management ─────────────────────────────────────────────
 @router.get("/team", response_model=list[OrgTeamMemberOut])
 async def list_my_organization_team(
+    cohort_id: UUID | None = Query(None),
+    org_id: UUID | None = Query(None),
     current_user: User = Depends(require_organization_account),
     db: AsyncSession = Depends(get_db),
 ):
-    org = await resolve_user_organization(db, current_user)
+    is_ops = any(r in current_user.role_values for r in ("admin", "operations"))
+    org: Organization | None = None
+    if is_ops and cohort_id is not None:
+        from app.models.sessions.program import Program
+
+        cohort = await db.get(Cohort, cohort_id)
+        if cohort is not None:
+            program = await db.get(Program, cohort.program_id)
+            target_org_id = cohort.organization_id or (program.organization_id if program else None)
+            if target_org_id is not None:
+                org = await db.get(Organization, target_org_id)
+    elif is_ops and org_id is not None:
+        org = await db.get(Organization, org_id)
+
+    if org is None:
+        org = await resolve_user_organization(db, current_user)
     if org is None:
         return []
     # Sandbox instructors/judges don't manage the team (and shouldn't see the

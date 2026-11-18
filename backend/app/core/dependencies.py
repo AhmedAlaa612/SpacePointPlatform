@@ -197,7 +197,7 @@ require_lms_author = RequireRole(["lms_author", "operations", "facilitator"])
 # `/lms/admin` — only to the new `/missions/instructor/*` surface, scoped
 # per-cohort inside each route via `cohort_access.py::require_cohort_access`.
 # Same role split `require_session_delivery` already uses.
-require_instructor_missions = RequireRole(["instructor", "facilitator", "operations"])
+require_instructor_missions = RequireRole(["instructor", "facilitator", "operations", "organization"])
 
 # ── Competition domain (2026-08-24) ─────────────────────────────────────────
 # A judge is a temporary, cohort-scoped account with zero ops access — this

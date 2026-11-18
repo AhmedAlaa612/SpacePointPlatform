@@ -562,8 +562,8 @@ export interface MyOrganizationContext {
 export const getMyOrganizationContext = () =>
   api.get<MyOrganizationContext>("/organization/me").then((r) => r.data)
 
-export const getOrganizationTeamApi = () =>
-  api.get<OrgTeamMember[]>("/organization/team").then((r) => r.data)
+export const getOrganizationTeamApi = (params?: { cohort_id?: string; org_id?: string }) =>
+  api.get<OrgTeamMember[]>("/organization/team", { params }).then((r) => r.data)
 
 export const addOrganizationTeamMemberApi = (payload: {
   email: string

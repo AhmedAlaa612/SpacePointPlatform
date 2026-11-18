@@ -25,6 +25,8 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.lms.program import CohortLmsEditor
+from app.models.sessions.cohort import Cohort
+from app.models.sessions.program import Program
 from app.models.sessions.session import Session, SessionInstructor
 from app.models.user import User
 from app.services.missions.authorization import is_staff
@@ -33,7 +35,8 @@ from app.services.missions.authorization import is_staff
 async def instructor_cohort_ids(db: AsyncSession, *, user: User) -> set[uuid.UUID] | None:
     """`None` means no restriction (staff — operations/facilitator/admin).
     Otherwise the set of cohort_ids this instructor is assigned to via
-    `SessionInstructor` OR granted LMS edit access via `CohortLmsEditor`."""
+    `SessionInstructor` OR granted LMS edit access via `CohortLmsEditor` OR
+    manages/observes via their Organization sandbox membership."""
     if is_staff(user):
         return None
     session_cohorts = (await db.execute(
@@ -47,19 +50,47 @@ async def instructor_cohort_ids(db: AsyncSession, *, user: User) -> set[uuid.UUI
         .where(CohortLmsEditor.user_id == user.id)
         .distinct()
     )).scalars().all()
-    return set(session_cohorts) | set(editor_cohorts)
+    allowed = set(session_cohorts) | set(editor_cohorts)
+
+    if "organization" in user.role_values:
+        from app.services.org_access import effective_org_role
+        from app.services.website_events import resolve_user_organization
+
+        org = await resolve_user_organization(db, user)
+        if org is not None and effective_org_role(user) in ("owner", "coordinator", "observer"):
+            org_cohorts = (await db.execute(
+                select(Cohort.id)
+                .join(Program, Program.id == Cohort.program_id)
+                .where((Cohort.organization_id == org.id) | (Program.organization_id == org.id))
+            )).scalars().all()
+            allowed.update(org_cohorts)
+    return allowed
 
 
 async def is_cohort_lms_editor(db: AsyncSession, *, cohort_id: uuid.UUID, user: User) -> bool:
     """Return True if user is staff (admin, operations, facilitator) OR an explicitly
-    granted LMS editor on this specific cohort."""
+    granted LMS editor on this specific cohort OR an org manager for the cohort's org."""
     if is_staff(user):
         return True
     row = (await db.execute(
         select(CohortLmsEditor.id)
         .where(CohortLmsEditor.cohort_id == cohort_id, CohortLmsEditor.user_id == user.id)
     )).scalar_one_or_none()
-    return row is not None
+    if row is not None:
+        return True
+    if "organization" in user.role_values:
+        from app.services.org_access import is_org_manager
+        from app.services.website_events import resolve_user_organization
+
+        if is_org_manager(user):
+            org = await resolve_user_organization(db, user)
+            if org is not None:
+                cohort = await db.get(Cohort, cohort_id)
+                if cohort is not None:
+                    program = await db.get(Program, cohort.program_id)
+                    if cohort.organization_id == org.id or (program is not None and program.organization_id == org.id):
+                        return True
+    return False
 
 
 async def require_cohort_access(db: AsyncSession, *, cohort_id: uuid.UUID, user: User) -> None:

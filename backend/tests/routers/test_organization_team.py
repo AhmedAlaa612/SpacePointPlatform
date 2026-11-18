@@ -653,3 +653,92 @@ async def test_org_only_judge_scoped_and_blocked_from_admin(db, client, sent_ema
 
     admin_rubric = await client.get(f"/competitions/admin/cohorts/{cohort.id}/rubric", headers=_headers(org_judge))
     assert admin_rubric.status_code == 403
+
+
+async def test_org_cohorts_excluded_from_ops_main_lists(db, client):
+    owner, org = await _seed_org(db)
+    ops = await _make_user(db, roles=["operations"])
+    org_program, org_cohort, _ = await _seed_cohort(db, org)
+
+    sp_program = Program(
+        id=uuid.uuid4(),
+        code=f"SP-{uuid.uuid4().hex[:6]}",
+        name="SpacePoint Core",
+        program_type="workshop",
+        pricing_model="free",
+    )
+    db.add(sp_program)
+    await db.flush()
+    sp_cohort = Cohort(id=uuid.uuid4(), program_id=sp_program.id, name="SP Cohort", status="running")
+    db.add(sp_cohort)
+    await db.flush()
+
+    cohorts_resp = await client.get("/sessions/cohorts", headers=_headers(ops))
+    assert cohorts_resp.status_code == 200, cohorts_resp.text
+    cohort_ids = {c["id"] for c in cohorts_resp.json()}
+    assert str(sp_cohort.id) in cohort_ids
+    assert str(org_cohort.id) not in cohort_ids
+
+    programs_resp = await client.get("/sessions/programs", headers=_headers(ops))
+    assert programs_resp.status_code == 200, programs_resp.text
+    prog_ids = {p["id"] for p in programs_resp.json()}
+    assert str(sp_program.id) in prog_ids
+    assert str(org_program.id) not in prog_ids
+
+
+async def test_ops_co_managing_org_cohort_resolves_cohort_org_and_staff(db, client, sent_emails):
+    owner, org = await _seed_org(db)
+    ops = await _make_user(db, roles=["operations"])
+    inst_unassigned, _ = await _add_member(db, client, owner, org_role="instructor")
+    inst_assigned, _ = await _add_member(db, client, owner, org_role="instructor")
+    _program, cohort, sessions = await _seed_cohort(db, org, sessions=1)
+
+    assign = await client.post(
+        f"/organization/cohorts/{cohort.id}/instructors",
+        headers=_headers(ops),
+        json={"user_id": inst_assigned["id"], "session_ids": [str(sessions[0].id)]},
+    )
+    assert assign.status_code == 201, assign.text
+
+    staff = await client.get(f"/organization/cohorts/{cohort.id}/staff", headers=_headers(ops))
+    assert staff.status_code == 200, staff.text
+    staff_body = staff.json()
+    assert [i["user_id"] for i in staff_body["instructors"]] == [inst_assigned["id"]]
+    assert [i["user_id"] for i in staff_body["sessions"][0]["instructors"]] == [inst_assigned["id"]]
+    assert staff_body["sessions"][0]["attendance_total"] == 0
+
+    team_resp = await client.get(f"/organization/team?cohort_id={cohort.id}", headers=_headers(ops))
+    assert team_resp.status_code == 200, team_resp.text
+    team_ids = {m["id"] for m in team_resp.json()}
+    assert inst_unassigned["id"] in team_ids
+    assert inst_assigned["id"] in team_ids
+
+
+async def test_org_manager_can_access_progress_tab_roster(db, client):
+    owner, org = await _seed_org(db)
+    _program, cohort, _ = await _seed_cohort(db, org)
+
+    roster = await client.get(f"/lms/instructor/cohorts/{cohort.id}/program-progress", headers=_headers(owner))
+    assert roster.status_code == 200, roster.text
+
+
+async def test_invite_judge_on_org_cohort_stays_in_org_sandbox(db, client, sent_emails):
+    owner, org = await _seed_org(db)
+    _program, cohort, _ = await _seed_cohort(db, org)
+    judge_email = f"org-judge-{uuid.uuid4().hex[:8]}@example.com"
+
+    resp = await client.post(
+        f"/competitions/admin/cohorts/{cohort.id}/judges",
+        headers=_headers(owner),
+        json={"name": "Org Sandbox Judge", "email": judge_email, "send_email": False},
+    )
+    assert resp.status_code == 201, resp.text
+
+    from sqlalchemy import select
+
+    judge = (await db.execute(select(User).where(User.email == judge_email))).scalars().first()
+    assert judge is not None
+    assert judge.organization_id == org.id
+    assert judge.org_role == "judge"
+    assert "organization" in judge.role_values
+    assert "judge" not in judge.role_values

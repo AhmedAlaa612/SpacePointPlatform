@@ -63,7 +63,13 @@ async def list_programs(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_operations),
 ):
-    rows = (await db.execute(select(Program).order_by(Program.created_at.desc()))).scalars().all()
+    rows = (
+        await db.execute(
+            select(Program)
+            .where(Program.organization_id.is_(None))
+            .order_by(Program.created_at.desc())
+        )
+    ).scalars().all()
     return rows
 
 

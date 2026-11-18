@@ -65,6 +65,45 @@ async def _get_org_or_400(db: AsyncSession, current_user: User) -> Organization:
     return org
 
 
+async def _resolve_cohort_and_org(
+    db: AsyncSession, cohort_id: uuid.UUID, current_user: User, *, not_found_detail: str = "Cohort not found"
+) -> tuple[Cohort, Organization]:
+    """Resolve both a cohort and its owning Organization from the cohort itself.
+
+    When Ops/Admin co-manages an org cohort, `org` is always the cohort's own
+    organization (never the caller's arbitrary first org). For org users, verifies
+    the cohort belongs to their organization.
+    """
+    cohort = await db.get(Cohort, cohort_id)
+    if cohort is None:
+        raise HTTPException(status_code=404, detail=not_found_detail)
+    program = await db.get(Program, cohort.program_id)
+    cohort_org_id = cohort.organization_id or (program.organization_id if program else None)
+
+    if _is_admin_or_ops(current_user):
+        if cohort_org_id is not None:
+            org = await db.get(Organization, cohort_org_id)
+            if org is None:
+                raise HTTPException(status_code=404, detail="Organization not found")
+            return cohort, org
+        return cohort, await _get_org_or_400(db, current_user)
+
+    org = await _get_org_or_400(db, current_user)
+    if cohort_org_id != org.id:
+        raise HTTPException(status_code=404, detail=not_found_detail)
+    return cohort, org
+
+
+def _preset_question_count(p: dict[str, Any]) -> int:
+    q_ids = p.get("question_ids") or []
+    if q_ids:
+        return len(q_ids)
+    return sum(
+        len(ph.get("questions") or ph.get("question_ids") or [])
+        for ph in (p.get("phases") or [])
+    )
+
+
 # ── Schemas ──────────────────────────────────────────────────────────────────
 class OrganizationProgramCreate(BaseModel):
     name: str
@@ -704,10 +743,7 @@ async def get_organization_cohort_detail(
     current_user: User = Depends(require_organization_account),
     db: AsyncSession = Depends(get_db),
 ):
-    org = await _get_org_or_400(db, current_user)
-    cohort = await db.get(Cohort, cohort_id)
-    if cohort is None or (cohort.organization_id != org.id and not _is_admin_or_ops(current_user)):
-        raise HTTPException(status_code=404, detail="Cohort not found")
+    cohort, org = await _resolve_cohort_and_org(db, cohort_id, current_user)
 
     program = await db.get(Program, cohort.program_id)
     if program is None:
@@ -807,11 +843,8 @@ async def update_organization_cohort(
     current_user: User = Depends(require_organization_account),
     db: AsyncSession = Depends(get_db),
 ):
-    org = await _get_org_or_400(db, current_user)
     require_org_manager(current_user)
-    cohort = await db.get(Cohort, cohort_id)
-    if cohort is None or (cohort.organization_id != org.id and not _is_admin_or_ops(current_user)):
-        raise HTTPException(status_code=404, detail="Cohort not found")
+    cohort, org = await _resolve_cohort_and_org(db, cohort_id, current_user)
 
     if body.capacity is not None and org.max_students_per_cohort is not None and not _is_admin_or_ops(current_user):
         if body.capacity > org.max_students_per_cohort:
@@ -846,11 +879,10 @@ async def duplicate_organization_cohort(
 ):
     """Duplicates a cohort and clones its full milestone checklist items so the
     organization can reuse its setup for a new batch in 1 click."""
-    org = await _get_org_or_400(db, current_user)
     require_org_manager(current_user)
-    source = await db.get(Cohort, cohort_id)
-    if source is None or (source.organization_id != org.id and not _is_admin_or_ops(current_user)):
-        raise HTTPException(status_code=404, detail="Source cohort not found")
+    source, org = await _resolve_cohort_and_org(
+        db, cohort_id, current_user, not_found_detail="Source cohort not found"
+    )
 
     if org.max_cohorts is not None and not _is_admin_or_ops(current_user):
         curr_cohorts = await db.scalar(
@@ -953,10 +985,7 @@ async def list_cohort_registrations(
     current_user: User = Depends(require_organization_account),
     db: AsyncSession = Depends(get_db),
 ):
-    org = await _get_org_or_400(db, current_user)
-    cohort = await db.get(Cohort, cohort_id)
-    if cohort is None or (cohort.organization_id != org.id and not _is_admin_or_ops(current_user)):
-        raise HTTPException(status_code=404, detail="Cohort not found")
+    cohort, _org = await _resolve_cohort_and_org(db, cohort_id, current_user)
 
     rows = (
         await db.execute(
@@ -994,12 +1023,9 @@ async def register_student_to_cohort(
     current_user: User = Depends(require_organization_account),
     db: AsyncSession = Depends(get_db),
 ):
-    org = await _get_org_or_400(db, current_user)
     require_org_manager(current_user)
+    cohort, org = await _resolve_cohort_and_org(db, cohort_id, current_user)
     _ensure_org_approved(org, current_user)
-    cohort = await db.get(Cohort, cohort_id)
-    if cohort is None or (cohort.organization_id != org.id and not _is_admin_or_ops(current_user)):
-        raise HTTPException(status_code=404, detail="Cohort not found")
 
     active_count = await db.scalar(
         select(func.count(Registration.id)).where(
@@ -1062,12 +1088,9 @@ async def bulk_import_students_to_cohort(
     current_user: User = Depends(require_organization_account),
     db: AsyncSession = Depends(get_db),
 ):
-    org = await _get_org_or_400(db, current_user)
     require_org_manager(current_user)
+    cohort, org = await _resolve_cohort_and_org(db, cohort_id, current_user)
     _ensure_org_approved(org, current_user)
-    cohort = await db.get(Cohort, cohort_id)
-    if cohort is None or (cohort.organization_id != org.id and not _is_admin_or_ops(current_user)):
-        raise HTTPException(status_code=404, detail="Cohort not found")
 
     incoming_count = len(body.students)
     if incoming_count == 0:
@@ -1141,11 +1164,8 @@ async def cancel_cohort_registration(
     current_user: User = Depends(require_organization_account),
     db: AsyncSession = Depends(get_db),
 ):
-    org = await _get_org_or_400(db, current_user)
     require_org_manager(current_user)
-    cohort = await db.get(Cohort, cohort_id)
-    if cohort is None or (cohort.organization_id != org.id and not _is_admin_or_ops(current_user)):
-        raise HTTPException(status_code=404, detail="Cohort not found")
+    cohort, _org = await _resolve_cohort_and_org(db, cohort_id, current_user)
 
     reg = await db.get(Registration, registration_id)
     if reg is None or reg.cohort_id != cohort.id:
@@ -1163,10 +1183,7 @@ async def list_cohort_observers(
     current_user: User = Depends(require_organization_account),
     db: AsyncSession = Depends(get_db),
 ):
-    org = await _get_org_or_400(db, current_user)
-    cohort = await db.get(Cohort, cohort_id)
-    if cohort is None or (cohort.organization_id != org.id and not _is_admin_or_ops(current_user)):
-        raise HTTPException(status_code=404, detail="Cohort not found")
+    cohort, _org = await _resolve_cohort_and_org(db, cohort_id, current_user)
 
     rows = (
         await db.execute(
@@ -1200,11 +1217,8 @@ async def add_cohort_observer(
     current_user: User = Depends(require_organization_account),
     db: AsyncSession = Depends(get_db),
 ):
-    org = await _get_org_or_400(db, current_user)
     require_org_manager(current_user)
-    cohort = await db.get(Cohort, cohort_id)
-    if cohort is None or (cohort.organization_id != org.id and not _is_admin_or_ops(current_user)):
-        raise HTTPException(status_code=404, detail="Cohort not found")
+    cohort, org = await _resolve_cohort_and_org(db, cohort_id, current_user)
 
     target_user = await db.get(User, body.user_id)
     if not target_user:
@@ -1272,11 +1286,8 @@ async def remove_cohort_observer(
     current_user: User = Depends(require_organization_account),
     db: AsyncSession = Depends(get_db),
 ):
-    org = await _get_org_or_400(db, current_user)
     require_org_manager(current_user)
-    cohort = await db.get(Cohort, cohort_id)
-    if cohort is None or (cohort.organization_id != org.id and not _is_admin_or_ops(current_user)):
-        raise HTTPException(status_code=404, detail="Cohort not found")
+    cohort, _org = await _resolve_cohort_and_org(db, cohort_id, current_user)
 
     assignment = (
         await db.execute(
@@ -1303,10 +1314,7 @@ async def list_cohort_sessions(
     current_user: User = Depends(require_organization_account),
     db: AsyncSession = Depends(get_db),
 ):
-    org = await _get_org_or_400(db, current_user)
-    cohort = await db.get(Cohort, cohort_id)
-    if cohort is None or (cohort.organization_id != org.id and not _is_admin_or_ops(current_user)):
-        raise HTTPException(status_code=404, detail="Cohort not found")
+    cohort, _org = await _resolve_cohort_and_org(db, cohort_id, current_user)
 
     rows = (
         await db.execute(
@@ -1335,11 +1343,8 @@ async def create_cohort_session(
     current_user: User = Depends(require_organization_account),
     db: AsyncSession = Depends(get_db),
 ):
-    org = await _get_org_or_400(db, current_user)
     require_org_manager(current_user)
-    cohort = await db.get(Cohort, cohort_id)
-    if cohort is None or (cohort.organization_id != org.id and not _is_admin_or_ops(current_user)):
-        raise HTTPException(status_code=404, detail="Cohort not found")
+    cohort, _org = await _resolve_cohort_and_org(db, cohort_id, current_user)
 
     meeting_date = body.meeting_date or body.date or date.today()
     starts_at = body.starts_at or body.start_time
@@ -1374,11 +1379,8 @@ async def update_cohort_session(
     current_user: User = Depends(require_organization_account),
     db: AsyncSession = Depends(get_db),
 ):
-    org = await _get_org_or_400(db, current_user)
     require_org_manager(current_user)
-    cohort = await db.get(Cohort, cohort_id)
-    if cohort is None or (cohort.organization_id != org.id and not _is_admin_or_ops(current_user)):
-        raise HTTPException(status_code=404, detail="Cohort not found")
+    cohort, _org = await _resolve_cohort_and_org(db, cohort_id, current_user)
 
     s = await db.get(Session, session_id)
     if s is None or s.cohort_id != cohort.id:
@@ -1411,11 +1413,8 @@ async def delete_cohort_session(
     current_user: User = Depends(require_organization_account),
     db: AsyncSession = Depends(get_db),
 ):
-    org = await _get_org_or_400(db, current_user)
     require_org_manager(current_user)
-    cohort = await db.get(Cohort, cohort_id)
-    if cohort is None or (cohort.organization_id != org.id and not _is_admin_or_ops(current_user)):
-        raise HTTPException(status_code=404, detail="Cohort not found")
+    cohort, _org = await _resolve_cohort_and_org(db, cohort_id, current_user)
 
     s = await db.get(Session, session_id)
     if s is None or s.cohort_id != cohort.id:
@@ -1427,13 +1426,6 @@ async def delete_cohort_session(
 
 
 # ── Sandbox staffing: org instructors & judges ───────────────────────────────
-async def _cohort_or_404(db: AsyncSession, org: Organization, cohort_id: uuid.UUID, current_user: User) -> Cohort:
-    cohort = await db.get(Cohort, cohort_id)
-    if cohort is None or (cohort.organization_id != org.id and not _is_admin_or_ops(current_user)):
-        raise HTTPException(status_code=404, detail="Cohort not found")
-    return cohort
-
-
 async def _default_delivery_role_id(db: AsyncSession) -> uuid.UUID:
     role = (
         await db.execute(
@@ -1481,11 +1473,10 @@ async def get_cohort_staff(
     current_user: User = Depends(require_organization_account),
     db: AsyncSession = Depends(get_db),
 ):
-    """The org's staffing board: every instructor/judge on the team, what they
-    are assigned to, attendance they recorded and their readiness result."""
-    org = await _get_org_or_400(db, current_user)
+    """The org's staffing board: instructors assigned to this cohort, judges,
+    per-session staffing & attendance, and readiness attempts."""
     require_org_manager(current_user)
-    cohort = await _cohort_or_404(db, org, cohort_id, current_user)
+    cohort, _org = await _resolve_cohort_and_org(db, cohort_id, current_user)
 
     sessions = (
         await db.execute(
@@ -1528,14 +1519,7 @@ async def get_cohort_staff(
         for sid, status_value, count in att_rows:
             attendance.setdefault(sid, {})[status_value] = int(count)
 
-    team = (
-        await db.execute(select(User).where(User.organization_id == org.id))
-    ).scalars().all()
-    instructor_map: dict[uuid.UUID, User] = {
-        u.id: u for u in team if effective_org_role(u) == "instructor"
-    }
-    # An assignment whose person is no longer flagged instructor still shows up
-    # rather than silently disappearing from the board.
+    instructor_map: dict[uuid.UUID, User] = {}
     for _si, assigned_user in assignments:
         instructor_map.setdefault(assigned_user.id, assigned_user)
 
@@ -1609,6 +1593,14 @@ async def get_cohort_staff(
                 "started_at": s.started_at.isoformat() if s.started_at else None,
                 "completed_at": s.completed_at.isoformat() if s.completed_at else None,
                 "staffing_status": s.staffing_status,
+                "attendance_present": attendance.get(s.id, {}).get("present", 0),
+                "attendance_absent": attendance.get(s.id, {}).get("absent", 0),
+                "attendance_total": sum(attendance.get(s.id, {}).values()),
+                "instructors": [
+                    {"user_id": str(u.id), "full_name": u.full_name}
+                    for si, u in assignments
+                    if si.session_id == s.id
+                ],
             }
             for s in sessions
         ],
@@ -1636,9 +1628,8 @@ async def assign_instructor_to_cohort(
 ):
     """Assign an org instructor to the whole cohort (one `SessionInstructor` per
     session — the same shape Ops staffing writes)."""
-    org = await _get_org_or_400(db, current_user)
     require_org_manager(current_user)
-    cohort = await _cohort_or_404(db, org, cohort_id, current_user)
+    cohort, org = await _resolve_cohort_and_org(db, cohort_id, current_user)
     await _org_instructor_or_400(db, org, body.user_id)
 
     sessions = (
@@ -1686,9 +1677,8 @@ async def unassign_instructor_from_cohort(
     current_user: User = Depends(require_organization_account),
     db: AsyncSession = Depends(get_db),
 ):
-    org = await _get_org_or_400(db, current_user)
     require_org_manager(current_user)
-    cohort = await _cohort_or_404(db, org, cohort_id, current_user)
+    cohort, _org = await _resolve_cohort_and_org(db, cohort_id, current_user)
 
     if session_id is not None:
         session = await db.get(Session, session_id)
@@ -1721,9 +1711,8 @@ async def assign_judge_to_cohort(
 ):
     """Give an org judge the cohort's competition — one `CompetitionJudge` row,
     the exact same assignment Ops writes."""
-    org = await _get_org_or_400(db, current_user)
     require_org_manager(current_user)
-    cohort = await _cohort_or_404(db, org, cohort_id, current_user)
+    cohort, org = await _resolve_cohort_and_org(db, cohort_id, current_user)
     await _org_judge_or_400(db, org, body.user_id)
 
     existing = (
@@ -1747,9 +1736,8 @@ async def unassign_judge_from_cohort(
     current_user: User = Depends(require_organization_account),
     db: AsyncSession = Depends(get_db),
 ):
-    org = await _get_org_or_400(db, current_user)
     require_org_manager(current_user)
-    cohort = await _cohort_or_404(db, org, cohort_id, current_user)
+    cohort, _org = await _resolve_cohort_and_org(db, cohort_id, current_user)
 
     existing = (
         await db.execute(
@@ -1780,7 +1768,7 @@ async def list_org_readiness_presets(
             "name": p.get("name"),
             "description": p.get("description"),
             "preset_type": p.get("preset_type"),
-            "question_count": len(p.get("question_ids") or []),
+            "question_count": _preset_question_count(p),
             "phases_count": len(p.get("phases") or []),
         }
         for p in presets
@@ -1797,9 +1785,8 @@ async def get_org_cohort_readiness(
     attempt — the org-side view Ops already has."""
     from app.services.sessions import pre_session_quiz as quiz_svc
 
-    org = await _get_org_or_400(db, current_user)
     require_org_manager(current_user)
-    cohort = await _cohort_or_404(db, org, cohort_id, current_user)
+    cohort, _org = await _resolve_cohort_and_org(db, cohort_id, current_user)
 
     assignment = await quiz_svc.get_assignment_for_scope(db, "cohorts", cohort.id)
     preset = None
@@ -1810,7 +1797,7 @@ async def get_org_cohort_readiness(
                 "id": hydrated.get("id"),
                 "name": hydrated.get("name"),
                 "description": hydrated.get("description"),
-                "question_count": len(hydrated.get("question_ids") or []),
+                "question_count": _preset_question_count(hydrated),
             }
 
     attempts = (
@@ -1853,9 +1840,8 @@ async def set_org_cohort_readiness(
     passed a cohort-level preset."""
     from app.services.sessions import pre_session_quiz as quiz_svc
 
-    org = await _get_org_or_400(db, current_user)
     require_org_manager(current_user)
-    cohort = await _cohort_or_404(db, org, cohort_id, current_user)
+    cohort, _org = await _resolve_cohort_and_org(db, cohort_id, current_user)
     return await quiz_svc.set_assignment_for_scope(
         db,
         "cohorts",

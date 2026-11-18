@@ -84,6 +84,8 @@ export default function OrganizationCohortDetail() {
   const navigate = useNavigate()
   const toast = useToast()
   const qc = useQueryClient()
+  const searchParams = typeof window !== "undefined" ? new URLSearchParams(window.location.search) : null
+  const fromUrl = searchParams?.get("from") || undefined
 
   const [activeTab, setActiveTab] = useState<TabKey>("milestones")
   const [studentsSubTab, setStudentsSubTab] = useState<"students" | "observers" | "teams">("students")
@@ -118,6 +120,7 @@ export default function OrganizationCohortDetail() {
     void qc.invalidateQueries({ queryKey: ["org-cohort-observers", cohortId] })
     void qc.invalidateQueries({ queryKey: ["org-cohort-staff", cohortId] })
     void qc.invalidateQueries({ queryKey: ["org-cohort-readiness", cohortId] })
+    void qc.invalidateQueries({ queryKey: ["competitions-judges", cohortId] })
   }
 
   const removeObserverMut = useMutation({
@@ -160,8 +163,8 @@ export default function OrganizationCohortDetail() {
   })
 
   const { data: team = [] } = useQuery({
-    queryKey: ["org-team-members"],
-    queryFn: getOrganizationTeamApi,
+    queryKey: ["org-team-members", cohortId],
+    queryFn: () => getOrganizationTeamApi({ cohort_id: cohortId }),
     enabled: Boolean(cohortId) && (activeTab === "staff" || activeTab === "sessions"),
   })
 
@@ -271,10 +274,11 @@ export default function OrganizationCohortDetail() {
       <div className="flex flex-col gap-4">
         <button
           type="button"
-          onClick={() => void navigate({ to: "/organization/programs" })}
+          onClick={() => void navigate({ to: (fromUrl || "/organization/programs") as never })}
           className="inline-flex items-center gap-1.5 text-xs font-semibold text-muted-foreground hover:text-foreground transition w-fit"
         >
-          <ArrowLeft className="w-4 h-4" /> Back to Programs
+          <ArrowLeft className="w-4 h-4" />{" "}
+          {fromUrl?.startsWith("/operations/organizations/") ? "Back to Organization" : "Back to Programs"}
         </button>
 
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 p-5 rounded-2xl border border-border bg-card shadow-sm">
@@ -886,7 +890,7 @@ export default function OrganizationCohortDetail() {
 
       {/* 6. ANALYSIS */}
       {activeTab === "analysis" && (
-        <CohortAnalysisPanel cohortId={cohort.id} isCompetition={isCompetition} />
+        <CohortAnalysisPanel cohortId={cohort.id} />
       )}
 
       {/* 7. JUDGING (Competitions) */}
@@ -917,7 +921,7 @@ export default function OrganizationCohortDetail() {
           {judgingSubTab === "rubric" && <RubricTab cohortId={cohort.id} />}
           {judgingSubTab === "judges" && <JudgesTab cohortId={cohort.id} />}
           {judgingSubTab === "results" && (
-            <ResultsTab cohortId={cohort.id} cohortName={cohort.name} />
+            <ResultsTab cohortId={cohort.id} cohortName={cohort.name} programId={cohort.program_id} />
           )}
         </div>
       )}
@@ -1381,8 +1385,8 @@ function AddObserverModal({
   const [selectedUserId, setSelectedUserId] = useState("")
 
   const { data: team = [], isLoading } = useQuery({
-    queryKey: ["org-team-members"],
-    queryFn: getOrganizationTeamApi,
+    queryKey: ["org-team-members", cohortId],
+    queryFn: () => getOrganizationTeamApi({ cohort_id: cohortId }),
     enabled: open,
   })
 
