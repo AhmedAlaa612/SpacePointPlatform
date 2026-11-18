@@ -55,8 +55,11 @@ async def seed(db: AsyncSession, dry_run: bool = False) -> None:
                 "Wire and verify serial, I2C, CAN, and SPI avionics bus topologies",
                 "Read telemetry from TMP102 temperature and INA219 power sensors",
                 "Write persistent telemetry logs to FRAM non-volatile memory",
+                "Log mission telemetry to a MicroSD card over the SPI bus",
                 "Control reaction wheel DC motors with high-precision PWM",
                 "Integrate the MPU6050 6-axis gyroscope for spacecraft attitude determination",
+                "Parse NMEA coordinates from the NEO-6M GPS module over UART",
+                "Transmit wireless telemetry packets via the HC-12 433 MHz RF module",
             ],
         )
         db.add(course)
@@ -522,12 +525,63 @@ async def seed(db: AsyncSession, dry_run: bool = False) -> None:
                         ],
                     },
                 },
+                {
+                    "title": "MicroSD Card SPI Data Logging",
+                    "kind": "practice",
+                    "content": {
+                        "markdown": (
+                            "## MicroSD Card Interface (SPI)\n\n"
+                            "While **FRAM** stores fast, high-endurance state variables, the **MicroSD Card** provides gigabytes of removable mass storage for bulk sensor logs and mission payload data over the **SPI** bus.\n\n"
+                            "### SpacePoint CDHS Wiring (Connector J6 / ESP32 VSPI):\n"
+                            "| MicroSD Pin | ESP32 GPIO (VSPI) | Function |\n"
+                            "| :--- | :--- | :--- |\n"
+                            "| **VCC** | `3.3V` | Power Supply (3.3V regulated) |\n"
+                            "| **GND** | `GND` | Common Ground |\n"
+                            "| **CS** | `GPIO 5` | Active-Low Chip Select |\n"
+                            "| **SCK / CLK** | `GPIO 18` | SPI Serial Clock |\n"
+                            "| **MISO** | `GPIO 19` | Master In Slave Out |\n"
+                            "| **MOSI** | `GPIO 23` | Master Out Slave In |\n\n"
+                            "> **Hardware Tip:** Format the MicroSD card as **FAT32** before flight, and verify your Connector J6 jumpers match the actual module pinout.\n\n"
+                            "> **Flight Software Challenge:** Initialize the SD card on Chip Select pin `5`, open `/telemetry.txt` in `FILE_WRITE` mode, and close the file after logging."
+                        ),
+                        "instructions": "Mount the SD card on CS pin 5, open /telemetry.txt for writing, and close it safely.",
+                        "template": (
+                            "#include \"FS.h\"\n"
+                            "#include \"SD.h\"\n"
+                            "#include \"SPI.h\"\n\n"
+                            "const int SD_CS_PIN = {{CS_PIN}};\n\n"
+                            "void logToSDCard(const char* message) {\n"
+                            "  // 1. Mount the MicroSD card on the SPI Chip Select pin\n"
+                            "  if (!SD.{{INIT_FUNC}}(SD_CS_PIN)) {\n"
+                            "    Serial.println(\"Card Mount Failed\");\n"
+                            "    return;\n"
+                            "  }\n\n"
+                            "  // 2. Open /telemetry.txt in write mode\n"
+                            "  File file = SD.open(\"/telemetry.txt\", {{FILE_MODE}});\n"
+                            "  if (file) {\n"
+                            "    file.println(message);\n"
+                            "    file.{{CLOSE_FUNC}}();\n"
+                            "    Serial.println(\"Telemetry logged to SD!\");\n"
+                            "  } else {\n"
+                            "    Serial.println(\"Error opening file for writing\");\n"
+                            "  }\n"
+                            "}\n"
+                        ),
+                        "max_attempts": 3,
+                        "blanks": [
+                            {"token": "{{CS_PIN}}", "label": "CS Pin", "validator_pattern": "^5$", "correct_answer": "5", "hint": "Default ESP32 VSPI Chip Select pin is GPIO 5."},
+                            {"token": "{{INIT_FUNC}}", "label": "Init", "validator_pattern": "^begin$", "correct_answer": "begin", "hint": "Use SD.begin(SD_CS_PIN) to mount the card."},
+                            {"token": "{{FILE_MODE}}", "label": "Mode", "validator_pattern": "^FILE_WRITE$", "correct_answer": "FILE_WRITE", "hint": "Use FILE_WRITE to create/write to the file."},
+                            {"token": "{{CLOSE_FUNC}}", "label": "Close", "validator_pattern": "^close$", "correct_answer": "close", "hint": "Always call file.close() to flush data to the SD card."},
+                        ],
+                    },
+                },
             ],
         },
 
-        # ── MODULE 4: ATTITUDE DETERMINATION & CONTROL (ADCS) ────────────────────
+        # ── MODULE 4: ATTITUDE & PAYLOAD CONTROL (ADCS / APC) ────────────────────
         {
-            "title": "4. Attitude Determination & Control (ADCS)",
+            "title": "4. Attitude & Payload Control (ADCS / APC)",
             "items": [
                 {
                     "title": "Reaction Wheel Motor Control (PWM)",
@@ -600,6 +654,87 @@ async def seed(db: AsyncSession, dry_run: bool = False) -> None:
                         "blanks": [
                             {"token": "{{IMU_ADDR}}", "label": "Address", "validator_pattern": "^0x68$", "correct_answer": "0x68", "hint": "MPU6050 default I2C address is 0x68."},
                             {"token": "{{REG_START}}", "label": "Register", "validator_pattern": "^(0x3B|0x3b)$", "correct_answer": "0x3B", "hint": "Start register is 0x3B."},
+                        ],
+                    },
+                },
+                {
+                    "title": "GPS Module (NEO-6M) Position Telemetry",
+                    "kind": "practice",
+                    "content": {
+                        "markdown": (
+                            "## NEO-6M GPS Module (UART)\n\n"
+                            "The **NEO-6M GPS Module** provides real-time orbital/flight positioning (latitude, longitude, and altitude) by streaming **NMEA** sentences over **UART** at a default baud rate of **9600 bps**.\n\n"
+                            "### SpacePoint APC Wiring (UART Crossover Rule):\n"
+                            "| GPS Module Pin | ESP32 Connection | Notes |\n"
+                            "| :--- | :--- | :--- |\n"
+                            "| **VCC** | `3.3V` | Power Supply |\n"
+                            "| **GND** | `GND` | Common Ground |\n"
+                            "| **TX** | `ESP32 RX` | GPS transmits NMEA data to ESP32 |\n"
+                            "| **RX** | `ESP32 TX` | ESP32 transmits config to GPS |\n\n"
+                            "> **Flight Software Challenge:** Initialize `gpsSerial` at `9600` baud, feed incoming bytes into `gps.encode(...)`, and read `lat()` and `lng()` when a valid fix is available."
+                        ),
+                        "instructions": "Set the GPS baud rate to 9600, encode incoming UART bytes, and read valid coordinates.",
+                        "template": (
+                            "#include <TinyGPS++.h>\n\n"
+                            "TinyGPSPlus gps;\n"
+                            "HardwareSerial gpsSerial(1); // UART1 on APC board\n\n"
+                            "void initGPS() {\n"
+                            "  // Default NEO-6M baud rate is 9600 bps\n"
+                            "  gpsSerial.begin({{BAUD_RATE}}, SERIAL_8N1, 16, 17);\n"
+                            "}\n\n"
+                            "void readGPS() {\n"
+                            "  while (gpsSerial.available() > 0) {\n"
+                            "    gps.{{ENCODE_FUNC}}(gpsSerial.read());\n"
+                            "  }\n\n"
+                            "  if (gps.location.{{VALID_FUNC}}()) {\n"
+                            "    double lat = gps.location.lat();\n"
+                            "    double lon = gps.location.lng();\n"
+                            "    Serial.printf(\"Fix: %.6f, %.6f\\n\", lat, lon);\n"
+                            "  }\n"
+                            "}\n"
+                        ),
+                        "max_attempts": 3,
+                        "blanks": [
+                            {"token": "{{BAUD_RATE}}", "label": "Baud", "validator_pattern": "^9600$", "correct_answer": "9600", "hint": "NEO-6M GPS modules default to 9600 bps."},
+                            {"token": "{{ENCODE_FUNC}}", "label": "Parser", "validator_pattern": "^encode$", "correct_answer": "encode", "hint": "Feed raw NMEA characters into gps.encode()."},
+                            {"token": "{{VALID_FUNC}}", "label": "Check", "validator_pattern": "^isValid$", "correct_answer": "isValid", "hint": "Check gps.location.isValid() before reading coordinates."},
+                        ],
+                    },
+                },
+                {
+                    "title": "HC-12 Wireless RF Downlink",
+                    "kind": "practice",
+                    "content": {
+                        "markdown": (
+                            "## HC-12 433 MHz Wireless Transceiver\n\n"
+                            "The **HC-12** is a half-duplex wireless UART transceiver operating in the **433.4–473.0 MHz** band (100 channels, up to 20 dBm). It acts as a transparent wireless serial bridge between the satellite APC board and the Ground Station.\n\n"
+                            "### Operating Modes (`SET` Pin):\n"
+                            "| `SET` Pin State | Mode | Purpose |\n"
+                            "| :--- | :--- | :--- |\n"
+                            "| **HIGH** (3.3V) | **Transparent Mode** | Normal telemetry transmission & reception |\n"
+                            "| **LOW** (GND) | **AT Command Mode** | Configure channel (`AT+C001`), baud rate, or TX power |\n\n"
+                            "> **Flight Software Challenge:** Initialize the HC-12 UART port at `9600` baud, keep `SET` `HIGH` for normal flight telemetry, and transmit the packet using `println`."
+                        ),
+                        "instructions": "Configure HC-12 in transparent mode (HIGH) at 9600 baud and send a telemetry packet.",
+                        "template": (
+                            "HardwareSerial hc12(2); // UART2 for HC-12 RF link\n"
+                            "const int HC12_SET_PIN = 4;\n\n"
+                            "void initHC12() {\n"
+                            "  pinMode(HC12_SET_PIN, OUTPUT);\n"
+                            "  // HIGH = Transparent transmission mode (LOW = AT commands)\n"
+                            "  digitalWrite(HC12_SET_PIN, {{SET_STATE}});\n"
+                            "  hc12.begin({{BAUD_RATE}}, SERIAL_8N1, 16, 17);\n"
+                            "}\n\n"
+                            "void sendTelemetryPacket(float tempC, float busV) {\n"
+                            "  String packet = \"TLM,\" + String(tempC, 2) + \",\" + String(busV, 2);\n"
+                            "  hc12.{{SEND_FUNC}}(packet);\n"
+                            "}\n"
+                        ),
+                        "max_attempts": 3,
+                        "blanks": [
+                            {"token": "{{SET_STATE}}", "label": "Mode", "validator_pattern": "^HIGH$", "correct_answer": "HIGH", "hint": "Pull SET HIGH for normal transparent transmission."},
+                            {"token": "{{BAUD_RATE}}", "label": "Baud", "validator_pattern": "^9600$", "correct_answer": "9600", "hint": "HC-12 factory default baud rate is 9600 bps."},
+                            {"token": "{{SEND_FUNC}}", "label": "Send", "validator_pattern": "^println$", "correct_answer": "println", "hint": "Use hc12.println(packet) to send a newline-delimited packet."},
                         ],
                     },
                 },
