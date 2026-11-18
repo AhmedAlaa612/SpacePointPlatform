@@ -503,6 +503,7 @@ class CourseAdminOut(BaseModel):
     organization_id: UUID | None = None
     organization_name: str | None = None
     submitted_for_review_at: datetime | None = None
+    can_edit: bool = True
     certificate_enabled: bool = True
     show_rating: bool = True
     rating_auto_hidden: bool = False

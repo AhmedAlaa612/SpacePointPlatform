@@ -137,23 +137,30 @@ export default function LmsCourseDetail() {
         <div className="flex flex-col gap-1.5 shrink-0 w-full sm:w-auto">
           <button
             type="button"
-            onClick={() => fileInputRef.current?.click()}
-            className="group relative w-full max-w-xs sm:w-52 sm:h-32 rounded-2xl bg-muted overflow-hidden cursor-pointer ring-1 ring-border aspect-video"
-            title="Upload cover image"
+            disabled={course.can_edit === false}
+            onClick={() => {
+              if (course.can_edit !== false) fileInputRef.current?.click()
+            }}
+            className={`group relative w-full max-w-xs sm:w-52 sm:h-32 rounded-2xl bg-muted overflow-hidden ring-1 ring-border aspect-video ${
+              course.can_edit === false ? "cursor-default" : "cursor-pointer"
+            }`}
+            title={course.can_edit === false ? course.title : "Upload cover image"}
           >
             {course.image_url ? (
               <img src={course.image_url} alt="" className="w-full h-full object-cover" />
             ) : (
               <div className="w-full h-full flex flex-col items-center justify-center gap-1.5 text-muted-foreground">
                 <ImagePlus size={20} />
-                <span className="text-[11px]">Add cover</span>
+                <span className="text-[11px]">{course.can_edit === false ? "No cover" : "Add cover"}</span>
               </div>
             )}
-            <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center text-white text-xs font-medium">
-              {imageMutation.isPending ? "Uploading..." : "Change"}
-            </div>
+            {course.can_edit !== false && (
+              <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center text-white text-xs font-medium">
+                {imageMutation.isPending ? "Uploading..." : "Change"}
+              </div>
+            )}
           </button>
-          {course.image_url && (
+          {course.can_edit !== false && course.image_url && (
             <button
               type="button"
               onClick={() => {
@@ -197,49 +204,58 @@ export default function LmsCourseDetail() {
                 >
                   <Eye size={14} /> Preview course
                 </button>
-                {cannotPublish ? (
-                  course.is_published ? (
-                    <span
-                      title="Published and visible in catalog"
-                      className="h-9 px-3 border border-border rounded-xl text-xs font-medium text-green-600 dark:text-green-400 flex items-center select-none"
-                    >
-                      Published
-                    </span>
-                  ) : (
+                {course.can_edit !== false && (
+                  <>
+                    {cannotPublish ? (
+                      course.is_published ? (
+                        <span
+                          title="Published and visible in catalog"
+                          className="h-9 px-3 border border-border rounded-xl text-xs font-medium text-green-600 dark:text-green-400 flex items-center select-none"
+                        >
+                          Published
+                        </span>
+                      ) : (
+                        <button
+                          onClick={() => submitReviewMutation.mutate()}
+                          disabled={submitReviewMutation.isPending || submittedForReview}
+                          className="h-9 px-4 border border-amber-500/40 rounded-xl text-sm font-medium text-amber-600 dark:text-amber-400 hover:bg-amber-500/10 transition-colors cursor-pointer disabled:opacity-60 flex items-center gap-1.5"
+                          title="Submit this course to administrators for review and publishing"
+                        >
+                          {submittedForReview ? "Submitted for review" : "Submit for review"}
+                        </button>
+                      )
+                    ) : (
+                      <button
+                        onClick={() => publishMutation.mutate()}
+                        disabled={publishMutation.isPending}
+                        className="h-9 px-4 border border-border rounded-xl text-sm font-medium text-foreground hover:bg-muted transition-colors cursor-pointer disabled:opacity-50"
+                      >
+                        {course.is_published ? "Unpublish" : "Publish"}
+                      </button>
+                    )}
                     <button
-                      onClick={() => submitReviewMutation.mutate()}
-                      disabled={submitReviewMutation.isPending || submittedForReview}
-                      className="h-9 px-4 border border-amber-500/40 rounded-xl text-sm font-medium text-amber-600 dark:text-amber-400 hover:bg-amber-500/10 transition-colors cursor-pointer disabled:opacity-60 flex items-center gap-1.5"
-                      title="Submit this course to administrators for review and publishing"
+                      onClick={() => setEditOpen(true)}
+                      className="h-9 px-4 border border-border rounded-xl text-sm font-medium text-foreground hover:bg-muted transition-colors cursor-pointer"
                     >
-                      {submittedForReview ? "Submitted for review" : "Submit for review"}
+                      Edit
                     </button>
-                  )
-                ) : (
-                  <button
-                    onClick={() => publishMutation.mutate()}
-                    disabled={publishMutation.isPending}
-                    className="h-9 px-4 border border-border rounded-xl text-sm font-medium text-foreground hover:bg-muted transition-colors cursor-pointer disabled:opacity-50"
-                  >
-                    {course.is_published ? "Unpublish" : "Publish"}
-                  </button>
+                    <button
+                      onClick={() => setAddOpen(true)}
+                      className="flex items-center gap-1.5 h-9 px-4 bg-primary text-primary-foreground text-sm font-medium rounded-xl hover:opacity-90 transition-colors cursor-pointer"
+                    >
+                      <Plus size={14} /> Add module
+                    </button>
+                  </>
                 )}
-                <button
-                  onClick={() => setEditOpen(true)}
-                  className="h-9 px-4 border border-border rounded-xl text-sm font-medium text-foreground hover:bg-muted transition-colors cursor-pointer"
-                >
-                  Edit
-                </button>
-                <button
-                  onClick={() => setAddOpen(true)}
-                  className="flex items-center gap-1.5 h-9 px-4 bg-primary text-primary-foreground text-sm font-medium rounded-xl hover:opacity-90 transition-colors cursor-pointer"
-                >
-                  <Plus size={14} /> Add module
-                </button>
               </div>
             }
           />
           <div className="flex items-center gap-2 flex-wrap -mt-3">
+            {course.can_edit === false && (
+              <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-muted text-muted-foreground">
+                Shared (Read-only)
+              </span>
+            )}
             <span
               className={`text-xs font-semibold px-2 py-0.5 rounded-full ${
                 course.is_published
@@ -304,24 +320,26 @@ export default function LmsCourseDetail() {
               className="flex items-center justify-between p-4 bg-card border border-border rounded-2xl hover:border-muted-foreground/30 transition-colors cursor-pointer"
             >
               <div className="flex items-center gap-3 min-w-0">
-                <div className="flex flex-col shrink-0" onClick={(e) => e.stopPropagation()}>
-                  <button
-                    onClick={() => move(index, -1)}
-                    disabled={index === 0 || reorderMutation.isPending}
-                    className="text-muted-foreground hover:text-foreground disabled:opacity-25 transition-colors"
-                    title="Move up"
-                  >
-                    <ArrowUp size={14} />
-                  </button>
-                  <button
-                    onClick={() => move(index, 1)}
-                    disabled={index === modules.length - 1 || reorderMutation.isPending}
-                    className="text-muted-foreground hover:text-foreground disabled:opacity-25 transition-colors"
-                    title="Move down"
-                  >
-                    <ArrowDown size={14} />
-                  </button>
-                </div>
+                {course.can_edit !== false && (
+                  <div className="flex flex-col shrink-0" onClick={(e) => e.stopPropagation()}>
+                    <button
+                      onClick={() => move(index, -1)}
+                      disabled={index === 0 || reorderMutation.isPending}
+                      className="text-muted-foreground hover:text-foreground disabled:opacity-25 transition-colors"
+                      title="Move up"
+                    >
+                      <ArrowUp size={14} />
+                    </button>
+                    <button
+                      onClick={() => move(index, 1)}
+                      disabled={index === modules.length - 1 || reorderMutation.isPending}
+                      className="text-muted-foreground hover:text-foreground disabled:opacity-25 transition-colors"
+                      title="Move down"
+                    >
+                      <ArrowDown size={14} />
+                    </button>
+                  </div>
+                )}
                 <div className="min-w-0">
                   <p className="text-sm font-medium text-foreground truncate">
                     {module.position}. {module.title}
@@ -367,12 +385,14 @@ export default function LmsCourseDetail() {
                 </div>
               </div>
               <div className="flex items-center gap-1 flex-shrink-0 ml-3" onClick={(e) => e.stopPropagation()}>
-                <button
-                  onClick={() => setDeleteTarget(module)}
-                  className="h-8 px-3 rounded-lg text-xs font-medium text-red-600 hover:bg-red-500/10 transition-colors"
-                >
-                  Delete
-                </button>
+                {course.can_edit !== false && (
+                  <button
+                    onClick={() => setDeleteTarget(module)}
+                    className="h-8 px-3 rounded-lg text-xs font-medium text-red-600 hover:bg-red-500/10 transition-colors"
+                  >
+                    Delete
+                  </button>
+                )}
                 <ChevronRight size={16} className="text-muted-foreground ml-1" />
               </div>
             </div>
@@ -383,7 +403,7 @@ export default function LmsCourseDetail() {
 
       <CourseFeedbackPanel courseId={courseId} />
 
-      {canManageAssignedAccess && (
+      {canManageAssignedAccess && course.can_edit !== false && (
         <AssignPanel
           roster={roster
             .filter((e) => e.source === "ops")

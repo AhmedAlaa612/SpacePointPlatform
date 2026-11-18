@@ -39,6 +39,9 @@ export interface AdminCourse {
   // a new completion certificate from being issued for this course; never
   // revokes one already issued, never blocks a learning-path certificate.
   certificate_enabled: boolean;
+  organization_id?: string | null;
+  organization_name?: string | null;
+  can_edit?: boolean;
   show_rating?: boolean;
   rating_auto_hidden?: boolean;
   average_rating?: number | null;

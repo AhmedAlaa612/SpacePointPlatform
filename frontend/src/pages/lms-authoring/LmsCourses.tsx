@@ -21,6 +21,7 @@ export default function LmsCourses() {
   const { user, activeRole } = useAuth()
   const cannotPublish = activeRole === "lms_author" && !user?.author_can_publish
   const canViewAudit = activeRole === "admin" || activeRole === "operations"
+  const canCreateCourse = activeRole !== "organization" || !!user?.org_can_author_courses
   const [createOpen, setCreateOpen] = useState(false)
   const [accessTarget, setAccessTarget] = useState<AdminCourse | null>(null)
 
@@ -88,12 +89,14 @@ export default function LmsCourses() {
       <PageHeader
         title="LMS"
         action={
-          <button
-            onClick={() => setCreateOpen(true)}
-            className="flex items-center gap-1.5 h-9 px-4 bg-primary text-primary-foreground text-sm font-medium rounded-xl hover:opacity-90 transition-colors"
-          >
-            <Plus size={14} /> New course
-          </button>
+          canCreateCourse ? (
+            <button
+              onClick={() => setCreateOpen(true)}
+              className="flex items-center gap-1.5 h-9 px-4 bg-primary text-primary-foreground text-sm font-medium rounded-xl hover:opacity-90 transition-colors"
+            >
+              <Plus size={14} /> New course
+            </button>
+          ) : undefined
         }
       />
 
@@ -146,6 +149,11 @@ export default function LmsCourses() {
                         {course.organization_name}
                       </span>
                     )}
+                    {course.can_edit === false && (
+                      <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-muted text-muted-foreground">
+                        Shared (Read-only)
+                      </span>
+                    )}
                     {course.average_rating !== undefined && course.average_rating !== null && (
                       <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-amber-500/15 text-amber-600 dark:text-amber-400 flex items-center gap-1">
                         ★ {course.average_rating.toFixed(1)}
@@ -192,13 +200,15 @@ export default function LmsCourses() {
                 className="flex items-center gap-1.5 flex-wrap sm:flex-nowrap shrink-0 sm:ml-3 pt-2.5 sm:pt-0 border-t border-border/40 sm:border-t-0 justify-end"
                 onClick={(e) => e.stopPropagation()}
               >
-                <button
-                  onClick={() => setAccessTarget(course)}
-                  title="Edit course access"
-                  className="flex items-center gap-1 h-8 px-3 rounded-lg text-xs font-medium border border-border text-foreground hover:bg-muted transition-colors"
-                >
-                  <Lock size={13} /> Access
-                </button>
+                {course.can_edit !== false && (
+                  <button
+                    onClick={() => setAccessTarget(course)}
+                    title="Edit course access"
+                    className="flex items-center gap-1 h-8 px-3 rounded-lg text-xs font-medium border border-border text-foreground hover:bg-muted transition-colors"
+                  >
+                    <Lock size={13} /> Access
+                  </button>
+                )}
                 <button
                   onClick={() => void navigate({ to: `/learn/courses/${course.id}/learn`, search: { preview: true } as never })}
                   title="Preview course in student player"
@@ -206,9 +216,11 @@ export default function LmsCourses() {
                 >
                   <Eye size={13} /> Preview
                 </button>
-                {(videoBackendByCourse.get(course.id)?.vps ?? 0) > 0 && (
-                  <button
-                    onClick={() => migrateMutation.mutate(course.id)}
+                {course.can_edit !== false && (
+                  <>
+                    {(videoBackendByCourse.get(course.id)?.vps ?? 0) > 0 && (
+                      <button
+                        onClick={() => migrateMutation.mutate(course.id)}
                     disabled={migrateMutation.isPending}
                     title="Re-encode this course's VPS videos onto R2 — each keeps playing its current version until its own encode finishes"
                     className="flex items-center gap-1 h-8 px-3 rounded-lg text-xs font-medium border border-border text-foreground hover:bg-muted transition-colors disabled:opacity-50"
@@ -250,6 +262,8 @@ export default function LmsCourses() {
                 >
                   Delete
                 </button>
+                  </>
+                )}
                 <ChevronRight size={16} className="text-muted-foreground ml-1 hidden sm:block" />
               </div>
             </div>

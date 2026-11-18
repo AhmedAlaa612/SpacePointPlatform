@@ -928,16 +928,28 @@ async def test_org_shared_courses_visible_and_read_only(db, client, sent_emails)
     await db.flush()
 
     org.allowed_course_ids = [str(shared_course.id)]
+    org.can_author_courses = True
+    org_course = Course(
+        id=uuid.uuid4(),
+        title="Org Own Course",
+        created_by=owner.id,
+        organization_id=org.id,
+        is_published=False,
+    )
+    db.add(org_course)
     await db.flush()
 
     list_resp = await client.get("/lms/admin/courses", headers=_headers(owner))
     assert list_resp.status_code == 200, list_resp.text
-    ids = {c["id"] for c in list_resp.json()}
-    assert str(shared_course.id) in ids
-    assert str(hidden_course.id) not in ids
+    by_id = {c["id"]: c for c in list_resp.json()}
+    assert str(shared_course.id) in by_id
+    assert str(hidden_course.id) not in by_id
+    assert by_id[str(shared_course.id)]["can_edit"] is False
+    assert by_id[str(org_course.id)]["can_edit"] is True
 
     detail_resp = await client.get(f"/lms/admin/courses/{shared_course.id}", headers=_headers(owner))
     assert detail_resp.status_code == 200, detail_resp.text
+    assert detail_resp.json()["can_edit"] is False
 
     mods_resp = await client.get(f"/lms/admin/courses/{shared_course.id}/modules", headers=_headers(owner))
     assert mods_resp.status_code == 200, mods_resp.text

@@ -41,6 +41,7 @@ from app.models.sessions.registration import Registration
 from app.models.spine.contact import Contact
 from app.services.missions.cohort_access import is_cohort_lms_editor
 from app.services.missions.authorization import is_staff
+from app.services.lms.author_access import is_course_author_or_staff
 from app.models.spine.organization import Organization
 from app.models.user import User
 from app.models.team import Team, TeamMember
@@ -218,6 +219,7 @@ async def _course_admin_out(db: AsyncSession, course: Course, current: User | No
         organization_id=course.organization_id,
         organization_name=org_name,
         submitted_for_review_at=course.submitted_for_review_at,
+        can_edit=await is_course_author_or_staff(db, current, course) if current else True,
     )
 
 
