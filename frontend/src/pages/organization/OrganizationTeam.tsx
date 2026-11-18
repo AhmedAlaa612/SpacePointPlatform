@@ -9,6 +9,7 @@ import {
   Check,
 } from "lucide-react"
 import { useToast } from "@/components/ui/toast"
+import { getErrorMessage } from "@/lib/utils"
 import {
   getOrganizationTeamApi,
   addOrganizationTeamMemberApi,
@@ -43,7 +44,7 @@ export default function OrganizationTeam() {
       invalidate()
     },
     onError: (err: any) => {
-      toast.error(err?.response?.data?.detail ?? "Failed to remove member")
+      toast.error(getErrorMessage(err, "Failed to remove member"))
     },
   })
 
@@ -58,7 +59,7 @@ export default function OrganizationTeam() {
       setResetModalData(data)
     },
     onError: (err: any) => {
-      toast.error(err?.response?.data?.detail ?? "Failed to generate password reset link")
+      toast.error(getErrorMessage(err, "Failed to generate password reset link"))
     },
   })
 
@@ -200,7 +201,7 @@ function AddTeamMemberModal({
       onSuccess()
     },
     onError: (err: any) => {
-      toast.error(err?.response?.data?.detail ?? "Failed to add team member")
+      toast.error(getErrorMessage(err, "Failed to add team member"))
     },
   })
 

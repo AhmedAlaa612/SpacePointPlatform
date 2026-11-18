@@ -1,3 +1,4 @@
+import secrets
 from datetime import datetime, timezone
 from uuid import UUID
 
@@ -279,7 +280,9 @@ async def add_organization_team_member(
     user = User(
         full_name=body.full_name.strip(),
         email=email,
-        password_hash=get_password_hash(body.password),
+        password_hash=get_password_hash(
+            (body.password or "").strip() or secrets.token_urlsafe(32)
+        ),
         roles=[UserRole.organization],
         status="active",
         must_change_password=False,
@@ -326,3 +329,34 @@ async def remove_organization_team_member(
     await db.delete(user)
     await db.commit()
     return None
+
+
+@router.post("/team/{user_id}/reset-link")
+async def organization_team_member_reset_link(
+    user_id: UUID,
+    current_user: User = Depends(require_organization_account),
+    db: AsyncSession = Depends(get_db),
+):
+    """Generates a 72-hour password set/reset link for a member of this org's team."""
+    from datetime import timedelta
+
+    from app.core.config import settings
+    from app.core.security import create_password_set_token
+
+    org = await resolve_user_organization(db, current_user)
+    if org is None:
+        raise HTTPException(status_code=400, detail="No organization context found")
+
+    user = await db.get(User, user_id)
+    is_member = user is not None and (user.id == org.owner_user_id or user.organization_id == org.id)
+    if not is_member:
+        raise HTTPException(status_code=404, detail="Team member not found")
+
+    token = create_password_set_token(user.id, expires_delta=timedelta(days=3))
+    base = (settings.FRONTEND_URL or "http://localhost:5173").rstrip("/")
+    return {
+        "organization_id": str(org.id),
+        "user_id": str(user.id),
+        "email": user.email,
+        "reset_url": f"{base}/set-password?token={token}",
+    }

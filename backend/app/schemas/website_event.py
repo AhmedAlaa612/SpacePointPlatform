@@ -468,5 +468,7 @@ class OrgTeamMemberOut(BaseModel):
 class OrgTeamMemberCreateIn(BaseModel):
     full_name: str
     email: EmailStr
-    password: str
+    # Optional: when omitted the member gets a random unusable password and
+    # sets their own via the "Reset Link" flow.
+    password: str | None = None
     phone: str | None = None
