@@ -62,6 +62,7 @@ class PreSessionQuizQuestion(Base):
     explanation_table = Column(JSONB, nullable=True)
 
     is_active = Column(Boolean, nullable=False, default=True, server_default="true")
+    organization_id = Column(UUID(as_uuid=True), ForeignKey("organizations.id", ondelete="CASCADE"), nullable=True, index=True)
     created_by = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
 
@@ -82,6 +83,7 @@ class PreSessionQuizDatasheet(Base):
     image_url = Column(String(512), nullable=True)
     page_count = Column(Integer, nullable=True)
     is_active = Column(Boolean, nullable=False, default=True, server_default="true")
+    organization_id = Column(UUID(as_uuid=True), ForeignKey("organizations.id", ondelete="CASCADE"), nullable=True, index=True)
     created_by = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
     updated_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
@@ -117,6 +119,7 @@ class PreSessionQuizPreset(Base):
     phases = Column(JSONB, nullable=False, default=list, server_default="[]")
 
     is_active = Column(Boolean, nullable=False, default=True, server_default="true")
+    organization_id = Column(UUID(as_uuid=True), ForeignKey("organizations.id", ondelete="CASCADE"), nullable=True, index=True)
     created_by = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
 

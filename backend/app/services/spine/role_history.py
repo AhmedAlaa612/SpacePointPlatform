@@ -42,14 +42,15 @@ async def record_role_diff(
         return
 
     when = occurred_at or datetime.now(timezone.utc)
+    safe_source = (source or "unknown")[:24]
     for role in sorted(added):
         db.add(ContactRoleEvent(
             contact_id=contact_id, role=role, action="added",
-            source=source, changed_by_user_id=changed_by_user_id, occurred_at=when,
+            source=safe_source, changed_by_user_id=changed_by_user_id, occurred_at=when,
         ))
     for role in sorted(removed):
         db.add(ContactRoleEvent(
             contact_id=contact_id, role=role, action="removed",
-            source=source, changed_by_user_id=changed_by_user_id, occurred_at=when,
+            source=safe_source, changed_by_user_id=changed_by_user_id, occurred_at=when,
         ))
     await db.flush()

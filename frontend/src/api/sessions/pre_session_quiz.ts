@@ -156,6 +156,7 @@ export interface PreSessionQuizPreset {
   phases?: QuizPipelinePhase[]
   questions: PreSessionQuizQuestion[]
   is_active: boolean
+  organization_id?: string | null
   created_at?: string | null
 }
 

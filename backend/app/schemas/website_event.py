@@ -244,6 +244,8 @@ class OrganizationAccountCreateIn(BaseModel):
     allowed_course_ids: list[str] = Field(default_factory=list)
     quiz_scope: str = "all"
     allowed_quiz_template_ids: list[str] = Field(default_factory=list)
+    readiness_scope: str = "own"
+    allowed_readiness_preset_ids: list[str] = Field(default_factory=list)
     max_events: int | None = None
     max_programs: int | None = None
     max_cohorts: int | None = None
@@ -271,6 +273,8 @@ class OrganizationAccountUpdateIn(BaseModel):
     allowed_course_ids: list[str] | None = None
     quiz_scope: str | None = None
     allowed_quiz_template_ids: list[str] | None = None
+    readiness_scope: str | None = None
+    allowed_readiness_preset_ids: list[str] | None = None
     max_events: int | None = None
     max_programs: int | None = None
     max_cohorts: int | None = None
@@ -321,6 +325,8 @@ class OrganizationSummaryOut(BaseModel):
     allowed_course_ids: list[str] = Field(default_factory=list)
     quiz_scope: str = "own"
     allowed_quiz_template_ids: list[str] = Field(default_factory=list)
+    readiness_scope: str = "own"
+    allowed_readiness_preset_ids: list[str] = Field(default_factory=list)
     max_events: int | None = None
     max_programs: int | None = None
     max_cohorts: int | None = None

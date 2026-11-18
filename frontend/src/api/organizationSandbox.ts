@@ -60,8 +60,26 @@ export interface OrgReadinessPreset {
   name: string
   description: string | null
   preset_type: string | null
+  passing_score_percent?: number | null
   question_count: number
   phases_count: number
+  is_own?: boolean
+}
+
+export interface OrgReadinessQuestionInput {
+  prompt: string
+  question_type: "mcq" | "written"
+  options?: { text: string; is_correct: boolean }[]
+  explanation?: string | null
+  critical?: boolean
+}
+
+export interface OrgReadinessPresetCreateInput {
+  name: string
+  description?: string | null
+  passing_score_percent?: number
+  cohort_id?: string
+  questions: OrgReadinessQuestionInput[]
 }
 
 export interface OrgReadinessInstructor {
@@ -105,8 +123,20 @@ export const assignOrgJudge = (cohortId: string, userId: string) =>
 export const unassignOrgJudge = (cohortId: string, userId: string) =>
   api.delete(`/organization/cohorts/${cohortId}/judges/${userId}`)
 
-export const getOrgReadinessPresets = () =>
-  api.get<OrgReadinessPreset[]>("/organization/readiness-presets").then((r) => r.data)
+export const getOrgReadinessPresets = (cohortId?: string) =>
+  api
+    .get<OrgReadinessPreset[]>("/organization/readiness-presets", {
+      params: cohortId ? { cohort_id: cohortId } : undefined,
+    })
+    .then((r) => r.data)
+
+export const createOrgReadinessPreset = (payload: OrgReadinessPresetCreateInput) =>
+  api.post<OrgReadinessPreset>("/organization/readiness-presets", payload).then((r) => r.data)
+
+export const deleteOrgReadinessPreset = (presetId: string, cohortId?: string) =>
+  api.delete(`/organization/readiness-presets/${presetId}`, {
+    params: cohortId ? { cohort_id: cohortId } : undefined,
+  })
 
 export const getOrgCohortReadiness = (cohortId: string) =>
   api.get<OrgCohortReadiness>(`/organization/cohorts/${cohortId}/readiness`).then((r) => r.data)

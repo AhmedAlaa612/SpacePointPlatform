@@ -36,6 +36,7 @@ import type { OrgTeamMember } from "@/api/websiteEvents"
 import {
   assignOrgInstructor,
   assignOrgJudge,
+  createOrgReadinessPreset,
   getOrgCohortReadiness,
   getOrgCohortStaff,
   getOrgReadinessPresets,
@@ -46,6 +47,7 @@ import {
   type OrgCohortReadiness,
   type OrgInstructorReadiness,
   type OrgReadinessPreset,
+  type OrgReadinessQuestionInput,
 } from "@/api/organizationSandbox"
 import {
   getOrgCohortDetailApi,
@@ -169,8 +171,8 @@ export default function OrganizationCohortDetail() {
   })
 
   const { data: readinessPresets = [] } = useQuery({
-    queryKey: ["org-readiness-presets"],
-    queryFn: getOrgReadinessPresets,
+    queryKey: ["org-readiness-presets", cohortId],
+    queryFn: () => getOrgReadinessPresets(cohortId),
     enabled: Boolean(cohortId) && activeTab === "staff",
   })
 
@@ -870,6 +872,7 @@ export default function OrganizationCohortDetail() {
       {/* 4. TEAM & READINESS */}
       {activeTab === "staff" && (
         <CohortStaffPanel
+          cohortId={cohortId}
           staff={staff}
           loading={staffLoading}
           team={team}
@@ -1025,6 +1028,7 @@ function ReadinessBadge({ readiness }: { readiness: OrgInstructorReadiness | nul
 }
 
 function CohortStaffPanel({
+  cohortId,
   staff,
   loading,
   team,
@@ -1036,6 +1040,7 @@ function CohortStaffPanel({
   onUnassignJudge,
   onSetReadiness,
 }: {
+  cohortId: string
   staff?: OrgCohortStaff
   loading: boolean
   team: OrgTeamMember[]
@@ -1047,9 +1052,11 @@ function CohortStaffPanel({
   onUnassignJudge: (userId: string) => void
   onSetReadiness: (presetId: string | null) => void
 }) {
+  const qc = useQueryClient()
   const [instructorId, setInstructorId] = useState("")
   const [judgeId, setJudgeId] = useState("")
   const [presetDraft, setPresetDraft] = useState<string | null>(null)
+  const [createPresetOpen, setCreatePresetOpen] = useState(false)
   const presetId = presetDraft ?? readiness?.preset?.id ?? ""
 
   const instructors = staff?.instructors ?? []
@@ -1281,7 +1288,7 @@ function CohortStaffPanel({
               Instructors must pass this quiz before they can start a session in this cohort.
             </p>
           </div>
-          <div className="flex items-center gap-2 shrink-0">
+          <div className="flex flex-wrap items-center gap-2 shrink-0">
             <select
               value={presetId}
               onChange={(e) => setPresetDraft(e.target.value)}
@@ -1290,7 +1297,7 @@ function CohortStaffPanel({
               <option value="">No readiness quiz</option>
               {presets.map((p) => (
                 <option key={p.id} value={p.id}>
-                  {p.name} ({p.question_count} questions)
+                  {p.name} ({p.question_count} questions){p.is_own ? " · Org" : ""}
                 </option>
               ))}
             </select>
@@ -1301,8 +1308,28 @@ function CohortStaffPanel({
             >
               Save
             </button>
+            <button
+              type="button"
+              onClick={() => setCreatePresetOpen(true)}
+              className="inline-flex items-center gap-1.5 h-8 px-3 rounded-lg bg-primary text-primary-foreground text-xs font-semibold hover:opacity-90 transition"
+            >
+              <Plus className="w-3.5 h-3.5" /> Create Assessment
+            </button>
           </div>
         </div>
+
+        {createPresetOpen && (
+          <CreateOrgReadinessModal
+            cohortId={cohortId}
+            onClose={() => setCreatePresetOpen(false)}
+            onCreated={(created) => {
+              setCreatePresetOpen(false)
+              setPresetDraft(created.id)
+              void qc.invalidateQueries({ queryKey: ["org-readiness-presets", cohortId] })
+              onSetReadiness(created.id)
+            }}
+          />
+        )}
 
         <div className="p-4 border-b border-border bg-muted/20 text-xs text-muted-foreground">
           Currently assigned:{" "}
@@ -1947,6 +1974,250 @@ function BulkImportModal({
             className="h-9 px-4 rounded-xl bg-primary text-primary-foreground text-xs font-semibold hover:opacity-90 transition disabled:opacity-50"
           >
             {mut.isPending ? "Importing..." : `Import ${activeRows.length} Students`}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function CreateOrgReadinessModal({
+  cohortId,
+  onClose,
+  onCreated,
+}: {
+  cohortId: string
+  onClose: () => void
+  onCreated: (preset: OrgReadinessPreset) => void
+}) {
+  const toast = useToast()
+  const [name, setName] = useState("")
+  const [description, setDescription] = useState("")
+  const [passingScore, setPassingScore] = useState(80)
+  const [questions, setQuestions] = useState<OrgReadinessQuestionInput[]>([
+    {
+      prompt: "",
+      question_type: "mcq",
+      options: [
+        { text: "", is_correct: true },
+        { text: "", is_correct: false },
+      ],
+      explanation: "",
+    },
+  ])
+
+  const mut = useMutation({
+    mutationFn: () =>
+      createOrgReadinessPreset({
+        name: name.trim(),
+        description: description.trim() || null,
+        passing_score_percent: passingScore,
+        cohort_id: cohortId,
+        questions,
+      }),
+    onSuccess: (preset) => {
+      toast.success(`Created "${preset.name}" and assigned it to this cohort`)
+      onCreated(preset)
+    },
+    onError: (err: any) => {
+      toast.error(err?.response?.data?.detail ?? "Failed to create assessment")
+    },
+  })
+
+  const updateQuestion = (idx: number, patch: Partial<OrgReadinessQuestionInput>) => {
+    setQuestions((prev) => prev.map((q, i) => (i === idx ? { ...q, ...patch } : q)))
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
+      <div className="w-full max-w-2xl rounded-2xl border border-border bg-card p-6 shadow-xl space-y-4 max-h-[90vh] overflow-y-auto">
+        <div className="flex items-start justify-between gap-2">
+          <div>
+            <h2 className="text-base font-bold text-foreground">Create Instructor Readiness Assessment</h2>
+            <p className="text-xs text-muted-foreground mt-0.5">
+              Instructors assigned to this cohort must pass this assessment before starting a session.
+            </p>
+          </div>
+          <button type="button" onClick={onClose} className="text-muted-foreground hover:text-foreground p-1">
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+          <label className="flex flex-col gap-1 sm:col-span-2">
+            <span className="text-xs font-semibold text-muted-foreground">Assessment Title *</span>
+            <input
+              type="text"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder="e.g. Lab Safety & Hardware Readiness"
+              className="h-9 px-3 rounded-xl border border-border bg-background text-sm focus:outline-none focus:border-primary"
+            />
+          </label>
+          <label className="flex flex-col gap-1">
+            <span className="text-xs font-semibold text-muted-foreground">Pass Score (%)</span>
+            <input
+              type="number"
+              min={0}
+              max={100}
+              value={passingScore}
+              onChange={(e) => setPassingScore(Math.min(100, Math.max(0, Number(e.target.value) || 0)))}
+              className="h-9 px-3 rounded-xl border border-border bg-background text-sm focus:outline-none focus:border-primary"
+            />
+          </label>
+        </div>
+
+        <label className="flex flex-col gap-1">
+          <span className="text-xs font-semibold text-muted-foreground">Description (optional)</span>
+          <input
+            type="text"
+            value={description}
+            onChange={(e) => setDescription(e.target.value)}
+            placeholder="What instructors should know before teaching"
+            className="h-9 px-3 rounded-xl border border-border bg-background text-sm focus:outline-none focus:border-primary"
+          />
+        </label>
+
+        <div className="space-y-3">
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-bold text-foreground">Questions ({questions.length})</span>
+            <button
+              type="button"
+              onClick={() =>
+                setQuestions((prev) => [
+                  ...prev,
+                  {
+                    prompt: "",
+                    question_type: "mcq",
+                    options: [
+                      { text: "", is_correct: true },
+                      { text: "", is_correct: false },
+                    ],
+                    explanation: "",
+                  },
+                ])
+              }
+              className="inline-flex items-center gap-1 h-7 px-2.5 rounded-lg border border-border text-xs font-semibold text-primary hover:bg-muted"
+            >
+              <Plus className="w-3.5 h-3.5" /> Add Question
+            </button>
+          </div>
+
+          {questions.map((q, qIdx) => (
+            <div key={qIdx} className="rounded-xl border border-border bg-background p-3.5 space-y-2.5">
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-xs font-semibold text-muted-foreground">Question {qIdx + 1}</span>
+                <div className="flex items-center gap-2">
+                  <select
+                    value={q.question_type}
+                    onChange={(e) =>
+                      updateQuestion(qIdx, {
+                        question_type: e.target.value as "mcq" | "written",
+                      })
+                    }
+                    className="h-7 px-2 rounded-lg border border-border bg-card text-xs"
+                  >
+                    <option value="mcq">Multiple Choice</option>
+                    <option value="written">Written Answer</option>
+                  </select>
+                  {questions.length > 1 && (
+                    <button
+                      type="button"
+                      onClick={() => setQuestions((prev) => prev.filter((_, i) => i !== qIdx))}
+                      className="text-muted-foreground hover:text-destructive p-1"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              <input
+                type="text"
+                value={q.prompt}
+                onChange={(e) => updateQuestion(qIdx, { prompt: e.target.value })}
+                placeholder="Enter question prompt..."
+                className="w-full h-9 px-3 rounded-lg border border-border bg-card text-xs focus:outline-none focus:border-primary"
+              />
+
+              {q.question_type === "mcq" && (
+                <div className="space-y-1.5 pl-1">
+                  {(q.options ?? []).map((opt, oIdx) => (
+                    <div key={oIdx} className="flex items-center gap-2">
+                      <input
+                        type="radio"
+                        name={`correct-${qIdx}`}
+                        checked={opt.is_correct}
+                        onChange={() =>
+                          updateQuestion(qIdx, {
+                            options: (q.options ?? []).map((o, i) => ({
+                              ...o,
+                              is_correct: i === oIdx,
+                            })),
+                          })
+                        }
+                        title="Mark as correct answer"
+                      />
+                      <input
+                        type="text"
+                        value={opt.text}
+                        onChange={(e) =>
+                          updateQuestion(qIdx, {
+                            options: (q.options ?? []).map((o, i) =>
+                              i === oIdx ? { ...o, text: e.target.value } : o
+                            ),
+                          })
+                        }
+                        placeholder={`Option ${oIdx + 1}`}
+                        className="flex-1 h-8 px-2.5 rounded-lg border border-border bg-card text-xs focus:outline-none focus:border-primary"
+                      />
+                      {(q.options ?? []).length > 2 && (
+                        <button
+                          type="button"
+                          onClick={() =>
+                            updateQuestion(qIdx, {
+                              options: (q.options ?? []).filter((_, i) => i !== oIdx),
+                            })
+                          }
+                          className="text-muted-foreground hover:text-destructive p-1"
+                        >
+                          <X className="w-3.5 h-3.5" />
+                        </button>
+                      )}
+                    </div>
+                  ))}
+                  <button
+                    type="button"
+                    onClick={() =>
+                      updateQuestion(qIdx, {
+                        options: [...(q.options ?? []), { text: "", is_correct: false }],
+                      })
+                    }
+                    className="text-[11px] font-semibold text-primary hover:underline"
+                  >
+                    + Add option
+                  </button>
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+
+        <div className="flex items-center justify-end gap-2 pt-2 border-t border-border">
+          <button
+            type="button"
+            onClick={onClose}
+            className="h-9 px-4 rounded-xl border border-border text-xs font-medium hover:bg-muted"
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            disabled={!name.trim() || mut.isPending}
+            onClick={() => mut.mutate()}
+            className="h-9 px-4 rounded-xl bg-primary text-primary-foreground text-xs font-semibold hover:opacity-90 disabled:opacity-50"
+          >
+            {mut.isPending ? "Creating..." : "Create & Assign"}
           </button>
         </div>
       </div>

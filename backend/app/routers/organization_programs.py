@@ -1777,26 +1777,188 @@ async def unassign_judge_from_cohort(
     return None
 
 
+def _org_allows_readiness_preset(org: Organization, preset: dict[str, Any]) -> bool:
+    preset_org_id = preset.get("organization_id")
+    if preset_org_id is not None:
+        return str(preset_org_id) == str(org.id)
+    scope = (getattr(org, "readiness_scope", None) or "own").strip().lower()
+    if scope == "all":
+        return True
+    if scope == "selected":
+        allowed = {str(x) for x in (getattr(org, "allowed_readiness_preset_ids", None) or [])}
+        return str(preset.get("id")) in allowed
+    return False
+
+
+class OrgReadinessQuestionIn(BaseModel):
+    prompt: str
+    question_type: str = "mcq"  # mcq | written
+    options: list[dict[str, Any]] = Field(default_factory=list)
+    explanation: str | None = None
+    critical: bool = False
+
+
+class OrgReadinessPresetCreateIn(BaseModel):
+    name: str
+    description: str | None = None
+    passing_score_percent: int = Field(default=80, ge=0, le=100)
+    cohort_id: uuid.UUID | None = None
+    questions: list[OrgReadinessQuestionIn] = Field(default_factory=list)
+
+
 @router.get("/readiness-presets")
 async def list_org_readiness_presets(
+    cohort_id: uuid.UUID | None = Query(None),
     current_user: User = Depends(require_organization_account),
     db: AsyncSession = Depends(get_db),
 ):
     """Presets the org can assign as instructor readiness for a cohort."""
     from app.services.sessions import pre_session_quiz as quiz_svc
 
+    if cohort_id is not None:
+        _cohort, org = await _resolve_cohort_and_org(db, cohort_id, current_user)
+    else:
+        org = await _get_org_or_400(db, current_user)
+
     presets = await quiz_svc.list_presets(db)
+    visible = [p for p in presets if _org_allows_readiness_preset(org, p)]
     return [
         {
             "id": p.get("id"),
             "name": p.get("name"),
             "description": p.get("description"),
             "preset_type": p.get("preset_type"),
+            "passing_score_percent": p.get("passing_score_percent", 80),
             "question_count": _preset_question_count(p),
             "phases_count": len(p.get("phases") or []),
+            "is_own": str(p.get("organization_id")) == str(org.id) if p.get("organization_id") else False,
         }
-        for p in presets
+        for p in visible
     ]
+
+
+@router.post("/readiness-presets", status_code=status.HTTP_201_CREATED)
+async def create_org_readiness_preset(
+    body: OrgReadinessPresetCreateIn,
+    current_user: User = Depends(require_organization_account),
+    db: AsyncSession = Depends(get_db),
+):
+    """Create a readiness assessment owned by this organization."""
+    from app.models.sessions.pre_session_quiz import PreSessionQuizQuestion
+
+    require_org_manager(current_user)
+    if body.cohort_id is not None:
+        _cohort, org = await _resolve_cohort_and_org(db, body.cohort_id, current_user)
+    else:
+        org = await _get_org_or_400(db, current_user)
+
+    name = body.name.strip()
+    if not name:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="Assessment name is required")
+    if not body.questions:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="Add at least one question")
+
+    q_ids: list[str] = []
+    for idx, q in enumerate(body.questions):
+        prompt = q.prompt.strip()
+        if not prompt:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, detail=f"Question {idx + 1} prompt is required")
+        q_type = "written" if q.question_type == "written" else "mcq"
+        opts = []
+        if q_type == "mcq":
+            opts = [
+                {"text": str(o.get("text", "")).strip(), "is_correct": bool(o.get("is_correct"))}
+                for o in (q.options or [])
+                if str(o.get("text", "")).strip()
+            ]
+            if len(opts) < 2 or not any(o["is_correct"] for o in opts):
+                raise HTTPException(
+                    status.HTTP_400_BAD_REQUEST,
+                    detail=f"Question {idx + 1} needs at least 2 options and 1 correct answer",
+                )
+        q_row = PreSessionQuizQuestion(
+            id=uuid.uuid4(),
+            topic="Organization Readiness",
+            question_type=q_type,
+            title=prompt[:120],
+            prompt=prompt,
+            options=opts,
+            critical=q.critical,
+            points=1,
+            explanation=q.explanation.strip() if q.explanation else None,
+            is_active=True,
+            organization_id=org.id,
+            created_by=current_user.id,
+        )
+        db.add(q_row)
+        q_ids.append(str(q_row.id))
+
+    preset = PreSessionQuizPreset(
+        id=uuid.uuid4(),
+        name=name,
+        description=body.description.strip() if body.description else None,
+        preset_type="readiness_pipeline",
+        draw_size=len(q_ids),
+        critical_floor=0,
+        passing_score_percent=body.passing_score_percent,
+        question_ids=q_ids,
+        reference_attachments=[],
+        phases=[
+            {
+                "id": f"phase-{uuid.uuid4().hex[:6]}",
+                "phase_type": "quiz",
+                "title": name,
+                "subtitle": body.description.strip() if body.description else "",
+                "instructions": [],
+                "pass_percentage": body.passing_score_percent,
+                "cooldown_seconds": 0,
+                "show_correct_on_fail": False,
+                "show_explanation_on_fail": True,
+                "show_bucket_target_counts": True,
+                "allow_datasheet_lookup": True,
+                "question_ids": q_ids,
+                "matching_config": None,
+            }
+        ],
+        is_active=True,
+        organization_id=org.id,
+        created_by=current_user.id,
+    )
+    db.add(preset)
+    await db.commit()
+    await db.refresh(preset)
+
+    return {
+        "id": str(preset.id),
+        "name": preset.name,
+        "description": preset.description,
+        "preset_type": preset.preset_type,
+        "passing_score_percent": preset.passing_score_percent,
+        "question_count": len(q_ids),
+        "phases_count": 1,
+        "is_own": True,
+    }
+
+
+@router.delete("/readiness-presets/{preset_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_org_readiness_preset(
+    preset_id: uuid.UUID,
+    cohort_id: uuid.UUID | None = Query(None),
+    current_user: User = Depends(require_organization_account),
+    db: AsyncSession = Depends(get_db),
+):
+    require_org_manager(current_user)
+    if cohort_id is not None:
+        _cohort, org = await _resolve_cohort_and_org(db, cohort_id, current_user)
+    else:
+        org = await _get_org_or_400(db, current_user)
+
+    preset = await db.get(PreSessionQuizPreset, preset_id)
+    if preset is None or preset.organization_id != org.id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Readiness assessment not found")
+    preset.is_active = False
+    await db.commit()
+    return None
 
 
 @router.get("/cohorts/{cohort_id}/readiness")
@@ -1865,7 +2027,14 @@ async def set_org_cohort_readiness(
     from app.services.sessions import pre_session_quiz as quiz_svc
 
     require_org_manager(current_user)
-    cohort, _org = await _resolve_cohort_and_org(db, cohort_id, current_user)
+    cohort, org = await _resolve_cohort_and_org(db, cohort_id, current_user)
+    if body.preset_id is not None and not _is_admin_or_ops(current_user):
+        hydrated = await quiz_svc.get_preset_hydrated(db, body.preset_id)
+        if hydrated is None or not _org_allows_readiness_preset(org, hydrated):
+            raise HTTPException(
+                status.HTTP_403_FORBIDDEN,
+                detail="This organization does not have access to the selected readiness assessment.",
+            )
     return await quiz_svc.set_assignment_for_scope(
         db,
         "cohorts",

@@ -45,6 +45,11 @@ class Organization(Base):
     # Specific SpacePoint Quiz Template IDs this organization is allowed to access
     allowed_quiz_template_ids = Column(JSONB, nullable=False, default=list, server_default="[]")
 
+    # Instructor Readiness Assessments Access: 'all' | 'selected' | 'own'
+    readiness_scope = Column(String(32), nullable=False, default="own", server_default="'own'")
+    # Specific SpacePoint PreSessionQuizPreset IDs this organization is allowed to access
+    allowed_readiness_preset_ids = Column(JSONB, nullable=False, default=list, server_default="[]")
+
     # Constraints (NULL = unlimited)
     max_events = Column(Integer, nullable=True)
     max_programs = Column(Integer, nullable=True)

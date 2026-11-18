@@ -483,7 +483,7 @@ async def test_assign_judge_to_cohort(db, client, sent_emails):
 async def test_set_and_read_cohort_readiness(db, client, sent_emails):
     owner, org = await _seed_org(db)
     _program, cohort, _sessions = await _seed_cohort(db, org)
-    preset = PreSessionQuizPreset(id=uuid.uuid4(), name="Readiness", question_ids=[])
+    preset = PreSessionQuizPreset(id=uuid.uuid4(), name="Readiness", question_ids=[], organization_id=org.id)
     db.add(preset)
     await db.flush()
 
@@ -817,3 +817,88 @@ async def test_admin_can_update_and_remove_org_only_member_and_observer(db, clie
     assert obs.organization_id is None
     assert obs.org_role is None
     assert obs.role_values == ["student"]
+
+
+async def test_admin_create_org_account_and_readiness_assessment_scoping(db, client, sent_emails):
+    admin = await _make_user(db, roles=["admin"])
+
+    sp_allowed = PreSessionQuizPreset(id=uuid.uuid4(), name="SP Allowed Readiness", question_ids=[])
+    sp_hidden = PreSessionQuizPreset(id=uuid.uuid4(), name="SP Hidden Readiness", question_ids=[])
+    db.add_all([sp_allowed, sp_hidden])
+    await db.flush()
+
+    create_resp = await client.post(
+        "/admin/website/organizations/account",
+        headers=_headers(admin),
+        json={
+            "org_name_latin": "Readiness Partner Org",
+            "org_type": "university",
+            "country": "uae",
+            "city": "Abu Dhabi",
+            "full_name": "Org Lead",
+            "email": f"readiness-org-{uuid.uuid4().hex[:8]}@example.com",
+            "password": "StrongPassword123",
+            "is_approved": True,
+            "readiness_scope": "selected",
+            "allowed_readiness_preset_ids": [str(sp_allowed.id)],
+        },
+    )
+    assert create_resp.status_code == 201, create_resp.text
+    org_body = create_resp.json()
+    assert org_body["readiness_scope"] == "selected"
+    assert org_body["allowed_readiness_preset_ids"] == [str(sp_allowed.id)]
+
+    org = await db.get(Organization, uuid.UUID(org_body["id"]))
+    owner = await db.get(User, uuid.UUID(org_body["owner_user_id"]))
+    _program, cohort, _ = await _seed_cohort(db, org)
+
+    # Org sees only sp_allowed (not sp_hidden)
+    presets_resp = await client.get(
+        f"/organization/readiness-presets?cohort_id={cohort.id}",
+        headers=_headers(owner),
+    )
+    assert presets_resp.status_code == 200, presets_resp.text
+    preset_ids = {p["id"] for p in presets_resp.json()}
+    assert str(sp_allowed.id) in preset_ids
+    assert str(sp_hidden.id) not in preset_ids
+
+    # Assigning sp_hidden is forbidden for org
+    forbid_resp = await client.put(
+        f"/organization/cohorts/{cohort.id}/readiness",
+        headers=_headers(owner),
+        json={"preset_id": str(sp_hidden.id)},
+    )
+    assert forbid_resp.status_code == 403
+
+    # Org can create its own readiness assessment and assign it
+    own_resp = await client.post(
+        "/organization/readiness-presets",
+        headers=_headers(owner),
+        json={
+            "name": "Partner Custom Safety Check",
+            "description": "Custom org quiz",
+            "passing_score_percent": 80,
+            "cohort_id": str(cohort.id),
+            "questions": [
+                {
+                    "prompt": "What is the safe ESD practice?",
+                    "question_type": "mcq",
+                    "options": [
+                        {"text": "Use an ESD wrist strap", "is_correct": True},
+                        {"text": "Touch pins directly", "is_correct": False},
+                    ],
+                }
+            ],
+        },
+    )
+    assert own_resp.status_code == 201, own_resp.text
+    own_preset = own_resp.json()
+    assert own_preset["is_own"] is True
+    assert own_preset["question_count"] == 1
+
+    assign_own = await client.put(
+        f"/organization/cohorts/{cohort.id}/readiness",
+        headers=_headers(owner),
+        json={"preset_id": own_preset["id"]},
+    )
+    assert assign_own.status_code == 200, assign_own.text

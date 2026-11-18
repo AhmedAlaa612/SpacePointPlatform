@@ -186,6 +186,7 @@ class PreSessionQuizPresetOut(BaseModel):
     phases: list[dict[str, Any]] = Field(default_factory=list)
     questions: list[PreSessionQuizQuestionOut] = Field(default_factory=list)
     is_active: bool = True
+    organization_id: UUID | None = None
     created_at: datetime | None = None
 
 

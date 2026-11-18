@@ -239,6 +239,8 @@ export interface OrganizationAccountSummary {
   allowed_course_ids: string[]
   quiz_scope?: string
   allowed_quiz_template_ids?: string[]
+  readiness_scope?: string
+  allowed_readiness_preset_ids?: string[]
   max_events?: number | null
   max_programs?: number | null
   max_cohorts?: number | null
@@ -393,6 +395,8 @@ export interface OrganizationAccountCreatePayload {
   allowed_course_ids?: string[]
   quiz_scope?: string
   allowed_quiz_template_ids?: string[]
+  readiness_scope?: string
+  allowed_readiness_preset_ids?: string[]
   max_events?: number | null
   max_programs?: number | null
   max_cohorts?: number | null
@@ -418,6 +422,8 @@ export interface OrganizationAccountUpdatePayload {
   allowed_course_ids?: string[]
   quiz_scope?: string
   allowed_quiz_template_ids?: string[]
+  readiness_scope?: string
+  allowed_readiness_preset_ids?: string[]
   max_events?: number | null
   max_programs?: number | null
   max_cohorts?: number | null

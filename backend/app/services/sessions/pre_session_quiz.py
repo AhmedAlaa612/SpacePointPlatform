@@ -240,6 +240,7 @@ async def _hydrate_presets(
             "phases": list(p.phases or []),
             "questions": ordered_questions,
             "is_active": p.is_active,
+            "organization_id": getattr(p, "organization_id", None),
             "created_at": p.created_at,
         })
     return out

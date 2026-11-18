@@ -504,6 +504,7 @@ async def _serialize_org_summaries(db: AsyncSession, orgs: list[Organization]) -
 
         allowed_courses = [str(c) for c in (o.allowed_course_ids or [])]
         allowed_quizzes = [str(q) for q in (o.allowed_quiz_template_ids or [])]
+        allowed_readiness = [str(r) for r in (getattr(o, "allowed_readiness_preset_ids", None) or [])]
         shared_cnt = platform_course_count if o.course_scope_all else len(_safe_uuids(allowed_courses))
 
         out.append(
@@ -549,6 +550,8 @@ async def _serialize_org_summaries(db: AsyncSession, orgs: list[Organization]) -
                 "allowed_course_ids": allowed_courses,
                 "quiz_scope": o.quiz_scope or "own",
                 "allowed_quiz_template_ids": allowed_quizzes,
+                "readiness_scope": getattr(o, "readiness_scope", None) or "own",
+                "allowed_readiness_preset_ids": allowed_readiness,
                 "max_events": o.max_events,
                 "max_programs": o.max_programs,
                 "max_cohorts": o.max_cohorts,
@@ -1227,7 +1230,7 @@ async def admin_create_organization_account(
             phone=(body.phone or "").strip() or None,
             email=email,
             contact_roles=["sponsor_rep"],
-            role_event_source="admin_organization_account",
+            role_event_source="admin_org_account",
             country=(body.country or "uae").strip().lower(),
             city=(body.city or "").strip() or None,
         )
@@ -1264,6 +1267,8 @@ async def admin_create_organization_account(
         allowed_course_ids=body.allowed_course_ids,
         quiz_scope=(body.quiz_scope or "all").strip().lower(),
         allowed_quiz_template_ids=body.allowed_quiz_template_ids,
+        readiness_scope=(body.readiness_scope or "own").strip().lower(),
+        allowed_readiness_preset_ids=body.allowed_readiness_preset_ids,
         max_events=body.max_events,
         max_programs=body.max_programs,
         max_cohorts=body.max_cohorts,
@@ -1335,6 +1340,10 @@ async def admin_update_organization_account(
         org.quiz_scope = payload.quiz_scope.strip().lower()
     if payload.allowed_quiz_template_ids is not None:
         org.allowed_quiz_template_ids = payload.allowed_quiz_template_ids
+    if payload.readiness_scope is not None and payload.readiness_scope.strip():
+        org.readiness_scope = payload.readiness_scope.strip().lower()
+    if payload.allowed_readiness_preset_ids is not None:
+        org.allowed_readiness_preset_ids = payload.allowed_readiness_preset_ids
     if "max_events" in body:
         org.max_events = payload.max_events
     if "max_programs" in body:
@@ -1383,7 +1392,7 @@ async def admin_update_organization_account(
                 phone=(payload.phone or "").strip() or None,
                 email=email,
                 contact_roles=["sponsor_rep"],
-                role_event_source="admin_organization_account",
+                role_event_source="admin_org_account",
                 country=org.country or "uae",
                 city=org.city,
             )

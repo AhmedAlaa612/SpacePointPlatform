@@ -157,6 +157,11 @@ async def lifespan(app: FastAPI):
             await db.execute(text("ALTER TABLE website_events ADD COLUMN IF NOT EXISTS default_language VARCHAR(8) DEFAULT 'en';"))
             await db.execute(text("ALTER TABLE website_events ADD COLUMN IF NOT EXISTS ar_content JSONB DEFAULT '{}'::jsonb;"))
             await db.execute(text("ALTER TABLE pre_session_quiz_presets ADD COLUMN IF NOT EXISTS phases JSONB DEFAULT '[]'::jsonb;"))
+            await db.execute(text("ALTER TABLE organizations ADD COLUMN IF NOT EXISTS readiness_scope VARCHAR(32) NOT NULL DEFAULT 'own';"))
+            await db.execute(text("ALTER TABLE organizations ADD COLUMN IF NOT EXISTS allowed_readiness_preset_ids JSONB NOT NULL DEFAULT '[]'::jsonb;"))
+            await db.execute(text("ALTER TABLE pre_session_quiz_questions ADD COLUMN IF NOT EXISTS organization_id UUID REFERENCES organizations(id) ON DELETE CASCADE;"))
+            await db.execute(text("ALTER TABLE pre_session_quiz_datasheets ADD COLUMN IF NOT EXISTS organization_id UUID REFERENCES organizations(id) ON DELETE CASCADE;"))
+            await db.execute(text("ALTER TABLE pre_session_quiz_presets ADD COLUMN IF NOT EXISTS organization_id UUID REFERENCES organizations(id) ON DELETE CASCADE;"))
             # Sandbox role inside a partner organization (2026-11-18). Backfill
             # is idempotent and only touches partner orgs (owner_user_id set) —
             # a school row a student is merely affiliated with never becomes a
