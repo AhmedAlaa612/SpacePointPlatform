@@ -18,7 +18,11 @@ from app.schemas.website_event import (
     WebsiteEventOut,
     WebsiteEventUpdate,
 )
-from app.services.email import send_org_team_invite_email, send_password_set_link_email
+from app.services.email import (
+    send_org_team_added_email,
+    send_org_team_invite_email,
+    send_password_set_link_email,
+)
 from app.services.website_events import (
     build_organization_team_member,
     ensure_default_events_seeded,
@@ -258,7 +262,7 @@ async def add_organization_team_member(
     if org is None:
         raise HTTPException(status_code=400, detail="No organization context found")
 
-    user = await build_organization_team_member(
+    user, created = await build_organization_team_member(
         db,
         org=org,
         full_name=body.full_name,
@@ -267,14 +271,19 @@ async def add_organization_team_member(
         phone=body.phone,
     )
 
-    token = create_password_set_token(user.id, expires_delta=timedelta(days=7))
     base = (settings.FRONTEND_URL or "http://localhost:5173").rstrip("/")
-    invite_sent = await send_org_team_invite_email(
-        user.email,
-        user.full_name,
-        org.name_latin,
-        f"{base}/set-password?token={token}",
-    )
+    if created:
+        token = create_password_set_token(user.id, expires_delta=timedelta(days=7))
+        email_sent = await send_org_team_invite_email(
+            user.email,
+            user.full_name,
+            org.name_latin,
+            f"{base}/set-password?token={token}",
+        )
+    else:
+        email_sent = await send_org_team_added_email(
+            user.email, user.full_name, org.name_latin, f"{base}/login"
+        )
 
     return OrgTeamMemberOut(
         id=user.id,
@@ -284,7 +293,8 @@ async def add_organization_team_member(
         status=user.status,
         created_at=user.created_at,
         is_owner=False,
-        invite_email_sent=invite_sent,
+        invite_email_sent=email_sent,
+        existing_account=not created,
     )
 
 

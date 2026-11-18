@@ -7,6 +7,7 @@ from pydantic import BaseModel
 from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import settings
 from app.core.dependencies import require_website_admin
 from app.core.security import get_password_hash
 from app.db.session import get_db
@@ -53,7 +54,11 @@ from app.schemas.website_event import (
 )
 from app.services.documents.card_id import format_card_id
 from app.services.documents.id_card import ensure_card_number
-from app.services.email import send_org_team_invite_email, send_password_set_link_email
+from app.services.email import (
+    send_org_team_added_email,
+    send_org_team_invite_email,
+    send_password_set_link_email,
+)
 from app.services.sessions.registration import ACTIVE_REGISTRATION_STATUSES
 from app.services.spine.identity import (
     normalize_user_email,
@@ -1516,7 +1521,7 @@ async def admin_add_organization_member(
     if org is None:
         raise HTTPException(status_code=404, detail="Organization not found")
 
-    user = await build_organization_team_member(
+    user, created = await build_organization_team_member(
         db,
         org=org,
         full_name=body.full_name,
@@ -1526,9 +1531,15 @@ async def admin_add_organization_member(
         role_event_source="admin_org_team_member",
     )
 
-    invite_sent = await send_org_team_invite_email(
-        user.email, user.full_name, org.name_latin, _password_set_url(user)
-    )
+    base = (settings.FRONTEND_URL or "http://localhost:5173").rstrip("/")
+    if created:
+        email_sent = await send_org_team_invite_email(
+            user.email, user.full_name, org.name_latin, _password_set_url(user)
+        )
+    else:
+        email_sent = await send_org_team_added_email(
+            user.email, user.full_name, org.name_latin, f"{base}/login"
+        )
     return OrgTeamMemberOut(
         id=user.id,
         full_name=user.full_name,
@@ -1537,7 +1548,8 @@ async def admin_add_organization_member(
         status=user.status,
         created_at=user.created_at,
         is_owner=False,
-        invite_email_sent=invite_sent,
+        invite_email_sent=email_sent,
+        existing_account=not created,
     )
 
 

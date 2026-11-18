@@ -336,6 +336,23 @@ async def send_password_set_link_email(
     return await try_send_email(to_email, "Set your SpacePoint password", body)
 
 
+async def send_org_team_added_email(
+    to_email: str, name: str, org_name: str, login_url: str
+) -> bool:
+    """Someone with an existing SpacePoint account was attached to an org's
+    team. Their password is unchanged, so this is a notice, not a set-password
+    link."""
+    body = (
+        f"Hi {name},\n\n"
+        f"{org_name} has added you to their team on the SpacePoint portal, so you "
+        "can help manage their programs, cohorts and landing pages.\n\n"
+        f"Sign in with your existing SpacePoint account: {login_url}\n"
+        "(Forgot your password? Use \"Forgot password\" on the sign-in page.)\n\n"
+        "— SpacePoint"
+    )
+    return await try_send_email(to_email, f"You've been added to {org_name} on SpacePoint", body)
+
+
 async def send_payment_letter_ready_email(to_email: str, instructor_name: str) -> bool:
     body = (
         f"Hi {instructor_name},\n\n"

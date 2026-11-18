@@ -468,6 +468,8 @@ class OrgTeamMemberOut(BaseModel):
     invite_email_sent: bool = False
     # Invited but hasn't set a password / signed in yet.
     invite_pending: bool = False
+    # True when an existing SpacePoint account was attached instead of created.
+    existing_account: bool = False
 
 
 class OrgTeamMemberCreateIn(BaseModel):

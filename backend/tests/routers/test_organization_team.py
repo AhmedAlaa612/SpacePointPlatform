@@ -204,3 +204,62 @@ async def test_org_account_cannot_use_admin_invite_endpoint(db, client, sent_ema
     )
 
     assert resp.status_code == 403, resp.text
+
+
+async def test_invite_attaches_existing_lms_account(db, client, sent_emails):
+    owner, org = await _seed_org(db)
+    ops = await _make_user(db, roles=["operations"])
+    student = await _make_user(db, roles=["student"])
+    old_hash = student.password_hash
+
+    resp = await client.post(
+        f"/admin/website/organizations/{org.id}/members",
+        headers=_headers(ops),
+        json={"full_name": "Existing Student", "email": student.email},
+    )
+
+    assert resp.status_code == 201, resp.text
+    body = resp.json()
+    assert body["existing_account"] is True
+    assert body["invite_email_sent"] is True
+
+    await db.refresh(student)
+    assert "organization" in student.role_values
+    assert student.organization_id == org.id
+    # Existing credentials are untouched.
+    assert student.password_hash == old_hash
+    assert student.must_change_password is False
+
+    assert len(sent_emails) == 1
+    _, subject, mail_body = sent_emails[0]
+    assert "You've been added to Test Partner Org on SpacePoint" == subject
+    assert "/login" in mail_body
+    assert "set-password" not in mail_body
+
+
+async def test_invite_rejects_account_linked_to_another_org(db, client, sent_emails):
+    owner, org = await _seed_org(db)
+    ops = await _make_user(db, roles=["operations"])
+
+    other_org = Organization(
+        id=uuid.uuid4(),
+        name_latin="Other University",
+        org_type="university",
+        country="uae",
+    )
+    db.add(other_org)
+    await db.flush()
+
+    student = await _make_user(db, roles=["student"])
+    student.organization_id = other_org.id
+    await db.flush()
+
+    resp = await client.post(
+        f"/admin/website/organizations/{org.id}/members",
+        headers=_headers(ops),
+        json={"full_name": "Other Uni Student", "email": student.email},
+    )
+
+    assert resp.status_code == 409, resp.text
+    assert "Other University" in resp.json()["detail"]
+    assert sent_emails == []

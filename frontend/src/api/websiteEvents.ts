@@ -433,6 +433,7 @@ export interface OrgTeamMember {
   created_at?: string
   invite_email_sent?: boolean
   invite_pending?: boolean
+  existing_account?: boolean
 }
 
 // ── Admin Endpoints ──────────────────────────────────────────────────────────

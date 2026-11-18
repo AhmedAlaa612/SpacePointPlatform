@@ -1542,11 +1542,19 @@ function InviteOrgMemberModal({
         phone: phone.trim() || null,
       }),
     onSuccess: (res) => {
-      toast.success(
-        res.invite_email_sent
-          ? `Invite emailed to ${res.email}`
-          : `Member added. Email failed — use Send Link to share it.`
-      )
+      if (res.existing_account) {
+        toast.success(
+          res.invite_email_sent
+            ? `Added ${res.full_name} — they can sign in with their existing account (email sent)`
+            : `Added ${res.full_name} — they can sign in with their existing account`
+        )
+      } else {
+        toast.success(
+          res.invite_email_sent
+            ? `Invite emailed to ${res.email}`
+            : `Member added. Email failed — use Send Link to share it.`
+        )
+      }
       onSuccess()
     },
     onError: (err) => toast.error(getErrorMessage(err, "Could not invite this member")),
@@ -1558,7 +1566,8 @@ function InviteOrgMemberModal({
         <div>
           <h2 className="text-base font-bold text-foreground">Invite Team Member</h2>
           <p className="mt-0.5 text-xs text-muted-foreground">
-            We'll email them a link to set their password and join {orgName}.
+            New accounts get a set-password invite email. Existing SpacePoint accounts are
+            linked to {orgName} and emailed a sign-in notice.
           </p>
         </div>
 

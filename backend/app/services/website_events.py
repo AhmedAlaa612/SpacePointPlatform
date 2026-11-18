@@ -81,7 +81,7 @@ async def build_organization_team_member(
     password: str | None = None,
     phone: str | None = None,
     role_event_source: str = "org_team_member",
-) -> User:
+) -> tuple[User, bool]:
     """Create a portal account linked to `org` as a team member.
 
     Shared by the organization's own self-service page and the admin/ops
@@ -89,16 +89,58 @@ async def build_organization_team_member(
     supplied the account gets a random unusable hash and
     `must_change_password=True` — that flag is what the team lists read as
     "invite pending" until the person sets a password via the emailed link.
+
+    If the email already has a SpacePoint/LMS account it is *attached* to the
+    organization instead of duplicated: the `organization` role is added and
+    their existing password keeps working (returns `(user, False)` so the
+    caller can email a "you've been added" notice rather than a password link).
+    Accounts already tied to a different organization are rejected rather than
+    silently moving their affiliation.
     """
     normalized = normalize_user_email(email)
     existing = (
         await db.execute(select(User).where(user_email_matches(normalized)))
     ).scalars().first()
+
     if existing is not None:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="A user with this email already exists",
-        )
+        if existing.organization_id == org.id and (
+            existing.id == org.owner_user_id or "organization" in existing.role_values
+        ):
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="This person is already on the organization's team",
+            )
+        owned = (
+            await db.execute(
+                select(Organization).where(Organization.owner_user_id == existing.id)
+            )
+        ).scalars().first()
+        if owned is not None:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=f"This person already owns the organization '{owned.name_latin}'",
+            )
+        if existing.organization_id and existing.organization_id != org.id:
+            other = await db.get(Organization, existing.organization_id)
+            other_name = other.name_latin if other else "another organization"
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=(
+                    f"This email is already linked to {other_name}. Remove that "
+                    "affiliation first, then invite them again."
+                ),
+            )
+
+        existing.organization_id = org.id
+        if "organization" not in existing.role_values:
+            existing.roles = list(existing.roles or []) + [UserRole.organization]
+        if existing.contact_id:
+            contact = await db.get(Contact, existing.contact_id)
+            if contact is not None:
+                contact.organization_id = org.id
+        await db.commit()
+        await db.refresh(existing)
+        return existing, False
 
     contact, _ = await resolve_or_create_contact(
         db,
@@ -128,7 +170,7 @@ async def build_organization_team_member(
     await ensure_card_number(db, user)
     await db.commit()
     await db.refresh(user)
-    return user
+    return user, True
 
 
 DEFAULT_WSW_AR_CONTENT: dict = {

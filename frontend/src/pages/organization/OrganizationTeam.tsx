@@ -208,11 +208,19 @@ function AddTeamMemberModal({
         password: password.trim() || undefined,
       }),
     onSuccess: (res) => {
-      toast.success(
-        res.invite_email_sent
-          ? `Added ${res.full_name} — invite email sent!`
-          : `Added ${res.full_name}. Email not sent — use "Reset Link" to share it.`
-      )
+      if (res.existing_account) {
+        toast.success(
+          res.invite_email_sent
+            ? `Added ${res.full_name} — they can sign in with their existing account (email sent)`
+            : `Added ${res.full_name} — they can sign in with their existing account`
+        )
+      } else {
+        toast.success(
+          res.invite_email_sent
+            ? `Added ${res.full_name} — invite email sent!`
+            : `Added ${res.full_name}. Email not sent — use "Send Link" to share it.`
+        )
+      }
       onSuccess()
     },
     onError: (err: any) => {
@@ -224,6 +232,10 @@ function AddTeamMemberModal({
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
       <div className="w-full max-w-md rounded-2xl border border-border bg-card p-6 shadow-xl space-y-4">
         <h2 className="text-base font-bold text-foreground">Add Team Member</h2>
+        <p className="text-xs text-muted-foreground -mt-2">
+          We'll email them a set-password invite. If they already have a SpacePoint account it's
+          linked automatically and they keep their existing password.
+        </p>
 
         <div className="space-y-3">
           <label className="flex flex-col gap-1">
