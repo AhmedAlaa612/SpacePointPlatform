@@ -23,7 +23,7 @@ from app.schemas.website_event import (
     WebsiteEventUpdate,
 )
 from app.services.documents.id_card import ensure_card_number
-from app.services.email import send_org_team_invite_email
+from app.services.email import send_org_team_invite_email, send_password_set_link_email
 from app.services.spine.identity import normalize_user_email, resolve_or_create_contact, user_email_matches
 from app.services.website_events import (
     ensure_default_events_seeded,
@@ -300,7 +300,7 @@ async def add_organization_team_member(
     await db.commit()
     await db.refresh(user)
 
-    token = create_password_set_token(user.id, expires_delta=timedelta(days=3))
+    token = create_password_set_token(user.id, expires_delta=timedelta(days=7))
     base = (settings.FRONTEND_URL or "http://localhost:5173").rstrip("/")
     invite_sent = await send_org_team_invite_email(
         user.email,
@@ -349,12 +349,9 @@ async def organization_team_member_reset_link(
     current_user: User = Depends(require_organization_account),
     db: AsyncSession = Depends(get_db),
 ):
-    """Generates a 72-hour password set/reset link for a member of this org's team."""
-    from datetime import timedelta
-
-    from app.core.config import settings
-    from app.core.security import create_password_set_token
-
+    """Generates a 7-day password set/reset link for a member of this org's
+    team and emails it to them. The URL is also returned so the owner can copy
+    it manually if the email didn't go out."""
     org = await resolve_user_organization(db, current_user)
     if org is None:
         raise HTTPException(status_code=400, detail="No organization context found")
@@ -364,11 +361,16 @@ async def organization_team_member_reset_link(
     if not is_member:
         raise HTTPException(status_code=404, detail="Team member not found")
 
-    token = create_password_set_token(user.id, expires_delta=timedelta(days=3))
+    token = create_password_set_token(user.id, expires_delta=timedelta(days=7))
     base = (settings.FRONTEND_URL or "http://localhost:5173").rstrip("/")
+    reset_url = f"{base}/set-password?token={token}"
+    email_sent = await send_password_set_link_email(
+        user.email, user.full_name, org.name_latin, reset_url
+    )
     return {
         "organization_id": str(org.id),
         "user_id": str(user.id),
         "email": user.email,
-        "reset_url": f"{base}/set-password?token={token}",
+        "reset_url": reset_url,
+        "email_sent": email_sent,
     }

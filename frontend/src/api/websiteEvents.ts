@@ -536,9 +536,13 @@ export const removeOrganizationTeamMemberApi = (userId: string) =>
 
 export const getOrganizationMemberResetLinkApi = (userId: string) =>
   api
-    .post<{ organization_id: string; user_id: string; email: string; reset_url: string }>(
-      `/organization/team/${userId}/reset-link`
-    )
+    .post<{
+      organization_id: string
+      user_id: string
+      email: string
+      reset_url: string
+      email_sent: boolean
+    }>(`/organization/team/${userId}/reset-link`)
     .then((r) => r.data)
 
 export const getMyOrganizationEvents = () =>

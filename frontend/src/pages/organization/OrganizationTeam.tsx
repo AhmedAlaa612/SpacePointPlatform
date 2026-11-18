@@ -26,6 +26,7 @@ export default function OrganizationTeam() {
     name: string
     email: string
     url: string
+    emailSent: boolean
   } | null>(null)
 
   const { data: team = [], isLoading } = useQuery({
@@ -54,9 +55,15 @@ export default function OrganizationTeam() {
         name: member.full_name,
         email: member.email,
         url: res.reset_url,
+        emailSent: res.email_sent,
       })),
     onSuccess: (data) => {
       setResetModalData(data)
+      if (data.emailSent) {
+        toast.success(`Password link emailed to ${data.email}`)
+      } else {
+        toast.error("Email could not be sent — copy the link below instead")
+      }
     },
     onError: (err: any) => {
       toast.error(getErrorMessage(err, "Failed to generate password reset link"))
@@ -124,9 +131,9 @@ export default function OrganizationTeam() {
                     disabled={getResetLinkMut.isPending}
                     onClick={() => getResetLinkMut.mutate(member)}
                     className="inline-flex items-center gap-1 h-8 px-2.5 rounded-lg border border-border text-xs font-medium text-foreground hover:bg-muted transition"
-                    title="Generate direct password reset link"
+                    title="Email a password setup link"
                   >
-                    <KeyRound className="w-3.5 h-3.5" /> Reset Link
+                    <KeyRound className="w-3.5 h-3.5" /> Send Link
                   </button>
 
                   {!member.is_owner && (
@@ -277,7 +284,7 @@ function ResetLinkDisplayModal({
   data,
   onClose,
 }: {
-  data: { name: string; email: string; url: string }
+  data: { name: string; email: string; url: string; emailSent: boolean }
   onClose: () => void
 }) {
   const [copied, setCopied] = useState(false)
@@ -294,8 +301,17 @@ function ResetLinkDisplayModal({
         <div>
           <h2 className="text-base font-bold text-foreground">Password Setup Link</h2>
           <p className="text-xs text-muted-foreground mt-0.5">
-            Share this link with <strong>{data.name}</strong> ({data.email}) to set their password
-            (valid for 72 hours):
+            {data.emailSent ? (
+              <>
+                Emailed to <strong>{data.email}</strong>. You can also share this link with{" "}
+                <strong>{data.name}</strong> to set their password (valid for 7 days):
+              </>
+            ) : (
+              <>
+                Email could not be sent. Share this link with <strong>{data.name}</strong> (
+                {data.email}) to set their password (valid for 7 days):
+              </>
+            )}
           </p>
         </div>
 

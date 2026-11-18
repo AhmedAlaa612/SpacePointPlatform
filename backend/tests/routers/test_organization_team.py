@@ -7,9 +7,12 @@ Regression coverage for the "Add Team Member" blank screen:
 """
 
 import uuid
+from datetime import datetime, timezone
 
 import pytest
+from jose import jwt
 
+from app.core.config import settings
 from app.core.security import create_access_token, verify_password
 from app.models.spine.organization import Organization
 from app.models.user import User
@@ -103,15 +106,17 @@ async def test_add_team_member_with_password(db, client, sent_emails):
     assert created.organization_id == org.id
 
 
-async def test_team_member_reset_link(db, client, sent_emails):
+async def test_team_member_reset_link_emails_seven_day_link(db, client, sent_emails):
     owner, org = await _seed_org(db)
+    member_email = f"sarah-{uuid.uuid4().hex[:8]}@example.com"
 
     added = await client.post(
         "/organization/team",
         headers=_headers(owner),
-        json={"full_name": "Sarah Jenkins", "email": f"sarah-{uuid.uuid4().hex[:8]}@example.com"},
+        json={"full_name": "Sarah Jenkins", "email": member_email},
     )
     assert added.status_code == 201, added.text
+    sent_emails.clear()
 
     resp = await client.post(
         f"/organization/team/{added.json()['id']}/reset-link",
@@ -121,7 +126,19 @@ async def test_team_member_reset_link(db, client, sent_emails):
     assert resp.status_code == 200, resp.text
     body = resp.json()
     assert body["user_id"] == added.json()["id"]
+    assert body["email_sent"] is True
     assert "/set-password?token=" in body["reset_url"]
+
+    assert len(sent_emails) == 1
+    to, subject, mail_body = sent_emails[0]
+    assert to == member_email
+    assert "Set your SpacePoint password" in subject
+    assert "valid for 7 days" in mail_body
+
+    token = body["reset_url"].split("token=", 1)[1]
+    payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
+    remaining_days = (payload["exp"] - datetime.now(timezone.utc).timestamp()) / 86400
+    assert 6.9 < remaining_days <= 7.0
 
 
 async def test_team_member_reset_link_rejects_outsider(db, client, sent_emails):
