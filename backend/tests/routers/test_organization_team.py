@@ -335,7 +335,7 @@ async def _add_member(db, client, owner, *, org_role: str, email: str | None = N
     return resp.json(), email
 
 
-async def test_add_instructor_grants_instructor_role_and_org_role(db, client, sent_emails):
+async def test_add_instructor_grants_org_role_without_global_instructor(db, client, sent_emails):
     owner, org = await _seed_org(db)
     body, _email = await _add_member(db, client, owner, org_role="instructor")
 
@@ -344,11 +344,11 @@ async def test_add_instructor_grants_instructor_role_and_org_role(db, client, se
 
     member = (await db.execute(select(User).where(User.id == uuid.UUID(body["id"])))).scalars().first()
     assert member.org_role == "instructor"
-    assert "instructor" in member.role_values
     assert "organization" in member.role_values
+    assert "instructor" not in member.role_values
 
 
-async def test_add_judge_grants_judge_role(db, client, sent_emails):
+async def test_add_judge_grants_org_role_without_global_judge(db, client, sent_emails):
     owner, org = await _seed_org(db)
     body, _email = await _add_member(db, client, owner, org_role="judge")
 
@@ -356,7 +356,8 @@ async def test_add_judge_grants_judge_role(db, client, sent_emails):
 
     member = (await db.execute(select(User).where(User.id == uuid.UUID(body["id"])))).scalars().first()
     assert member.org_role == "judge"
-    assert "judge" in member.role_values
+    assert "organization" in member.role_values
+    assert "judge" not in member.role_values
 
 
 async def test_team_list_hides_students_who_are_merely_affiliated(db, client):
@@ -390,7 +391,8 @@ async def test_patch_team_member_role(db, client, sent_emails):
 
     member = (await db.execute(select(User).where(User.id == uuid.UUID(body["id"])))).scalars().first()
     assert member.org_role == "judge"
-    assert "judge" in member.role_values
+    assert "organization" in member.role_values
+    assert "judge" not in member.role_values
 
 
 async def test_instructor_cannot_manage_team(db, client, sent_emails):
@@ -503,3 +505,151 @@ async def test_set_and_read_cohort_readiness(db, client, sent_emails):
     read = await client.get(f"/organization/cohorts/{cohort.id}/readiness", headers=_headers(owner))
     assert read.status_code == 200, read.text
     assert read.json()["preset"]["name"] == "Readiness"
+
+
+async def test_spacepoint_instructor_keeps_payouts_and_splits_sessions_by_scope(db, client, sent_emails):
+    owner, org = await _seed_org(db)
+    sp_instructor = await _make_user(db, roles=["instructor"])
+
+    from sqlalchemy import select
+
+    role = (await db.execute(select(DeliveryRole).limit(1))).scalars().first()
+    if role is None:
+        role = DeliveryRole(id=uuid.uuid4(), name=f"Lead {uuid.uuid4().hex[:6]}", sort_order=1, is_active=True)
+        db.add(role)
+        await db.flush()
+
+    sp_program = Program(
+        id=uuid.uuid4(),
+        code=f"SP-{uuid.uuid4().hex[:6]}",
+        name="SpacePoint Program",
+        program_type="workshop",
+        pricing_model="free",
+    )
+    db.add(sp_program)
+    await db.flush()
+    sp_cohort = Cohort(id=uuid.uuid4(), program_id=sp_program.id, name="SP Cohort", status="running")
+    db.add(sp_cohort)
+    await db.flush()
+    sp_session = Session(
+        id=uuid.uuid4(),
+        cohort_id=sp_cohort.id,
+        title="SpacePoint Day 1",
+        meeting_date=date.today(),
+        staffing_status="staffed",
+    )
+    db.add(sp_session)
+    await db.flush()
+    db.add(SessionInstructor(session_id=sp_session.id, user_id=sp_instructor.id, role_id=role.id))
+    await db.flush()
+
+    _org_program, org_cohort, org_sessions = await _seed_cohort(db, org, sessions=1)
+
+    invite = await client.post(
+        "/organization/team",
+        headers=_headers(owner),
+        json={"full_name": sp_instructor.full_name, "email": sp_instructor.email, "org_role": "instructor"},
+    )
+    assert invite.status_code == 201, invite.text
+
+    assign = await client.post(
+        f"/organization/cohorts/{org_cohort.id}/instructors",
+        headers=_headers(owner),
+        json={"user_id": str(sp_instructor.id)},
+    )
+    assert assign.status_code == 201, assign.text
+
+    await db.refresh(sp_instructor)
+    assert "instructor" in sp_instructor.role_values
+    assert "organization" in sp_instructor.role_values
+    assert sp_instructor.org_role == "instructor"
+
+    org_mine = await client.get("/sessions/mine?scope=org", headers=_headers(sp_instructor))
+    assert org_mine.status_code == 200, org_mine.text
+    assert [row["session_id"] for row in org_mine.json()] == [str(org_sessions[0].id)]
+
+    sp_mine = await client.get("/sessions/mine?scope=spacepoint", headers=_headers(sp_instructor))
+    assert sp_mine.status_code == 200, sp_mine.text
+    assert [row["session_id"] for row in sp_mine.json()] == [str(sp_session.id)]
+
+    pay = await client.get("/instructors/payments/summary", headers=_headers(sp_instructor))
+    assert pay.status_code == 200, pay.text
+
+    detach = await client.delete(f"/organization/team/{sp_instructor.id}", headers=_headers(owner))
+    assert detach.status_code == 204, detach.text
+    await db.refresh(sp_instructor)
+    assert "organization" not in sp_instructor.role_values
+    assert "instructor" in sp_instructor.role_values
+    assert sp_instructor.org_role is None
+
+
+async def test_org_only_instructor_delivery_and_sandbox_isolation(db, client, sent_emails):
+    owner, org = await _seed_org(db)
+    body, _email = await _add_member(db, client, owner, org_role="instructor")
+    instructor_id = uuid.UUID(body["id"])
+    _program, cohort, sessions = await _seed_cohort(db, org, sessions=1)
+
+    assign = await client.post(
+        f"/organization/cohorts/{cohort.id}/instructors",
+        headers=_headers(owner),
+        json={"user_id": str(instructor_id)},
+    )
+    assert assign.status_code == 201, assign.text
+
+    from sqlalchemy import select
+
+    org_inst = (await db.execute(select(User).where(User.id == instructor_id))).scalars().first()
+
+    mine = await client.get("/sessions/mine?scope=org", headers=_headers(org_inst))
+    assert mine.status_code == 200, mine.text
+    assert [row["session_id"] for row in mine.json()] == [str(sessions[0].id)]
+
+    delivery = await client.get(f"/sessions/{sessions[0].id}/delivery", headers=_headers(org_inst))
+    assert delivery.status_code == 200, delivery.text
+
+    pay = await client.get("/instructors/payments/summary", headers=_headers(org_inst))
+    assert pay.status_code == 403
+
+    avail = await client.get("/sessions/available", headers=_headers(org_inst))
+    assert avail.status_code == 403
+
+
+async def test_org_only_judge_scoped_and_blocked_from_admin(db, client, sent_emails):
+    owner, org = await _seed_org(db)
+    body, _email = await _add_member(db, client, owner, org_role="judge")
+    judge_id = uuid.UUID(body["id"])
+    _program, cohort, _sessions = await _seed_cohort(db, org)
+
+    assign = await client.post(
+        f"/organization/cohorts/{cohort.id}/judges",
+        headers=_headers(owner),
+        json={"user_id": str(judge_id)},
+    )
+    assert assign.status_code == 201, assign.text
+
+    # Add an external SpacePoint competition assignment; scope=org must exclude it.
+    ext_prog = Program(
+        id=uuid.uuid4(),
+        code=f"EXT-{uuid.uuid4().hex[:6]}",
+        name="External Comp",
+        program_type="competition",
+        pricing_model="free",
+    )
+    db.add(ext_prog)
+    await db.flush()
+    ext_cohort = Cohort(id=uuid.uuid4(), program_id=ext_prog.id, name="Ext Cohort", status="running")
+    db.add(ext_cohort)
+    await db.flush()
+    db.add(CompetitionJudge(cohort_id=ext_cohort.id, user_id=judge_id))
+    await db.flush()
+
+    from sqlalchemy import select
+
+    org_judge = (await db.execute(select(User).where(User.id == judge_id))).scalars().first()
+
+    cohorts_resp = await client.get("/competitions/judge/cohorts?scope=org", headers=_headers(org_judge))
+    assert cohorts_resp.status_code == 200, cohorts_resp.text
+    assert [c["id"] for c in cohorts_resp.json()] == [str(cohort.id)]
+
+    admin_rubric = await client.get(f"/competitions/admin/cohorts/{cohort.id}/rubric", headers=_headers(org_judge))
+    assert admin_rubric.status_code == 403

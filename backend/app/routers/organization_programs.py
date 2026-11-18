@@ -270,15 +270,36 @@ async def get_organization_programs_overview(
 ):
     org = await _get_org_or_400(db, current_user)
 
+    # Include both org-owned programs AND any SpacePoint program that has a
+    # cohort assigned to this org (e.g. Ops created a cohort for the org).
+    direct_org_cohorts = (
+        await db.execute(
+            select(Cohort)
+            .where(
+                Cohort.organization_id == org.id,
+                Cohort.status != "draft",
+                ~Cohort.name.ilike("[Template]%"),
+                func.lower(func.trim(Cohort.name)) != "template",
+            )
+            .order_by(Cohort.created_at.desc())
+        )
+    ).scalars().all()
+    extra_program_ids = {c.program_id for c in direct_org_cohorts}
+
+    prog_conds = [Program.organization_id == org.id]
+    if extra_program_ids:
+        prog_conds.append(Program.id.in_(extra_program_ids))
+
     programs = (
         await db.execute(
             select(Program)
-            .where(Program.organization_id == org.id)
+            .where(or_(*prog_conds))
             .order_by(Program.created_at.desc())
         )
     ).scalars().all()
 
     program_ids = [p.id for p in programs]
+    owned_program_ids = {p.id for p in programs if p.organization_id == org.id}
     cohorts_by_program: dict[uuid.UUID, list[Cohort]] = {pid: [] for pid in program_ids}
 
     if program_ids:
@@ -286,7 +307,10 @@ async def get_organization_programs_overview(
             await db.execute(
                 select(Cohort)
                 .where(
-                    Cohort.program_id.in_(program_ids),
+                    or_(
+                        Cohort.organization_id == org.id,
+                        Cohort.program_id.in_(owned_program_ids) if owned_program_ids else False,
+                    ),
                     Cohort.status != "draft",
                     ~Cohort.name.ilike("[Template]%"),
                     func.lower(func.trim(Cohort.name)) != "template",
@@ -1438,10 +1462,6 @@ async def _org_instructor_or_400(db: AsyncSession, org: Organization, user_id: u
             status_code=400,
             detail="Pick a team member whose organization role is Instructor",
         )
-    if "instructor" not in user.role_values:
-        merged = list(user.roles or [])
-        merged.append(UserRole.instructor)
-        user.roles = merged
     return user
 
 
@@ -1452,10 +1472,6 @@ async def _org_judge_or_400(db: AsyncSession, org: Organization, user_id: uuid.U
             status_code=400,
             detail="Pick a team member whose organization role is Judge",
         )
-    if "judge" not in user.role_values:
-        merged = list(user.roles or [])
-        merged.append(UserRole.judge)
-        user.roles = merged
     return user
 
 
@@ -1666,6 +1682,7 @@ async def assign_instructor_to_cohort(
 async def unassign_instructor_from_cohort(
     cohort_id: uuid.UUID,
     user_id: uuid.UUID,
+    session_id: uuid.UUID | None = Query(None),
     current_user: User = Depends(require_organization_account),
     db: AsyncSession = Depends(get_db),
 ):
@@ -1673,13 +1690,24 @@ async def unassign_instructor_from_cohort(
     require_org_manager(current_user)
     cohort = await _cohort_or_404(db, org, cohort_id, current_user)
 
-    session_ids = select(Session.id).where(Session.cohort_id == cohort.id)
-    await db.execute(
-        sa_delete(SessionInstructor).where(
-            SessionInstructor.user_id == user_id,
-            SessionInstructor.session_id.in_(session_ids),
+    if session_id is not None:
+        session = await db.get(Session, session_id)
+        if session is None or session.cohort_id != cohort.id:
+            raise HTTPException(status_code=404, detail="Session not found")
+        await db.execute(
+            sa_delete(SessionInstructor).where(
+                SessionInstructor.user_id == user_id,
+                SessionInstructor.session_id == session.id,
+            )
         )
-    )
+    else:
+        session_ids = select(Session.id).where(Session.cohort_id == cohort.id)
+        await db.execute(
+            sa_delete(SessionInstructor).where(
+                SessionInstructor.user_id == user_id,
+                SessionInstructor.session_id.in_(session_ids),
+            )
+        )
     await db.commit()
     return None
 

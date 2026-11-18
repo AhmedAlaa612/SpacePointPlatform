@@ -214,9 +214,14 @@ export default function JudgeTeamDetail() {
     ? `Draft saved ${formatSubmittedAt(lastSavedAt)}`
     : null
 
+  const isOrgSurface =
+    typeof window !== "undefined" && window.location.pathname.startsWith("/organization")
   return (
     <div className="flex flex-col gap-5 max-w-2xl lg:max-w-none">
-      <Link to="/judge" className="inline-flex w-fit items-center gap-1.5 text-sm font-medium text-muted-foreground hover:text-foreground transition-colors">
+      <Link
+        to={isOrgSurface ? "/organization/judging" : "/judge"}
+        className="inline-flex w-fit items-center gap-1.5 text-sm font-medium text-muted-foreground hover:text-foreground transition-colors"
+      >
         <ArrowLeft size={14} /> Teams
       </Link>
 

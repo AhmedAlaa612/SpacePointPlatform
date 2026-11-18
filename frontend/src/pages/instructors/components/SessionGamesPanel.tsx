@@ -27,10 +27,17 @@ export function SessionGamesPanel({ sessionId }: { sessionId: string }) {
     queryFn: () => listSessionAssignmentsApi(sessionId),
   })
 
+  const isOrgSurface =
+    typeof window !== "undefined" && window.location.pathname.startsWith("/organization")
   const openRun = useMutation({
     mutationFn: (assignmentId: string) => openRunApi(assignmentId),
     onMutate: (assignmentId) => setOpeningId(assignmentId),
-    onSuccess: (run) => { void navigate({ to: "/instructors/game-runs/$runId", params: { runId: run.id } }) },
+    onSuccess: (run) => {
+      void navigate({
+        to: isOrgSurface ? "/organization/game-runs/$runId" : "/instructors/game-runs/$runId",
+        params: { runId: run.id },
+      })
+    },
     onError: () => { toast.error("Couldn't open this game"); setOpeningId(null) },
   })
 

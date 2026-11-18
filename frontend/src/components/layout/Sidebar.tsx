@@ -310,19 +310,25 @@ function getNavItems(
   activeRole: Role | null,
   orgRole: "owner" | "coordinator" | "instructor" | "judge" | "observer" | null = null
 ): NavItem[] {
-  // Organization sandbox: an org's own instructor/judge gets a narrow delivery
-  // surface only — no payments, payouts, contracts, library or marketplace.
-  if (orgRole === "instructor") {
-    return [
-      mk("Sessions", "/instructors/my-sessions"),
-      mk("Learn", "/learn"),
-    ];
-  }
-  if (orgRole === "judge") {
-    return [mk("Judging", "/organization/programs"), mk("Learn", "/learn")];
-  }
-
   if (activeRole === "organization" || pathname.startsWith("/organization")) {
+    if (orgRole === "instructor") {
+      return [
+        mk("My Sessions", "/organization/my-sessions"),
+        mk("Learn", "/learn"),
+      ];
+    }
+    if (orgRole === "judge") {
+      return [
+        mk("Judging", "/organization/judging"),
+        mk("Learn", "/learn"),
+      ];
+    }
+    if (orgRole === "observer") {
+      return [
+        mk("Programs & Cohorts", "/organization/programs"),
+        mk("Learn", "/learn"),
+      ];
+    }
     return [
       mk("Programs & Cohorts", "/organization/programs"),
       mk("Students", "/lms-authoring/students"),
@@ -1002,11 +1008,7 @@ export function AppShell({ children }: { children: ReactNode }) {
   const { data: paySummary } = useQuery({
     queryKey: ["instructor-payment-summary"],
     queryFn: getPaymentSummaryApi,
-    enabled:
-      !!user &&
-      activeRole === "instructor" &&
-      user.org_role !== "instructor" &&
-      user.org_role !== "judge",
+    enabled: !!user && activeRole === "instructor",
     staleTime: 30_000,
     refetchInterval: 60_000,
   });

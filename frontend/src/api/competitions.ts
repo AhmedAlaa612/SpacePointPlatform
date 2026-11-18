@@ -847,8 +847,12 @@ export const removeTeamMemberApi = (teamId: string, userId: string) =>
 
 // ── Judge surface ────────────────────────────────────────────────────────
 
-export const getMyJudgeCohortsApi = () =>
-  api.get<CompetitionJudgeCohort[]>("/competitions/judge/cohorts").then((r) => r.data)
+export const getMyJudgeCohortsApi = (scope: "all" | "org" = "all") =>
+  api
+    .get<CompetitionJudgeCohort[]>("/competitions/judge/cohorts", {
+      params: scope !== "all" ? { scope } : undefined,
+    })
+    .then((r) => r.data)
 
 export const getMyJudgeTeamsApi = (cohortId: string, mode?: "participant" | "observer" | "all") =>
   api.get<CompetitionJudgeTeam[]>("/competitions/judge/teams", { params: { cohort_id: cohortId, ...(mode ? { mode } : {}) } }).then((r) => r.data)

@@ -10,7 +10,7 @@ import uuid
 from typing import Literal
 
 from arq.connections import ArqRedis
-from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
+from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, UploadFile, status
 from fastapi.responses import Response
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -50,11 +50,53 @@ from app.services.competitions import progression as progression_service
 from app.services.competitions import registration_import as import_service
 from app.services.competitions import team_management as team_service
 from app.services.lms import students as student_search_service
+from app.services.org_access import require_org_manager
+from app.services.website_events import resolve_user_organization
 from app.workers.settings import get_arq_redis, safe_enqueue
+
+
+async def _require_competitions_admin_access(
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_lms_content),
+) -> User:
+    if any(r in current_user.role_values for r in ("admin", "operations", "facilitator", "lms_author")):
+        return current_user
+    # Organization sandbox: only owner/coordinator, and only for their org's cohorts/programs.
+    require_org_manager(current_user)
+    org = await resolve_user_organization(db, current_user)
+    if org is None:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="No organization context")
+
+    params = request.path_params
+    cohort_id_raw = params.get("cohort_id")
+    program_id_raw = params.get("program_id")
+    team_id_raw = params.get("team_id")
+
+    if team_id_raw and not cohort_id_raw:
+        team = await db.get(Team, uuid.UUID(str(team_id_raw)))
+        if team is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Team not found")
+        cohort_id_raw = team.cohort_id
+
+    if cohort_id_raw:
+        cohort = await db.get(Cohort, uuid.UUID(str(cohort_id_raw)))
+        if cohort is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Cohort not found")
+        program = await db.get(Program, cohort.program_id)
+        if cohort.organization_id != org.id and (program is None or program.organization_id != org.id):
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Cohort not found")
+    elif program_id_raw:
+        program = await db.get(Program, uuid.UUID(str(program_id_raw)))
+        if program is None or program.organization_id != org.id:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Program not found")
+
+    return current_user
+
 
 router = APIRouter(
     prefix="/competitions/admin", tags=["competitions-admin"],
-    dependencies=[Depends(require_lms_content)],
+    dependencies=[Depends(_require_competitions_admin_access)],
 )
 
 

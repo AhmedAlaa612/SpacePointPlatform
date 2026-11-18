@@ -12,14 +12,15 @@ cohorts.py's unassign_instructor, the only place instructors are removed).
 from __future__ import annotations
 
 import uuid
+from typing import Literal
 
 from arq.connections import ArqRedis
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.dependencies import require_instructor_or_facilitator, require_operations
+from app.core.dependencies import require_instructor_or_facilitator, require_operations, require_session_delivery
 from app.db.session import get_db
 from app.models.instructors.applicant_profile import ApplicantProfile
 from app.models.sessions.delivery_role import DeliveryRole
@@ -29,7 +30,6 @@ from app.models.user import User
 from app.schemas.sessions.cohorts import BulkActionError, SessionInstructorOut, SessionOut
 from app.services.instructor_assessment.gate import is_assessment_required, resolve_cohort_call_id_for_session
 from app.services.instructor_assessment.ranking import get_active_weights, get_ranking_fields
-from app.services.org_access import is_sandbox_instructor_or_judge
 from app.services.sessions import openings as openings_svc
 from app.schemas.sessions.staffing import (
     AddonSummary,
@@ -376,8 +376,6 @@ async def list_available_sessions(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_instructor_or_facilitator),
 ):
-    if is_sandbox_instructor_or_judge(current_user):
-        return []
     rows = await staffing.list_available_sessions(db, current_user)
     out = []
     for s, c, p, count, interest in rows:
@@ -453,8 +451,6 @@ async def list_available_work(
     that same list with anything already covered by a cohort card filtered
     out, so nothing appears twice.
     """
-    if is_sandbox_instructor_or_judge(current_user):
-        return AvailableWorkOut(cohort_calls=[], single_sessions=[])
     cohort_calls = await cohort_staffing.list_available_cohort_calls(db, current_user)
     grouped_session_ids = {
         s["session_id"] for card in cohort_calls for s in card["sessions"]
@@ -609,12 +605,30 @@ async def remove_cohort_assignment(
 
 @router.get("/mine", response_model=list[MySessionOut])
 async def list_my_sessions(
+    scope: Literal["all", "org", "spacepoint"] = Query("all"),
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_instructor_or_facilitator),
+    current_user: User = Depends(require_session_delivery),
 ):
     rows = await staffing.list_my_sessions(db, current_user)
+    has_staff_or_instructor = any(
+        r in current_user.role_values for r in ("instructor", "facilitator", "operations", "admin")
+    )
+    effective_scope = scope
+    if "organization" in current_user.role_values and not has_staff_or_instructor:
+        effective_scope = "org"
+
     out = []
     for s, c, p, role, day in rows:
+        is_org_cohort = bool(c.organization_id or p.organization_id)
+        if effective_scope == "org":
+            if not current_user.organization_id or (
+                c.organization_id != current_user.organization_id
+                and p.organization_id != current_user.organization_id
+            ):
+                continue
+        elif effective_scope == "spacepoint" and is_org_cohort:
+            continue
+
         location = await staffing.resolve_session_location_display(db, s, c)
         out.append(MySessionOut(
             session_id=s.id, cohort_id=c.id, cohort_name=c.name, program_name=p.name,

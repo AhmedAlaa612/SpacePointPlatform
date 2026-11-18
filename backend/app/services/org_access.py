@@ -70,42 +70,13 @@ def require_org_manager(user: User) -> None:
         )
 
 
-def is_sandbox_instructor_or_judge(user: User) -> bool:
-    """True for an org-team instructor/judge — the marketplace fence."""
-    return bool(getattr(user, "organization_id", None)) and effective_org_role(user) in (
-        "instructor",
-        "judge",
-    )
-
-
-def reject_sandbox_marketplace(user: User) -> None:
-    """Block SpacePoint freelance surfaces for org-team instructors/judges.
-
-    Payouts, payment letters, contracts and the open-session marketplace belong
-    to SpacePoint's own instructors. An org instructor is delivering for their
-    organization, so those surfaces are not theirs — the session delivery tools
-    (`/sessions/mine`, attendance, `/learn`) stay open.
-    """
-    if is_sandbox_instructor_or_judge(user):
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail=(
-                "This area is for SpacePoint instructors. Organization instructors "
-                "deliver their organization's sessions from My Sessions."
-            ),
-        )
-
-
 def global_roles_for_org_role(org_role: str) -> list[UserRole]:
-    """Global roles the sandbox role needs so existing surfaces light up.
+    """Global roles an org team member receives.
 
-    Delivery endpoints gate on `instructor`/`judge`, so an org instructor or
-    judge needs that global role. It is additive — never a replacement for the
-    person's other roles.
+    Every org sandbox member (coordinator, instructor, judge, observer) runs
+    inside the `organization` workspace (`/organization/*`) and uses `org_role`
+    to switch tabs and permissions — never auto-granted global `instructor` or
+    `judge`, so SpacePoint's freelance instructor/judge portals stay 100%
+    separate.
     """
-    roles: list[UserRole] = [UserRole.organization]
-    if org_role == "instructor":
-        roles.append(UserRole.instructor)
-    elif org_role == "judge":
-        roles.append(UserRole.judge)
-    return roles
+    return [UserRole.organization]

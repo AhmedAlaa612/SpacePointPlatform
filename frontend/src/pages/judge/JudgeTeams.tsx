@@ -18,9 +18,12 @@ type SortKey = "submissions" | "name" | "scored"
  * jump into scoring. Teams are sorted by submissions (locked on top, mirroring
  * the Analysis tab), searchable by name/members, and filterable by locked status. */
 export default function JudgeTeams() {
+  const isOrgSurface =
+    typeof window !== "undefined" && window.location.pathname.startsWith("/organization")
+  const scope = isOrgSurface ? "org" : "all"
   const { data: cohorts = [], isLoading: cohortsLoading } = useQuery<CompetitionJudgeCohort[]>({
-    queryKey: ["judge-cohorts"],
-    queryFn: getMyJudgeCohortsApi,
+    queryKey: ["judge-cohorts", scope],
+    queryFn: () => getMyJudgeCohortsApi(scope),
   })
   const [cohortId, setCohortId] = useState<string | null>(null)
   const [mode, setMode] = useState<"participant" | "observer" | "all">("participant")
@@ -272,7 +275,7 @@ export default function JudgeTeams() {
                 return (
                   <Link
                     key={team.id}
-                    to="/judge/teams/$teamId"
+                    to={isOrgSurface ? "/organization/judging/teams/$teamId" : "/judge/teams/$teamId"}
                     params={{ teamId: team.id }}
                     className="flex items-center justify-between p-3.5 sm:p-4 bg-card border border-border/70 rounded-2xl hover:border-primary/50 hover:bg-muted/20 transition-all gap-3 cursor-pointer"
                   >

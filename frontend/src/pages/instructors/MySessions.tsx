@@ -87,13 +87,14 @@ function LocationLine({ s }: { s: MySession }) {
  *  excuse + portal), a compact upcoming row (excuse + portal), or a compact
  *  past row (status only, no actions — the day is over). */
 function SessionCard({
-  s, variant, onCheckIn, onExcuse, checkingIn,
+  s, variant, onCheckIn, onExcuse, checkingIn, isOrgSurface,
 }: {
   s: MySession
   variant: "today" | "upcoming" | "past"
   onCheckIn: (s: MySession) => void
   onExcuse: (s: MySession) => void
   checkingIn: boolean
+  isOrgSurface: boolean
 }) {
   const isToday = variant === "today"
   return (
@@ -107,8 +108,11 @@ function SessionCard({
             {isToday && (
               <p className="text-[11px] font-semibold uppercase tracking-wide text-primary mb-1">Today</p>
             )}
-            <Link to="/instructors/sessions/$sessionId" params={{ sessionId: s.session_id }}
-              className="font-semibold text-foreground hover:text-primary transition-colors text-base break-words">
+            <Link
+              to={isOrgSurface ? "/organization/sessions/$sessionId" : "/instructors/sessions/$sessionId"}
+              params={{ sessionId: s.session_id }}
+              className="font-semibold text-foreground hover:text-primary transition-colors text-base break-words"
+            >
               {s.title || s.program_name}
             </Link>
             <p className="text-xs text-muted-foreground break-words mt-0.5">
@@ -146,7 +150,7 @@ function SessionCard({
               Submit excuse
             </button>
           )}
-          {s.cohort_id && (
+          {!isOrgSurface && s.cohort_id && (
             <Link
               to="/lms-authoring/curriculum"
               search={{ cohortId: s.cohort_id, tab: "checklist" } as never}
@@ -156,7 +160,7 @@ function SessionCard({
             </Link>
           )}
           <Link
-            to="/instructors/sessions/$sessionId"
+            to={isOrgSurface ? "/organization/sessions/$sessionId" : "/instructors/sessions/$sessionId"}
             params={{ sessionId: s.session_id }}
             className="text-xs font-semibold text-primary hover:underline flex items-center gap-1 ml-auto"
           >
@@ -172,12 +176,18 @@ type SubTab = "upcoming" | "past"
 
 export default function MySessions() {
   const qc = useQueryClient()
+  const isOrgSurface =
+    typeof window !== "undefined" && window.location.pathname.startsWith("/organization")
+  const scope = isOrgSurface ? "org" : "spacepoint"
   const [subTab, setSubTab] = useState<SubTab>("upcoming")
   const [excuseTarget, setExcuseTarget] = useState<MySession | null>(null)
   const [excuseReason, setExcuseReason] = useState("")
   const [error, setError] = useState("")
 
-  const sessions = useQuery({ queryKey: ["staffing-my-sessions"], queryFn: listMySessionsApi })
+  const sessions = useQuery({
+    queryKey: ["staffing-my-sessions", scope],
+    queryFn: () => listMySessionsApi(scope),
+  })
   const rawList = sessions.data ?? []
 
   const { todaysSessions, upcoming, past } = useMemo(() => {
@@ -189,7 +199,7 @@ export default function MySessions() {
     }
   }, [rawList])
 
-  const invalidate = () => qc.invalidateQueries({ queryKey: ["staffing-my-sessions"] })
+  const invalidate = () => qc.invalidateQueries({ queryKey: ["staffing-my-sessions", scope] })
 
   const checkIn = useMutation({
     mutationFn: (sessionId: string) => checkInApi(sessionId, "present"),
@@ -213,8 +223,15 @@ export default function MySessions() {
 
   return (
     <div className="space-y-4">
-      <SessionsSubNav activeTab="my" />
-      <PageHeader title="My Sessions" subtitle="Sessions you're assigned to teach." />
+      {!isOrgSurface && <SessionsSubNav activeTab="my" />}
+      <PageHeader
+        title="My Sessions"
+        subtitle={
+          isOrgSurface
+            ? "Organization sessions you're assigned to teach."
+            : "Sessions you're assigned to teach."
+        }
+      />
 
       {error && (
         <div className="p-3 bg-red-50 dark:bg-red-500/10 border border-red-200 dark:border-red-500/20 rounded-xl text-xs text-red-600 dark:text-red-400">
@@ -234,6 +251,7 @@ export default function MySessions() {
               onCheckIn={(s) => { setError(""); checkIn.mutate(s.session_id) }}
               onExcuse={(s) => { setError(""); setExcuseTarget(s) }}
               checkingIn={checkIn.isPending}
+              isOrgSurface={isOrgSurface}
             />
           ))}
         </div>
@@ -261,7 +279,11 @@ export default function MySessions() {
           title={rawList.length === 0
             ? "No sessions assigned yet"
             : subTab === "upcoming" ? "Nothing upcoming" : "No past sessions yet"}
-          hint={rawList.length === 0 ? "Register interest on the Available Sessions page to get picked up by ops." : undefined}
+          hint={rawList.length === 0
+            ? (isOrgSurface
+              ? "Your organization coordinator will assign you to sessions here."
+              : "Register interest on the Available Sessions page to get picked up by ops.")
+            : undefined}
         />
       ) : (
         <div className="space-y-3">
@@ -271,6 +293,7 @@ export default function MySessions() {
               onCheckIn={(s) => { setError(""); checkIn.mutate(s.session_id) }}
               onExcuse={(s) => { setError(""); setExcuseTarget(s) }}
               checkingIn={checkIn.isPending}
+              isOrgSurface={isOrgSurface}
             />
           ))}
         </div>

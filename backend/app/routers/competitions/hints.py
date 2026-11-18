@@ -40,7 +40,7 @@ async def cohort_hint_judging_summary(
 ):
     """Returns hint assistance summary and chronological reveals for all teams in a cohort."""
     # Staff-only: the cohort-wide audit must never be reachable by students.
-    if not any(r in current.role_values for r in ("admin", "operations", "instructor", "judge")):
+    if not any(r in current.role_values for r in ("admin", "operations", "instructor", "judge", "organization")):
         raise HTTPException(status.HTTP_403_FORBIDDEN, detail="Staff privileges required")
     return await get_cohort_hint_judging_summary(db, cohort_id=cohort_id)
 
@@ -56,7 +56,7 @@ async def team_hint_summary(
 ):
     """Returns hint assistance summary and reveal audit for a single team (for JudgeTeamDetail)."""
     # Staff-only: a team's hint audit is judge/ops context, never student-facing.
-    if not any(r in current.role_values for r in ("admin", "operations", "instructor", "judge")):
+    if not any(r in current.role_values for r in ("admin", "operations", "instructor", "judge", "organization")):
         raise HTTPException(status.HTTP_403_FORBIDDEN, detail="Staff privileges required")
     team = await db.get(Team, team_id)
     if team is None:

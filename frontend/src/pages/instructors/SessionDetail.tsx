@@ -47,6 +47,11 @@ export default function SessionDetail() {
   const { sessionId } = useParams({ strict: false }) as { sessionId: string }
   const navigate = useNavigate()
   const qc = useQueryClient()
+  const isOrgSurface =
+    typeof window !== "undefined" && window.location.pathname.startsWith("/organization")
+  const readinessQuizBase = isOrgSurface
+    ? `/organization/cohorts`
+    : `/instructors/cohorts`
   const [scannerOpen, setScannerOpen] = useState(false)
   const [attendanceOpen, setAttendanceOpen] = useState(true)
   const [scanning, setScanning] = useState(false)
@@ -215,7 +220,10 @@ export default function SessionDetail() {
 
   return (
     <div className="flex flex-col gap-4 pb-24">
-      <Link to="/instructors/my-sessions" className="inline-flex w-fit items-center gap-1.5 text-sm font-medium text-muted-foreground hover:text-foreground transition-colors">
+      <Link
+        to={isOrgSurface ? "/organization/my-sessions" : "/instructors/my-sessions"}
+        className="inline-flex w-fit items-center gap-1.5 text-sm font-medium text-muted-foreground hover:text-foreground transition-colors"
+      >
         <ArrowLeft size={14} /> My sessions
       </Link>
 
@@ -231,7 +239,7 @@ export default function SessionDetail() {
               type="button"
               onClick={() => {
                 if (s?.cohort_id) {
-                  ;(navigate as any)({ to: `/instructors/cohorts/${s.cohort_id}/readiness-quiz`, search: { sessionId } })
+                  ;(navigate as any)({ to: `${readinessQuizBase}/${s.cohort_id}/readiness-quiz`, search: { sessionId } })
                 } else {
                   setPreQuizModalOpen(true)
                 }
@@ -266,7 +274,7 @@ export default function SessionDetail() {
               onClick={() => {
                 if (preQuiz.data?.has_quiz && preQuiz.data.my_attempt?.status !== "completed") {
                   if (s?.cohort_id) {
-                    navigate({ to: `/instructors/cohorts/${s.cohort_id}/readiness-quiz`, search: { sessionId } as any })
+                    navigate({ to: `${readinessQuizBase}/${s.cohort_id}/readiness-quiz`, search: { sessionId } as any })
                   } else {
                     setPreQuizModalOpen(true)
                   }
@@ -301,7 +309,7 @@ export default function SessionDetail() {
             size="sm"
             onClick={() => {
               if (s?.cohort_id) {
-                ;(navigate as any)({ to: `/instructors/cohorts/${s.cohort_id}/readiness-quiz`, search: { sessionId } })
+                ;(navigate as any)({ to: `${readinessQuizBase}/${s.cohort_id}/readiness-quiz`, search: { sessionId } })
               } else {
                 setPreQuizModalOpen(true)
               }

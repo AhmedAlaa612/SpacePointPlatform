@@ -118,6 +118,9 @@ function resolveCohortBackTarget(
   if (from?.startsWith("/instructors")) {
     return { label: "Instructor View", to: from }
   }
+  if (from?.startsWith("/operations/organizations/")) {
+    return { label: "Organization", to: from }
+  }
   if (from?.startsWith("/operations/programs/")) {
     return { label: cohort?.program_name || "Program", to: from }
   }
@@ -451,6 +454,15 @@ function CohortDetailView({ cohort }: { cohort: Cohort }) {
                 <span className={`px-2.5 py-0.5 rounded-full text-xs font-semibold ${COHORT_STATUS_COLOR[cohort.status]}`}>
                   {COHORT_STATUS_LABEL[cohort.status]}
                 </span>
+                {cohort.organization_id && (
+                  <Link
+                    to="/operations/organizations/$orgId"
+                    params={{ orgId: cohort.organization_id }}
+                    className="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-white/15 text-white hover:bg-white/25 transition-colors"
+                  >
+                    Partner Organization ↗
+                  </Link>
+                )}
               </div>
 
               <div className="flex flex-wrap items-center gap-x-5 gap-y-2 text-xs text-white/85">

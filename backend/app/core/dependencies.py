@@ -165,7 +165,7 @@ require_inventory_approval = RequireRole(["coo"])
 # for the assigned instructor/facilitator OR ops; the per-session assignment
 # check itself (for the non-ops case) happens in services/sessions/delivery.py,
 # not here — this dependency only gates "logged in as one of these roles".
-require_session_delivery = RequireRole(["instructor", "facilitator", "operations"])
+require_session_delivery = RequireRole(["instructor", "facilitator", "operations", "organization"])
 
 # I5-6 — teaching materials are maintained by ops, facilitators and admin
 # (operator, 2026-07-30). Facilitators are included because they are the ones
@@ -208,6 +208,6 @@ require_instructor_missions = RequireRole(["instructor", "facilitator", "operati
 # instructors. Deliberately not listing operations/facilitator here — a
 # judge surface staff needs to see goes through the ops endpoints, not this
 # one, so there's no reason to widen it.
-require_judge = RequireRole(["judge"])
+require_judge = RequireRole(["judge", "organization"])
 require_organization_account = RequireRole(["organization", "operations", "admin"])
 require_website_admin = RequireRole(["operations", "admin"])

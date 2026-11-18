@@ -1585,7 +1585,7 @@ async def admin_update_organization_member(
         raise HTTPException(status_code=400, detail="The organization primary owner's role cannot be changed")
 
     user = await db.get(User, user_id)
-    is_member = user is not None and (user.organization_id == org.id or user.org_role is not None)
+    is_member = user is not None and user.organization_id == org.id
     if not is_member:
         raise HTTPException(status_code=404, detail="User is not associated with this organization")
 
@@ -1629,10 +1629,9 @@ async def admin_remove_organization_member(
         raise HTTPException(status_code=400, detail="Cannot remove the organization primary owner")
 
     user = await db.get(User, user_id)
-    if user is None or (user.organization_id != org.id and user.org_role is None):
+    if user is None or user.organization_id != org.id:
         raise HTTPException(status_code=404, detail="User is not associated with this organization")
 
-    previous_role = effective_org_role(user)
     org_cohort_ids = select(Cohort.id).where(Cohort.organization_id == org.id)
     org_session_ids = select(Session.id).where(Session.cohort_id.in_(org_cohort_ids))
 
@@ -1655,26 +1654,9 @@ async def admin_remove_organization_member(
         )
     )
 
-    keep_instructor = await db.scalar(
-        select(func.count()).select_from(SessionInstructor).where(
-            SessionInstructor.user_id == user.id,
-            ~SessionInstructor.session_id.in_(org_session_ids),
-        )
-    )
-    keep_judge = await db.scalar(
-        select(func.count()).select_from(CompetitionJudge).where(
-            CompetitionJudge.user_id == user.id,
-            ~CompetitionJudge.cohort_id.in_(org_cohort_ids),
-        )
-    )
-    drop_roles = {"organization"}
-    if previous_role == "instructor" and not keep_instructor:
-        drop_roles.add("instructor")
-    if previous_role == "judge" and not keep_judge:
-        drop_roles.add("judge")
     user.roles = [
         r for r in (user.roles or [])
-        if (r.value if hasattr(r, "value") else str(r)) not in drop_roles
+        if (r.value if hasattr(r, "value") else str(r)) != "organization"
     ]
     user.organization_id = None
     user.org_role = None

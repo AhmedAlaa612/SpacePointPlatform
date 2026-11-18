@@ -50,6 +50,15 @@ export default function CohortReadinessQuiz({
   const { cohortId } = (useParams({ strict: false }) || {}) as { cohortId?: string }
   const searchParams = typeof window !== "undefined" ? new URLSearchParams(window.location.search) : null
   const sessionId = searchParams?.get("sessionId") || undefined
+  const isOrgSurface =
+    typeof window !== "undefined" && window.location.pathname.startsWith("/organization")
+  const sessionReturnUrl = sessionId
+    ? isOrgSurface
+      ? `/organization/sessions/${sessionId}`
+      : `/instructors/sessions/${sessionId}`
+    : isOrgSurface
+      ? "/organization/my-sessions"
+      : "/instructors/dashboard"
   const navigate = useNavigate()
   const qc = useQueryClient()
   const toast = useToast()
@@ -184,7 +193,7 @@ export default function CohortReadinessQuiz({
         {isSimulated && onExitObserver ? (
           <Button onClick={onExitObserver}>Exit Observer Mode</Button>
         ) : sessionId ? (
-          <Button onClick={() => navigate({ to: `/instructors/sessions/${sessionId}` })}>
+          <Button onClick={() => navigate({ to: sessionReturnUrl })}>
             Return to Session
           </Button>
         ) : null}
@@ -564,7 +573,7 @@ export default function CohortReadinessQuiz({
               </button>
             ) : sessionId ? (
               <Link
-                to="/instructors/sessions/$sessionId"
+                to={isOrgSurface ? "/organization/sessions/$sessionId" : "/instructors/sessions/$sessionId"}
                 params={{ sessionId }}
                 className="inline-flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground font-medium shrink-0"
               >
@@ -572,10 +581,10 @@ export default function CohortReadinessQuiz({
               </Link>
             ) : (
               <Link
-                to="/instructors/dashboard"
+                to={isOrgSurface ? "/organization/my-sessions" : "/instructors/dashboard"}
                 className="inline-flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground font-medium shrink-0"
               >
-                <ArrowLeft className="size-3.5" /> Dashboard
+                <ArrowLeft className="size-3.5" /> {isOrgSurface ? "My Sessions" : "Dashboard"}
               </Link>
             )}
             <div className="h-4 w-px bg-border hidden sm:block" />
@@ -1811,6 +1820,8 @@ function CompleteStep({
   isObserverMode?: boolean
   onExitObserver?: () => void
 }) {
+  const isOrgSurface =
+    typeof window !== "undefined" && window.location.pathname.startsWith("/organization")
   const navigate = useNavigate()
 
   return (
@@ -1863,7 +1874,13 @@ function CompleteStep({
         ) : sessionId ? (
           <Button
             size="lg"
-            onClick={() => navigate({ to: `/instructors/sessions/${sessionId}` })}
+            onClick={() =>
+              navigate({
+                to: isOrgSurface
+                  ? `/organization/sessions/${sessionId}`
+                  : `/instructors/sessions/${sessionId}`,
+              })
+            }
             className="gap-2 px-8 font-bold"
           >
             <span>Return to Session &amp; Start Delivery</span>
@@ -1872,10 +1889,14 @@ function CompleteStep({
         ) : (
           <Button
             size="lg"
-            onClick={() => navigate({ to: "/instructors/dashboard" })}
+            onClick={() =>
+              navigate({
+                to: isOrgSurface ? "/organization/my-sessions" : "/instructors/dashboard",
+              })
+            }
             className="gap-2 px-8 font-bold"
           >
-            <span>Go to Instructor Dashboard</span>
+            <span>{isOrgSurface ? "Go to My Sessions" : "Go to Instructor Dashboard"}</span>
             <ChevronRight className="size-4" />
           </Button>
         )}

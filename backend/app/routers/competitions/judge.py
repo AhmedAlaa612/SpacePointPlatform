@@ -58,8 +58,32 @@ async def _team_or_404(db: AsyncSession, team_id: uuid.UUID, *, current: User) -
 
 
 @router.get("/cohorts", response_model=list[CompetitionJudgeCohortOut])
-async def list_my_cohorts(db: AsyncSession = Depends(get_db), current: User = Depends(get_current_active_user)):
+async def list_my_cohorts(
+    scope: Literal["all", "org"] = Query("all"),
+    db: AsyncSession = Depends(get_db),
+    current: User = Depends(get_current_active_user),
+):
     rows = await assigned_cohorts(db, user=current)
+    is_pure_org = "organization" in current.role_values and "judge" not in current.role_values
+    if scope == "org" or is_pure_org:
+        from app.models.sessions.program import Program
+
+        prog_ids = {c.program_id for c, _ in rows}
+        prog_org_map: dict[uuid.UUID, uuid.UUID | None] = {}
+        if prog_ids:
+            p_rows = (
+                await db.execute(select(Program.id, Program.organization_id).where(Program.id.in_(prog_ids)))
+            ).all()
+            prog_org_map = dict(p_rows)
+        rows = [
+            (cohort, program_name)
+            for cohort, program_name in rows
+            if current.organization_id
+            and (
+                cohort.organization_id == current.organization_id
+                or prog_org_map.get(cohort.program_id) == current.organization_id
+            )
+        ]
     return [
         CompetitionJudgeCohortOut(id=cohort.id, name=cohort.name, program_name=program_name)
         for cohort, program_name in rows

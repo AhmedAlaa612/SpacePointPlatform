@@ -25,6 +25,9 @@ import {
   Gavel,
   ClipboardCheck,
   UserPlus,
+  BarChart3,
+  Award,
+  TrendingUp,
 } from "lucide-react"
 import { useToast } from "@/components/ui/toast"
 import { downloadCompetitionRosterTemplateApi } from "@/api/competitions"
@@ -62,8 +65,19 @@ import {
   type OrgCohortObserver,
 } from "@/api/organizationPrograms"
 import { LmsCohortSection } from "@/pages/lms-authoring/components/LmsCohortSection"
+import { CohortProgressPanel, CohortAnalysisPanel } from "@/pages/admin/components/CohortProgressAnalysisPanel"
+import { TeamsTab, RubricTab, JudgesTab, ResultsTab } from "@/pages/admin/CompetitionJudging"
+import { CohortCertificatesPanel } from "@/pages/admin/components/CohortCertificatesPanel"
 
-type TabKey = "milestones" | "students" | "sessions" | "staff"
+type TabKey =
+  | "milestones"
+  | "sessions"
+  | "staff"
+  | "students"
+  | "progress"
+  | "analysis"
+  | "judging"
+  | "certificates"
 
 export default function OrganizationCohortDetail() {
   const { cohortId } = useParams({ strict: false }) as { cohortId: string }
@@ -72,7 +86,8 @@ export default function OrganizationCohortDetail() {
   const qc = useQueryClient()
 
   const [activeTab, setActiveTab] = useState<TabKey>("milestones")
-  const [studentsSubTab, setStudentsSubTab] = useState<"students" | "observers">("students")
+  const [studentsSubTab, setStudentsSubTab] = useState<"students" | "observers" | "teams">("students")
+  const [judgingSubTab, setJudgingSubTab] = useState<"rubric" | "judges" | "results">("rubric")
   const [registerStudentOpen, setRegisterStudentOpen] = useState(false)
   const [bulkImportOpen, setBulkImportOpen] = useState(false)
   const [addObserverOpen, setAddObserverOpen] = useState(false)
@@ -141,13 +156,13 @@ export default function OrganizationCohortDetail() {
   const { data: staff, isLoading: staffLoading } = useQuery<OrgCohortStaff>({
     queryKey: ["org-cohort-staff", cohortId],
     queryFn: () => getOrgCohortStaff(cohortId),
-    enabled: Boolean(cohortId) && activeTab === "staff",
+    enabled: Boolean(cohortId) && (activeTab === "staff" || activeTab === "sessions"),
   })
 
   const { data: team = [] } = useQuery({
     queryKey: ["org-team-members"],
     queryFn: getOrganizationTeamApi,
-    enabled: Boolean(cohortId) && activeTab === "staff",
+    enabled: Boolean(cohortId) && (activeTab === "staff" || activeTab === "sessions"),
   })
 
   const { data: readinessPresets = [] } = useQuery({
@@ -163,9 +178,15 @@ export default function OrganizationCohortDetail() {
   })
 
   const assignInstructorMut = useMutation({
-    mutationFn: (userId: string) => assignOrgInstructor(cohortId, { user_id: userId }),
+    mutationFn: (payload: string | { userId: string; sessionId?: string }) =>
+      typeof payload === "string"
+        ? assignOrgInstructor(cohortId, { user_id: payload })
+        : assignOrgInstructor(cohortId, {
+            user_id: payload.userId,
+            session_ids: payload.sessionId ? [payload.sessionId] : undefined,
+          }),
     onSuccess: () => {
-      toast.success("Instructor assigned to the cohort sessions")
+      toast.success("Instructor assigned")
       invalidate()
     },
     onError: (err: any) => {
@@ -174,9 +195,12 @@ export default function OrganizationCohortDetail() {
   })
 
   const unassignInstructorMut = useMutation({
-    mutationFn: (userId: string) => unassignOrgInstructor(cohortId, userId),
+    mutationFn: (payload: string | { userId: string; sessionId?: string }) =>
+      typeof payload === "string"
+        ? unassignOrgInstructor(cohortId, payload)
+        : unassignOrgInstructor(cohortId, payload.userId, payload.sessionId),
     onSuccess: () => {
-      toast.success("Instructor removed from this cohort")
+      toast.success("Instructor removed")
       invalidate()
     },
     onError: (err: any) => {
@@ -337,12 +361,7 @@ export default function OrganizationCohortDetail() {
       {/* ── Navigation Tabs ─────────────────────────────────────────────────── */}
       <div className="flex gap-1 border-b border-border overflow-x-auto scrollbar-none no-scrollbar">
         {[
-          { key: "milestones", label: "Milestones & Modules", icon: Layers },
-          {
-            key: "students",
-            label: `Students (${cohort.active_students_count || 0})`,
-            icon: Users,
-          },
+          { key: "milestones", label: "LMS & Milestones", icon: Layers },
           {
             key: "sessions",
             label: `Sessions (${cohort.sessions?.length || 0})`,
@@ -353,6 +372,19 @@ export default function OrganizationCohortDetail() {
             label: "Team & Readiness",
             icon: GraduationCap,
           },
+          {
+            key: "students",
+            label: `Participants (${cohort.active_students_count || 0})`,
+            icon: Users,
+          },
+          { key: "progress", label: "Progress", icon: TrendingUp },
+          { key: "analysis", label: "Analysis", icon: BarChart3 },
+          ...(isCompetition
+            ? [
+                { key: "judging", label: "Judging", icon: Gavel },
+                { key: "certificates", label: "Certificates", icon: Award },
+              ]
+            : []),
         ].map((t) => {
           const Icon = t.icon
           const isActive = activeTab === t.key
@@ -386,8 +418,8 @@ export default function OrganizationCohortDetail() {
       {/* 2. STUDENTS & ENROLLMENT */}
       {activeTab === "students" && (
         <div className="space-y-4">
-          {/* Sub-tab switcher: Students vs Team Observers */}
-          <div className="flex items-center gap-2 border-b border-border pb-2">
+          {/* Sub-tab switcher: Students vs Team Observers vs Teams */}
+          <div className="flex items-center gap-2 border-b border-border pb-2 flex-wrap">
             <button
               type="button"
               onClick={() => setStudentsSubTab("students")}
@@ -410,9 +442,24 @@ export default function OrganizationCohortDetail() {
             >
               Team Observers ({observers?.length || 0})
             </button>
+            {isCompetition && (
+              <button
+                type="button"
+                onClick={() => setStudentsSubTab("teams")}
+                className={`px-3.5 py-1.5 rounded-lg text-xs font-semibold transition ${
+                  studentsSubTab === "teams"
+                    ? "bg-primary text-primary-foreground shadow-sm"
+                    : "text-muted-foreground hover:text-foreground hover:bg-muted"
+                }`}
+              >
+                Teams
+              </button>
+            )}
           </div>
 
-          {studentsSubTab === "students" ? (
+          {studentsSubTab === "teams" ? (
+            <TeamsTab cohortId={cohort.id} cohortName={cohort.name} />
+          ) : studentsSubTab === "students" ? (
             <>
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-4 rounded-xl border border-border bg-card">
                 <div>
@@ -689,50 +736,128 @@ export default function OrganizationCohortDetail() {
             </div>
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-              {(cohort.sessions || []).map((s) => (
-                <div
-                  key={s.id}
-                  className="rounded-xl border border-border bg-card p-4 flex flex-col justify-between gap-3"
-                >
-                  <div>
-                    <div className="flex items-start justify-between gap-2">
-                      <h4 className="text-sm font-bold text-foreground">{s.title}</h4>
-                      <span className="text-[10px] font-semibold uppercase px-2 py-0.5 rounded bg-muted text-muted-foreground">
-                        {s.session_type}
-                      </span>
-                    </div>
-
-                    <div className="mt-2 space-y-1 text-xs text-muted-foreground">
-                      <div className="flex items-center gap-1.5">
-                        <Calendar className="w-3.5 h-3.5" />
-                        <span>
-                          {s.date} • {s.start_time} – {s.end_time}
-                        </span>
-                      </div>
-                      {s.location && (
+              {(cohort.sessions || []).map((s) => {
+                const staffSession = staff?.sessions.find((ss) => ss.id === s.id)
+                const assignedIds = new Set((staffSession?.instructors ?? []).map((i) => i.user_id))
+                const availableInstructors = team.filter(
+                  (m) => m.org_role === "instructor" && !assignedIds.has(m.id),
+                )
+                return (
+                  <div
+                    key={s.id}
+                    className="rounded-xl border border-border bg-card p-4 flex flex-col justify-between gap-3"
+                  >
+                    <div>
+                      <div className="flex items-start justify-between gap-2">
+                        <h4 className="text-sm font-bold text-foreground">{s.title}</h4>
                         <div className="flex items-center gap-1.5">
-                          <MapPin className="w-3.5 h-3.5" />
-                          <span>{s.location}</span>
+                          {staffSession?.completed_at ? (
+                            <span className="text-[10px] font-semibold px-2 py-0.5 rounded bg-emerald-500/15 text-emerald-600 dark:text-emerald-400">
+                              Completed
+                            </span>
+                          ) : staffSession?.started_at ? (
+                            <span className="text-[10px] font-semibold px-2 py-0.5 rounded bg-blue-500/15 text-blue-600 dark:text-blue-400">
+                              In progress
+                            </span>
+                          ) : (
+                            <span className="text-[10px] font-semibold uppercase px-2 py-0.5 rounded bg-muted text-muted-foreground">
+                              {s.session_type}
+                            </span>
+                          )}
                         </div>
-                      )}
+                      </div>
+
+                      <div className="mt-2 space-y-1 text-xs text-muted-foreground">
+                        <div className="flex items-center gap-1.5">
+                          <Calendar className="w-3.5 h-3.5" />
+                          <span>
+                            {s.date} • {s.start_time || "TBD"}
+                            {s.end_time ? ` – ${s.end_time}` : ""}
+                          </span>
+                        </div>
+                        {s.location && (
+                          <div className="flex items-center gap-1.5">
+                            <MapPin className="w-3.5 h-3.5" />
+                            <span>{s.location}</span>
+                          </div>
+                        )}
+                        {staffSession && (
+                          <div className="text-[11px] text-muted-foreground">
+                            Attendance: {staffSession.attendance_present} present / {staffSession.attendance_total} marked
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Assigned instructors for this session */}
+                      <div className="mt-3 pt-2.5 border-t border-border/60 space-y-2">
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="text-[11px] font-semibold text-muted-foreground">
+                            Instructors
+                          </span>
+                          {availableInstructors.length > 0 && (
+                            <select
+                              value=""
+                              onChange={(e) => {
+                                if (e.target.value) {
+                                  assignInstructorMut.mutate({ userId: e.target.value, sessionId: s.id })
+                                }
+                              }}
+                              className="h-7 px-2 rounded-lg border border-border bg-background text-[11px] text-foreground cursor-pointer"
+                            >
+                              <option value="">+ Assign instructor…</option>
+                              {availableInstructors.map((inst) => (
+                                <option key={inst.id} value={inst.id}>
+                                  {inst.full_name}
+                                </option>
+                              ))}
+                            </select>
+                          )}
+                        </div>
+                        {(staffSession?.instructors ?? []).length === 0 ? (
+                          <p className="text-[11px] text-muted-foreground italic">
+                            No instructor assigned to this session yet.
+                          </p>
+                        ) : (
+                          <div className="flex flex-wrap gap-1.5">
+                            {(staffSession?.instructors ?? []).map((inst) => (
+                              <span
+                                key={inst.user_id}
+                                className="inline-flex items-center gap-1 text-[11px] font-medium px-2 py-0.5 rounded-full bg-primary/10 text-primary"
+                              >
+                                {inst.full_name}
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    unassignInstructorMut.mutate({ userId: inst.user_id, sessionId: s.id })
+                                  }
+                                  title="Unassign from this session"
+                                  className="hover:text-destructive ml-0.5"
+                                >
+                                  <X className="w-3 h-3" />
+                                </button>
+                              </span>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+
+                    <div className="flex items-center justify-end pt-2 border-t border-border">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (window.confirm(`Delete session "${s.title}"?`)) {
+                            deleteSessionMut.mutate(s.id)
+                          }
+                        }}
+                        className="inline-flex items-center gap-1 h-7 px-2 text-xs text-muted-foreground hover:text-destructive transition"
+                      >
+                        <Trash2 className="w-3 h-3" /> Delete
+                      </button>
                     </div>
                   </div>
-
-                  <div className="flex items-center justify-end pt-2 border-t border-border">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        if (window.confirm(`Delete session "${s.title}"?`)) {
-                          deleteSessionMut.mutate(s.id)
-                        }
-                      }}
-                      className="inline-flex items-center gap-1 h-7 px-2 text-xs text-muted-foreground hover:text-destructive transition"
-                    >
-                      <Trash2 className="w-3 h-3" /> Delete
-                    </button>
-                  </div>
-                </div>
-              ))}
+                )
+              })}
             </div>
           )}
         </div>
@@ -751,6 +876,58 @@ export default function OrganizationCohortDetail() {
           onAssignJudge={(userId) => assignJudgeMut.mutate(userId)}
           onUnassignJudge={(userId) => unassignJudgeMut.mutate(userId)}
           onSetReadiness={(presetId) => readinessMut.mutate(presetId)}
+        />
+      )}
+
+      {/* 5. PROGRESS */}
+      {activeTab === "progress" && (
+        <CohortProgressPanel cohortId={cohort.id} cohortName={cohort.name} />
+      )}
+
+      {/* 6. ANALYSIS */}
+      {activeTab === "analysis" && (
+        <CohortAnalysisPanel cohortId={cohort.id} isCompetition={isCompetition} />
+      )}
+
+      {/* 7. JUDGING (Competitions) */}
+      {activeTab === "judging" && isCompetition && (
+        <div className="space-y-4">
+          <div className="flex items-center gap-2 border-b border-border pb-2 flex-wrap">
+            {(
+              [
+                { key: "rubric", label: "Rubric" },
+                { key: "judges", label: "Judges" },
+                { key: "results", label: "Results & Leaderboard" },
+              ] as const
+            ).map((sub) => (
+              <button
+                key={sub.key}
+                type="button"
+                onClick={() => setJudgingSubTab(sub.key)}
+                className={`px-3.5 py-1.5 rounded-lg text-xs font-semibold transition ${
+                  judgingSubTab === sub.key
+                    ? "bg-primary text-primary-foreground shadow-sm"
+                    : "text-muted-foreground hover:text-foreground hover:bg-muted"
+                }`}
+              >
+                {sub.label}
+              </button>
+            ))}
+          </div>
+          {judgingSubTab === "rubric" && <RubricTab cohortId={cohort.id} />}
+          {judgingSubTab === "judges" && <JudgesTab cohortId={cohort.id} />}
+          {judgingSubTab === "results" && (
+            <ResultsTab cohortId={cohort.id} cohortName={cohort.name} />
+          )}
+        </div>
+      )}
+
+      {/* 8. CERTIFICATES (Competitions) */}
+      {activeTab === "certificates" && isCompetition && (
+        <CohortCertificatesPanel
+          cohortId={cohort.id}
+          cohortName={cohort.name}
+          programName={cohort.program_name}
         />
       )}
 

@@ -1,6 +1,7 @@
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
 import { useNavigate } from "@tanstack/react-router"
+import { useAuth } from "@/context/AuthContext"
 import {
   Layers,
   Plus,
@@ -39,6 +40,16 @@ export default function OrganizationPrograms() {
   const navigate = useNavigate()
   const toast = useToast()
   const qc = useQueryClient()
+  const { user, activeRole } = useAuth()
+
+  useEffect(() => {
+    if (activeRole !== "organization") return
+    if (user?.org_role === "instructor") {
+      void navigate({ to: "/organization/my-sessions", replace: true })
+    } else if (user?.org_role === "judge") {
+      void navigate({ to: "/organization/judging", replace: true })
+    }
+  }, [activeRole, user?.org_role, navigate])
 
   const [createProgramOpen, setCreateProgramOpen] = useState(false)
   const [editingProgram, setEditingProgram] = useState<OrgProgramSummary | null>(null)

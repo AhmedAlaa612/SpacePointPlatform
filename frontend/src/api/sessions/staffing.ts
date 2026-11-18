@@ -22,8 +22,10 @@ import type { BulkActionResult } from "@/api/sessions/cohorts"
 export const listAvailableSessionsApi = () =>
   api.get<AvailableSession[]>("/sessions/available").then((r) => r.data)
 
-export const listMySessionsApi = () =>
-  api.get<MySession[]>("/sessions/mine").then((r) => r.data)
+export const listMySessionsApi = (scope: "all" | "org" | "spacepoint" = "all") =>
+  api
+    .get<MySession[]>("/sessions/mine", { params: scope !== "all" ? { scope } : undefined })
+    .then((r) => r.data)
 
 // ── Ops: open call / reopen ─────────────────────────────────────────────────
 

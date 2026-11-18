@@ -88,8 +88,10 @@ export const assignOrgInstructor = (
     .post<{ assigned: number }>(`/organization/cohorts/${cohortId}/instructors`, payload)
     .then((r) => r.data)
 
-export const unassignOrgInstructor = (cohortId: string, userId: string) =>
-  api.delete(`/organization/cohorts/${cohortId}/instructors/${userId}`)
+export const unassignOrgInstructor = (cohortId: string, userId: string, sessionId?: string) =>
+  api.delete(`/organization/cohorts/${cohortId}/instructors/${userId}`, {
+    params: sessionId ? { session_id: sessionId } : undefined,
+  })
 
 export const assignOrgJudge = (cohortId: string, userId: string) =>
   api

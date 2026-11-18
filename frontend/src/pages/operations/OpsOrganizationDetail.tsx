@@ -884,6 +884,7 @@ export default function OpsOrganizationDetail() {
                             <Link
                               to="/operations/cohorts/$cohortId"
                               params={{ cohortId: c.id }}
+                              search={{ from: `/operations/organizations/${orgId}` } as never}
                             >
                               Open Cohort
                               <ArrowUpRight className="h-3.5 w-3.5" />
