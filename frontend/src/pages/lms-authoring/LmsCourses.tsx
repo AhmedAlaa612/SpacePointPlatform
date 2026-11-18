@@ -21,7 +21,10 @@ export default function LmsCourses() {
   const { user, activeRole } = useAuth()
   const cannotPublish = activeRole === "lms_author" && !user?.author_can_publish
   const canViewAudit = activeRole === "admin" || activeRole === "operations"
-  const canCreateCourse = activeRole !== "organization" || !!user?.org_can_author_courses
+  // Hide only when the backend explicitly says this org cannot author — a
+  // missing flag (older backend / cached session) must not hide the button,
+  // the create endpoint still enforces the grant.
+  const canCreateCourse = activeRole !== "organization" || user?.org_can_author_courses !== false
   const [createOpen, setCreateOpen] = useState(false)
   const [accessTarget, setAccessTarget] = useState<AdminCourse | null>(null)
 

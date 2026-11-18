@@ -127,13 +127,16 @@ from app.services import storage
 from app.services.video_service import get_playback_info, get_video_for_owner
 from app.models.certificate import Certificate
 from app.models.enums import CertificateType
-from app.services.lms.author_access import get_author_permissions, is_course_author_or_staff
+from app.services.lms.author_access import (
+    can_preview_course,
+    get_author_permissions,
+)
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/lms", tags=["lms"])
 
-_is_course_author_or_staff = is_course_author_or_staff
+_can_preview_course = can_preview_course
 
 
 async def _assert_enrolled(
@@ -158,7 +161,7 @@ async def _assert_enrolled(
 
     user = await db.get(User, user_id)
     course = await db.get(Course, course_id)
-    if user and course and await _is_course_author_or_staff(db, user, course):
+    if user and course and await _can_preview_course(db, user, course):
         return
 
     raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Course not found")
@@ -229,7 +232,7 @@ async def _published_course(
         if enrolled is not None:
             return course
         user = await db.get(User, user_id)
-        if user and await _is_course_author_or_staff(db, user, course):
+        if user and await _can_preview_course(db, user, course):
             return course
     raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Course not found")
 
@@ -329,8 +332,8 @@ async def course_detail(
         )
     )).scalars().first()
 
-    is_author_or_staff = await _is_course_author_or_staff(db, current, course)
-    is_preview = (enrolled_row is None and is_author_or_staff) or (preview and is_author_or_staff)
+    can_preview = await _can_preview_course(db, current, course)
+    is_preview = (enrolled_row is None and can_preview) or (preview and can_preview)
     is_enrolled = (enrolled_row is not None) or is_preview
 
     locks = await unlock_state(db, user_id=current.id, course_id=course.id, is_preview=is_preview)
@@ -2010,9 +2013,9 @@ async def module_read(
             *enrollment_is_active(),
         )
     )).first() is not None
-    is_author_or_staff = await _is_course_author_or_staff(db, current, course)
-    is_preview = (not enrolled and is_author_or_staff) or (preview and is_author_or_staff)
-    if not enrolled and is_author_or_staff:
+    can_preview = await _can_preview_course(db, current, course)
+    is_preview = (not enrolled and can_preview) or (preview and can_preview)
+    if not enrolled and can_preview:
         enrolled = True
 
     items = (await db.execute(

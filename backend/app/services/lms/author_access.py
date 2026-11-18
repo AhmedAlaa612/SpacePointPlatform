@@ -72,6 +72,30 @@ async def check_course_access(db: AsyncSession, user: User, course: Course) -> N
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Course not found")
 
 
+async def can_preview_course(db: AsyncSession, user: User, course: Course) -> bool:
+    """True when the user may open the course player without enrolling.
+
+    Covers course authors/staff (the authoring preview) *and* partner-org team
+    members the course is shared with. Shared courses are listed read-only in
+    the org's LMS, so their Preview button must not fall into the paid
+    enrollment path — the org's read grant is the entitlement.
+    """
+    if await is_course_author_or_staff(db, user, course):
+        return True
+    if "organization" not in user.role_values:
+        return False
+    from app.services.website_events import resolve_user_organization
+
+    org = await resolve_user_organization(db, user)
+    if org is None:
+        return False
+    if course.organization_id == org.id or course.created_by == user.id:
+        return True
+    if org.course_scope_all and course.is_published:
+        return True
+    return str(course.id) in {str(cid) for cid in (org.allowed_course_ids or [])}
+
+
 async def check_course_read_access(db: AsyncSession, user: User, course: Course) -> None:
     """Allows org users read-only access to SpacePoint courses shared with their organization."""
     if "organization" in user.role_values and not any(
