@@ -237,7 +237,7 @@ async def test_invite_attaches_existing_lms_account(db, client, sent_emails):
     assert "set-password" not in mail_body
 
 
-async def test_invite_rejects_account_linked_to_another_org(db, client, sent_emails):
+async def test_invite_moves_account_from_another_org(db, client, sent_emails):
     owner, org = await _seed_org(db)
     ops = await _make_user(db, roles=["operations"])
 
@@ -260,6 +260,10 @@ async def test_invite_rejects_account_linked_to_another_org(db, client, sent_ema
         json={"full_name": "Other Uni Student", "email": student.email},
     )
 
-    assert resp.status_code == 409, resp.text
-    assert "Other University" in resp.json()["detail"]
-    assert sent_emails == []
+    assert resp.status_code == 201, resp.text
+    assert resp.json()["existing_account"] is True
+    await db.refresh(student)
+    # Last-in-wins: the new assignment overrides the previous organization.
+    assert student.organization_id == org.id
+    assert "organization" in student.role_values
+    assert len(sent_emails) == 1

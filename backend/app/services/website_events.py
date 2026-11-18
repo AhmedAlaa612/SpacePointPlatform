@@ -94,8 +94,7 @@ async def build_organization_team_member(
     organization instead of duplicated: the `organization` role is added and
     their existing password keeps working (returns `(user, False)` so the
     caller can email a "you've been added" notice rather than a password link).
-    Accounts already tied to a different organization are rejected rather than
-    silently moving their affiliation.
+    A previous assignment to another organization is overwritten (last-in-wins).
     """
     normalized = normalize_user_email(email)
     existing = (
@@ -120,17 +119,10 @@ async def build_organization_team_member(
                 status_code=status.HTTP_409_CONFLICT,
                 detail=f"This person already owns the organization '{owned.name_latin}'",
             )
-        if existing.organization_id and existing.organization_id != org.id:
-            other = await db.get(Organization, existing.organization_id)
-            other_name = other.name_latin if other else "another organization"
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT,
-                detail=(
-                    f"This email is already linked to {other_name}. Remove that "
-                    "affiliation first, then invite them again."
-                ),
-            )
 
+        # Assignment is last-in-wins: inviting an existing account to a new org
+        # moves them there instead of refusing. (Deliberate 2026-11-18 — the
+        # single organization_id column is an assignment, not a history.)
         existing.organization_id = org.id
         if "organization" not in existing.role_values:
             existing.roles = list(existing.roles or []) + [UserRole.organization]
