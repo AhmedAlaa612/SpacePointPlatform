@@ -425,6 +425,7 @@ async def test_remove_member_detaches_instead_of_deleting(db, client, sent_email
     assert member.org_role is None
     assert "organization" not in member.role_values
     assert "instructor" not in member.role_values
+    assert member.role_values == ["student"]
 
 
 async def test_assign_instructor_to_cohort_and_sessions(db, client, sent_emails):
@@ -742,3 +743,77 @@ async def test_invite_judge_on_org_cohort_stays_in_org_sandbox(db, client, sent_
     assert judge.org_role == "judge"
     assert "organization" in judge.role_values
     assert "judge" not in judge.role_values
+
+
+async def test_admin_can_update_and_remove_org_only_member_and_observer(db, client, sent_emails):
+    from sqlalchemy import select
+    from app.models.lms.program import CohortLmsEditor, LmsProgram, LmsProgramAssignment
+
+    owner, org = await _seed_org(db)
+    admin = await _make_user(db, roles=["admin"])
+    program, cohort, _ = await _seed_cohort(db, org)
+    lms_program = LmsProgram(id=uuid.uuid4(), program_id=program.id, name="Org Checklist")
+    db.add(lms_program)
+    await db.flush()
+
+    # 1. Org-only member (organization was their only role)
+    body, _email = await _add_member(db, client, owner, org_role="coordinator")
+    member_id = uuid.UUID(body["id"])
+    db.add(CohortLmsEditor(cohort_id=cohort.id, user_id=member_id))
+    await db.flush()
+
+    patch_resp = await client.patch(
+        f"/admin/website/organizations/{org.id}/members/{member_id}",
+        headers=_headers(admin),
+        json={"org_role": "judge"},
+    )
+    assert patch_resp.status_code == 200, patch_resp.text
+    assert patch_resp.json()["org_role"] == "judge"
+
+    del_resp = await client.delete(
+        f"/admin/website/organizations/{org.id}/members/{member_id}",
+        headers=_headers(admin),
+    )
+    assert del_resp.status_code == 204, del_resp.text
+
+    member = (await db.execute(select(User).where(User.id == member_id))).scalars().first()
+    assert member is not None
+    assert member.organization_id is None
+    assert member.org_role is None
+    assert "organization" not in member.role_values
+    assert member.role_values == ["student"]
+    assert (
+        await db.execute(select(CohortLmsEditor).where(CohortLmsEditor.user_id == member_id))
+    ).scalars().first() is None
+
+    # 2. Observer linked only via cohort observer assignment (without organization_id)
+    obs = await _make_user(db, roles=["observer"])
+    db.add(
+        LmsProgramAssignment(
+            id=uuid.uuid4(),
+            lms_program_id=lms_program.id,
+            user_id=obs.id,
+            cohort_id=cohort.id,
+            mode="observer",
+        )
+    )
+    await db.flush()
+
+    obs_patch = await client.patch(
+        f"/admin/website/organizations/{org.id}/members/{obs.id}",
+        headers=_headers(admin),
+        json={"org_role": "instructor"},
+    )
+    assert obs_patch.status_code == 200, obs_patch.text
+    assert obs_patch.json()["org_role"] == "instructor"
+
+    obs_del = await client.delete(
+        f"/admin/website/organizations/{org.id}/members/{obs.id}",
+        headers=_headers(admin),
+    )
+    assert obs_del.status_code == 204, obs_del.text
+
+    await db.refresh(obs)
+    assert obs.organization_id is None
+    assert obs.org_role is None
+    assert obs.role_values == ["student"]

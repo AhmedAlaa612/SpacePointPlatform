@@ -10,8 +10,10 @@ from app.core.dependencies import require_organization_account
 from app.core.security import create_password_set_token
 from app.db.session import get_db
 from app.models.competitions.judging import CompetitionJudge
-from app.models.lms.program import LmsProgramAssignment
+from app.models.enums import UserRole
+from app.models.lms.program import CohortLmsEditor, LmsProgramAssignment
 from app.models.sessions.cohort import Cohort
+from app.models.sessions.program import Program
 from app.models.sessions.session import Session, SessionInstructor
 from app.models.spine.organization import Organization
 from app.models.user import User
@@ -423,7 +425,11 @@ async def remove_organization_team_member(
     if user is None or user.organization_id != org.id:
         raise HTTPException(status_code=404, detail="Team member not found")
 
-    org_cohort_ids = select(Cohort.id).where(Cohort.organization_id == org.id)
+    org_cohort_ids = (
+        select(Cohort.id)
+        .outerjoin(Program, Program.id == Cohort.program_id)
+        .where(or_(Cohort.organization_id == org.id, Program.organization_id == org.id))
+    )
     org_session_ids = select(Session.id).where(Session.cohort_id.in_(org_cohort_ids))
 
     # Sandbox assignments belong to the membership, so they go with it.
@@ -440,18 +446,44 @@ async def remove_organization_team_member(
         )
     )
     await db.execute(
+        delete(CohortLmsEditor).where(
+            CohortLmsEditor.user_id == user.id,
+            CohortLmsEditor.cohort_id.in_(org_cohort_ids),
+        )
+    )
+    await db.execute(
         delete(LmsProgramAssignment).where(
             LmsProgramAssignment.user_id == user.id,
             LmsProgramAssignment.cohort_id.in_(org_cohort_ids),
         )
     )
+    await db.flush()
 
-    # Never strip global SpacePoint instructor/judge roles on org detach;
-    # org membership only grants/revokes the `organization` role.
-    user.roles = [
+    remaining_roles = [
         r for r in (user.roles or [])
         if (r.value if hasattr(r, "value") else str(r)) != "organization"
     ]
+    if any((r.value if hasattr(r, "value") else str(r)) == "observer" for r in remaining_roles):
+        still_observing = await db.scalar(
+            select(LmsProgramAssignment.id)
+            .where(
+                LmsProgramAssignment.user_id == user.id,
+                LmsProgramAssignment.mode == "observer",
+            )
+            .limit(1)
+        )
+        if still_observing is None:
+            remaining_roles = [
+                r for r in remaining_roles
+                if (r.value if hasattr(r, "value") else str(r)) != "observer"
+            ]
+    if not remaining_roles:
+        remaining_roles = [UserRole.student]
+
+    # Never strip global SpacePoint instructor/judge roles on org detach;
+    # org membership only grants/revokes the `organization` role (and falls back
+    # to `student` when no other role remains).
+    user.roles = remaining_roles
     user.organization_id = None
     user.org_role = None
 

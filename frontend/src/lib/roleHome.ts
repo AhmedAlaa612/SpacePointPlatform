@@ -28,6 +28,7 @@ export function roleHomePath(role: Role | null): string {
     // resolveActiveRole + RoleSwitcher filtering). Observers run the
     // student engine, so /learn is the sane landing if it ever happens.
     case "observer": return "/learn";
+    case null: return "/learn";
     default: return "/interns";
   }
 }

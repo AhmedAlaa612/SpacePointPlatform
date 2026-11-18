@@ -1347,8 +1347,9 @@ export default function OpsOrganizationDetail() {
                       <td className="py-3.5 pr-4 text-muted-foreground">
                         {ev.cohort_id && ev.cohort_name ? (
                           <Link
-                            to="/operations/cohorts/$cohortId"
+                            to="/organization/programs/$cohortId"
                             params={{ cohortId: ev.cohort_id }}
+                            search={{ from: `/operations/organizations/${org.id}` } as never}
                             className="text-primary hover:underline"
                           >
                             {ev.cohort_name}

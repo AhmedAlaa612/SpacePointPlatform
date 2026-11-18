@@ -23,6 +23,7 @@ from app.models.lms.enrollment import Enrollment
 from app.models.lms.invite_grant import InvitationCodeGrant
 from app.models.lms.learning_path import LearningPath
 from app.models.lms.program import (
+    CohortLmsEditor,
     LmsProgram,
     LmsProgramAssignment,
     LmsProgramCohortOverride,
@@ -1586,10 +1587,25 @@ async def admin_update_organization_member(
 
     user = await db.get(User, user_id)
     is_member = user is not None and user.organization_id == org.id
+    if user is not None and not is_member:
+        obs_match = (
+            await db.execute(
+                select(LmsProgramAssignment.id)
+                .join(Cohort, Cohort.id == LmsProgramAssignment.cohort_id)
+                .join(Program, Program.id == Cohort.program_id)
+                .where(
+                    LmsProgramAssignment.user_id == user.id,
+                    LmsProgramAssignment.mode == "observer",
+                    or_(Cohort.organization_id == org.id, Program.organization_id == org.id),
+                )
+            )
+        ).first()
+        is_member = obs_match is not None
     if not is_member:
         raise HTTPException(status_code=404, detail="User is not associated with this organization")
 
     role = normalize_org_role(body.org_role)
+    user.organization_id = org.id
     user.org_role = role
     merged = list(user.roles or [])
     existing_values = {r.value if hasattr(r, "value") else str(r) for r in merged}
@@ -1629,10 +1645,29 @@ async def admin_remove_organization_member(
         raise HTTPException(status_code=400, detail="Cannot remove the organization primary owner")
 
     user = await db.get(User, user_id)
-    if user is None or user.organization_id != org.id:
+    is_member = user is not None and user.organization_id == org.id
+    if user is not None and not is_member:
+        obs_match = (
+            await db.execute(
+                select(LmsProgramAssignment.id)
+                .join(Cohort, Cohort.id == LmsProgramAssignment.cohort_id)
+                .join(Program, Program.id == Cohort.program_id)
+                .where(
+                    LmsProgramAssignment.user_id == user.id,
+                    LmsProgramAssignment.mode == "observer",
+                    or_(Cohort.organization_id == org.id, Program.organization_id == org.id),
+                )
+            )
+        ).first()
+        is_member = obs_match is not None
+    if not is_member:
         raise HTTPException(status_code=404, detail="User is not associated with this organization")
 
-    org_cohort_ids = select(Cohort.id).where(Cohort.organization_id == org.id)
+    org_cohort_ids = (
+        select(Cohort.id)
+        .outerjoin(Program, Program.id == Cohort.program_id)
+        .where(or_(Cohort.organization_id == org.id, Program.organization_id == org.id))
+    )
     org_session_ids = select(Session.id).where(Session.cohort_id.in_(org_cohort_ids))
 
     await db.execute(
@@ -1648,17 +1683,43 @@ async def admin_remove_organization_member(
         )
     )
     await db.execute(
+        delete(CohortLmsEditor).where(
+            CohortLmsEditor.user_id == user.id,
+            CohortLmsEditor.cohort_id.in_(org_cohort_ids),
+        )
+    )
+    await db.execute(
         delete(LmsProgramAssignment).where(
             LmsProgramAssignment.user_id == user.id,
             LmsProgramAssignment.cohort_id.in_(org_cohort_ids),
         )
     )
+    await db.flush()
 
-    user.roles = [
+    remaining_roles = [
         r for r in (user.roles or [])
         if (r.value if hasattr(r, "value") else str(r)) != "organization"
     ]
-    user.organization_id = None
+    if any((r.value if hasattr(r, "value") else str(r)) == "observer" for r in remaining_roles):
+        still_observing = await db.scalar(
+            select(LmsProgramAssignment.id)
+            .where(
+                LmsProgramAssignment.user_id == user.id,
+                LmsProgramAssignment.mode == "observer",
+            )
+            .limit(1)
+        )
+        if still_observing is None:
+            remaining_roles = [
+                r for r in remaining_roles
+                if (r.value if hasattr(r, "value") else str(r)) != "observer"
+            ]
+    if not remaining_roles:
+        remaining_roles = [UserRole.student]
+
+    user.roles = remaining_roles
+    if user.organization_id == org.id:
+        user.organization_id = None
     user.org_role = None
     if user.contact_id:
         contact = await db.get(Contact, user.contact_id)
