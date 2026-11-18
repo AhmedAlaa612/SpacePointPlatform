@@ -232,6 +232,11 @@ async def _user_out(db: AsyncSession, user: User, profile: ApplicantProfile | No
         "organization_type": org.org_type if org else None,
         "organization_country": org.country if org else None,
         "organization_city": org.city if org else None,
+        "org_is_approved": org.is_approved if org else None,
+        "org_can_publish_events": org.can_publish_events if org else None,
+        "org_can_author_courses": org.can_author_courses if org else None,
+        "org_can_publish_courses": org.can_publish_courses if org else None,
+        "org_course_scope_all": org.course_scope_all if org else None,
         "org_role": user.org_role,
         # Applicant-profile fields — surfaced on Profile & Settings for
         # instructors/facilitators/applicants. None when no profile exists.
