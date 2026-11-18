@@ -1,4 +1,5 @@
 import { useState } from "react"
+import { createPortal } from "react-dom"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
 import { Link } from "@tanstack/react-router"
 import {
@@ -138,13 +139,16 @@ export function PreSessionQuizAssignmentBar({
 
       {previewOpen && selectedPreset && (
         selectedPreset.phases && selectedPreset.phases.length > 0 ? (
-          <div className="fixed inset-0 z-50 bg-background overflow-y-auto">
-            <CohortReadinessQuiz
-              presetOverride={selectedPreset}
-              isObserverMode={true}
-              onExitObserver={() => setPreviewOpen(false)}
-            />
-          </div>
+          createPortal(
+            <div className="fixed inset-0 z-50 bg-background overflow-y-auto">
+              <CohortReadinessQuiz
+                presetOverride={selectedPreset}
+                isObserverMode={true}
+                onExitObserver={() => setPreviewOpen(false)}
+              />
+            </div>,
+            document.body
+          )
         ) : (
           <SessionPreQuizModal
             open={previewOpen}
