@@ -1,13 +1,23 @@
 import re
+import secrets
 from uuid import UUID
 
+from fastapi import HTTPException, status
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.security import get_password_hash
+from app.models.enums import UserRole
 from app.models.spine.contact import Contact
 from app.models.spine.organization import Organization
 from app.models.user import User
 from app.models.website_event import MegaEvent, WebsiteEvent
+from app.services.documents.id_card import ensure_card_number
+from app.services.spine.identity import (
+    normalize_user_email,
+    resolve_or_create_contact,
+    user_email_matches,
+)
 
 
 def slugify_event(value: str) -> str:
@@ -60,6 +70,65 @@ async def resolve_user_organization(db: AsyncSession, user: User) -> Organizatio
         if contact and contact.organization_id:
             return await db.get(Organization, contact.organization_id)
     return None
+
+
+async def build_organization_team_member(
+    db: AsyncSession,
+    *,
+    org: Organization,
+    full_name: str,
+    email: str,
+    password: str | None = None,
+    phone: str | None = None,
+    role_event_source: str = "org_team_member",
+) -> User:
+    """Create a portal account linked to `org` as a team member.
+
+    Shared by the organization's own self-service page and the admin/ops
+    invite action so both paths create identical accounts. When no password is
+    supplied the account gets a random unusable hash and
+    `must_change_password=True` — that flag is what the team lists read as
+    "invite pending" until the person sets a password via the emailed link.
+    """
+    normalized = normalize_user_email(email)
+    existing = (
+        await db.execute(select(User).where(user_email_matches(normalized)))
+    ).scalars().first()
+    if existing is not None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="A user with this email already exists",
+        )
+
+    contact, _ = await resolve_or_create_contact(
+        db,
+        full_name=full_name.strip(),
+        phone=(phone or "").strip() or None,
+        email=normalized,
+        contact_roles=["sponsor_rep"],
+        role_event_source=role_event_source,
+        country=org.country or "uae",
+        city=org.city,
+    )
+    user = User(
+        full_name=full_name.strip(),
+        email=normalized,
+        password_hash=get_password_hash((password or "").strip() or secrets.token_urlsafe(32)),
+        roles=[UserRole.organization],
+        status="active",
+        must_change_password=not (password or "").strip(),
+        contact_id=contact.id if contact else None,
+        organization_id=org.id,
+        phone=(phone or "").strip() or None,
+        country=org.country or "uae",
+        city_other=org.city,
+    )
+    db.add(user)
+    await db.flush()
+    await ensure_card_number(db, user)
+    await db.commit()
+    await db.refresh(user)
+    return user
 
 
 DEFAULT_WSW_AR_CONTENT: dict = {

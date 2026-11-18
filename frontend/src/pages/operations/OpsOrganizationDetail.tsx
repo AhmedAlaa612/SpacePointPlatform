@@ -25,9 +25,11 @@ import {
   ShieldCheck,
   SlidersHorizontal,
   Ticket,
+  UserPlus,
   Users,
 } from "lucide-react"
 import {
+  createOrganizationMember,
   createOrganizationMemberResetLink,
   getAdminOrganizationDetail,
   getAdminOrganizationResetLink,
@@ -80,6 +82,7 @@ export default function OpsOrganizationDetail() {
   const [studentQuery, setStudentQuery] = useState("")
   const [studentCohortFilter, setStudentCohortFilter] = useState("all")
   const [copiedKey, setCopiedKey] = useState<string | null>(null)
+  const [inviteOpen, setInviteOpen] = useState(false)
 
   const invalidateOrgQueries = () => {
     void qc.invalidateQueries({ queryKey: ["admin-organization-detail", orgId] })
@@ -110,9 +113,15 @@ export default function OpsOrganizationDetail() {
         await navigator.clipboard.writeText(res.reset_url)
         setCopiedKey("owner-reset")
         setTimeout(() => setCopiedKey((cur) => (cur === "owner-reset" ? null : cur)), 2500)
-        toast.success(`Password reset link copied for ${res.email}`)
+        toast.success(
+          res.email_sent
+            ? `Password link emailed to ${res.email} (also copied)`
+            : `Email failed — reset link copied for ${res.email}`
+        )
       } catch {
-        toast.success(`Reset link ready for ${res.email}`)
+        toast.success(
+          res.email_sent ? `Password link emailed to ${res.email}` : `Reset link ready for ${res.email}`
+        )
       }
     },
     onError: (err) => toast.error(getErrorMessage(err, "Could not generate owner reset link")),
@@ -125,9 +134,17 @@ export default function OpsOrganizationDetail() {
         await navigator.clipboard.writeText(res.reset_url)
         setCopiedKey(`member-${userId}`)
         setTimeout(() => setCopiedKey((cur) => (cur === `member-${userId}` ? null : cur)), 2500)
-        toast.success(`Reset link copied for ${res.email}`)
+        toast.success(
+          res.email_sent
+            ? `Password link emailed to ${res.email} (also copied)`
+            : `Email failed — reset link copied for ${res.email}`
+        )
       } catch {
-        toast.success(`Reset link generated for ${res.email}`)
+        toast.success(
+          res.email_sent
+            ? `Password link emailed to ${res.email}`
+            : `Reset link generated for ${res.email}`
+        )
       }
     },
     onError: (err) => toast.error(getErrorMessage(err, "Could not generate member reset link")),
@@ -1354,10 +1371,19 @@ export default function OpsOrganizationDetail() {
       {/* TAB 6: Team & Observers */}
       {activeTab === "team" && (
         <div className="rounded-[10px] border border-border bg-card p-5">
-          <div className="mb-4 flex items-center justify-between">
+          <div className="mb-4 flex items-center justify-between gap-3">
             <h2 className="text-base font-bold text-foreground">
               Organization Team & Cohort Observers ({detail.team.length})
             </h2>
+            <Button
+              type="button"
+              size="sm"
+              className="h-8 rounded-[10px] px-3 text-xs font-semibold"
+              onClick={() => setInviteOpen(true)}
+            >
+              <UserPlus className="h-3.5 w-3.5" />
+              Invite Member
+            </Button>
           </div>
 
           {detail.team.length === 0 ? (
@@ -1429,12 +1455,14 @@ export default function OpsOrganizationDetail() {
                         <span
                           className={cn(
                             "rounded-[10px] border px-2.5 py-1 font-semibold uppercase",
-                            m.status === "active"
+                            m.invite_pending
+                              ? "border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-300"
+                              : m.status === "active"
                               ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300"
                               : "border-border bg-muted text-muted-foreground"
                           )}
                         >
-                          {m.status}
+                          {m.invite_pending ? "Invite pending" : m.status}
                         </span>
                       </td>
                       <td className="py-3.5 text-right">
@@ -1451,7 +1479,7 @@ export default function OpsOrganizationDetail() {
                           ) : (
                             <KeyRound className="h-3.5 w-3.5" />
                           )}
-                          Copy Reset Link
+                          Send Link
                         </Button>
                       </td>
                     </tr>
@@ -1472,6 +1500,115 @@ export default function OpsOrganizationDetail() {
           onDeleted={() => navigate({ to: "/operations/organizations" })}
         />
       )}
+
+      {inviteOpen && (
+        <InviteOrgMemberModal
+          orgId={orgId}
+          orgName={org.name_latin}
+          onClose={() => setInviteOpen(false)}
+          onSuccess={() => {
+            setInviteOpen(false)
+            setActiveTab("team")
+            invalidateOrgQueries()
+          }}
+        />
+      )}
+    </div>
+  )
+}
+
+
+function InviteOrgMemberModal({
+  orgId,
+  orgName,
+  onClose,
+  onSuccess,
+}: {
+  orgId: string
+  orgName: string
+  onClose: () => void
+  onSuccess: () => void
+}) {
+  const toast = useToast()
+  const [fullName, setFullName] = useState("")
+  const [email, setEmail] = useState("")
+  const [phone, setPhone] = useState("")
+
+  const mut = useMutation({
+    mutationFn: () =>
+      createOrganizationMember(orgId, {
+        full_name: fullName.trim(),
+        email: email.trim(),
+        phone: phone.trim() || null,
+      }),
+    onSuccess: (res) => {
+      toast.success(
+        res.invite_email_sent
+          ? `Invite emailed to ${res.email}`
+          : `Member added. Email failed — use Send Link to share it.`
+      )
+      onSuccess()
+    },
+    onError: (err) => toast.error(getErrorMessage(err, "Could not invite this member")),
+  })
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm">
+      <div className="w-full max-w-md space-y-4 rounded-[12px] border border-border bg-card p-6 shadow-xl">
+        <div>
+          <h2 className="text-base font-bold text-foreground">Invite Team Member</h2>
+          <p className="mt-0.5 text-xs text-muted-foreground">
+            We'll email them a link to set their password and join {orgName}.
+          </p>
+        </div>
+
+        <div className="space-y-3">
+          <label className="flex flex-col gap-1">
+            <span className="text-xs font-semibold text-muted-foreground">Full Name *</span>
+            <input
+              type="text"
+              value={fullName}
+              onChange={(e) => setFullName(e.target.value)}
+              placeholder="e.g. Sarah Jenkins"
+              className="h-9 rounded-[10px] border border-border bg-background px-3 text-sm focus:border-primary focus:outline-none"
+            />
+          </label>
+          <label className="flex flex-col gap-1">
+            <span className="text-xs font-semibold text-muted-foreground">Email Address *</span>
+            <input
+              type="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              placeholder="sarah@example.com"
+              className="h-9 rounded-[10px] border border-border bg-background px-3 text-sm focus:border-primary focus:outline-none"
+            />
+          </label>
+          <label className="flex flex-col gap-1">
+            <span className="text-xs font-semibold text-muted-foreground">Phone (optional)</span>
+            <input
+              type="tel"
+              value={phone}
+              onChange={(e) => setPhone(e.target.value)}
+              placeholder="+971 50 000 0000"
+              className="h-9 rounded-[10px] border border-border bg-background px-3 text-sm focus:border-primary focus:outline-none"
+            />
+          </label>
+        </div>
+
+        <div className="flex items-center justify-end gap-2 pt-2">
+          <Button type="button" variant="outline" size="sm" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button
+            type="button"
+            size="sm"
+            disabled={!fullName.trim() || !email.trim() || mut.isPending}
+            onClick={() => mut.mutate()}
+          >
+            {mut.isPending ? "Sending invite…" : "Send Invite"}
+          </Button>
+        </div>
+      </div>
     </div>
   )
 }

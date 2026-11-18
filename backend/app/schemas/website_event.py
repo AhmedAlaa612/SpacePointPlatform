@@ -439,6 +439,7 @@ class OrgTeamMemberDetailOut(BaseModel):
     role: str
     card_id: str | None = None
     status: str
+    invite_pending: bool = False
     observer_cohorts: list[str] = Field(default_factory=list)
 
 
@@ -465,6 +466,8 @@ class OrgTeamMemberOut(BaseModel):
     is_owner: bool = False
     # Only meaningful on create: whether the set-password invite email went out.
     invite_email_sent: bool = False
+    # Invited but hasn't set a password / signed in yet.
+    invite_pending: bool = False
 
 
 class OrgTeamMemberCreateIn(BaseModel):

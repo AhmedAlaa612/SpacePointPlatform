@@ -1,4 +1,3 @@
-import secrets
 from datetime import datetime, timedelta, timezone
 from uuid import UUID
 
@@ -8,11 +7,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
 from app.core.dependencies import require_organization_account
-from app.core.security import create_password_set_token, get_password_hash
+from app.core.security import create_password_set_token
 from app.db.session import get_db
-from app.models.enums import UserRole
-from app.models.spine.contact import Contact
-from app.models.spine.organization import Organization
 from app.models.user import User
 from app.models.website_event import MegaEvent, WebsiteEvent
 from app.schemas.website_event import (
@@ -22,10 +18,9 @@ from app.schemas.website_event import (
     WebsiteEventOut,
     WebsiteEventUpdate,
 )
-from app.services.documents.id_card import ensure_card_number
 from app.services.email import send_org_team_invite_email, send_password_set_link_email
-from app.services.spine.identity import normalize_user_email, resolve_or_create_contact, user_email_matches
 from app.services.website_events import (
+    build_organization_team_member,
     ensure_default_events_seeded,
     resolve_user_organization,
     serialize_mega_events,
@@ -247,6 +242,7 @@ async def list_my_organization_team(
             status=u.status,
             created_at=u.created_at,
             is_owner=(u.id == org.owner_user_id),
+            invite_pending=bool(u.must_change_password),
         )
         for u in users
     ]
@@ -262,43 +258,14 @@ async def add_organization_team_member(
     if org is None:
         raise HTTPException(status_code=400, detail="No organization context found")
 
-    email = normalize_user_email(body.email)
-    existing = (
-        await db.execute(select(User).where(user_email_matches(email)))
-    ).scalars().first()
-    if existing is not None:
-        raise HTTPException(status_code=409, detail="A user with this email already exists")
-
-    contact, _ = await resolve_or_create_contact(
+    user = await build_organization_team_member(
         db,
-        full_name=body.full_name.strip(),
-        phone=(body.phone or "").strip() or None,
-        email=email,
-        contact_roles=["sponsor_rep"],
-        role_event_source="org_team_member",
-        country=org.country or "uae",
-        city=org.city,
+        org=org,
+        full_name=body.full_name,
+        email=str(body.email),
+        password=body.password,
+        phone=body.phone,
     )
-    user = User(
-        full_name=body.full_name.strip(),
-        email=email,
-        password_hash=get_password_hash(
-            (body.password or "").strip() or secrets.token_urlsafe(32)
-        ),
-        roles=[UserRole.organization],
-        status="active",
-        must_change_password=False,
-        contact_id=contact.id if contact else None,
-        organization_id=org.id,
-        phone=(body.phone or "").strip() or None,
-        country=org.country or "uae",
-        city_other=org.city,
-    )
-    db.add(user)
-    await db.flush()
-    await ensure_card_number(db, user)
-    await db.commit()
-    await db.refresh(user)
 
     token = create_password_set_token(user.id, expires_delta=timedelta(days=7))
     base = (settings.FRONTEND_URL or "http://localhost:5173").rstrip("/")

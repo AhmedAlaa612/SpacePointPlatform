@@ -115,6 +115,10 @@ export default function OrganizationTeam() {
                         <span className="inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-full bg-amber-500/15 text-amber-600 dark:text-amber-400">
                           <Crown className="w-2.5 h-2.5" /> Primary Owner
                         </span>
+                      ) : member.invite_pending ? (
+                        <span className="text-[10px] font-medium px-2 py-0.5 rounded-full bg-amber-500/15 text-amber-600 dark:text-amber-400">
+                          Invite pending
+                        </span>
                       ) : (
                         <span className="text-[10px] font-medium px-2 py-0.5 rounded-full bg-muted text-muted-foreground">
                           Coordinator

@@ -42,6 +42,8 @@ from app.schemas.website_event import (
     MegaEventCreate,
     MegaEventOut,
     MegaEventUpdate,
+    OrgTeamMemberCreateIn,
+    OrgTeamMemberOut,
     OrganizationAccountCreateIn,
     OrganizationDetailOut,
     OrganizationSummaryOut,
@@ -51,6 +53,7 @@ from app.schemas.website_event import (
 )
 from app.services.documents.card_id import format_card_id
 from app.services.documents.id_card import ensure_card_number
+from app.services.email import send_org_team_invite_email, send_password_set_link_email
 from app.services.sessions.registration import ACTIVE_REGISTRATION_STATUSES
 from app.services.spine.identity import (
     normalize_user_email,
@@ -58,6 +61,7 @@ from app.services.spine.identity import (
     user_email_matches,
 )
 from app.services.website_events import (
+    build_organization_team_member,
     ensure_default_events_seeded,
     serialize_mega_events,
     serialize_website_events,
@@ -253,18 +257,28 @@ def _user_card_id(user: User | None) -> str | None:
     return format_card_id(user.card_number, user.role_values)
 
 
-def _build_reset_link_response(org_id: UUID, user: User) -> dict:
+def _password_set_url(user: User, days: int = 7) -> str:
     from datetime import timedelta
+
     from app.core.config import settings
     from app.core.security import create_password_set_token
 
-    token = create_password_set_token(user.id, expires_delta=timedelta(days=3))
+    token = create_password_set_token(user.id, expires_delta=timedelta(days=days))
     base = (settings.FRONTEND_URL or "http://localhost:5173").rstrip("/")
+    return f"{base}/set-password?token={token}"
+
+
+async def _build_reset_link_response(org: Organization, user: User) -> dict:
+    reset_url = _password_set_url(user)
+    email_sent = await send_password_set_link_email(
+        user.email, user.full_name, org.name_latin, reset_url
+    )
     return {
-        "organization_id": str(org_id),
+        "organization_id": str(org.id),
         "user_id": str(user.id),
         "email": user.email,
-        "reset_url": f"{base}/set-password?token={token}",
+        "reset_url": reset_url,
+        "email_sent": email_sent,
     }
 
 
@@ -856,6 +870,9 @@ async def admin_get_organization_detail(
                 "role": role_label,
                 "card_id": _user_card_id(u),
                 "status": u.status,
+                # `must_change_password` is set on invite and cleared by
+                # /auth/set-password, so it's a reliable "invited, not joined yet".
+                "invite_pending": bool(u.must_change_password),
                 "observer_cohorts": obs_cohorts_by_user.get(u.id, []),
             }
         )
@@ -1437,7 +1454,7 @@ async def admin_organization_reset_link(
     if owner is None:
         raise HTTPException(status_code=404, detail="Linked user account not found.")
 
-    return _build_reset_link_response(org.id, owner)
+    return await _build_reset_link_response(org, owner)
 
 
 @router.post("/organizations/{org_id}/members/{user_id}/reset-link")
@@ -1475,7 +1492,53 @@ async def admin_organization_member_reset_link(
     if not is_member:
         raise HTTPException(status_code=404, detail="User is not associated with this organization")
 
-    return _build_reset_link_response(org.id, user)
+    return await _build_reset_link_response(org, user)
+
+
+@router.post(
+    "/organizations/{org_id}/members",
+    response_model=OrgTeamMemberOut,
+    status_code=status.HTTP_201_CREATED,
+)
+async def admin_add_organization_member(
+    org_id: UUID,
+    body: OrgTeamMemberCreateIn,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_website_admin),
+):
+    """Admin/ops invite a coordinator onto an organization's team.
+
+    Same account shape as the org's own self-service add (shared service
+    helper) and the same 7-day emailed set-password invite, so staff never
+    have to sign in as the partner just to onboard a second person.
+    """
+    org = await db.get(Organization, org_id)
+    if org is None:
+        raise HTTPException(status_code=404, detail="Organization not found")
+
+    user = await build_organization_team_member(
+        db,
+        org=org,
+        full_name=body.full_name,
+        email=str(body.email),
+        password=body.password,
+        phone=body.phone,
+        role_event_source="admin_org_team_member",
+    )
+
+    invite_sent = await send_org_team_invite_email(
+        user.email, user.full_name, org.name_latin, _password_set_url(user)
+    )
+    return OrgTeamMemberOut(
+        id=user.id,
+        full_name=user.full_name,
+        email=user.email,
+        phone=user.phone,
+        status=user.status,
+        created_at=user.created_at,
+        is_owner=False,
+        invite_email_sent=invite_sent,
+    )
 
 
 @router.post("/organizations/{org_id}/courses/{course_id}/publish")

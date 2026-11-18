@@ -357,6 +357,7 @@ export interface OrgTeamMemberDetail {
   role: string
   card_id: string | null
   status: string
+  invite_pending: boolean
   observer_cohorts: string[]
 }
 
@@ -431,6 +432,7 @@ export interface OrgTeamMember {
   is_owner: boolean
   created_at?: string
   invite_email_sent?: boolean
+  invite_pending?: boolean
 }
 
 // ── Admin Endpoints ──────────────────────────────────────────────────────────
@@ -473,11 +475,17 @@ export const updateAdminOrganizationAccount = (orgId: string, payload: Organizat
 export const deleteAdminOrganizationAccount = (orgId: string) =>
   api.delete(`/admin/website/organizations/${orgId}`)
 
+export interface OrgCredentialsLinkResponse {
+  organization_id: string
+  user_id: string
+  email: string
+  reset_url: string
+  email_sent: boolean
+}
+
 export const getAdminOrganizationResetLink = (orgId: string) =>
   api
-    .post<{ organization_id: string; user_id: string; email: string; reset_url: string }>(
-      `/admin/website/organizations/${orgId}/reset-link`
-    )
+    .post<OrgCredentialsLinkResponse>(`/admin/website/organizations/${orgId}/reset-link`)
     .then((r) => r.data)
 
 export const getAdminOrganizationDetail = (orgId: string) =>
@@ -485,9 +493,17 @@ export const getAdminOrganizationDetail = (orgId: string) =>
 
 export const createOrganizationMemberResetLink = (orgId: string, userId: string) =>
   api
-    .post<{ organization_id: string; user_id: string; email: string; reset_url: string }>(
+    .post<OrgCredentialsLinkResponse>(
       `/admin/website/organizations/${orgId}/members/${userId}/reset-link`
     )
+    .then((r) => r.data)
+
+export const createOrganizationMember = (
+  orgId: string,
+  payload: { full_name: string; email: string; phone?: string | null }
+) =>
+  api
+    .post<OrgTeamMember>(`/admin/website/organizations/${orgId}/members`, payload)
     .then((r) => r.data)
 
 export const toggleOrganizationCoursePublish = (orgId: string, courseId: string, is_published: boolean) =>
