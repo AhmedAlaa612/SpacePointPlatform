@@ -29,9 +29,11 @@ from app.models.sessions.registration import Registration
 from app.models.sessions.session import Session, SessionInstructor
 from app.models.spine.contact import Contact
 from app.models.spine.organization import Organization
+from app.models.team import TeamMember
 from app.models.user import User
 from app.models.website_event import WebsiteEvent
-from app.services.lms.ops_integration import sync_registration_lms
+from app.services.lms.ops_integration import deactivate_registration_enrollments, sync_registration_lms
+from app.services.lms.program import team_for_cohort_member
 from app.services.org_access import effective_org_role, global_roles_for_org_role, require_org_manager
 from app.services.sessions.registration import ACTIVE_REGISTRATION_STATUSES, register
 from app.services.spine.identity import normalize_user_email, resolve_or_create_contact
@@ -1172,6 +1174,28 @@ async def cancel_cohort_registration(
         raise HTTPException(status_code=404, detail="Registration not found")
 
     reg.status = "cancelled"
+    await db.flush()
+    await deactivate_registration_enrollments(db, reg.id)
+
+    linked_users = (await db.execute(
+        select(User).where(User.contact_id == reg.contact_id)
+    )).scalars().all()
+    for linked_user in linked_users:
+        assignment = (await db.execute(
+            select(LmsProgramAssignment).where(
+                LmsProgramAssignment.user_id == linked_user.id,
+                LmsProgramAssignment.cohort_id == cohort.id,
+            )
+        )).scalars().first()
+        if assignment is not None:
+            team = await team_for_cohort_member(db, cohort_id=cohort.id, user_id=linked_user.id)
+            if team is not None:
+                member = await db.get(TeamMember, (team.id, linked_user.id))
+                if member is not None:
+                    await db.delete(member)
+                    await db.flush()
+            await db.delete(assignment)
+
     await db.commit()
     return None
 

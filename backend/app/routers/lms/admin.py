@@ -800,7 +800,7 @@ async def update_student_account(
                 contact.full_name = body.full_name.strip()
     await db.commit()
     await db.refresh(user)
-    return await student_profile(user_id=user_id, db=db, _=_)
+    return await student_profile(user_id=user_id, db=db, current_user=current_user)
 
 
 @router.post("/students/{user_id}/set-password-link")
@@ -2533,11 +2533,28 @@ async def list_cohort_lms_editors(
         for editor, user in editor_rows
     ]
 
-    instructors_stmt = (
-        select(User)
-        .where(User.roles.any("instructor"), User.status == "active")
-        .order_by(User.full_name)
-    )
+    cohort_org_id = cohort.organization_id
+    if cohort_org_id is None and cohort.program_id is not None:
+        program = await db.get(Program, cohort.program_id)
+        if program is not None:
+            cohort_org_id = program.organization_id
+
+    if cohort_org_id is not None:
+        instructors_stmt = (
+            select(User)
+            .where(
+                User.organization_id == cohort_org_id,
+                User.org_role.in_(("instructor", "coordinator", "owner")),
+                User.status == "active",
+            )
+            .order_by(User.full_name)
+        )
+    else:
+        instructors_stmt = (
+            select(User)
+            .where(User.roles.any("instructor"), User.status == "active")
+            .order_by(User.full_name)
+        )
     instructors = (await db.execute(instructors_stmt)).scalars().all()
     eligible_out = [
         InstructorOptionOut(

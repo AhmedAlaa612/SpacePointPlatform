@@ -19,6 +19,7 @@ import {
   getStudentTeamsApi, getStudentCertificatesApi, type StudentTeam,
 } from "@/api/lms_admin"
 import { getCohortsApi } from "@/api/sessions/cohorts"
+import { getOrgCohortsApi } from "@/api/organizationPrograms"
 import { getCohortTeamAnalyticsApi } from "@/api/competitions"
 import { TeamAnalysisCard } from "@/pages/admin/components/CompetitionAnalysis"
 import { DesignRunDetail } from "@/pages/lms-authoring/components/DesignRunDetail"
@@ -57,7 +58,8 @@ export default function LmsStudentDetail() {
   const queryClient = useQueryClient()
   const { currentUser } = useAuth()
   const toast = useToast()
-  const isStaff = currentUser?.role !== "instructor"
+  const isOrgRole = currentUser?.role === "organization"
+  const isStaff = currentUser?.role !== "instructor" && !(isOrgRole && currentUser?.org_role === "instructor")
   const [courseId, setCourseId] = useState("")
   const [assignType, setAssignType] = useState<"course" | "path">("course")
   const [pathId, setPathId] = useState("")
@@ -104,9 +106,9 @@ export default function LmsStudentDetail() {
     queryFn: () => getStudentCertificatesApi(userId),
     enabled: isStaff,
   })
-  const { data: cohorts = [] } = useQuery({
-    queryKey: ["sessions-cohorts-all"],
-    queryFn: () => getCohortsApi(),
+  const { data: cohorts = [] } = useQuery<Array<{ id: string; name: string }>>({
+    queryKey: ["sessions-cohorts-all", isOrgRole],
+    queryFn: () => (isOrgRole ? getOrgCohortsApi() : getCohortsApi()),
     enabled: isStaff,
   })
   const { data: paths = [] } = useQuery({

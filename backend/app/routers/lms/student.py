@@ -121,6 +121,7 @@ from app.services.lms.program import (
     team_final_locked, team_final_submit_readiness, team_for_cohort_member, team_section_frozen,
 )
 from app.services.competitions.team_management import finalize_team_submission
+from app.services.missions.cohort_access import is_cohort_lms_editor
 from app.services.lms import cohort_quiz as cohort_quiz_service
 from app.services import storage
 from app.services.video_service import get_playback_info, get_video_for_owner
@@ -1444,7 +1445,12 @@ async def _observer_assignment(
     if assignment is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Program assignment not found")
     if assignment.user_id != user.id:
-        if not allow_ops or not ({"admin", "operations"} & set(user.role_values)):
+        is_allowed_staff = bool({"admin", "operations"} & set(user.role_values))
+        if not is_allowed_staff and allow_ops and assignment.cohort_id:
+            is_allowed_staff = await is_cohort_lms_editor(
+                db, cohort_id=assignment.cohort_id, user=user,
+            )
+        if not allow_ops or not is_allowed_staff:
             raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Program assignment not found")
     if getattr(assignment, "mode", "participant") != "observer":
         raise HTTPException(

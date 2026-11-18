@@ -10,7 +10,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
-from app.core.dependencies import require_operations
+from app.core.dependencies import require_lms_content, require_operations
 from app.db.session import get_db
 from app.models.sessions.certificate_email_template import CertificateEmailTemplate
 from app.models.sessions.cohort import Cohort
@@ -41,7 +41,7 @@ router = APIRouter(prefix="/sessions/certificate-email-templates", tags=["certif
 @router.get("", response_model=list[CertificateEmailTemplateOut])
 async def list_certificate_email_templates(
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_operations),
+    current_user: User = Depends(require_lms_content),
 ):
     rows = (
         await db.execute(
@@ -131,7 +131,7 @@ async def delete_certificate_email_template(
 async def send_test_from_email_template(
     body: CertificateEmailTemplateTestIn,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_operations),
+    current_user: User = Depends(require_lms_content),
 ):
     """Send a test email using draft subject/body (or a saved template) with sample data."""
     prog_name = "Space Mission 101"

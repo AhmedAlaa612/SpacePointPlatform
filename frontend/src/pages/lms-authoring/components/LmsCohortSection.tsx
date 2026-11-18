@@ -9,6 +9,7 @@ import {
   updateCohortPosterTemplateApi,
 } from "@/api/lms_admin"
 import { getCohortApi, updateCohortApi } from "@/api/sessions/cohorts"
+import { getOrgCohortDetailApi, updateOrgCohortApi } from "@/api/organizationPrograms"
 import { useToast } from "@/components/ui/toast"
 import { ensureAbsoluteUrl } from "@/lib/utils"
 import { CohortOverrideEditor } from "./LmsChecklistAuthoring"
@@ -43,7 +44,8 @@ export function LmsCohortSection({
   const { currentUser } = useAuth()
   const toast = useToast()
   const queryClient = useQueryClient()
-  const isStaff = currentUser?.role !== "instructor"
+  const isOrgRole = currentUser?.role === "organization"
+  const isStaff = currentUser?.role !== "instructor" && !(isOrgRole && currentUser?.org_role === "instructor")
   const [subtab, setSubtab] = useState<SubTab>("checklist")
   const [showObserverModal, setShowObserverModal] = useState(false)
   const [showEditorsModal, setShowEditorsModal] = useState(false)
@@ -65,9 +67,13 @@ export function LmsCohortSection({
     enabled: isStaff,
   })
 
-  const { data: cohortData } = useQuery({
-    queryKey: ["cohort-detail", cohortId],
-    queryFn: () => getCohortApi(cohortId),
+  const { data: cohortData } = useQuery<{
+    name?: string
+    program_name?: string | null
+    checklist_title_override?: string | null
+  }>({
+    queryKey: ["cohort-detail", cohortId, isOrgRole],
+    queryFn: () => (isOrgRole ? getOrgCohortDetailApi(cohortId) : getCohortApi(cohortId)),
     enabled: isStaff,
   })
 
@@ -89,8 +95,11 @@ export function LmsCohortSection({
     setTitleValue(storedOverride ?? defaultTitle)
   }, [storedOverride, defaultTitle])
 
-  const updateTitleMutation = useMutation({
-    mutationFn: (val: string | null) => updateCohortApi(cohortId, { checklist_title_override: val }),
+  const updateTitleMutation = useMutation<unknown, Error, string | null>({
+    mutationFn: (val) =>
+      isOrgRole
+        ? updateOrgCohortApi(cohortId, { checklist_title_override: val })
+        : updateCohortApi(cohortId, { checklist_title_override: val }),
     onSuccess: (_data, val) => {
       toast.success(val === null ? "Title reset to default" : "LMS title saved")
       void queryClient.invalidateQueries({ queryKey: ["cohort-detail", cohortId] })

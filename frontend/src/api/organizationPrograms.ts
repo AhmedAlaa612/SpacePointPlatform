@@ -174,6 +174,9 @@ export interface OrgBulkImportRow {
 export const getOrgProgramsOverviewApi = () =>
   api.get<OrgProgramsOverview>("/organization/programs-overview").then((r) => r.data)
 
+export const getOrgCohortsApi = () =>
+  getOrgProgramsOverviewApi().then((d) => d.programs.flatMap((p) => p.cohorts))
+
 export const createOrgProgramApi = (data: CreateOrgProgramInput) =>
   api.post<OrgProgramSummary>("/organization/programs", data).then((r) => r.data)
 

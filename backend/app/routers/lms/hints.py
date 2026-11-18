@@ -37,7 +37,7 @@ async def get_program_hints(
 
     # Verify student owns this assignment or is staff
     # User is multi-role — check role_values, not a nonexistent .role.
-    is_staff = any(r in current.role_values for r in ("admin", "instructor", "judge", "operations"))
+    is_staff = any(r in current.role_values for r in ("admin", "instructor", "judge", "operations", "organization"))
     if assignment.user_id != current.id and not is_staff:
         raise HTTPException(status.HTTP_403_FORBIDDEN, detail="Access denied")
 
@@ -109,7 +109,7 @@ async def unlock_hint(
     if assignment is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Program assignment not found")
 
-    is_staff = any(r in current.role_values for r in ("admin", "instructor", "judge", "operations"))
+    is_staff = any(r in current.role_values for r in ("admin", "instructor", "judge", "operations", "organization"))
     if assignment.user_id != current.id and not is_staff:
         raise HTTPException(status.HTTP_403_FORBIDDEN, detail="Access denied")
 
