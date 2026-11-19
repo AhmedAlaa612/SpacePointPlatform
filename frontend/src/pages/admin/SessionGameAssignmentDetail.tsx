@@ -418,6 +418,7 @@ export default function SessionGameAssignmentDetail() {
   const { assignmentId } = useParams({ strict: false }) as { assignmentId: string }
   const queryClient = useQueryClient()
   const navigate = useNavigate()
+  const isOrgRoute = typeof window !== "undefined" && window.location.pathname.startsWith("/organization")
   const toast = useToast()
   const [editing, setEditing] = useState<GameQuestion | "new" | null>(null)
   const [deleteTarget, setDeleteTarget] = useState<GameQuestion | null>(null)
@@ -449,7 +450,7 @@ export default function SessionGameAssignmentDetail() {
     onSuccess: () => {
       toast.success("Assignment removed")
       queryClient.invalidateQueries({ queryKey: ["game-session-assignments"] })
-      navigate({ to: "/operations/cohorts" })
+      navigate({ to: isOrgRoute ? "/organization/programs" : "/operations/cohorts" })
     },
   })
 

@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
-import { Link, useNavigate, useParams } from "@tanstack/react-router"
+import { Link, useNavigate, useParams, useRouterState } from "@tanstack/react-router"
 import { ArrowLeft, Bus, CheckCircle2, ChevronDown, ChevronRight, Download, FileText, Gamepad2, MapPin, Pencil, Plane, Trash2, Warehouse } from "lucide-react"
 import type {
   Cohort, Session, StaffingStatus, EligibleInstructor, AttendanceStatus, SessionDelivery,
@@ -56,6 +56,9 @@ export default function SessionDetail() {
   const { cohortId, sessionId } = useParams({ strict: false }) as { cohortId: string; sessionId: string }
   const navigate = useNavigate()
   const queryClient = useQueryClient()
+  const pathname = useRouterState({ select: (s) => s.location.pathname })
+  const isOrgRoute = pathname.startsWith("/organization")
+  const cohortBaseTo = isOrgRoute ? "/organization/programs/$cohortId" : "/operations/cohorts/$cohortId"
 
   const { data: cohort, isLoading: cohortLoading } = useQuery<Cohort>({
     queryKey: ["sessions-cohort", cohortId],
@@ -77,12 +80,13 @@ export default function SessionDetail() {
   if (cohortLoading || sessionsLoading) return <Spinner />
 
   const session = sessions.find((s) => s.id === sessionId)
+  const isOrgScope = isOrgRoute || Boolean(cohort?.organization_id)
 
   if (!cohort || !session) {
     return (
       <div className="flex flex-col gap-4">
         <Link
-          to="/operations/cohorts/$cohortId" params={{ cohortId }}
+          to={cohortBaseTo} params={{ cohortId }}
           className="inline-flex w-fit items-center gap-1.5 text-sm font-medium text-muted-foreground hover:text-foreground transition-colors"
         >
           <ArrowLeft size={14} /> Back to cohort
@@ -97,8 +101,10 @@ export default function SessionDetail() {
       key={sessionId}
       cohort={cohort}
       session={session}
+      isOrgScope={isOrgScope}
+      cohortBaseTo={cohortBaseTo}
       onChanged={invalidateSessions}
-      onDeleted={() => void navigate({ to: "/operations/cohorts/$cohortId", params: { cohortId } })}
+      onDeleted={() => void navigate({ to: cohortBaseTo, params: { cohortId } })}
     />
   )
 }
@@ -114,8 +120,13 @@ const SESSION_TABS: { key: SessionTab; label: string }[] = [
   { key: "report", label: "Report" },
 ]
 
-function SessionDetailView({ cohort, session, onChanged, onDeleted }: {
-  cohort: Cohort; session: Session; onChanged: () => void; onDeleted: () => void
+function SessionDetailView({ cohort, session, isOrgScope, cohortBaseTo, onChanged, onDeleted }: {
+  cohort: Cohort
+  session: Session
+  isOrgScope: boolean
+  cohortBaseTo: "/operations/cohorts/$cohortId" | "/organization/programs/$cohortId"
+  onChanged: () => void
+  onDeleted: () => void
 }) {
   const toast = useToast()
   const queryClient = useQueryClient()
@@ -126,14 +137,18 @@ function SessionDetailView({ cohort, session, onChanged, onDeleted }: {
   const [editModalOpen, setEditModalOpen] = useState(false)
   const [locationId, setLocationId] = useState(session.location_id ?? "")
   const [warehouseId, setWarehouseId] = useState(session.warehouse_id ?? "")
-  const { data: locations = [] } = useQuery({ queryKey: ["inv-locations"], queryFn: () => getLocationsApi() })
+  const { data: locations = [] } = useQuery({
+    queryKey: ["inv-locations"],
+    queryFn: () => getLocationsApi(),
+    enabled: !isOrgScope,
+  })
   // Scoped to the session's own override when set, else the cohort's
   // effective location — same fallback chain the server resolves.
   const warehousePickerLocationId = locationId || cohort.location_id || ""
   const { data: warehouses = [] } = useQuery({
     queryKey: ["inv-warehouses", warehousePickerLocationId],
     queryFn: () => getWarehousesApi(warehousePickerLocationId || undefined),
-    enabled: !!warehousePickerLocationId,
+    enabled: !isOrgScope && !!warehousePickerLocationId,
   })
   const [error, setError] = useState("")
 
@@ -168,7 +183,7 @@ function SessionDetailView({ cohort, session, onChanged, onDeleted }: {
       toast.success("Session deleted")
       onChanged()
       onDeleted()
-      navigate({ to: "/operations/cohorts/$cohortId", params: { cohortId: cohort.id } })
+      navigate({ to: cohortBaseTo, params: { cohortId: cohort.id } })
     },
     onError: (e: any) => {
       setError(e?.response?.data?.detail ?? "Could not delete session")
@@ -179,7 +194,7 @@ function SessionDetailView({ cohort, session, onChanged, onDeleted }: {
   return (
     <div className="flex flex-col gap-4">
       <Link
-        to="/operations/cohorts/$cohortId" params={{ cohortId: cohort.id }}
+        to={cohortBaseTo} params={{ cohortId: cohort.id }}
         className="inline-flex w-fit items-center gap-1.5 text-sm font-medium text-muted-foreground hover:text-foreground transition-colors"
       >
         <ArrowLeft size={14} /> Back to cohort
@@ -243,22 +258,24 @@ function SessionDetailView({ cohort, session, onChanged, onDeleted }: {
                 : "border-transparent text-muted-foreground hover:text-foreground"
             )}
           >
-            {t.label}
+            {isOrgScope && t.key === "roles" ? "Delivery Checklists" : t.label}
           </button>
         ))}
       </div>
 
       {activeTab === "setup" && (
         <div className="flex flex-col gap-4">
-          <Card className="px-4">
-            <SessionKitAssignment
-              sessionId={session.id}
-              hasInstructor={session.instructors.length > 0}
-              effectiveWarehouseId={session.effective_warehouse_id ?? null}
-              effectiveWarehouseName={session.effective_warehouse_name ?? null}
-              onChanged={onChanged}
-            />
-          </Card>
+          {!isOrgScope && (
+            <Card className="px-4">
+              <SessionKitAssignment
+                sessionId={session.id}
+                hasInstructor={session.instructors.length > 0}
+                effectiveWarehouseId={session.effective_warehouse_id ?? null}
+                effectiveWarehouseName={session.effective_warehouse_name ?? null}
+                onChanged={onChanged}
+              />
+            </Card>
+          )}
 
           <Card className="px-4">
             <MaterialsPanel
@@ -272,7 +289,8 @@ function SessionDetailView({ cohort, session, onChanged, onDeleted }: {
             <GameAssignmentPanel sessionId={session.id} />
           </Card>
 
-          <Card className="p-4 flex flex-col gap-4">
+          {!isOrgScope && (
+            <Card className="p-4 flex flex-col gap-4">
             <div>
               <p className="text-sm font-semibold text-foreground">Location &amp; warehouse</p>
               <p className="text-xs text-muted-foreground mt-0.5">
@@ -334,6 +352,7 @@ function SessionDetailView({ cohort, session, onChanged, onDeleted }: {
               {saveMutation.isPending ? "Saving…" : "Save location & warehouse"}
             </button>
           </Card>
+          )}
 
           <div className="border-t border-border pt-3 mt-1 flex justify-end">
             <button
@@ -349,9 +368,11 @@ function SessionDetailView({ cohort, session, onChanged, onDeleted }: {
 
       {activeTab === "checklist" && (
         <div className="flex flex-col gap-4">
-          <Card className="p-4">
-            <SessionPreQuizOpsPanel sessionId={session.id} />
-          </Card>
+          {!isOrgScope && (
+            <Card className="p-4">
+              <SessionPreQuizOpsPanel sessionId={session.id} />
+            </Card>
+          )}
           <Card className="p-4">
             <SessionOpsChecklistPanel sessionId={session.id} cohortId={cohort.id} />
           </Card>
@@ -360,17 +381,19 @@ function SessionDetailView({ cohort, session, onChanged, onDeleted }: {
 
       {activeTab === "roles" && (
         <div className="flex flex-col gap-4">
+          {!isOrgScope && (
+            <Card className="p-4">
+              <SessionOpeningsPanel sessionId={session.id} />
+            </Card>
+          )}
           <Card className="p-4">
-            <SessionOpeningsPanel sessionId={session.id} />
-          </Card>
-          <Card className="p-4">
-            <CohortRolesPanel cohort={cohort} sessionId={session.id} />
+            <CohortRolesPanel cohort={cohort} sessionId={session.id} isOrgScope={isOrgScope} />
           </Card>
         </div>
       )}
 
       {activeTab === "staffing" && (
-        <StaffingSection cohort={cohort} session={session} onChanged={onChanged} />
+        <StaffingSection cohort={cohort} session={session} isOrgScope={isOrgScope} onChanged={onChanged} />
       )}
 
       {activeTab === "attendance" && (
@@ -378,7 +401,7 @@ function SessionDetailView({ cohort, session, onChanged, onDeleted }: {
       )}
 
       {activeTab === "report" && (
-        <SessionReportTab sessionId={session.id} />
+        <SessionReportTab sessionId={session.id} isOrgScope={isOrgScope} />
       )}
 
       {deleteConfirmOpen && (
@@ -541,8 +564,8 @@ function EligibleInstructorDetailModal({
 /* shows every eligible instructor/facilitator, not just those who     */
 /* registered interest — multi-select, select-all, clickable profile.  */
 /* ================================================================== */
-function StaffingSection({ cohort, session, onChanged }: {
-  cohort: Cohort; session: Session; onChanged: () => void
+function StaffingSection({ cohort, session, isOrgScope = false, onChanged }: {
+  cohort: Cohort; session: Session; isOrgScope?: boolean; onChanged: () => void
 }) {
   const queryClient = useQueryClient()
   const toast = useToast()
@@ -606,7 +629,7 @@ function StaffingSection({ cohort, session, onChanged }: {
   const calls = useQuery({
     queryKey: ["staffing-calls", session.id],
     queryFn: () => listSessionCallsApi(session.id),
-    enabled: isOpenCall,
+    enabled: !isOrgScope && isOpenCall,
   })
   const openCalls = (calls.data ?? []).filter((c) => c.status === "open")
   const closeOneMutation = useMutation({
@@ -713,7 +736,7 @@ function StaffingSection({ cohort, session, onChanged }: {
           <span className={`text-xs font-semibold px-2.5 py-1 rounded-full ${STAFFING_STATUS_COLOR[session.staffing_status]}`}>
             {STAFFING_STATUS_LABEL[session.staffing_status]}
           </span>
-          {isOpenCall && (
+          {!isOrgScope && isOpenCall && (
             <button
               onClick={() => { setError(""); setCloseCallOptionOpen(true) }}
               className="text-xs font-semibold text-red-500 hover:text-red-600 px-2 py-1 rounded-lg border border-red-500/20 hover:bg-red-500/10 transition-colors"
@@ -772,7 +795,7 @@ function StaffingSection({ cohort, session, onChanged }: {
         </button>
       </div>
 
-      {isOpenCall && openCalls.length > 0 && (
+      {!isOrgScope && isOpenCall && openCalls.length > 0 && (
         <div className="mb-3 flex flex-col gap-1.5">
           <div className="flex items-center justify-between">
             <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">
@@ -807,7 +830,7 @@ function StaffingSection({ cohort, session, onChanged }: {
         </div>
       )}
 
-      {session.staffing_status === "unstaffed" && (
+      {!isOrgScope && session.staffing_status === "unstaffed" && (
         <div className="flex flex-col sm:flex-row gap-2">
           <button
             onClick={() => { setError(""); openCallMutation.mutate({}) }}
@@ -825,7 +848,7 @@ function StaffingSection({ cohort, session, onChanged }: {
         </div>
       )}
 
-      {session.staffing_status === "staffed" && (
+      {!isOrgScope && session.staffing_status === "staffed" && (
         <div className="flex flex-col gap-1.5">
           <button
             onClick={() => { setError(""); reopenMutation.mutate({}) }}
@@ -856,7 +879,7 @@ function StaffingSection({ cohort, session, onChanged }: {
         </div>
       )}
 
-      {isOpenCall && (
+      {!isOrgScope && isOpenCall && (
         <div className="space-y-3">
           {eligible.isLoading ? (
             <Spinner />
@@ -1349,7 +1372,7 @@ function TargetedOpenCallModal({
 /** The Report tab (renamed from History, 2026-08-30): instructor reports
  *  lead, file uploads next, the old audit-only view now a secondary
  *  collapsible strip underneath rather than the whole tab. */
-function SessionReportTab({ sessionId }: { sessionId: string }) {
+function SessionReportTab({ sessionId, isOrgScope = false }: { sessionId: string; isOrgScope?: boolean }) {
   const { data: history } = useQuery({
     queryKey: ["session-history", sessionId],
     queryFn: () => getSessionHistoryApi(sessionId),
@@ -1407,7 +1430,7 @@ function SessionReportTab({ sessionId }: { sessionId: string }) {
         </Card>
       </div>
 
-      <SessionActivitySection sessionId={sessionId} />
+      <SessionActivitySection sessionId={sessionId} isOrgScope={isOrgScope} />
     </div>
   )
 }
@@ -1415,7 +1438,7 @@ function SessionReportTab({ sessionId }: { sessionId: string }) {
 /** Collapsed by default — the old dry audit log (equipment, kit counts,
  *  attendance totals, live quiz runs), kept for oversight but no longer the
  *  headline now that instructor reports lead the tab. */
-function SessionActivitySection({ sessionId }: { sessionId: string }) {
+function SessionActivitySection({ sessionId, isOrgScope = false }: { sessionId: string; isOrgScope?: boolean }) {
   const [open, setOpen] = useState(false)
   const { data: history, isLoading, error } = useQuery({
     queryKey: ["session-history", sessionId],
@@ -1436,23 +1459,24 @@ function SessionActivitySection({ sessionId }: { sessionId: string }) {
         className="flex items-center gap-1.5 text-xs font-semibold text-muted-foreground uppercase tracking-wider hover:text-foreground transition-colors"
       >
         {open ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
-        Warehouse &amp; session activity
+        {isOrgScope ? "Session activity" : "Warehouse & session activity"}
       </button>
 
       {open && (
         isLoading || !history ? (
           error ? <p className="text-xs text-muted-foreground">Could not load session activity.</p> : <Spinner />
         ) : (
-          <SessionActivityDetail history={history} runs={runs ?? []} />
+          <SessionActivityDetail history={history} runs={runs ?? []} isOrgScope={isOrgScope} />
         )
       )}
     </div>
   )
 }
 
-function SessionActivityDetail({ history, runs }: {
+function SessionActivityDetail({ history, runs, isOrgScope = false }: {
   history: Awaited<ReturnType<typeof getSessionHistoryApi>>
   runs: Awaited<ReturnType<typeof listSessionGameRunsApi>>
+  isOrgScope?: boolean
 }) {
   const { pre_session, during_session, post_session, notes } = history
 
@@ -1471,7 +1495,8 @@ function SessionActivityDetail({ history, runs }: {
       )}
 
       {/* Pre-Session Phase */}
-      <Card className="p-5 space-y-4">
+      {!isOrgScope && (
+        <Card className="p-5 space-y-4">
         <div className="flex items-center gap-2 border-b border-border pb-3">
           <span className="w-2.5 h-2.5 rounded-full bg-emerald-500" />
           <h3 className="text-sm font-semibold text-foreground">Pre-Session (Equipment Pickups &amp; Counts)</h3>
@@ -1539,6 +1564,7 @@ function SessionActivityDetail({ history, runs }: {
           )}
         </div>
       </Card>
+      )}
 
       {/* During-Session Phase */}
       <Card className="p-5 space-y-4">
@@ -1560,7 +1586,8 @@ function SessionActivityDetail({ history, runs }: {
       </Card>
 
       {/* Post-Session Phase */}
-      <Card className="p-5 space-y-4">
+      {!isOrgScope && (
+        <Card className="p-5 space-y-4">
         <div className="flex items-center gap-2 border-b border-border pb-3">
           <span className="w-2.5 h-2.5 rounded-full bg-purple-500" />
           <h3 className="text-sm font-semibold text-foreground">Post-Session (Returns &amp; Reports)</h3>
@@ -1596,6 +1623,7 @@ function SessionActivityDetail({ history, runs }: {
         </div>
 
       </Card>
+      )}
 
       {/* Live Quiz Runs */}
       <Card className="p-5 space-y-3">

@@ -107,6 +107,8 @@ class CohortOut(CohortBase):
     registrations_count: int | None = None
     unstaffed_count: int | None = None
     next_session_date: date | None = None
+    org_capacity_limit: int | None = None
+    linked_event_slug: str | None = None
 
     class Config:
         from_attributes = True

@@ -13,7 +13,7 @@ from pydantic import BaseModel
 from sqlalchemy import delete as sa_delete, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.dependencies import require_operations
+from app.core.dependencies import require_operations, require_session_delivery
 from app.db.session import get_db
 from app.models.instructor_assessment.config import AssessmentConfig
 from app.models.sessions.checklist import DeliveryChecklistItem
@@ -543,9 +543,13 @@ async def _get_or_create_template_cohort(db: AsyncSession, program: Program) -> 
 async def get_program_template(
     program_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_operations),
+    current_user: User = Depends(require_session_delivery),
 ):
     """Returns the program's template cohort, default days, and session IDs."""
+    from app.services.org_access import is_ops_or_admin, is_program_org_manager
+
+    if not is_ops_or_admin(current_user) and not await is_program_org_manager(db, program_id, current_user):
+        raise HTTPException(status.HTTP_403_FORBIDDEN, detail="Operation not permitted")
     program = await db.get(Program, program_id)
     if program is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Program not found")

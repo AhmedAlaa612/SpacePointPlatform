@@ -36,6 +36,10 @@ async def upload_report(
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Cohort not found")
 
     is_ops = "operations" in user.role_values or "admin" in user.role_values
+    if not is_ops and "organization" in user.role_values:
+        from app.services.org_access import is_cohort_org_manager
+
+        is_ops = await is_cohort_org_manager(db, cohort, user)
     if session_id is not None:
         session = await db.get(Session, session_id)
         if session is None or session.cohort_id != cohort_id:

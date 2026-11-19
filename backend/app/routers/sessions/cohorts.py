@@ -103,6 +103,15 @@ from app.services.lms.program import PROGRAM_ITEM_PDF_BUCKET
 from app.services.notification import create_notification
 from app.services.inventory.cohort_kits import resolve_session_kits
 from app.services.missions.cohort_access import instructor_cohort_ids, is_cohort_lms_editor
+from app.services.org_access import (
+    assert_user_eligible_for_cohort_staffing,
+    cohort_organization_id,
+    is_cohort_org_manager,
+    is_ops_or_admin,
+    require_cohort_manager_or_ops,
+    require_registration_manager_or_ops,
+    require_session_manager_or_ops,
+)
 from app.services.sessions import day as day_service
 from app.services.sessions import delivery
 from app.services.sessions import materials as materials_service
@@ -461,11 +470,13 @@ async def get_cohort(
 
     is_ops = bool({"operations", "admin", "coo"} & set(current_user.role_values))
     if not is_ops:
-        if "organization" in current_user.role_values and cohort.organization_id == current_user.organization_id:
+        if await is_cohort_org_manager(db, cohort, current_user):
+            pass
+        elif "organization" in current_user.role_values and cohort.organization_id == current_user.organization_id:
             pass
         elif await is_cohort_lms_editor(db, cohort_id=cohort_id, user=current_user):
             pass
-        elif current_user.role == "instructor":
+        elif current_user.role == "instructor" or "organization" in current_user.role_values:
             cohort_ids = await instructor_cohort_ids(db, user=current_user)
             if cohort_ids and cohort_id in cohort_ids:
                 pass
@@ -476,10 +487,25 @@ async def get_cohort(
 
     program = await db.get(Program, cohort.program_id)
     location = await db.get(Location, cohort.location_id) if cohort.location_id else None
-    return await _cohort_out(
-        db, cohort, program.name if program else None, program.code if program else None, location,
-        program_is_competition=program.is_competition if program else False,
+    is_comp = bool(
+        program and (program.is_competition or (program.program_type or "").lower() in ("competition", "hackathon"))
     )
+    out = await _cohort_out(
+        db, cohort, program.name if program else None, program.code if program else None, location,
+        program_is_competition=is_comp,
+    )
+    org_id = await cohort_organization_id(db, cohort)
+    if org_id is not None:
+        from app.models.website_event import WebsiteEvent
+
+        org = await db.get(Organization, org_id)
+        if org is not None:
+            out.org_capacity_limit = org.max_students_per_cohort
+        ev_slug = await db.scalar(
+            select(WebsiteEvent.slug).where(WebsiteEvent.cohort_id == cohort.id).limit(1)
+        )
+        out.linked_event_slug = ev_slug
+    return out
 
 
 @router.patch("/cohorts/{cohort_id}", response_model=CohortOut)
@@ -497,12 +523,29 @@ async def update_cohort(
     changes = body.model_dump(exclude_unset=True)
     is_ops = bool({"operations", "admin", "coo"} & set(current_user.role_values))
     if not is_ops:
-        is_editor = await is_cohort_lms_editor(db, cohort_id=cohort_id, user=current_user)
-        allowed_editor_fields = {"checklist_title_override", "keep_course_access_after_completion"}
-        if is_editor and set(changes.keys()).issubset(allowed_editor_fields):
-            pass
+        if await is_cohort_org_manager(db, cohort, current_user):
+            allowed_org_fields = {
+                "name", "starts_on", "ends_on", "location", "capacity", "notes",
+                "visibility", "poster_template_url", "checklist_title_override",
+                "keep_course_access_after_completion", "status",
+            }
+            if not set(changes.keys()).issubset(allowed_org_fields):
+                raise HTTPException(status.HTTP_403_FORBIDDEN, detail="Forbidden")
+            org_id = await cohort_organization_id(db, cohort)
+            if org_id is not None and changes.get("capacity") is not None:
+                org = await db.get(Organization, org_id)
+                if org and org.max_students_per_cohort is not None and changes["capacity"] > org.max_students_per_cohort:
+                    raise HTTPException(
+                        status.HTTP_400_BAD_REQUEST,
+                        detail=f"Your organization limit is {org.max_students_per_cohort} students per cohort.",
+                    )
         else:
-            raise HTTPException(status.HTTP_403_FORBIDDEN, detail="Forbidden")
+            is_editor = await is_cohort_lms_editor(db, cohort_id=cohort_id, user=current_user)
+            allowed_editor_fields = {"checklist_title_override", "keep_course_access_after_completion"}
+            if is_editor and set(changes.keys()).issubset(allowed_editor_fields):
+                pass
+            else:
+                raise HTTPException(status.HTTP_403_FORBIDDEN, detail="Forbidden")
     if changes.get("status") == "completed" and cohort.status != "completed":
         raise HTTPException(
             status.HTTP_409_CONFLICT,
@@ -1081,11 +1124,9 @@ async def generate_sessions(
     cohort_id: uuid.UUID,
     body: GenerateSessionsRequest,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_operations),
+    current_user: User = Depends(require_session_delivery),
 ):
-    cohort = await db.get(Cohort, cohort_id)
-    if cohort is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Cohort not found")
+    cohort = await require_cohort_manager_or_ops(db, cohort_id, current_user)
     if cohort.starts_on is None:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="Cohort has no starts_on date to generate sessions from")
     if not body.weekdays:
@@ -1142,9 +1183,15 @@ async def generate_sessions(
 async def list_sessions(
     cohort_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_operations),
+    current_user: User = Depends(require_session_delivery),
 ):
     cohort = await db.get(Cohort, cohort_id)
+    if cohort is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Cohort not found")
+    if not is_ops_or_admin(current_user) and not await is_cohort_org_manager(db, cohort, current_user):
+        allowed = await instructor_cohort_ids(db, user=current_user)
+        if allowed is not None and cohort_id not in allowed:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Cohort not found")
     result = await db.execute(
         select(Session)
         .where(Session.cohort_id == cohort_id)
@@ -1158,13 +1205,11 @@ async def add_session(
     cohort_id: uuid.UUID,
     body: AddSessionRequest,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_operations),
+    current_user: User = Depends(require_session_delivery),
 ):
     """A single one-off session date — for schedules that don't fit the
     weekly generator above (an irregular extra session, a make-up date)."""
-    cohort = await db.get(Cohort, cohort_id)
-    if cohort is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Cohort not found")
+    cohort = await require_cohort_manager_or_ops(db, cohort_id, current_user)
 
     session = Session(
         id=uuid.uuid4(), cohort_id=cohort_id, meeting_date=body.meeting_date,
@@ -1189,13 +1234,14 @@ async def update_session(
     session_id: uuid.UUID,
     body: UpdateSessionRequest,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_operations),
+    current_user: User = Depends(require_session_delivery),
 ):
-    session = await db.get(Session, session_id)
-    if session is None or session.cohort_id != cohort_id:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Session not found")
+    session, _cohort = await require_session_manager_or_ops(db, session_id, current_user, cohort_id=cohort_id)
 
     changes = body.model_dump(exclude_unset=True)
+    if not is_ops_or_admin(current_user):
+        changes.pop("location_id", None)
+        changes.pop("warehouse_id", None)
     if changes.get("location_id") and await db.get(Location, changes["location_id"]) is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Location not found")
     if changes.get("warehouse_id") and await db.get(Warehouse, changes["warehouse_id"]) is None:
@@ -1218,7 +1264,7 @@ async def delete_session(
     cohort_id: uuid.UUID,
     session_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_operations),
+    current_user: User = Depends(require_session_delivery),
 ):
     """Only ever deletes a session nobody was marked present or absent for —
     attendance_records.session_id cascades. Instructor assignments and any
@@ -1226,9 +1272,7 @@ async def delete_session(
     cascade away, which is what you want when removing a date that was
     scheduled by mistake or generated one too many times.
     """
-    session = await db.get(Session, session_id)
-    if session is None or session.cohort_id != cohort_id:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Session not found")
+    session, _cohort = await require_session_manager_or_ops(db, session_id, current_user, cohort_id=cohort_id)
 
     attendance_count = await db.scalar(
         select(func.count()).select_from(AttendanceRecord).where(AttendanceRecord.session_id == session_id)
@@ -1257,15 +1301,14 @@ async def assign_instructor(
     session_id: uuid.UUID,
     body: AssignInstructorRequest,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_operations),
+    current_user: User = Depends(require_session_delivery),
     arq_redis: ArqRedis | None = Depends(get_arq_redis),
 ):
-    session = await db.get(Session, session_id)
-    if session is None or session.cohort_id != cohort_id:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Session not found")
+    session, cohort = await require_session_manager_or_ops(db, session_id, current_user, cohort_id=cohort_id)
     user = await db.get(User, body.user_id)
     if user is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="User not found")
+    await assert_user_eligible_for_cohort_staffing(db, cohort, user)
 
     existing = await db.scalar(
         select(SessionInstructor).where(
@@ -1318,11 +1361,9 @@ async def unassign_instructor(
     session_id: uuid.UUID,
     user_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_operations),
+    current_user: User = Depends(require_session_delivery),
 ):
-    session = await db.get(Session, session_id)
-    if session is None or session.cohort_id != cohort_id:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Session not found")
+    session, _cohort = await require_session_manager_or_ops(db, session_id, current_user, cohort_id=cohort_id)
 
     assignment = await db.scalar(
         select(SessionInstructor).where(
@@ -1361,11 +1402,13 @@ async def bulk_assign_instructor(
     cohort_id: uuid.UUID,
     body: BulkAssignInstructorRequest,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_operations),
+    current_user: User = Depends(require_session_delivery),
 ):
+    cohort = await require_cohort_manager_or_ops(db, cohort_id, current_user)
     user = await db.get(User, body.user_id)
     if user is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="User not found")
+    await assert_user_eligible_for_cohort_staffing(db, cohort, user)
     role_id = body.role_id or await lead_role_id(db)
     if role_id is None:
         raise HTTPException(status.HTTP_409_CONFLICT, detail="No delivery roles are configured")
@@ -1460,8 +1503,9 @@ async def upload_session_report(
 async def list_cohort_reports(
     cohort_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_operations),
+    current_user: User = Depends(require_session_delivery),
 ):
+    await require_cohort_manager_or_ops(db, cohort_id, current_user)
     rows = await reports_service.list_reports(db, cohort_id)
     return [
         SessionReportOut(
@@ -1481,11 +1525,9 @@ async def list_cohort_reports(
 async def list_registrations(
     cohort_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_operations),
+    current_user: User = Depends(require_session_delivery),
 ):
-    cohort = await db.get(Cohort, cohort_id)
-    if cohort is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Cohort not found")
+    cohort = await require_cohort_manager_or_ops(db, cohort_id, current_user)
 
     Student = aliased(Contact)
     Guardian = aliased(Contact)
@@ -1665,12 +1707,31 @@ async def desk_register(
     cohort_id: uuid.UUID,
     body: DeskRegistrationRequest,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_operations),
+    current_user: User = Depends(require_session_delivery),
     arq_redis: ArqRedis | None = Depends(get_arq_redis),
 ):
-    cohort = await db.get(Cohort, cohort_id)
-    if cohort is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Cohort not found")
+    cohort = await require_cohort_manager_or_ops(db, cohort_id, current_user)
+    org_id = await cohort_organization_id(db, cohort)
+    if org_id is not None and not is_ops_or_admin(current_user):
+        org = await db.get(Organization, org_id)
+        if org is not None:
+            if not org.is_approved:
+                raise HTTPException(
+                    status.HTTP_403_FORBIDDEN,
+                    detail="Your organization account is under review. Enrollment is locked until approved.",
+                )
+            if org.max_students_per_cohort is not None:
+                active_count = await db.scalar(
+                    select(func.count(Registration.id)).where(
+                        Registration.cohort_id == cohort.id,
+                        Registration.status != "cancelled",
+                    )
+                ) or 0
+                if active_count >= org.max_students_per_cohort:
+                    raise HTTPException(
+                        status.HTTP_400_BAD_REQUEST,
+                        detail=f"Your organization limit is {org.max_students_per_cohort} students per cohort.",
+                    )
 
     student, _ = await resolve_or_create_contact(
         db,
@@ -1683,6 +1744,7 @@ async def desk_register(
         date_of_birth=body.date_of_birth,
         grade=body.grade,
         gender=body.gender,
+        organization_id=org_id if (org_id is not None and not body.organization_name) else None,
         organization_name=body.organization_name,
     )
 
@@ -1772,12 +1834,10 @@ async def _ensure_guardian_relationship(db: AsyncSession, *, student_id: uuid.UU
 async def resend_ticket(
     registration_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_operations),
+    current_user: User = Depends(require_session_delivery),
     arq_redis: ArqRedis | None = Depends(get_arq_redis),
 ):
-    registration = await db.get(Registration, registration_id)
-    if registration is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Registration not found")
+    registration, _cohort = await require_registration_manager_or_ops(db, registration_id, current_user)
 
     # force=True: this is the one path where re-sending an already-sent ticket
     # is the intent, so it deliberately bypasses issue_ticket's idempotency guard.
@@ -1791,14 +1851,9 @@ async def resend_ticket(
 async def resend_onboarding_email(
     registration_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_operations),
+    current_user: User = Depends(require_session_delivery),
 ):
-    registration = await db.get(Registration, registration_id)
-    if registration is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Registration not found")
-    cohort = await db.get(Cohort, registration.cohort_id)
-    if cohort is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Cohort not found")
+    registration, cohort = await require_registration_manager_or_ops(db, registration_id, current_user)
     contact = await db.get(Contact, registration.contact_id)
     if contact is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="No LMS account linked to this registration")
@@ -1817,15 +1872,13 @@ async def resend_onboarding_email(
 async def get_set_password_link(
     registration_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_operations),
+    current_user: User = Depends(require_session_delivery),
 ):
     """Hands ops the raw set-password link instead of emailing it — for
     students who don't check the inbox that email went to, ops copies this
     and sends it themselves over WhatsApp/SMS. Same token/link
     `resend-onboarding-email` sends by mail (build_set_password_link)."""
-    registration = await db.get(Registration, registration_id)
-    if registration is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Registration not found")
+    registration, _cohort = await require_registration_manager_or_ops(db, registration_id, current_user)
     contact = await db.get(Contact, registration.contact_id)
     if contact is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="No LMS account linked to this registration")
@@ -1840,11 +1893,9 @@ async def get_set_password_link(
 async def cancel_registration(
     registration_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_operations),
+    current_user: User = Depends(require_session_delivery),
 ):
-    registration = await db.get(Registration, registration_id)
-    if registration is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Registration not found")
+    registration, _cohort = await require_registration_manager_or_ops(db, registration_id, current_user)
 
     registration.status = "cancelled"
     # LM1-7 / D4: a cancelled registration takes its LMS enrollments with it
@@ -1859,7 +1910,7 @@ async def delete_registration(
     registration_id: uuid.UUID,
     delete_contact: bool = Query(False),
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_operations),
+    current_user: User = Depends(require_session_delivery),
 ):
     """Erases a sign-up — attendance and any certificate for it go too.
 
@@ -1883,9 +1934,9 @@ async def delete_registration(
     In both cases the operator is told what's attached; deleting the other
     registrations first still gets them a clean removal.
     """
-    registration = await db.get(Registration, registration_id)
-    if registration is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Registration not found")
+    registration, _cohort = await require_registration_manager_or_ops(db, registration_id, current_user)
+    if not is_ops_or_admin(current_user):
+        delete_contact = False
 
     contact_id = registration.contact_id
 
@@ -1948,12 +1999,13 @@ async def delete_registration(
 async def give_certificate(
     registration_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_operations),
+    current_user: User = Depends(require_session_delivery),
 ):
     """Manual override (operator request 2026-07-25): ops can hand a
     certificate to a student who didn't meet the program's completion rule
     — it's just never auto-sent for them. Idempotent, same as the automatic
     path in complete_cohort."""
+    await require_registration_manager_or_ops(db, registration_id, current_user)
     certificate = await delivery.issue_certificate_override(db, registration_id, current_user.id)
     await db.commit()
     # Student completion certs are emailed directly — no file stored, no URL to return.
@@ -1966,7 +2018,7 @@ async def download_cohort_certificates(
     theme: str = Query("dark"),
     template_id: str | None = Query(None),
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_operations),
+    current_user: User = Depends(require_session_delivery),
 ):
     """One PDF, one page per *registered* student in this cohort — for
     printing at the workshop, not gated on completion/issuance status (every
@@ -1976,9 +2028,7 @@ async def download_cohort_certificates(
     Generated fresh each time, nothing persisted or emailed — this is a
     print run, not the student_completion issuance flow in delivery.py.
     `theme` or `template_id` picks the layout and background template."""
-    cohort = await db.get(Cohort, cohort_id)
-    if cohort is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Cohort not found")
+    cohort = await require_cohort_manager_or_ops(db, cohort_id, current_user)
     program = await db.get(Program, cohort.program_id)
 
     rows = (await db.execute(
@@ -2054,9 +2104,9 @@ async def confirm_payment(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_operations),
 ):
-    registration = await db.get(Registration, registration_id)
-    if registration is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Registration not found")
+    registration, _cohort = await require_registration_manager_or_ops(db, registration_id, current_user)
+    if not is_ops_or_admin(current_user):
+        delete_contact = False
 
     registration.price_charged = body.amount
     registration.payment_status = body.status
@@ -2072,12 +2122,10 @@ async def confirm_payment(
 async def session_history(
     session_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_operations),
+    current_user: User = Depends(require_session_delivery),
 ):
     """3-phase session audit trail: pre-session, during-session, post-session."""
-    session = await db.get(Session, session_id)
-    if session is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Session not found")
+    session, _cohort = await require_session_manager_or_ops(db, session_id, current_user)
 
     instructors_rows = (await db.execute(
         select(SessionInstructor, User, DeliveryRole)

@@ -1631,11 +1631,13 @@ export function CohortRolesPanel({
   sessionId,
   sessions,
   large: _large = false,
+  isOrgScope = false,
 }: {
   cohort: Cohort
   sessionId?: string
   sessions?: Session[]
   large?: boolean
+  isOrgScope?: boolean
 }) {
   const [activeTab, setActiveTab] = useState<"checklists" | "rates">("checklists")
 
@@ -1647,6 +1649,7 @@ export function CohortRolesPanel({
   const { data: openings = [], isLoading: openingsLoading } = useQuery({
     queryKey: ["cohort-openings-defaults", cohort.id],
     queryFn: () => getCohortOpeningsApi(cohort.id),
+    enabled: !isOrgScope,
   })
 
   const { data: fetchedSessions = [], isLoading: sessionsLoading } = useQuery({
@@ -1657,41 +1660,42 @@ export function CohortRolesPanel({
 
   const allSessions = sessions ?? fetchedSessions
 
-  if (rolesLoading || openingsLoading || (sessionsLoading && !sessions)) {
+  if (rolesLoading || (!isOrgScope && openingsLoading) || (sessionsLoading && !sessions)) {
     return <p className="text-xs text-muted-foreground py-2">Loading cohort checklists & roles…</p>
   }
 
   return (
     <div className="flex flex-col gap-4 py-1">
-      {/* Sub-navigation tabs: Checklists (default) vs Rates & Slots */}
-      <div className="flex items-center gap-1.5 border-b border-border pb-2.5">
-        <button
-          type="button"
-          onClick={() => setActiveTab("checklists")}
-          className={cn(
-            "h-8 px-3.5 rounded-lg text-xs font-semibold transition-colors cursor-pointer",
-            activeTab === "checklists"
-              ? "bg-primary text-primary-foreground shadow-sm"
-              : "text-muted-foreground hover:text-foreground hover:bg-muted",
-          )}
-        >
-          Delivery Checklists
-        </button>
-        <button
-          type="button"
-          onClick={() => setActiveTab("rates")}
-          className={cn(
-            "h-8 px-3.5 rounded-lg text-xs font-semibold transition-colors cursor-pointer",
-            activeTab === "rates"
-              ? "bg-primary text-primary-foreground shadow-sm"
-              : "text-muted-foreground hover:text-foreground hover:bg-muted",
-          )}
-        >
-          Role Rates & Slots
-        </button>
-      </div>
+      {!isOrgScope && (
+        <div className="flex items-center gap-1.5 border-b border-border pb-2.5">
+          <button
+            type="button"
+            onClick={() => setActiveTab("checklists")}
+            className={cn(
+              "h-8 px-3.5 rounded-lg text-xs font-semibold transition-colors cursor-pointer",
+              activeTab === "checklists"
+                ? "bg-primary text-primary-foreground shadow-sm"
+                : "text-muted-foreground hover:text-foreground hover:bg-muted",
+            )}
+          >
+            Delivery Checklists
+          </button>
+          <button
+            type="button"
+            onClick={() => setActiveTab("rates")}
+            className={cn(
+              "h-8 px-3.5 rounded-lg text-xs font-semibold transition-colors cursor-pointer",
+              activeTab === "rates"
+                ? "bg-primary text-primary-foreground shadow-sm"
+                : "text-muted-foreground hover:text-foreground hover:bg-muted",
+            )}
+          >
+            Role Rates & Slots
+          </button>
+        </div>
+      )}
 
-      {activeTab === "checklists" ? (
+      {(isOrgScope || activeTab === "checklists") ? (
         <CohortDayChecklistManager
           cohort={cohort}
           sessions={allSessions}

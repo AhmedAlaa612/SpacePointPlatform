@@ -55,6 +55,8 @@ from app.schemas.games_admin import (
 )
 from app.services.games.points import max_points_for
 from app.services.games.runs import reverse_question_points
+from app.services.org_access import is_ops_or_admin, require_session_manager_or_ops
+from app.services.sessions.delivery import _get_deliverable_session
 from app.services import storage
 
 router = APIRouter(prefix="/games/sessions", tags=["games-sessions"], dependencies=[Depends(require_session_delivery)])
@@ -99,7 +101,12 @@ async def _assignment_out(db: AsyncSession, assignment: GameSessionAssignment) -
 # ── assignments ──────────────────────────────────────────────────────────
 
 @router.get("/{session_id}/assignments", response_model=list[GameSessionAssignmentOut])
-async def list_assignments(session_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
+async def list_assignments(
+    session_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    current: User = Depends(require_session_delivery),
+):
+    await _get_deliverable_session(db, session_id, current)
     rows = (await db.execute(
         select(GameSessionAssignment)
         .where(GameSessionAssignment.session_id == session_id)
@@ -113,9 +120,12 @@ async def create_assignment(
     session_id: uuid.UUID, body: GameSessionAssignmentCreate,
     db: AsyncSession = Depends(get_db), current: User = Depends(require_lms_content),
 ):
-    session = await db.get(Session, session_id)
-    if session is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Session not found")
+    if not is_ops_or_admin(current) and "facilitator" not in current.role_values:
+        session, _cohort = await require_session_manager_or_ops(db, session_id, current)
+    else:
+        session = await db.get(Session, session_id)
+        if session is None:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Session not found")
     game = await db.get(Game, body.game_id)
     if game is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Game not found")
@@ -168,8 +178,14 @@ async def update_assignment(assignment_id: uuid.UUID, body: GameSessionAssignmen
 
 
 @router.delete("/assignments/{assignment_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_assignment(assignment_id: uuid.UUID, db: AsyncSession = Depends(get_db), _: User = Depends(require_lms_content)):
+async def delete_assignment(
+    assignment_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    current: User = Depends(require_lms_content),
+):
     assignment = await _assignment_or_404(db, assignment_id)
+    if not is_ops_or_admin(current) and "facilitator" not in current.role_values:
+        await require_session_manager_or_ops(db, assignment.session_id, current)
     await db.delete(assignment)
     await db.commit()
 

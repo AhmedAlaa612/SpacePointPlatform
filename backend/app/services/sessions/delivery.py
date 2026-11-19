@@ -47,6 +47,12 @@ async def _get_deliverable_session(db: AsyncSession, session_id: UUID, user: Use
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Session not found")
     if "operations" in user.role_values or "admin" in user.role_values:
         return session
+    if "organization" in user.role_values:
+        from app.services.org_access import is_cohort_org_manager
+
+        cohort = await db.get(Cohort, session.cohort_id)
+        if cohort is not None and await is_cohort_org_manager(db, cohort, user):
+            return session
     assigned = await db.scalar(
         select(SessionInstructor).where(
             SessionInstructor.session_id == session_id, SessionInstructor.user_id == user.id,
@@ -99,6 +105,11 @@ async def start_session(db: AsyncSession, session_id: UUID, user: User) -> Sessi
         from app.services.sessions.pre_session_quiz import get_assignment_for_scope
 
         is_ops = any(r in user.role_values for r in ("operations", "admin", "facilitator"))
+        if not is_ops:
+            from app.services.org_access import is_cohort_org_manager
+
+            cohort_for_gate = await db.get(Cohort, session.cohort_id)
+            is_ops = bool(cohort_for_gate and await is_cohort_org_manager(db, cohort_for_gate, user))
         if not is_ops:
             assign_info = await get_assignment_for_scope(db, "cohorts", session.cohort_id)
             if assign_info.get("preset_id") is not None:

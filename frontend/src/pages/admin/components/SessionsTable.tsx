@@ -65,12 +65,16 @@ function SortHeader({ label, k, sortKey, sortDir, onSort }: {
  */
 export function SessionsTable({
   cohortId, sessions, bulkMode, selectedSessionIds, onToggleSession,
+  isOrgScope = false,
+  sessionRouteTo = "/operations/cohorts/$cohortId/sessions/$sessionId",
 }: {
   cohortId: string
   sessions: Session[]
   bulkMode: boolean
   selectedSessionIds: string[]
   onToggleSession: (id: string) => void
+  isOrgScope?: boolean
+  sessionRouteTo?: "/operations/cohorts/$cohortId/sessions/$sessionId" | "/organization/programs/$cohortId/sessions/$sessionId"
 }) {
   const navigate = useNavigate()
   const queryClient = useQueryClient()
@@ -153,10 +157,12 @@ export function SessionsTable({
             <SortHeader label="Title" k="title" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
             <SortHeader label="Staffing" k="staffing" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
             <SortHeader label="State" k="status" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
-            <th className="px-3 py-2 text-left text-[11px] font-semibold text-muted-foreground uppercase tracking-wider whitespace-nowrap">
-              Kits
-            </th>
-            <SortHeader label="Location / warehouse" k="location" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
+            {!isOrgScope && (
+              <th className="px-3 py-2 text-left text-[11px] font-semibold text-muted-foreground uppercase tracking-wider whitespace-nowrap">
+                Kits
+              </th>
+            )}
+            <SortHeader label={isOrgScope ? "Location" : "Location / warehouse"} k="location" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
             <th className="w-24 px-2 py-2" />
           </tr>
         </thead>
@@ -168,7 +174,7 @@ export function SessionsTable({
                 key={s.id}
                 onClick={() => bulkMode
                   ? onToggleSession(s.id)
-                  : void navigate({ to: "/operations/cohorts/$cohortId/sessions/$sessionId", params: { cohortId, sessionId: s.id } })}
+                  : void navigate({ to: sessionRouteTo, params: { cohortId, sessionId: s.id } })}
                 className={cn(
                   "border-b border-border last:border-0 cursor-pointer hover:bg-muted/40 transition-colors",
                   bulkMode && selected && "bg-primary/5",
@@ -229,12 +235,14 @@ export function SessionsTable({
                     </span>
                   )}
                 </td>
-                <td className="px-3 py-2 text-xs text-muted-foreground">
-                  {s.kits_count ? s.kits_count : "—"}
-                </td>
+                {!isOrgScope && (
+                  <td className="px-3 py-2 text-xs text-muted-foreground">
+                    {s.kits_count ? s.kits_count : "—"}
+                  </td>
+                )}
                 <td className="px-3 py-2 text-xs text-foreground whitespace-nowrap">
                   {s.effective_location_name ?? "—"}
-                  {s.effective_warehouse_name ? (
+                  {!isOrgScope && s.effective_warehouse_name ? (
                     <span className="text-muted-foreground">
                       {" · "}{s.effective_warehouse_name}
                     </span>

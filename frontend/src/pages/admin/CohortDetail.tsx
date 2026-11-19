@@ -1,11 +1,10 @@
 import { useState } from "react"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
-import { Link, useNavigate, useParams, useSearch } from "@tanstack/react-router"
+import { Link, useParams, useRouterState } from "@tanstack/react-router"
 import * as XLSX from "xlsx"
 import {
   ArrowLeft, CalendarPlus, UserPlus, Upload, Ticket, Mail, Wallet, Ban, FileText, Download, FileSpreadsheet, Copy,
-  CheckCircle2, Award, Trash2, Search, Pencil, MoreVertical, Camera, X,
-  Calendar, MapPin, Layers, Package,
+  CheckCircle2, Award, Trash2, Search, Pencil, MoreVertical, Camera, X, Key, ExternalLink,
 } from "lucide-react"
 import type {
   Cohort, CohortStatus, Program, Session,
@@ -42,11 +41,17 @@ import { Modal, Field, ModalActions, ConfirmDialog, Spinner, EmptyState } from "
 import { BulkAssignInstructorModal } from "@/pages/admin/components/BulkAssignInstructorModal"
 import { BulkOpenCallModal } from "@/pages/admin/components/BulkOpenCallModal"
 import { DeskRegisterModal } from "@/pages/admin/components/DeskRegisterModal"
+import {
+  OrgCohortStaffingSection,
+  OrgCohortReadinessSection,
+  OrgObserversSection,
+  OrgEditCohortModal,
+} from "@/pages/admin/components/OrgCohortHelpers"
 import { updateContactApi } from "@/api/spine/contacts"
 import { CohortModal, COHORT_STATUS_LABEL, COHORT_STATUS_COLOR, statusOptionsFor } from "@/pages/admin/Cohorts"
 import { ContactDetailModal } from "@/pages/admin/Contacts"
 import { useToast } from "@/components/ui/toast"
-import { useAuth } from "@/context/AuthContext"
+import { CohortHeader, CohortBackButton } from "@/components/cohort/CohortHeader"
 import { Card } from "@/components/ui/card"
 import { ExcuseLetterModal } from "@/components/competitions/ExcuseLetterModal"
 import { getErrorMessage } from "@/lib/utils"
@@ -80,29 +85,12 @@ const TABS: { key: CohortTab; label: string }[] = [
 ]
 
 type InstructorSubTab = "staffing" | "roles" | "assessment" | "prequiz" | "reviews"
-type ParticipantSubTab = "students" | "assign" | "teams"
+type ParticipantSubTab = "students" | "observers" | "assign" | "teams"
 type JudgingSubTab = "rubric" | "judges" | "results"
 
 const WIRE_CARD = "bg-[#231134] text-white border-0 shadow-none rounded-[10px]"
 const WIRE_BTN = "bg-transparent border-[2px] border-[#D7D2CB] rounded-[10px] text-foreground hover:bg-muted/30 transition-colors cursor-pointer"
 const WIRE_CTA = "bg-[#653F84] text-white border-0 rounded-[10px] hover:opacity-90 transition-opacity cursor-pointer"
-
-function CounterChip({ label, value, onClick, tone = "default" }: {
-  label: string; value: React.ReactNode; onClick: () => void; tone?: "default" | "alert"
-}) {
-  return (
-    <button
-      onClick={onClick}
-      className={`flex items-center justify-center gap-1.5 h-9 px-4 rounded-[10px] border-[2px] bg-transparent text-sm transition-colors cursor-pointer ${tone === "alert"
-          ? "border-rose-400/80 text-rose-300 hover:bg-rose-500/15"
-          : "border-[#D7D2CB] text-white hover:bg-white/10"
-        }`}
-    >
-      <span className="font-semibold tabular-nums leading-none flex items-center">{value}</span>
-      <span className={`text-xs leading-none flex items-center ${tone === "alert" ? "text-rose-200/85" : "text-white/75"}`}>{label}</span>
-    </button>
-  )
-}
 
 /* ================================================================== */
 /* Cohort detail page — registrations + sessions + desk registration.  */
@@ -110,64 +98,6 @@ function CounterChip({ label, value, onClick, tone = "default" }: {
 /* real route (/operations/cohorts/$cohortId) so it can be linked to   */
 /* and bookmarked, and so a session can link back to its cohort.       */
 /* ================================================================== */
-function resolveCohortBackTarget(
-  from: string | undefined,
-  activeRole: string | null | undefined,
-  cohort?: Cohort,
-): { label: string; to: string; useHistory?: boolean } {
-  if (from?.startsWith("/instructors")) {
-    return { label: "Instructor View", to: from }
-  }
-  if (from?.startsWith("/operations/organizations/")) {
-    return { label: "Organization", to: from }
-  }
-  if (from?.startsWith("/operations/programs/")) {
-    return { label: cohort?.program_name || "Program", to: from }
-  }
-  if (from?.startsWith("/operations/programs")) {
-    return { label: "Programs", to: from }
-  }
-  if (from?.startsWith("/operations/cohorts")) {
-    return { label: "Cohorts", to: from }
-  }
-  if (from?.startsWith("/")) {
-    return { label: "Back", to: from }
-  }
-  if (activeRole === "instructor") {
-    return { label: "Instructor View", to: "/instructors/sessions", useHistory: true }
-  }
-  return { label: "Cohorts", to: "/operations/cohorts" }
-}
-
-function CohortBackButton({
-  className,
-  cohort,
-}: {
-  className: string
-  cohort?: Cohort
-}) {
-  const navigate = useNavigate()
-  const { from } = useSearch({ strict: false }) as { from?: string }
-  const { activeRole } = useAuth()
-  const target = resolveCohortBackTarget(from, activeRole, cohort)
-
-  const handleClick = () => {
-    if (target.useHistory && window.history.length > 1) {
-      window.history.back()
-      return
-    }
-    const [pathname, rawQuery] = target.to.split("?")
-    const searchObj = rawQuery ? Object.fromEntries(new URLSearchParams(rawQuery)) : undefined
-    void navigate({ to: pathname as never, search: searchObj as never })
-  }
-
-  return (
-    <button type="button" onClick={handleClick} className={`${className} cursor-pointer`}>
-      <ArrowLeft size={14} /> {target.label}
-    </button>
-  )
-}
-
 export default function CohortDetail() {
   const { cohortId } = useParams({ strict: false }) as { cohortId: string }
 
@@ -192,6 +122,17 @@ export default function CohortDetail() {
 function CohortDetailView({ cohort }: { cohort: Cohort }) {
   const queryClient = useQueryClient()
   const toast = useToast()
+  const pathname = useRouterState({ select: (s) => s.location.pathname })
+  const isOrgRoute = pathname.startsWith("/organization")
+  const isOrgScope = isOrgRoute || Boolean(cohort.organization_id)
+  const judgingTo = isOrgRoute ? "/organization/programs/$cohortId/judging" : "/operations/cohorts/$cohortId/judging"
+  const sessionRouteTo = isOrgRoute
+    ? "/organization/programs/$cohortId/sessions/$sessionId"
+    : "/operations/cohorts/$cohortId/sessions/$sessionId"
+  const visibleTabs = isOrgScope
+    ? TABS.filter((t) => (t.key !== "judging" && t.key !== "certificates") || Boolean(cohort.program_is_competition))
+    : TABS
+
   const [editOpen, setEditOpen] = useState(false)
   const [excuseModalOpen, setExcuseModalOpen] = useState(false)
   const [generateOpen, setGenerateOpen] = useState(false)
@@ -224,7 +165,11 @@ function CohortDetailView({ cohort }: { cohort: Cohort }) {
   const [participantsSub, setParticipantsSub] = useState<ParticipantSubTab>("students")
   const [judgingSub, setJudgingSub] = useState<JudgingSubTab>("results")
 
-  const { data: programs = [] } = useQuery<Program[]>({ queryKey: ["sessions-programs"], queryFn: getProgramsApi })
+  const { data: programs = [] } = useQuery<Program[]>({
+    queryKey: ["sessions-programs"],
+    queryFn: getProgramsApi,
+    enabled: !isOrgScope,
+  })
   const { data: registrations = [], isLoading } = useQuery<Registration[]>({
     queryKey: ["sessions-registrations", cohort.id],
     queryFn: () => getRegistrationsApi(cohort.id),
@@ -431,85 +376,84 @@ function CohortDetailView({ cohort }: { cohort: Cohort }) {
 
   return (
     <div className="flex flex-col gap-5 sp-wireframe">
-      <div className="sp-wireframe-header relative overflow-hidden -mx-4 -mt-4 sm:-mx-6 sm:-mt-6 lg:-mx-10 lg:-mt-10 px-4 sm:px-6 lg:px-10 pt-5 bg-[#231134] text-white">
-        <img
-          src="/space-logo-white.png"
-          alt=""
-          aria-hidden="true"
-          className="pointer-events-none select-none absolute bottom-0 right-6 w-48 sm:w-64 opacity-10"
-        />
+      <CohortHeader
+        name={cohort.name}
+        back={<CohortBackButton cohort={cohort} />}
+        status={
+          !isOrgScope ? (
+            <span className={`px-2.5 py-0.5 rounded-full text-xs font-semibold ${COHORT_STATUS_COLOR[cohort.status]}`}>
+              {COHORT_STATUS_LABEL[cohort.status]}
+            </span>
+          ) : undefined
+        }
+        badges={
+          <>
+            {!isOrgRoute && cohort.organization_id && (
+              <Link
+                to="/operations/organizations/$orgId"
+                params={{ orgId: cohort.organization_id }}
+                className="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-white/15 text-white hover:bg-white/25 transition-colors"
+              >
+                Partner Organization ↗
+              </Link>
+            )}
+            {isOrgScope && cohort.visibility === "public" && (
+              <span className="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-emerald-500/20 text-emerald-200">
+                Public
+              </span>
+            )}
+          </>
+        }
+        programName={cohort.program_name ?? "—"}
+        dates={
+          cohort.starts_on
+            ? `${cohort.starts_on}${cohort.ends_on && cohort.ends_on !== cohort.starts_on ? ` – ${cohort.ends_on}` : ""}`
+            : null
+        }
+        location={cohort.location_name ?? cohort.location}
+        warehouse={isOrgScope ? undefined : cohort.effective_warehouse_name}
+        actions={
+          <>
+            <button
+              type="button"
+              onClick={() => setEditOpen(true)}
+              className="flex items-center justify-center gap-1.5 w-full h-9 px-4 rounded-[10px] bg-[#653F84] border-0 text-sm font-medium text-white hover:opacity-90 transition-opacity cursor-pointer"
+            >
+              <Pencil size={13} /> Edit
+            </button>
 
-        <div className="relative z-10">
-          <CohortBackButton
-            cohort={cohort}
-            className="inline-flex w-fit items-center gap-1.5 text-sm font-medium text-white/75 hover:text-white transition-colors mb-4"
-          />
-
-          <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
-            <div className="min-w-0 space-y-3">
-              <div className="flex items-center gap-3 flex-wrap">
-                <h1 className="text-2xl font-bold tracking-tight text-white">
-                  {cohort.name}
-                </h1>
-                <span className={`px-2.5 py-0.5 rounded-full text-xs font-semibold ${COHORT_STATUS_COLOR[cohort.status]}`}>
-                  {COHORT_STATUS_LABEL[cohort.status]}
-                </span>
-                {cohort.organization_id && (
+            {isOrgScope ? (
+              <>
+                <div className="grid grid-cols-2 gap-2">
                   <Link
-                    to="/operations/organizations/$orgId"
-                    params={{ orgId: cohort.organization_id }}
-                    className="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-white/15 text-white hover:bg-white/25 transition-colors"
+                    to={judgingTo}
+                    params={{ cohortId: cohort.id }}
+                    className="flex items-center justify-center gap-1.5 h-9 px-3 bg-transparent border-2 border-solid border-[#D7D2CB] rounded-[10px] text-xs font-medium text-white hover:bg-white/10 transition-colors cursor-pointer"
                   >
-                    Partner Organization ↗
+                    <Award size={13} /> Judging
                   </Link>
-                )}
-              </div>
 
-              <div className="flex flex-wrap items-center gap-x-5 gap-y-2 text-xs text-white/85">
-                <div className="inline-flex items-center gap-1.5">
-                  <Layers size={13} className="text-white/55 shrink-0" />
-                  <span className="text-white/55">Program:</span>
-                  <span className="font-medium text-white">{cohort.program_name ?? "—"}</span>
+                  <Link
+                    to="/lms-authoring/invite-codes"
+                    title="Manage LMS Invite Codes"
+                    className="flex items-center justify-center gap-1.5 h-9 px-3 bg-transparent border-2 border-solid border-[#D7D2CB] rounded-[10px] text-xs font-medium text-white hover:bg-white/10 transition-colors cursor-pointer"
+                  >
+                    <Key size={13} /> Invite Codes
+                  </Link>
                 </div>
 
-                {cohort.starts_on && (
-                  <div className="inline-flex items-center gap-1.5">
-                    <Calendar size={13} className="text-white/55 shrink-0" />
-                    <span className="text-white/55">Dates:</span>
-                    <span className="font-medium text-white">
-                      {cohort.starts_on}
-                      {cohort.ends_on && cohort.ends_on !== cohort.starts_on ? ` – ${cohort.ends_on}` : ""}
-                    </span>
-                  </div>
+                {cohort.linked_event_slug && (
+                  <a
+                    href={`/events/uae/${cohort.linked_event_slug}`}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="flex items-center justify-center gap-1.5 h-9 px-3 bg-transparent border-2 border-solid border-[#D7D2CB] rounded-[10px] text-xs font-medium text-white hover:bg-white/10 transition-colors cursor-pointer"
+                  >
+                    <ExternalLink size={13} /> Landing Page
+                  </a>
                 )}
-
-                {(cohort.location_name || cohort.location) && (
-                  <div className="inline-flex items-center gap-1.5">
-                    <MapPin size={13} className="text-white/55 shrink-0" />
-                    <span className="text-white/55">Location:</span>
-                    <span className="font-medium text-white">{cohort.location_name ?? cohort.location}</span>
-                  </div>
-                )}
-
-                {cohort.effective_warehouse_name && (
-                  <div className="inline-flex items-center gap-1.5">
-                    <Package size={13} className="text-white/55 shrink-0" />
-                    <span className="text-white/55">Warehouse:</span>
-                    <span className="font-medium text-white">{cohort.effective_warehouse_name}</span>
-                  </div>
-                )}
-              </div>
-            </div>
-
-            <div className="flex flex-col gap-2 shrink-0 sm:min-w-[210px]">
-              <button
-                type="button"
-                onClick={() => setEditOpen(true)}
-                className="flex items-center justify-center gap-1.5 w-full h-9 px-4 rounded-[10px] bg-[#653F84] border-0 text-sm font-medium text-white hover:opacity-90 transition-opacity cursor-pointer"
-              >
-                <Pencil size={13} /> Edit
-              </button>
-
+              </>
+            ) : (
               <div className="grid grid-cols-2 gap-2">
                 <select
                   value={cohort.status}
@@ -535,49 +479,34 @@ function CohortDetailView({ cohort }: { cohort: Cohort }) {
                 </select>
 
                 <Link
-                  to="/operations/cohorts/$cohortId/judging"
+                  to={judgingTo}
                   params={{ cohortId: cohort.id }}
                   className="flex items-center justify-center gap-1.5 h-9 px-3 bg-transparent border-2 border-solid border-[#D7D2CB] rounded-[10px] text-xs font-medium text-white hover:bg-white/10 transition-colors cursor-pointer"
                 >
                   <Award size={13} /> Judging
                 </Link>
               </div>
-            </div>
-          </div>
-
-          <div className="flex flex-wrap gap-2 mt-5 pb-4">
-            <CounterChip
-              label="Students"
-              value={cohort.capacity != null ? `${registrations.length} / ${cohort.capacity}` : `${registrations.length}`}
-              onClick={() => { setTab("participants"); setParticipantsSub("students") }}
-            />
-            <CounterChip label="Sessions" value={sessions.length} onClick={() => setTab("sessions")} />
-            <CounterChip
-              label="Unstaffed"
-              value={unstaffedCount}
-              tone={unstaffedCount > 0 ? "alert" : "default"}
-              onClick={() => { setTab("instructors"); setInstructorsSub("staffing") }}
-            />
-          </div>
-
-          <div className="flex items-center gap-1 border-b border-white/15 overflow-x-auto scrollbar-none no-scrollbar" role="tablist">
-            {TABS.map((t) => (
-              <button
-                key={t.key}
-                role="tab"
-                aria-selected={tab === t.key}
-                onClick={() => setTab(t.key)}
-                className={`h-9 px-3 -mb-px border-b-2 text-sm font-medium transition-colors shrink-0 whitespace-nowrap cursor-pointer ${tab === t.key
-                    ? "border-[#D7D2CB] text-white"
-                    : "border-transparent text-white/70 hover:text-white"
-                  }`}
-              >
-                {t.label}
-              </button>
-            ))}
-          </div>
-        </div>
-      </div>
+            )}
+          </>
+        }
+        counters={[
+          {
+            label: "Students",
+            value: cohort.capacity != null ? `${registrations.length} / ${cohort.capacity}` : `${registrations.length}`,
+            onClick: () => { setTab("participants"); setParticipantsSub("students") },
+          },
+          { label: "Sessions", value: sessions.length, onClick: () => setTab("sessions") },
+          {
+            label: "Unstaffed",
+            value: unstaffedCount,
+            tone: unstaffedCount > 0 ? "alert" : "default",
+            onClick: () => { setTab("instructors"); setInstructorsSub("staffing") },
+          },
+        ]}
+        tabs={visibleTabs}
+        activeTab={tab}
+        onTabChange={(key) => setTab(key as CohortTab)}
+      />
 
       {tab === "sessions" && (
         <div className="space-y-6">
@@ -633,13 +562,15 @@ function CohortDetailView({ cohort }: { cohort: Cohort }) {
                   >
                     Assign instructor…
                   </button>
-                  <button
-                    onClick={() => setBulkOpenCallOpen(true)}
-                    disabled={selectedSessionIds.length === 0}
-                    className="h-7 px-2.5 border border-border text-foreground text-xs font-medium rounded-[10px] hover:bg-muted disabled:opacity-40"
-                  >
-                    Open call…
-                  </button>
+                  {!isOrgScope && (
+                    <button
+                      onClick={() => setBulkOpenCallOpen(true)}
+                      disabled={selectedSessionIds.length === 0}
+                      className="h-7 px-2.5 border border-border text-foreground text-xs font-medium rounded-[10px] hover:bg-muted disabled:opacity-40"
+                    >
+                      Open call…
+                    </button>
+                  )}
                 </div>
               </div>
             )}
@@ -651,6 +582,8 @@ function CohortDetailView({ cohort }: { cohort: Cohort }) {
               selectedSessionIds={selectedSessionIds}
               onToggleSession={(id) =>
                 setSelectedSessionIds((prev) => prev.includes(id) ? prev.filter((sid) => sid !== id) : [...prev, id])}
+              isOrgScope={isOrgScope}
+              sessionRouteTo={sessionRouteTo}
             />
           </div>
 
@@ -662,9 +595,11 @@ function CohortDetailView({ cohort }: { cohort: Cohort }) {
             />
           </Card>
 
-          <Card className={`px-4 ${WIRE_CARD}`}>
-            <CohortKitsPanel cohort={cohort} />
-          </Card>
+          {!isOrgScope && (
+            <Card className={`px-4 ${WIRE_CARD}`}>
+              <CohortKitsPanel cohort={cohort} />
+            </Card>
+          )}
 
           <div>
             <div className="flex items-center justify-between mb-2">
@@ -717,13 +652,21 @@ function CohortDetailView({ cohort }: { cohort: Cohort }) {
       {tab === "instructors" && (
         <div className="space-y-5">
           <div className="flex items-center gap-2 flex-wrap">
-            {([
-              { key: "staffing", label: "Calls & Staffing" },
-              { key: "roles", label: "Roles & Checklists" },
-              { key: "assessment", label: "Assessment Gate" },
-              { key: "prequiz", label: "Pre-Session Quiz" },
-              { key: "reviews", label: "Day Reviews" },
-            ] as const).map((st) => (
+            {(isOrgScope
+              ? ([
+                  { key: "staffing", label: "Staffing" },
+                  { key: "roles", label: "Checklists" },
+                  { key: "prequiz", label: "Pre-Session Quiz" },
+                  { key: "reviews", label: "Day Reviews" },
+                ] as const)
+              : ([
+                  { key: "staffing", label: "Calls & Staffing" },
+                  { key: "roles", label: "Roles & Checklists" },
+                  { key: "assessment", label: "Assessment Gate" },
+                  { key: "prequiz", label: "Pre-Session Quiz" },
+                  { key: "reviews", label: "Day Reviews" },
+                ] as const)
+            ).map((st) => (
               <button
                 key={st.key}
                 type="button"
@@ -739,29 +682,41 @@ function CohortDetailView({ cohort }: { cohort: Cohort }) {
           </div>
 
           {instructorsSub === "staffing" && (
-            <div className="space-y-5">
+            isOrgScope ? (
               <Card className={`px-4 ${WIRE_CARD}`}>
-                <CohortCallsPanel cohort={cohort} sessions={sessions} />
+                <OrgCohortStaffingSection cohortId={cohort.id} onChanged={invalidateSessions} />
               </Card>
-              <Card className={`px-4 ${WIRE_CARD}`}>
-                <CohortStaffingPanel cohort={cohort} />
-              </Card>
-            </div>
+            ) : (
+              <div className="space-y-5">
+                <Card className={`px-4 ${WIRE_CARD}`}>
+                  <CohortCallsPanel cohort={cohort} sessions={sessions} />
+                </Card>
+                <Card className={`px-4 ${WIRE_CARD}`}>
+                  <CohortStaffingPanel cohort={cohort} />
+                </Card>
+              </div>
+            )
           )}
           {instructorsSub === "roles" && (
             <Card className={`px-4 ${WIRE_CARD}`}>
-              <CohortRolesPanel cohort={cohort} sessions={sessions} />
+              <CohortRolesPanel cohort={cohort} sessions={sessions} isOrgScope={isOrgScope} />
             </Card>
           )}
-          {instructorsSub === "assessment" && (
+          {!isOrgScope && instructorsSub === "assessment" && (
             <Card className={`px-4 ${WIRE_CARD}`}>
               <AssessmentAssignmentPanel cohortId={cohort.id} />
             </Card>
           )}
           {instructorsSub === "prequiz" && (
-            <Card className={`px-4 ${WIRE_CARD}`}>
-              <SessionPreQuizOpsPanel cohortId={cohort.id} />
-            </Card>
+            isOrgScope ? (
+              <Card className={`px-4 ${WIRE_CARD}`}>
+                <OrgCohortReadinessSection cohortId={cohort.id} />
+              </Card>
+            ) : (
+              <Card className={`px-4 ${WIRE_CARD}`}>
+                <SessionPreQuizOpsPanel cohortId={cohort.id} />
+              </Card>
+            )
           )}
           {instructorsSub === "reviews" && (
             <Card className={`px-4 ${WIRE_CARD}`}>
@@ -783,9 +738,10 @@ function CohortDetailView({ cohort }: { cohort: Cohort }) {
         <div className="space-y-5">
           <div className="flex items-center gap-2 flex-wrap">
             {([
-              { key: "students", label: "Students" },
-              { key: "teams", label: "Teams" },
-            ] as const).map((st) => (
+              { key: "students" as const, label: "Students" },
+              ...(isOrgScope ? [{ key: "observers" as const, label: "Observers" }] : []),
+              { key: "teams" as const, label: "Teams" },
+            ]).map((st) => (
               <button
                 key={st.key}
                 type="button"
@@ -800,6 +756,9 @@ function CohortDetailView({ cohort }: { cohort: Cohort }) {
             ))}
           </div>
 
+          {participantsSub === "observers" && isOrgScope && (
+            <OrgObserversSection cohortId={cohort.id} />
+          )}
           {participantsSub === "assign" && (
             <div className="space-y-3">
               <button
@@ -891,16 +850,18 @@ function CohortDetailView({ cohort }: { cohort: Cohort }) {
                         <option value="never">Never logged in</option>
                         <option value="has_logged_in">Has logged in</option>
                       </select>
-                      <select
-                        value={regConsentFilter}
-                        onChange={(e) => setRegConsentFilter(e.target.value as "all" | "consented" | "declined" | "pending")}
-                        className="flex-1 sm:flex-none sm:w-auto h-9 px-2.5 bg-background border border-border rounded-xl text-xs focus:outline-none focus:border-primary transition-colors cursor-pointer"
-                      >
-                        <option value="all">Any media consent</option>
-                        <option value="consented">Consent: Granted</option>
-                        <option value="declined">Consent: Declined</option>
-                        <option value="pending">Consent: Pending</option>
-                      </select>
+                      {!isOrgScope && (
+                        <select
+                          value={regConsentFilter}
+                          onChange={(e) => setRegConsentFilter(e.target.value as "all" | "consented" | "declined" | "pending")}
+                          className="flex-1 sm:flex-none sm:w-auto h-9 px-2.5 bg-background border border-border rounded-xl text-xs focus:outline-none focus:border-primary transition-colors cursor-pointer"
+                        >
+                          <option value="all">Any media consent</option>
+                          <option value="consented">Consent: Granted</option>
+                          <option value="declined">Consent: Declined</option>
+                          <option value="pending">Consent: Pending</option>
+                        </select>
+                      )}
                       <button
                         onClick={handleExportRegistrations}
                         disabled={filteredRegistrations.length === 0}
@@ -933,13 +894,13 @@ function CohortDetailView({ cohort }: { cohort: Cohort }) {
                           className="flex flex-col gap-2 p-3 bg-background border border-border rounded-xl sm:flex-row sm:flex-wrap sm:items-center sm:justify-between sm:gap-3"
                         >
                           <div
-                            className="min-w-0 flex-1 cursor-pointer group"
-                            onClick={() => setEditRegistrationTarget(r)}
+                            className={`min-w-0 flex-1 ${isOrgScope ? "" : "cursor-pointer group"}`}
+                            onClick={() => { if (!isOrgScope) setEditRegistrationTarget(r) }}
                           >
                             <div className="flex items-center gap-1.5 flex-wrap">
                               <button
-                                onClick={(e) => { e.stopPropagation(); setProfileContactId(r.contact_id) }}
-                                className="text-sm font-medium text-foreground hover:text-primary hover:underline transition-colors break-words w-full sm:w-auto text-left"
+                                onClick={(e) => { e.stopPropagation(); if (!isOrgScope) setProfileContactId(r.contact_id) }}
+                                className={`text-sm font-medium text-foreground break-words w-full sm:w-auto text-left ${isOrgScope ? "" : "hover:text-primary hover:underline transition-colors"}`}
                               >
                                 {r.student_name}
                               </button>
@@ -953,35 +914,39 @@ function CohortDetailView({ cohort }: { cohort: Cohort }) {
                                   {r.student_gender}
                                 </span>
                               )}
-                              {/* Media Consent Clickable Badge */}
-                              <button
-                                type="button"
-                                onClick={(e) => {
-                                  e.stopPropagation()
-                                  setConsentTarget(r)
-                                }}
-                                className={`text-xs font-semibold px-2 py-0.5 rounded-full transition-colors cursor-pointer ${r.media_consent_status === "consented"
-                                    ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-400 hover:bg-emerald-200"
-                                    : r.media_consent_status === "declined"
-                                      ? "bg-red-100 text-red-700 dark:bg-red-500/15 dark:text-red-400 hover:bg-red-200"
-                                      : "bg-muted text-muted-foreground hover:bg-muted/80 hover:text-foreground"
-                                  }`}
-                                title="Click to view details or change Media Consent state"
-                              >
-                                {r.media_consent_status === "consented"
-                                  ? "Consent: Granted"
-                                  : r.media_consent_status === "declined"
-                                    ? "Consent: Declined"
-                                    : "Consent: Pending"}
-                              </button>
-                              {r.ticket_sent ? (
-                                <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-blue-100 text-blue-700 dark:bg-blue-500/15 dark:text-blue-400">
-                                  Ticket sent
-                                </span>
-                              ) : (
-                                <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-amber-100 text-amber-700 dark:bg-amber-500/15 dark:text-amber-400">
-                                  No ticket
-                                </span>
+                              {!isOrgScope && (
+                                <>
+                                  {/* Media Consent Clickable Badge */}
+                                  <button
+                                    type="button"
+                                    onClick={(e) => {
+                                      e.stopPropagation()
+                                      setConsentTarget(r)
+                                    }}
+                                    className={`text-xs font-semibold px-2 py-0.5 rounded-full transition-colors cursor-pointer ${r.media_consent_status === "consented"
+                                        ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-400 hover:bg-emerald-200"
+                                        : r.media_consent_status === "declined"
+                                          ? "bg-red-100 text-red-700 dark:bg-red-500/15 dark:text-red-400 hover:bg-red-200"
+                                          : "bg-muted text-muted-foreground hover:bg-muted/80 hover:text-foreground"
+                                      }`}
+                                    title="Click to view details or change Media Consent state"
+                                  >
+                                    {r.media_consent_status === "consented"
+                                      ? "Consent: Granted"
+                                      : r.media_consent_status === "declined"
+                                        ? "Consent: Declined"
+                                        : "Consent: Pending"}
+                                  </button>
+                                  {r.ticket_sent ? (
+                                    <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-blue-100 text-blue-700 dark:bg-blue-500/15 dark:text-blue-400">
+                                      Ticket sent
+                                    </span>
+                                  ) : (
+                                    <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-amber-100 text-amber-700 dark:bg-amber-500/15 dark:text-amber-400">
+                                      No ticket
+                                    </span>
+                                  )}
+                                </>
                               )}
                               {r.onboarding_sent ? (
                                 <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-violet-100 text-violet-700 dark:bg-violet-500/15 dark:text-violet-400">
@@ -1033,7 +998,7 @@ function CohortDetailView({ cohort }: { cohort: Cohort }) {
                               <Link
                                 to="/lms-authoring/students/$userId"
                                 params={{ userId: r.lms_user_id }}
-                                search={{ from: `/operations/cohorts/${cohort.id}?tab=participants` } as never}
+                                search={{ from: `${pathname}?tab=participants` } as never}
                                 onClick={(e) => e.stopPropagation()}
                                 className={`inline-flex items-center h-7 px-2.5 text-xs font-medium ${WIRE_BTN}`}
                               >
@@ -1055,7 +1020,7 @@ function CohortDetailView({ cohort }: { cohort: Cohort }) {
                                     <Link
                                       to="/lms-authoring/students/$userId"
                                       params={{ userId: r.lms_user_id }}
-                                      search={{ from: `/operations/cohorts/${cohort.id}?tab=participants` } as never}
+                                      search={{ from: `${pathname}?tab=participants` } as never}
                                     >
                                       Manage student
                                     </Link>
@@ -1079,9 +1044,11 @@ function CohortDetailView({ cohort }: { cohort: Cohort }) {
                                     <Award size={14} /> Give certificate
                                   </DropdownMenuItem>
                                 )}
-                                <DropdownMenuItem onClick={() => resendMutation.mutate(r.id)} disabled={resendMutation.isPending}>
-                                  <Ticket size={14} /> {r.ticket_sent ? "Resend ticket" : "Send ticket"}
-                                </DropdownMenuItem>
+                                {!isOrgScope && (
+                                  <DropdownMenuItem onClick={() => resendMutation.mutate(r.id)} disabled={resendMutation.isPending}>
+                                    <Ticket size={14} /> {r.ticket_sent ? "Resend ticket" : "Send ticket"}
+                                  </DropdownMenuItem>
+                                )}
                                 <DropdownMenuItem
                                   onClick={() => resendOnboardingMutation.mutate(r.id)}
                                   disabled={resendOnboardingMutation.isPending}
@@ -1094,12 +1061,16 @@ function CohortDetailView({ cohort }: { cohort: Cohort }) {
                                 >
                                   <Copy size={14} /> Copy set-password link
                                 </DropdownMenuItem>
-                                <DropdownMenuItem onClick={() => setPaymentTarget(r)}>
-                                  <Wallet size={14} /> Confirm payment
-                                </DropdownMenuItem>
-                                <DropdownMenuItem onClick={() => setConsentTarget(r)}>
-                                  <Camera size={14} /> Media consent
-                                </DropdownMenuItem>
+                                {!isOrgScope && (
+                                  <>
+                                    <DropdownMenuItem onClick={() => setPaymentTarget(r)}>
+                                      <Wallet size={14} /> Confirm payment
+                                    </DropdownMenuItem>
+                                    <DropdownMenuItem onClick={() => setConsentTarget(r)}>
+                                      <Camera size={14} /> Media consent
+                                    </DropdownMenuItem>
+                                  </>
+                                )}
                                 <DropdownMenuSeparator />
                                 <DropdownMenuItem
                                   variant="destructive"
@@ -1124,9 +1095,11 @@ function CohortDetailView({ cohort }: { cohort: Cohort }) {
                   </div>
                 )}
               </div>
-              <Card className="p-4">
-                <CohortConsentsPanel cohortId={cohort.id} registrations={registrations} />
-              </Card>
+              {!isOrgScope && (
+                <Card className="p-4">
+                  <CohortConsentsPanel cohortId={cohort.id} registrations={registrations} />
+                </Card>
+              )}
             </div>
           )}
         </div>
@@ -1178,18 +1151,26 @@ function CohortDetailView({ cohort }: { cohort: Cohort }) {
         <CohortCertificatesPanel
           cohortId={cohort.id}
           cohortName={cohort.name}
-          programName={programs.find((p) => p.id === cohort.program_id)?.name}
+          programName={programs.find((p) => p.id === cohort.program_id)?.name ?? cohort.program_name ?? undefined}
           programTemplates={programTemplates}
-          onOpenExcuseLetter={() => setExcuseModalOpen(true)}
+          onOpenExcuseLetter={isOrgScope ? undefined : () => setExcuseModalOpen(true)}
         />
       )}
 
       {editOpen && (
-        <CohortModal
-          programs={programs} cohort={cohort}
-          onClose={() => setEditOpen(false)}
-          onSuccess={() => { invalidateCohort(); setEditOpen(false) }}
-        />
+        isOrgScope ? (
+          <OrgEditCohortModal
+            cohort={cohort}
+            onClose={() => setEditOpen(false)}
+            onSaved={invalidateCohort}
+          />
+        ) : (
+          <CohortModal
+            programs={programs} cohort={cohort}
+            onClose={() => setEditOpen(false)}
+            onSuccess={() => { invalidateCohort(); setEditOpen(false) }}
+          />
+        )
       )}
       <ExcuseLetterModal
         cohortId={cohort.id}
@@ -1212,7 +1193,7 @@ function CohortDetailView({ cohort }: { cohort: Cohort }) {
       )}
       {registerOpen && (
         <DeskRegisterModal
-          cohort={cohort} sessions={sessions}
+          cohort={cohort} sessions={sessions} isOrgScope={isOrgScope}
           onClose={() => setRegisterOpen(false)}
           onSuccess={() => { invalidateRegistrations(); setRegisterOpen(false) }}
         />

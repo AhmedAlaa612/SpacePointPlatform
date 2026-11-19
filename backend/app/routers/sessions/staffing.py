@@ -748,8 +748,11 @@ async def list_interest(
 async def list_eligible_instructors(
     session_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_operations),
+    current_user: User = Depends(require_session_delivery),
 ):
+    from app.services.org_access import require_session_manager_or_ops
+
+    await require_session_manager_or_ops(db, session_id, current_user)
     """Full instructor|facilitator roster for the ops select screen — not
     interest-only (operator requirement 2026-07-24).
 

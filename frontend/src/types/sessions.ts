@@ -164,6 +164,8 @@ export interface Cohort {
   // Same convenience-join pattern — whether this cohort's program has the
   // competition domain's judging tools available (2026-08-24).
   program_is_competition?: boolean;
+  org_capacity_limit?: number | null;
+  linked_event_slug?: string | null;
 }
 
 export interface SessionInstructor {

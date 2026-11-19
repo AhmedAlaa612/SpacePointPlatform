@@ -39,8 +39,35 @@ from app.schemas.sessions.journey import (
 from app.services.sessions import journey as svc
 from app.services.sessions import materials as mat
 from app.services.sessions.delivery import _get_deliverable_session
+from app.services.org_access import (
+    is_ops_or_admin,
+    is_program_org_manager,
+    require_cohort_manager_or_ops,
+    require_session_manager_or_ops,
+)
 
 router = APIRouter(prefix="/sessions", tags=["sessions-journey"])
+
+
+async def _assert_materials_scope(
+    db: AsyncSession,
+    user: User,
+    *,
+    program_id: uuid.UUID | None = None,
+    cohort_id: uuid.UUID | None = None,
+    session_id: uuid.UUID | None = None,
+) -> None:
+    if is_ops_or_admin(user) or "facilitator" in user.role_values:
+        return
+    if session_id is not None:
+        await require_session_manager_or_ops(db, session_id, user)
+        return
+    if cohort_id is not None:
+        await require_cohort_manager_or_ops(db, cohort_id, user)
+        return
+    if program_id is not None and await is_program_org_manager(db, program_id, user):
+        return
+    raise HTTPException(status.HTTP_403_FORBIDDEN, detail="Operation not permitted")
 
 
 async def _out(material: Material) -> MaterialOut:
@@ -65,10 +92,13 @@ async def list_materials(
     cohort_id: uuid.UUID | None = None,
     session_id: uuid.UUID | None = None,
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(require_materials_manager),
+    current_user: User = Depends(require_session_delivery),
 ):
     """Rows attached at exactly one level, with no inheritance applied — the
     management view. Ops editing a program must see the program's own rows."""
+    await _assert_materials_scope(
+        db, current_user, program_id=program_id, cohort_id=cohort_id, session_id=session_id
+    )
     rows = await mat.list_materials(
         db, program_id=program_id, cohort_id=cohort_id, session_id=session_id
     )
@@ -82,8 +112,11 @@ async def add_material_link(
     cohort_id: uuid.UUID | None = None,
     session_id: uuid.UUID | None = None,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_materials_manager),
+    current_user: User = Depends(require_session_delivery),
 ):
+    await _assert_materials_scope(
+        db, current_user, program_id=program_id, cohort_id=cohort_id, session_id=session_id
+    )
     material = await mat.add_material(
         db, user=current_user, title=body.title, url=body.url, notes=body.notes,
         program_id=program_id, cohort_id=cohort_id, session_id=session_id,
@@ -104,8 +137,11 @@ async def add_material_file(
     is_published: bool = Form(False),
     file: UploadFile = File(...),
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_materials_manager),
+    current_user: User = Depends(require_session_delivery),
 ):
+    await _assert_materials_scope(
+        db, current_user, program_id=program_id, cohort_id=cohort_id, session_id=session_id
+    )
     material = await mat.add_material(
         db, user=current_user, title=title, notes=notes,
         program_id=program_id, cohort_id=cohort_id, session_id=session_id,
@@ -123,11 +159,18 @@ async def update_material(
     material_id: uuid.UUID,
     body: MaterialUpdateIn,
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(require_materials_manager),
+    current_user: User = Depends(require_session_delivery),
 ):
     material = await db.get(Material, material_id)
     if material is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Material not found")
+    await _assert_materials_scope(
+        db,
+        current_user,
+        program_id=material.program_id,
+        cohort_id=material.cohort_id,
+        session_id=material.session_id,
+    )
     await mat.update_material(
         db, material,
         is_published=body.is_published,
@@ -143,11 +186,18 @@ async def update_material(
 async def delete_material(
     material_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(require_materials_manager),
+    current_user: User = Depends(require_session_delivery),
 ):
     material = await db.get(Material, material_id)
     if material is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Material not found")
+    await _assert_materials_scope(
+        db,
+        current_user,
+        program_id=material.program_id,
+        cohort_id=material.cohort_id,
+        session_id=material.session_id,
+    )
     await mat.delete_material(db, material)
     await db.commit()
 

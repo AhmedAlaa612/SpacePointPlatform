@@ -7,8 +7,8 @@ import { listOrganizationsApi } from "@/api/spine/contacts"
 import { deskRegisterApi } from "@/api/sessions/cohorts"
 import type { Cohort, Session } from "@/types/sessions"
 
-export function DeskRegisterModal({ cohort, sessions, onClose, onSuccess }: {
-  cohort: Cohort; sessions: Session[]; onClose: () => void; onSuccess: () => void
+export function DeskRegisterModal({ cohort, sessions, onClose, onSuccess, isOrgScope = false }: {
+  cohort: Cohort; sessions: Session[]; onClose: () => void; onSuccess: () => void; isOrgScope?: boolean
 }) {
   const toast = useToast()
   const [studentName, setStudentName] = useState("")
@@ -33,6 +33,7 @@ export function DeskRegisterModal({ cohort, sessions, onClose, onSuccess }: {
   const { data: organizations = [] } = useQuery({
     queryKey: ["spine-organizations", "picker"],
     queryFn: () => listOrganizationsApi(),
+    enabled: !isOrgScope,
   })
 
   const mutation = useMutation({

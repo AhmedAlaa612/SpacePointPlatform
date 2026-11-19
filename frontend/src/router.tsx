@@ -131,7 +131,6 @@ import Birthdays from "@/pages/operations/Birthdays";
 import WebsiteManagement from "@/pages/operations/website/WebsiteManagement";
 import OrganizationEvents from "@/pages/organization/OrganizationEvents";
 import OrganizationPrograms from "@/pages/organization/OrganizationPrograms";
-import OrganizationCohortDetail from "@/pages/organization/OrganizationCohortDetail";
 import OrganizationTeam from "@/pages/organization/OrganizationTeam";
 import { OrganizationSignup } from "@/pages/auth/OrganizationSignup";
 
@@ -957,8 +956,10 @@ const organizationRoutes = [
     },
   }),
   createRoute({ getParentRoute: porg, path: "/programs", component: OrganizationPrograms }),
-  createRoute({ getParentRoute: porg, path: "/programs/$cohortId", component: OrganizationCohortDetail }),
+  createRoute({ getParentRoute: porg, path: "/programs/$cohortId", component: AdminCohortDetail }),
+  createRoute({ getParentRoute: porg, path: "/programs/$cohortId/sessions/$sessionId", component: AdminSessionDetail }),
   createRoute({ getParentRoute: porg, path: "/programs/$cohortId/judging", component: CompetitionJudging }),
+  createRoute({ getParentRoute: porg, path: "/game-assignments/$assignmentId", component: SessionGameAssignmentDetail }),
   createRoute({ getParentRoute: porg, path: "/my-sessions", component: InstructorMySessions }),
   createRoute({ getParentRoute: porg, path: "/sessions/$sessionId", component: InstructorSessionDetail }),
   createRoute({ getParentRoute: porg, path: "/cohorts/$cohortId/readiness-quiz", component: CohortReadinessQuiz }),

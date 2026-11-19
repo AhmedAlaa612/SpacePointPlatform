@@ -49,9 +49,36 @@ from app.schemas.sessions.day import (
 )
 from app.services.games import runs as games_runs_svc
 from app.services.notification import create_notification
+from app.services.org_access import (
+    is_ops_or_admin,
+    is_program_org_manager,
+    require_cohort_manager_or_ops,
+    require_session_manager_or_ops,
+)
 from app.services.sessions import day as svc
 
 router = APIRouter(prefix="/sessions", tags=["sessions-day"])
+
+
+async def _assert_checklist_scope_access(
+    db: AsyncSession, scope: str, owner_id: uuid.UUID, user: User
+) -> None:
+    if scope not in _SCOPES:
+        raise HTTPException(
+            status.HTTP_404_NOT_FOUND,
+            detail="A checklist belongs to a program, a cohort or a session",
+        )
+    if is_ops_or_admin(user):
+        return
+    if scope == "sessions":
+        await require_session_manager_or_ops(db, owner_id, user)
+        return
+    if scope == "cohorts":
+        await require_cohort_manager_or_ops(db, owner_id, user)
+        return
+    if scope == "programs" and await is_program_org_manager(db, owner_id, user):
+        return
+    raise HTTPException(status.HTTP_403_FORBIDDEN, detail="Operation not permitted")
 
 
 # ── ops: checklist templates ────────────────────────────────────────────────
@@ -75,11 +102,12 @@ async def list_checklist_items(
     role_id: uuid.UUID | None = None,
     target_audience: str = "instructor",
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(require_operations),
+    current_user: User = Depends(require_session_delivery),
 ):
     """One (level, role, target_audience) bucket — the management view, no inheritance applied.
     Omit `role_id` for the general bucket; pass a role to edit that role's own
     list. Use the instructor's day endpoint to see what actually resolves."""
+    await _assert_checklist_scope_access(db, scope, owner_id, current_user)
     items = await svc.list_checklist_items(
         db, role_id=role_id, target_audience=target_audience, **_scope_kwarg(scope, owner_id)
     )
@@ -114,12 +142,13 @@ async def set_checklist_items(
     role_id: uuid.UUID | None = None,
     target_audience: str = "instructor",
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_operations),
+    current_user: User = Depends(require_session_delivery),
 ):
     """Replace one (level, role, target_audience) bucket. Saving an empty list clears it, which
     makes the next fallback apply again — general at this level if a role's
     list is cleared, or the next level up if the general one is cleared. That
     is how you go back to inheriting rather than overriding."""
+    await _assert_checklist_scope_access(db, scope, owner_id, current_user)
     items = await svc.set_checklist_items(
         db, lines=[i.model_dump() for i in body.items], actor_user_id=current_user.id, role_id=role_id,
         target_audience=target_audience,
@@ -157,9 +186,11 @@ async def import_checklist_items(
     role_id: uuid.UUID | None = None,
     target_audience: str = "instructor",
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_operations),
+    current_user: User = Depends(require_session_delivery),
 ):
     """Import selected delivery checklist items from another program, cohort, or session."""
+    await _assert_checklist_scope_access(db, scope, owner_id, current_user)
+    await _assert_checklist_scope_access(db, body.source_scope, body.source_owner_id, current_user)
     effective_role_id = body.role_id if body.role_id is not None else role_id
     effective_target_audience = body.target_audience or target_audience
     items = await svc.import_checklist_items(
@@ -203,9 +234,10 @@ async def import_checklist_items(
 async def get_internal_checklist(
     session_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(require_operations),
+    current_user: User = Depends(require_session_delivery),
 ):
     """Internal / operational checklist for a session, resolved with inheritance."""
+    await require_session_manager_or_ops(db, session_id, current_user)
     return await svc.get_internal_checklist_for_session(db, session_id)
 
 
@@ -215,9 +247,10 @@ async def set_internal_checklist_item_progress(
     item_id: uuid.UUID,
     body: OpsChecklistProgressIn,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_operations),
+    current_user: User = Depends(require_session_delivery),
 ):
     """Update progress for an internal checklist item on a session."""
+    await require_session_manager_or_ops(db, session_id, current_user)
     await svc.set_internal_checklist_progress(
         db, session_id=session_id, checklist_item_id=item_id, actor_user_id=current_user.id,
         is_done=body.is_done, proof_report_id=body.proof_report_id, note=body.note,
@@ -335,12 +368,19 @@ async def list_day_reviews(
     cohort_id: uuid.UUID | None = None,
     session_id: uuid.UUID | None = None,
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(require_operations),
+    current_user: User = Depends(require_session_delivery),
 ):
     """The queue. Defaults to what needs attention now; pass
     `status_filter=` (empty) for everything, or a cohort/session to scope it
     — a session scope with an empty status is the session's own Report tab,
     every assigned instructor's report whatever state it's in."""
+    if not is_ops_or_admin(current_user):
+        if session_id is not None:
+            await require_session_manager_or_ops(db, session_id, current_user)
+        elif cohort_id is not None:
+            await require_cohort_manager_or_ops(db, cohort_id, current_user)
+        else:
+            raise HTTPException(status.HTTP_403_FORBIDDEN, detail="Operation not permitted")
     return await svc.list_day_reviews(
         db, status_filter=status_filter or None, cohort_id=cohort_id, session_id=session_id,
     )
@@ -350,7 +390,7 @@ async def list_day_reviews(
 async def approve_day(
     day_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_operations),
+    current_user: User = Depends(require_session_delivery),
 ):
     """Sign a day off — and this is what makes it a *paid* day (§18/§19).
 
@@ -359,6 +399,13 @@ async def approve_day(
     `complete_cohort()` runs unchanged: student statuses, the LMS certificate
     gate and student certificates all behave exactly as they do today.
     """
+    if not is_ops_or_admin(current_user):
+        from app.models.sessions.checklist import InstructorSessionDay
+
+        existing_day = await db.get(InstructorSessionDay, day_id)
+        if existing_day is None:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Day submission not found")
+        await require_session_manager_or_ops(db, existing_day.session_id, current_user)
     day = await svc.approve_day(db, day_id, current_user.id)
     session = await db.get(Session, day.session_id)
     completed = False
@@ -379,9 +426,16 @@ async def return_day(
     day_id: uuid.UUID,
     body: ReturnDayIn,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_operations),
+    current_user: User = Depends(require_session_delivery),
 ):
     """Send it back with something to fix (§12). The comment is mandatory."""
+    if not is_ops_or_admin(current_user):
+        from app.models.sessions.checklist import InstructorSessionDay
+
+        existing_day = await db.get(InstructorSessionDay, day_id)
+        if existing_day is None:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Day submission not found")
+        await require_session_manager_or_ops(db, existing_day.session_id, current_user)
     day = await svc.return_day(db, day_id, current_user.id, comment=body.comment)
     session = await db.get(Session, day.session_id)
     await create_notification(
@@ -416,8 +470,9 @@ async def get_session_board(
 async def list_session_game_runs(
     session_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(require_operations),
+    current_user: User = Depends(require_session_delivery),
 ):
     """Live-quiz runs on this session, most recent first — part of the
     Report tab's "warehouse & session activity" strip."""
+    await require_session_manager_or_ops(db, session_id, current_user)
     return await games_runs_svc.list_session_runs(db, session_id=session_id)

@@ -1,6 +1,6 @@
 import { useState } from "react"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
-import { Link } from "@tanstack/react-router"
+import { Link, useRouterState } from "@tanstack/react-router"
 import { Plus, Trash2, Trophy, SlidersHorizontal } from "lucide-react"
 import { Modal, Field, ModalActions } from "@/pages/admin/components/common"
 import { listGamesApi, type Game } from "@/api/games_admin"
@@ -18,6 +18,7 @@ import { useToast } from "@/components/ui/toast"
 export function GameAssignmentPanel({ sessionId }: { sessionId: string }) {
   const qc = useQueryClient()
   const toast = useToast()
+  const isOrgRoute = useRouterState({ select: (s) => s.location.pathname.startsWith("/organization") })
   const [pickerOpen, setPickerOpen] = useState(false)
   const [selectedGameId, setSelectedGameId] = useState("")
   const [note, setNote] = useState("")
@@ -72,7 +73,8 @@ export function GameAssignmentPanel({ sessionId }: { sessionId: string }) {
             </div>
             <div className="min-w-0 flex-1">
               <Link
-                to="/operations/game-assignments/$assignmentId" params={{ assignmentId: a.id }}
+                to={isOrgRoute ? "/organization/game-assignments/$assignmentId" : "/operations/game-assignments/$assignmentId"}
+                params={{ assignmentId: a.id }}
                 className="text-sm font-medium text-foreground hover:underline truncate block"
               >
                 {a.game_title}
