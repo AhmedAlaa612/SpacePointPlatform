@@ -12,6 +12,8 @@ import {
   type InviteCode,
 } from "@/api/lms_admin"
 import { getCohortsApi } from "@/api/sessions/cohorts"
+import { getOrgCohortsApi } from "@/api/organizationPrograms"
+import { useAuth } from "@/context/AuthContext"
 
 function errorDetail(err: unknown, fallback: string): string {
   if (isAxiosError(err) && typeof err.response?.data?.detail === "string") return err.response.data.detail
@@ -230,6 +232,8 @@ export default function LmsInviteCodes() {
  * already filters students by. Removing a grant only stops it applying
  * going forward; it never revokes access already granted. */
 function GrantsPanel({ code }: { code: InviteCode }) {
+  const { currentUser } = useAuth()
+  const isOrg = currentUser?.role === "organization"
   const queryClient = useQueryClient()
   const [pickerType, setPickerType] = useState<"course" | "path" | "program">("course")
   const [pickerId, setPickerId] = useState("")
@@ -244,7 +248,10 @@ function GrantsPanel({ code }: { code: InviteCode }) {
   // "program" grants store a cohort_id (see InviteCodeGrant's own comment
   // — an LmsProgram is never assigned on its own, only resolved from a
   // cohort), so the picker offers cohorts, not programs.
-  const { data: cohorts = [] } = useQuery({ queryKey: ["sessions-cohorts-all"], queryFn: () => getCohortsApi() })
+  const { data: cohorts = [] } = useQuery({
+    queryKey: [isOrg ? "org-cohorts-all" : "sessions-cohorts-all"],
+    queryFn: () => (isOrg ? getOrgCohortsApi() : getCohortsApi()),
+  })
   const invalidate = () => queryClient.invalidateQueries({ queryKey: ["lms-admin-invite-code-grants", code.id] })
 
   const grantedCourseIds = new Set(grants.filter((g) => g.course_id).map((g) => g.course_id))
