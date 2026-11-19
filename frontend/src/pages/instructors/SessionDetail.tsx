@@ -263,7 +263,7 @@ export default function SessionDetail() {
                   )}
                 </>
               ) : (
-                <span>Take Cohort Readiness Pipeline</span>
+                <span>Take Cohort Readiness Quiz</span>
               )}
             </button>
           )}
@@ -298,10 +298,10 @@ export default function SessionDetail() {
         <div className="p-3.5 sm:p-4 rounded-2xl border border-amber-500/40 bg-amber-500/10 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
           <div>
             <p className="text-xs sm:text-sm font-bold text-foreground">
-              Instructor Readiness Pipeline Required: {preQuiz.data.preset?.name}
+              Instructor Readiness Quiz Required: {preQuiz.data.preset?.name}
             </p>
             <p className="text-xs text-muted-foreground mt-0.5">
-              Complete the {preQuiz.data.preset?.phases?.length ?? 5}-phase technical readiness pipeline to unlock{" "}
+              Complete the {preQuiz.data.preset?.phases?.length ?? 5}-phase technical readiness quiz to unlock{" "}
               <strong className="text-foreground">Start session</strong>. Passing unlocks delivery for all sessions in this cohort.
             </p>
           </div>
@@ -316,7 +316,7 @@ export default function SessionDetail() {
             }}
             className="h-9 px-4 text-xs font-bold rounded-xl bg-primary text-black hover:opacity-90 shrink-0 cursor-pointer"
           >
-            Open Readiness Pipeline
+            Open Readiness Quiz
           </Button>
         </div>
       )}
@@ -624,9 +624,14 @@ export default function SessionDetail() {
             </>
           )}
 
-          {/* 6. Extra Equipment & Notes */}
-          <SessionKitsPanel sessionId={sessionId} stage="pre" onChanged={invalidate} />
-          <SessionEquipmentPanel sessionId={sessionId} cohortId={s.cohort_id} notes={s.notes} onChanged={invalidate} />
+          {/* 6. Extra Equipment & Notes — inventory belongs to Ops; the org
+              sandbox has no warehouse/kits to manage. */}
+          {!isOrgSurface && (
+            <>
+              <SessionKitsPanel sessionId={sessionId} stage="pre" onChanged={invalidate} />
+              <SessionEquipmentPanel sessionId={sessionId} cohortId={s.cohort_id} notes={s.notes} onChanged={invalidate} />
+            </>
+          )}
         </div>
 
         {/* ── sticky right rail — the checklist, visible from the start ─ */}
@@ -641,7 +646,13 @@ export default function SessionDetail() {
                   </span>
                 )}
               </div>
-              {!d || d.checklist.length === 0 ? (
+              {day.isLoading ? (
+                <p className="text-xs text-muted-foreground">Loading checklist…</p>
+              ) : day.isError ? (
+                <p className="text-xs text-red-500">
+                  {getErrorMessage(day.error, "Could not load daily checklist.")}
+                </p>
+              ) : !d || d.checklist.length === 0 ? (
                 <p className="text-xs text-muted-foreground">No checklist configured for this session.</p>
               ) : (
                 <>

@@ -1040,11 +1040,13 @@ export function CohortDayChecklistManager({
   sessions,
   roles,
   initialSessionId,
+  isOrgScope = false,
 }: {
   cohort: Cohort
   sessions: Session[]
   roles: DeliveryRole[]
   initialSessionId?: string
+  isOrgScope?: boolean
 }) {
   const sortedSessions = [...sessions].sort((a, b) => {
     const d = a.meeting_date.localeCompare(b.meeting_date)
@@ -1068,10 +1070,10 @@ export function CohortDayChecklistManager({
       : `Day ${currentDayIndex + 1}`
 
   const activeRoleName = isInternalChecklist
-    ? "Internal Checklist"
+    ? (isOrgScope ? "Operational Checklist" : "Internal Checklist")
     : activeRoleId
       ? roles.find((r) => r.id === activeRoleId)?.name || "Role"
-      : "All Roles (General)"
+      : (isOrgScope ? "Instructor Checklist" : "All Roles (General)")
 
   return (
     <div className="flex flex-col gap-4">
@@ -1168,7 +1170,10 @@ export function CohortDayChecklistManager({
         </div>
       </div>
 
-      {/* 2. Role Selector Pills */}
+      {/* 2. Checklist Audience & Role Selector Pills — Ops sees All Roles,
+          individual freelance roles, and Internal Checklist. Orgs don't use
+          SpacePoint freelance roles, so we hide only the per-role pills and
+          keep the Instructor vs Operational checklist switcher visible. */}
       <div className="flex items-center gap-1.5 overflow-x-auto pb-1 scrollbar-none no-scrollbar">
         <button
           type="button"
@@ -1183,31 +1188,32 @@ export function CohortDayChecklistManager({
               : "bg-muted/60 text-muted-foreground hover:text-foreground hover:bg-muted",
           )}
         >
-          All Roles (General)
+          {isOrgScope ? "Instructor Checklist" : "All Roles (General)"}
         </button>
-        {roles
-          .filter((r) => r.is_active)
-          .map((role) => {
-            const isRoleActive = !isInternalChecklist && activeRoleId === role.id
-            return (
-              <button
-                key={role.id}
-                type="button"
-                onClick={() => {
-                  setIsInternalChecklist(false)
-                  setActiveRoleId(role.id)
-                }}
-                className={cn(
-                  "h-7 px-3 rounded-full text-xs font-medium transition-colors shrink-0 cursor-pointer",
-                  isRoleActive
-                    ? "bg-primary text-primary-foreground shadow-sm"
-                    : "bg-muted/60 text-muted-foreground hover:text-foreground hover:bg-muted",
-                )}
-              >
-                {role.name}
-              </button>
-            )
-          })}
+        {!isOrgScope &&
+          roles
+            .filter((r) => r.is_active)
+            .map((role) => {
+              const isRoleActive = !isInternalChecklist && activeRoleId === role.id
+              return (
+                <button
+                  key={role.id}
+                  type="button"
+                  onClick={() => {
+                    setIsInternalChecklist(false)
+                    setActiveRoleId(role.id)
+                  }}
+                  className={cn(
+                    "h-7 px-3 rounded-full text-xs font-medium transition-colors shrink-0 cursor-pointer",
+                    isRoleActive
+                      ? "bg-primary text-primary-foreground shadow-sm"
+                      : "bg-muted/60 text-muted-foreground hover:text-foreground hover:bg-muted",
+                  )}
+                >
+                  {role.name}
+                </button>
+              )
+            })}
         <button
           type="button"
           onClick={() => {
@@ -1222,7 +1228,7 @@ export function CohortDayChecklistManager({
           )}
         >
           <ClipboardCheck size={12} />
-          Internal Checklist
+          {isOrgScope ? "Operational Checklist" : "Internal Checklist"}
         </button>
       </div>
 
@@ -1701,6 +1707,7 @@ export function CohortRolesPanel({
           sessions={allSessions}
           roles={roles}
           initialSessionId={sessionId}
+          isOrgScope={isOrgScope}
         />
       ) : (
         <CohortRolesRatesSection
