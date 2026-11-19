@@ -43,7 +43,7 @@ def test_official_template_round_trip_preserves_prompt_not_question_id():
     assert s01.topic == "Safety & PPE"
     assert s01.prompt.startswith("Students are excited to begin integration")
     assert s01.prompt != s01.code
-    assert s01.title.startswith("[S01] Students are excited")
+    assert s01.title == s01.prompt[:255]
     assert s01.critical is True
     assert [o["is_correct"] for o in s01.options] == [False, False, False, True]
 
@@ -142,7 +142,7 @@ async def test_reimport_repairs_broken_prompt_and_mirrored_assessment_question(d
     assert len(questions) == 1
     assert questions[0].id == q_id
     assert questions[0].prompt == "One team finishes early while another is struggling. What should you do?"
-    assert questions[0].title == "[A06] One team finishes early while another is strugglin..."
+    assert questions[0].title == "One team finishes early while another is struggling. What should you do?"
 
     refreshed_aq = await db.get(AssessmentQuestion, q_id)
     assert refreshed_aq is not None

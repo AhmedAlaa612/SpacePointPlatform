@@ -12,7 +12,6 @@ import {
   Plus,
   Search,
   ShieldAlert,
-  Sparkles,
   Trash2,
   Unlink,
   Upload,
@@ -23,7 +22,6 @@ import {
   createPreQuizDatasheetApi,
   createPreQuizPresetApi,
   createPreQuizQuestionApi,
-  deduplicatePreQuizQuestionsApi,
   deletePreQuizDatasheetApi,
   deletePreQuizPresetApi,
   deletePreQuizQuestionApi,
@@ -173,7 +171,6 @@ function QuestionBankTab() {
   const [editingQuestion, setEditingQuestion] = useState<PreSessionQuizQuestion | null>(null)
   const [creating, setCreating] = useState(false)
   const [importing, setImporting] = useState(false)
-  const [deduplicating, setDeduplicating] = useState(false)
   const [downloadingTemplate, setDownloadingTemplate] = useState(false)
   const [deletingQuestion, setDeletingQuestion] = useState<PreSessionQuizQuestion | null>(null)
   const [previewQuestions, setPreviewQuestions] = useState<PreSessionQuizQuestion[] | null>(null)
@@ -222,24 +219,6 @@ function QuestionBankTab() {
       toast.error(getErrorMessage(e, "Could not download template"))
     } finally {
       setDownloadingTemplate(false)
-    }
-  }
-
-  const handleDeduplicate = async () => {
-    try {
-      setDeduplicating(true)
-      const res = await deduplicatePreQuizQuestionsApi()
-      if (res.deleted_count > 0) {
-        toast.success(`Cleaned ${res.deleted_count} duplicate question${res.deleted_count === 1 ? "" : "s"}! ${res.remaining_count} unique questions remaining.`)
-      } else {
-        toast.info("No duplicates found — Question bank is clean.")
-      }
-      qc.invalidateQueries({ queryKey: ["pre-quiz-questions"] })
-      qc.invalidateQueries({ queryKey: ["pre-quiz-presets"] })
-    } catch (e) {
-      toast.error(getErrorMessage(e, "Could not clean duplicates"))
-    } finally {
-      setDeduplicating(false)
     }
   }
 
@@ -308,16 +287,6 @@ function QuestionBankTab() {
           >
             <Upload size={14} />
             <span>Import Excel / CSV</span>
-          </button>
-          <button
-            type="button"
-            onClick={handleDeduplicate}
-            disabled={deduplicating}
-            className="flex items-center gap-1.5 h-9 px-3 border border-border bg-card hover:bg-muted text-xs sm:text-sm font-semibold text-muted-foreground hover:text-foreground rounded-xl transition-colors cursor-pointer shrink-0"
-            title="Clean duplicate questions by matching unique scenarios"
-          >
-            <Sparkles size={14} />
-            <span className="hidden sm:inline">{deduplicating ? "Cleaning..." : "Clean Duplicates"}</span>
           </button>
           {filtered.length > 0 && (
             <button
@@ -449,8 +418,14 @@ function QuestionBankTab() {
                       </span>
                     )}
                   </div>
-                  <h3 className="text-sm sm:text-base font-bold text-foreground mt-0.5">{q.title}</h3>
-                  <p className="text-xs sm:text-sm text-muted-foreground whitespace-pre-wrap">{q.prompt}</p>
+                  {q.question_type === "mcq" ? (
+                    <h3 className="text-sm sm:text-base font-bold text-foreground mt-0.5 whitespace-pre-wrap">{q.prompt}</h3>
+                  ) : (
+                    <>
+                      <h3 className="text-sm sm:text-base font-bold text-foreground mt-0.5">{q.title}</h3>
+                      <p className="text-xs sm:text-sm text-muted-foreground whitespace-pre-wrap">{q.prompt}</p>
+                    </>
+                  )}
                 </div>
 
                 <div className="flex items-center gap-1.5 flex-wrap w-full sm:w-auto mt-2 sm:mt-0">
@@ -582,7 +557,7 @@ function QuestionBankTab() {
       {deletingQuestion && (
         <ConfirmDialog
           title="Delete Question"
-          description={`Are you sure you want to delete "${deletingQuestion.title}"?`}
+          description={`Are you sure you want to delete "${deletingQuestion.question_type === "mcq" ? deletingQuestion.prompt : deletingQuestion.title}"?`}
           confirmLabel="Delete"
           destructive
           pending={deleteMut.isPending}
@@ -695,7 +670,7 @@ function QuestionBuilderModal({
         code: code.trim() || null,
         topic: topic.trim() || "General",
         question_type: questionType,
-        title: title.trim(),
+        title: questionType === "mcq" ? prompt.trim().slice(0, 255) : title.trim(),
         prompt: prompt.trim(),
         image_url: imageUrl.trim() || null,
         options: questionType === "mcq" ? options : [],
@@ -722,7 +697,7 @@ function QuestionBuilderModal({
 
   return (
     <Modal
-      title={question ? `Edit: ${question.title}` : "Create Pre-Session Quiz Question"}
+      title={question ? `Edit: ${question.question_type === "mcq" ? question.prompt : question.title}` : "Create Pre-Session Quiz Question"}
       onClose={onClose}
       maxWidth="sm:max-w-3xl max-w-3xl"
     >
@@ -824,21 +799,23 @@ function QuestionBuilderModal({
           </div>
         </div>
 
-        <Field label="Question Title">
-          <input
-            value={title}
-            onChange={(e) => setTitle(e.target.value)}
-            placeholder="e.g. CDHS — Connector J6 (MicroSD SPI Interface)"
-            className="w-full h-10 px-3 border border-border bg-card text-foreground rounded-xl text-sm focus:outline-none focus:border-primary"
-          />
-        </Field>
+        {questionType !== "mcq" && (
+          <Field label="Question Title">
+            <input
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+              placeholder="e.g. CDHS — Connector J6 (MicroSD SPI Interface)"
+              className="w-full h-10 px-3 border border-border bg-card text-foreground rounded-xl text-sm focus:outline-none focus:border-primary"
+            />
+          </Field>
+        )}
 
-        <Field label="Instructions / Prompt">
+        <Field label={questionType === "mcq" ? "Question" : "Instructions / Prompt"}>
           <textarea
             value={prompt}
             onChange={(e) => setPrompt(e.target.value)}
             rows={2}
-            placeholder="Instructions shown to the instructor..."
+            placeholder={questionType === "mcq" ? "Enter the multiple choice question..." : "Instructions shown to the instructor..."}
             className="w-full p-3 border border-border bg-card text-foreground rounded-xl text-sm focus:outline-none focus:border-primary"
           />
         </Field>
@@ -1013,7 +990,7 @@ function QuestionBuilderModal({
           onCancel={onClose}
           onConfirm={() => saveMut.mutate()}
           loading={saveMut.isPending}
-          disabled={!title.trim() || !prompt.trim()}
+          disabled={!prompt.trim() || (questionType !== "mcq" && !title.trim())}
           label={question ? "Save Changes" : "Create Question"}
         />
       </div>
@@ -3159,7 +3136,9 @@ function PhaseQuestionSelector({
                 <div className="flex items-center gap-2 min-w-0">
                   <span className="font-bold text-primary">{idx + 1}.</span>
                   <span className="px-1.5 py-0.2 rounded bg-background text-[10px] font-semibold">{q.topic}</span>
-                  <span className="truncate font-medium">{q.title}</span>
+                  <span className="truncate font-medium">
+                    {q.question_type === "mcq" ? (q.code ? `[${q.code}] ${q.prompt}` : q.prompt) : q.title}
+                  </span>
                 </div>
                 <div className="flex items-center gap-1 shrink-0">
                   <button
@@ -3238,7 +3217,9 @@ function PhaseQuestionSelector({
                   onChange={() => toggleQ(q.id)}
                   className="rounded border-border text-primary"
                 />
-                <span className="truncate flex-1 font-medium">{q.title}</span>
+                <span className="truncate flex-1 font-medium">
+                  {q.question_type === "mcq" ? (q.code ? `[${q.code}] ${q.prompt}` : q.prompt) : q.title}
+                </span>
                 <span className="text-[10px] text-muted-foreground">{q.topic}</span>
               </label>
             )

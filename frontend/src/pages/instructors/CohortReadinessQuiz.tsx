@@ -1633,7 +1633,13 @@ function QuizQuestionsPhase({
                   <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
                     Question {qIndex + 1} of {questions.length} · {q.topic}
                   </span>
-                  <h3 className="text-sm font-bold text-foreground mt-0.5">{q.title}</h3>
+                  {q.question_type === "mcq" ? (
+                    <h3 className="text-sm font-bold text-foreground mt-0.5 whitespace-pre-line leading-relaxed">
+                      {q.prompt}
+                    </h3>
+                  ) : (
+                    <h3 className="text-sm font-bold text-foreground mt-0.5">{q.title}</h3>
+                  )}
                 </div>
                 {trialAnswer && (
                   <span
@@ -1649,9 +1655,11 @@ function QuizQuestionsPhase({
                 )}
               </div>
 
-              <p className="text-xs text-foreground whitespace-pre-line leading-relaxed">
-                {q.prompt}
-              </p>
+              {q.question_type !== "mcq" && (
+                <p className="text-xs text-foreground whitespace-pre-line leading-relaxed">
+                  {q.prompt}
+                </p>
+              )}
 
               {/* Pinout Table Widget */}
               {q.question_type === "pinout_table" && q.table_config && (

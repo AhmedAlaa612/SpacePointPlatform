@@ -688,11 +688,19 @@ function QuestionItemCard({
                 {q.topic}
               </span>
             )}
-            <h3 className="text-sm sm:text-base font-bold text-foreground">{q.title}</h3>
+            {q.question_type !== "mcq" && (
+              <h3 className="text-sm sm:text-base font-bold text-foreground">{q.title}</h3>
+            )}
           </div>
-          <p className="text-xs sm:text-sm text-foreground/90 whitespace-pre-wrap leading-relaxed">
-            {q.prompt}
-          </p>
+          {q.question_type === "mcq" ? (
+            <h3 className="text-sm sm:text-base font-bold text-foreground whitespace-pre-wrap leading-relaxed">
+              {q.prompt}
+            </h3>
+          ) : (
+            <p className="text-xs sm:text-sm text-foreground/90 whitespace-pre-wrap leading-relaxed">
+              {q.prompt}
+            </p>
+          )}
         </div>
         {statusBadge()}
       </div>

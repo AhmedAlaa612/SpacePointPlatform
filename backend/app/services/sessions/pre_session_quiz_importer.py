@@ -261,7 +261,7 @@ def _parse_raw_rows(
         if code and raw_image_bytes:
             code_imgs[code.strip().upper()] = (raw_image_bytes, raw_image_ext)
 
-        title = f"[{code}] {prompt[:50]}..." if code else f"{prompt[:60]}..."
+        title = prompt[:255]
 
         questions.append(
             ImportedQuestionItem(

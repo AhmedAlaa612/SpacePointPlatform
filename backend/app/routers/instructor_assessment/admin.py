@@ -174,7 +174,7 @@ async def create_question(config_id: uuid.UUID, body: AssessmentQuestionIn, db: 
         id=question.id,
         topic=body.category,
         question_type="mcq",
-        title=f"{body.prompt[:60]}...",
+        title=body.prompt[:255],
         prompt=body.prompt,
         options=[o.model_dump() for o in body.options],
         critical=body.critical,
@@ -204,7 +204,7 @@ async def update_question(question_id: uuid.UUID, body: AssessmentQuestionUpdate
             psq.topic = changes["category"]
         if "prompt" in changes:
             psq.prompt = changes["prompt"]
-            psq.title = f"{changes['prompt'][:60]}..."
+            psq.title = changes["prompt"][:255]
         if "options" in changes:
             psq.options = [o.model_dump() if hasattr(o, "model_dump") else o for o in changes["options"]]
         if "critical" in changes:
@@ -266,7 +266,7 @@ async def import_questions(config_id: uuid.UUID, file: UploadFile, db: AsyncSess
             id=question.id,
             topic=body.category,
             question_type="mcq",
-            title=f"{body.prompt[:60]}...",
+            title=body.prompt[:255],
             prompt=body.prompt,
             options=[o.model_dump() for o in body.options],
             critical=body.critical,
