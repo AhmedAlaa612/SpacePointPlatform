@@ -287,6 +287,30 @@ class SessionUpdateIn(BaseModel):
     location: str | None = None
 
 
+def _coerce_time(value) -> dt.time | None:
+    """Parse an ``HH:MM`` string from the UI into a real ``datetime.time``.
+
+    ``sessions.starts_at`` is a Postgres ``TIME`` column. The org session form
+    sends a string, and asyncpg refuses to bind str to TIME (it expects
+    ``.hour``), so convert before it reaches the model. Accepts ``HH:MM``,
+    ``HH:MM:SS``, ``h:MM AM/PM`` and already-parsed time/datetime values.
+    """
+    if value is None or value == "":
+        return None
+    if isinstance(value, dt.time):
+        return value
+    if isinstance(value, dt.datetime):
+        return value.timetz().replace(tzinfo=None)
+
+    text = str(value).strip()
+    for fmt in ("%H:%M:%S", "%H:%M", "%I:%M %p", "%I:%M%p"):
+        try:
+            return dt.datetime.strptime(text, fmt).time()
+        except ValueError:
+            continue
+    raise HTTPException(status_code=422, detail=f"Invalid time value: {value!r}")
+
+
 class AssignOrgInstructorIn(BaseModel):
     user_id: uuid.UUID
     role_id: uuid.UUID | None = None
@@ -1371,7 +1395,7 @@ async def create_cohort_session(
     cohort, _org = await _resolve_cohort_and_org(db, cohort_id, current_user)
 
     meeting_date = body.meeting_date or body.date or date.today()
-    starts_at = body.starts_at or body.start_time
+    starts_at = _coerce_time(body.starts_at or body.start_time)
 
     s = Session(
         cohort_id=cohort.id,
@@ -1413,8 +1437,12 @@ async def update_cohort_session(
     updates = body.model_dump(exclude_unset=True)
     if "date" in updates:
         s.meeting_date = updates.pop("date")
+    if "meeting_date" in updates:
+        s.meeting_date = updates.pop("meeting_date")
     if "start_time" in updates:
-        s.starts_at = updates.pop("start_time")
+        s.starts_at = _coerce_time(updates.pop("start_time"))
+    if "starts_at" in updates:
+        s.starts_at = _coerce_time(updates.pop("starts_at"))
     for k, v in updates.items():
         if hasattr(s, k):
             setattr(s, k, v)
@@ -1835,6 +1863,28 @@ async def list_org_readiness_presets(
         }
         for p in visible
     ]
+
+
+@router.get("/readiness-presets/{preset_id}")
+async def get_org_readiness_preset_detail(
+    preset_id: uuid.UUID,
+    cohort_id: uuid.UUID | None = Query(None),
+    current_user: User = Depends(require_organization_account),
+    db: AsyncSession = Depends(get_db),
+):
+    """Return full hydrated readiness preset details (questions, phases, media) for preview."""
+    from app.services.sessions import pre_session_quiz as quiz_svc
+
+    if cohort_id is not None:
+        _cohort, org = await _resolve_cohort_and_org(db, cohort_id, current_user)
+    else:
+        org = await _get_org_or_400(db, current_user)
+
+    presets = await quiz_svc.list_presets(db, active_only=False)
+    preset = next((p for p in presets if str(p.get("id")) == str(preset_id)), None)
+    if preset is None or not _org_allows_readiness_preset(org, preset):
+        raise HTTPException(status_code=404, detail="Readiness preset not found")
+    return preset
 
 
 @router.post("/readiness-presets", status_code=status.HTTP_201_CREATED)

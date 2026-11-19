@@ -1,4 +1,5 @@
 import { useState } from "react"
+import { createPortal } from "react-dom"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { Link } from "@tanstack/react-router"
 import {
@@ -12,6 +13,7 @@ import {
   createOrgReadinessPreset,
   getOrgCohortReadiness,
   getOrgCohortStaff,
+  getOrgReadinessPresetDetail,
   getOrgReadinessPresets,
   setOrgCohortReadiness,
   unassignOrgInstructor,
@@ -21,6 +23,8 @@ import {
   type OrgReadinessPreset,
   type OrgReadinessQuestionInput,
 } from "@/api/organizationSandbox"
+import CohortReadinessQuiz from "@/pages/instructors/CohortReadinessQuiz"
+import { SessionPreQuizModal } from "@/pages/instructors/components/SessionPreQuizModal"
 import {
   addOrgCohortObserverApi,
   getOrgCohortObserversApi,
@@ -218,6 +222,7 @@ export function OrgCohortReadinessSection({ cohortId }: { cohortId: string }) {
   const toast = useToast()
   const [presetDraft, setPresetDraft] = useState<string | null>(null)
   const [createPresetOpen, setCreatePresetOpen] = useState(false)
+  const [previewOpen, setPreviewOpen] = useState(false)
 
   const { data: presets = [] } = useQuery<OrgReadinessPreset[]>({
     queryKey: ["org-readiness-presets", cohortId],
@@ -243,6 +248,12 @@ export function OrgCohortReadinessSection({ cohortId }: { cohortId: string }) {
 
   const presetId = presetDraft ?? readiness?.preset?.id ?? ""
 
+  const { data: previewPreset, isFetching: previewLoading } = useQuery({
+    queryKey: ["org-readiness-preset-detail", presetId, cohortId],
+    queryFn: () => getOrgReadinessPresetDetail(presetId, cohortId),
+    enabled: previewOpen && Boolean(presetId),
+  })
+
   return (
     <div className="py-4">
       <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
@@ -267,6 +278,18 @@ export function OrgCohortReadinessSection({ cohortId }: { cohortId: string }) {
               </option>
             ))}
           </select>
+          {presetId && (
+            <button
+              type="button"
+              onClick={() => setPreviewOpen(true)}
+              disabled={previewLoading}
+              title="Preview exact instructor quiz experience"
+              className="h-9 px-3 rounded-xl border border-primary/40 bg-primary/10 hover:bg-primary/20 text-xs font-semibold text-primary inline-flex items-center justify-center gap-1.5 cursor-pointer shrink-0 disabled:opacity-50"
+            >
+              <Eye className="size-3.5" />
+              {previewLoading ? "Loading…" : "Preview"}
+            </button>
+          )}
           <Button
             size="sm"
             variant="outline"
@@ -280,6 +303,35 @@ export function OrgCohortReadinessSection({ cohortId }: { cohortId: string }) {
           </Button>
         </div>
       </div>
+
+      {previewOpen && previewPreset && (
+        previewPreset.phases && previewPreset.phases.length > 0 ? (
+          createPortal(
+            <div className="fixed inset-0 z-50 bg-background overflow-y-auto">
+              <CohortReadinessQuiz
+                presetOverride={previewPreset}
+                isObserverMode={true}
+                onExitObserver={() => setPreviewOpen(false)}
+              />
+            </div>,
+            document.body
+          )
+        ) : (
+          <SessionPreQuizModal
+            open={previewOpen}
+            onClose={() => setPreviewOpen(false)}
+            isPreview
+            quizStatus={{
+              has_quiz: true,
+              assignment_level: "cohort",
+              preset: previewPreset,
+              my_attempt: null,
+              trials: [],
+              all_attempts: [],
+            }}
+          />
+        )
+      )}
 
       {createPresetOpen && (
         <CreateOrgReadinessModal

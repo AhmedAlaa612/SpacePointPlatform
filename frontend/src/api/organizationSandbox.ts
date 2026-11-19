@@ -1,4 +1,5 @@
 import { api } from "./client"
+import type { PreSessionQuizPreset } from "@/api/sessions/pre_session_quiz"
 
 /** Organization sandbox staffing — org instructors, judges and readiness.
  *  Backed by `/organization/cohorts/{id}/...` (2026-11-18). */
@@ -126,6 +127,13 @@ export const unassignOrgJudge = (cohortId: string, userId: string) =>
 export const getOrgReadinessPresets = (cohortId?: string) =>
   api
     .get<OrgReadinessPreset[]>("/organization/readiness-presets", {
+      params: cohortId ? { cohort_id: cohortId } : undefined,
+    })
+    .then((r) => r.data)
+
+export const getOrgReadinessPresetDetail = (presetId: string, cohortId?: string) =>
+  api
+    .get<PreSessionQuizPreset>(`/organization/readiness-presets/${presetId}`, {
       params: cohortId ? { cohort_id: cohortId } : undefined,
     })
     .then((r) => r.data)
