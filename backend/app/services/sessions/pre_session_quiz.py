@@ -558,6 +558,29 @@ async def import_questions_from_file(
     for row in created_questions:
         await db.refresh(row)
 
+    # Keep any mirrored AssessmentQuestion rows in sync when existing questions
+    # are updated in-place (e.g. re-importing a corrected spreadsheet).
+    if created_questions:
+        from app.models.instructor_assessment.config import AssessmentQuestion
+
+        imported_ids = [q.id for q in created_questions]
+        mirrored = (
+            await db.execute(select(AssessmentQuestion).where(AssessmentQuestion.id.in_(imported_ids)))
+        ).scalars().all()
+        if mirrored:
+            by_id = {q.id: q for q in created_questions}
+            for aq in mirrored:
+                src = by_id.get(aq.id)
+                if not src:
+                    continue
+                aq.category = src.topic
+                aq.prompt = src.prompt
+                aq.options = src.options
+                aq.critical = src.critical
+                aq.rationale = src.explanation
+                aq.image_url = src.image_url
+            await db.commit()
+
     # If preset_id provided, append to the preset
     if preset_id and created_questions:
         preset = await db.get(PreSessionQuizPreset, preset_id)

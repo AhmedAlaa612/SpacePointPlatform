@@ -26,9 +26,12 @@ OPTION_LETTERS = ["A", "B", "C", "D"]
 
 # Standard column aliases (all lowercase stripped)
 ALIAS_MAP = {
-    "code": ["question id", "question_id", "id", "code", "q_id", "number", "#"],
+    "code": [
+        "question id", "question_id", "question number", "question no", "question #", "question code",
+        "id", "code", "q_id", "q no", "number", "#",
+    ],
     "topic": ["category / topic", "category", "topic", "section", "inspection", "subsystem"],
-    "prompt": ["scenario / question", "question", "prompt", "scenario", "title"],
+    "prompt": ["scenario / question", "question / scenario", "question", "prompt", "scenario", "title", "question text"],
     "option_a": ["option a", "choice a", "option 1", "opt a", "a"],
     "option_b": ["option b", "choice b", "option 2", "opt b", "b"],
     "option_c": ["option c", "choice c", "option 3", "opt c", "c"],
@@ -38,7 +41,7 @@ ALIAS_MAP = {
     "rationale": ["rationale / instructor standard", "rationale", "explanation", "standard", "notes"],
     "critical": ["critical scenario?", "critical?", "critical", "is_critical", "safety critical"],
     "points": ["points", "point", "score", "pts", "weight"],
-    "image": ["photo", "image", "figure", "image_url", "image url", "figure_url"],
+    "image": ["photo / figure reference", "photo", "image", "figure", "image_url", "image url", "figure_url"],
 }
 
 
@@ -61,12 +64,19 @@ def _normalize_header_str(val: Any) -> str:
     if val is None:
         return ""
     s = str(val).strip().lower()
+    s = re.sub(r"[_-]+", " ", s)
     s = re.sub(r"[^a-z0-9/ ?#]", "", s)
     return " ".join(s.split())
 
 
 def _find_header_mapping(row: list[Any]) -> dict[str, int] | None:
-    """Attempts to match a row to recognized question bank column headers."""
+    """Attempts to match a row to recognized question bank column headers.
+
+    Matches exact aliases across all columns before falling back to prefix
+    matches, and never assigns the same column to two canonical fields — so a
+    leading "Question ID" column is claimed by `code` and cannot be stolen by
+    `prompt`'s `"question "` prefix before reaching "Scenario / Question".
+    """
     if not row or not any(row):
         return None
     # Header cells must be concise labels, not full question scenarios (> 60 chars)
@@ -78,16 +88,36 @@ def _find_header_mapping(row: list[Any]) -> dict[str, int] | None:
         return None
 
     mapping: dict[str, int] = {}
+    used_cols: set[int] = set()
+
+    # Pass 1: exact matches across all columns in alias priority order
     for canonical, aliases in ALIAS_MAP.items():
-        for idx, val in enumerate(normalized):
-            if not val or len(val) > 40:
-                continue
-            for alias in aliases:
-                norm_alias = _normalize_header_str(alias)
-                # Exact match or prefix with space boundary (e.g. "option a (text)")
-                # Single-letter or very short aliases (<= 3 chars) MUST match exactly
-                if val == norm_alias or (len(norm_alias) > 3 and val.startswith(norm_alias + " ")):
+        for alias in aliases:
+            norm_alias = _normalize_header_str(alias)
+            for idx, val in enumerate(normalized):
+                if idx in used_cols or not val or len(val) > 40:
+                    continue
+                if val == norm_alias:
                     mapping[canonical] = idx
+                    used_cols.add(idx)
+                    break
+            if canonical in mapping:
+                break
+
+    # Pass 2: prefix matches with space boundary for any unmapped fields
+    for canonical, aliases in ALIAS_MAP.items():
+        if canonical in mapping:
+            continue
+        for alias in aliases:
+            norm_alias = _normalize_header_str(alias)
+            if len(norm_alias) <= 3:
+                continue
+            for idx, val in enumerate(normalized):
+                if idx in used_cols or not val or len(val) > 40:
+                    continue
+                if val.startswith(norm_alias + " "):
+                    mapping[canonical] = idx
+                    used_cols.add(idx)
                     break
             if canonical in mapping:
                 break
