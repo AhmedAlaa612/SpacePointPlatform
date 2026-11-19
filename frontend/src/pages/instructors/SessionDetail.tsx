@@ -6,6 +6,7 @@ import {
   ArrowLeft, BookOpen, Calendar, Camera, CheckCircle2, ChevronDown,
   Download, ExternalLink, FileText, ImageIcon, Link2, Lock, MapPin, Play, QrCode, Search, Send, UserX, X,
 } from "lucide-react"
+import { ChecklistJustification } from "@/components/ChecklistJustification"
 import {
   getSessionDeliveryApi, markAttendanceApi, markSessionDoneApi, scanAttendanceApi, startSessionApi,
   uploadSessionReportApi,
@@ -642,7 +643,7 @@ export default function SessionDetail() {
                 <p className="text-sm font-semibold text-foreground">Daily checklist</p>
                 {d && d.checklist.length > 0 && (
                   <span className="text-xs text-muted-foreground tabular-nums">
-                    {d.checklist.filter((l) => l.is_done).length}/{d.checklist.length}
+                    {d.checklist.filter((l) => l.is_done || Boolean(l.note?.trim())).length}/{d.checklist.length}
                   </span>
                 )}
               </div>
@@ -755,6 +756,18 @@ function ChecklistRow({
   const [busy, setBusy] = useState(false)
   const [busySubId, setBusySubId] = useState<string | null>(null)
   const [error, setError] = useState("")
+
+  const saveNote = useMutation({
+    mutationFn: (nextNote: string) =>
+      setChecklistProgressApi(sessionId, line.item_id, {
+        note: nextNote,
+      }),
+    onSuccess: () => {
+      setError("")
+      onChanged()
+    },
+    onError: (e) => setError(getErrorMessage(e, "Couldn't save justification")),
+  })
 
   const tick = useMutation({
     mutationFn: (isDone: boolean) => {
@@ -997,6 +1010,12 @@ function ChecklistRow({
             })}
           </div>
         )}
+        <ChecklistJustification
+          note={line.note}
+          locked={locked}
+          pending={saveNote.isPending}
+          onSave={(nextNote) => saveNote.mutateAsync(nextNote)}
+        />
         {error && <p className="text-xs text-red-600 dark:text-red-400">{error}</p>}
       </div>
       {line.requires_proof && (

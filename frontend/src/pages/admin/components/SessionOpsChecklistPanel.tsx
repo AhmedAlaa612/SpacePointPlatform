@@ -11,6 +11,7 @@ import {
   Lock,
   Upload,
 } from "lucide-react"
+import { ChecklistJustification } from "@/components/ChecklistJustification"
 import { getInternalChecklistApi, setInternalChecklistProgressApi } from "@/api/sessions/day"
 import { uploadSessionReportApi } from "@/api/sessions/delivery"
 import { MediaPreviewModal } from "@/components/media/MediaPreviewModal"
@@ -94,7 +95,7 @@ export function SessionOpsChecklistPanel({
 
   const invalidate = () => qc.invalidateQueries({ queryKey })
 
-  const doneCount = items.filter((i) => i.is_done).length
+  const doneCount = items.filter((i) => i.is_done || Boolean(i.note?.trim())).length
   const totalCount = items.length
 
   if (isLoading) {
@@ -176,6 +177,15 @@ function ChecklistRow({
   const subFileInputRefs = useRef<Record<string, HTMLInputElement | null>>({})
   const [uploading, setUploading] = useState(false)
   const [uploadingSubId, setUploadingSubId] = useState<string | null>(null)
+
+  const saveNoteMutation = useMutation({
+    mutationFn: (nextNote: string) =>
+      setInternalChecklistProgressApi(sessionId, item.item_id, {
+        note: nextNote,
+      }),
+    onSuccess: onChanged,
+    onError: (e) => toast.error(getErrorMessage(e, "Could not save justification")),
+  })
 
   const toggleMutation = useMutation({
     mutationFn: (newDone: boolean) => {
@@ -495,6 +505,12 @@ function ChecklistRow({
               {item.updated_at && ` · ${new Date(item.updated_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`}
             </p>
           )}
+
+          <ChecklistJustification
+            note={item.note}
+            pending={saveNoteMutation.isPending}
+            onSave={(nextNote) => saveNoteMutation.mutateAsync(nextNote)}
+          />
         </div>
       </div>
 

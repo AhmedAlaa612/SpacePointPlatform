@@ -720,3 +720,94 @@ async def test_sub_items_require_photo_for_instructor_and_ops(db):
     assert ops_list[0]["sub_items"][0]["requires_proof"] is True
     assert ops_list[0]["sub_item_proofs"] == {ops_sub_id: str(ops_report.id)}
     assert ops_sub_id in ops_list[0]["sub_item_proof_urls"]
+
+
+@pytest.mark.asyncio
+async def test_checklist_comment_satisfies_required_item_and_photo_for_submit(db):
+    """A non-empty justification comment satisfies a required checklist item
+    (including required photo proof / sub-item proof) so the instructor can
+    submit the day without ticking Done or uploading a photo; whitespace-only
+    comments do not count."""
+    _, cohort, sessions = await _make(db, session_count=1)
+    session = sessions[0]
+    instructor = await _instructor(db)
+    ops = await _ops(db)
+    await _assign(db, session, instructor)
+
+    sub_id = str(uuid.uuid4())
+    await svc.set_checklist_items(
+        db,
+        actor_user_id=ops.id,
+        cohort_id=cohort.id,
+        lines=[
+            {
+                "title": "Room photo",
+                "is_required": True,
+                "requires_proof": True,
+                "sub_items": [
+                    {"id": sub_id, "title": "Projector check", "is_required": True, "requires_proof": True},
+                ],
+            },
+        ],
+    )
+    await svc.check_in(db, session.id, instructor, att_status="present")
+    items = await svc.list_checklist_items(db, cohort_id=cohort.id)
+    item_id = items[0].id
+
+    # Initially blocked
+    before = await svc.get_day_detail(db, session.id, instructor)
+    assert before["can_submit"] is False
+    assert len(before["missing"]) > 0
+
+    # Whitespace-only note is normalized to None and still blocks
+    await svc.set_checklist_progress(db, session.id, instructor, checklist_item_id=item_id, note="   ")
+    still_blocked = await svc.get_day_detail(db, session.id, instructor)
+    assert still_blocked["checklist"][0]["note"] is None
+    assert still_blocked["can_submit"] is False
+
+    # Adding a real justification comment unblocks submission without is_done or photo
+    await svc.set_checklist_progress(
+        db, session.id, instructor, checklist_item_id=item_id, note="Venue prohibited photos today",
+    )
+    ready = await svc.get_day_detail(db, session.id, instructor)
+    assert ready["can_submit"] is True
+    assert ready["missing"] == []
+    assert ready["checklist"][0]["is_done"] is False
+    assert ready["checklist"][0]["note"] == "Venue prohibited photos today"
+
+    submitted = await svc.submit_day(db, session.id, instructor)
+    assert submitted.status == "submitted"
+
+
+@pytest.mark.asyncio
+async def test_internal_checklist_allows_saving_note_without_changing_done_flag(db):
+    _, cohort, sessions = await _make(db, session_count=1)
+    session = sessions[0]
+    ops = await _ops(db)
+    await svc.set_checklist_items(
+        db,
+        actor_user_id=ops.id,
+        cohort_id=cohort.id,
+        target_audience="internal",
+        lines=[{"title": "Print badges", "is_required": True, "requires_proof": True}],
+    )
+    ops_items = await svc.list_checklist_items(db, cohort_id=cohort.id, target_audience="internal")
+    item_id = ops_items[0].id
+
+    # Save a note without passing is_done
+    await svc.set_internal_checklist_progress(
+        db, session_id=session.id, checklist_item_id=item_id, actor_user_id=ops.id,
+        note="School printed badges directly",
+    )
+    rows = await svc.get_internal_checklist_for_session(db, session.id)
+    assert rows[0]["is_done"] is False
+    assert rows[0]["note"] == "School printed badges directly"
+
+    # Mark done while leaving note untouched
+    await svc.set_internal_checklist_progress(
+        db, session_id=session.id, checklist_item_id=item_id, actor_user_id=ops.id,
+        is_done=True,
+    )
+    rows_after = await svc.get_internal_checklist_for_session(db, session.id)
+    assert rows_after[0]["is_done"] is True
+    assert rows_after[0]["note"] == "School printed badges directly"

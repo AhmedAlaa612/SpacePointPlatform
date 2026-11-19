@@ -758,7 +758,7 @@ async def set_internal_checklist_progress(
     checklist_item_id: UUID,
     actor_user_id: UUID,
     *,
-    is_done: bool,
+    is_done: bool | None = None,
     proof_report_id: UUID | None = None,
     note: str | None = None,
     completed_sub_items: list[str] | None = None,
@@ -771,6 +771,8 @@ async def set_internal_checklist_progress(
         check_ids.extend(rid for rid in sub_item_proofs.values() if rid is not None)
     await _validate_proof_reports(db, session_id, check_ids)
 
+    clean_note = (note.strip() or None) if note is not None else None
+
     prog = await db.scalar(
         select(SessionOpsChecklistProgress).where(
             SessionOpsChecklistProgress.session_id == session_id,
@@ -778,30 +780,32 @@ async def set_internal_checklist_progress(
         )
     )
     if prog is None:
+        done_val = bool(is_done) if is_done is not None else False
         prog = SessionOpsChecklistProgress(
             id=uuid4(),
             session_id=session_id,
             checklist_item_id=checklist_item_id,
-            is_done=is_done,
+            is_done=done_val,
             proof_report_id=proof_report_id,
-            note=note,
+            note=clean_note,
             completed_sub_items=completed_sub_items if completed_sub_items is not None else [],
             sub_item_proofs=_merge_sub_item_proofs(None, sub_item_proofs),
-            completed_by=actor_user_id if is_done else None,
+            completed_by=actor_user_id if done_val else None,
             updated_at=datetime.now(timezone.utc),
         )
         db.add(prog)
     else:
-        prog.is_done = is_done
+        if is_done is not None:
+            prog.is_done = is_done
+            prog.completed_by = actor_user_id if is_done else None
         if proof_report_id is not None:
             prog.proof_report_id = proof_report_id
         if note is not None:
-            prog.note = note
+            prog.note = clean_note
         if completed_sub_items is not None:
             prog.completed_sub_items = completed_sub_items
         if sub_item_proofs is not None:
             prog.sub_item_proofs = _merge_sub_item_proofs(prog.sub_item_proofs, sub_item_proofs)
-        prog.completed_by = actor_user_id if is_done else None
         prog.updated_at = datetime.now(timezone.utc)
     await db.flush()
     return prog
@@ -908,7 +912,7 @@ async def set_checklist_progress(
     if proof_report_id is not None:
         row.proof_report_id = proof_report_id
     if note is not None:
-        row.note = note
+        row.note = note.strip() or None
     await db.flush()
     return row
 
@@ -938,6 +942,9 @@ async def _missing_requirements(
     missing = []
     for item in items:
         row = progress.get(item.id)
+        if row and row.note and row.note.strip():
+            # A justification comment satisfies the item (including any required photo).
+            continue
         if item.is_required and (row is None or not row.is_done):
             missing.append(f"'{item.title}' isn't ticked")
         elif item.requires_proof and (row is None or row.proof_report_id is None):

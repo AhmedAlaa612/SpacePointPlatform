@@ -98,7 +98,7 @@ export const setInternalChecklistProgressApi = (
   sessionId: string,
   itemId: string,
   body: {
-    is_done: boolean
+    is_done?: boolean
     proof_report_id?: string | null
     note?: string | null
     completed_sub_items?: string[]

@@ -134,7 +134,7 @@ class OpsChecklistItemOut(BaseModel):
 
 
 class OpsChecklistProgressIn(BaseModel):
-    is_done: bool
+    is_done: bool | None = None
     proof_report_id: UUID | None = None
     note: str | None = None
     completed_sub_items: list[str] | None = None
