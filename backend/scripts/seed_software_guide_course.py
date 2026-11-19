@@ -8,7 +8,7 @@ import argparse
 import asyncio
 import uuid
 
-from sqlalchemy import delete, select
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from app.core.config import settings
@@ -17,6 +17,7 @@ from app.models.lms.course import Course, CourseModule, ModuleItem
 from app.models.user import User
 
 COURSE_TITLE = "SpacePoint Software Guide: Flight Software & Subsystems"
+ALT_COURSE_TITLES = [COURSE_TITLE, "Software Guide"]
 
 
 async def seed(db: AsyncSession, dry_run: bool = False) -> None:
@@ -32,8 +33,8 @@ async def seed(db: AsyncSession, dry_run: bool = False) -> None:
             print("[-] Error: No users found in database to author course.")
             return
 
-    # 2. Check if course already exists
-    res = await db.execute(select(Course).where(Course.title == COURSE_TITLE))
+    # 2. Check if course already exists (matches either full title or 'Software Guide')
+    res = await db.execute(select(Course).where(Course.title.in_(ALT_COURSE_TITLES)).limit(1))
     course = res.scalar_one_or_none()
 
     if not course:
@@ -766,22 +767,30 @@ async def seed(db: AsyncSession, dry_run: bool = False) -> None:
             module.title = mod_def["title"]
             print(f"    [=] Updated module: {module.title}")
 
-        # Delete old items in this module to re-seed cleanly
-        await db.execute(delete(ModuleItem).where(ModuleItem.module_id == module.id))
-        await db.flush()
+        # Upsert items in-place by title so existing item UUIDs and student progress are preserved
+        existing_items_res = await db.execute(select(ModuleItem).where(ModuleItem.module_id == module.id))
+        existing_by_title = {it.title: it for it in existing_items_res.scalars().all()}
 
         for item_idx, item_def in enumerate(mod_def["items"]):
-            item = ModuleItem(
-                id=uuid.uuid4(),
-                module_id=module.id,
-                position=item_idx,
-                kind=item_def["kind"],
-                title=item_def["title"],
-                is_required=True,
-                content=item_def["content"],
-            )
-            db.add(item)
-            print(f"        [+] Added item ({item.kind}): {item.title}")
+            existing_item = existing_by_title.get(item_def["title"])
+            if existing_item:
+                existing_item.position = item_idx
+                existing_item.kind = item_def["kind"]
+                existing_item.is_required = True
+                existing_item.content = item_def["content"]
+                print(f"        [=] Updated item ({existing_item.kind}): {existing_item.title}")
+            else:
+                item = ModuleItem(
+                    id=uuid.uuid4(),
+                    module_id=module.id,
+                    position=item_idx,
+                    kind=item_def["kind"],
+                    title=item_def["title"],
+                    is_required=True,
+                    content=item_def["content"],
+                )
+                db.add(item)
+                print(f"        [+] Added item ({item.kind}): {item.title}")
 
     if dry_run:
         print("\n[!] Dry run enabled: Rolling back all changes.")
