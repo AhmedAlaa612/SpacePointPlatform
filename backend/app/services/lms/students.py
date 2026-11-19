@@ -14,9 +14,10 @@ from typing import Literal
 
 from sqlalchemy import and_, exists, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import aliased
 
 from app.models.instructors.invitation_code import InvitationCode
-from app.models.lms.invite_grant import UserInvitationCode
+from app.models.lms.invite_grant import InvitationCodeGrant, UserInvitationCode
 from app.models.lms.program import LmsProgram, LmsProgramAssignment
 from app.models.sessions.cohort import Cohort
 from app.models.sessions.program import Program
@@ -114,10 +115,53 @@ async def _summarize_users(db: AsyncSession, users: list[User]) -> list[StudentS
     return out
 
 
-def org_student_filter(org_id: uuid.UUID):
-    org_cohort_subq = select(Cohort.id).outerjoin(Program, Cohort.program_id == Program.id).where(
+def _org_member_filter(org_id: uuid.UUID, user_model=User):
+    return or_(
+        user_model.organization_id == org_id,
+        exists(select(1).where(Organization.id == org_id, Organization.owner_user_id == user_model.id)),
+    )
+
+
+def _is_not_platform_staff(user_model=User):
+    return ~or_(
+        user_model.roles.any("admin"),
+        user_model.roles.any("operations"),
+        user_model.roles.any("facilitator"),
+        user_model.roles.any("lms_author"),
+    )
+
+
+def org_cohort_ids_subquery(org_id: uuid.UUID):
+    return select(Cohort.id).outerjoin(Program, Cohort.program_id == Program.id).where(
         or_(Cohort.organization_id == org_id, Program.organization_id == org_id)
     )
+
+
+def org_invite_code_filter(org_id: uuid.UUID):
+    """Invitation codes belonging to `org_id`: either created by a non-platform
+    member of that org, or granting access to one of that org's cohorts."""
+    org_cohort_subq = org_cohort_ids_subquery(org_id)
+    creator = aliased(User)
+    created_by_org_member = exists(
+        select(1)
+        .select_from(creator)
+        .where(
+            creator.id == InvitationCode.created_by,
+            _org_member_filter(org_id, creator),
+            _is_not_platform_staff(creator),
+        )
+    )
+    granted_to_org_cohort = exists(
+        select(1).where(
+            InvitationCodeGrant.invitation_code_id == InvitationCode.id,
+            InvitationCodeGrant.cohort_id.in_(org_cohort_subq),
+        )
+    )
+    return or_(created_by_org_member, granted_to_org_cohort)
+
+
+def org_student_filter(org_id: uuid.UUID):
+    org_cohort_subq = org_cohort_ids_subquery(org_id)
     org_lms_prog_subq = select(LmsProgram.id).join(Program, LmsProgram.program_id == Program.id).where(
         Program.organization_id == org_id
     )
@@ -130,32 +174,33 @@ def org_student_filter(org_id: uuid.UUID):
             ),
         )
     )
+    reg_contact = aliased(Contact)
     has_org_registration = exists(
-        select(1).where(
+        select(1)
+        .select_from(Registration)
+        .join(reg_contact, reg_contact.id == Registration.contact_id)
+        .where(
             Registration.cohort_id.in_(org_cohort_subq),
             Registration.status.not_in(["cancelled", "rejected"]),
             or_(
                 Registration.contact_id == User.contact_id,
-                exists(
-                    select(1).where(
-                        Contact.id == Registration.contact_id,
-                        func.lower(Contact.email) == func.lower(User.email),
-                    )
-                ),
+                func.lower(reg_contact.email) == func.lower(User.email),
             ),
         )
     )
-    has_org_contact = exists(
-        select(1).where(
-            Contact.organization_id == org_id,
-            or_(
-                Contact.id == User.contact_id,
-                func.lower(Contact.email) == func.lower(User.email),
-            ),
-        )
+    org_codes_subq = select(InvitationCode.id).where(org_invite_code_filter(org_id))
+    org_code_strings_subq = select(InvitationCode.code).where(org_invite_code_filter(org_id))
+    used_org_invite_code = or_(
+        User.invitation_code_used.in_(org_code_strings_subq),
+        exists(
+            select(1).where(
+                UserInvitationCode.user_id == User.id,
+                UserInvitationCode.invitation_code_id.in_(org_codes_subq),
+            )
+        ),
     )
-    is_org_member = User.organization_id == org_id
-    return or_(is_org_member, has_org_contact, has_org_assignment, has_org_registration)
+    is_org_member = _org_member_filter(org_id)
+    return or_(is_org_member, has_org_assignment, has_org_registration, used_org_invite_code)
 
 
 async def user_belongs_to_organization(db: AsyncSession, user_id: uuid.UUID, org_id: uuid.UUID) -> bool:
@@ -189,11 +234,20 @@ async def search_students(
     observer, "observer" = has observer role, "all" = either."""
     if mode == "observer":
         role_filter = User.roles.any("observer")
+        if org_id is not None:
+            role_filter = or_(role_filter, and_(_org_member_filter(org_id), User.org_role == "observer"))
     elif mode == "student":
         role_filter = and_(User.roles.any("student"), ~User.roles.any("observer"))
+        if org_id is not None:
+            role_filter = and_(role_filter, or_(User.org_role.is_(None), User.org_role != "observer"))
     else:
         role_filter = or_(User.roles.any("student"), User.roles.any("observer"))
     stmt = select(User).where(role_filter)
+    if org_id is not None:
+        stmt = stmt.where(
+            org_student_filter(org_id),
+            or_(_org_member_filter(org_id), _is_not_platform_staff()),
+        )
     if q:
         like = f"%{q.strip()}%"
         stmt = stmt.where(or_(User.full_name.ilike(like), User.email.ilike(like)))
@@ -220,8 +274,6 @@ async def search_students(
         stmt = stmt.where(User.last_login_at.is_(None))
     elif login_status == "has_logged_in":
         stmt = stmt.where(User.last_login_at.is_not(None))
-    if org_id is not None:
-        stmt = stmt.where(org_student_filter(org_id))
     rows = (await db.execute(stmt.order_by(User.full_name).limit(limit))).scalars().all()
     return await _summarize_users(db, rows)
 
@@ -315,6 +367,7 @@ async def search_cohort_assignable_students(
     page_size: int = 25,
     sort: Literal["full_name", "card_number", "created_at", "email"] = "full_name",
     direction: Literal["asc", "desc"] = "asc",
+    org_id: uuid.UUID | None = None,
 ) -> dict:
     """Backs the Assign tab's search + filters (`registered_only` added
     2026-09-15 alongside `team_status`/`lms_status`, replacing the old
@@ -327,6 +380,13 @@ async def search_cohort_assignable_students(
     Rebuild (2026-10): `mode` is `student` (student role, no observer) |
     `observer` (has observer role) | `staff` (literally not a student) |
     `all` (back-compat). `role` narrows the staff toggle to one role.
+
+    `org_id` (2026-11): non-platform callers (organization managers) must
+    only see people they actually have a relationship with — their own org
+    members, contacts, LMS assigns, and this cohort's registrations — never
+    the whole platform user table. `org_student_filter` already encodes that
+    union; passing it here keeps the page count honest because the filter is
+    applied inside the DB query, before pagination.
     Server-side pagination (`page`/`page_size`) + sorting (`sort`/
     `direction`) — the tab lists whole-platform accounts now, an uncapped
     list is no longer viable. Returns `{"items", "total", "page",
@@ -340,18 +400,46 @@ async def search_cohort_assignable_students(
     page_size = min(100, max(1, int(page_size or 25)))
     role_norm = (role or "").strip().lower() or None
 
+    # Sandbox roles live in `users.org_role`, not the global `roles` array —
+    # every org team member has global role "organization" only. Org-scoped
+    # searches therefore have to read `org_role` too, or Staff/Observers come
+    # back empty. Legacy members with no `org_role` act as coordinators.
+    org_staff_roles = ("owner", "coordinator", "instructor", "judge")
+    all_org_roles = org_staff_roles + ("observer",)
+
+    def _effective_org_role(u) -> str | None:
+        if org_id is None:
+            return None
+        role_value = getattr(u, "org_role", None)
+        if role_value in all_org_roles:
+            return role_value
+        if "organization" in u.role_values:
+            return "coordinator"
+        return None
+
+    def _global_staff_roles() -> set[str]:
+        return {"instructor", "facilitator", "operations", "admin", "mentor", "intern",
+                "leader", "ambassador", "teacher"}
+
     def _mode_ok(u) -> bool:
         roles = set(u.role_values)
+        sandbox = _effective_org_role(u)
         if mode == "observer":
-            return "observer" in roles
+            return "observer" in roles or sandbox == "observer"
         if mode == "staff":
-            has_staff = bool(roles & {"instructor", "facilitator", "operations", "admin", "mentor", "intern", "leader", "ambassador", "teacher"})
-            return has_staff and ((not role_norm) or (role_norm in roles))
+            if org_id is not None:
+                if sandbox not in org_staff_roles:
+                    return False
+                return (not role_norm) or (sandbox == role_norm)
+            has_staff = bool(roles & _global_staff_roles())
+            if not has_staff:
+                return False
+            return (not role_norm) or (role_norm in roles)
         if mode == "all":
             return True
         # student: student role without observer (observer-role holders
         # live under Observers once assigned, even if also students).
-        return "student" in roles and "observer" not in roles
+        return "student" in roles and "observer" not in roles and sandbox != "observer"
 
     if registered_only:
         # Cohort-bounded candidate set (at most a roster, never the
@@ -361,7 +449,10 @@ async def search_cohort_assignable_students(
         users = await _registered_cohort_users(db, cohort_id=cohort_id, q=q, invite_code=invite_code)
         users = [u for u in users if _mode_ok(u)]
         if role_norm and mode != "staff":
-            users = [u for u in users if role_norm in u.role_values]
+            users = [
+                u for u in users
+                if role_norm in u.role_values or _effective_org_role(u) == role_norm
+            ]
         if login_status == "never":
             users = [u for u in users if u.last_login_at is None]
         elif login_status == "has_logged_in":
@@ -396,20 +487,59 @@ async def search_cohort_assignable_students(
     else:
         if mode == "observer":
             role_filter = User.roles.any("observer")
+            if org_id is not None:
+                role_filter = and_(
+                    or_(
+                        role_filter,
+                        and_(_org_member_filter(org_id), User.org_role == "observer"),
+                    ),
+                    or_(_org_member_filter(org_id), _is_not_platform_staff()),
+                )
         elif mode == "staff":
-            staff_roles = ("instructor", "facilitator", "operations", "admin", "mentor", "intern", "leader", "ambassador", "teacher")
-            role_filter = or_(*(User.roles.any(r) for r in staff_roles))
+            if org_id is not None:
+                # Org staff live in the org sandbox (`org_role`), never the
+                # platform's global admin/operations/instructor pool — so a
+                # platform admin who used "Try as Observer" on an org cohort
+                # doesn't appear under that org's Staff tab.
+                role_filter = and_(
+                    _org_member_filter(org_id),
+                    or_(
+                        User.org_role.in_(org_staff_roles),
+                        and_(User.org_role.is_(None), User.roles.any("organization")),
+                    ),
+                )
+            else:
+                staff_roles = ("instructor", "facilitator", "operations", "admin", "mentor", "intern", "leader", "ambassador", "teacher")
+                role_filter = or_(*[User.roles.any(r) for r in staff_roles])
         elif mode == "all":
             role_filter = None
         else:
             role_filter = and_(User.roles.any("student"), ~User.roles.any("observer"))
+            if org_id is not None:
+                role_filter = and_(
+                    role_filter,
+                    or_(User.org_role.is_(None), User.org_role != "observer"),
+                    _is_not_platform_staff(),
+                )
         stmt = select(User)
+        if org_id is not None:
+            # Organization scope: never the platform-wide account table.
+            stmt = stmt.where(org_student_filter(org_id))
         if role_filter is not None:
             stmt = stmt.where(role_filter)
-        if role_norm and mode == "staff":
-            stmt = stmt.where(User.roles.any(role_norm))
-        elif role_norm:
-            stmt = stmt.where(User.roles.any(role_norm))
+        if role_norm:
+            if org_id is not None:
+                role_cond = User.org_role == role_norm
+                if role_norm == "coordinator":
+                    role_cond = or_(
+                        role_cond,
+                        and_(User.org_role.is_(None), User.roles.any("organization")),
+                    )
+                if mode != "staff":
+                    role_cond = or_(role_cond, User.roles.any(role_norm))
+                stmt = stmt.where(role_cond)
+            else:
+                stmt = stmt.where(User.roles.any(role_norm))
         if q:
             like = f"%{q.strip()}%"
             conds = [User.full_name.ilike(like), User.email.ilike(like)]

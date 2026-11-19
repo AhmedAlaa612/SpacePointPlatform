@@ -345,6 +345,7 @@ async def resolve_or_create_contact(
     gender: str | None = None,
     nationality: str | None = None,
     organization_name: str | None = None,
+    organization_id: UUID | None = None,
 ) -> tuple[Contact, IdentityEvaluation]:
     """Find-or-create a contact from raw submitted fields — the orchestration
     every intake path (R1-5's public form, R2-2's bulk importer) needs on top
@@ -371,6 +372,12 @@ async def resolve_or_create_contact(
     purely informational — no age/minor enforcement is derived from them
     anywhere. `organization_name` resolves (or creates) an Organization via
     resolve_or_create_organization and sets it on the contact.
+
+    `organization_id` (2026-11) attaches the contact to an already-known
+    organization — used by the desk registration flow for an org-owned cohort,
+    where the org is implied by the cohort rather than typed by the operator.
+    Like the rest of this function it only gap-fills `organization_id`; an
+    explicit `organization_name` wins if both are supplied.
 
     `nationality` (2026-09-14, competition roster import) and `gender` are the
     same kind of purely informational fields — deliberately distinct from
@@ -406,15 +413,18 @@ async def resolve_or_create_contact(
             contact.gender = gender_clean
         if contact.nationality is None and nationality is not None:
             contact.nationality = nationality
-        if contact.organization_id is None and organization_name:
-            org = await resolve_or_create_organization(db, organization_name)
-            contact.organization_id = org.id
+        if contact.organization_id is None:
+            if organization_name:
+                org = await resolve_or_create_organization(db, organization_name)
+                contact.organization_id = org.id
+            elif organization_id is not None:
+                contact.organization_id = organization_id
         return contact, evaluation
 
-    organization_id = None
+    resolved_organization_id = organization_id
     if organization_name:
         org = await resolve_or_create_organization(db, organization_name)
-        organization_id = org.id
+        resolved_organization_id = org.id
 
     contact = Contact(
         id=uuid4(),
@@ -431,7 +441,7 @@ async def resolve_or_create_contact(
         grade=grade,
         gender=gender_clean,
         nationality=nationality,
-        organization_id=organization_id,
+        organization_id=resolved_organization_id,
     )
     db.add(contact)
     await db.flush()

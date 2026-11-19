@@ -39,8 +39,6 @@ export interface AdminCourse {
   // a new completion certificate from being issued for this course; never
   // revokes one already issued, never blocks a learning-path certificate.
   certificate_enabled: boolean;
-  organization_id?: string | null;
-  organization_name?: string | null;
   can_edit?: boolean;
   show_rating?: boolean;
   rating_auto_hidden?: boolean;
@@ -1023,6 +1021,11 @@ export const getStudentCertificatesApi = (userId: string) =>
 
 export const listInviteCodesApi = () =>
   api.get<InviteCode[]>("/lms/admin/invite-codes").then((r) => r.data);
+
+export const listCohortInviteCodesApi = (cohortId: string) =>
+  api.get<InviteCode[]>("/lms/admin/invite-codes", {
+    params: { cohort_id: cohortId },
+  }).then((r) => r.data);
 
 export const createInviteCodeApi = (data: {
   code: string; label?: string | null; max_uses?: number; is_active?: boolean;

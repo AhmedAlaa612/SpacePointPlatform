@@ -50,7 +50,7 @@ from app.services.competitions import progression as progression_service
 from app.services.competitions import registration_import as import_service
 from app.services.competitions import team_management as team_service
 from app.services.lms import students as student_search_service
-from app.services.org_access import require_org_manager
+from app.services.org_access import cohort_organization_id, require_org_manager
 from app.services.website_events import resolve_user_organization
 from app.workers.settings import get_arq_redis, safe_enqueue
 
@@ -92,6 +92,59 @@ async def _require_competitions_admin_access(
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Program not found")
 
     return current_user
+
+
+# Roles that see the platform-wide user table. Anyone else reaching this
+# router is an organization manager (guaranteed by the dependency above) and
+# must only ever see/assign their own people.
+_PLATFORM_SCOPE_ROLES = ("admin", "operations", "facilitator", "lms_author")
+
+
+def _is_platform_scope(user: User) -> bool:
+    return any(r in user.role_values for r in _PLATFORM_SCOPE_ROLES)
+
+
+async def _org_scope_id(db: AsyncSession, current_user: User) -> uuid.UUID | None:
+    """`None` for platform staff (full table), otherwise the caller's org id."""
+    if _is_platform_scope(current_user):
+        return None
+    org = await resolve_user_organization(db, current_user)
+    if org is None:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="No organization context")
+    return org.id
+
+
+async def _effective_org_scope_id(
+    db: AsyncSession, current_user: User, cohort: Cohort | None = None,
+) -> uuid.UUID | None:
+    """Org scope for Assign tab reads & writes:
+
+    - If the cohort itself belongs to a partner organization, always scope to
+      that organization — even when SpacePoint Ops/Admin co-manages it or when
+      a caller holds both platform and organization roles.
+    - Otherwise fall back to the caller's own org scope (`None` for platform staff).
+    """
+    if cohort is not None:
+        cohort_org_id = await cohort_organization_id(db, cohort)
+        if cohort_org_id is not None:
+            return cohort_org_id
+    return await _org_scope_id(db, current_user)
+
+
+async def _assert_users_in_org_scope(
+    db: AsyncSession, current_user: User, user_ids: list[uuid.UUID],
+    *, cohort: Cohort | None = None,
+) -> None:
+    """Write-side twin of the Assign tab's org filter: in an org cohort (or
+    for an org manager), only accounts belonging to that organization can be
+    acted on. Platform cohorts remain unrestricted for platform staff."""
+    org_id = await _effective_org_scope_id(db, current_user, cohort)
+    if org_id is None:
+        return
+    for uid in {u for u in user_ids if u is not None}:
+        if not await student_search_service.user_belongs_to_organization(db, uid, org_id):
+            # 404, not 403: don't confirm the existence of other orgs' users.
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
 
 
 router = APIRouter(
@@ -423,10 +476,16 @@ async def regenerate_team_code(team_id: uuid.UUID, db: AsyncSession = Depends(ge
 @router.post("/teams/{team_id}/members", response_model=CompetitionTeamOut, status_code=status.HTTP_201_CREATED)
 async def post_team_member(
     team_id: uuid.UUID, body: CompetitionTeamMemberIn, db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_lms_content),
     arq_redis: ArqRedis | None = Depends(get_arq_redis),
 ):
     registration_id: uuid.UUID | None = None
     if body.user_id is not None:
+        team = await db.get(Team, team_id)
+        if team is None:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Team not found")
+        cohort = await _get_cohort_or_404(db, team.cohort_id)
+        await _assert_users_in_org_scope(db, current_user, [body.user_id], cohort=cohort)
         await team_service.add_existing_member(db, team_id=team_id, user_id=body.user_id)
     elif body.full_name and body.email:
         _user, registration_id = await team_service.register_and_add_member(
@@ -606,6 +665,7 @@ async def get_cohort_assignable_students(
     sort: Literal["full_name", "card_number", "created_at", "email"] = "full_name",
     direction: Literal["asc", "desc"] = "asc",
     db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_lms_content),
 ):
     """Backs the Assign tab's search + filters (2026-09-15: `registered_only`,
     `team_status`, `lms_status` replaced the original boolean
@@ -619,11 +679,13 @@ async def get_cohort_assignable_students(
     `login_status` filter either set further. The tab's "In program" state
     reads `registered`, not `lms_access` — registration and LMS assignment
     are created interchangeably by every assign path."""
-    await _get_cohort_or_404(db, cohort_id)
+    cohort = await _get_cohort_or_404(db, cohort_id)
+    org_id = await _effective_org_scope_id(db, current_user, cohort)
     result = await student_search_service.search_cohort_assignable_students(
         db, cohort_id=cohort_id, q=q, invite_code=invite_code, registered_only=registered_only,
         team_status=team_status, lms_status=lms_status, login_status=login_status, mode=mode,
         role=role, page=page, page_size=page_size, sort=sort, direction=direction,
+        org_id=org_id,
     )
     return CompetitionAssignableStudentsPage(**result)
 
@@ -631,6 +693,7 @@ async def get_cohort_assignable_students(
 @router.post("/cohorts/{cohort_id}/assign-students", response_model=CompetitionAssignStudentsOut)
 async def post_cohort_assign_students(
     cohort_id: uuid.UUID, body: CompetitionAssignStudentsIn, db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_lms_content),
     arq_redis: ArqRedis | None = Depends(get_arq_redis),
 ):
     """Assign tab (2026-09-14): ops has already found these students via
@@ -645,7 +708,8 @@ async def post_cohort_assign_students(
     that actually created a new Registration (`disposition == "created"`)
     gets a ticket-email job — a row that just moved an already-registered
     student to a different team has nothing new to ticket."""
-    await _get_cohort_or_404(db, cohort_id)
+    cohort = await _get_cohort_or_404(db, cohort_id)
+    await _assert_users_in_org_scope(db, current_user, [r.user_id for r in body.rows], cohort=cohort)
     rows = [
         {"row_number": i, "user_id": r.user_id, "team_id": r.team_id, "team_name": r.team_name}
         for i, r in enumerate(body.rows, start=1)
@@ -670,6 +734,7 @@ async def post_cohort_assign_students(
 @router.post("/cohorts/{cohort_id}/register-users", response_model=CompetitionAssignStudentsOut)
 async def post_cohort_register_users(
     cohort_id: uuid.UUID, body: CompetitionRegisterUsersIn, db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_lms_content),
     arq_redis: ArqRedis | None = Depends(get_arq_redis),
 ):
     """Assign tab add-to-program (2026-10 rebuild): registers each account
@@ -682,7 +747,8 @@ async def post_cohort_register_users(
 
     Same ticket-email rule as assign-students: only a genuinely new
     Registration gets a job."""
-    await _get_cohort_or_404(db, cohort_id)
+    cohort = await _get_cohort_or_404(db, cohort_id)
+    await _assert_users_in_org_scope(db, current_user, list(body.user_ids), cohort=cohort)
     results = await import_service.register_existing_users(
         db, cohort_id=cohort_id,
         user_ids=[r for r in body.user_ids],

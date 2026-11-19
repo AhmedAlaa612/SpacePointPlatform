@@ -1802,6 +1802,7 @@ async def team_final_submit_readiness(
     `refresh_item_progress`, not the cheaper stored-only
     `_effective_status`). Returns `(ready, reason)` — `reason` is a
     human-readable string for the 400 detail when not ready."""
+    team = await team_for_cohort_member(db, cohort_id=assignment.cohort_id, user_id=assignment.user_id)
     pairs = await _assignment_items_and_progress(db, assignment.id)
     team_progress_by_item = await _team_progress_by_item(
         db, pairs=pairs, cohort_id=assignment.cohort_id, user_id=assignment.user_id,
@@ -1815,6 +1816,8 @@ async def team_final_submit_readiness(
             db, progress=team_progress or progress, item=item, user_id=assignment.user_id,
             dashboard_cache=dashboard_cache,
         )
+        if item.item_type == "team_setup" and team is not None and item_status == "pending":
+            item_status = "done"
         if item_status != "done":
             return False, f"'{item.title}' isn't done yet"
     return True, None

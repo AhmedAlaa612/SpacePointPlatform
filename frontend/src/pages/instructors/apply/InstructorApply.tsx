@@ -254,8 +254,8 @@ export default function InstructorApplyPage() {
                     type="button"
                     onClick={() => handleHasCodeChange(true)}
                     className={`flex-1 py-3 rounded-xl border font-bold transition-all ${hasInviteCode
-                        ? "bg-primary text-primary-foreground border-primary"
-                        : "border-border text-muted-foreground hover:bg-muted"
+                      ? "bg-primary text-primary-foreground border-primary"
+                      : "border-border text-muted-foreground hover:bg-muted"
                       }`}
                   >
                     Yes
@@ -264,8 +264,8 @@ export default function InstructorApplyPage() {
                     type="button"
                     onClick={() => handleHasCodeChange(false)}
                     className={`flex-1 py-3 rounded-xl border font-bold transition-all ${!hasInviteCode
-                        ? "bg-primary text-primary-foreground border-primary"
-                        : "border-border text-muted-foreground hover:bg-muted"
+                      ? "bg-primary text-primary-foreground border-primary"
+                      : "border-border text-muted-foreground hover:bg-muted"
                       }`}
                   >
                     No
@@ -295,8 +295,8 @@ export default function InstructorApplyPage() {
                     type="button"
                     onClick={() => handleLocationChange("within")}
                     className={`flex-1 py-3 rounded-xl border font-bold transition-all ${applyLocation === "within"
-                        ? "bg-primary text-primary-foreground border-primary"
-                        : "border-border text-muted-foreground hover:bg-muted"
+                      ? "bg-primary text-primary-foreground border-primary"
+                      : "border-border text-muted-foreground hover:bg-muted"
                       }`}
                   >
                     Within UAE
@@ -305,8 +305,8 @@ export default function InstructorApplyPage() {
                     type="button"
                     onClick={() => handleLocationChange("outside")}
                     className={`flex-1 py-3 rounded-xl border font-bold transition-all ${applyLocation === "outside"
-                        ? "bg-primary text-primary-foreground border-primary"
-                        : "border-border text-muted-foreground hover:bg-muted"
+                      ? "bg-primary text-primary-foreground border-primary"
+                      : "border-border text-muted-foreground hover:bg-muted"
                       }`}
                   >
                     Outside UAE
@@ -453,8 +453,8 @@ export default function InstructorApplyPage() {
                         type="button"
                         onClick={() => setForm((f) => ({ ...f, has_own_transportation: "true" }))}
                         className={`flex-1 py-3 rounded-xl border font-bold transition-all ${form.has_own_transportation === "true"
-                            ? "bg-primary text-primary-foreground border-primary"
-                            : "border-border text-muted-foreground hover:bg-muted"
+                          ? "bg-primary text-primary-foreground border-primary"
+                          : "border-border text-muted-foreground hover:bg-muted"
                           }`}
                       >
                         Yes, I have a car
@@ -463,8 +463,8 @@ export default function InstructorApplyPage() {
                         type="button"
                         onClick={() => setForm((f) => ({ ...f, has_own_transportation: "false" }))}
                         className={`flex-1 py-3 rounded-xl border font-bold transition-all ${form.has_own_transportation === "false"
-                            ? "bg-destructive/20 text-destructive border-destructive/50"
-                            : "border-border text-muted-foreground hover:bg-muted"
+                          ? "bg-destructive/20 text-destructive border-destructive/50"
+                          : "border-border text-muted-foreground hover:bg-muted"
                           }`}
                       >
                         No, I don't

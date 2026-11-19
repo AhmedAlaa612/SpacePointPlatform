@@ -250,13 +250,7 @@ async def catalog(
     — the catalog isn't the place to advertise a course you can't get into
     without an existing grant, only `enrolled=True` invite courses show up
     (this applies to every caller, admin/operations included — the admin
-    course list at `/lms/admin/courses` is the unfiltered oversight view).
-
-    Staff can't self-enrol at all — `POST /lms/enroll` is student-only, so
-    any course they don't already hold an ops-granted `Enrollment` in just
-    403s on click. For everyone but admin/operations (who need the full
-    catalog for oversight), the catalog additionally scopes down to what
-    they're actually enrolled in."""
+    course list at `/lms/admin/courses` is the unfiltered oversight view)."""
     stmt = select(Course).where(Course.is_published.is_(True))
     if q and q.strip():
         pattern = f"%{q.strip()}%"
@@ -272,9 +266,6 @@ async def catalog(
     )).scalars().all())
 
     rows = [c for c in rows if c.access_mode != "invite" or c.id in enrolled_course_ids]
-
-    if not ({"student", "admin", "operations"} & set(current.roles)):
-        rows = [c for c in rows if c.id in enrolled_course_ids]
 
     visible_rating_cids = [c.id for c in rows if getattr(c, "show_rating", True)]
     ratings_map: dict[uuid.UUID, tuple[float | None, int]] = {}

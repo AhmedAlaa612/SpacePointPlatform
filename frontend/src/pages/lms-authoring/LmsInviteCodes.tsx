@@ -102,8 +102,8 @@ export default function LmsInviteCodes() {
                         </span>
                       ) : (
                         <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${c.is_active
-                            ? "bg-green-500/15 text-green-600 dark:text-green-400"
-                            : "bg-muted text-muted-foreground"
+                          ? "bg-green-500/15 text-green-600 dark:text-green-400"
+                          : "bg-muted text-muted-foreground"
                           }`}>
                           {c.is_active ? "Active" : "Inactive"}
                         </span>
@@ -248,9 +248,9 @@ function GrantsPanel({ code }: { code: InviteCode }) {
   // "program" grants store a cohort_id (see InviteCodeGrant's own comment
   // — an LmsProgram is never assigned on its own, only resolved from a
   // cohort), so the picker offers cohorts, not programs.
-  const { data: cohorts = [] } = useQuery({
+  const { data: cohorts = [] } = useQuery<Array<{ id: string; name: string; program_name?: string | null }>>({
     queryKey: [isOrg ? "org-cohorts-all" : "sessions-cohorts-all"],
-    queryFn: () => (isOrg ? getOrgCohortsApi() : getCohortsApi()),
+    queryFn: async () => (isOrg ? getOrgCohortsApi() : getCohortsApi()),
   })
   const invalidate = () => queryClient.invalidateQueries({ queryKey: ["lms-admin-invite-code-grants", code.id] })
 

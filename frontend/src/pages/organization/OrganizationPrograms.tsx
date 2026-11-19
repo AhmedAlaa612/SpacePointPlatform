@@ -16,12 +16,13 @@ import {
   Trash2,
   CheckCircle2,
   ListChecks,
-  Trophy,
+  Award,
   X,
 } from "lucide-react"
-import { Link } from "@tanstack/react-router"
 import { listLmsProgramsApi, createLmsProgramApi, getLmsProgramApi, type LmsProgram } from "@/api/lms_admin"
 import { CreateChecklistPrompt, ProgramTemplateEditor } from "@/pages/lms-authoring/components/LmsChecklistAuthoring"
+import { ProgramCertificateStudioModal } from "@/pages/admin/components/ProgramCertificateStudioModal"
+import type { Program } from "@/types/sessions"
 import { useToast } from "@/components/ui/toast"
 import {
   getOrgProgramsOverviewApi,
@@ -54,6 +55,7 @@ export default function OrganizationPrograms() {
   const [createProgramOpen, setCreateProgramOpen] = useState(false)
   const [editingProgram, setEditingProgram] = useState<OrgProgramSummary | null>(null)
   const [checklistProgram, setChecklistProgram] = useState<OrgProgramSummary | null>(null)
+  const [certProgram, setCertProgram] = useState<OrgProgramSummary | null>(null)
   const [createCohortForProgramId, setCreateCohortForProgramId] = useState<string | null>(null)
   const [duplicateTargetCohort, setDuplicateTargetCohort] = useState<OrgCohortSummary | null>(null)
   const [editingCohort, setEditingCohort] = useState<OrgCohortSummary | null>(null)
@@ -300,6 +302,14 @@ export default function OrganizationPrograms() {
                     </button>
                     <button
                       type="button"
+                      onClick={() => setCertProgram(program)}
+                      className="inline-flex items-center gap-1.5 h-8 px-2.5 rounded-lg border border-border bg-background text-xs font-semibold text-foreground hover:bg-muted transition"
+                      title="Manage Custom Certificate Templates"
+                    >
+                      <Award className="w-3.5 h-3.5 text-primary" /> Certificates
+                    </button>
+                    <button
+                      type="button"
                       onClick={() => setEditingProgram(program)}
                       className="inline-flex items-center gap-1 h-8 px-2.5 rounded-lg border border-border bg-background text-xs font-medium text-foreground hover:bg-muted transition"
                     >
@@ -412,14 +422,6 @@ export default function OrganizationPrograms() {
                               >
                                 <Copy className="w-3 h-3" /> Duplicate
                               </button>
-                              <Link
-                                to="/organization/programs/$cohortId/judging"
-                                params={{ cohortId: cohort.id }}
-                                className="inline-flex items-center gap-1 h-7 px-2 rounded-lg border border-primary/30 bg-primary/5 text-primary text-[11px] font-semibold hover:bg-primary/15 transition"
-                                title="Judging, Roster, Rubric & Leaderboard"
-                              >
-                                <Trophy className="w-3 h-3" /> Judging
-                              </Link>
                             </div>
 
                             <button
@@ -513,6 +515,20 @@ export default function OrganizationPrograms() {
         <ProgramChecklistModal
           program={checklistProgram}
           onClose={() => setChecklistProgram(null)}
+        />
+      )}
+
+      {/* ── Custom Certificate Templates Modal ─────────────────────────────── */}
+      {certProgram && (
+        <ProgramCertificateStudioModal
+          program={
+            {
+              ...certProgram,
+              default_certificate_template_id: certProgram.default_certificate_template_id ?? null,
+            } as unknown as Program
+          }
+          onClose={() => setCertProgram(null)}
+          onUpdated={invalidate}
         />
       )}
     </div>

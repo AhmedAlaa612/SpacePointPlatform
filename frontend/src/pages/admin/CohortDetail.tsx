@@ -768,7 +768,7 @@ function CohortDetailView({ cohort }: { cohort: Cohort }) {
               >
                 <ArrowLeft size={13} /> Back to Students
               </button>
-              <AssignTab cohortId={cohort.id} />
+              <AssignTab cohortId={cohort.id} isOrgScope={isOrgScope} />
             </div>
           )}
           {participantsSub === "teams" && <TeamsTab cohortId={cohort.id} cohortName={cohort.name} />}

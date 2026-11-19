@@ -32,6 +32,7 @@ export interface OrgProgramSummary {
   completion_rule_value?: number
   keep_course_access_after_completion?: boolean
   lms_program_id?: string | null
+  default_certificate_template_id?: string | null
   cohorts_count: number
   cohorts: OrgCohortSummary[]
   created_at?: string

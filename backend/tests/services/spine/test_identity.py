@@ -382,6 +382,22 @@ async def test_resolve_or_create_contact_sets_dob_grade_and_organization_on_crea
 
 
 @pytest.mark.asyncio
+async def test_resolve_or_create_contact_attaches_explicit_organization_id(db):
+    """Desk registration for an org-owned cohort knows the org already (from
+    the cohort) and passes its id instead of a typed name."""
+    org = Organization(id=uuid.uuid4(), name_latin="Partner Org", org_type="university")
+    db.add(org)
+    await db.flush()
+
+    contact, evaluation = await resolve_or_create_contact(
+        db, full_name="Org Student", email=f"org-student-{uuid.uuid4().hex[:8]}@example.com",
+        contact_roles=["student"], organization_id=org.id,
+    )
+    assert evaluation.outcome == "NEW"
+    assert contact.organization_id == org.id
+
+
+@pytest.mark.asyncio
 async def test_resolve_or_create_contact_gap_fills_dob_grade_org_on_exact_merge(db):
     """An EXACT_MERGE (matched by email) must fill in DOB/grade/organization
     if the existing contact doesn't have them yet — but never overwrite

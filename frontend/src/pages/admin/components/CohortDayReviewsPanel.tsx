@@ -275,9 +275,6 @@ export default function CohortDayReviewsPanel({ cohort, sessionId, embedded = fa
           <h3 className="font-semibold text-sm flex items-center gap-1.5">
             <CalendarCheck size={14} /> Needs review
           </h3>
-          <p className="text-xs text-muted-foreground">
-            Approving a report is what makes that session count on the instructor's payment letter.
-          </p>
         </div>
       )}
 

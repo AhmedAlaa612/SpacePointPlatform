@@ -99,8 +99,8 @@ export default function PreSessionQuizzes() {
   return (
     <div className="flex flex-col gap-6">
       <PageHeader
-        title="Instructor Pre-Session Quizzes &amp; Readiness Pipeline"
-        subtitle="Build multi-phase cohort readiness pipelines, configure interactive connector pinouts, manage centralized datasheets, and test observer mode."
+        title="Instructor Pre-Session Readiness Quizzes"
+        subtitle="Build multi-phase cohort readiness quizzes, configure interactive connector pinouts, manage centralized datasheets, and test observer mode."
       />
 
       <div className="flex gap-1 border-b border-border overflow-x-auto scrollbar-none no-scrollbar">
@@ -115,7 +115,7 @@ export default function PreSessionQuizzes() {
           )}
         >
           <Layers size={15} />
-          Quiz Presets &amp; Pipelines
+          Quiz Presets &amp; Templates
         </button>
         <button
           type="button"
@@ -915,7 +915,7 @@ function QuestionBuilderModal({
             <p className="text-xs font-bold text-foreground">Written Scenario Format</p>
             <p className="text-xs text-muted-foreground">
               Instructors will see a multi-line text input to write their technical troubleshooting or architectural diagnosis.
-              Their response is recorded for Operations review and will be auto-credited to allow pipeline progression.
+              Their response is recorded for Operations review and will be auto-credited to allow quiz progression.
             </p>
             <div className="h-20 rounded-xl border border-dashed border-border bg-card/60 p-3 text-xs text-muted-foreground italic select-none">
               [Instructor Textarea Response Box]
@@ -1465,7 +1465,7 @@ function AttachFromLibraryModal({
     >
       <div className="flex flex-col gap-3">
         <p className="text-xs text-muted-foreground">
-          Select datasheets and user guides from the central library to attach to this readiness pipeline.
+          Select datasheets and user guides from the central library to attach to this readiness quiz.
           Attached documents will be available to instructors during exploration, matching, and quiz phases.
         </p>
 
@@ -1687,7 +1687,7 @@ function DatasheetLibraryTab() {
       {filtered.length === 0 ? (
         <EmptyState
           title="No technical documents found"
-          hint="Add hardware datasheets, user guides, or schematics to the central library. They can be attached to any readiness pipeline preset."
+          hint="Add hardware datasheets, user guides, or schematics to the central library. They can be attached to any readiness quiz preset."
         />
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -1799,7 +1799,7 @@ function DatasheetLibraryTab() {
       {deletingDoc && (
         <ConfirmDialog
           title="Delete Datasheet from Library"
-          description={`Are you sure you want to remove "${deletingDoc.title}" from the centralized library? Pipelines that reference this document will retain their copy unless detached.`}
+          description={`Are you sure you want to remove "${deletingDoc.title}" from the centralized library? Quizzes that reference this document will retain their copy unless detached.`}
           confirmLabel="Delete Document"
           destructive
           pending={deleteMut.isPending}
@@ -1854,21 +1854,21 @@ function PresetsTab() {
     <div className="flex flex-col gap-4">
       <div className="flex items-center justify-between gap-3 flex-wrap">
         <p className="text-xs sm:text-sm text-muted-foreground">
-          Assemble multi-phase readiness pipelines with datasheets, matching buckets, and question phases that gate cohort delivery.
+          Assemble multi-phase readiness quizzes with datasheets, matching buckets, and question phases that gate cohort delivery.
         </p>
         <button
           type="button"
           onClick={() => setCreating(true)}
           className="flex items-center h-9 px-4 bg-primary text-primary-foreground rounded-xl text-xs sm:text-sm font-semibold hover:opacity-90 transition-opacity cursor-pointer shrink-0 shadow-xs gap-1.5"
         >
-          <Plus size={15} /> New Pipeline Preset
+          <Plus size={15} /> New Quiz Preset
         </button>
       </div>
 
       {presets.length === 0 ? (
         <EmptyState
           title="No quiz presets yet"
-          hint="Create a preset to configure the 5-phase hardware readiness pipeline."
+          hint="Create a preset to configure the 5-phase hardware readiness quiz."
         />
       ) : (
         <div className="grid grid-cols-1 gap-4">
@@ -1891,7 +1891,7 @@ function PresetsTab() {
                       </span>
                     ) : (
                       <span className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30">
-                        Readiness Pipeline
+                        Readiness Quiz
                       </span>
                     )}
 
@@ -1933,11 +1933,11 @@ function PresetsTab() {
                     type="button"
                     onClick={() => setPreviewPreset(preset)}
                     className="flex-1 sm:flex-initial inline-flex items-center justify-center gap-1.5 h-8 px-2.5 sm:px-3 rounded-lg border border-primary/40 bg-primary/10 hover:bg-primary/20 text-xs font-semibold text-primary transition-colors cursor-pointer min-w-0"
-                    title="Preview entire 5-phase pipeline in LMS Observer Mode"
+                    title="Preview entire 5-phase quiz in LMS Observer Mode"
                   >
                     <Eye size={13} className="shrink-0" />
                     <span className="sm:hidden">Observer Preview</span>
-                    <span className="hidden sm:inline">Preview Pipeline (Observer Mode)</span>
+                    <span className="hidden sm:inline">Preview Quiz (Observer Mode)</span>
                   </button>
                   <button
                     type="button"
@@ -1945,7 +1945,7 @@ function PresetsTab() {
                     className="flex-1 sm:flex-initial inline-flex items-center justify-center h-8 px-2.5 sm:px-3 rounded-lg border border-border bg-background hover:bg-muted text-xs font-medium text-foreground transition-colors cursor-pointer min-w-0"
                   >
                     <span className="sm:hidden">Configure</span>
-                    <span className="hidden sm:inline">Configure Pipeline</span>
+                    <span className="hidden sm:inline">Configure Quiz</span>
                   </button>
                   <button
                     type="button"
@@ -1958,10 +1958,10 @@ function PresetsTab() {
                 </div>
               </div>
 
-              {/* Pipeline Phases Badges */}
+              {/* Quiz Phases Badges */}
               {preset.phases && preset.phases.length > 0 && (
                 <div className="flex flex-wrap items-center gap-1.5 pt-1">
-                  <span className="text-xs font-semibold text-muted-foreground mr-1">Pipeline Phases:</span>
+                  <span className="text-xs font-semibold text-muted-foreground mr-1">Quiz Phases:</span>
                   {preset.phases.map((ph, idx) => (
                     <span
                       key={ph.id || idx}
@@ -2310,13 +2310,13 @@ function PresetBuilderModal({
     ]
 
     setPhases(standardPhases)
-    if (!name.trim()) setName("Standard SpacePoint Hardware Delivery Pipeline")
+    if (!name.trim()) setName("Standard SpacePoint Hardware Delivery Quiz")
     if (!description.trim()) {
       setDescription(
-        "Standard 5-phase cohort readiness pipeline: Datasheet exploration, Subsystem matching (15m cooldown), Pinout tables, I2C/UART Addressing, and Troubleshooting Scenarios."
+        "Standard 5-phase cohort readiness quiz: Datasheet exploration, Subsystem matching (15m cooldown), Pinout tables, I2C/UART Addressing, and Troubleshooting Scenarios."
       )
     }
-    toast.success("Standard 5-Phase Pipeline loaded!")
+    toast.success("Standard 5-Phase Quiz loaded!")
   }
 
   const addPhase = (type: "explore_datasheets" | "subsystem_matching" | "quiz") => {
@@ -2406,7 +2406,7 @@ function PresetBuilderModal({
 
   return (
     <Modal
-      title={preset ? `Configure Preset: ${preset.name}` : "New Quiz & Pipeline Preset"}
+      title={preset ? `Configure Preset: ${preset.name}` : "New Quiz Preset"}
       onClose={onClose}
       maxWidth="sm:max-w-4xl max-w-4xl"
     >
@@ -2424,7 +2424,7 @@ function PresetBuilderModal({
                   : "border-border bg-card text-muted-foreground hover:text-foreground"
               )}
             >
-              <span className="text-xs font-bold">Readiness Pipeline</span>
+              <span className="text-xs font-bold">Readiness Quiz</span>
               <span className="text-[10px] opacity-80">Phased pre-flight readiness gate with datasheets & pinouts</span>
             </button>
             <button
@@ -2451,7 +2451,7 @@ function PresetBuilderModal({
               )}
             >
               <span className="text-xs font-bold">Universal (Dual Mode)</span>
-              <span className="text-[10px] opacity-80">Usable as screening assessment & readiness pipeline</span>
+              <span className="text-[10px] opacity-80">Usable as screening assessment & readiness quiz</span>
             </button>
           </div>
         </Field>
@@ -2536,7 +2536,7 @@ function PresetBuilderModal({
               )}
             >
               <Layers size={13} />
-              Pipeline Phases ({phases.length})
+              Quiz Phases ({phases.length})
             </button>
             <button
               type="button"
@@ -2559,11 +2559,11 @@ function PresetBuilderModal({
               onClick={() => setShowObserverPreview(true)}
               disabled={phases.length === 0}
               className="flex-1 sm:flex-initial inline-flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg border border-primary/40 bg-primary/10 hover:bg-primary/20 text-xs font-bold text-primary transition-colors cursor-pointer disabled:opacity-40"
-              title="Test current pipeline configuration in LMS Observer Mode"
+              title="Test current quiz configuration in LMS Observer Mode"
             >
               <Eye size={13} className="shrink-0" />
               <span className="sm:hidden">Observer Preview</span>
-              <span className="hidden sm:inline">Preview Pipeline (Observer Mode)</span>
+              <span className="hidden sm:inline">Preview Quiz (Observer Mode)</span>
             </button>
 
             <button
@@ -2573,7 +2573,7 @@ function PresetBuilderModal({
             >
               <Layers size={13} className="shrink-0" />
               <span className="sm:hidden">Quick-Seed Standard</span>
-              <span className="hidden sm:inline">Quick-Seed Standard 5-Phase Pipeline</span>
+              <span className="hidden sm:inline">Quick-Seed Standard 5-Phase Quiz</span>
             </button>
           </div>
         </div>
@@ -2612,9 +2612,9 @@ function PresetBuilderModal({
 
             {phases.length === 0 ? (
               <div className="p-8 text-center border border-dashed border-border rounded-2xl bg-muted/20 flex flex-col items-center gap-2">
-                <p className="text-sm font-semibold text-foreground">No pipeline phases defined</p>
+                <p className="text-sm font-semibold text-foreground">No quiz phases defined</p>
                 <p className="text-xs text-muted-foreground max-w-md">
-                  Click &ldquo;Quick-Seed Standard 5-Phase Pipeline&rdquo; above to pre-populate the full 5-step hardware pipeline, or add phases manually.
+                  Click &ldquo;Quick-Seed Standard 5-Phase Quiz&rdquo; above to pre-populate the full 5-step hardware quiz, or add phases manually.
                 </p>
               </div>
             ) : (
@@ -2876,7 +2876,7 @@ function PresetBuilderModal({
                   Datasheet Library Integration
                 </span>
                 <p className="text-[11px] text-muted-foreground">
-                  Attach technical datasheets and guides from your centralized library to this pipeline. Detaching removes them from this pipeline without deleting them from the library.
+                  Attach technical datasheets and guides from your centralized library to this quiz. Detaching removes them from this quiz without deleting them from the library.
                 </p>
               </div>
 
@@ -2913,9 +2913,9 @@ function PresetBuilderModal({
 
               {references.length === 0 ? (
                 <div className="p-8 text-center border border-dashed border-border rounded-2xl bg-muted/20 flex flex-col items-center gap-2">
-                  <p className="text-xs font-semibold text-foreground">No datasheets attached to this pipeline yet</p>
+                  <p className="text-xs font-semibold text-foreground">No datasheets attached to this quiz yet</p>
                   <p className="text-[11px] text-muted-foreground max-w-sm">
-                    Click &ldquo;Attach from Library&rdquo; to select documents from your centralized catalog, or click Quick-Seed Standard Pipeline above.
+                    Click &ldquo;Attach from Library&rdquo; to select documents from your centralized catalog, or click Quick-Seed Standard Quiz above.
                   </p>
                 </div>
               ) : (
@@ -2969,7 +2969,7 @@ function PresetBuilderModal({
                             type="button"
                             onClick={() => setReferences(references.filter((_, idx) => idx !== i))}
                             className="p-1 text-muted-foreground hover:text-red-500 cursor-pointer"
-                            title="Detach from pipeline (keeps document in library)"
+                            title="Detach from quiz (keeps document in library)"
                           >
                             <Unlink size={13} />
                           </button>
@@ -2995,7 +2995,7 @@ function PresetBuilderModal({
               ? "Save Changes"
               : presetType === "pre_assessment"
               ? "Create Pre-Assessment Preset"
-              : "Create Pipeline Preset"
+              : "Create Quiz Preset"
           }
         />
       </div>
@@ -3066,7 +3066,7 @@ function PresetBuilderModal({
           <CohortReadinessQuiz
             presetOverride={{
               id: preset?.id || "preview-builder-preset",
-              name: name.trim() || "Pipeline Preview",
+              name: name.trim() || "Quiz Preview",
               description: description.trim() || null,
               question_ids: Array.from(
                 new Set(

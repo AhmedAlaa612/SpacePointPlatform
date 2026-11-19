@@ -696,6 +696,11 @@ async def move_to_backend(
         copied += 1
 
     video.storage_backend = target or None
+    # A move only copies bytes that already exist, so a successful one proves
+    # the video is healthy. Clear any error left by an earlier failed
+    # re-encode: otherwise the authoring UI keeps showing a stale red
+    # `transcode_error` next to a video that is ready and playing.
+    video.status_error = None
     await db.commit()
     await db.refresh(video)
     return {"video_id": str(video.id), "moved": copied,

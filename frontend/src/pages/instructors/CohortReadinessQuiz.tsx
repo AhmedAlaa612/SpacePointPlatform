@@ -174,7 +174,7 @@ export default function CohortReadinessQuiz({
     return (
       <div className="flex flex-col items-center justify-center min-h-[60vh] gap-3">
         <Spinner className="size-8 text-primary" />
-        <p className="text-sm text-muted-foreground">Loading Instructor Readiness Pipeline…</p>
+        <p className="text-sm text-muted-foreground">Loading Instructor Readiness Quiz…</p>
       </div>
     )
   }
@@ -183,12 +183,12 @@ export default function CohortReadinessQuiz({
     return (
       <div className="max-w-xl mx-auto py-16 px-4 text-center space-y-4">
         <p className="text-base font-semibold">
-          {isSimulated ? "Observer Mode: Pipeline Preset Missing" : "No Readiness Pipeline Assigned"}
+          {isSimulated ? "Observer Mode: Quiz Preset Missing" : "No Readiness Quiz Assigned"}
         </p>
         <p className="text-sm text-muted-foreground mt-1 max-w-xs mx-auto">
           {isSimulated
-            ? "No pipeline preset was passed to preview."
-            : "There is no active pre-session quiz or readiness pipeline assigned to this cohort."}
+            ? "No quiz preset was passed to preview."
+            : "There is no active readiness quiz assigned to this cohort."}
         </p>
         {isSimulated && onExitObserver ? (
           <Button onClick={onExitObserver}>Exit Observer Mode</Button>
@@ -713,7 +713,7 @@ export default function CohortReadinessQuiz({
         <aside className="lg:w-64 shrink-0 hidden lg:flex flex-col gap-2">
           <div className="p-3 rounded-xl border border-border bg-card">
             <h2 className="text-xs font-bold uppercase tracking-wider text-muted-foreground mb-2">
-              Pipeline Steps
+              Quiz Steps
             </h2>
             <nav className="flex flex-col gap-1">
               {phases.map((ph, idx) => {
@@ -1832,7 +1832,7 @@ function CompleteStep({
 
       <div className="space-y-2">
         <h2 className="text-2xl font-extrabold text-foreground">
-          {isObserverMode ? "Observer Preview: Pipeline Completed!" : "Cohort Readiness Pipeline Passed!"}
+          {isObserverMode ? "Observer Preview: Quiz Completed!" : "Cohort Readiness Quiz Passed!"}
         </h2>
         <p className="text-sm text-muted-foreground max-w-lg mx-auto">
           {isObserverMode

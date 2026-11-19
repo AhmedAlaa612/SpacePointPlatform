@@ -156,6 +156,25 @@ async def test_catalog_reflects_the_callers_own_enrollment(db, client):
 
 
 @pytest.mark.asyncio
+async def test_catalog_shows_open_and_paid_courses_for_non_student_accounts(db, client):
+    author = await _user(db, roles=["operations"])
+    open_course = await _course(db, author=author, access_mode="open")
+    paid_course = await _course(db, author=author, access_mode="paid")
+    invite_course = await _course(db, author=author, access_mode="invite")
+    org_user = await _user(db, roles=["organization"])
+    instructor = await _user(db, roles=["instructor"])
+    await db.commit()
+
+    for caller in (org_user, instructor):
+        resp = await client.get("/lms/catalog", headers=_headers(caller))
+        assert resp.status_code == 200
+        ids = {c["id"] for c in resp.json()}
+        assert str(open_course.id) in ids
+        assert str(paid_course.id) in ids
+        assert str(invite_course.id) not in ids
+
+
+@pytest.mark.asyncio
 async def test_global_leaderboard_endpoint_ranks_by_points(db, client):
     from app.services.lms.points import award_points
 

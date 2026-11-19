@@ -1,9 +1,8 @@
 import { useState, useRef } from "react"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
-import { useParams, useNavigate, Link } from "@tanstack/react-router"
+import { useParams, Link } from "@tanstack/react-router"
 import * as XLSX from "xlsx"
 import {
-  ArrowLeft,
   Calendar,
   Users,
   Plus,
@@ -11,7 +10,6 @@ import {
   Download,
   Trash2,
   ExternalLink,
-  Layers,
   Clock,
   MapPin,
   CheckCircle2,
@@ -21,28 +19,22 @@ import {
   Eye,
   X,
   Pencil,
-  GraduationCap,
-  Gavel,
   ClipboardCheck,
   UserPlus,
-  BarChart3,
-  Award,
-  TrendingUp,
 } from "lucide-react"
 import { useToast } from "@/components/ui/toast"
+import { Button } from "@/components/ui/button"
 import { downloadCompetitionRosterTemplateApi } from "@/api/competitions"
 import { getOrganizationTeamApi } from "@/api/websiteEvents"
 import type { OrgTeamMember } from "@/api/websiteEvents"
 import {
   assignOrgInstructor,
-  assignOrgJudge,
   createOrgReadinessPreset,
   getOrgCohortReadiness,
   getOrgCohortStaff,
   getOrgReadinessPresets,
   setOrgCohortReadiness,
   unassignOrgInstructor,
-  unassignOrgJudge,
   type OrgCohortStaff,
   type OrgCohortReadiness,
   type OrgInstructorReadiness,
@@ -66,6 +58,7 @@ import {
   type OrgBulkImportRow,
   type OrgCohortObserver,
 } from "@/api/organizationPrograms"
+import { CohortHeader, CohortBackButton, type CohortHeaderTab } from "@/components/cohort/CohortHeader"
 import { LmsCohortSection } from "@/pages/lms-authoring/components/LmsCohortSection"
 import { CohortProgressPanel, CohortAnalysisPanel } from "@/pages/admin/components/CohortProgressAnalysisPanel"
 import { TeamsTab, RubricTab, JudgesTab, ResultsTab } from "@/pages/admin/CompetitionJudging"
@@ -81,17 +74,51 @@ type TabKey =
   | "judging"
   | "certificates"
 
+/* Same sub-tab pills as the Ops cohort page (`CohortDetail.tsx`). One guide
+ * has to describe both pages, so these are literally the same classes. */
+const SUB_TAB_BASE =
+  "h-9 px-3.5 rounded-[10px] border-[2px] text-sm font-medium transition-colors cursor-pointer bg-transparent"
+const SUB_TAB_ON = "border-primary text-primary font-semibold"
+const SUB_TAB_OFF = "border-[#D7D2CB] text-muted-foreground hover:text-foreground"
+
+/* Same button skins as Ops (`WIRE_BTN` / `WIRE_CTA` in CohortDetail.tsx). */
+const WIRE_BTN = "bg-transparent border-[2px] border-[#D7D2CB] rounded-[10px] text-foreground hover:bg-muted/30 transition-colors cursor-pointer"
+const WIRE_CTA = "bg-[#653F84] text-white border-0 rounded-[10px] hover:opacity-90 transition-opacity cursor-pointer"
+
+function SubTabs<T extends string>({
+  tabs,
+  value,
+  onChange,
+}: {
+  tabs: readonly { key: T; label: string }[]
+  value: T
+  onChange: (key: T) => void
+}) {
+  return (
+    <div className="flex items-center gap-2 flex-wrap">
+      {tabs.map((t) => (
+        <button
+          key={t.key}
+          type="button"
+          onClick={() => onChange(t.key)}
+          className={`${SUB_TAB_BASE} ${value === t.key ? SUB_TAB_ON : SUB_TAB_OFF}`}
+        >
+          {t.label}
+        </button>
+      ))}
+    </div>
+  )
+}
+
 export default function OrganizationCohortDetail() {
   const { cohortId } = useParams({ strict: false }) as { cohortId: string }
-  const navigate = useNavigate()
   const toast = useToast()
   const qc = useQueryClient()
-  const searchParams = typeof window !== "undefined" ? new URLSearchParams(window.location.search) : null
-  const fromUrl = searchParams?.get("from") || undefined
 
-  const [activeTab, setActiveTab] = useState<TabKey>("milestones")
+  const [activeTab, setActiveTab] = useState<TabKey>("sessions")
   const [studentsSubTab, setStudentsSubTab] = useState<"students" | "observers" | "teams">("students")
-  const [judgingSubTab, setJudgingSubTab] = useState<"rubric" | "judges" | "results">("rubric")
+  const [instructorsSub, setInstructorsSub] = useState<"staffing" | "prequiz">("staffing")
+  const [judgingSubTab, setJudgingSubTab] = useState<"rubric" | "judges" | "results">("results")
   const [registerStudentOpen, setRegisterStudentOpen] = useState(false)
   const [bulkImportOpen, setBulkImportOpen] = useState(false)
   const [addObserverOpen, setAddObserverOpen] = useState(false)
@@ -187,9 +214,9 @@ export default function OrganizationCohortDetail() {
       typeof payload === "string"
         ? assignOrgInstructor(cohortId, { user_id: payload })
         : assignOrgInstructor(cohortId, {
-            user_id: payload.userId,
-            session_ids: payload.sessionId ? [payload.sessionId] : undefined,
-          }),
+          user_id: payload.userId,
+          session_ids: payload.sessionId ? [payload.sessionId] : undefined,
+        }),
     onSuccess: () => {
       toast.success("Instructor assigned")
       invalidate()
@@ -210,28 +237,6 @@ export default function OrganizationCohortDetail() {
     },
     onError: (err: any) => {
       toast.error(err?.response?.data?.detail ?? "Failed to unassign instructor")
-    },
-  })
-
-  const assignJudgeMut = useMutation({
-    mutationFn: (userId: string) => assignOrgJudge(cohortId, userId),
-    onSuccess: () => {
-      toast.success("Judge assigned to this cohort")
-      invalidate()
-    },
-    onError: (err: any) => {
-      toast.error(err?.response?.data?.detail ?? "Failed to assign judge")
-    },
-  })
-
-  const unassignJudgeMut = useMutation({
-    mutationFn: (userId: string) => unassignOrgJudge(cohortId, userId),
-    onSuccess: () => {
-      toast.success("Judge removed from this cohort")
-      invalidate()
-    },
-    onError: (err: any) => {
-      toast.error(err?.response?.data?.detail ?? "Failed to unassign judge")
     },
   })
 
@@ -270,147 +275,99 @@ export default function OrganizationCohortDetail() {
     (cohort.name || "").toLowerCase().includes("compet")
   )
 
+  // Same tabs, same order, same labels as the Ops cohort page — one guide has
+  // to explain both. Keys stay org-specific; only what the user sees matches.
+  const tabs: CohortHeaderTab[] = [
+    { key: "sessions", label: "Sessions" },
+    { key: "staff", label: "Instructors" },
+    { key: "students", label: "Participants" },
+    { key: "milestones", label: "LMS Authoring" },
+    { key: "progress", label: "Progress" },
+    { key: "analysis", label: "Analysis" },
+    ...(isCompetition
+      ? [
+        { key: "judging", label: "Judging" },
+        { key: "certificates", label: "Certificates" },
+      ]
+      : []),
+  ]
+
   return (
-    <div className="flex flex-col gap-6 max-w-6xl mx-auto pb-12">
-      {/* ── Top Bar ────────────────────────────────────────────────────────── */}
-      <div className="flex flex-col gap-4">
-        <button
-          type="button"
-          onClick={() => void navigate({ to: (fromUrl || "/organization/programs") as never })}
-          className="inline-flex items-center gap-1.5 text-xs font-semibold text-muted-foreground hover:text-foreground transition w-fit"
-        >
-          <ArrowLeft className="w-4 h-4" />{" "}
-          {fromUrl?.startsWith("/operations/organizations/") ? "Back to Organization" : "Back to Programs"}
-        </button>
-
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 p-5 rounded-2xl border border-border bg-card shadow-sm">
-          <div className="space-y-1">
-            <div className="flex items-center gap-2 flex-wrap">
-              <span className="text-xs font-semibold px-2 py-0.5 rounded-md bg-primary/10 text-primary">
-                {cohort.program_name}
+    <div className="flex flex-col gap-5">
+      <CohortHeader
+        name={cohort.name}
+        back={<CohortBackButton cohort={{ program_name: cohort.program_name }} />}
+        badges={
+          <>
+            <span className="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-white/15 text-white/90 font-mono">
+              {cohort.code || cohort.name}
+            </span>
+            {cohort.is_public && (
+              <span className="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-emerald-500/20 text-emerald-200">
+                Public
               </span>
-              <h1 className="text-xl font-bold text-foreground">{cohort.name}</h1>
-              <span className="text-xs font-mono px-2 py-0.5 rounded bg-muted text-muted-foreground">
-                {cohort.code || cohort.name}
-              </span>
-              {cohort.is_public && (
-                <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-600 dark:text-emerald-400">
-                  Public
-                </span>
-              )}
-              <button
-                type="button"
-                onClick={() => setEditCohortOpen(true)}
-                title="Edit Cohort Details"
-                className="p-1 rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted transition"
-              >
-                <Pencil className="w-3.5 h-3.5" />
-              </button>
-            </div>
-
-            <div className="flex items-center gap-4 text-xs text-muted-foreground flex-wrap pt-1">
-              <span className="inline-flex items-center gap-1">
-                <Calendar className="w-3.5 h-3.5" /> {cohort.start_date} – {cohort.end_date}
-              </span>
-              {cohort.location && (
-                <span className="inline-flex items-center gap-1">
-                  <MapPin className="w-3.5 h-3.5" /> {cohort.location}
-                </span>
-              )}
-              <span className="inline-flex items-center gap-1">
-                <Users className="w-3.5 h-3.5" /> {cohort.active_students_count || 0} / {cohort.capacity || "—"}{" "}
-                students
-              </span>
-            </div>
-          </div>
-
-          <div className="flex items-center gap-2 shrink-0 flex-wrap">
+            )}
+          </>
+        }
+        programName={cohort.program_name}
+        dates={`${cohort.start_date}${cohort.end_date && cohort.end_date !== cohort.start_date ? ` – ${cohort.end_date}` : ""}`}
+        location={cohort.location}
+        actions={
+          <>
             <button
               type="button"
               onClick={() => setEditCohortOpen(true)}
-              className="inline-flex items-center gap-1.5 h-9 px-3.5 rounded-xl border border-border bg-background text-xs font-semibold text-foreground hover:bg-muted transition shadow-sm"
-              title="Edit Cohort Details"
+              className="flex items-center justify-center gap-1.5 w-full h-9 px-4 rounded-[10px] bg-[#653F84] border-0 text-sm font-medium text-white hover:opacity-90 transition-opacity cursor-pointer"
             >
-              <Pencil className="w-3.5 h-3.5 text-primary" /> Edit Cohort
+              <Pencil size={13} /> Edit
             </button>
 
-            <Link
-              to="/organization/programs/$cohortId/judging"
-              params={{ cohortId: cohort.id }}
-              className="inline-flex items-center gap-1.5 h-9 px-3.5 rounded-xl bg-primary text-primary-foreground text-xs font-semibold hover:opacity-90 transition shadow-sm"
-            >
-              <Trophy className="w-3.5 h-3.5" /> Judging & Roster
-            </Link>
+            <div className="grid grid-cols-2 gap-2">
+              <Link
+                to="/organization/programs/$cohortId/judging"
+                params={{ cohortId: cohort.id }}
+                className="flex items-center justify-center gap-1.5 h-9 px-3 bg-transparent border-2 border-solid border-[#D7D2CB] rounded-[10px] text-xs font-medium text-white hover:bg-white/10 transition-colors cursor-pointer"
+              >
+                <Trophy size={13} /> Judging
+              </Link>
 
-            <Link
-              to="/lms-authoring/invite-codes"
-              className="inline-flex items-center gap-1.5 h-9 px-3 rounded-xl border border-border bg-background text-xs font-semibold text-foreground hover:bg-muted transition"
-              title="Manage LMS Invite Codes"
-            >
-              <Key className="w-3.5 h-3.5 text-primary" /> Invite Codes
-            </Link>
+              <Link
+                to="/lms-authoring/invite-codes"
+                title="Manage LMS Invite Codes"
+                className="flex items-center justify-center gap-1.5 h-9 px-3 bg-transparent border-2 border-solid border-[#D7D2CB] rounded-[10px] text-xs font-medium text-white hover:bg-white/10 transition-colors cursor-pointer"
+              >
+                <Key size={13} /> Invite Codes
+              </Link>
+            </div>
 
             {cohort.linked_events && cohort.linked_events.length > 0 && (
               <a
                 href={`/events/uae/${cohort.linked_events[0].slug}`}
                 target="_blank"
                 rel="noreferrer"
-                className="inline-flex items-center gap-1.5 h-9 px-3.5 rounded-xl border border-border bg-background text-xs font-semibold text-foreground hover:bg-muted transition"
+                className="flex items-center justify-center gap-1.5 h-9 px-3 bg-transparent border-2 border-solid border-[#D7D2CB] rounded-[10px] text-xs font-medium text-white hover:bg-white/10 transition-colors cursor-pointer"
               >
-                <ExternalLink className="w-3.5 h-3.5" /> Landing Page
+                <ExternalLink size={13} /> Landing Page
               </a>
             )}
-          </div>
-        </div>
-      </div>
-
-      {/* ── Navigation Tabs ─────────────────────────────────────────────────── */}
-      <div className="flex gap-1 border-b border-border overflow-x-auto scrollbar-none no-scrollbar">
-        {[
-          { key: "milestones", label: "LMS & Milestones", icon: Layers },
+          </>
+        }
+        counters={[
           {
-            key: "sessions",
-            label: `Sessions (${cohort.sessions?.length || 0})`,
-            icon: Clock,
+            label: "Students",
+            value: `${cohort.active_students_count || 0} / ${cohort.capacity || "—"}`,
+            onClick: () => setActiveTab("students"),
           },
           {
-            key: "staff",
-            label: "Team & Readiness",
-            icon: GraduationCap,
+            label: "Sessions",
+            value: cohort.sessions?.length || 0,
+            onClick: () => setActiveTab("sessions"),
           },
-          {
-            key: "students",
-            label: `Participants (${cohort.active_students_count || 0})`,
-            icon: Users,
-          },
-          { key: "progress", label: "Progress", icon: TrendingUp },
-          { key: "analysis", label: "Analysis", icon: BarChart3 },
-          ...(isCompetition
-            ? [
-                { key: "judging", label: "Judging", icon: Gavel },
-                { key: "certificates", label: "Certificates", icon: Award },
-              ]
-            : []),
-        ].map((t) => {
-          const Icon = t.icon
-          const isActive = activeTab === t.key
-          return (
-            <button
-              key={t.key}
-              type="button"
-              onClick={() => setActiveTab(t.key as TabKey)}
-              className={`flex items-center gap-2 px-4 py-2.5 text-xs font-semibold border-b-2 -mb-px transition whitespace-nowrap ${
-                isActive
-                  ? "border-primary text-primary"
-                  : "border-transparent text-muted-foreground hover:text-foreground"
-              }`}
-            >
-              <Icon className="w-3.5 h-3.5" />
-              {t.label}
-            </button>
-          )
-        })}
-      </div>
+        ]}
+        tabs={tabs}
+        activeTab={activeTab}
+        onTabChange={(key) => setActiveTab(key as TabKey)}
+      />
 
       {/* ── Tab Content ─────────────────────────────────────────────────────── */}
 
@@ -425,114 +382,51 @@ export default function OrganizationCohortDetail() {
       {activeTab === "students" && (
         <div className="space-y-4">
           {/* Sub-tab switcher: Students vs Team Observers vs Teams */}
-          <div className="flex items-center gap-2 border-b border-border pb-2 flex-wrap">
-            <button
-              type="button"
-              onClick={() => setStudentsSubTab("students")}
-              className={`px-3.5 py-1.5 rounded-lg text-xs font-semibold transition ${
-                studentsSubTab === "students"
-                  ? "bg-primary text-primary-foreground shadow-sm"
-                  : "text-muted-foreground hover:text-foreground hover:bg-muted"
-              }`}
-            >
-              Enrolled Students ({registrations?.length || 0})
-            </button>
-            <button
-              type="button"
-              onClick={() => setStudentsSubTab("observers")}
-              className={`px-3.5 py-1.5 rounded-lg text-xs font-semibold transition ${
-                studentsSubTab === "observers"
-                  ? "bg-primary text-primary-foreground shadow-sm"
-                  : "text-muted-foreground hover:text-foreground hover:bg-muted"
-              }`}
-            >
-              Team Observers ({observers?.length || 0})
-            </button>
-            {isCompetition && (
-              <button
-                type="button"
-                onClick={() => setStudentsSubTab("teams")}
-                className={`px-3.5 py-1.5 rounded-lg text-xs font-semibold transition ${
-                  studentsSubTab === "teams"
-                    ? "bg-primary text-primary-foreground shadow-sm"
-                    : "text-muted-foreground hover:text-foreground hover:bg-muted"
-                }`}
-              >
-                Teams
-              </button>
-            )}
-          </div>
+          <SubTabs
+            value={studentsSubTab}
+            onChange={setStudentsSubTab}
+            tabs={
+              isCompetition
+                ? [
+                    { key: "students", label: "Students" },
+                    { key: "observers", label: "Observers" },
+                    { key: "teams", label: "Teams" },
+                  ]
+                : [
+                    { key: "students", label: "Students" },
+                    { key: "observers", label: "Observers" },
+                  ]
+            }
+          />
 
           {studentsSubTab === "teams" ? (
             <TeamsTab cohortId={cohort.id} cohortName={cohort.name} />
           ) : studentsSubTab === "students" ? (
             <>
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-4 rounded-xl border border-border bg-card">
-                <div>
-                  <h3 className="text-sm font-bold text-foreground">Enrolled Students</h3>
-                  <p className="text-xs text-muted-foreground mt-0.5">
-                    Manage student registrations, activate LMS accounts, and monitor capacity.
+            <div className="space-y-6">
+              <div>
+                <div className="flex items-center justify-between gap-2 mb-2 flex-wrap">
+                  <p className="text-sm font-semibold text-foreground">
+                    Registrations{registrations?.length ? ` (${registrations.length}${cohort.capacity != null ? ` / ${cohort.capacity}` : ""})` : ""}
                   </p>
-                </div>
-
-                <div className="flex items-center gap-2 shrink-0 flex-wrap">
-                  <Link
-                    to="/lms-authoring/invite-codes"
-                    className="inline-flex items-center gap-1.5 h-8 px-3 rounded-lg border border-border bg-background text-xs font-semibold text-foreground hover:bg-muted transition"
-                  >
-                    <Key className="w-3.5 h-3.5 text-primary" /> Invite Codes
-                  </Link>
-                  <Link
-                    to="/lms-authoring/students"
-                    search={{ invite_code: undefined }}
-                    className="inline-flex items-center gap-1.5 h-8 px-3 rounded-lg border border-border bg-background text-xs font-semibold text-foreground hover:bg-muted transition"
-                  >
-                    <Users className="w-3.5 h-3.5 text-primary" /> Student Directory
-                  </Link>
-                  <button
-                    type="button"
-                    onClick={() => setBulkImportOpen(true)}
-                    className="inline-flex items-center gap-1.5 h-8 px-3 rounded-lg border border-border bg-background text-xs font-semibold text-foreground hover:bg-muted transition"
-                  >
-                    <Upload className="w-3.5 h-3.5" /> Import
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setRegisterStudentOpen(true)}
-                    className="inline-flex items-center gap-1.5 h-8 px-3 rounded-lg bg-primary text-primary-foreground text-xs font-semibold hover:opacity-90 transition"
-                  >
-                    <Plus className="w-3.5 h-3.5" /> Register Student
-                  </button>
-                </div>
-              </div>
-
-              {isCompetition && (
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-3.5 rounded-xl border border-primary/20 bg-primary/5">
-                  <div className="flex items-center gap-2.5">
-                    <Trophy className="w-4 h-4 text-primary shrink-0" />
-                    <span className="text-xs text-foreground font-medium">
-                      Competition mode: Upload complete team rosters via Excel with the template, and assign members to teams.
-                    </span>
-                  </div>
-                  <div className="flex items-center gap-2 shrink-0">
+                  <div className="flex items-center gap-2 flex-wrap">
                     <button
                       type="button"
-                      onClick={() => void downloadCompetitionRosterTemplateApi()}
-                      className="inline-flex items-center gap-1 text-xs font-semibold text-primary hover:underline"
+                      onClick={() => setBulkImportOpen(true)}
+                      className={`flex items-center gap-1.5 h-8 px-3 text-xs font-medium ${WIRE_BTN}`}
                     >
-                      <Download className="w-3 h-3" /> Download Template (.xlsx)
+                      <Upload size={13} /> Import roster
                     </button>
-                    <span>·</span>
-                    <Link
-                      to="/organization/programs/$cohortId/judging"
-                      params={{ cohortId: cohort.id }}
-                      className="inline-flex items-center gap-1 text-xs font-semibold text-primary hover:underline"
+                    <button
+                      type="button"
+                      onClick={() => setRegisterStudentOpen(true)}
+                      className={`flex items-center gap-1.5 h-8 px-3 text-xs font-medium ${WIRE_CTA}`}
                     >
-                      Open Roster & Assign <ExternalLink className="w-3 h-3" />
-                    </Link>
+                      <UserPlus size={13} /> Register student
+                    </button>
                   </div>
                 </div>
-              )}
+              </div>
 
               {regLoading ? (
                 <div className="p-8 text-center text-xs text-muted-foreground">
@@ -618,30 +512,30 @@ export default function OrganizationCohortDetail() {
                   </div>
                 </div>
               )}
+            </div>
             </>
           ) : (
             <>
               {/* Team Observers Sub-tab */}
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-4 rounded-xl border border-border bg-card">
+              <div className="space-y-6">
                 <div>
-                  <h3 className="text-sm font-bold text-foreground">Cohort Team Observers</h3>
-                  <p className="text-xs text-muted-foreground mt-0.5">
-                    Assign members of your organization team to observe cohort activities and student submissions.
-                  </p>
+                  <div className="flex items-center justify-between gap-2 mb-2 flex-wrap">
+                    <p className="text-sm font-semibold text-foreground">
+                      Observers{observers?.length ? ` (${observers.length})` : ""}
+                    </p>
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <button
+                        type="button"
+                        onClick={() => setAddObserverOpen(true)}
+                        className={`flex items-center gap-1.5 h-8 px-3 text-xs font-medium ${WIRE_CTA}`}
+                      >
+                        <Plus size={13} /> Add observer
+                      </button>
+                    </div>
+                  </div>
                 </div>
 
-                <div className="flex items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setAddObserverOpen(true)}
-                    className="inline-flex items-center gap-1.5 h-8 px-3 rounded-lg bg-primary text-primary-foreground text-xs font-semibold hover:opacity-90 transition"
-                  >
-                    <Plus className="w-3.5 h-3.5" /> Add Observer
-                  </button>
-                </div>
-              </div>
-
-              {observersLoading ? (
+                {observersLoading ? (
                 <div className="p-8 text-center text-xs text-muted-foreground">
                   Loading observers…
                 </div>
@@ -707,6 +601,7 @@ export default function OrganizationCohortDetail() {
                   </div>
                 </div>
               )}
+              </div>
             </>
           )}
         </div>
@@ -714,34 +609,33 @@ export default function OrganizationCohortDetail() {
 
       {/* 3. SESSIONS */}
       {activeTab === "sessions" && (
-        <div className="space-y-4">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-4 rounded-xl border border-border bg-card">
-            <div>
-              <h3 className="text-sm font-bold text-foreground">Cohort Sessions & Workshops</h3>
-              <p className="text-xs text-muted-foreground mt-0.5">
-                Schedule webinars, workshops, or milestone review sessions for this cohort.
+        <div className="space-y-6">
+          <div>
+            <div className="flex items-center justify-between mb-2 flex-wrap gap-2">
+              <p className="text-sm font-semibold text-foreground">
+                Sessions{cohort.sessions && cohort.sessions.length > 0 ? ` (${cohort.sessions.length})` : ""}
               </p>
+              <div className="flex items-center gap-2 flex-wrap">
+                <button
+                  type="button"
+                  onClick={() => setCreateSessionOpen(true)}
+                  className={`flex items-center gap-1.5 h-8 px-3 text-xs font-medium ${WIRE_CTA}`}
+                >
+                  <Plus size={13} /> Add session
+                </button>
+              </div>
             </div>
 
-            <button
-              type="button"
-              onClick={() => setCreateSessionOpen(true)}
-              className="inline-flex items-center gap-1.5 h-8 px-3 rounded-lg bg-primary text-primary-foreground text-xs font-semibold hover:opacity-90 transition shrink-0"
-            >
-              <Plus className="w-3.5 h-3.5" /> Add Session
-            </button>
-          </div>
-
-          {(!cohort.sessions || cohort.sessions.length === 0) ? (
-            <div className="rounded-2xl border border-dashed border-border p-10 text-center flex flex-col items-center gap-2">
-              <Clock className="w-8 h-8 text-muted-foreground" />
-              <h4 className="text-sm font-bold text-foreground">No sessions scheduled</h4>
-              <p className="text-xs text-muted-foreground max-w-sm">
-                Add live dates, webinars, or judging sessions to the cohort timeline.
-              </p>
-            </div>
-          ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            {(!cohort.sessions || cohort.sessions.length === 0) ? (
+              <div className="rounded-2xl border border-dashed border-border p-10 text-center flex flex-col items-center gap-2">
+                <Clock className="w-8 h-8 text-muted-foreground" />
+                <h4 className="text-sm font-bold text-foreground">No sessions scheduled</h4>
+                <p className="text-xs text-muted-foreground max-w-sm">
+                  Add live dates, webinars, or judging sessions to the cohort timeline.
+                </p>
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
               {(cohort.sessions || []).map((s) => {
                 const staffSession = staff?.sessions.find((ss) => ss.id === s.id)
                 const assignedIds = new Set((staffSession?.instructors ?? []).map((i) => i.user_id))
@@ -867,23 +761,36 @@ export default function OrganizationCohortDetail() {
             </div>
           )}
         </div>
+        </div>
       )}
 
-      {/* 4. TEAM & READINESS */}
+      {/* 4. INSTRUCTORS — same sub-tabs as Ops, minus the Ops-only ones */}
       {activeTab === "staff" && (
-        <CohortStaffPanel
-          cohortId={cohortId}
-          staff={staff}
-          loading={staffLoading}
-          team={team}
-          presets={readinessPresets}
-          readiness={cohortReadiness}
-          onAssignInstructor={(userId) => assignInstructorMut.mutate(userId)}
-          onUnassignInstructor={(userId) => unassignInstructorMut.mutate(userId)}
-          onAssignJudge={(userId) => assignJudgeMut.mutate(userId)}
-          onUnassignJudge={(userId) => unassignJudgeMut.mutate(userId)}
-          onSetReadiness={(presetId) => readinessMut.mutate(presetId)}
-        />
+        <div className="space-y-5">
+          <SubTabs
+            value={instructorsSub}
+            onChange={setInstructorsSub}
+            tabs={
+              [
+                { key: "staffing", label: "Staffing" },
+                { key: "prequiz", label: "Pre-Session Quiz" },
+              ] as const
+            }
+          />
+
+          <CohortStaffPanel
+            section={instructorsSub}
+            cohortId={cohortId}
+            staff={staff}
+            loading={staffLoading}
+            team={team}
+            presets={readinessPresets}
+            readiness={cohortReadiness}
+            onAssignInstructor={(userId) => assignInstructorMut.mutate(userId)}
+            onUnassignInstructor={(userId) => unassignInstructorMut.mutate(userId)}
+            onSetReadiness={(presetId) => readinessMut.mutate(presetId)}
+          />
+        </div>
       )}
 
       {/* 5. PROGRESS */}
@@ -899,28 +806,17 @@ export default function OrganizationCohortDetail() {
       {/* 7. JUDGING (Competitions) */}
       {activeTab === "judging" && isCompetition && (
         <div className="space-y-4">
-          <div className="flex items-center gap-2 border-b border-border pb-2 flex-wrap">
-            {(
+          <SubTabs
+            value={judgingSubTab}
+            onChange={setJudgingSubTab}
+            tabs={
               [
+                { key: "results", label: "Results & Leaderboard" },
                 { key: "rubric", label: "Rubric" },
                 { key: "judges", label: "Judges" },
-                { key: "results", label: "Results & Leaderboard" },
               ] as const
-            ).map((sub) => (
-              <button
-                key={sub.key}
-                type="button"
-                onClick={() => setJudgingSubTab(sub.key)}
-                className={`px-3.5 py-1.5 rounded-lg text-xs font-semibold transition ${
-                  judgingSubTab === sub.key
-                    ? "bg-primary text-primary-foreground shadow-sm"
-                    : "text-muted-foreground hover:text-foreground hover:bg-muted"
-                }`}
-              >
-                {sub.label}
-              </button>
-            ))}
-          </div>
+            }
+          />
           {judgingSubTab === "rubric" && <RubricTab cohortId={cohort.id} />}
           {judgingSubTab === "judges" && <JudgesTab cohortId={cohort.id} />}
           {judgingSubTab === "results" && (
@@ -1028,6 +924,7 @@ function ReadinessBadge({ readiness }: { readiness: OrgInstructorReadiness | nul
 }
 
 function CohortStaffPanel({
+  section,
   cohortId,
   staff,
   loading,
@@ -1036,10 +933,9 @@ function CohortStaffPanel({
   readiness,
   onAssignInstructor,
   onUnassignInstructor,
-  onAssignJudge,
-  onUnassignJudge,
   onSetReadiness,
 }: {
+  section: "staffing" | "prequiz"
   cohortId: string
   staff?: OrgCohortStaff
   loading: boolean
@@ -1048,46 +944,32 @@ function CohortStaffPanel({
   readiness?: OrgCohortReadiness
   onAssignInstructor: (userId: string) => void
   onUnassignInstructor: (userId: string) => void
-  onAssignJudge: (userId: string) => void
-  onUnassignJudge: (userId: string) => void
   onSetReadiness: (presetId: string | null) => void
 }) {
   const qc = useQueryClient()
   const [instructorId, setInstructorId] = useState("")
-  const [judgeId, setJudgeId] = useState("")
   const [presetDraft, setPresetDraft] = useState<string | null>(null)
   const [createPresetOpen, setCreatePresetOpen] = useState(false)
   const presetId = presetDraft ?? readiness?.preset?.id ?? ""
 
   const instructors = staff?.instructors ?? []
-  const judges = staff?.judges ?? []
   const assignedInstructorIds = new Set(instructors.map((i) => i.user_id))
-  const assignedJudgeIds = new Set(judges.map((j) => j.user_id))
 
   const instructorCandidates = team.filter(
     (m) => m.org_role === "instructor" && !assignedInstructorIds.has(m.id)
   )
-  const judgeCandidates = team.filter((m) => m.org_role === "judge" && !assignedJudgeIds.has(m.id))
 
   return (
-    <div className="space-y-4">
-      {/* Instructors */}
-      <div className="rounded-2xl border border-border bg-card overflow-hidden">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-4 border-b border-border">
-          <div>
-            <h3 className="text-sm font-bold text-foreground flex items-center gap-2">
-              <GraduationCap className="w-4 h-4 text-primary" /> Cohort Instructors
-            </h3>
-            <p className="text-xs text-muted-foreground mt-0.5">
-              Assign your team's instructors to the cohort. They get the sessions, attendance and
-              their readiness quiz in their own portal.
-            </p>
-          </div>
-          <div className="flex items-center gap-2 shrink-0">
+    <div className="py-4">
+      {section === "staffing" && (
+        <div>
+          <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
+            <h3 className="font-semibold text-sm">Instructors</h3>
+            <div className="flex items-center gap-2 shrink-0">
             <select
               value={instructorId}
               onChange={(e) => setInstructorId(e.target.value)}
-              className="h-8 px-2.5 rounded-lg border border-border bg-background text-xs text-foreground focus:outline-none focus:border-primary min-w-[180px]"
+              className="input h-8 text-xs w-auto !py-0"
             >
               <option value="">Choose instructor…</option>
               {instructorCandidates.map((m) => (
@@ -1096,59 +978,56 @@ function CohortStaffPanel({
                 </option>
               ))}
             </select>
-            <button
-              type="button"
+            <Button
+              size="sm"
               disabled={!instructorId}
               onClick={() => {
                 onAssignInstructor(instructorId)
                 setInstructorId("")
               }}
-              className="inline-flex items-center gap-1.5 h-8 px-3 rounded-lg bg-primary text-primary-foreground text-xs font-semibold hover:opacity-90 transition disabled:opacity-50"
             >
-              <UserPlus className="w-3.5 h-3.5" /> Assign
-            </button>
+              <UserPlus className="size-3.5" /> Assign
+            </Button>
           </div>
         </div>
 
         {instructorCandidates.length === 0 && !instructors.length && (
-          <div className="p-4 text-xs text-muted-foreground border-b border-border bg-muted/20">
+          <p className="text-xs text-muted-foreground mb-3">
             No team members have the Instructor role yet.{" "}
             <Link to="/organization/team" className="font-semibold text-primary hover:underline">
               Add an instructor on the Team page
             </Link>
             .
-          </div>
+          </p>
         )}
 
         {loading ? (
-          <div className="p-8 text-center text-xs text-muted-foreground">Loading staffing…</div>
+          <p className="text-xs text-muted-foreground">Loading staffing…</p>
         ) : instructors.length === 0 ? (
-          <div className="p-8 text-center text-xs text-muted-foreground">
-            No instructors assigned to this cohort yet.
-          </div>
+          <p className="text-xs text-muted-foreground">No instructors assigned to this cohort yet.</p>
         ) : (
           <div className="overflow-x-auto">
-            <table className="w-full text-left text-xs">
-              <thead className="bg-muted/40 text-muted-foreground uppercase text-[10px] tracking-wider border-b border-border">
-                <tr>
-                  <th className="py-3 px-4">Instructor</th>
-                  <th className="py-3 px-4">Sessions</th>
-                  <th className="py-3 px-4">Attendance</th>
-                  <th className="py-3 px-4">Readiness</th>
-                  <th className="py-3 px-4 text-right">Actions</th>
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="text-left text-[11px] uppercase tracking-wide text-muted-foreground border-b border-border">
+                  <th className="py-2 pr-3">Instructor</th>
+                  <th className="py-2 pr-3">Sessions</th>
+                  <th className="py-2 pr-3">Attendance</th>
+                  <th className="py-2 pr-3">Readiness</th>
+                  <th className="py-2 pr-3 text-right">Actions</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-border">
+              <tbody>
                 {instructors.map((ins) => (
-                  <tr key={ins.user_id} className="hover:bg-muted/20 transition">
-                    <td className="py-3 px-4">
-                      <span className="font-semibold text-foreground block">{ins.full_name}</span>
+                  <tr key={ins.user_id} className="border-b border-border/60">
+                    <td className="py-2 pr-3">
+                      <span className="font-medium text-foreground block">{ins.full_name}</span>
                       <span className="text-[11px] text-muted-foreground">{ins.email}</span>
                     </td>
-                    <td className="py-3 px-4 text-muted-foreground">
+                    <td className="py-2 pr-3 whitespace-nowrap text-muted-foreground">
                       {ins.completed_sessions} / {ins.sessions_count} completed
                     </td>
-                    <td className="py-3 px-4 text-muted-foreground">
+                    <td className="py-2 pr-3 whitespace-nowrap text-muted-foreground">
                       <span className="text-emerald-600 dark:text-emerald-400 font-semibold">
                         {ins.attendance_present}
                       </span>{" "}
@@ -1156,12 +1035,13 @@ function CohortStaffPanel({
                       <span className="text-destructive font-semibold">{ins.attendance_absent}</span>{" "}
                       absent
                     </td>
-                    <td className="py-3 px-4">
+                    <td className="py-2 pr-3">
                       <ReadinessBadge readiness={ins.readiness} />
                     </td>
-                    <td className="py-3 px-4 text-right">
-                      <button
-                        type="button"
+                    <td className="py-2 pr-3 text-right whitespace-nowrap">
+                      <Button
+                        size="xs"
+                        variant="outline"
                         onClick={() => {
                           if (
                             window.confirm(
@@ -1171,10 +1051,9 @@ function CohortStaffPanel({
                             onUnassignInstructor(ins.user_id)
                           }
                         }}
-                        className="inline-flex items-center gap-1 text-xs text-destructive hover:underline"
                       >
-                        <Trash2 className="w-3.5 h-3.5" /> Unassign
-                      </button>
+                        <Trash2 className="size-3" /> Unassign
+                      </Button>
                     </td>
                   </tr>
                 ))}
@@ -1183,108 +1062,16 @@ function CohortStaffPanel({
           </div>
         )}
       </div>
+      )}
 
-      {/* Judges */}
-      <div className="rounded-2xl border border-border bg-card overflow-hidden">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-4 border-b border-border">
+      {section === "prequiz" && (
+      <div>
+        <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
           <div>
-            <h3 className="text-sm font-bold text-foreground flex items-center gap-2">
-              <Gavel className="w-4 h-4 text-primary" /> Competition Judges
+            <h3 className="font-semibold text-sm flex items-center gap-2">
+              <ClipboardCheck className="size-4 text-primary" /> Pre-Session Readiness Quiz
             </h3>
-            <p className="text-xs text-muted-foreground mt-0.5">
-              Judges only see the competitions of the cohorts you assign them to.
-            </p>
-          </div>
-          <div className="flex items-center gap-2 shrink-0">
-            <select
-              value={judgeId}
-              onChange={(e) => setJudgeId(e.target.value)}
-              className="h-8 px-2.5 rounded-lg border border-border bg-background text-xs text-foreground focus:outline-none focus:border-primary min-w-[180px]"
-            >
-              <option value="">Choose judge…</option>
-              {judgeCandidates.map((m) => (
-                <option key={m.id} value={m.id}>
-                  {m.full_name}
-                </option>
-              ))}
-            </select>
-            <button
-              type="button"
-              disabled={!judgeId}
-              onClick={() => {
-                onAssignJudge(judgeId)
-                setJudgeId("")
-              }}
-              className="inline-flex items-center gap-1.5 h-8 px-3 rounded-lg bg-primary text-primary-foreground text-xs font-semibold hover:opacity-90 transition disabled:opacity-50"
-            >
-              <UserPlus className="w-3.5 h-3.5" /> Assign
-            </button>
-          </div>
-        </div>
-
-        {judgeCandidates.length === 0 && !judges.length && (
-          <div className="p-4 text-xs text-muted-foreground border-b border-border bg-muted/20">
-            No team members have the Judge role yet.{" "}
-            <Link to="/organization/team" className="font-semibold text-primary hover:underline">
-              Add a judge on the Team page
-            </Link>
-            .
-          </div>
-        )}
-
-        {judges.length === 0 ? (
-          <div className="p-8 text-center text-xs text-muted-foreground">
-            No judges assigned to this cohort yet.
-          </div>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-left text-xs">
-              <thead className="bg-muted/40 text-muted-foreground uppercase text-[10px] tracking-wider border-b border-border">
-                <tr>
-                  <th className="py-3 px-4">Judge</th>
-                  <th className="py-3 px-4">Contact</th>
-                  <th className="py-3 px-4">Account</th>
-                  <th className="py-3 px-4 text-right">Actions</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-border">
-                {judges.map((j) => (
-                  <tr key={j.user_id} className="hover:bg-muted/20 transition">
-                    <td className="py-3 px-4 font-semibold text-foreground">{j.full_name}</td>
-                    <td className="py-3 px-4 text-muted-foreground">
-                      {j.email}
-                      {j.phone ? ` · ${j.phone}` : ""}
-                    </td>
-                    <td className="py-3 px-4 text-muted-foreground uppercase">{j.status}</td>
-                    <td className="py-3 px-4 text-right">
-                      <button
-                        type="button"
-                        onClick={() => {
-                          if (window.confirm(`Remove ${j.full_name} from this cohort's judging?`)) {
-                            onUnassignJudge(j.user_id)
-                          }
-                        }}
-                        className="inline-flex items-center gap-1 text-xs text-destructive hover:underline"
-                      >
-                        <Trash2 className="w-3.5 h-3.5" /> Unassign
-                      </button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </div>
-
-      {/* Readiness quiz */}
-      <div className="rounded-2xl border border-border bg-card overflow-hidden">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-4 border-b border-border">
-          <div>
-            <h3 className="text-sm font-bold text-foreground flex items-center gap-2">
-              <ClipboardCheck className="w-4 h-4 text-primary" /> Pre-Session Readiness Quiz
-            </h3>
-            <p className="text-xs text-muted-foreground mt-0.5">
+            <p className="text-xs text-muted-foreground">
               Instructors must pass this quiz before they can start a session in this cohort.
             </p>
           </div>
@@ -1292,7 +1079,7 @@ function CohortStaffPanel({
             <select
               value={presetId}
               onChange={(e) => setPresetDraft(e.target.value)}
-              className="h-8 px-2.5 rounded-lg border border-border bg-background text-xs text-foreground focus:outline-none focus:border-primary min-w-[220px]"
+              className="input h-8 text-xs w-auto min-w-[220px] !py-0"
             >
               <option value="">No readiness quiz</option>
               {presets.map((p) => (
@@ -1301,20 +1088,12 @@ function CohortStaffPanel({
                 </option>
               ))}
             </select>
-            <button
-              type="button"
-              onClick={() => onSetReadiness(presetId || null)}
-              className="inline-flex items-center gap-1.5 h-8 px-3 rounded-lg border border-border bg-background text-xs font-semibold text-foreground hover:bg-muted transition"
-            >
+            <Button size="sm" variant="outline" onClick={() => onSetReadiness(presetId || null)}>
               Save
-            </button>
-            <button
-              type="button"
-              onClick={() => setCreatePresetOpen(true)}
-              className="inline-flex items-center gap-1.5 h-8 px-3 rounded-lg bg-primary text-primary-foreground text-xs font-semibold hover:opacity-90 transition"
-            >
-              <Plus className="w-3.5 h-3.5" /> Create Assessment
-            </button>
+            </Button>
+            <Button size="sm" onClick={() => setCreatePresetOpen(true)}>
+              <Plus className="size-3.5" /> Create Assessment
+            </Button>
           </div>
         </div>
 
@@ -1331,43 +1110,43 @@ function CohortStaffPanel({
           />
         )}
 
-        <div className="p-4 border-b border-border bg-muted/20 text-xs text-muted-foreground">
+        <p className="text-xs text-muted-foreground mb-3">
           Currently assigned:{" "}
           <span className="font-semibold text-foreground">
             {readiness?.preset ? readiness.preset.name : "None"}
           </span>
           {readiness?.preset?.description ? ` — ${readiness.preset.description}` : ""}
-        </div>
+        </p>
 
         {!readiness || readiness.instructors.length === 0 ? (
-          <div className="p-8 text-center text-xs text-muted-foreground">
+          <p className="text-xs text-muted-foreground">
             No instructor readiness results yet. Results appear here once instructors take the quiz.
-          </div>
+          </p>
         ) : (
           <div className="overflow-x-auto">
-            <table className="w-full text-left text-xs">
-              <thead className="bg-muted/40 text-muted-foreground uppercase text-[10px] tracking-wider border-b border-border">
-                <tr>
-                  <th className="py-3 px-4">Instructor</th>
-                  <th className="py-3 px-4">Score</th>
-                  <th className="py-3 px-4">Submitted</th>
-                  <th className="py-3 px-4">Status</th>
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="text-left text-[11px] uppercase tracking-wide text-muted-foreground border-b border-border">
+                  <th className="py-2 pr-3">Instructor</th>
+                  <th className="py-2 pr-3">Score</th>
+                  <th className="py-2 pr-3">Submitted</th>
+                  <th className="py-2 pr-3">Status</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-border">
+              <tbody>
                 {readiness.instructors.map((r) => (
-                  <tr key={r.user_id} className="hover:bg-muted/20 transition">
-                    <td className="py-3 px-4">
-                      <span className="font-semibold text-foreground block">{r.full_name}</span>
+                  <tr key={r.user_id} className="border-b border-border/60">
+                    <td className="py-2 pr-3">
+                      <span className="font-medium text-foreground block">{r.full_name}</span>
                       <span className="text-[11px] text-muted-foreground">{r.email}</span>
                     </td>
-                    <td className="py-3 px-4 text-foreground font-semibold">
+                    <td className="py-2 pr-3 whitespace-nowrap text-foreground font-semibold">
                       {Math.round(r.final_score || 0)}% of {r.total_questions} questions
                     </td>
-                    <td className="py-3 px-4 text-muted-foreground">
+                    <td className="py-2 pr-3 whitespace-nowrap text-muted-foreground">
                       {r.submitted_at ? new Date(r.submitted_at).toLocaleDateString() : "—"}
                     </td>
-                    <td className="py-3 px-4">
+                    <td className="py-2 pr-3">
                       <ReadinessBadge
                         readiness={{
                           status: r.status,
@@ -1390,6 +1169,7 @@ function CohortStaffPanel({
           </div>
         )}
       </div>
+      )}
     </div>
   )
 }
@@ -1846,18 +1626,16 @@ function BulkImportModal({
           <button
             type="button"
             onClick={() => setTab("file")}
-            className={`flex-1 py-1.5 text-xs font-semibold rounded-lg transition ${
-              tab === "file" ? "bg-card text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"
-            }`}
+            className={`flex-1 py-1.5 text-xs font-semibold rounded-lg transition ${tab === "file" ? "bg-card text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"
+              }`}
           >
             Upload Spreadsheet (.xlsx / .csv)
           </button>
           <button
             type="button"
             onClick={() => setTab("paste")}
-            className={`flex-1 py-1.5 text-xs font-semibold rounded-lg transition ${
-              tab === "paste" ? "bg-card text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"
-            }`}
+            className={`flex-1 py-1.5 text-xs font-semibold rounded-lg transition ${tab === "paste" ? "bg-card text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"
+              }`}
           >
             Paste CSV Text
           </button>
@@ -2494,9 +2272,8 @@ function EditCohortModal({
                 min={1}
                 value={capacity}
                 onChange={(e) => setCapacity(e.target.value)}
-                className={`h-9 px-3 rounded-xl border bg-background text-sm focus:outline-none ${
-                  capacityQuotaExceeded ? "border-amber-500 focus:border-amber-500" : "border-border focus:border-primary"
-                }`}
+                className={`h-9 px-3 rounded-xl border bg-background text-sm focus:outline-none ${capacityQuotaExceeded ? "border-amber-500 focus:border-amber-500" : "border-border focus:border-primary"
+                  }`}
               />
               {capacityQuotaExceeded && (
                 <span className="text-[11px] text-amber-600 dark:text-amber-400 font-medium">

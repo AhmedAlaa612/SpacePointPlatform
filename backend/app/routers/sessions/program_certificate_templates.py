@@ -13,7 +13,8 @@ from fastapi import APIRouter, Depends, HTTPException, Response, UploadFile, sta
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.dependencies import get_current_active_user, require_operations
+from app.core.dependencies import get_current_active_user
+from app.services.org_access import is_ops_or_admin, is_program_org_manager
 from app.db.session import get_db
 from app.models.sessions.program import Program
 from app.models.sessions.program_certificate_template import ProgramCertificateTemplate
@@ -94,22 +95,26 @@ async def _enrich_template_urls(template: ProgramCertificateTemplate) -> None:
         )
 
 
+async def _require_program_cert_access(
+    db: AsyncSession, program_id: uuid.UUID, current_user: User
+) -> Program:
+    program = await db.get(Program, program_id)
+    if program is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Program not found")
+    if is_ops_or_admin(current_user) or "coo" in current_user.role_values:
+        return program
+    if await is_program_org_manager(db, program_id, current_user):
+        return program
+    raise HTTPException(status.HTTP_403_FORBIDDEN, detail="Forbidden")
+
+
 @router.get("/{program_id}/certificate-templates", response_model=list[ProgramCertificateTemplateOut])
 async def list_program_certificate_templates(
     program_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
 ):
-    program = await db.get(Program, program_id)
-    if program is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Program not found")
-
-    is_ops = bool({"operations", "admin", "coo"} & set(current_user.role_values))
-    if not is_ops:
-        if "organization" in current_user.role_values and program.organization_id == current_user.organization_id:
-            pass
-        else:
-            raise HTTPException(status.HTTP_403_FORBIDDEN, detail="Forbidden")
+    await _require_program_cert_access(db, program_id, current_user)
 
     templates = (
         await db.execute(
@@ -134,11 +139,9 @@ async def create_program_certificate_template(
     program_id: uuid.UUID,
     body: ProgramCertificateTemplateCreate,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_operations),
+    current_user: User = Depends(get_current_active_user),
 ):
-    program = await db.get(Program, program_id)
-    if program is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Program not found")
+    program = await _require_program_cert_access(db, program_id, current_user)
 
     data = body.model_dump()
     new_template = ProgramCertificateTemplate(id=uuid.uuid4(), program_id=program_id, **data)
@@ -175,8 +178,9 @@ async def get_program_certificate_template(
     program_id: uuid.UUID,
     template_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_operations),
+    current_user: User = Depends(get_current_active_user),
 ):
+    await _require_program_cert_access(db, program_id, current_user)
     template = await db.get(ProgramCertificateTemplate, template_id)
     if template is None or template.program_id != program_id:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Certificate template not found")
@@ -191,11 +195,9 @@ async def update_program_certificate_template(
     template_id: uuid.UUID,
     body: ProgramCertificateTemplateUpdate,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_operations),
+    current_user: User = Depends(get_current_active_user),
 ):
-    program = await db.get(Program, program_id)
-    if program is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Program not found")
+    program = await _require_program_cert_access(db, program_id, current_user)
 
     template = await db.get(ProgramCertificateTemplate, template_id)
     if template is None or template.program_id != program_id:
@@ -248,9 +250,9 @@ async def delete_program_certificate_template(
     program_id: uuid.UUID,
     template_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_operations),
+    current_user: User = Depends(get_current_active_user),
 ):
-    program = await db.get(Program, program_id)
+    program = await _require_program_cert_access(db, program_id, current_user)
     template = await db.get(ProgramCertificateTemplate, template_id)
     if template is None or template.program_id != program_id:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Certificate template not found")
@@ -284,11 +286,9 @@ async def set_default_program_certificate_template(
     program_id: uuid.UUID,
     template_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_operations),
+    current_user: User = Depends(get_current_active_user),
 ):
-    program = await db.get(Program, program_id)
-    if program is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Program not found")
+    program = await _require_program_cert_access(db, program_id, current_user)
 
     template = await db.get(ProgramCertificateTemplate, template_id)
     if template is None or template.program_id != program_id:
@@ -323,14 +323,12 @@ async def set_stock_default_certificate_template(
     theme: str = "dark",
     kind: str = "individual",
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_operations),
+    current_user: User = Depends(get_current_active_user),
 ):
     """Sets the stock default template ('dark' or 'light') as auto-send default,
     clearing custom defaults for the given kind.
     """
-    program = await db.get(Program, program_id)
-    if program is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Program not found")
+    program = await _require_program_cert_access(db, program_id, current_user)
 
     target_kind = kind if kind in ("individual", "team") else "individual"
     all_templates = (
@@ -358,11 +356,9 @@ async def upload_certificate_background(
     program_id: uuid.UUID,
     file: UploadFile,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_operations),
+    current_user: User = Depends(get_current_active_user),
 ):
-    program = await db.get(Program, program_id)
-    if program is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Program not found")
+    await _require_program_cert_access(db, program_id, current_user)
 
     ext = (file.filename or "").split(".")[-1].lower() if "." in (file.filename or "") else "png"
     if ext not in ("png", "jpg", "jpeg", "webp"):
@@ -386,11 +382,9 @@ async def upload_certificate_signature(
     program_id: uuid.UUID,
     file: UploadFile,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_operations),
+    current_user: User = Depends(get_current_active_user),
 ):
-    program = await db.get(Program, program_id)
-    if program is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Program not found")
+    await _require_program_cert_access(db, program_id, current_user)
 
     ext = (file.filename or "").split(".")[-1].lower() if "." in (file.filename or "") else "png"
     if ext not in ("png", "jpg", "jpeg", "webp"):
@@ -414,12 +408,12 @@ async def preview_certificate_template(
     program_id: uuid.UUID,
     body: CertificatePreviewRequest,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_operations),
+    current_user: User = Depends(get_current_active_user),
 ):
     """Generates a real-time single-page PDF certificate matching the draft
     parameters for interactive designer preview and validation.
     """
-    program = await db.get(Program, program_id)
+    program = await _require_program_cert_access(db, program_id, current_user)
     prog_name = program.name if program else (body.program_name or "Program Name")
     cohort_name = body.cohort_name or "Cohort Title"
     dates = body.dates or "12 – 16 October 2026"

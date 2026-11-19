@@ -109,7 +109,7 @@ export function PreSessionQuizAssignmentBar({
             <button
               type="button"
               onClick={() => setPreviewOpen(true)}
-              title="Preview exact instructor pipeline experience"
+              title="Preview exact instructor quiz experience"
               className="flex-1 sm:flex-initial h-8 px-2.5 rounded-lg border border-primary/40 bg-primary/10 hover:bg-primary/20 text-[11px] font-semibold text-primary inline-flex items-center justify-center cursor-pointer shrink-0"
             >
               Preview

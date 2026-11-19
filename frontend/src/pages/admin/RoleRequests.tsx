@@ -159,7 +159,7 @@ function RoleRequestDetailDialog({
   const isInternRequest = req.target_role === "intern"
   const isAlreadyInstructor = Boolean(
     req.requester_profile?.roles?.includes("instructor") ||
-      req.platform_footprint?.existing_user?.roles?.includes("instructor"),
+    req.platform_footprint?.existing_user?.roles?.includes("instructor"),
   )
   const hasCv = Boolean(req.details.cv_path || req.details.cv_url)
 

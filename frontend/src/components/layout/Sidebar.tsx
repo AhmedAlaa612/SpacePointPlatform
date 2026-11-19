@@ -335,6 +335,7 @@ function getNavItems(
       mk("Invite Codes", "/lms-authoring/invite-codes"),
       mk("Courses", "/lms-authoring/courses"),
       mk("Quiz Bank", "/lms-authoring/quiz-bank"),
+      mk("Learn", "/learn"),
       mk("Landing Pages", "/organization/events"),
       mk("Team", "/organization/team"),
       mk("Mentors", "/mentors"),

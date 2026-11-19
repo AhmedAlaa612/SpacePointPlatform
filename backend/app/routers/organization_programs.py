@@ -171,6 +171,7 @@ class OrganizationProgramOut(BaseModel):
     completion_rule_value: float = 70.0
     keep_course_access_after_completion: bool = True
     lms_program_id: uuid.UUID | None = None
+    default_certificate_template_id: uuid.UUID | None = None
     created_at: datetime | None = None
     cohorts_count: int = 0
     cohorts: list[OrganizationCohortSummary] = []
@@ -488,6 +489,7 @@ async def get_organization_programs_overview(
                 completion_rule_value=float(p.completion_rule_value) if p.completion_rule_value is not None else 70.0,
                 keep_course_access_after_completion=bool(p.keep_course_access_after_completion),
                 lms_program_id=lms_prog_map.get(p.id),
+                default_certificate_template_id=p.default_certificate_template_id,
                 created_at=p.created_at,
                 cohorts_count=len(c_list),
                 cohorts=c_summaries,

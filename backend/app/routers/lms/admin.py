@@ -16,7 +16,7 @@ from pathlib import Path
 from typing import Literal
 
 from arq.connections import ArqRedis
-from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, status
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, UploadFile, status
 from fastapi.responses import Response
 from pydantic import BaseModel, ValidationError
 from sqlalchemy import func, or_, select
@@ -325,6 +325,37 @@ async def search_staff(
 # here — same reasoning as `search_staff` above, mirrored for the `student`
 # role instead of "every role but student".
 
+async def _lms_org_scope(
+    db: AsyncSession,
+    current_user: User,
+    x_active_role: str | None = None,
+) -> tuple[bool, uuid.UUID | None]:
+    """Return `(True, org_id)` when the caller is operating in organization
+    mode (an org-only account, or a multi-role user whose `X-Active-Role` is
+    currently `organization`). Returns `(False, None)` for platform staff."""
+    active = (x_active_role or "").strip().lower()
+    is_platform = any(r in current_user.role_values for r in ("admin", "operations", "facilitator"))
+    if active == "organization" or ("organization" in current_user.role_values and not is_platform):
+        from app.services.website_events import resolve_user_organization
+
+        org = await resolve_user_organization(db, current_user)
+        return True, (org.id if org else None)
+    return False, None
+
+
+async def _assert_lms_student_in_org_scope(
+    db: AsyncSession,
+    current_user: User,
+    user_id: uuid.UUID,
+    x_active_role: str | None = None,
+) -> uuid.UUID | None:
+    scoped, org_id = await _lms_org_scope(db, current_user, x_active_role)
+    if scoped:
+        if not org_id or not await student_search_service.user_belongs_to_organization(db, user_id, org_id):
+            raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Student not found")
+    return org_id
+
+
 @router.get("/students", response_model=list[StudentSummaryOut])
 async def search_students(
     q: str | None = None,
@@ -333,6 +364,7 @@ async def search_students(
     mode: Literal["student", "observer", "all"] = Query("student"),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_lms_content),
+    x_active_role: str | None = Header(None, alias="X-Active-Role"),
 ):
     """Name/email substring search over student accounts, capped at 50 rows
     — the list view backing the student-management page.
@@ -352,13 +384,9 @@ async def search_students(
     The actual query lives in `services/lms/students.py` (extracted
     2026-09-14) — the Competition Judging Assign tab's cohort-scoped search
     reuses it rather than re-implementing this from scratch."""
-    org_id = None
-    if "organization" in current_user.role_values and not any(r in current_user.role_values for r in ("admin", "operations")):
-        from app.services.website_events import resolve_user_organization
-        org = await resolve_user_organization(db, current_user)
-        if not org:
-            return []
-        org_id = org.id
+    scoped, org_id = await _lms_org_scope(db, current_user, x_active_role)
+    if scoped and org_id is None:
+        return []
 
     return await student_search_service.search_students(
         db, q=q, invite_code=invite_code, login_status=login_status, mode=mode, org_id=org_id,
@@ -386,15 +414,31 @@ async def _invite_code_out(db: AsyncSession, row: InvitationCode) -> InviteCodeO
 
 @router.get("/invite-codes", response_model=list[InviteCodeOut])
 async def list_invite_codes(
+    cohort_id: uuid.UUID | None = None,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_lms_content),
+    x_active_role: str | None = Header(None, alias="X-Active-Role"),
 ):
-    _, scope_all = await get_author_permissions(db, current_user)
-    # Observer mode (2026-10): the ops list covers both learner batches —
-    # student and observer codes alike.
+    from app.services.org_access import cohort_organization_id
+
     stmt = select(InvitationCode).where(InvitationCode.kind.in_(["student", "observer"]))
-    if not scope_all:
-        stmt = stmt.where(InvitationCode.created_by == current_user.id)
+    target_org_id: uuid.UUID | None = None
+    if cohort_id is not None:
+        cohort = await db.get(Cohort, cohort_id)
+        if cohort is not None:
+            target_org_id = await cohort_organization_id(db, cohort)
+    if target_org_id is not None:
+        stmt = stmt.where(student_search_service.org_invite_code_filter(target_org_id))
+    else:
+        scoped, org_id = await _lms_org_scope(db, current_user, x_active_role)
+        if scoped:
+            if org_id is None:
+                return []
+            stmt = stmt.where(student_search_service.org_invite_code_filter(org_id))
+        else:
+            _, scope_all = await get_author_permissions(db, current_user)
+            if not scope_all:
+                stmt = stmt.where(InvitationCode.created_by == current_user.id)
     stmt = stmt.order_by(InvitationCode.created_at.desc())
     rows = (await db.execute(stmt)).scalars().all()
     return [await _invite_code_out(db, r) for r in rows]
@@ -554,6 +598,17 @@ async def list_invite_code_grants(
     return [await _invite_code_grant_out(db, r) for r in rows]
 
 
+async def _check_cohort_grant_access(db: AsyncSession, current: User, cohort_id: uuid.UUID) -> None:
+    """Allow organization managers to attach/detach their own cohorts on invite
+    codes while keeping plain LMS authors blocked from cohort grants."""
+    if "organization" in current.role_values:
+        from app.services.org_access import require_cohort_manager_or_ops
+
+        await require_cohort_manager_or_ops(db, cohort_id, current)
+        return
+    raise HTTPException(status.HTTP_403_FORBIDDEN, detail="Authors cannot manage cohort grants")
+
+
 @router.post(
     "/invite-codes/{code_id}/grants", response_model=InviteCodeGrantCreateOut, status_code=status.HTTP_201_CREATED,
 )
@@ -573,16 +628,23 @@ async def create_invite_code_grant(
 
     _, scope_all = await get_author_permissions(db, current)
     if not scope_all:
+        # "Access" is the bar, not authorship: if the user can open the course
+        # or path (their own, their org's, or one shared with their org), they
+        # can attach it to an invite code. check_course_read_access already
+        # encodes that exact rule for org grants and falls back to normal
+        # author scope otherwise.
         if body.course_id is not None:
             c = await db.get(Course, body.course_id)
-            if not c or c.created_by != current.id:
-                raise HTTPException(status.HTTP_403_FORBIDDEN, detail="You can only grant access to courses you authored")
+            if c is None:
+                raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Course not found")
+            await check_course_read_access(db, current, c)
         elif body.learning_path_id is not None:
             lp = await db.get(LearningPath, body.learning_path_id)
-            if not lp or lp.created_by != current.id:
-                raise HTTPException(status.HTTP_403_FORBIDDEN, detail="You can only grant access to learning paths you authored")
+            if lp is None:
+                raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Learning path not found")
+            await check_learning_path_access(db, current, lp)
         elif body.cohort_id is not None:
-            raise HTTPException(status.HTTP_403_FORBIDDEN, detail="Authors cannot grant access to cohorts")
+            await _check_cohort_grant_access(db, current, body.cohort_id)
 
     if body.course_id is not None:
         if await db.get(Course, body.course_id) is None:
@@ -643,16 +705,20 @@ async def delete_invite_code_grant(
 
     _, scope_all = await get_author_permissions(db, current)
     if not scope_all:
+        # Symmetric with create_invite_code_grant: you can remove a grant for
+        # anything you can access, not only what you authored.
         if grant.course_id is not None:
             c = await db.get(Course, grant.course_id)
-            if not c or c.created_by != current.id:
-                raise HTTPException(status.HTTP_403_FORBIDDEN, detail="You can only manage grants for courses you authored")
+            if c is None:
+                raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Course not found")
+            await check_course_read_access(db, current, c)
         elif grant.learning_path_id is not None:
             lp = await db.get(LearningPath, grant.learning_path_id)
-            if not lp or lp.created_by != current.id:
-                raise HTTPException(status.HTTP_403_FORBIDDEN, detail="You can only manage grants for learning paths you authored")
+            if lp is None:
+                raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Learning path not found")
+            await check_learning_path_access(db, current, lp)
         elif grant.cohort_id is not None:
-            raise HTTPException(status.HTTP_403_FORBIDDEN, detail="Authors cannot manage cohort grants")
+            await _check_cohort_grant_access(db, current, grant.cohort_id)
 
     await db.delete(grant)
     await db.commit()
@@ -726,6 +792,7 @@ async def student_profile(
     user_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_lms_content),
+    x_active_role: str | None = Header(None, alias="X-Active-Role"),
 ):
     """Profile: nickname, programs attended. Current courses are a separate
     call — `GET /lms/admin/users/{user_id}/enrollments` already returns
@@ -734,11 +801,7 @@ async def student_profile(
 
     Programs are the enriched union (Registration + LmsProgramAssignment)
     so observers show up alongside real students, with mode + team inline."""
-    if "organization" in current_user.role_values and not any(r in current_user.role_values for r in ("admin", "operations")):
-        from app.services.website_events import resolve_user_organization
-        org = await resolve_user_organization(db, current_user)
-        if not org or not await student_search_service.user_belongs_to_organization(db, user_id, org.id):
-            raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Student not found")
+    await _assert_lms_student_in_org_scope(db, current_user, user_id, x_active_role)
 
     user = await db.get(User, user_id)
     if user is None or not ({"student", "observer"} & set(user.role_values)):
@@ -757,6 +820,7 @@ async def update_student_account(
     body: StudentAccountUpdateIn,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_lms_content),
+    x_active_role: str | None = Header(None, alias="X-Active-Role"),
 ):
     """Ops email/name correction — duplicate-checked, contact-synced.
 
@@ -777,11 +841,7 @@ async def update_student_account(
     untouched."""
     from app.services.spine.identity import normalize_user_email, replace_user_email, user_email_matches
 
-    if "organization" in current_user.role_values and not any(r in current_user.role_values for r in ("admin", "operations")):
-        from app.services.website_events import resolve_user_organization
-        org = await resolve_user_organization(db, current_user)
-        if not org or not await student_search_service.user_belongs_to_organization(db, user_id, org.id):
-            raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Student not found")
+    await _assert_lms_student_in_org_scope(db, current_user, user_id, x_active_role)
 
     user = await db.get(User, user_id)
     if user is None or not ({"student", "observer"} & set(user.role_values)):
@@ -803,17 +863,20 @@ async def update_student_account(
                 contact.full_name = body.full_name.strip()
     await db.commit()
     await db.refresh(user)
-    return await student_profile(user_id=user_id, db=db, current_user=current_user)
+    return await student_profile(user_id=user_id, db=db, current_user=current_user, x_active_role=x_active_role)
 
 
 @router.post("/students/{user_id}/set-password-link")
 async def student_set_password_link(
     user_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(require_lms_content),
+    current_user: User = Depends(require_lms_content),
+    x_active_role: str | None = Header(None, alias="X-Active-Role"),
 ):
     """Stateless password-set link for ops to paste into WhatsApp/email."""
     from app.services.lms.ops_integration import build_set_password_link
+
+    await _assert_lms_student_in_org_scope(db, current_user, user_id, x_active_role)
 
     user = await db.get(User, user_id)
     if user is None or not ({"student", "observer"} & set(user.role_values)):
@@ -827,20 +890,25 @@ async def enroll_student_cohort(
     body: StudentCohortEnrollIn,
     db: AsyncSession = Depends(get_db),
     current: User = Depends(require_lms_content),
+    x_active_role: str | None = Header(None, alias="X-Active-Role"),
 ):
     """Enroll a learner into a cohort: ensure contact, (re)activate the
     Registration, then assign the cohort's LMS checklist for the effective
     mode. Idempotent — re-enrolling an active registration just ensures the
     assignment exists."""
     from app.services.lms.program import assign_lms_program
+    from app.services.org_access import cohort_organization_id
     from app.services.sessions.registration import register
     from app.services.spine.identity import ensure_user_contact
 
+    org_id = await _assert_lms_student_in_org_scope(db, current, user_id, x_active_role)
     user = await db.get(User, user_id)
     if user is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="User not found")
     cohort = await db.get(Cohort, body.cohort_id)
     if cohort is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Cohort not found")
+    if org_id is not None and await cohort_organization_id(db, cohort) != org_id:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Cohort not found")
     contact = await ensure_user_contact(db, user, source="desk")
     effective_mode = "observer" if ("observer" in user.role_values and "student" not in user.role_values) else "participant"
@@ -875,13 +943,21 @@ async def unenroll_student_cohort(
     user_id: uuid.UUID,
     cohort_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(require_lms_content),
+    current: User = Depends(require_lms_content),
+    x_active_role: str | None = Header(None, alias="X-Active-Role"),
 ):
     """Unenroll: cancel the Registration, deactivate its course enrollments,
     drop team membership, delete the LMS assignment. Progress rows cascade
     with the assignment; enrollment rows survive as inactive."""
     from app.services.lms.ops_integration import deactivate_registration_enrollments
     from app.services.lms.program import team_for_cohort_member
+    from app.services.org_access import cohort_organization_id
+
+    org_id = await _assert_lms_student_in_org_scope(db, current, user_id, x_active_role)
+    if org_id is not None:
+        cohort = await db.get(Cohort, cohort_id)
+        if cohort is None or await cohort_organization_id(db, cohort) != org_id:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Cohort not found")
 
     user = await db.get(User, user_id)
     if user is None:
@@ -917,9 +993,11 @@ async def unenroll_student_cohort(
 async def student_teams(
     user_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(require_lms_content),
+    current: User = Depends(require_lms_content),
+    x_active_role: str | None = Header(None, alias="X-Active-Role"),
 ):
     """Every team this learner belongs to, across cohorts."""
+    await _assert_lms_student_in_org_scope(db, current, user_id, x_active_role)
     user = await db.get(User, user_id)
     if user is None or not ({"student", "observer"} & set(user.role_values)):
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Student not found")
@@ -944,11 +1022,14 @@ async def student_teams(
 async def student_certificates(
     user_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(require_lms_content),
+    current: User = Depends(require_lms_content),
+    x_active_role: str | None = Header(None, alias="X-Active-Role"),
 ):
     """Every certificate for this learner — user-owned LMS certs plus
     contact-owned program certs — with query-time signed URLs."""
     from sqlalchemy import or_ as _or
+
+    await _assert_lms_student_in_org_scope(db, current, user_id, x_active_role)
 
     user = await db.get(User, user_id)
     if user is None or not ({"student", "observer"} & set(user.role_values)):
@@ -999,12 +1080,14 @@ async def student_certificates(
 async def student_design_runs_route(
     user_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(require_lms_content),
+    current: User = Depends(require_lms_content),
+    x_active_role: str | None = Header(None, alias="X-Active-Role"),
 ):
     """Every CubeSat design run this student has, most recent first — plural
     since 2026-08-15, a student can run several concurrently. Same dots data
     as the progress grid's mission table, `design_steps_for_attempts`, just
     one row per run instead of one row per student."""
+    await _assert_lms_student_in_org_scope(db, current, user_id, x_active_role)
     user = await db.get(User, user_id)
     if user is None or not ({"student", "observer"} & set(user.role_values)):
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Student not found")
@@ -1015,12 +1098,14 @@ async def student_design_runs_route(
 async def student_quiz_breakdown(
     user_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(require_lms_content),
+    current: User = Depends(require_lms_content),
+    x_active_role: str | None = Header(None, alias="X-Active-Role"),
 ):
     """Strengths/weaknesses by topic, summed live across every submitted
     cohort-quiz attempt this student has — see
     `services/lms/cohort_quiz.py::get_student_topic_breakdown`. Never
     cached, same posture as instructor_assessment's own performance read."""
+    await _assert_lms_student_in_org_scope(db, current, user_id, x_active_role)
     user = await db.get(User, user_id)
     if user is None or not ({"student", "observer"} & set(user.role_values)):
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Student not found")
@@ -3711,16 +3796,13 @@ async def student_enrollments(
     user_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_lms_content),
+    x_active_role: str | None = Header(None, alias="X-Active-Role"),
 ):
     """Per-student view (P1-5) — every course this account has ever been
     enrolled in, active or not. The richer contact-centric panel (linked
     account, registrations, cohorts, points) is Stage 3's P3-1; this is the
     narrower building block the roster/grant UI needs today."""
-    if "organization" in current_user.role_values and not any(r in current_user.role_values for r in ("admin", "operations")):
-        from app.services.website_events import resolve_user_organization
-        org = await resolve_user_organization(db, current_user)
-        if not org or not await student_search_service.user_belongs_to_organization(db, user_id, org.id):
-            raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Student not found")
+    await _assert_lms_student_in_org_scope(db, current_user, user_id, x_active_role)
 
     user = await db.get(User, user_id)
     if user is None:

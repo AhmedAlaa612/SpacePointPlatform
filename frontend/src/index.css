@@ -403,6 +403,14 @@ select option {
   color: hsl(var(--card-foreground)) !important;
 }
 
+/* Chrome/Windows ignores option styling for group labels unless the group is
+   styled too — otherwise each optgroup is a blank white band in dark mode. */
+select optgroup {
+  background-color: hsl(var(--card)) !important;
+  color: hsl(var(--muted-foreground)) !important;
+  font-style: normal;
+}
+
 /* Hide scrollbar for Chrome, Safari and Opera */
 .no-scrollbar::-webkit-scrollbar,
 .scrollbar-none::-webkit-scrollbar {

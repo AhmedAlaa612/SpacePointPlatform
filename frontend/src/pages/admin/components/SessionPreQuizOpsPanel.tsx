@@ -39,7 +39,7 @@ export function SessionPreQuizOpsPanel({
         <div>
           <div className="flex items-center gap-2">
             <h3 className="text-sm font-bold text-foreground">
-              Instructor Pre-Cohort Readiness Pipeline &amp; Submissions
+              Instructor Pre-Cohort Readiness Quiz &amp; Submissions
             </h3>
             {totalPending > 0 && (
               <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-bold bg-amber-500/15 text-amber-600 dark:text-amber-400 border border-amber-500/30">
@@ -48,7 +48,7 @@ export function SessionPreQuizOpsPanel({
             )}
           </div>
           <p className="text-xs text-muted-foreground mt-0.5">
-            Monitor pipeline phase progress, audit active time spent, review written and tricky &ldquo;Other&rdquo; answers, or unlock cooldowns.
+            Monitor quiz phase progress, audit active time spent, review written and tricky &ldquo;Other&rdquo; answers, or unlock cooldowns.
           </p>
         </div>
       </div>
@@ -63,11 +63,11 @@ export function SessionPreQuizOpsPanel({
         <p className="text-xs text-muted-foreground py-3">Loading readiness submissions…</p>
       ) : !status?.has_quiz || !preset ? (
         <div className="py-6 text-center text-xs text-muted-foreground border border-dashed border-border rounded-xl">
-          No readiness pipeline preset is assigned to this {cohortId ? "cohort" : "session"}.
+          No readiness quiz preset is assigned to this {cohortId ? "cohort" : "session"}.
         </div>
       ) : attempts.length === 0 ? (
         <div className="py-6 text-center text-xs text-muted-foreground border border-dashed border-border rounded-xl">
-          Assigned preset: <strong className="text-foreground">{preset.name}</strong> ({preset.phases?.length || 0} phases) — No instructor has started the pipeline yet.
+          Assigned preset: <strong className="text-foreground">{preset.name}</strong> ({preset.phases?.length || 0} phases) — No instructor has started the quiz yet.
         </div>
       ) : (
         <div className="space-y-4">

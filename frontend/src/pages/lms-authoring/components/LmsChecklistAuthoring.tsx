@@ -1293,17 +1293,16 @@ export function ItemForm({
             className={`${inputCls} cursor-pointer`}
           >
             <option value="">Select an arcade game…</option>
-            {Array.from(new Set(arcadeGames.map((g) => `${g.module_no} · ${g.module_name}`))).map((mod) => (
-              <optgroup key={mod} label={`Module ${mod}`}>
-                {arcadeGames
-                  .filter((g) => `${g.module_no} · ${g.module_name}` === mod)
-                  .map((g) => (
-                    <option key={g.id} value={g.id}>
-                      {g.title} ({g.kind}{g.is_3d ? " · 3D" : ""})
-                    </option>
-                  ))}
-              </optgroup>
-            ))}
+            {/* Flat options, module name inline: native <optgroup> labels render
+                as an unstyled white band on Chrome/Windows in dark mode, hiding
+                the group text. A disabled-header option has the same problem. */}
+            {[...arcadeGames]
+              .sort((a, b) => parseFloat(a.module_no) - parseFloat(b.module_no) || a.title.localeCompare(b.title))
+              .map((g) => (
+                <option key={g.id} value={g.id}>
+                  {g.title} ({g.kind}{g.is_3d ? " · 3D" : ""}) · Module {g.module_no}
+                </option>
+              ))}
           </select>
           <div className="flex flex-col gap-1">
             <label className="text-[11px] font-medium text-muted-foreground">Difficulty / Track</label>

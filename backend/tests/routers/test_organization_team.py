@@ -656,6 +656,288 @@ async def test_org_only_judge_scoped_and_blocked_from_admin(db, client, sent_ema
     assert admin_rubric.status_code == 403
 
 
+async def test_org_assignable_students_scoped_to_own_org(db, client):
+    """Assign tab must never expose the platform user table to an org.
+
+    An org manager sees only accounts already tied to their org; a stranger's
+    student account stays invisible, and its UUID can't be force-registered
+    into the org's cohort either.
+    """
+    owner, org = await _seed_org(db)
+    _program, cohort, _ = await _seed_cohort(db, org)
+    own = await _make_user(db, roles=["student"], email=f"own-{uuid.uuid4().hex[:8]}@example.com")
+    own.organization_id = org.id
+    outsider = await _make_user(db, roles=["student"], email=f"out-{uuid.uuid4().hex[:8]}@example.com")
+    staff = await _make_user(db, roles=["organization"], email=f"staff-{uuid.uuid4().hex[:8]}@example.com")
+    staff.organization_id = org.id
+    staff.org_role = "instructor"
+    observer = await _make_user(db, roles=["organization"], email=f"obs-{uuid.uuid4().hex[:8]}@example.com")
+    observer.organization_id = org.id
+    observer.org_role = "observer"
+    await db.commit()
+
+    resp = await client.get(
+        f"/competitions/admin/cohorts/{cohort.id}/assignable-students",
+        params={"mode": "student", "page_size": 100}, headers=_headers(owner),
+    )
+    assert resp.status_code == 200, resp.text
+    ids = {r["id"] for r in resp.json()["items"]}
+    assert str(own.id) in ids
+    assert str(outsider.id) not in ids
+
+    # Org sandbox roles live in `org_role`, not the global `roles` array.
+    staff_resp = await client.get(
+        f"/competitions/admin/cohorts/{cohort.id}/assignable-students",
+        params={"mode": "staff", "page_size": 100}, headers=_headers(owner),
+    )
+    assert staff_resp.status_code == 200, staff_resp.text
+    staff_ids = {r["id"] for r in staff_resp.json()["items"]}
+    assert str(staff.id) in staff_ids
+    assert str(observer.id) not in staff_ids
+    assert str(outsider.id) not in staff_ids
+
+    narrowed = await client.get(
+        f"/competitions/admin/cohorts/{cohort.id}/assignable-students",
+        params={"mode": "staff", "role": "instructor", "page_size": 100},
+        headers=_headers(owner),
+    )
+    assert narrowed.status_code == 200, narrowed.text
+    assert {r["id"] for r in narrowed.json()["items"]} == {str(staff.id)}
+
+    obs_resp = await client.get(
+        f"/competitions/admin/cohorts/{cohort.id}/assignable-students",
+        params={"mode": "observer", "page_size": 100}, headers=_headers(owner),
+    )
+    assert obs_resp.status_code == 200, obs_resp.text
+    obs_ids = {r["id"] for r in obs_resp.json()["items"]}
+    assert str(observer.id) in obs_ids
+    assert str(staff.id) not in obs_ids
+    assert str(outsider.id) not in obs_ids
+
+    add = await client.post(
+        f"/competitions/admin/cohorts/{cohort.id}/register-users",
+        headers=_headers(owner), json={"user_ids": [str(outsider.id)]},
+    )
+    assert add.status_code == 404, add.text
+
+
+async def test_org_cohort_assignable_students_scoped_even_for_ops_and_admin(db, client):
+    """Partner organization cohorts must never leak portal-wide users in Assign,
+    even when opened by SpacePoint Admin/Operations or a dual-role caller, and
+    even if an admin previously clicked 'Try as Observer' on that cohort.
+    """
+    from app.models.lms.program import LmsProgram, LmsProgramAssignment
+
+    owner, org = await _seed_org(db)
+    other_owner, other_org = await _seed_org(db)
+    program, cohort, _ = await _seed_cohort(db, org)
+    lms_program = LmsProgram(id=uuid.uuid4(), program_id=program.id, name="Org Checklist")
+    db.add(lms_program)
+    await db.flush()
+
+    admin = await _make_user(db, roles=["admin", "observer"], email=f"adm-{uuid.uuid4().hex[:8]}@example.com")
+    dual_role_owner = await _make_user(
+        db, roles=["admin", "organization"], email=f"dual-{uuid.uuid4().hex[:8]}@example.com"
+    )
+    dual_role_owner.organization_id = org.id
+    dual_role_owner.org_role = "coordinator"
+
+    portal_instructor = await _make_user(db, roles=["instructor"], email=f"spinst-{uuid.uuid4().hex[:8]}@example.com")
+    portal_student = await _make_user(db, roles=["student"], email=f"spstu-{uuid.uuid4().hex[:8]}@example.com")
+
+    other_org_staff = await _make_user(db, roles=["organization"], email=f"otherstaff-{uuid.uuid4().hex[:8]}@example.com")
+    other_org_staff.organization_id = other_org.id
+    other_org_staff.org_role = "instructor"
+
+    own_student = await _make_user(db, roles=["student"], email=f"ownstu-{uuid.uuid4().hex[:8]}@example.com")
+    own_student.organization_id = org.id
+    own_staff = await _make_user(db, roles=["organization"], email=f"ownstaff-{uuid.uuid4().hex[:8]}@example.com")
+    own_staff.organization_id = org.id
+    own_staff.org_role = "instructor"
+    own_observer = await _make_user(db, roles=["organization"], email=f"ownobs-{uuid.uuid4().hex[:8]}@example.com")
+    own_observer.organization_id = org.id
+    own_observer.org_role = "observer"
+
+    # Simulate SpacePoint admin having used "Try as Observer" on this org cohort.
+    db.add(
+        LmsProgramAssignment(
+            id=uuid.uuid4(),
+            lms_program_id=lms_program.id,
+            user_id=admin.id,
+            cohort_id=cohort.id,
+            mode="observer",
+        )
+    )
+    await db.commit()
+
+    for caller in (admin, dual_role_owner):
+        staff_resp = await client.get(
+            f"/competitions/admin/cohorts/{cohort.id}/assignable-students",
+            params={"mode": "staff", "page_size": 100}, headers=_headers(caller),
+        )
+        assert staff_resp.status_code == 200, staff_resp.text
+        staff_ids = {r["id"] for r in staff_resp.json()["items"]}
+        assert str(own_staff.id) in staff_ids
+        assert str(dual_role_owner.id) in staff_ids
+        assert str(owner.id) in staff_ids
+        assert str(admin.id) not in staff_ids
+        assert str(portal_instructor.id) not in staff_ids
+        assert str(other_org_staff.id) not in staff_ids
+        assert str(other_owner.id) not in staff_ids
+
+        stu_resp = await client.get(
+            f"/competitions/admin/cohorts/{cohort.id}/assignable-students",
+            params={"mode": "student", "page_size": 100}, headers=_headers(caller),
+        )
+        assert stu_resp.status_code == 200, stu_resp.text
+        stu_ids = {r["id"] for r in stu_resp.json()["items"]}
+        assert str(own_student.id) in stu_ids
+        assert str(portal_student.id) not in stu_ids
+
+        obs_resp = await client.get(
+            f"/competitions/admin/cohorts/{cohort.id}/assignable-students",
+            params={"mode": "observer", "page_size": 100}, headers=_headers(caller),
+        )
+        assert obs_resp.status_code == 200, obs_resp.text
+        obs_ids = {r["id"] for r in obs_resp.json()["items"]}
+        assert str(own_observer.id) in obs_ids
+        assert str(admin.id) not in obs_ids
+
+    forbid_reg = await client.post(
+        f"/competitions/admin/cohorts/{cohort.id}/register-users",
+        headers=_headers(admin), json={"user_ids": [str(portal_student.id)]},
+    )
+    assert forbid_reg.status_code == 404, forbid_reg.text
+
+
+async def test_org_lms_students_and_assign_scoped_to_org_cohorts_and_invite_codes(db, client):
+    """Org Students page (/lms/admin/students) and Assign tab only expose students
+    in the org's cohorts or who redeemed an org invite code — never portal-wide
+    students, CRM-contact-only links, or SpacePoint-admin batches, even when a
+    multi-role admin switches active role to 'organization'.
+    """
+    from app.models.instructors.invitation_code import InvitationCode
+    from app.models.lms.invite_grant import InvitationCodeGrant, UserInvitationCode
+    from app.models.sessions.registration import Registration
+    from app.models.spine.contact import Contact
+
+    owner, org = await _seed_org(db)
+    _program, cohort, _ = await _seed_cohort(db, org)
+
+    dual_admin = await _make_user(
+        db, roles=["admin", "organization"], email=f"dualadm-{uuid.uuid4().hex[:8]}@example.com"
+    )
+    dual_admin.organization_id = org.id
+    dual_admin.org_role = "coordinator"
+
+    # 1. Student registered in one of the org's cohorts
+    cohort_contact = Contact(
+        id=uuid.uuid4(), full_name="Cohort Student", email=f"cstu-{uuid.uuid4().hex[:8]}@example.com",
+        contact_roles=["student"],
+    )
+    db.add(cohort_contact)
+    await db.flush()
+    cohort_student = await _make_user(db, roles=["student"], email=cohort_contact.email)
+    cohort_student.contact_id = cohort_contact.id
+    db.add(Registration(
+        id=uuid.uuid4(), cohort_id=cohort.id, contact_id=cohort_contact.id,
+        status="registered", ticket_token=f"TK-{uuid.uuid4().hex[:10]}",
+        registered_via="desk", payment_status="waived",
+    ))
+
+    # 2. Student who used an organization-created invite code (no cohort registration yet)
+    org_code = InvitationCode(
+        id=uuid.uuid4(), code=f"ORGBATCH-{uuid.uuid4().hex[:6].upper()}",
+        kind="student", label="Org Batch", is_active=True, max_uses=20, created_by=owner.id,
+    )
+    db.add(org_code)
+    await db.flush()
+    code_student = await _make_user(db, roles=["student"], email=f"codestu-{uuid.uuid4().hex[:8]}@example.com")
+    code_student.invitation_code_used = org_code.code
+    db.add(UserInvitationCode(
+        id=uuid.uuid4(), user_id=code_student.id, invitation_code_id=org_code.id, code=org_code.code,
+    ))
+
+    # 3. Student who used a grant-linked org cohort invite code
+    grant_code = InvitationCode(
+        id=uuid.uuid4(), code=f"GRANT-{uuid.uuid4().hex[:6].upper()}",
+        kind="student", label="Granted Batch", is_active=True, max_uses=20, created_by=dual_admin.id,
+    )
+    db.add(grant_code)
+    await db.flush()
+    db.add(InvitationCodeGrant(
+        id=uuid.uuid4(), invitation_code_id=grant_code.id, product_type="lms_program", cohort_id=cohort.id,
+    ))
+    grant_student = await _make_user(db, roles=["student"], email=f"gstu-{uuid.uuid4().hex[:8]}@example.com")
+    grant_student.invitation_code_used = grant_code.code
+
+    # 4. SpacePoint platform invite code + student + CRM-contact-only student (must stay hidden)
+    sp_code = InvitationCode(
+        id=uuid.uuid4(), code=f"SPBATCH-{uuid.uuid4().hex[:6].upper()}",
+        kind="student", label="SP Batch", is_active=True, max_uses=20, created_by=dual_admin.id,
+    )
+    db.add(sp_code)
+    sp_student = await _make_user(db, roles=["student"], email=f"spbatch-{uuid.uuid4().hex[:8]}@example.com")
+    sp_student.invitation_code_used = sp_code.code
+
+    crm_contact = Contact(
+        id=uuid.uuid4(), full_name="CRM Only", email=f"crm-{uuid.uuid4().hex[:8]}@example.com",
+        contact_roles=["student"], organization_id=org.id,
+    )
+    db.add(crm_contact)
+    await db.flush()
+    crm_only_student = await _make_user(db, roles=["student"], email=crm_contact.email)
+    crm_only_student.contact_id = crm_contact.id
+
+    await db.commit()
+
+    org_headers_cases = [
+        _headers(owner),
+        {**_headers(dual_admin), "X-Active-Role": "organization"},
+    ]
+    for hdrs in org_headers_cases:
+        resp = await client.get("/lms/admin/students", headers=hdrs)
+        assert resp.status_code == 200, resp.text
+        ids = {r["id"] for r in resp.json()}
+        assert str(cohort_student.id) in ids
+        assert str(code_student.id) in ids
+        assert str(grant_student.id) in ids
+        assert str(sp_student.id) not in ids
+        assert str(crm_only_student.id) not in ids
+
+        detail = await client.get(f"/lms/admin/students/{sp_student.id}", headers=hdrs)
+        assert detail.status_code == 404
+
+        codes_resp = await client.get("/lms/admin/invite-codes", headers=hdrs)
+        assert codes_resp.status_code == 200, codes_resp.text
+        code_names = {c["code"] for c in codes_resp.json()}
+        assert org_code.code in code_names
+        assert grant_code.code in code_names
+        assert sp_code.code not in code_names
+
+    assign_resp = await client.get(
+        f"/competitions/admin/cohorts/{cohort.id}/assignable-students",
+        params={"mode": "student", "page_size": 100},
+        headers=_headers(dual_admin),
+    )
+    assert assign_resp.status_code == 200, assign_resp.text
+    assign_ids = {r["id"] for r in assign_resp.json()["items"]}
+    assert str(cohort_student.id) in assign_ids
+    assert str(code_student.id) in assign_ids
+    assert str(grant_student.id) in assign_ids
+    assert str(sp_student.id) not in assign_ids
+    assert str(crm_only_student.id) not in assign_ids
+
+    assign_codes = await client.get(
+        "/lms/admin/invite-codes", params={"cohort_id": str(cohort.id)}, headers=_headers(dual_admin),
+    )
+    assert assign_codes.status_code == 200, assign_codes.text
+    assign_code_names = {c["code"] for c in assign_codes.json()}
+    assert org_code.code in assign_code_names
+    assert grant_code.code in assign_code_names
+    assert sp_code.code not in assign_code_names
+
+
 async def test_org_cohorts_excluded_from_ops_main_lists(db, client):
     owner, org = await _seed_org(db)
     ops = await _make_user(db, roles=["operations"])

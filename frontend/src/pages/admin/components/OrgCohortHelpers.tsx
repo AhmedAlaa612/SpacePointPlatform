@@ -565,7 +565,7 @@ function CreateOrgReadinessModal({
 
               {q.question_type === "mcq" && (
                 <div className="space-y-1.5 pl-1">
-                  {q.options.map((opt, oIdx) => (
+                  {(q.options ?? []).map((opt, oIdx) => (
                     <div key={oIdx} className="flex items-center gap-2">
                       <input
                         type="radio"
@@ -573,7 +573,7 @@ function CreateOrgReadinessModal({
                         checked={opt.is_correct}
                         onChange={() =>
                           updateQuestion(qIdx, {
-                            options: q.options.map((o, oi) => ({ ...o, is_correct: oi === oIdx })),
+                            options: (q.options ?? []).map((o, oi) => ({ ...o, is_correct: oi === oIdx })),
                           })
                         }
                       />
@@ -582,17 +582,17 @@ function CreateOrgReadinessModal({
                         value={opt.text}
                         onChange={(e) =>
                           updateQuestion(qIdx, {
-                            options: q.options.map((o, oi) => (oi === oIdx ? { ...o, text: e.target.value } : o)),
+                            options: (q.options ?? []).map((o, oi) => (oi === oIdx ? { ...o, text: e.target.value } : o)),
                           })
                         }
                         placeholder={`Option ${oIdx + 1}`}
                         className="flex-1 h-8 px-2.5 rounded-lg border border-border bg-card text-xs"
                       />
-                      {q.options.length > 2 && (
+                      {(q.options ?? []).length > 2 && (
                         <button
                           type="button"
                           onClick={() =>
-                            updateQuestion(qIdx, { options: q.options.filter((_, oi) => oi !== oIdx) })
+                            updateQuestion(qIdx, { options: (q.options ?? []).filter((_, oi) => oi !== oIdx) })
                           }
                           className="text-xs text-muted-foreground hover:text-destructive px-1"
                         >
@@ -604,7 +604,7 @@ function CreateOrgReadinessModal({
                   <button
                     type="button"
                     onClick={() =>
-                      updateQuestion(qIdx, { options: [...q.options, { text: "", is_correct: false }] })
+                      updateQuestion(qIdx, { options: [...(q.options ?? []), { text: "", is_correct: false }] })
                     }
                     className="text-[11px] font-medium text-primary hover:underline"
                   >

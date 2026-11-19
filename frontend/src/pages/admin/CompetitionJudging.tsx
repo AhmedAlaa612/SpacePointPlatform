@@ -4,7 +4,7 @@ import { Link, useParams } from "@tanstack/react-router"
 import { ArrowLeft, ArrowUpRight, Award, Copy, Download, Eye, FileText, Mail, MessageSquare, Plus, RefreshCw, Search, Trash2, Trophy, Upload, UserPlus, UserMinus, Pencil, X, Check, RotateCcw } from "lucide-react"
 import { getCohortApi, getCohortsApi } from "@/api/sessions/cohorts"
 import type { Cohort } from "@/types/sessions"
-import { searchStaffApi, listInviteCodesApi, type StaffOption } from "@/api/lms_admin"
+import { searchStaffApi, listCohortInviteCodesApi, type StaffOption } from "@/api/lms_admin"
 import { getOrganizationTeamApi, type OrgTeamMember } from "@/api/websiteEvents"
 import { UserProfileModal } from "@/components/UserProfileModal"
 import { CompetitionCertificatesModal } from "@/pages/admin/components/CompetitionCertificatesModal"
@@ -127,7 +127,7 @@ export default function CompetitionJudging() {
       </div>
 
       {tab === "roster" && <RosterTab cohortId={cohort.id} />}
-      {tab === "assign" && !isOrg && <AssignTab cohortId={cohort.id} />}
+      {tab === "assign" && !isOrg && <AssignTab cohortId={cohort.id} isOrgScope={Boolean(cohort.organization_id)} />}
       {tab === "teams" && <TeamsTab cohortId={cohort.id} cohortName={cohort.name} />}
       {tab === "analysis" && <CompetitionAnalysisTab cohortId={cohort.id} />}
       {tab === "rubric" && <RubricTab cohortId={cohort.id} />}
@@ -586,7 +586,12 @@ const STAFF_ROLE_OPTIONS = [
   "lms_author", "judge", "ambassador", "teacher", "leader", "coo", "storekeeper",
 ]
 
-export function AssignTab({ cohortId }: { cohortId: string }) {
+// Org team members only carry global role `organization`; what they actually
+// do is `users.org_role` (see services/org_access.py). The picker must offer
+// those sandbox roles, not the portal's global list, or filtering returns zero.
+const ORG_STAFF_ROLE_OPTIONS = ["coordinator", "instructor", "judge"]
+
+export function AssignTab({ cohortId, isOrgScope = false }: { cohortId: string; isOrgScope?: boolean }) {
   const toast = useToast()
   const queryClient = useQueryClient()
   const [query, setQuery] = useState("")
@@ -638,8 +643,8 @@ export function AssignTab({ cohortId }: { cohortId: string }) {
   const total = assignPage?.total ?? 0
   const totalPages = Math.max(1, Math.ceil(total / pageSize))
   const { data: codes = [] } = useQuery({
-    queryKey: ["lms-admin-invite-codes"],
-    queryFn: listInviteCodesApi,
+    queryKey: ["lms-admin-invite-codes", cohortId],
+    queryFn: () => listCohortInviteCodesApi(cohortId),
   })
   const { data: allTeams = [] } = useQuery({
     queryKey: ["competitions-cohort-teams", cohortId],
@@ -784,7 +789,7 @@ export function AssignTab({ cohortId }: { cohortId: string }) {
             className="w-auto shrink-0 h-10 px-3 border border-border bg-card text-foreground rounded-xl text-sm focus:outline-none focus:border-primary transition-colors cursor-pointer"
           >
             <option value="">All roles</option>
-            {STAFF_ROLE_OPTIONS.map((r) => (
+            {(isOrgScope ? ORG_STAFF_ROLE_OPTIONS : STAFF_ROLE_OPTIONS).map((r) => (
               <option key={r} value={r}>{r}</option>
             ))}
           </select>
