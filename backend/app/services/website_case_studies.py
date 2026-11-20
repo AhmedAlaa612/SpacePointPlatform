@@ -12,6 +12,7 @@ from app.models.sessions.session import Session
 from app.models.spine.contact import Contact
 from app.models.spine.organization import Organization
 from app.models.team import Team
+from app.models.website_case_studies_header import WebsiteCaseStudiesHeader
 from app.models.website_case_study import WebsiteCaseStudy
 from app.schemas.website_case_study import (
     CaseStudyCurriculumChapter,
@@ -22,6 +23,66 @@ from app.schemas.website_case_study import (
     CaseStudyStructureSection,
 )
 from app.services.articles.markdown import slugify
+
+DEFAULT_CASE_STUDIES_HEADER_STATS = [
+    {"value": "1,000+", "label": "Students Trained"},
+    {"value": "15+", "label": "Institutions"},
+    {"value": "10+", "label": "Programs Delivered"},
+    {"value": "5", "label": "UAE Cities"},
+]
+
+DEFAULT_CASE_STUDIES_HEADER_PARTNERS = [
+    {
+        "name": "Higher Colleges of Technology",
+        "logo_url": "/assets/img/Case studies/Logos/HCT white.png",
+        "website_url": "",
+    },
+    {
+        "name": "SPACE 42",
+        "logo_url": "/assets/img/Case studies/Logos/space42 original.png",
+        "website_url": "",
+    },
+    {
+        "name": "UAE Space Agency",
+        "logo_url": "/assets/img/Case studies/Logos/UAE Space Agency white.png",
+        "website_url": "",
+    },
+    {
+        "name": "Abdulla Al Ghurair Foundation",
+        "logo_url": "/assets/img/Case studies/Logos/AGF white.png",
+        "website_url": "",
+    },
+]
+
+
+def default_case_studies_header_payload() -> dict:
+    """Return fresh copies of the default case-studies hero stats and partners."""
+    return {
+        "stats": [dict(item) for item in DEFAULT_CASE_STUDIES_HEADER_STATS],
+        "partners": [dict(item) for item in DEFAULT_CASE_STUDIES_HEADER_PARTNERS],
+    }
+
+
+async def ensure_case_studies_header_table(db: AsyncSession) -> None:
+    """Ensure `website_case_studies_header` exists before querying or seeding it."""
+    conn = await db.connection()
+    await conn.run_sync(
+        lambda sync_conn: WebsiteCaseStudiesHeader.__table__.create(sync_conn, checkfirst=True)
+    )
+
+
+async def get_or_seed_case_studies_header(db: AsyncSession) -> WebsiteCaseStudiesHeader:
+    """Fetch row id=1 of `website_case_studies_header`, creating and seeding defaults if absent."""
+    await ensure_case_studies_header_table(db)
+    row = (
+        await db.execute(select(WebsiteCaseStudiesHeader).where(WebsiteCaseStudiesHeader.id == 1))
+    ).scalar_one_or_none()
+    if not row:
+        row = WebsiteCaseStudiesHeader(id=1, **default_case_studies_header_payload())
+        db.add(row)
+        await db.commit()
+        await db.refresh(row)
+    return row
 
 
 async def unique_case_study_slug(db: AsyncSession, title: str, ignore_id: UUID | None = None) -> str:

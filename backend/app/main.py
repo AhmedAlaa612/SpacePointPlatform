@@ -103,10 +103,11 @@ async def lifespan(app: FastAPI):
         from app.db.session import AsyncSessionLocal, engine
         from app.models.website_event import MegaEvent, WebsiteEvent
         from app.models.website_case_study import WebsiteCaseStudy
+        from app.models.website_case_studies_header import WebsiteCaseStudiesHeader
         from app.models.website_policy import WebsitePolicy
         from app.models.competitions.hint_station import CohortHintChallenge, CohortHintCard, CohortTeamHintReveal
         from app.services.website_events import ensure_default_events_seeded
-        from app.services.website_case_studies import seed_default_case_studies
+        from app.services.website_case_studies import get_or_seed_case_studies_header, seed_default_case_studies
         from app.services.website_policies import seed_default_policies
         from sqlalchemy import text
         async with engine.begin() as conn:
@@ -119,6 +120,9 @@ async def lifespan(app: FastAPI):
             )
             await conn.run_sync(
                 lambda sync_conn: WebsiteCaseStudy.__table__.create(sync_conn, checkfirst=True)
+            )
+            await conn.run_sync(
+                lambda sync_conn: WebsiteCaseStudiesHeader.__table__.create(sync_conn, checkfirst=True)
             )
             await conn.run_sync(
                 lambda sync_conn: WebsitePolicy.__table__.create(sync_conn, checkfirst=True)
@@ -207,6 +211,7 @@ async def lifespan(app: FastAPI):
             await db.commit()
             await ensure_default_events_seeded(db)
             await seed_default_case_studies(db)
+            await get_or_seed_case_studies_header(db)
             await seed_default_policies(db)
             try:
                 from app.services.lms.arcade import ensure_arcade_games_seeded

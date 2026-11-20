@@ -22,7 +22,11 @@ from app.schemas.website_case_studies_header import (
     WebsiteCaseStudiesHeaderUpdate,
 )
 from app.services.articles.markdown import slugify
-from app.services.website_case_studies import pull_case_study_snapshot, unique_case_study_slug
+from app.services.website_case_studies import (
+    get_or_seed_case_studies_header,
+    pull_case_study_snapshot,
+    unique_case_study_slug,
+)
 
 router = APIRouter(prefix="/website", tags=["admin-website-case-studies"])
 
@@ -32,13 +36,7 @@ async def get_case_studies_header(
     db: AsyncSession = Depends(get_db),
     _user: User = Depends(require_website_admin),
 ):
-    row = (await db.execute(select(WebsiteCaseStudiesHeader).where(WebsiteCaseStudiesHeader.id == 1))).scalar_one_or_none()
-    if not row:
-        row = WebsiteCaseStudiesHeader(id=1, stats=[], partners=[])
-        db.add(row)
-        await db.commit()
-        await db.refresh(row)
-    return row
+    return await get_or_seed_case_studies_header(db)
 
 
 @router.put("/case-studies-header", response_model=WebsiteCaseStudiesHeaderOut)
@@ -47,10 +45,7 @@ async def update_case_studies_header(
     db: AsyncSession = Depends(get_db),
     _user: User = Depends(require_website_admin),
 ):
-    row = (await db.execute(select(WebsiteCaseStudiesHeader).where(WebsiteCaseStudiesHeader.id == 1))).scalar_one_or_none()
-    if not row:
-        row = WebsiteCaseStudiesHeader(id=1)
-        db.add(row)
+    row = await get_or_seed_case_studies_header(db)
     row.stats = [s.model_dump() for s in body.stats]
     row.partners = [p.model_dump() for p in body.partners]
     row.updated_at = datetime.now(timezone.utc)

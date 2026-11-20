@@ -26,7 +26,7 @@ export function WebsiteCaseStudiesHeaderModal({ isOpen, onClose }: Props) {
   const queryClient = useQueryClient()
   const toast = useToast()
 
-  const { data: headerData, isLoading } = useQuery({
+  const { data: headerData, isLoading, isError, error } = useQuery({
     queryKey: ["website-case-studies-header"],
     queryFn: getCaseStudiesHeader,
     enabled: isOpen,
@@ -37,11 +37,11 @@ export function WebsiteCaseStudiesHeaderModal({ isOpen, onClose }: Props) {
   const [uploadingLogoIdx, setUploadingLogoIdx] = useState<number | null>(null)
 
   useEffect(() => {
-    if (headerData) {
+    if (isOpen && headerData) {
       setStats(headerData.stats || [])
       setPartners(headerData.partners || [])
     }
-  }, [headerData])
+  }, [headerData, isOpen])
 
   const saveMutation = useMutation({
     mutationFn: () =>
@@ -96,6 +96,10 @@ export function WebsiteCaseStudiesHeaderModal({ isOpen, onClose }: Props) {
         {isLoading ? (
           <div className="py-12 flex justify-center">
             <Spinner />
+          </div>
+        ) : isError ? (
+          <div className="p-4 rounded-xl border border-destructive/40 bg-destructive/10 text-sm text-destructive">
+            {getErrorMessage(error, "Failed to load Case Studies header configuration.")}
           </div>
         ) : (
           <>
