@@ -17,6 +17,7 @@ Two rules this module encodes:
 """
 
 import uuid
+from typing import Iterable, Sequence
 
 from fastapi import HTTPException, status
 from sqlalchemy import select
@@ -35,6 +36,8 @@ ORG_ROLES: tuple[str, ...] = ("owner", "coordinator", "instructor", "judge", "ob
 # a legal/signatory fact, not a dropdown value.
 ASSIGNABLE_ORG_ROLES: tuple[str, ...] = ("coordinator", "instructor", "judge", "observer")
 ORG_MANAGER_ROLES: tuple[str, ...] = ("owner", "coordinator")
+OWNER_EXTRA_ORG_ROLES: tuple[str, ...] = ("instructor", "judge", "observer")
+_ORG_ROLE_ORDER: dict[str, int] = {r: i for i, r in enumerate(ORG_ROLES)}
 
 
 def normalize_org_role(value: str | None) -> str:
@@ -50,24 +53,113 @@ def normalize_org_role(value: str | None) -> str:
     return role
 
 
-def effective_org_role(user: User) -> str | None:
-    """The role to act on.
+def normalize_org_roles(
+    values: Sequence[str] | None,
+    *,
+    fallback_role: str | None = None,
+    is_owner: bool = False,
+) -> list[str]:
+    """Validate and canonically sort a set of org sandbox roles.
 
-    Legacy partner team members were created before `org_role` existed; they
-    carry the `organization` role and no sandbox role, which is a coordinator.
+    Primary owners always keep `"owner"` locked (`coordinator` is redundant
+    with `owner` and omitted) while allowing any combination of
+    `instructor`/`judge`/`observer`. Non-owners must have at least one role
+    from `ASSIGNABLE_ORG_ROLES`.
     """
-    role = getattr(user, "org_role", None)
-    if role in ORG_ROLES:
-        return role
-    if "organization" in user.role_values:
-        return "coordinator"
-    return None
+    if values is None:
+        if is_owner:
+            fb = (fallback_role or "").strip().lower()
+            if fb in ("", "owner", "coordinator"):
+                return ["owner"]
+            if fb not in OWNER_EXTRA_ORG_ROLES:
+                raise HTTPException(
+                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    detail="Organization owner additional role must be one of: " + ", ".join(OWNER_EXTRA_ORG_ROLES),
+                )
+            return sorted(["owner", fb], key=lambda r: _ORG_ROLE_ORDER[r])
+        return [normalize_org_role(fallback_role)]
+
+    cleaned = [str(v).strip().lower() for v in values if v is not None and str(v).strip()]
+    if is_owner:
+        invalid = [r for r in cleaned if r not in ORG_ROLES]
+        if invalid:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="Organization roles must be chosen from: " + ", ".join(ORG_ROLES),
+            )
+        role_set = {"owner"} | (set(cleaned) - {"coordinator"})
+        return sorted(role_set, key=lambda r: _ORG_ROLE_ORDER[r])
+
+    if not cleaned:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Select at least one organization role",
+        )
+    invalid = [r for r in cleaned if r not in ASSIGNABLE_ORG_ROLES]
+    if invalid:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Organization roles must be chosen from: " + ", ".join(ASSIGNABLE_ORG_ROLES),
+        )
+    return sorted(set(cleaned), key=lambda r: _ORG_ROLE_ORDER[r])
+
+
+def primary_org_role(roles: Sequence[str]) -> str | None:
+    valid = [r for r in roles if r in ORG_ROLES]
+    if not valid:
+        return None
+    return min(valid, key=lambda r: _ORG_ROLE_ORDER[r])
+
+
+def set_user_org_roles(user: User, roles: Sequence[str]) -> list[str]:
+    """Write `user.org_roles` (fresh list for SQLAlchemy change detection)
+    and keep `user.org_role` synced to the highest-priority role."""
+    ordered = sorted({r for r in roles if r in ORG_ROLES}, key=lambda r: _ORG_ROLE_ORDER[r])
+    user.org_roles = list(ordered)
+    user.org_role = ordered[0] if ordered else None
+    return ordered
+
+
+def clear_user_org_roles(user: User) -> None:
+    user.org_roles = []
+    user.org_role = None
+
+
+def effective_org_roles(user: User, *, is_owner: bool = False) -> list[str]:
+    """All sandbox roles the user holds inside their organization."""
+    raw = [r for r in (getattr(user, "org_roles", None) or []) if r in ORG_ROLES]
+    if not raw:
+        legacy = getattr(user, "org_role", None)
+        if legacy in ORG_ROLES:
+            raw = [legacy]
+        elif "organization" in user.role_values:
+            raw = ["coordinator"]
+    role_set = set(raw)
+    if is_owner:
+        role_set.add("owner")
+        role_set.discard("coordinator")
+    return sorted(role_set, key=lambda r: _ORG_ROLE_ORDER[r])
+
+
+def effective_org_role(user: User, *, is_owner: bool = False) -> str | None:
+    """Highest-priority sandbox role for legacy single-role readers."""
+    roles = effective_org_roles(user, is_owner=is_owner)
+    return roles[0] if roles else None
+
+
+def has_org_role(user: User, role: str, *, is_owner: bool = False) -> bool:
+    return role in effective_org_roles(user, is_owner=is_owner)
+
+
+def has_any_org_role(user: User, roles: Iterable[str], *, is_owner: bool = False) -> bool:
+    wanted = set(roles)
+    return bool(wanted & set(effective_org_roles(user, is_owner=is_owner)))
 
 
 def is_org_manager(user: User) -> bool:
     if any(r in user.role_values for r in ("admin", "operations")):
         return True
-    return effective_org_role(user) in ORG_MANAGER_ROLES
+    return has_any_org_role(user, ORG_MANAGER_ROLES)
 
 
 def require_org_manager(user: User) -> None:
@@ -78,16 +170,20 @@ def require_org_manager(user: User) -> None:
         )
 
 
-def global_roles_for_org_role(org_role: str) -> list[UserRole]:
+def global_roles_for_org_roles(org_roles: Sequence[str]) -> list[UserRole]:
     """Global roles an org team member receives.
 
     Every org sandbox member (coordinator, instructor, judge, observer) runs
-    inside the `organization` workspace (`/organization/*`) and uses `org_role`
+    inside the `organization` workspace (`/organization/*`) and uses `org_roles`
     to switch tabs and permissions — never auto-granted global `instructor` or
     `judge`, so SpacePoint's freelance instructor/judge portals stay 100%
     separate.
     """
     return [UserRole.organization]
+
+
+def global_roles_for_org_role(org_role: str) -> list[UserRole]:
+    return global_roles_for_org_roles([org_role])
 
 
 def is_ops_or_admin(user: User) -> bool:
@@ -183,7 +279,11 @@ async def assert_user_eligible_for_cohort_staffing(
     if (
         target_org is None
         or target_org.id != org_id
-        or effective_org_role(target_user) != "instructor"
+        or not has_org_role(
+            target_user,
+            "instructor",
+            is_owner=(target_org.owner_user_id == target_user.id),
+        )
     ):
         raise HTTPException(
             status.HTTP_400_BAD_REQUEST,

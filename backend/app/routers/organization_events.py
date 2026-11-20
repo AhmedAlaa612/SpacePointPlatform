@@ -32,10 +32,13 @@ from app.services.email import (
     send_password_set_link_email,
 )
 from app.services.org_access import (
-    effective_org_role,
-    global_roles_for_org_role,
-    normalize_org_role,
+    clear_user_org_roles,
+    effective_org_roles,
+    global_roles_for_org_roles,
+    is_org_manager,
+    normalize_org_roles,
     require_org_manager,
+    set_user_org_roles,
 )
 from app.services.website_events import (
     build_organization_team_member,
@@ -69,6 +72,8 @@ async def get_my_organization_context(
             .order_by(MegaEvent.display_order.asc(), MegaEvent.title.asc())
         )
     ).scalars().all()
+    is_owner = org is not None and org.owner_user_id == current_user.id
+    my_org_roles = effective_org_roles(current_user, is_owner=is_owner)
     return {
         "organization": {
             "id": str(org.id),
@@ -92,9 +97,9 @@ async def get_my_organization_context(
         if org
         else None,
         "mega_events": await serialize_mega_events(db, megas, published_only_counts=True),
-        "org_role": effective_org_role(current_user),
-        "can_manage": (effective_org_role(current_user) in ("owner", "coordinator"))
-        or any(r in current_user.role_values for r in ("admin", "operations")),
+        "org_role": my_org_roles[0] if my_org_roles else None,
+        "org_roles": my_org_roles,
+        "can_manage": is_org_manager(current_user),
     }
 
 
@@ -286,22 +291,28 @@ async def list_my_organization_team(
         for u in users
         if u.id == org.owner_user_id
         or u.org_role is not None
+        or bool(getattr(u, "org_roles", None))
         or "organization" in u.role_values
     ]
-    return [
-        OrgTeamMemberOut(
-            id=u.id,
-            full_name=u.full_name,
-            email=u.email,
-            phone=u.phone,
-            status=u.status,
-            created_at=u.created_at,
-            is_owner=(u.id == org.owner_user_id),
-            org_role="owner" if u.id == org.owner_user_id else (effective_org_role(u) or "coordinator"),
-            invite_pending=bool(u.must_change_password),
+    out: list[OrgTeamMemberOut] = []
+    for u in users:
+        is_owner = u.id == org.owner_user_id
+        roles_list = effective_org_roles(u, is_owner=is_owner) or ["coordinator"]
+        out.append(
+            OrgTeamMemberOut(
+                id=u.id,
+                full_name=u.full_name,
+                email=u.email,
+                phone=u.phone,
+                status=u.status,
+                created_at=u.created_at,
+                is_owner=is_owner,
+                org_role=roles_list[0],
+                org_roles=roles_list,
+                invite_pending=bool(u.must_change_password),
+            )
         )
-        for u in users
-    ]
+    return out
 
 
 @router.post("/team", response_model=OrgTeamMemberOut, status_code=status.HTTP_201_CREATED)
@@ -323,6 +334,7 @@ async def add_organization_team_member(
         password=body.password,
         phone=body.phone,
         org_role=body.org_role,
+        org_roles=body.org_roles,
     )
 
     base = (settings.FRONTEND_URL or "http://localhost:5173").rstrip("/")
@@ -339,6 +351,7 @@ async def add_organization_team_member(
             user.email, user.full_name, org.name_latin, f"{base}/login"
         )
 
+    roles_list = effective_org_roles(user) or ["coordinator"]
     return OrgTeamMemberOut(
         id=user.id,
         full_name=user.full_name,
@@ -347,7 +360,8 @@ async def add_organization_team_member(
         status=user.status,
         created_at=user.created_at,
         is_owner=False,
-        org_role=effective_org_role(user) or body.org_role,
+        org_role=roles_list[0],
+        org_roles=roles_list,
         invite_email_sent=email_sent,
         existing_account=not created,
     )
@@ -360,26 +374,33 @@ async def update_organization_team_member(
     current_user: User = Depends(require_organization_account),
     db: AsyncSession = Depends(get_db),
 ):
-    """Change a member's sandbox role. Owner/coordinator only; the primary
-    owner (organizations.owner_user_id) is not a dropdown value."""
+    """Change a member's sandbox roles. Owner/coordinator only; the primary
+    owner (organizations.owner_user_id) always keeps `owner` locked and may
+    also hold additional delivery/judging/observer roles."""
     org = await resolve_user_organization(db, current_user)
     if org is None:
         raise HTTPException(status_code=400, detail="No organization context found")
     require_org_manager(current_user)
 
-    if user_id == org.owner_user_id:
-        raise HTTPException(status_code=400, detail="The organization primary owner's role cannot be changed")
+    if body.org_roles is None and body.org_role is None:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Provide org_roles or org_role",
+        )
 
+    is_owner = user_id == org.owner_user_id
     user = await db.get(User, user_id)
-    is_member = user is not None and user.organization_id == org.id
+    is_member = user is not None and (is_owner or user.organization_id == org.id)
     if not is_member:
         raise HTTPException(status_code=404, detail="Team member not found")
 
-    role = normalize_org_role(body.org_role)
-    user.org_role = role
+    roles_list = normalize_org_roles(body.org_roles, fallback_role=body.org_role, is_owner=is_owner)
+    if is_owner and user.organization_id is None:
+        user.organization_id = org.id
+    set_user_org_roles(user, roles_list)
     merged = list(user.roles or [])
     existing_values = {r.value if hasattr(r, "value") else str(r) for r in merged}
-    for needed in global_roles_for_org_role(role):
+    for needed in global_roles_for_org_roles(roles_list):
         if needed.value not in existing_values:
             merged.append(needed)
     user.roles = merged
@@ -393,8 +414,9 @@ async def update_organization_team_member(
         phone=user.phone,
         status=user.status,
         created_at=user.created_at,
-        is_owner=False,
-        org_role=role,
+        is_owner=is_owner,
+        org_role=roles_list[0],
+        org_roles=roles_list,
         invite_pending=bool(user.must_change_password),
     )
 
@@ -485,7 +507,7 @@ async def remove_organization_team_member(
     # to `student` when no other role remains).
     user.roles = remaining_roles
     user.organization_id = None
-    user.org_role = None
+    clear_user_org_roles(user)
 
     if user.contact_id:
         from app.models.spine.contact import Contact

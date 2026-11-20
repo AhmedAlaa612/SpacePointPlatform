@@ -33,6 +33,7 @@ from app.schemas.internship import InternshipApprove
 from app.services.email import send_application_approved_email, send_moved_to_onboarding_email
 from app.services.internship.approval import approve_internship, resolve_internship_request_fields
 from app.services.notification import create_notification as notify
+from app.services.org_access import set_user_org_roles
 from app.services.points import award_points, get_setting_int
 from app.services.spine.identity import normalize_user_email, user_email_matches
 
@@ -212,6 +213,12 @@ async def approve_application(
             )
             db.add(org)
             await db.flush()
+
+        if org and new_user:
+            if new_user.organization_id is None:
+                new_user.organization_id = org.id
+            if org.owner_user_id == new_user.id and not (getattr(new_user, "org_roles", None) or []):
+                set_user_org_roles(new_user, ["owner"])
 
         if new_user.contact_id and org:
             contact = await db.get(Contact, new_user.contact_id)

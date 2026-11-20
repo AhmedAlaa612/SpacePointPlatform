@@ -19,8 +19,8 @@ import { roleHomePath } from "@/lib/roleHome";
  * students have no portal home to return to (roleHomePath maps them right
  * back to /learn), so this only renders for everyone else. */
 export function BackToPortalButton({ compact }: { compact?: boolean }) {
-  const { currentUser, roles, setActiveRole } = useAuth();
-  
+  const { currentUser, roles, activeOrgRole, setActiveRole } = useAuth();
+
   const targetRole =
     currentUser?.role && currentUser.role !== "student"
       ? currentUser.role
@@ -32,7 +32,7 @@ export function BackToPortalButton({ compact }: { compact?: boolean }) {
 
   return (
     <Link
-      to={roleHomePath(targetRole)}
+      to={roleHomePath(targetRole, activeOrgRole)}
       onClick={() => setActiveRole(targetRole)}
       data-tour="learn-back-to-portal"
       className={cn(

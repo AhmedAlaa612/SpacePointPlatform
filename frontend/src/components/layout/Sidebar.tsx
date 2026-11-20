@@ -52,7 +52,8 @@ import {
 import { useAuth } from "@/context/AuthContext";
 import { getNotificationsApi, markAllReadApi, markReadApi } from "@/api/notifications";
 import { getPaymentSummaryApi } from "@/api/instructors/payments";
-import { ROLE_LABEL, type Notification, type Role } from "@/types/shared";
+import { ORG_ROLE_LABEL, ROLE_LABEL, type Notification, type OrgSandboxRole, type Role } from "@/types/shared";
+import { orgRoleHomePath, roleHomePath } from "@/lib/roleHome";
 import { DomainIcon } from "@/components/ui/DomainIcon";
 import { ThemeToggle } from "@/components/layout/ThemeToggle";
 import { SiteFooter } from "@/components/layout/SiteFooter";
@@ -761,8 +762,43 @@ function NotificationsBell() {
   );
 }
 
+interface RoleSwitcherOption {
+  key: string;
+  role: Role;
+  orgRole: OrgSandboxRole | null;
+  label: string;
+}
+
+function buildRoleSwitcherOptions(
+  roles: Role[],
+  switchableOrgRoles: OrgSandboxRole[],
+): RoleSwitcherOption[] {
+  const opts: RoleSwitcherOption[] = [];
+  for (const r of roles) {
+    if (r === "observer") continue;
+    if (r === "organization" && switchableOrgRoles.length > 0) {
+      for (const orgRole of switchableOrgRoles) {
+        opts.push({
+          key: `organization:${orgRole}`,
+          role: "organization",
+          orgRole,
+          label: `Organization - ${ORG_ROLE_LABEL[orgRole]}`,
+        });
+      }
+    } else {
+      opts.push({
+        key: r,
+        role: r,
+        orgRole: null,
+        label: ROLE_LABEL[r],
+      });
+    }
+  }
+  return opts;
+}
+
 function RoleSwitcher() {
-  const { roles, activeRole, setActiveRole } = useAuth();
+  const { roles, activeRole, switchableOrgRoles, activeOrgRole, setActiveWorkspace } = useAuth();
   const navigate = useNavigate();
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
@@ -775,16 +811,20 @@ function RoleSwitcher() {
     return () => document.removeEventListener("mousedown", handler);
   }, []);
 
-  // `observer` is a testing label, not a workspace — offering it here
-  // would strand the user (no nav branch, no portal home). It stays on
-  // the account and keeps working inside /learn boards.
-  const switchable = roles.filter((r) => r !== "observer");
-  if (switchable.length <= 1 || !activeRole) return null;
+  // `observer` stays hidden while any operational role is present so users
+  // aren't stranded in a read-only testing workspace.
+  const options = buildRoleSwitcherOptions(roles, switchableOrgRoles);
+  if (options.length <= 1 || !activeRole) return null;
 
-  const choose = (r: Role) => {
-    setActiveRole(r);
+  const activeLabel =
+    activeRole === "organization" && activeOrgRole
+      ? `Organization - ${ORG_ROLE_LABEL[activeOrgRole]}`
+      : ROLE_LABEL[activeRole];
+
+  const choose = (opt: RoleSwitcherOption) => {
+    setActiveWorkspace(opt.role, opt.orgRole);
     setOpen(false);
-    void navigate({ to: "/" });
+    void navigate({ to: roleHomePath(opt.role, opt.orgRole) });
   };
 
   return (
@@ -794,25 +834,30 @@ function RoleSwitcher() {
         onClick={() => setOpen((v) => !v)}
         className="flex items-center gap-1 rounded-xl border border-border bg-background/60 px-2.5 py-1.5 sm:px-3 sm:py-2 text-xs sm:text-sm font-medium text-foreground hover:bg-foreground/5 whitespace-nowrap"
       >
-        <span className="truncate max-w-[110px] sm:max-w-none">{ROLE_LABEL[activeRole]}</span>
+        <span className="truncate max-w-[140px] sm:max-w-none">{activeLabel}</span>
         <ChevronDown size={14} className="shrink-0" />
       </button>
       {open && (
-        <ul className="absolute right-0 z-50 mt-2 w-44 overflow-hidden rounded-xl border border-border bg-popover py-1 shadow-lg">
-          {switchable.map((r) => (
-            <li key={r}>
-              <button
-                type="button"
-                onClick={() => choose(r)}
-                className={cn(
-                  "block w-full px-3 py-2 text-left text-sm hover:bg-muted",
-                  r === activeRole ? "text-primary" : "text-popover-foreground",
-                )}
-              >
-                {ROLE_LABEL[r]}
-              </button>
-            </li>
-          ))}
+        <ul className="absolute right-0 z-50 mt-2 w-56 overflow-hidden rounded-xl border border-border bg-popover py-1 shadow-lg">
+          {options.map((opt) => {
+            const isSelected =
+              opt.role === activeRole &&
+              (opt.role !== "organization" || opt.orgRole === null || opt.orgRole === activeOrgRole);
+            return (
+              <li key={opt.key}>
+                <button
+                  type="button"
+                  onClick={() => choose(opt)}
+                  className={cn(
+                    "block w-full px-3 py-2 text-left text-sm hover:bg-muted",
+                    isSelected ? "font-semibold text-primary" : "text-popover-foreground",
+                  )}
+                >
+                  {opt.label}
+                </button>
+              </li>
+            );
+          })}
         </ul>
       )}
     </div>
@@ -984,7 +1029,7 @@ function PortalTutorialButton({
 export function AppShell({ children }: { children: ReactNode }) {
   const { pathname } = useLocation();
   const navigate = useNavigate();
-  const { user, activeRole, logout } = useAuth();
+  const { user, activeRole, activeOrgRole, logout } = useAuth();
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState<boolean>(() => {
     try {
@@ -1004,7 +1049,11 @@ export function AppShell({ children }: { children: ReactNode }) {
     });
   };
 
-  const navItems = getNavItems(pathname, activeRole, user?.org_role ?? null);
+  const navItems = getNavItems(
+    pathname,
+    activeRole,
+    activeRole === "organization" ? activeOrgRole : null,
+  );
 
   const { data: paySummary } = useQuery({
     queryKey: ["instructor-payment-summary"],
@@ -1037,7 +1086,7 @@ export function AppShell({ children }: { children: ReactNode }) {
                     : activeRole === "lms_author"
                       ? "/lms-authoring/courses"
                       : activeRole === "organization"
-                        ? "/organization/programs"
+                        ? orgRoleHomePath(activeOrgRole)
                         : "/interns/profile";
 
   // Body scroll lock + Escape-to-close for the mobile drawer.
@@ -1387,34 +1436,38 @@ export function ApplicantShell({ children }: { children: ReactNode }) {
 
 /** Drawer-only role switch section (mobile), rendered inline in the nav list. */
 function RoleSwitcherMobile({ onNavigate }: { onNavigate: () => void }) {
-  const { roles, activeRole, setActiveRole } = useAuth();
+  const { roles, activeRole, switchableOrgRoles, activeOrgRole, setActiveWorkspace } = useAuth();
   const navigate = useNavigate();
-  // Same observer exclusion as the desktop switcher above.
-  const switchable = roles.filter((r) => r !== "observer");
-  if (switchable.length <= 1 || !activeRole) return null;
-  const choose = (r: Role) => {
-    setActiveRole(r);
+  const options = buildRoleSwitcherOptions(roles, switchableOrgRoles);
+  if (options.length <= 1 || !activeRole) return null;
+  const choose = (opt: RoleSwitcherOption) => {
+    setActiveWorkspace(opt.role, opt.orgRole);
     onNavigate();
-    void navigate({ to: "/" });
+    void navigate({ to: roleHomePath(opt.role, opt.orgRole) });
   };
   return (
     <div className="mt-2 border-t border-white/10 pt-3">
       <p className="px-4 pb-1 text-xs font-medium uppercase tracking-wide text-muted-foreground">
         Switch role
       </p>
-      {switchable.map((r) => (
-        <button
-          key={r}
-          type="button"
-          onClick={() => choose(r)}
-          className={cn(
-            "block w-full rounded-xl px-4 py-2.5 text-left text-sm transition-colors hover:bg-foreground/5",
-            r === activeRole ? "text-primary" : "text-foreground",
-          )}
-        >
-          {ROLE_LABEL[r]}
-        </button>
-      ))}
+      {options.map((opt) => {
+        const isSelected =
+          opt.role === activeRole &&
+          (opt.role !== "organization" || opt.orgRole === null || opt.orgRole === activeOrgRole);
+        return (
+          <button
+            key={opt.key}
+            type="button"
+            onClick={() => choose(opt)}
+            className={cn(
+              "block w-full rounded-xl px-4 py-2.5 text-left text-sm transition-colors hover:bg-foreground/5",
+              isSelected ? "font-semibold text-primary" : "text-foreground",
+            )}
+          >
+            {opt.label}
+          </button>
+        );
+      })}
     </div>
   );
 }

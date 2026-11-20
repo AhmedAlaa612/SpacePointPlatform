@@ -1,5 +1,6 @@
 import re
 import secrets
+from typing import Sequence
 from uuid import UUID
 
 from fastapi import HTTPException, status
@@ -13,7 +14,11 @@ from app.models.spine.organization import Organization
 from app.models.user import User
 from app.models.website_event import MegaEvent, WebsiteEvent
 from app.services.documents.id_card import ensure_card_number
-from app.services.org_access import global_roles_for_org_role, normalize_org_role
+from app.services.org_access import (
+    global_roles_for_org_roles,
+    normalize_org_roles,
+    set_user_org_roles,
+)
 from app.services.spine.identity import (
     normalize_user_email,
     resolve_or_create_contact,
@@ -82,7 +87,8 @@ async def build_organization_team_member(
     password: str | None = None,
     phone: str | None = None,
     role_event_source: str = "org_team_member",
-    org_role: str = "coordinator",
+    org_role: str | None = None,
+    org_roles: Sequence[str] | None = None,
 ) -> tuple[User, bool]:
     """Create a portal account linked to `org` as a team member.
 
@@ -98,13 +104,12 @@ async def build_organization_team_member(
     caller can email a "you've been added" notice rather than a password link).
     A previous assignment to another organization is overwritten (last-in-wins).
 
-    `org_role` is the sandbox role (`coordinator | instructor | judge |
-    observer`) and drives which global roles the account is granted: an org
-    instructor/judge also gets `instructor`/`judge` so the existing delivery
-    and judging endpoints work, and every team member keeps `organization`.
+    `org_roles` / `org_role` holds the sandbox roles (`coordinator |
+    instructor | judge | observer`); every team member keeps global role
+    `organization`.
     """
-    sandbox_role = normalize_org_role(org_role)
-    needed_roles = global_roles_for_org_role(sandbox_role)
+    sandbox_roles = normalize_org_roles(org_roles, fallback_role=org_role, is_owner=False)
+    needed_roles = global_roles_for_org_roles(sandbox_roles)
     normalized = normalize_user_email(email)
     existing = (
         await db.execute(select(User).where(user_email_matches(normalized)))
@@ -133,7 +138,7 @@ async def build_organization_team_member(
         # moves them there instead of refusing. (Deliberate 2026-11-18 — the
         # single organization_id column is an assignment, not a history.)
         existing.organization_id = org.id
-        existing.org_role = sandbox_role
+        set_user_org_roles(existing, sandbox_roles)
         merged = [*(existing.roles or [])]
         for needed in needed_roles:
             if needed.value not in [r.value if isinstance(r, UserRole) else str(r) for r in merged]:
@@ -166,7 +171,8 @@ async def build_organization_team_member(
         must_change_password=not (password or "").strip(),
         contact_id=contact.id if contact else None,
         organization_id=org.id,
-        org_role=sandbox_role,
+        org_role=sandbox_roles[0],
+        org_roles=list(sandbox_roles),
         phone=(phone or "").strip() or None,
         country=org.country or "uae",
         city_other=org.city,

@@ -1247,3 +1247,302 @@ async def test_org_shared_courses_visible_and_read_only(db, client, sent_emails)
     await _add_member(db, client, owner, org_role="instructor")
     assert len(sent_emails) == 1
     assert "programs, cohorts and landing pages" not in sent_emails[0][2]
+
+
+async def test_multi_role_org_member_create_patch_staffing_and_delete(db, client, sent_emails):
+    from sqlalchemy import select
+
+    owner, org = await _seed_org(db)
+    _program, cohort, sessions = await _seed_cohort(db, org, sessions=2)
+    email = f"multi-{uuid.uuid4().hex[:8]}@example.com"
+
+    # Create with multiple org roles (sent unsorted; API canonicalizes order).
+    create_resp = await client.post(
+        "/organization/team",
+        headers=_headers(owner),
+        json={
+            "full_name": "Multi Role Member",
+            "email": email,
+            "org_roles": ["judge", "instructor", "coordinator"],
+        },
+    )
+    assert create_resp.status_code == 201, create_resp.text
+    created = create_resp.json()
+    assert created["org_roles"] == ["coordinator", "instructor", "judge"]
+    assert created["org_role"] == "coordinator"
+    member_id = uuid.UUID(created["id"])
+
+    member = (await db.execute(select(User).where(User.id == member_id))).scalars().first()
+    assert member is not None
+    assert member.org_roles == ["coordinator", "instructor", "judge"]
+    assert member.org_role == "coordinator"
+    # Never leaks SpacePoint freelance global instructor/judge roles.
+    assert "organization" in member.role_values
+    assert "instructor" not in member.role_values
+    assert "judge" not in member.role_values
+
+    # Holding coordinator + instructor + judge allows team management,
+    # instructor session staffing, and cohort judge assignment simultaneously.
+    team_resp = await client.get("/organization/team", headers=_headers(member))
+    assert team_resp.status_code == 200, team_resp.text
+    member_row = next(r for r in team_resp.json() if r["id"] == str(member_id))
+    assert member_row["org_roles"] == ["coordinator", "instructor", "judge"]
+
+    inst_resp = await client.post(
+        f"/organization/cohorts/{cohort.id}/instructors",
+        headers=_headers(owner),
+        json={"user_id": str(member_id)},
+    )
+    assert inst_resp.status_code == 201, inst_resp.text
+    assert inst_resp.json()["assigned"] == len(sessions)
+
+    judge_resp = await client.post(
+        f"/organization/cohorts/{cohort.id}/judges",
+        headers=_headers(owner),
+        json={"user_id": str(member_id)},
+    )
+    assert judge_resp.status_code == 201, judge_resp.text
+    assert judge_resp.json()["assigned"] is True
+
+    # Empty org_roles rejected; assigning owner to non-owner rejected.
+    empty_patch = await client.patch(
+        f"/organization/team/{member_id}",
+        headers=_headers(owner),
+        json={"org_roles": []},
+    )
+    assert empty_patch.status_code == 422
+
+    owner_patch = await client.patch(
+        f"/organization/team/{member_id}",
+        headers=_headers(owner),
+        json={"org_roles": ["owner", "instructor"]},
+    )
+    assert owner_patch.status_code == 422
+
+    # Update via multi-role PATCH and legacy single org_role PATCH.
+    multi_patch = await client.patch(
+        f"/organization/team/{member_id}",
+        headers=_headers(owner),
+        json={"org_roles": ["observer", "instructor"]},
+    )
+    assert multi_patch.status_code == 200, multi_patch.text
+    assert multi_patch.json()["org_roles"] == ["instructor", "observer"]
+    assert multi_patch.json()["org_role"] == "instructor"
+
+    legacy_patch = await client.patch(
+        f"/organization/team/{member_id}",
+        headers=_headers(owner),
+        json={"org_role": "judge"},
+    )
+    assert legacy_patch.status_code == 200, legacy_patch.text
+    assert legacy_patch.json()["org_roles"] == ["judge"]
+    assert legacy_patch.json()["org_role"] == "judge"
+
+    # Detach clears both org_role and org_roles.
+    del_resp = await client.delete(f"/organization/team/{member_id}", headers=_headers(owner))
+    assert del_resp.status_code == 204
+    await db.refresh(member)
+    assert member.org_role is None
+    assert member.org_roles == []
+
+
+async def test_primary_owner_extra_roles_locked_owner_and_ops_detail(db, client):
+    from app.services.sessions.staffing import list_eligible_instructors
+
+    owner, org = await _seed_org(db)
+    admin = await _make_user(db, roles=["admin"])
+    _program, cohort, sessions = await _seed_cohort(db, org, sessions=1)
+
+    # Org self-service PATCH allows owner to add instructor/judge while keeping owner locked.
+    patch_owner = await client.patch(
+        f"/organization/team/{owner.id}",
+        headers=_headers(owner),
+        json={"org_roles": ["instructor", "coordinator"]},
+    )
+    assert patch_owner.status_code == 200, patch_owner.text
+    body = patch_owner.json()
+    assert body["is_owner"] is True
+    assert body["org_roles"] == ["owner", "instructor"]
+    assert body["org_role"] == "owner"
+
+    # Passing empty list to owner still retains locked "owner" without stripping it.
+    clear_attempt = await client.patch(
+        f"/organization/team/{owner.id}",
+        headers=_headers(owner),
+        json={"org_roles": []},
+    )
+    assert clear_attempt.status_code == 200, clear_attempt.text
+    assert clear_attempt.json()["org_roles"] == ["owner"]
+
+    # Ops PATCH can add instructor + judge onto the primary owner.
+    ops_patch = await client.patch(
+        f"/admin/website/organizations/{org.id}/members/{owner.id}",
+        headers=_headers(admin),
+        json={"org_roles": ["judge", "instructor"]},
+    )
+    assert ops_patch.status_code == 200, ops_patch.text
+    assert ops_patch.json()["is_owner"] is True
+    assert ops_patch.json()["org_roles"] == ["owner", "instructor", "judge"]
+    assert ops_patch.json()["org_role"] == "owner"
+
+    # Owner with instructor role can be staffed on cohort sessions and appears in staffing candidates.
+    inst_assign = await client.post(
+        f"/organization/cohorts/{cohort.id}/instructors",
+        headers=_headers(owner),
+        json={"user_id": str(owner.id)},
+    )
+    assert inst_assign.status_code == 201, inst_assign.text
+    assert inst_assign.json()["assigned"] == 1
+
+    candidates = await list_eligible_instructors(db, sessions[0].id)
+    assert owner.id in {u.id for u, *_ in candidates}
+
+    # Ops detail serializes multi-role owner accurately.
+    detail_resp = await client.get(
+        f"/admin/website/organizations/{org.id}/detail",
+        headers=_headers(admin),
+    )
+    assert detail_resp.status_code == 200, detail_resp.text
+    owner_detail = next(m for m in detail_resp.json()["team"] if m["user_id"] == str(owner.id))
+    assert owner_detail["is_owner"] is True
+    assert owner_detail["org_roles"] == ["owner", "instructor", "judge"]
+    assert owner_detail["org_role"] == "owner"
+
+    # Primary owner still cannot be deleted/detached.
+    del_owner = await client.delete(f"/organization/team/{owner.id}", headers=_headers(owner))
+    assert del_owner.status_code == 400
+
+
+async def test_invite_judge_appends_to_existing_org_roles_without_overwriting(db, client):
+    from sqlalchemy import select
+
+    owner, org = await _seed_org(db)
+    _program, cohort, _ = await _seed_cohort(db, org)
+
+    coord = await _add_member(db, client, owner, org_role="coordinator")
+    coord_id = uuid.UUID(coord[0]["id"])
+    coord_email = coord[1]
+
+    # Upgrade coordinator to coordinator + instructor, then invite as cohort judge.
+    await client.patch(
+        f"/organization/team/{coord_id}",
+        headers=_headers(owner),
+        json={"org_roles": ["coordinator", "instructor"]},
+    )
+
+    resp = await client.post(
+        f"/competitions/admin/cohorts/{cohort.id}/judges",
+        headers=_headers(owner),
+        json={"name": "Coord Instructor", "email": coord_email, "send_email": False},
+    )
+    assert resp.status_code == 201, resp.text
+
+    user = (await db.execute(select(User).where(User.id == coord_id))).scalars().first()
+    assert user is not None
+    assert user.org_roles == ["coordinator", "instructor", "judge"]
+    assert user.org_role == "coordinator"
+
+    # Inviting the primary owner as judge also preserves "owner" and appends "judge".
+    owner_resp = await client.post(
+        f"/competitions/admin/cohorts/{cohort.id}/judges",
+        headers=_headers(owner),
+        json={"name": owner.full_name, "email": owner.email, "send_email": False},
+    )
+    assert owner_resp.status_code == 201, owner_resp.text
+    await db.refresh(owner)
+    assert owner.org_roles == ["owner", "judge"]
+    assert owner.org_role == "owner"
+
+
+async def test_auth_me_assign_tab_search_and_lms_editors_with_multi_role(db, client):
+    owner, org = await _seed_org(db)
+    program, cohort, _ = await _seed_cohort(db, org)
+
+    # Regular student affiliated with the org must report empty org_roles and still show under mode=student.
+    student = await _make_user(db, roles=["student"])
+    student.organization_id = org.id
+    await db.flush()
+
+    student_me = await client.get("/auth/me", headers=_headers(student))
+    assert student_me.status_code == 200, student_me.text
+    assert student_me.json()["org_role"] is None
+    assert student_me.json()["org_roles"] == []
+
+    # Member with coordinator + instructor + observer.
+    add_resp = await client.post(
+        "/organization/team",
+        headers=_headers(owner),
+        json={
+            "full_name": "Dual Staff Observer",
+            "email": f"dual-{uuid.uuid4().hex[:8]}@example.com",
+            "org_roles": ["coordinator", "instructor", "observer"],
+        },
+    )
+    assert add_resp.status_code == 201, add_resp.text
+    dual_id = uuid.UUID(add_resp.json()["id"])
+    dual_user = await db.get(User, dual_id)
+
+    dual_me = await client.get("/auth/me", headers=_headers(dual_user))
+    assert dual_me.status_code == 200, dual_me.text
+    assert dual_me.json()["org_role"] == "coordinator"
+    assert dual_me.json()["org_roles"] == ["coordinator", "instructor", "observer"]
+
+    # Owner /auth/me includes ["owner"] even before any explicit PATCH.
+    owner_me = await client.get("/auth/me", headers=_headers(owner))
+    assert owner_me.status_code == 200, owner_me.text
+    assert owner_me.json()["org_role"] == "owner"
+    assert owner_me.json()["org_roles"] == ["owner"]
+
+    # mode=student does NOT drop regular student due to SQL NULL three-valued logic.
+    student_search = await client.get(
+        f"/competitions/admin/cohorts/{cohort.id}/assignable-students",
+        params={"mode": "student", "page_size": 100},
+        headers=_headers(owner),
+    )
+    assert student_search.status_code == 200, student_search.text
+    student_ids = {item["id"] for item in student_search.json()["items"]}
+    assert str(student.id) in student_ids
+
+    # Multi-role staff matches BOTH role=coordinator and role=instructor in Assign tab.
+    for role_q in ("coordinator", "instructor"):
+        staff_search = await client.get(
+            f"/competitions/admin/cohorts/{cohort.id}/assignable-students",
+            params={"mode": "staff", "role": role_q, "page_size": 100},
+            headers=_headers(owner),
+        )
+        assert staff_search.status_code == 200, staff_search.text
+        staff_ids = {item["id"] for item in staff_search.json()["items"]}
+        assert str(dual_id) in staff_ids
+
+    # Also visible under mode=observer.
+    obs_search = await client.get(
+        f"/competitions/admin/cohorts/{cohort.id}/assignable-students",
+        params={"mode": "observer", "page_size": 100},
+        headers=_headers(owner),
+    )
+    assert obs_search.status_code == 200, obs_search.text
+    assert str(dual_id) in {item["id"] for item in obs_search.json()["items"]}
+
+    # LMS cohort editors picks up multi-role members and owner.
+    inst_judge = await client.post(
+        "/organization/team",
+        headers=_headers(owner),
+        json={
+            "full_name": "Inst Judge",
+            "email": f"ij-{uuid.uuid4().hex[:8]}@example.com",
+            "org_roles": ["instructor", "judge"],
+        },
+    )
+    assert inst_judge.status_code == 201, inst_judge.text
+    ij_id = inst_judge.json()["id"]
+
+    editors_resp = await client.get(
+        f"/lms/admin/cohorts/{cohort.id}/editors",
+        headers=_headers(owner),
+    )
+    assert editors_resp.status_code == 200, editors_resp.text
+    eligible_ids = {i["id"] for i in editors_resp.json()["eligible_instructors"]}
+    assert ij_id in eligible_ids
+    assert str(dual_id) in eligible_ids
+    assert str(owner.id) in eligible_ids
+

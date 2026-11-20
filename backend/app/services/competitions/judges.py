@@ -135,9 +135,17 @@ async def invite_judge(
             raise HTTPException(404, detail="Organization not found")
         email_norm = normalize_user_email(email)
         user = (await db.execute(select(User).where(user_email_matches(email_norm)))).scalar_one_or_none()
-        if user is not None and user.organization_id == org.id:
-            if user.id != org.owner_user_id and getattr(user, "org_role", None) not in ("owner", "coordinator"):
-                user.org_role = "judge"
+        if user is not None and (user.organization_id == org.id or user.id == org.owner_user_id):
+            from app.services.org_access import effective_org_roles, set_user_org_roles
+
+            is_owner = user.id == org.owner_user_id
+            current_roles = effective_org_roles(user, is_owner=is_owner)
+            if "judge" not in current_roles:
+                set_user_org_roles(user, [*current_roles, "judge"])
+            elif not (getattr(user, "org_roles", None) or []):
+                set_user_org_roles(user, current_roles)
+            if is_owner and user.organization_id is None:
+                user.organization_id = org.id
             if "organization" not in user.role_values:
                 user.roles = [*user.roles, "organization"]
             is_new = False
@@ -148,7 +156,7 @@ async def invite_judge(
                 full_name=name,
                 email=email_norm,
                 role_event_source="org_competition_judge",
-                org_role="judge",
+                org_roles=["judge"],
             )
     else:
         email = normalize_user_email(email)

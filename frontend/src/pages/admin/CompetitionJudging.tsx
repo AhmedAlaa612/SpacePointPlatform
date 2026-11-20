@@ -5,7 +5,7 @@ import { ArrowLeft, ArrowUpRight, Award, Copy, Download, Eye, FileText, Mail, Me
 import { getCohortApi, getCohortsApi } from "@/api/sessions/cohorts"
 import type { Cohort } from "@/types/sessions"
 import { searchStaffApi, listCohortInviteCodesApi, type StaffOption } from "@/api/lms_admin"
-import { getOrganizationTeamApi, type OrgTeamMember } from "@/api/websiteEvents"
+import { getOrganizationTeamApi, memberOrgRoles, type OrgTeamMember } from "@/api/websiteEvents"
 import { UserProfileModal } from "@/components/UserProfileModal"
 import { CompetitionCertificatesModal } from "@/pages/admin/components/CompetitionCertificatesModal"
 import { TeamScoreBreakdownModal } from "@/components/competitions/TeamScoreBreakdownModal"
@@ -117,9 +117,8 @@ export default function CompetitionJudging() {
           <button
             key={t.key}
             onClick={() => setTab(t.key)}
-            className={`px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors shrink-0 whitespace-nowrap ${
-              tab === t.key ? "border-primary text-foreground" : "border-transparent text-muted-foreground hover:text-foreground"
-            }`}
+            className={`px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors shrink-0 whitespace-nowrap ${tab === t.key ? "border-primary text-foreground" : "border-transparent text-muted-foreground hover:text-foreground"
+              }`}
           >
             {t.label}
           </button>
@@ -434,9 +433,8 @@ export function RosterTab({ cohortId }: { cohortId: string }) {
                 {previewRows.map((r) => {
                   const blocked = r.issues.some(isBlockingIssue)
                   return (
-                    <tr key={r.row_number} className={`border-b border-border/50 ${
-                      blocked ? "bg-red-50 dark:bg-red-950/20" : r.issues.length > 0 ? "bg-amber-50 dark:bg-amber-950/20" : ""
-                    }`}>
+                    <tr key={r.row_number} className={`border-b border-border/50 ${blocked ? "bg-red-50 dark:bg-red-950/20" : r.issues.length > 0 ? "bg-amber-50 dark:bg-amber-950/20" : ""
+                      }`}>
                       <td className="py-1.5 pl-3 pr-2 text-muted-foreground align-top pt-3">{r.row_number}</td>
                       {PREVIEW_FIELDS.map(({ key: field, minWidth }) => {
                         const hasFieldIssue =
@@ -449,11 +447,10 @@ export function RosterTab({ cohortId }: { cohortId: string }) {
                             <input
                               value={r[field] ?? ""}
                               onChange={(e) => updateRow(r.row_number, field, e.target.value)}
-                              className={`w-full h-8 px-2 rounded-lg border bg-background text-sm ${
-                                hasFieldIssue
-                                  ? (blocked ? "border-red-400 dark:border-red-700" : "border-amber-400 dark:border-amber-700")
-                                  : "border-border"
-                              }`}
+                              className={`w-full h-8 px-2 rounded-lg border bg-background text-sm ${hasFieldIssue
+                                ? (blocked ? "border-red-400 dark:border-red-700" : "border-amber-400 dark:border-amber-700")
+                                : "border-border"
+                                }`}
                             />
                           </td>
                         )
@@ -757,27 +754,24 @@ export function AssignTab({ cohortId, isOrgScope = false }: { cohortId: string; 
           <button
             type="button"
             onClick={() => { setMode("student"); setRole("") }}
-            className={`px-3 py-1 rounded-lg font-medium transition-colors cursor-pointer ${
-              mode === "student" ? "bg-background text-foreground shadow-xs font-semibold" : "text-muted-foreground hover:text-foreground"
-            }`}
+            className={`px-3 py-1 rounded-lg font-medium transition-colors cursor-pointer ${mode === "student" ? "bg-background text-foreground shadow-xs font-semibold" : "text-muted-foreground hover:text-foreground"
+              }`}
           >
             Students
           </button>
           <button
             type="button"
             onClick={() => setMode("staff")}
-            className={`px-3 py-1 rounded-lg font-medium transition-colors cursor-pointer ${
-              mode === "staff" ? "bg-background text-foreground shadow-xs font-semibold" : "text-muted-foreground hover:text-foreground"
-            }`}
+            className={`px-3 py-1 rounded-lg font-medium transition-colors cursor-pointer ${mode === "staff" ? "bg-background text-foreground shadow-xs font-semibold" : "text-muted-foreground hover:text-foreground"
+              }`}
           >
             Staff
           </button>
           <button
             type="button"
             onClick={() => { setMode("observer"); setRole("") }}
-            className={`px-3 py-1 rounded-lg font-medium transition-colors cursor-pointer ${
-              mode === "observer" ? "bg-background text-indigo-600 dark:text-indigo-400 shadow-xs font-semibold" : "text-muted-foreground hover:text-foreground"
-            }`}
+            className={`px-3 py-1 rounded-lg font-medium transition-colors cursor-pointer ${mode === "observer" ? "bg-background text-indigo-600 dark:text-indigo-400 shadow-xs font-semibold" : "text-muted-foreground hover:text-foreground"
+              }`}
           >
             Observers
           </button>
@@ -1115,11 +1109,10 @@ function TeamStatChip({ label, value, tone = "default" }: {
 }) {
   return (
     <div
-      className={`flex items-center justify-center gap-1.5 h-9 px-4 rounded-[10px] border-[2px] text-sm bg-transparent ${
-        tone === "alert"
-          ? "border-amber-500/50 text-amber-600 dark:text-amber-400"
-          : "border-[#D7D2CB] text-foreground"
-      }`}
+      className={`flex items-center justify-center gap-1.5 h-9 px-4 rounded-[10px] border-[2px] text-sm bg-transparent ${tone === "alert"
+        ? "border-amber-500/50 text-amber-600 dark:text-amber-400"
+        : "border-[#D7D2CB] text-foreground"
+        }`}
     >
       <span className="font-semibold tabular-nums leading-none flex items-center">{value}</span>
       <span className="text-xs text-muted-foreground leading-none flex items-center">{label}</span>
@@ -1233,27 +1226,24 @@ export function TeamsTab({ cohortId, cohortName }: { cohortId: string; cohortNam
           <button
             type="button"
             onClick={() => setTeamFilter("all")}
-            className={`h-9 px-3 rounded-[10px] border-[2px] bg-transparent font-medium transition-colors cursor-pointer ${
-              teamFilter === "all" ? "border-primary text-primary font-semibold" : "border-[#D7D2CB] text-muted-foreground hover:text-foreground"
-            }`}
+            className={`h-9 px-3 rounded-[10px] border-[2px] bg-transparent font-medium transition-colors cursor-pointer ${teamFilter === "all" ? "border-primary text-primary font-semibold" : "border-[#D7D2CB] text-muted-foreground hover:text-foreground"
+              }`}
           >
             All ({teams.length})
           </button>
           <button
             type="button"
             onClick={() => setTeamFilter("student")}
-            className={`h-9 px-3 rounded-[10px] border-[2px] bg-transparent font-medium transition-colors cursor-pointer ${
-              teamFilter === "student" ? "border-primary text-primary font-semibold" : "border-[#D7D2CB] text-muted-foreground hover:text-foreground"
-            }`}
+            className={`h-9 px-3 rounded-[10px] border-[2px] bg-transparent font-medium transition-colors cursor-pointer ${teamFilter === "student" ? "border-primary text-primary font-semibold" : "border-[#D7D2CB] text-muted-foreground hover:text-foreground"
+              }`}
           >
             Students ({teams.filter((t) => !t.is_observer).length})
           </button>
           <button
             type="button"
             onClick={() => setTeamFilter("observer")}
-            className={`h-9 px-3 rounded-[10px] border-[2px] bg-transparent font-medium transition-colors cursor-pointer ${
-              teamFilter === "observer" ? "border-primary text-primary font-semibold" : "border-[#D7D2CB] text-muted-foreground hover:text-foreground"
-            }`}
+            className={`h-9 px-3 rounded-[10px] border-[2px] bg-transparent font-medium transition-colors cursor-pointer ${teamFilter === "observer" ? "border-primary text-primary font-semibold" : "border-[#D7D2CB] text-muted-foreground hover:text-foreground"
+              }`}
           >
             Observers ({teams.filter((t) => t.is_observer).length})
           </button>
@@ -1281,19 +1271,19 @@ export function TeamsTab({ cohortId, cohortName }: { cohortId: string; cohortNam
               search
                 ? "No teams found"
                 : teamFilter === "student"
-                ? "No student teams yet"
-                : teamFilter === "observer"
-                ? "No observer teams yet"
-                : "No teams found"
+                  ? "No student teams yet"
+                  : teamFilter === "observer"
+                    ? "No observer teams yet"
+                    : "No teams found"
             }
             hint={
               search
                 ? "Try a different search term."
                 : teamFilter === "student"
-                ? "No student teams exist in this cohort. Switch to Observers to see observer teams."
-                : teamFilter === "observer"
-                ? "No observer teams exist in this cohort."
-                : "Try a different filter."
+                  ? "No student teams exist in this cohort. Switch to Observers to see observer teams."
+                  : teamFilter === "observer"
+                    ? "No observer teams exist in this cohort."
+                    : "Try a different filter."
             }
           />
         )}
@@ -1502,18 +1492,16 @@ function TeamCard({ team, cohortId, onChanged }: { team: CompetitionTeam; cohort
               <button
                 type="button"
                 onClick={() => setAddMode("pick")}
-                className={`px-2.5 py-1 rounded-md font-medium transition-colors cursor-pointer ${
-                  addMode === "pick" ? "bg-background text-foreground shadow-xs font-semibold" : "text-muted-foreground hover:text-foreground"
-                }`}
+                className={`px-2.5 py-1 rounded-md font-medium transition-colors cursor-pointer ${addMode === "pick" ? "bg-background text-foreground shadow-xs font-semibold" : "text-muted-foreground hover:text-foreground"
+                  }`}
               >
                 {isObserverTeam ? "Pick from observers" : "Pick from students"}
               </button>
               <button
                 type="button"
                 onClick={() => setAddMode("new")}
-                className={`px-2.5 py-1 rounded-md font-medium transition-colors cursor-pointer ${
-                  addMode === "new" ? "bg-background text-foreground shadow-xs font-semibold" : "text-muted-foreground hover:text-foreground"
-                }`}
+                className={`px-2.5 py-1 rounded-md font-medium transition-colors cursor-pointer ${addMode === "new" ? "bg-background text-foreground shadow-xs font-semibold" : "text-muted-foreground hover:text-foreground"
+                  }`}
               >
                 {isObserverTeam ? "New observer" : "New student"}
               </button>
@@ -1799,13 +1787,12 @@ export function RubricTab({ cohortId }: { cohortId: string }) {
                       key={g}
                       type="button"
                       onClick={() => setCriteria((cs) => cs.map((x, j) => j === i ? { ...x, scored_by: g } : x))}
-                      className={`h-9 px-2.5 text-xs font-medium transition-colors ${
-                        c.scored_by === g
-                          ? g === "operations"
-                            ? "bg-foreground text-background"
-                            : "bg-primary text-primary-foreground"
-                          : "text-muted-foreground hover:text-foreground"
-                      }`}
+                      className={`h-9 px-2.5 text-xs font-medium transition-colors ${c.scored_by === g
+                        ? g === "operations"
+                          ? "bg-foreground text-background"
+                          : "bg-primary text-primary-foreground"
+                        : "text-muted-foreground hover:text-foreground"
+                        }`}
                     >
                       {g === "judge" ? "Judge" : "Operations"}
                     </button>
@@ -1814,9 +1801,8 @@ export function RubricTab({ cohortId }: { cohortId: string }) {
                 <button
                   onClick={() => toggleExpanded(i)}
                   title={hasSubs ? "Edit sub-criteria" : "Add sub-criteria"}
-                  className={`h-9 px-2 rounded-lg text-xs font-medium border transition-colors ${
-                    hasSubs ? "border-primary/40 text-primary" : "border-border text-muted-foreground hover:text-foreground"
-                  }`}
+                  className={`h-9 px-2 rounded-lg text-xs font-medium border transition-colors ${hasSubs ? "border-primary/40 text-primary" : "border-border text-muted-foreground hover:text-foreground"
+                    }`}
                 >
                   {hasSubs ? `Subs (${c.sub_criteria.length})` : "+ Subs"}
                 </button>
@@ -1844,9 +1830,8 @@ export function RubricTab({ cohortId }: { cohortId: string }) {
                           value={s.key} placeholder="key"
                           onChange={(e) => setCriteria((cs) => cs.map((x, j) =>
                             j === i ? { ...x, sub_criteria: x.sub_criteria.map((y, k) => k === si ? { ...y, key: e.target.value } : y) } : x))}
-                          className={`w-28 shrink-0 h-8 px-2 border bg-background text-foreground rounded-lg text-xs font-mono focus:outline-none focus:border-primary ${
-                            dup ? "border-red-400 dark:border-red-700" : "border-border"
-                          }`}
+                          className={`w-28 shrink-0 h-8 px-2 border bg-background text-foreground rounded-lg text-xs font-mono focus:outline-none focus:border-primary ${dup ? "border-red-400 dark:border-red-700" : "border-border"
+                            }`}
                         />
                         <input
                           value={s.label} placeholder="Label"
@@ -1928,7 +1913,7 @@ export function JudgesTab({ cohortId }: { cohortId: string }) {
   })
   const alreadyJudging = new Set(judges.map((j) => j.email))
   const orgJudgeCandidates = orgTeam.filter(
-    (m) => m.org_role === "judge" && !alreadyJudging.has(m.email),
+    (m) => memberOrgRoles(m).includes("judge") && !alreadyJudging.has(m.email),
   )
 
   const invalidateJudges = () => {
@@ -2295,9 +2280,8 @@ export function ResultsTab({
     <div className="flex flex-col gap-4">
       <div className="flex items-center gap-3 flex-wrap">
         <span
-          className={`flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1 rounded-full ${
-            isPublished ? "bg-primary/10 text-primary" : "bg-muted text-muted-foreground"
-          }`}
+          className={`flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1 rounded-full ${isPublished ? "bg-primary/10 text-primary" : "bg-muted text-muted-foreground"
+            }`}
         >
           <Trophy size={12} />
           {isPublished
@@ -2343,27 +2327,24 @@ export function ResultsTab({
           <button
             type="button"
             onClick={() => setMode("participant")}
-            className={`px-3 py-1 rounded-lg font-medium transition-colors cursor-pointer ${
-              mode === "participant" ? "bg-background text-foreground shadow-xs font-semibold" : "text-muted-foreground hover:text-foreground"
-            }`}
+            className={`px-3 py-1 rounded-lg font-medium transition-colors cursor-pointer ${mode === "participant" ? "bg-background text-foreground shadow-xs font-semibold" : "text-muted-foreground hover:text-foreground"
+              }`}
           >
             Students
           </button>
           <button
             type="button"
             onClick={() => setMode("observer")}
-            className={`px-3 py-1 rounded-lg font-medium transition-colors cursor-pointer ${
-              mode === "observer" ? "bg-background text-indigo-600 dark:text-indigo-400 shadow-xs font-semibold" : "text-muted-foreground hover:text-foreground"
-            }`}
+            className={`px-3 py-1 rounded-lg font-medium transition-colors cursor-pointer ${mode === "observer" ? "bg-background text-indigo-600 dark:text-indigo-400 shadow-xs font-semibold" : "text-muted-foreground hover:text-foreground"
+              }`}
           >
             Observers
           </button>
           <button
             type="button"
             onClick={() => setMode("all")}
-            className={`px-3 py-1 rounded-lg font-medium transition-colors cursor-pointer ${
-              mode === "all" ? "bg-background text-foreground shadow-xs font-semibold" : "text-muted-foreground hover:text-foreground"
-            }`}
+            className={`px-3 py-1 rounded-lg font-medium transition-colors cursor-pointer ${mode === "all" ? "bg-background text-foreground shadow-xs font-semibold" : "text-muted-foreground hover:text-foreground"
+              }`}
           >
             All
           </button>
@@ -2555,8 +2536,8 @@ function LeaderboardTable({
           mode === "observer"
             ? "Observer sandbox teams will appear here once scored."
             : mode === "participant"
-            ? "Student teams appear here once they're formed and scored for this cohort. Switch to Observers to see observer teams."
-            : "Teams appear here once they're formed and scored for this cohort."
+              ? "Student teams appear here once they're formed and scored for this cohort. Switch to Observers to see observer teams."
+              : "Teams appear here once they're formed and scored for this cohort."
         }
       />
     )
@@ -2599,13 +2580,12 @@ function LeaderboardTable({
                   )}
                   {r.qualification && (
                     <span
-                      className={`inline-flex items-center text-[10px] font-semibold uppercase tracking-wide rounded-full px-2 py-0.5 whitespace-nowrap border ${
-                        r.qualification.toLowerCase().includes("top 10")
-                          ? "bg-amber-500/10 text-amber-700 dark:text-amber-400 border-amber-500/30"
-                          : r.qualification.toLowerCase().includes("top")
+                      className={`inline-flex items-center text-[10px] font-semibold uppercase tracking-wide rounded-full px-2 py-0.5 whitespace-nowrap border ${r.qualification.toLowerCase().includes("top 10")
+                        ? "bg-amber-500/10 text-amber-700 dark:text-amber-400 border-amber-500/30"
+                        : r.qualification.toLowerCase().includes("top")
                           ? "bg-blue-500/10 text-blue-700 dark:text-blue-400 border-blue-500/30"
                           : "bg-muted text-muted-foreground border-border"
-                      }`}
+                        }`}
                     >
                       {r.qualification}
                     </span>
@@ -2662,11 +2642,10 @@ function LeaderboardTable({
                     type="button"
                     onClick={() => onGradeOperations?.(r)}
                     title={r.ops_criterion_notes ? `Feedback: ${r.ops_criterion_notes}` : "Add operations comments for this team"}
-                    className={`inline-flex items-center gap-1 text-xs font-medium px-2 py-0.5 rounded-full border transition-transform hover:scale-105 cursor-pointer ${
-                      r.ops_criterion_notes
-                        ? "bg-primary/10 text-primary border-primary/30 font-semibold"
-                        : "text-muted-foreground hover:text-foreground border-dashed border-border hover:border-primary/40"
-                    }`}
+                    className={`inline-flex items-center gap-1 text-xs font-medium px-2 py-0.5 rounded-full border transition-transform hover:scale-105 cursor-pointer ${r.ops_criterion_notes
+                      ? "bg-primary/10 text-primary border-primary/30 font-semibold"
+                      : "text-muted-foreground hover:text-foreground border-dashed border-border hover:border-primary/40"
+                      }`}
                   >
                     {r.ops_criterion_notes ? (
                       <>
@@ -2689,13 +2668,12 @@ function LeaderboardTable({
                   type="button"
                   onClick={() => onEditTiming?.(r)}
                   title="Click to manually override or inspect timing points"
-                  className={`inline-flex items-center gap-1 text-xs font-semibold px-2 py-0.5 rounded-full border transition-transform hover:scale-105 cursor-pointer ${
-                    (r.timing_adjustment ?? 0) > 0
-                      ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/30"
-                      : (r.timing_adjustment ?? 0) < 0
+                  className={`inline-flex items-center gap-1 text-xs font-semibold px-2 py-0.5 rounded-full border transition-transform hover:scale-105 cursor-pointer ${(r.timing_adjustment ?? 0) > 0
+                    ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/30"
+                    : (r.timing_adjustment ?? 0) < 0
                       ? "bg-rose-500/10 text-rose-400 border-rose-500/30"
                       : "bg-muted text-muted-foreground border-border"
-                  }`}
+                    }`}
                 >
                   <span>
                     {(r.timing_adjustment ?? 0) > 0 ? `+${r.timing_adjustment}` : (r.timing_adjustment ?? 0)}

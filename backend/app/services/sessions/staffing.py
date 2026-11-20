@@ -833,14 +833,22 @@ async def list_eligible_instructors(
     org_id = (cohort.organization_id if cohort else None) or (program.organization_id if program else None)
 
     if org_id is not None:
-        from app.services.org_access import effective_org_role
+        from app.models.spine.organization import Organization
+        from app.services.org_access import has_org_role
 
+        org = await db.get(Organization, org_id)
+        cond = User.organization_id == org_id
+        if org is not None and org.owner_user_id is not None:
+            cond = (User.organization_id == org_id) | (User.id == org.owner_user_id)
         org_users = (await db.execute(
             select(User)
-            .where(User.organization_id == org_id)
+            .where(cond)
             .order_by(User.full_name.asc())
         )).scalars().all()
-        users = [u for u in org_users if effective_org_role(u) == "instructor"]
+        users = [
+            u for u in org_users
+            if has_org_role(u, "instructor", is_owner=(org is not None and u.id == org.owner_user_id))
+        ]
     else:
         users = (await db.execute(
             select(User)

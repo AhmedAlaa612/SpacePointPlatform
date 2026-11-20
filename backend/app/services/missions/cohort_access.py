@@ -53,11 +53,15 @@ async def instructor_cohort_ids(db: AsyncSession, *, user: User) -> set[uuid.UUI
     allowed = set(session_cohorts) | set(editor_cohorts)
 
     if "organization" in user.role_values:
-        from app.services.org_access import effective_org_role
+        from app.services.org_access import has_any_org_role
         from app.services.website_events import resolve_user_organization
 
         org = await resolve_user_organization(db, user)
-        if org is not None and effective_org_role(user) in ("owner", "coordinator", "observer"):
+        if org is not None and has_any_org_role(
+            user,
+            ("owner", "coordinator", "observer"),
+            is_owner=(org.owner_user_id == user.id),
+        ):
             org_cohorts = (await db.execute(
                 select(Cohort.id)
                 .join(Program, Program.id == Cohort.program_id)

@@ -62,7 +62,13 @@ from app.services.email import (
     send_org_team_invite_email,
     send_password_set_link_email,
 )
-from app.services.org_access import effective_org_role, global_roles_for_org_role, normalize_org_role
+from app.services.org_access import (
+    clear_user_org_roles,
+    effective_org_roles,
+    global_roles_for_org_roles,
+    normalize_org_roles,
+    set_user_org_roles,
+)
 from app.services.sessions.registration import ACTIVE_REGISTRATION_STATUSES
 from app.services.spine.identity import (
     normalize_user_email,
@@ -865,32 +871,42 @@ async def admin_get_organization_detail(
             if cname and cname not in obs_cohorts_by_user.setdefault(uid, []):
                 obs_cohorts_by_user[uid].append(cname)
 
+    role_labels = {
+        "owner": "Owner",
+        "coordinator": "Coordinator",
+        "instructor": "Instructor",
+        "judge": "Judge",
+        "observer": "Observer",
+    }
     team_out = []
     for uid, u in team_user_map.items():
         is_primary_owner = org.owner_user_id == uid
-        sandbox_role = "owner" if is_primary_owner else (effective_org_role(u) or "observer")
+        has_org_membership = (
+            is_primary_owner
+            or u.org_role is not None
+            or bool(getattr(u, "org_roles", None))
+            or "organization" in u.role_values
+        )
         # Affiliation is not membership: skip students/trainees whose profile
         # merely points at this organization. Observers assigned to at least
         # one cohort are still included (they're in team_user_map above).
-        if not is_primary_owner and u.org_role is None and "organization" not in u.role_values:
+        if not has_org_membership:
             if not obs_cohorts_by_user.get(uid):
                 continue
-            sandbox_role = "observer"
-        role_label = {
-            "owner": "Owner",
-            "coordinator": "Coordinator",
-            "instructor": "Instructor",
-            "judge": "Judge",
-            "observer": "Observer",
-        }.get(sandbox_role, "Coordinator")
+            roles_list = ["observer"]
+        else:
+            roles_list = effective_org_roles(u, is_owner=is_primary_owner) or ["observer"]
+        primary_role = roles_list[0]
         team_out.append(
             {
                 "user_id": u.id,
                 "full_name": u.full_name,
                 "email": u.email,
                 "phone": u.phone,
-                "role": role_label,
-                "org_role": sandbox_role,
+                "role": ", ".join(role_labels.get(r, "Coordinator") for r in roles_list),
+                "is_owner": is_primary_owner,
+                "org_role": primary_role,
+                "org_roles": roles_list,
                 "card_id": _user_card_id(u),
                 "status": u.status,
                 # `must_change_password` is set on invite and cleared by
@@ -899,8 +915,8 @@ async def admin_get_organization_detail(
                 "observer_cohorts": obs_cohorts_by_user.get(u.id, []),
             }
         )
-    role_rank = {"Owner": 0, "Coordinator": 1, "Instructor": 2, "Judge": 3, "Observer": 4}
-    team_out.sort(key=lambda m: (role_rank.get(m["role"], 9), m["full_name"].lower()))
+    role_rank = {"owner": 0, "coordinator": 1, "instructor": 2, "judge": 3, "observer": 4}
+    team_out.sort(key=lambda m: (role_rank.get(m["org_role"], 9), m["full_name"].lower()))
 
     # Invite code batches
     org_creator_ids = [u.id for u in team_users]
@@ -1278,6 +1294,8 @@ async def admin_create_organization_account(
     db.add(org)
     await db.flush()
     user.organization_id = org.id
+    if not (getattr(user, "org_roles", None) or []):
+        set_user_org_roles(user, ["owner"])
     await db.commit()
     await db.refresh(org)
 
@@ -1554,6 +1572,7 @@ async def admin_add_organization_member(
         phone=body.phone,
         role_event_source="admin_org_team_member",
         org_role=body.org_role,
+        org_roles=body.org_roles,
     )
 
     base = (settings.FRONTEND_URL or "http://localhost:5173").rstrip("/")
@@ -1565,6 +1584,7 @@ async def admin_add_organization_member(
         email_sent = await send_org_team_added_email(
             user.email, user.full_name, org.name_latin, f"{base}/login"
         )
+    roles_list = effective_org_roles(user) or ["coordinator"]
     return OrgTeamMemberOut(
         id=user.id,
         full_name=user.full_name,
@@ -1573,7 +1593,8 @@ async def admin_add_organization_member(
         status=user.status,
         created_at=user.created_at,
         is_owner=False,
-        org_role=effective_org_role(user) or body.org_role,
+        org_role=roles_list[0],
+        org_roles=roles_list,
         invite_email_sent=email_sent,
         existing_account=not created,
     )
@@ -1587,15 +1608,19 @@ async def admin_update_organization_member(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_website_admin),
 ):
-    """Admin/ops set a member's sandbox role from the Ops organization Team tab."""
+    """Admin/ops set a member's sandbox roles from the Ops organization Team tab."""
     org = await db.get(Organization, org_id)
     if org is None:
         raise HTTPException(status_code=404, detail="Organization not found")
-    if user_id == org.owner_user_id:
-        raise HTTPException(status_code=400, detail="The organization primary owner's role cannot be changed")
+    if body.org_roles is None and body.org_role is None:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Provide org_roles or org_role",
+        )
 
+    is_owner = user_id == org.owner_user_id
     user = await db.get(User, user_id)
-    is_member = user is not None and user.organization_id == org.id
+    is_member = user is not None and (is_owner or user.organization_id == org.id)
     if user is not None and not is_member:
         obs_match = (
             await db.execute(
@@ -1613,12 +1638,12 @@ async def admin_update_organization_member(
     if not is_member:
         raise HTTPException(status_code=404, detail="User is not associated with this organization")
 
-    role = normalize_org_role(body.org_role)
+    roles_list = normalize_org_roles(body.org_roles, fallback_role=body.org_role, is_owner=is_owner)
     user.organization_id = org.id
-    user.org_role = role
+    set_user_org_roles(user, roles_list)
     merged = list(user.roles or [])
     existing_values = {r.value if hasattr(r, "value") else str(r) for r in merged}
-    for needed in global_roles_for_org_role(role):
+    for needed in global_roles_for_org_roles(roles_list):
         if needed.value not in existing_values:
             merged.append(needed)
     user.roles = merged
@@ -1632,8 +1657,9 @@ async def admin_update_organization_member(
         phone=user.phone,
         status=user.status,
         created_at=user.created_at,
-        is_owner=False,
-        org_role=role,
+        is_owner=is_owner,
+        org_role=roles_list[0],
+        org_roles=roles_list,
         invite_pending=bool(user.must_change_password),
     )
 
@@ -1729,7 +1755,7 @@ async def admin_remove_organization_member(
     user.roles = remaining_roles
     if user.organization_id == org.id:
         user.organization_id = None
-    user.org_role = None
+    clear_user_org_roles(user)
     if user.contact_id:
         contact = await db.get(Contact, user.contact_id)
         if contact is not None and contact.organization_id == org.id:

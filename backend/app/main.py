@@ -179,6 +179,30 @@ async def lifespan(app: FastAPI):
                 "AND u.id <> o.owner_user_id AND u.org_role IS NULL "
                 "AND 'organization' = ANY(u.roles::text[]);"
             ))
+            await db.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS org_roles VARCHAR(32)[] NOT NULL DEFAULT '{}';"))
+            await db.execute(text(
+                "UPDATE users "
+                "SET org_roles = CASE "
+                "  WHEN org_role IS NOT NULL AND org_role NOT IN ('owner', 'coordinator') "
+                "    THEN ARRAY['owner', org_role]::varchar(32)[] "
+                "  ELSE ARRAY['owner']::varchar(32)[] "
+                "END, "
+                "org_role = 'owner' "
+                "WHERE id IN (SELECT owner_user_id FROM organizations WHERE owner_user_id IS NOT NULL) "
+                "AND cardinality(org_roles) = 0;"
+            ))
+            await db.execute(text(
+                "UPDATE users SET org_roles = ARRAY[org_role]::varchar(32)[] "
+                "WHERE org_role IS NOT NULL AND cardinality(org_roles) = 0;"
+            ))
+            await db.execute(text(
+                "UPDATE users u SET org_roles = ARRAY['coordinator']::varchar(32)[], org_role = 'coordinator' "
+                "FROM organizations o "
+                "WHERE u.organization_id = o.id AND o.owner_user_id IS NOT NULL "
+                "AND u.id <> o.owner_user_id "
+                "AND 'organization' = ANY(u.roles::text[]) "
+                "AND cardinality(u.org_roles) = 0;"
+            ))
             await db.execute(text("UPDATE cohorts SET checklist_title_override = 'testcohortname', name = 'Cohort Test' WHERE name = 'testcohortname';"))
             await db.commit()
             await ensure_default_events_seeded(db)

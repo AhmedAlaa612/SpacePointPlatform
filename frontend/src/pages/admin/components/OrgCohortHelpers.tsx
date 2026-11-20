@@ -7,7 +7,7 @@ import {
 } from "lucide-react"
 import type { Cohort } from "@/types/sessions"
 import { updateCohortApi } from "@/api/sessions/cohorts"
-import { getOrganizationTeamApi, type OrgTeamMember } from "@/api/websiteEvents"
+import { getOrganizationTeamApi, memberOrgRoles, type OrgTeamMember } from "@/api/websiteEvents"
 import {
   assignOrgInstructor,
   createOrgReadinessPreset,
@@ -113,7 +113,7 @@ export function OrgCohortStaffingSection({
 
   const instructors = staff?.instructors ?? []
   const assignedIds = new Set(instructors.map((i) => i.user_id))
-  const candidates = team.filter((m) => m.org_role === "instructor" && !assignedIds.has(m.id))
+  const candidates = team.filter((m) => memberOrgRoles(m).includes("instructor") && !assignedIds.has(m.id))
 
   return (
     <div className="py-4">
@@ -949,9 +949,8 @@ export function OrgEditCohortModal({
                 min={1}
                 value={capacity}
                 onChange={(e) => setCapacity(e.target.value)}
-                className={`h-9 px-3 rounded-xl border bg-background text-sm focus:outline-none ${
-                  capacityQuotaExceeded ? "border-amber-500 focus:border-amber-500" : "border-border focus:border-primary"
-                }`}
+                className={`h-9 px-3 rounded-xl border bg-background text-sm focus:outline-none ${capacityQuotaExceeded ? "border-amber-500 focus:border-amber-500" : "border-border focus:border-primary"
+                  }`}
               />
               {capacityQuotaExceeded && (
                 <span className="text-[11px] text-amber-600 dark:text-amber-400 font-medium">

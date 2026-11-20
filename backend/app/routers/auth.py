@@ -58,6 +58,7 @@ from app.services.lms.invite_grants import apply_invite_code_grants_to_new_user,
 from app.services.lms.ops_integration import send_set_password_email
 from app.services.nicknames import assign_nickname, reroll_nickname
 from app.services.notification import create_notification as notify
+from app.services.org_access import effective_org_roles, set_user_org_roles
 from app.services.spine.identity import (
     ensure_guardian_relationship,
     normalize_user_email,
@@ -194,6 +195,9 @@ async def _user_out(db: AsyncSession, user: User, profile: ApplicantProfile | No
         instructor_prof=instructor_prof,
     )
 
+    is_org_owner = org is not None and org.owner_user_id == user.id
+    user_org_roles = effective_org_roles(user, is_owner=is_org_owner)
+
     return {
         "id": str(user.id),
         "full_name": user.full_name,
@@ -237,7 +241,8 @@ async def _user_out(db: AsyncSession, user: User, profile: ApplicantProfile | No
         "org_can_author_courses": org.can_author_courses if org else None,
         "org_can_publish_courses": org.can_publish_courses if org else None,
         "org_course_scope_all": org.course_scope_all if org else None,
-        "org_role": user.org_role,
+        "org_role": user_org_roles[0] if user_org_roles else None,
+        "org_roles": user_org_roles,
         # Applicant-profile fields — surfaced on Profile & Settings for
         # instructors/facilitators/applicants. None when no profile exists.
         "city_of_residence_id": profile.city_of_residence_id if profile else None,
@@ -556,6 +561,8 @@ async def organization_signup(
     )
     db.add(org)
     await db.flush()
+    user.organization_id = org.id
+    set_user_org_roles(user, ["owner"])
     contact.organization_id = org.id
 
     org_answers = {

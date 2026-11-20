@@ -34,7 +34,12 @@ from app.models.user import User
 from app.models.website_event import WebsiteEvent
 from app.services.lms.ops_integration import deactivate_registration_enrollments, sync_registration_lms
 from app.services.lms.program import team_for_cohort_member
-from app.services.org_access import effective_org_role, global_roles_for_org_role, require_org_manager
+from app.services.org_access import (
+    effective_org_role,
+    global_roles_for_org_role,
+    has_org_role,
+    require_org_manager,
+)
 from app.services.sessions.registration import ACTIVE_REGISTRATION_STATUSES, register
 from app.services.spine.identity import normalize_user_email, resolve_or_create_contact
 from app.services.website_events import resolve_user_organization
@@ -1499,24 +1504,30 @@ async def _default_delivery_role_id(db: AsyncSession) -> uuid.UUID:
 
 async def _org_instructor_or_400(db: AsyncSession, org: Organization, user_id: uuid.UUID) -> User:
     user = await db.get(User, user_id)
+    is_owner = user is not None and user.id == org.owner_user_id
     if (
         user is None
-        or user.organization_id != org.id
-        or effective_org_role(user) != "instructor"
+        or (user.organization_id != org.id and not is_owner)
+        or not has_org_role(user, "instructor", is_owner=is_owner)
     ):
         raise HTTPException(
             status_code=400,
-            detail="Pick a team member whose organization role is Instructor",
+            detail="Pick a team member whose organization roles include Instructor",
         )
     return user
 
 
 async def _org_judge_or_400(db: AsyncSession, org: Organization, user_id: uuid.UUID) -> User:
     user = await db.get(User, user_id)
-    if user is None or user.organization_id != org.id or effective_org_role(user) != "judge":
+    is_owner = user is not None and user.id == org.owner_user_id
+    if (
+        user is None
+        or (user.organization_id != org.id and not is_owner)
+        or not has_org_role(user, "judge", is_owner=is_owner)
+    ):
         raise HTTPException(
             status_code=400,
-            detail="Pick a team member whose organization role is Judge",
+            detail="Pick a team member whose organization roles include Judge",
         )
     return user
 

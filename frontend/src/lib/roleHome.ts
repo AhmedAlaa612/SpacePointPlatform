@@ -1,9 +1,24 @@
-import type { Role } from "@/types/shared";
+import type { OrgSandboxRole, Role } from "@/types/shared";
+
+export function orgRoleHomePath(orgRole: OrgSandboxRole | null): string {
+  switch (orgRole) {
+    case "instructor":
+      return "/organization/my-sessions";
+    case "judge":
+      return "/organization/judging";
+    case "owner":
+    case "coordinator":
+    case "observer":
+    case null:
+    default:
+      return "/organization/programs";
+  }
+}
 
 /** Where a role lands on "/" (see router.tsx's indexRoute) — the single
  * source of truth for "what is this role's portal home", so LearnNav's
  * "Back to portal" link and the index redirect can't drift apart. */
-export function roleHomePath(role: Role | null): string {
+export function roleHomePath(role: Role | null, orgRole: OrgSandboxRole | null = null): string {
   switch (role) {
     case "admin": return "/admin";
     case "ambassador": return "/ambassadors";
@@ -22,7 +37,7 @@ export function roleHomePath(role: Role | null): string {
     // same reasoning as students: /judge is a separate surface.
     case "judge": return "/judge";
     case "lms_author": return "/lms-authoring/courses";
-    case "organization": return "/organization/programs";
+    case "organization": return orgRoleHomePath(orgRole);
     case "mentor": return "/mentor/settings";
     // Safety net only — activeRole should never be observer (see
     // resolveActiveRole + RoleSwitcher filtering). Observers run the

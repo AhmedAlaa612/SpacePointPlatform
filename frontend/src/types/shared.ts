@@ -65,6 +65,16 @@ export const ROLE_LABEL: Record<Role, string> = {
   mentor: "Mentor",
 };
 
+export type OrgSandboxRole = "owner" | "coordinator" | "instructor" | "judge" | "observer";
+
+export const ORG_ROLE_LABEL: Record<OrgSandboxRole, string> = {
+  owner: "Owner",
+  coordinator: "Coordinator",
+  instructor: "Instructor",
+  judge: "Judge",
+  observer: "Observer",
+};
+
 export interface User {
   id: string;
   full_name: string;
@@ -80,8 +90,10 @@ export interface User {
   organization_type?: string | null;
   organization_country?: string | null;
   organization_city?: string | null;
-  /** Sandbox role inside a partner organization. */
-  org_role?: "owner" | "coordinator" | "instructor" | "judge" | "observer" | null;
+  /** Primary sandbox role inside a partner organization. */
+  org_role?: OrgSandboxRole | null;
+  /** All sandbox roles this member holds inside their partner organization. */
+  org_roles?: OrgSandboxRole[];
   is_certified_instructor?: boolean;
   org_is_approved?: boolean;
   org_can_publish_events?: boolean;

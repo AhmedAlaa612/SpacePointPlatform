@@ -1,5 +1,6 @@
 import { api, tokens } from "./client"
-import type { User } from "@/types/shared"
+import type { OrgSandboxRole, User } from "@/types/shared"
+export type { OrgSandboxRole }
 
 export interface EventBenefitItem {
   title: string
@@ -357,7 +358,9 @@ export interface OrgTeamMemberDetail {
   email: string
   phone: string | null
   role: string
+  is_owner?: boolean
   org_role: OrgSandboxRole
+  org_roles?: OrgSandboxRole[]
   card_id: string | null
   status: string
   invite_pending: boolean
@@ -431,13 +434,33 @@ export interface OrganizationAccountUpdatePayload {
   max_observers_per_cohort?: number | null
 }
 
-export type OrgSandboxRole = "owner" | "coordinator" | "instructor" | "judge" | "observer"
 export const ORG_ASSIGNABLE_ROLES: { value: Exclude<OrgSandboxRole, "owner">; label: string; hint: string }[] = [
   { value: "coordinator", label: "Coordinator", hint: "Runs programs, cohorts, students and the team" },
   { value: "instructor", label: "Instructor", hint: "Delivers assigned sessions, takes attendance" },
   { value: "judge", label: "Judge", hint: "Scores competition teams for assigned cohorts" },
   { value: "observer", label: "Observer", hint: "Read-only view of assigned cohorts" },
 ]
+export const ORG_OWNER_EXTRA_ROLES = ORG_ASSIGNABLE_ROLES.filter(
+  (r): r is { value: "instructor" | "judge" | "observer"; label: string; hint: string } =>
+    r.value !== "coordinator",
+)
+
+export function memberOrgRoles(member: {
+  org_roles?: OrgSandboxRole[] | null
+  org_role?: OrgSandboxRole | null
+  is_owner?: boolean
+}): OrgSandboxRole[] {
+  const raw = (member.org_roles ?? []).filter(Boolean)
+  const set = new Set<OrgSandboxRole>(raw.length > 0 ? raw : member.org_role ? [member.org_role] : [])
+  if (member.is_owner) {
+    set.add("owner")
+    set.delete("coordinator")
+  } else if (set.size === 0) {
+    set.add("coordinator")
+  }
+  const order: OrgSandboxRole[] = ["owner", "coordinator", "instructor", "judge", "observer"]
+  return order.filter((r) => set.has(r))
+}
 
 export interface OrgTeamMember {
   id: string
@@ -448,6 +471,7 @@ export interface OrgTeamMember {
   status?: string
   is_owner: boolean
   org_role?: OrgSandboxRole
+  org_roles?: OrgSandboxRole[]
   created_at?: string
   invite_email_sent?: boolean
   invite_pending?: boolean
@@ -519,15 +543,28 @@ export const createOrganizationMemberResetLink = (orgId: string, userId: string)
 
 export const createOrganizationMember = (
   orgId: string,
-  payload: { full_name: string; email: string; phone?: string | null; org_role?: string }
+  payload: {
+    full_name: string
+    email: string
+    phone?: string | null
+    org_role?: string
+    org_roles?: OrgSandboxRole[]
+  }
 ) =>
   api
     .post<OrgTeamMember>(`/admin/website/organizations/${orgId}/members`, payload)
     .then((r) => r.data)
 
-export const updateOrganizationMember = (orgId: string, userId: string, org_role: string) =>
+export const updateOrganizationMember = (
+  orgId: string,
+  userId: string,
+  orgRoles: OrgSandboxRole[] | string,
+) =>
   api
-    .patch<OrgTeamMember>(`/admin/website/organizations/${orgId}/members/${userId}`, { org_role })
+    .patch<OrgTeamMember>(
+      `/admin/website/organizations/${orgId}/members/${userId}`,
+      Array.isArray(orgRoles) ? { org_roles: orgRoles } : { org_role: orgRoles },
+    )
     .then((r) => r.data)
 
 export const removeOrganizationMember = (orgId: string, userId: string) =>
@@ -563,6 +600,9 @@ export interface MyOrganizationContext {
     max_observers_per_cohort?: number | null
   } | null
   mega_events: MegaEvent[]
+  org_role?: OrgSandboxRole | null
+  org_roles?: OrgSandboxRole[]
+  can_manage?: boolean
 }
 
 export const getMyOrganizationContext = () =>
@@ -577,10 +617,19 @@ export const addOrganizationTeamMemberApi = (payload: {
   password?: string
   phone?: string | null
   org_role?: string
+  org_roles?: OrgSandboxRole[]
 }) => api.post<OrgTeamMember>("/organization/team", payload).then((r) => r.data)
 
-export const updateOrganizationTeamMemberApi = (userId: string, org_role: string) =>
-  api.patch<OrgTeamMember>(`/organization/team/${userId}`, { org_role }).then((r) => r.data)
+export const updateOrganizationTeamMemberApi = (
+  userId: string,
+  orgRoles: OrgSandboxRole[] | string,
+) =>
+  api
+    .patch<OrgTeamMember>(
+      `/organization/team/${userId}`,
+      Array.isArray(orgRoles) ? { org_roles: orgRoles } : { org_role: orgRoles },
+    )
+    .then((r) => r.data)
 
 export const removeOrganizationTeamMemberApi = (userId: string) =>
   api.delete(`/organization/team/${userId}`)

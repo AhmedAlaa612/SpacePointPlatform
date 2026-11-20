@@ -41,16 +41,16 @@ export default function OrganizationPrograms() {
   const navigate = useNavigate()
   const toast = useToast()
   const qc = useQueryClient()
-  const { user, activeRole } = useAuth()
+  const { activeRole, activeOrgRole } = useAuth()
 
   useEffect(() => {
     if (activeRole !== "organization") return
-    if (user?.org_role === "instructor") {
+    if (activeOrgRole === "instructor") {
       void navigate({ to: "/organization/my-sessions", replace: true })
-    } else if (user?.org_role === "judge") {
+    } else if (activeOrgRole === "judge") {
       void navigate({ to: "/organization/judging", replace: true })
     }
-  }, [activeRole, user?.org_role, navigate])
+  }, [activeRole, activeOrgRole, navigate])
 
   const [createProgramOpen, setCreateProgramOpen] = useState(false)
   const [editingProgram, setEditingProgram] = useState<OrgProgramSummary | null>(null)
@@ -63,6 +63,9 @@ export default function OrganizationPrograms() {
   const { data, isLoading, error } = useQuery({
     queryKey: ["org-programs-overview"],
     queryFn: getOrgProgramsOverviewApi,
+    enabled:
+      activeRole !== "organization" ||
+      (activeOrgRole !== "instructor" && activeOrgRole !== "judge"),
   })
 
   const invalidate = () => {
@@ -271,17 +274,17 @@ export default function OrganizationPrograms() {
                         {program.program_type}
                       </span>
                     </div>
-                      {program.description && (
-                        <p className="text-xs text-muted-foreground mt-0.5 truncate">
-                          {program.description}
-                        </p>
-                      )}
-                      <div className="flex items-center gap-3 text-xs text-muted-foreground flex-wrap pt-1">
-                        <span>Capacity: <strong className="text-foreground">{program.default_capacity ? `${program.default_capacity} students` : "Unlimited"}</strong></span>
-                        <span>·</span>
-                        <span>Cohorts: <strong className="text-foreground">{program.cohorts.length}</strong></span>
-                      </div>
+                    {program.description && (
+                      <p className="text-xs text-muted-foreground mt-0.5 truncate">
+                        {program.description}
+                      </p>
+                    )}
+                    <div className="flex items-center gap-3 text-xs text-muted-foreground flex-wrap pt-1">
+                      <span>Capacity: <strong className="text-foreground">{program.default_capacity ? `${program.default_capacity} students` : "Unlimited"}</strong></span>
+                      <span>·</span>
+                      <span>Cohorts: <strong className="text-foreground">{program.cohorts.length}</strong></span>
                     </div>
+                  </div>
 
                   <div className="flex items-center gap-2 shrink-0 flex-wrap">
                     <button
@@ -1006,9 +1009,8 @@ function CreateCohortModal({
                 min="1"
                 value={capacity}
                 onChange={(e) => setCapacity(e.target.value)}
-                className={`h-9 px-3 rounded-xl border bg-background text-sm focus:outline-none transition ${
-                  capacityExceeded ? "border-destructive text-destructive" : "border-border"
-                }`}
+                className={`h-9 px-3 rounded-xl border bg-background text-sm focus:outline-none transition ${capacityExceeded ? "border-destructive text-destructive" : "border-border"
+                  }`}
               />
             </label>
           </div>
@@ -1169,9 +1171,8 @@ function DuplicateCohortModal({
               min="1"
               value={capacity}
               onChange={(e) => setCapacity(e.target.value)}
-              className={`h-9 px-3 rounded-xl border bg-background text-sm focus:outline-none transition ${
-                capacityExceeded ? "border-destructive text-destructive" : "border-border"
-              }`}
+              className={`h-9 px-3 rounded-xl border bg-background text-sm focus:outline-none transition ${capacityExceeded ? "border-destructive text-destructive" : "border-border"
+                }`}
             />
           </label>
 
@@ -1373,9 +1374,8 @@ function EditCohortModal({
                 min={1}
                 value={capacity}
                 onChange={(e) => setCapacity(e.target.value)}
-                className={`h-9 px-3 rounded-xl border bg-background text-sm focus:outline-none ${
-                  capacityExceeded ? "border-amber-500 focus:border-amber-500" : "border-border focus:border-primary"
-                }`}
+                className={`h-9 px-3 rounded-xl border bg-background text-sm focus:outline-none ${capacityExceeded ? "border-amber-500 focus:border-amber-500" : "border-border focus:border-primary"
+                  }`}
               />
             </label>
           </div>

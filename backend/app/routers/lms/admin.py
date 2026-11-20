@@ -2625,11 +2625,22 @@ async def list_cohort_lms_editors(
             cohort_org_id = program.organization_id
 
     if cohort_org_id is not None:
+        org_obj = await db.get(Organization, cohort_org_id)
+        org_cond = User.organization_id == cohort_org_id
+        role_cond = or_(
+            User.org_roles.any("instructor"),
+            User.org_roles.any("coordinator"),
+            User.org_roles.any("owner"),
+            User.org_role.in_(("instructor", "coordinator", "owner")),
+        )
+        if org_obj is not None and org_obj.owner_user_id is not None:
+            org_cond = or_(org_cond, User.id == org_obj.owner_user_id)
+            role_cond = or_(role_cond, User.id == org_obj.owner_user_id)
         instructors_stmt = (
             select(User)
             .where(
-                User.organization_id == cohort_org_id,
-                User.org_role.in_(("instructor", "coordinator", "owner")),
+                org_cond,
+                role_cond,
                 User.status == "active",
             )
             .order_by(User.full_name)

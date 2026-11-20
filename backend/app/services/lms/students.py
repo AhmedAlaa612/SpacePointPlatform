@@ -122,6 +122,33 @@ def _org_member_filter(org_id: uuid.UUID, user_model=User):
     )
 
 
+def _sql_has_org_role(role_name: str):
+    return or_(
+        User.org_roles.any(role_name),
+        and_(
+            func.coalesce(func.cardinality(User.org_roles), 0) == 0,
+            func.coalesce(User.org_role, "") == role_name,
+        ),
+    )
+
+
+def _sql_has_any_org_role(role_names: tuple[str, ...]):
+    return or_(
+        *[User.org_roles.any(r) for r in role_names],
+        and_(
+            func.coalesce(func.cardinality(User.org_roles), 0) == 0,
+            func.coalesce(User.org_role, "").in_(role_names),
+        ),
+    )
+
+
+def _sql_no_explicit_org_roles():
+    return and_(
+        func.coalesce(func.cardinality(User.org_roles), 0) == 0,
+        User.org_role.is_(None),
+    )
+
+
 def _is_not_platform_staff(user_model=User):
     return ~or_(
         user_model.roles.any("admin"),
@@ -235,11 +262,11 @@ async def search_students(
     if mode == "observer":
         role_filter = User.roles.any("observer")
         if org_id is not None:
-            role_filter = or_(role_filter, and_(_org_member_filter(org_id), User.org_role == "observer"))
+            role_filter = or_(role_filter, and_(_org_member_filter(org_id), _sql_has_org_role("observer")))
     elif mode == "student":
         role_filter = and_(User.roles.any("student"), ~User.roles.any("observer"))
         if org_id is not None:
-            role_filter = and_(role_filter, or_(User.org_role.is_(None), User.org_role != "observer"))
+            role_filter = and_(role_filter, ~_sql_has_org_role("observer"))
     else:
         role_filter = or_(User.roles.any("student"), User.roles.any("observer"))
     stmt = select(User).where(role_filter)
@@ -395,27 +422,22 @@ async def search_cohort_assignable_students(
     by every assign path, so `lms_status` is accepted but no longer drives
     the tab."""
     from app.services.documents.card_id import format_card_id
+    from app.services.org_access import effective_org_roles
 
     page = max(1, int(page or 1))
     page_size = min(100, max(1, int(page_size or 25)))
     role_norm = (role or "").strip().lower() or None
 
-    # Sandbox roles live in `users.org_role`, not the global `roles` array —
-    # every org team member has global role "organization" only. Org-scoped
-    # searches therefore have to read `org_role` too, or Staff/Observers come
-    # back empty. Legacy members with no `org_role` act as coordinators.
+    # Sandbox roles live in `users.org_roles`/`users.org_role`, not the global
+    # `roles` array — every org team member has global role "organization" only.
+    # Org-scoped searches therefore read `org_roles`/`org_role` too, or
+    # Staff/Observers come back empty. Legacy members with none act as coordinators.
     org_staff_roles = ("owner", "coordinator", "instructor", "judge")
-    all_org_roles = org_staff_roles + ("observer",)
 
-    def _effective_org_role(u) -> str | None:
+    def _effective_org_roles_set(u) -> set[str]:
         if org_id is None:
-            return None
-        role_value = getattr(u, "org_role", None)
-        if role_value in all_org_roles:
-            return role_value
-        if "organization" in u.role_values:
-            return "coordinator"
-        return None
+            return set()
+        return set(effective_org_roles(u))
 
     def _global_staff_roles() -> set[str]:
         return {"instructor", "facilitator", "operations", "admin", "mentor", "intern",
@@ -423,14 +445,14 @@ async def search_cohort_assignable_students(
 
     def _mode_ok(u) -> bool:
         roles = set(u.role_values)
-        sandbox = _effective_org_role(u)
+        sandbox_roles = _effective_org_roles_set(u)
         if mode == "observer":
-            return "observer" in roles or sandbox == "observer"
+            return "observer" in roles or "observer" in sandbox_roles
         if mode == "staff":
             if org_id is not None:
-                if sandbox not in org_staff_roles:
+                if not (sandbox_roles & set(org_staff_roles)):
                     return False
-                return (not role_norm) or (sandbox == role_norm)
+                return (not role_norm) or (role_norm in sandbox_roles)
             has_staff = bool(roles & _global_staff_roles())
             if not has_staff:
                 return False
@@ -439,7 +461,7 @@ async def search_cohort_assignable_students(
             return True
         # student: student role without observer (observer-role holders
         # live under Observers once assigned, even if also students).
-        return "student" in roles and "observer" not in roles and sandbox != "observer"
+        return "student" in roles and "observer" not in roles and "observer" not in sandbox_roles
 
     if registered_only:
         # Cohort-bounded candidate set (at most a roster, never the
@@ -451,7 +473,7 @@ async def search_cohort_assignable_students(
         if role_norm and mode != "staff":
             users = [
                 u for u in users
-                if role_norm in u.role_values or _effective_org_role(u) == role_norm
+                if role_norm in u.role_values or role_norm in _effective_org_roles_set(u)
             ]
         if login_status == "never":
             users = [u for u in users if u.last_login_at is None]
@@ -491,21 +513,21 @@ async def search_cohort_assignable_students(
                 role_filter = and_(
                     or_(
                         role_filter,
-                        and_(_org_member_filter(org_id), User.org_role == "observer"),
+                        and_(_org_member_filter(org_id), _sql_has_org_role("observer")),
                     ),
                     or_(_org_member_filter(org_id), _is_not_platform_staff()),
                 )
         elif mode == "staff":
             if org_id is not None:
-                # Org staff live in the org sandbox (`org_role`), never the
+                # Org staff live in the org sandbox (`org_roles`/`org_role`), never the
                 # platform's global admin/operations/instructor pool — so a
                 # platform admin who used "Try as Observer" on an org cohort
                 # doesn't appear under that org's Staff tab.
                 role_filter = and_(
                     _org_member_filter(org_id),
                     or_(
-                        User.org_role.in_(org_staff_roles),
-                        and_(User.org_role.is_(None), User.roles.any("organization")),
+                        _sql_has_any_org_role(org_staff_roles),
+                        and_(_sql_no_explicit_org_roles(), User.roles.any("organization")),
                     ),
                 )
             else:
@@ -518,7 +540,7 @@ async def search_cohort_assignable_students(
             if org_id is not None:
                 role_filter = and_(
                     role_filter,
-                    or_(User.org_role.is_(None), User.org_role != "observer"),
+                    ~_sql_has_org_role("observer"),
                     _is_not_platform_staff(),
                 )
         stmt = select(User)
@@ -529,11 +551,11 @@ async def search_cohort_assignable_students(
             stmt = stmt.where(role_filter)
         if role_norm:
             if org_id is not None:
-                role_cond = User.org_role == role_norm
+                role_cond = _sql_has_org_role(role_norm)
                 if role_norm == "coordinator":
                     role_cond = or_(
                         role_cond,
-                        and_(User.org_role.is_(None), User.roles.any("organization")),
+                        and_(_sql_no_explicit_org_roles(), User.roles.any("organization")),
                     )
                 if mode != "staff":
                     role_cond = or_(role_cond, User.roles.any(role_norm))
@@ -692,7 +714,10 @@ async def search_cohort_assignable_students(
         all_users = await _registered_cohort_users(db, cohort_id=cohort_id, q=q, invite_code=invite_code)
         all_users = [u for u in all_users if _mode_ok(u)]
         if role_norm and mode != "staff":
-            all_users = [u for u in all_users if role_norm in u.role_values]
+            all_users = [
+                u for u in all_users
+                if role_norm in u.role_values or role_norm in _effective_org_roles_set(u)
+            ]
         if login_status == "never":
             all_users = [u for u in all_users if u.last_login_at is None]
         elif login_status == "has_logged_in":

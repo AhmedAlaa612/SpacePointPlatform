@@ -29,17 +29,18 @@ import {
   Users,
 } from "lucide-react"
 import {
-  ORG_ASSIGNABLE_ROLES,
   createOrganizationMember,
   createOrganizationMemberResetLink,
   getAdminOrganizationDetail,
   getAdminOrganizationResetLink,
+  memberOrgRoles,
   removeOrganizationMember,
   toggleOrganizationCoursePublish,
   updateAdminOrganizationAccount,
   updateOrganizationMember,
   type OrgSandboxRole,
 } from "@/api/websiteEvents"
+import { OrgRolePickerGrid, OrgRoleToggleRow } from "@/components/organization/OrgRolePills"
 import {
   OrgAccountModal,
   WEBSITE_BASE_URL,
@@ -155,13 +156,13 @@ export default function OpsOrganizationDetail() {
   })
 
   const memberRoleMut = useMutation({
-    mutationFn: ({ userId, orgRole }: { userId: string; orgRole: string }) =>
-      updateOrganizationMember(orgId, userId, orgRole),
+    mutationFn: ({ userId, orgRoles }: { userId: string; orgRoles: OrgSandboxRole[] }) =>
+      updateOrganizationMember(orgId, userId, orgRoles),
     onSuccess: () => {
       invalidateOrgQueries()
-      toast.success("Member role updated")
+      toast.success("Member roles updated")
     },
-    onError: (err) => toast.error(getErrorMessage(err, "Could not update member role")),
+    onError: (err) => toast.error(getErrorMessage(err, "Could not update member roles")),
   })
 
   const removeMemberMut = useMutation({
@@ -463,8 +464,8 @@ export default function OpsOrganizationDetail() {
             {org.quiz_scope === "all"
               ? "All Platform Templates"
               : org.quiz_scope === "selected"
-              ? `${(org.allowed_quiz_template_ids ?? []).length} Selected Templates`
-              : "Org Authored Only"}
+                ? `${(org.allowed_quiz_template_ids ?? []).length} Selected Templates`
+                : "Org Authored Only"}
           </span>
         </div>
       </div>
@@ -1430,119 +1431,107 @@ export default function OpsOrganizationDetail() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-border">
-                  {detail.team.map((m) => (
-                    <tr key={m.user_id} className="hover:bg-muted/40">
-                      <td className="py-3.5 pr-4 font-bold text-foreground">{m.full_name}</td>
-                      <td className="py-3.5 pr-4">
-                        {m.role === "Owner" ? (
-                          <span className="rounded-[10px] border border-primary/30 bg-primary/10 px-2.5 py-1 font-semibold text-primary">
-                            Owner
-                          </span>
-                        ) : (
-                          <select
-                            aria-label={`Role for ${m.full_name}`}
-                            value={m.org_role ?? "observer"}
+                  {detail.team.map((m) => {
+                    const isPrimaryOwner = Boolean(m.is_owner ?? m.role === "Owner")
+                    return (
+                      <tr key={m.user_id} className="hover:bg-muted/40">
+                        <td className="py-3.5 pr-4 font-bold text-foreground">{m.full_name}</td>
+                        <td className="py-3.5 pr-4">
+                          <OrgRoleToggleRow
+                            isOwner={isPrimaryOwner}
+                            roles={memberOrgRoles({ ...m, is_owner: isPrimaryOwner })}
+                            compact
                             disabled={memberRoleMut.isPending}
-                            onChange={(e) =>
-                              memberRoleMut.mutate({
-                                userId: m.user_id,
-                                orgRole: e.target.value,
-                              })
+                            onChange={(orgRoles) =>
+                              memberRoleMut.mutate({ userId: m.user_id, orgRoles })
                             }
-                            className="h-8 rounded-[10px] border border-border bg-background px-2 text-xs font-semibold text-foreground focus:border-primary focus:outline-none"
-                          >
-                            {ORG_ASSIGNABLE_ROLES.map((r) => (
-                              <option key={r.value} value={r.value}>
-                                {r.label}
-                              </option>
-                            ))}
-                          </select>
-                        )}
-                      </td>
-                      <td className="py-3.5 pr-4 text-muted-foreground">
-                        <div>{m.email}</div>
-                        {m.phone && <div>{m.phone}</div>}
-                      </td>
-                      <td className="py-3.5 pr-4">
-                        {m.card_id ? (
-                          <span className="rounded-[10px] border border-primary/25 bg-primary/10 px-2.5 py-1 font-mono font-semibold text-primary">
-                            {m.card_id}
-                          </span>
-                        ) : (
-                          <span className="text-muted-foreground">Unassigned</span>
-                        )}
-                      </td>
-                      <td className="py-3.5 pr-4">
-                        {m.observer_cohorts.length === 0 ? (
-                          <span className="text-muted-foreground">All Org Scoped</span>
-                        ) : (
-                          <div className="flex flex-wrap gap-1.5">
-                            {m.observer_cohorts.map((cname) => (
-                              <span
-                                key={cname}
-                                className="rounded-[10px] border border-border bg-muted px-2 py-0.5 text-foreground"
-                              >
-                                {cname}
-                              </span>
-                            ))}
-                          </div>
-                        )}
-                      </td>
-                      <td className="py-3.5 pr-4">
-                        <span
-                          className={cn(
-                            "rounded-[10px] border px-2.5 py-1 font-semibold uppercase",
-                            m.invite_pending
-                              ? "border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-300"
-                              : m.status === "active"
-                              ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300"
-                              : "border-border bg-muted text-muted-foreground"
+                          />
+                        </td>
+                        <td className="py-3.5 pr-4 text-muted-foreground">
+                          <div>{m.email}</div>
+                          {m.phone && <div>{m.phone}</div>}
+                        </td>
+                        <td className="py-3.5 pr-4">
+                          {m.card_id ? (
+                            <span className="rounded-[10px] border border-primary/25 bg-primary/10 px-2.5 py-1 font-mono font-semibold text-primary">
+                              {m.card_id}
+                            </span>
+                          ) : (
+                            <span className="text-muted-foreground">Unassigned</span>
                           )}
-                        >
-                          {m.invite_pending ? "Invite pending" : m.status}
-                        </span>
-                      </td>
-                      <td className="py-3.5 text-right">
-                        <div className="inline-flex items-center justify-end gap-2">
-                          <Button
-                            type="button"
-                            variant="outline"
-                            size="sm"
-                            className="h-7 rounded-[10px] px-3 text-xs font-semibold"
-                            disabled={memberResetMut.isPending}
-                            onClick={() => memberResetMut.mutate(m.user_id)}
-                          >
-                            {copiedKey === `member-${m.user_id}` ? (
-                              <Check className="h-3.5 w-3.5 text-emerald-500" />
-                            ) : (
-                              <KeyRound className="h-3.5 w-3.5" />
+                        </td>
+                        <td className="py-3.5 pr-4">
+                          {m.observer_cohorts.length === 0 ? (
+                            <span className="text-muted-foreground">All Org Scoped</span>
+                          ) : (
+                            <div className="flex flex-wrap gap-1.5">
+                              {m.observer_cohorts.map((cname) => (
+                                <span
+                                  key={cname}
+                                  className="rounded-[10px] border border-border bg-muted px-2 py-0.5 text-foreground"
+                                >
+                                  {cname}
+                                </span>
+                              ))}
+                            </div>
+                          )}
+                        </td>
+                        <td className="py-3.5 pr-4">
+                          <span
+                            className={cn(
+                              "rounded-[10px] border px-2.5 py-1 font-semibold uppercase",
+                              m.invite_pending
+                                ? "border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-300"
+                                : m.status === "active"
+                                  ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300"
+                                  : "border-border bg-muted text-muted-foreground"
                             )}
-                            Send Link
-                          </Button>
-                          {m.role !== "Owner" && (
+                          >
+                            {m.invite_pending ? "Invite pending" : m.status}
+                          </span>
+                        </td>
+                        <td className="py-3.5 text-right">
+                          <div className="inline-flex items-center justify-end gap-2">
                             <Button
                               type="button"
                               variant="outline"
                               size="sm"
-                              className="h-7 rounded-[10px] px-3 text-xs font-semibold text-destructive hover:text-destructive"
-                              disabled={removeMemberMut.isPending}
-                              onClick={() => {
-                                if (
-                                  window.confirm(
-                                    `Remove ${m.full_name} from ${org.name_latin}? They lose all org access and cohort assignments.`
-                                  )
-                                ) {
-                                  removeMemberMut.mutate(m.user_id)
-                                }
-                              }}
+                              className="h-7 rounded-[10px] px-3 text-xs font-semibold"
+                              disabled={memberResetMut.isPending}
+                              onClick={() => memberResetMut.mutate(m.user_id)}
                             >
-                              Remove
+                              {copiedKey === `member-${m.user_id}` ? (
+                                <Check className="h-3.5 w-3.5 text-emerald-500" />
+                              ) : (
+                                <KeyRound className="h-3.5 w-3.5" />
+                              )}
+                              Send Link
                             </Button>
-                          )}
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
+                            {!isPrimaryOwner && (
+                              <Button
+                                type="button"
+                                variant="outline"
+                                size="sm"
+                                className="h-7 rounded-[10px] px-3 text-xs font-semibold text-destructive hover:text-destructive"
+                                disabled={removeMemberMut.isPending}
+                                onClick={() => {
+                                  if (
+                                    window.confirm(
+                                      `Remove ${m.full_name} from ${org.name_latin}? They lose all org access and cohort assignments.`
+                                    )
+                                  ) {
+                                    removeMemberMut.mutate(m.user_id)
+                                  }
+                                }}
+                              >
+                                Remove
+                              </Button>
+                            )}
+                          </div>
+                        </td>
+                      </tr>
+                    )
+                  })}
                 </tbody>
               </table>
             </div>
@@ -1592,7 +1581,7 @@ function InviteOrgMemberModal({
   const [fullName, setFullName] = useState("")
   const [email, setEmail] = useState("")
   const [phone, setPhone] = useState("")
-  const [orgRole, setOrgRole] = useState<Exclude<OrgSandboxRole, "owner">>("coordinator")
+  const [orgRoles, setOrgRoles] = useState<Exclude<OrgSandboxRole, "owner">[]>(["coordinator"])
 
   const mut = useMutation({
     mutationFn: () =>
@@ -1600,7 +1589,8 @@ function InviteOrgMemberModal({
         full_name: fullName.trim(),
         email: email.trim(),
         phone: phone.trim() || null,
-        org_role: orgRole,
+        org_role: orgRoles[0],
+        org_roles: orgRoles,
       }),
     onSuccess: (res) => {
       if (res.existing_account) {
@@ -1663,23 +1653,10 @@ function InviteOrgMemberModal({
               className="h-9 rounded-[10px] border border-border bg-background px-3 text-sm focus:border-primary focus:outline-none"
             />
           </label>
-          <label className="flex flex-col gap-1">
-            <span className="text-xs font-semibold text-muted-foreground">Organization Role</span>
-            <select
-              value={orgRole}
-              onChange={(e) => setOrgRole(e.target.value as Exclude<OrgSandboxRole, "owner">)}
-              className="h-9 rounded-[10px] border border-border bg-background px-3 text-sm text-foreground focus:border-primary focus:outline-none"
-            >
-              {ORG_ASSIGNABLE_ROLES.map((r) => (
-                <option key={r.value} value={r.value}>
-                  {r.label}
-                </option>
-              ))}
-            </select>
-            <span className="text-[11px] text-muted-foreground">
-              {ORG_ASSIGNABLE_ROLES.find((r) => r.value === orgRole)?.hint}
-            </span>
-          </label>
+          <div className="flex flex-col gap-1.5">
+            <span className="text-xs font-semibold text-muted-foreground">Organization Roles</span>
+            <OrgRolePickerGrid value={orgRoles} onChange={setOrgRoles} />
+          </div>
         </div>
 
         <div className="flex items-center justify-end gap-2 pt-2">

@@ -2,36 +2,30 @@ import { useState } from "react"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
 import {
   UserPlus,
-  Crown,
   KeyRound,
   Trash2,
   Copy,
   Check,
 } from "lucide-react"
+import { useAuth } from "@/context/AuthContext"
 import { useToast } from "@/components/ui/toast"
 import { getErrorMessage } from "@/lib/utils"
+import { ORG_ROLE_LABEL, type OrgSandboxRole } from "@/types/shared"
 import {
   getOrganizationTeamApi,
   addOrganizationTeamMemberApi,
   updateOrganizationTeamMemberApi,
   removeOrganizationTeamMemberApi,
   getOrganizationMemberResetLinkApi,
-  ORG_ASSIGNABLE_ROLES,
-  type OrgSandboxRole,
+  memberOrgRoles,
   type OrgTeamMember,
 } from "@/api/websiteEvents"
-
-const ROLE_LABEL: Record<OrgSandboxRole, string> = {
-  owner: "Owner",
-  coordinator: "Coordinator",
-  instructor: "Instructor",
-  judge: "Judge",
-  observer: "Observer",
-}
+import { OrgRolePickerGrid, OrgRoleToggleRow } from "@/components/organization/OrgRolePills"
 
 export default function OrganizationTeam() {
   const toast = useToast()
   const qc = useQueryClient()
+  const { user, refreshMe } = useAuth()
   const [addModalOpen, setAddModalOpen] = useState(false)
   const [resetModalData, setResetModalData] = useState<{
     name: string
@@ -61,14 +55,20 @@ export default function OrganizationTeam() {
   })
 
   const roleMut = useMutation({
-    mutationFn: ({ userId, orgRole }: { userId: string; orgRole: string }) =>
-      updateOrganizationTeamMemberApi(userId, orgRole),
+    mutationFn: ({ userId, orgRoles }: { userId: string; orgRoles: OrgSandboxRole[] }) =>
+      updateOrganizationTeamMemberApi(userId, orgRoles),
     onSuccess: (res) => {
-      toast.success(`${res.full_name} is now ${ROLE_LABEL[(res.org_role ?? "coordinator") as OrgSandboxRole]}`)
+      const rolesText = memberOrgRoles(res)
+        .map((r) => ORG_ROLE_LABEL[r])
+        .join(", ")
+      toast.success(`${res.full_name} roles updated: ${rolesText}`)
       invalidate()
+      if (user?.id === res.id) {
+        void refreshMe()
+      }
     },
     onError: (err: any) => {
-      toast.error(getErrorMessage(err, "Failed to change member role"))
+      toast.error(getErrorMessage(err, "Failed to change member roles"))
     },
   })
 
@@ -100,8 +100,8 @@ export default function OrganizationTeam() {
         <div>
           <h1 className="text-xl font-bold tracking-tight text-foreground">Organization Team</h1>
           <p className="text-sm text-muted-foreground mt-0.5">
-            Add coordinators, instructors and judges. Instructors deliver only the sessions you
-            assign to them; judges score your cohorts' competitions.
+            Assign one or more sandbox roles to each member (including extra delivery or judging
+            roles for the Primary Owner). Switch workspaces anytime from the top-right switcher.
           </p>
         </div>
 
@@ -130,38 +130,27 @@ export default function OrganizationTeam() {
                     {member.full_name.charAt(0).toUpperCase()}
                   </div>
                   <div>
-                    <div className="flex items-center gap-2">
+                    <div className="flex flex-wrap items-center gap-2">
                       <span className="font-semibold text-sm text-foreground">
                         {member.full_name}
                       </span>
-                      {member.is_owner ? (
-                        <span className="inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-full bg-amber-500/15 text-amber-600 dark:text-amber-400">
-                          <Crown className="w-2.5 h-2.5" /> Primary Owner
-                        </span>
-                      ) : (
-                        <select
-                          value={member.org_role ?? "coordinator"}
-                          disabled={roleMut.isPending}
-                          onChange={(e) =>
-                            roleMut.mutate({ userId: member.id, orgRole: e.target.value })
-                          }
-                          className="h-7 px-2 rounded-lg border border-border bg-background text-[11px] font-semibold text-foreground focus:outline-none focus:border-primary"
-                          title="Change this member's organization role"
-                        >
-                          {ORG_ASSIGNABLE_ROLES.map((role) => (
-                            <option key={role.value} value={role.value}>
-                              {role.label}
-                            </option>
-                          ))}
-                        </select>
-                      )}
                       {!member.is_owner && member.invite_pending && (
                         <span className="text-[10px] font-medium px-2 py-0.5 rounded-full bg-amber-500/15 text-amber-600 dark:text-amber-400">
                           Invite pending
                         </span>
                       )}
                     </div>
-                    <span className="text-xs text-muted-foreground block">{member.email}</span>
+                    <span className="text-xs text-muted-foreground block mt-0.5">{member.email}</span>
+                    <div className="mt-2">
+                      <OrgRoleToggleRow
+                        isOwner={member.is_owner}
+                        roles={memberOrgRoles(member)}
+                        disabled={roleMut.isPending}
+                        onChange={(orgRoles) =>
+                          roleMut.mutate({ userId: member.id, orgRoles })
+                        }
+                      />
+                    </div>
                   </div>
                 </div>
 
@@ -235,7 +224,7 @@ function AddTeamMemberModal({
   const [fullName, setFullName] = useState("")
   const [email, setEmail] = useState("")
   const [password, setPassword] = useState("")
-  const [orgRole, setOrgRole] = useState<string>("coordinator")
+  const [orgRoles, setOrgRoles] = useState<Exclude<OrgSandboxRole, "owner">[]>(["coordinator"])
 
   const mut = useMutation({
     mutationFn: () =>
@@ -243,7 +232,8 @@ function AddTeamMemberModal({
         full_name: fullName.trim(),
         email: email.trim(),
         password: password.trim() || undefined,
-        org_role: orgRole,
+        org_role: orgRoles[0],
+        org_roles: orgRoles,
       }),
     onSuccess: (res) => {
       if (res.existing_account) {
@@ -298,20 +288,10 @@ function AddTeamMemberModal({
             />
           </label>
 
-          <label className="flex flex-col gap-1">
-            <span className="text-xs font-semibold text-muted-foreground">Organization Role</span>
-            <select
-              value={orgRole}
-              onChange={(e) => setOrgRole(e.target.value)}
-              className="h-9 px-3 rounded-xl border border-border bg-background text-sm focus:outline-none focus:border-primary"
-            >
-              {ORG_ASSIGNABLE_ROLES.map((role) => (
-                <option key={role.value} value={role.value}>
-                  {role.label} — {role.hint}
-                </option>
-              ))}
-            </select>
-          </label>
+          <div className="flex flex-col gap-1.5">
+            <span className="text-xs font-semibold text-muted-foreground">Organization Roles</span>
+            <OrgRolePickerGrid value={orgRoles} onChange={setOrgRoles} />
+          </div>
 
           <label className="flex flex-col gap-1">
             <span className="text-xs font-semibold text-muted-foreground">

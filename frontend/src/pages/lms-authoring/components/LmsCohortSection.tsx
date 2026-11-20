@@ -41,11 +41,11 @@ export function LmsCohortSection({
   cohortName: string
   mode?: "all" | "authoring"
 }) {
-  const { currentUser } = useAuth()
+  const { currentUser, activeOrgRole } = useAuth()
   const toast = useToast()
   const queryClient = useQueryClient()
   const isOrgRole = currentUser?.role === "organization"
-  const isStaff = currentUser?.role !== "instructor" && !(isOrgRole && currentUser?.org_role === "instructor")
+  const isStaff = currentUser?.role !== "instructor" && !(isOrgRole && activeOrgRole === "instructor")
   const [subtab, setSubtab] = useState<SubTab>("checklist")
   const [showObserverModal, setShowObserverModal] = useState(false)
   const [showEditorsModal, setShowEditorsModal] = useState(false)

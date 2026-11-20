@@ -9,8 +9,8 @@ import {
 import { AppShell, ApplicantShell } from "@/components/layout/Sidebar";
 import { Login } from "@/pages/auth/Login";
 import { tokens } from "@/api/client";
-import { roleHomePath } from "@/lib/roleHome";
-import type { Role } from "@/types/shared";
+import { orgRoleHomePath, roleHomePath } from "@/lib/roleHome";
+import type { OrgSandboxRole, Role } from "@/types/shared";
 
 // Shared pages
 import SharedProfile from "@/pages/shared/Profile";
@@ -309,7 +309,12 @@ const indexRoute = createRoute({
     // roleHomePath is the single source of truth for "what is this role's
     // portal home" — LearnNav's "Back to portal" link reuses it too, so the
     // two can't drift apart.
-    throw redirect({ to: roleHomePath(localStorage.getItem("active_role") as Role | null) });
+    throw redirect({
+      to: roleHomePath(
+        localStorage.getItem("active_role") as Role | null,
+        localStorage.getItem("active_org_role") as OrgSandboxRole | null,
+      ),
+    });
   },
 });
 
@@ -952,7 +957,12 @@ const organizationRoutes = [
     getParentRoute: porg,
     path: "/",
     beforeLoad: () => {
-      throw redirect({ to: "/organization/programs" });
+      const role = localStorage.getItem("active_role") as Role | null;
+      const orgRole =
+        role === "organization"
+          ? (localStorage.getItem("active_org_role") as OrgSandboxRole | null)
+          : null;
+      throw redirect({ to: orgRoleHomePath(orgRole) });
     },
   }),
   createRoute({ getParentRoute: porg, path: "/programs", component: OrganizationPrograms }),

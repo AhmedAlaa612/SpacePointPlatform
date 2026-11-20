@@ -104,6 +104,14 @@ class User(Base):
     # `org_role` is the per-organization intent the org Team page manages and
     # the sandbox fence reads. NULL for people who aren't on a partner team.
     org_role = Column(String(32), nullable=True, index=True)
+    # Multi-role sandbox assignment (2026-11-20): a partner team member can hold
+    # multiple org roles at once (e.g. coordinator + instructor + judge).
+    # `org_role` above stays synced to the highest-priority role for legacy readers.
+    org_roles = Column(
+        ARRAY(String(32)),
+        nullable=False,
+        server_default=text("'{}'"),
+    )
 
     # Live Games (Phase 2C, 8-1). Students-only public identity: auto-
     # generated at account creation (services/nicknames.py), never a real

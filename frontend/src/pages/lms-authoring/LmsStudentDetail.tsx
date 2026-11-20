@@ -56,10 +56,10 @@ export default function LmsStudentDetail() {
     from?: string
   }
   const queryClient = useQueryClient()
-  const { currentUser } = useAuth()
+  const { currentUser, activeOrgRole } = useAuth()
   const toast = useToast()
   const isOrgRole = currentUser?.role === "organization"
-  const isStaff = currentUser?.role !== "instructor" && !(isOrgRole && currentUser?.org_role === "instructor")
+  const isStaff = currentUser?.role !== "instructor" && !(isOrgRole && activeOrgRole === "instructor")
   const [courseId, setCourseId] = useState("")
   const [assignType, setAssignType] = useState<"course" | "path">("course")
   const [pathId, setPathId] = useState("")
@@ -488,22 +488,20 @@ export default function LmsStudentDetail() {
               <button
                 type="button"
                 onClick={() => { setAssignType("course"); setPathId("") }}
-                className={`px-3 py-1.5 rounded-lg transition-colors cursor-pointer ${
-                  assignType === "course"
+                className={`px-3 py-1.5 rounded-lg transition-colors cursor-pointer ${assignType === "course"
                     ? "bg-background text-foreground shadow-2xs font-semibold"
                     : "text-muted-foreground hover:text-foreground"
-                }`}
+                  }`}
               >
                 Course
               </button>
               <button
                 type="button"
                 onClick={() => { setAssignType("path"); setCourseId("") }}
-                className={`px-3 py-1.5 rounded-lg transition-colors cursor-pointer ${
-                  assignType === "path"
+                className={`px-3 py-1.5 rounded-lg transition-colors cursor-pointer ${assignType === "path"
                     ? "bg-background text-foreground shadow-2xs font-semibold"
                     : "text-muted-foreground hover:text-foreground"
-                }`}
+                  }`}
               >
                 Learning path
               </button>

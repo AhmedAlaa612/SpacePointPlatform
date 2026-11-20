@@ -25,7 +25,7 @@ import {
 import { useToast } from "@/components/ui/toast"
 import { Button } from "@/components/ui/button"
 import { downloadCompetitionRosterTemplateApi } from "@/api/competitions"
-import { getOrganizationTeamApi } from "@/api/websiteEvents"
+import { getOrganizationTeamApi, memberOrgRoles } from "@/api/websiteEvents"
 import type { OrgTeamMember } from "@/api/websiteEvents"
 import {
   assignOrgInstructor,
@@ -388,14 +388,14 @@ export default function OrganizationCohortDetail() {
             tabs={
               isCompetition
                 ? [
-                    { key: "students", label: "Students" },
-                    { key: "observers", label: "Observers" },
-                    { key: "teams", label: "Teams" },
-                  ]
+                  { key: "students", label: "Students" },
+                  { key: "observers", label: "Observers" },
+                  { key: "teams", label: "Teams" },
+                ]
                 : [
-                    { key: "students", label: "Students" },
-                    { key: "observers", label: "Observers" },
-                  ]
+                  { key: "students", label: "Students" },
+                  { key: "observers", label: "Observers" },
+                ]
             }
           />
 
@@ -403,116 +403,116 @@ export default function OrganizationCohortDetail() {
             <TeamsTab cohortId={cohort.id} cohortName={cohort.name} />
           ) : studentsSubTab === "students" ? (
             <>
-            <div className="space-y-6">
-              <div>
-                <div className="flex items-center justify-between gap-2 mb-2 flex-wrap">
-                  <p className="text-sm font-semibold text-foreground">
-                    Registrations{registrations?.length ? ` (${registrations.length}${cohort.capacity != null ? ` / ${cohort.capacity}` : ""})` : ""}
-                  </p>
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <button
-                      type="button"
-                      onClick={() => setBulkImportOpen(true)}
-                      className={`flex items-center gap-1.5 h-8 px-3 text-xs font-medium ${WIRE_BTN}`}
-                    >
-                      <Upload size={13} /> Import roster
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setRegisterStudentOpen(true)}
-                      className={`flex items-center gap-1.5 h-8 px-3 text-xs font-medium ${WIRE_CTA}`}
-                    >
-                      <UserPlus size={13} /> Register student
-                    </button>
+              <div className="space-y-6">
+                <div>
+                  <div className="flex items-center justify-between gap-2 mb-2 flex-wrap">
+                    <p className="text-sm font-semibold text-foreground">
+                      Registrations{registrations?.length ? ` (${registrations.length}${cohort.capacity != null ? ` / ${cohort.capacity}` : ""})` : ""}
+                    </p>
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <button
+                        type="button"
+                        onClick={() => setBulkImportOpen(true)}
+                        className={`flex items-center gap-1.5 h-8 px-3 text-xs font-medium ${WIRE_BTN}`}
+                      >
+                        <Upload size={13} /> Import roster
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setRegisterStudentOpen(true)}
+                        className={`flex items-center gap-1.5 h-8 px-3 text-xs font-medium ${WIRE_CTA}`}
+                      >
+                        <UserPlus size={13} /> Register student
+                      </button>
+                    </div>
                   </div>
                 </div>
-              </div>
 
-              {regLoading ? (
-                <div className="p-8 text-center text-xs text-muted-foreground">
-                  Loading student roster…
-                </div>
-              ) : (!registrations || registrations.length === 0) ? (
-                <div className="rounded-2xl border border-dashed border-border p-10 text-center flex flex-col items-center gap-2">
-                  <Users className="w-8 h-8 text-muted-foreground" />
-                  <h4 className="text-sm font-bold text-foreground">No students enrolled yet</h4>
-                  <p className="text-xs text-muted-foreground max-w-sm">
-                    Register students individually or import a student list using CSV format.
-                  </p>
-                </div>
-              ) : (
-                <div className="rounded-2xl border border-border bg-card overflow-hidden">
-                  <div className="overflow-x-auto">
-                    <table className="w-full text-left text-xs">
-                      <thead className="bg-muted/40 text-muted-foreground uppercase text-[10px] tracking-wider border-b border-border">
-                        <tr>
-                          <th className="py-3 px-4">Student</th>
-                          <th className="py-3 px-4">Contact</th>
-                          <th className="py-3 px-4">City / School</th>
-                          <th className="py-3 px-4">LMS Status</th>
-                          <th className="py-3 px-4">Enrolled On</th>
-                          <th className="py-3 px-4 text-right">Actions</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-border">
-                        {(registrations || []).map((r) => (
-                          <tr key={r.id} className="hover:bg-muted/20 transition">
-                            <td className="py-3 px-4">
-                              <span className="font-semibold text-foreground block">
-                                {r.student_name}
-                              </span>
-                              {r.grade && (
-                                <span className="text-[11px] text-muted-foreground">
-                                  Grade {r.grade}
-                                </span>
-                              )}
-                            </td>
-                            <td className="py-3 px-4">
-                              <span className="text-foreground block">{r.student_email || "—"}</span>
-                              <span className="text-[11px] text-muted-foreground">
-                                {r.student_phone || ""}
-                              </span>
-                            </td>
-                            <td className="py-3 px-4">
-                              <span className="text-foreground block">{r.school_name || "—"}</span>
-                              <span className="text-[11px] text-muted-foreground">{r.city || ""}</span>
-                            </td>
-                            <td className="py-3 px-4">
-                              {r.has_lms_account ? (
-                                <span className="inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-600 dark:text-emerald-400">
-                                  <CheckCircle2 className="w-2.5 h-2.5" /> Active
-                                </span>
-                              ) : (
-                                <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-muted text-muted-foreground">
-                                  No Account
-                                </span>
-                              )}
-                            </td>
-                            <td className="py-3 px-4 text-muted-foreground">
-                              {r.created_at ? new Date(r.created_at).toLocaleDateString() : "—"}
-                            </td>
-                            <td className="py-3 px-4 text-right">
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  if (window.confirm(`Cancel registration for "${r.student_name}"?`)) {
-                                    cancelRegMut.mutate(r.id)
-                                  }
-                                }}
-                                className="inline-flex items-center justify-center h-7 w-7 rounded-lg text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition"
-                                title="Cancel Registration"
-                              >
-                                <Trash2 className="w-3.5 h-3.5" />
-                              </button>
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
+                {regLoading ? (
+                  <div className="p-8 text-center text-xs text-muted-foreground">
+                    Loading student roster…
                   </div>
-                </div>
-              )}
-            </div>
+                ) : (!registrations || registrations.length === 0) ? (
+                  <div className="rounded-2xl border border-dashed border-border p-10 text-center flex flex-col items-center gap-2">
+                    <Users className="w-8 h-8 text-muted-foreground" />
+                    <h4 className="text-sm font-bold text-foreground">No students enrolled yet</h4>
+                    <p className="text-xs text-muted-foreground max-w-sm">
+                      Register students individually or import a student list using CSV format.
+                    </p>
+                  </div>
+                ) : (
+                  <div className="rounded-2xl border border-border bg-card overflow-hidden">
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-left text-xs">
+                        <thead className="bg-muted/40 text-muted-foreground uppercase text-[10px] tracking-wider border-b border-border">
+                          <tr>
+                            <th className="py-3 px-4">Student</th>
+                            <th className="py-3 px-4">Contact</th>
+                            <th className="py-3 px-4">City / School</th>
+                            <th className="py-3 px-4">LMS Status</th>
+                            <th className="py-3 px-4">Enrolled On</th>
+                            <th className="py-3 px-4 text-right">Actions</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-border">
+                          {(registrations || []).map((r) => (
+                            <tr key={r.id} className="hover:bg-muted/20 transition">
+                              <td className="py-3 px-4">
+                                <span className="font-semibold text-foreground block">
+                                  {r.student_name}
+                                </span>
+                                {r.grade && (
+                                  <span className="text-[11px] text-muted-foreground">
+                                    Grade {r.grade}
+                                  </span>
+                                )}
+                              </td>
+                              <td className="py-3 px-4">
+                                <span className="text-foreground block">{r.student_email || "—"}</span>
+                                <span className="text-[11px] text-muted-foreground">
+                                  {r.student_phone || ""}
+                                </span>
+                              </td>
+                              <td className="py-3 px-4">
+                                <span className="text-foreground block">{r.school_name || "—"}</span>
+                                <span className="text-[11px] text-muted-foreground">{r.city || ""}</span>
+                              </td>
+                              <td className="py-3 px-4">
+                                {r.has_lms_account ? (
+                                  <span className="inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-600 dark:text-emerald-400">
+                                    <CheckCircle2 className="w-2.5 h-2.5" /> Active
+                                  </span>
+                                ) : (
+                                  <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-muted text-muted-foreground">
+                                    No Account
+                                  </span>
+                                )}
+                              </td>
+                              <td className="py-3 px-4 text-muted-foreground">
+                                {r.created_at ? new Date(r.created_at).toLocaleDateString() : "—"}
+                              </td>
+                              <td className="py-3 px-4 text-right">
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    if (window.confirm(`Cancel registration for "${r.student_name}"?`)) {
+                                      cancelRegMut.mutate(r.id)
+                                    }
+                                  }}
+                                  className="inline-flex items-center justify-center h-7 w-7 rounded-lg text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition"
+                                  title="Cancel Registration"
+                                >
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                </button>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                )}
+              </div>
             </>
           ) : (
             <>
@@ -536,71 +536,71 @@ export default function OrganizationCohortDetail() {
                 </div>
 
                 {observersLoading ? (
-                <div className="p-8 text-center text-xs text-muted-foreground">
-                  Loading observers…
-                </div>
-              ) : (!observers || observers.length === 0) ? (
-                <div className="rounded-2xl border border-dashed border-border p-10 text-center flex flex-col items-center gap-2">
-                  <Eye className="w-8 h-8 text-muted-foreground" />
-                  <h4 className="text-sm font-bold text-foreground">No observers assigned yet</h4>
-                  <p className="text-xs text-muted-foreground max-w-sm">
-                    Assign staff from your organization team to monitor progress and deliverables in observer mode.
-                  </p>
-                  <button
-                    type="button"
-                    onClick={() => setAddObserverOpen(true)}
-                    className="mt-2 inline-flex items-center gap-1.5 h-8 px-3 rounded-lg bg-primary text-primary-foreground text-xs font-semibold hover:opacity-90 transition"
-                  >
-                    <Plus className="w-3.5 h-3.5" /> Add Observer
-                  </button>
-                </div>
-              ) : (
-                <div className="rounded-2xl border border-border bg-card overflow-hidden">
-                  <div className="overflow-x-auto">
-                    <table className="w-full text-left text-xs">
-                      <thead className="bg-muted/40 text-muted-foreground uppercase text-[10px] tracking-wider border-b border-border">
-                        <tr>
-                          <th className="py-3 px-4">Observer</th>
-                          <th className="py-3 px-4">Email</th>
-                          <th className="py-3 px-4">Phone</th>
-                          <th className="py-3 px-4">Assigned On</th>
-                          <th className="py-3 px-4 text-right">Actions</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-border">
-                        {observers.map((obs) => (
-                          <tr key={obs.id} className="hover:bg-muted/20 transition">
-                            <td className="py-3 px-4">
-                              <span className="font-semibold text-foreground block">{obs.full_name}</span>
-                              <span className="text-[10px] text-primary bg-primary/10 px-1.5 py-0.5 rounded font-medium inline-block mt-0.5">
-                                Observer
-                              </span>
-                            </td>
-                            <td className="py-3 px-4 text-muted-foreground">{obs.email}</td>
-                            <td className="py-3 px-4 text-muted-foreground">{obs.phone || "—"}</td>
-                            <td className="py-3 px-4 text-muted-foreground">
-                              {obs.assigned_at ? new Date(obs.assigned_at).toLocaleDateString() : "—"}
-                            </td>
-                            <td className="py-3 px-4 text-right">
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  if (window.confirm(`Remove ${obs.full_name} from cohort observers?`)) {
-                                    removeObserverMut.mutate(obs.user_id)
-                                  }
-                                }}
-                                className="inline-flex items-center gap-1 text-xs text-destructive hover:underline"
-                              >
-                                <Trash2 className="w-3.5 h-3.5" /> Unassign
-                              </button>
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
+                  <div className="p-8 text-center text-xs text-muted-foreground">
+                    Loading observers…
                   </div>
-                </div>
-              )}
+                ) : (!observers || observers.length === 0) ? (
+                  <div className="rounded-2xl border border-dashed border-border p-10 text-center flex flex-col items-center gap-2">
+                    <Eye className="w-8 h-8 text-muted-foreground" />
+                    <h4 className="text-sm font-bold text-foreground">No observers assigned yet</h4>
+                    <p className="text-xs text-muted-foreground max-w-sm">
+                      Assign staff from your organization team to monitor progress and deliverables in observer mode.
+                    </p>
+                    <button
+                      type="button"
+                      onClick={() => setAddObserverOpen(true)}
+                      className="mt-2 inline-flex items-center gap-1.5 h-8 px-3 rounded-lg bg-primary text-primary-foreground text-xs font-semibold hover:opacity-90 transition"
+                    >
+                      <Plus className="w-3.5 h-3.5" /> Add Observer
+                    </button>
+                  </div>
+                ) : (
+                  <div className="rounded-2xl border border-border bg-card overflow-hidden">
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-left text-xs">
+                        <thead className="bg-muted/40 text-muted-foreground uppercase text-[10px] tracking-wider border-b border-border">
+                          <tr>
+                            <th className="py-3 px-4">Observer</th>
+                            <th className="py-3 px-4">Email</th>
+                            <th className="py-3 px-4">Phone</th>
+                            <th className="py-3 px-4">Assigned On</th>
+                            <th className="py-3 px-4 text-right">Actions</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-border">
+                          {observers.map((obs) => (
+                            <tr key={obs.id} className="hover:bg-muted/20 transition">
+                              <td className="py-3 px-4">
+                                <span className="font-semibold text-foreground block">{obs.full_name}</span>
+                                <span className="text-[10px] text-primary bg-primary/10 px-1.5 py-0.5 rounded font-medium inline-block mt-0.5">
+                                  Observer
+                                </span>
+                              </td>
+                              <td className="py-3 px-4 text-muted-foreground">{obs.email}</td>
+                              <td className="py-3 px-4 text-muted-foreground">{obs.phone || "—"}</td>
+                              <td className="py-3 px-4 text-muted-foreground">
+                                {obs.assigned_at ? new Date(obs.assigned_at).toLocaleDateString() : "—"}
+                              </td>
+                              <td className="py-3 px-4 text-right">
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    if (window.confirm(`Remove ${obs.full_name} from cohort observers?`)) {
+                                      removeObserverMut.mutate(obs.user_id)
+                                    }
+                                  }}
+                                  className="inline-flex items-center gap-1 text-xs text-destructive hover:underline"
+                                >
+                                  <Trash2 className="w-3.5 h-3.5" /> Unassign
+                                </button>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                )}
               </div>
             </>
           )}
@@ -636,131 +636,131 @@ export default function OrganizationCohortDetail() {
               </div>
             ) : (
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-              {(cohort.sessions || []).map((s) => {
-                const staffSession = staff?.sessions.find((ss) => ss.id === s.id)
-                const assignedIds = new Set((staffSession?.instructors ?? []).map((i) => i.user_id))
-                const availableInstructors = team.filter(
-                  (m) => m.org_role === "instructor" && !assignedIds.has(m.id),
-                )
-                return (
-                  <div
-                    key={s.id}
-                    className="rounded-xl border border-border bg-card p-4 flex flex-col justify-between gap-3"
-                  >
-                    <div>
-                      <div className="flex items-start justify-between gap-2">
-                        <h4 className="text-sm font-bold text-foreground">{s.title}</h4>
-                        <div className="flex items-center gap-1.5">
-                          {staffSession?.completed_at ? (
-                            <span className="text-[10px] font-semibold px-2 py-0.5 rounded bg-emerald-500/15 text-emerald-600 dark:text-emerald-400">
-                              Completed
-                            </span>
-                          ) : staffSession?.started_at ? (
-                            <span className="text-[10px] font-semibold px-2 py-0.5 rounded bg-blue-500/15 text-blue-600 dark:text-blue-400">
-                              In progress
-                            </span>
-                          ) : (
-                            <span className="text-[10px] font-semibold uppercase px-2 py-0.5 rounded bg-muted text-muted-foreground">
-                              {s.session_type}
-                            </span>
-                          )}
-                        </div>
-                      </div>
-
-                      <div className="mt-2 space-y-1 text-xs text-muted-foreground">
-                        <div className="flex items-center gap-1.5">
-                          <Calendar className="w-3.5 h-3.5" />
-                          <span>
-                            {s.date} • {s.start_time || "TBD"}
-                            {s.end_time ? ` – ${s.end_time}` : ""}
-                          </span>
-                        </div>
-                        {s.location && (
+                {(cohort.sessions || []).map((s) => {
+                  const staffSession = staff?.sessions.find((ss) => ss.id === s.id)
+                  const assignedIds = new Set((staffSession?.instructors ?? []).map((i) => i.user_id))
+                  const availableInstructors = team.filter(
+                    (m) => memberOrgRoles(m).includes("instructor") && !assignedIds.has(m.id),
+                  )
+                  return (
+                    <div
+                      key={s.id}
+                      className="rounded-xl border border-border bg-card p-4 flex flex-col justify-between gap-3"
+                    >
+                      <div>
+                        <div className="flex items-start justify-between gap-2">
+                          <h4 className="text-sm font-bold text-foreground">{s.title}</h4>
                           <div className="flex items-center gap-1.5">
-                            <MapPin className="w-3.5 h-3.5" />
-                            <span>{s.location}</span>
+                            {staffSession?.completed_at ? (
+                              <span className="text-[10px] font-semibold px-2 py-0.5 rounded bg-emerald-500/15 text-emerald-600 dark:text-emerald-400">
+                                Completed
+                              </span>
+                            ) : staffSession?.started_at ? (
+                              <span className="text-[10px] font-semibold px-2 py-0.5 rounded bg-blue-500/15 text-blue-600 dark:text-blue-400">
+                                In progress
+                              </span>
+                            ) : (
+                              <span className="text-[10px] font-semibold uppercase px-2 py-0.5 rounded bg-muted text-muted-foreground">
+                                {s.session_type}
+                              </span>
+                            )}
                           </div>
-                        )}
-                        {staffSession && (
-                          <div className="text-[11px] text-muted-foreground">
-                            Attendance: {staffSession.attendance_present} present / {staffSession.attendance_total} marked
-                          </div>
-                        )}
-                      </div>
+                        </div>
 
-                      {/* Assigned instructors for this session */}
-                      <div className="mt-3 pt-2.5 border-t border-border/60 space-y-2">
-                        <div className="flex items-center justify-between gap-2">
-                          <span className="text-[11px] font-semibold text-muted-foreground">
-                            Instructors
-                          </span>
-                          {availableInstructors.length > 0 && (
-                            <select
-                              value=""
-                              onChange={(e) => {
-                                if (e.target.value) {
-                                  assignInstructorMut.mutate({ userId: e.target.value, sessionId: s.id })
-                                }
-                              }}
-                              className="h-7 px-2 rounded-lg border border-border bg-background text-[11px] text-foreground cursor-pointer"
-                            >
-                              <option value="">+ Assign instructor…</option>
-                              {availableInstructors.map((inst) => (
-                                <option key={inst.id} value={inst.id}>
-                                  {inst.full_name}
-                                </option>
-                              ))}
-                            </select>
+                        <div className="mt-2 space-y-1 text-xs text-muted-foreground">
+                          <div className="flex items-center gap-1.5">
+                            <Calendar className="w-3.5 h-3.5" />
+                            <span>
+                              {s.date} • {s.start_time || "TBD"}
+                              {s.end_time ? ` – ${s.end_time}` : ""}
+                            </span>
+                          </div>
+                          {s.location && (
+                            <div className="flex items-center gap-1.5">
+                              <MapPin className="w-3.5 h-3.5" />
+                              <span>{s.location}</span>
+                            </div>
+                          )}
+                          {staffSession && (
+                            <div className="text-[11px] text-muted-foreground">
+                              Attendance: {staffSession.attendance_present} present / {staffSession.attendance_total} marked
+                            </div>
                           )}
                         </div>
-                        {(staffSession?.instructors ?? []).length === 0 ? (
-                          <p className="text-[11px] text-muted-foreground italic">
-                            No instructor assigned to this session yet.
-                          </p>
-                        ) : (
-                          <div className="flex flex-wrap gap-1.5">
-                            {(staffSession?.instructors ?? []).map((inst) => (
-                              <span
-                                key={inst.user_id}
-                                className="inline-flex items-center gap-1 text-[11px] font-medium px-2 py-0.5 rounded-full bg-primary/10 text-primary"
-                              >
-                                {inst.full_name}
-                                <button
-                                  type="button"
-                                  onClick={() =>
-                                    unassignInstructorMut.mutate({ userId: inst.user_id, sessionId: s.id })
+
+                        {/* Assigned instructors for this session */}
+                        <div className="mt-3 pt-2.5 border-t border-border/60 space-y-2">
+                          <div className="flex items-center justify-between gap-2">
+                            <span className="text-[11px] font-semibold text-muted-foreground">
+                              Instructors
+                            </span>
+                            {availableInstructors.length > 0 && (
+                              <select
+                                value=""
+                                onChange={(e) => {
+                                  if (e.target.value) {
+                                    assignInstructorMut.mutate({ userId: e.target.value, sessionId: s.id })
                                   }
-                                  title="Unassign from this session"
-                                  className="hover:text-destructive ml-0.5"
-                                >
-                                  <X className="w-3 h-3" />
-                                </button>
-                              </span>
-                            ))}
+                                }}
+                                className="h-7 px-2 rounded-lg border border-border bg-background text-[11px] text-foreground cursor-pointer"
+                              >
+                                <option value="">+ Assign instructor…</option>
+                                {availableInstructors.map((inst) => (
+                                  <option key={inst.id} value={inst.id}>
+                                    {inst.full_name}
+                                  </option>
+                                ))}
+                              </select>
+                            )}
                           </div>
-                        )}
+                          {(staffSession?.instructors ?? []).length === 0 ? (
+                            <p className="text-[11px] text-muted-foreground italic">
+                              No instructor assigned to this session yet.
+                            </p>
+                          ) : (
+                            <div className="flex flex-wrap gap-1.5">
+                              {(staffSession?.instructors ?? []).map((inst) => (
+                                <span
+                                  key={inst.user_id}
+                                  className="inline-flex items-center gap-1 text-[11px] font-medium px-2 py-0.5 rounded-full bg-primary/10 text-primary"
+                                >
+                                  {inst.full_name}
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      unassignInstructorMut.mutate({ userId: inst.user_id, sessionId: s.id })
+                                    }
+                                    title="Unassign from this session"
+                                    className="hover:text-destructive ml-0.5"
+                                  >
+                                    <X className="w-3 h-3" />
+                                  </button>
+                                </span>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+
+                      <div className="flex items-center justify-end pt-2 border-t border-border">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (window.confirm(`Delete session "${s.title}"?`)) {
+                              deleteSessionMut.mutate(s.id)
+                            }
+                          }}
+                          className="inline-flex items-center gap-1 h-7 px-2 text-xs text-muted-foreground hover:text-destructive transition"
+                        >
+                          <Trash2 className="w-3 h-3" /> Delete
+                        </button>
                       </div>
                     </div>
-
-                    <div className="flex items-center justify-end pt-2 border-t border-border">
-                      <button
-                        type="button"
-                        onClick={() => {
-                          if (window.confirm(`Delete session "${s.title}"?`)) {
-                            deleteSessionMut.mutate(s.id)
-                          }
-                        }}
-                        className="inline-flex items-center gap-1 h-7 px-2 text-xs text-muted-foreground hover:text-destructive transition"
-                      >
-                        <Trash2 className="w-3 h-3" /> Delete
-                      </button>
-                    </div>
-                  </div>
-                )
-              })}
-            </div>
-          )}
-        </div>
+                  )
+                })}
+              </div>
+            )}
+          </div>
         </div>
       )}
 
@@ -956,7 +956,7 @@ function CohortStaffPanel({
   const assignedInstructorIds = new Set(instructors.map((i) => i.user_id))
 
   const instructorCandidates = team.filter(
-    (m) => m.org_role === "instructor" && !assignedInstructorIds.has(m.id)
+    (m) => memberOrgRoles(m).includes("instructor") && !assignedInstructorIds.has(m.id)
   )
 
   return (
@@ -966,209 +966,209 @@ function CohortStaffPanel({
           <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
             <h3 className="font-semibold text-sm">Instructors</h3>
             <div className="flex items-center gap-2 shrink-0">
-            <select
-              value={instructorId}
-              onChange={(e) => setInstructorId(e.target.value)}
-              className="input h-8 text-xs w-auto !py-0"
-            >
-              <option value="">Choose instructor…</option>
-              {instructorCandidates.map((m) => (
-                <option key={m.id} value={m.id}>
-                  {m.full_name}
-                </option>
-              ))}
-            </select>
-            <Button
-              size="sm"
-              disabled={!instructorId}
-              onClick={() => {
-                onAssignInstructor(instructorId)
-                setInstructorId("")
-              }}
-            >
-              <UserPlus className="size-3.5" /> Assign
-            </Button>
-          </div>
-        </div>
-
-        {instructorCandidates.length === 0 && !instructors.length && (
-          <p className="text-xs text-muted-foreground mb-3">
-            No team members have the Instructor role yet.{" "}
-            <Link to="/organization/team" className="font-semibold text-primary hover:underline">
-              Add an instructor on the Team page
-            </Link>
-            .
-          </p>
-        )}
-
-        {loading ? (
-          <p className="text-xs text-muted-foreground">Loading staffing…</p>
-        ) : instructors.length === 0 ? (
-          <p className="text-xs text-muted-foreground">No instructors assigned to this cohort yet.</p>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="text-left text-[11px] uppercase tracking-wide text-muted-foreground border-b border-border">
-                  <th className="py-2 pr-3">Instructor</th>
-                  <th className="py-2 pr-3">Sessions</th>
-                  <th className="py-2 pr-3">Attendance</th>
-                  <th className="py-2 pr-3">Readiness</th>
-                  <th className="py-2 pr-3 text-right">Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {instructors.map((ins) => (
-                  <tr key={ins.user_id} className="border-b border-border/60">
-                    <td className="py-2 pr-3">
-                      <span className="font-medium text-foreground block">{ins.full_name}</span>
-                      <span className="text-[11px] text-muted-foreground">{ins.email}</span>
-                    </td>
-                    <td className="py-2 pr-3 whitespace-nowrap text-muted-foreground">
-                      {ins.completed_sessions} / {ins.sessions_count} completed
-                    </td>
-                    <td className="py-2 pr-3 whitespace-nowrap text-muted-foreground">
-                      <span className="text-emerald-600 dark:text-emerald-400 font-semibold">
-                        {ins.attendance_present}
-                      </span>{" "}
-                      present ·{" "}
-                      <span className="text-destructive font-semibold">{ins.attendance_absent}</span>{" "}
-                      absent
-                    </td>
-                    <td className="py-2 pr-3">
-                      <ReadinessBadge readiness={ins.readiness} />
-                    </td>
-                    <td className="py-2 pr-3 text-right whitespace-nowrap">
-                      <Button
-                        size="xs"
-                        variant="outline"
-                        onClick={() => {
-                          if (
-                            window.confirm(
-                              `Remove ${ins.full_name} from all sessions in this cohort?`
-                            )
-                          ) {
-                            onUnassignInstructor(ins.user_id)
-                          }
-                        }}
-                      >
-                        <Trash2 className="size-3" /> Unassign
-                      </Button>
-                    </td>
-                  </tr>
+              <select
+                value={instructorId}
+                onChange={(e) => setInstructorId(e.target.value)}
+                className="input h-8 text-xs w-auto !py-0"
+              >
+                <option value="">Choose instructor…</option>
+                {instructorCandidates.map((m) => (
+                  <option key={m.id} value={m.id}>
+                    {m.full_name}
+                  </option>
                 ))}
-              </tbody>
-            </table>
+              </select>
+              <Button
+                size="sm"
+                disabled={!instructorId}
+                onClick={() => {
+                  onAssignInstructor(instructorId)
+                  setInstructorId("")
+                }}
+              >
+                <UserPlus className="size-3.5" /> Assign
+              </Button>
+            </div>
           </div>
-        )}
-      </div>
+
+          {instructorCandidates.length === 0 && !instructors.length && (
+            <p className="text-xs text-muted-foreground mb-3">
+              No team members have the Instructor role yet.{" "}
+              <Link to="/organization/team" className="font-semibold text-primary hover:underline">
+                Add an instructor on the Team page
+              </Link>
+              .
+            </p>
+          )}
+
+          {loading ? (
+            <p className="text-xs text-muted-foreground">Loading staffing…</p>
+          ) : instructors.length === 0 ? (
+            <p className="text-xs text-muted-foreground">No instructors assigned to this cohort yet.</p>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="text-left text-[11px] uppercase tracking-wide text-muted-foreground border-b border-border">
+                    <th className="py-2 pr-3">Instructor</th>
+                    <th className="py-2 pr-3">Sessions</th>
+                    <th className="py-2 pr-3">Attendance</th>
+                    <th className="py-2 pr-3">Readiness</th>
+                    <th className="py-2 pr-3 text-right">Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {instructors.map((ins) => (
+                    <tr key={ins.user_id} className="border-b border-border/60">
+                      <td className="py-2 pr-3">
+                        <span className="font-medium text-foreground block">{ins.full_name}</span>
+                        <span className="text-[11px] text-muted-foreground">{ins.email}</span>
+                      </td>
+                      <td className="py-2 pr-3 whitespace-nowrap text-muted-foreground">
+                        {ins.completed_sessions} / {ins.sessions_count} completed
+                      </td>
+                      <td className="py-2 pr-3 whitespace-nowrap text-muted-foreground">
+                        <span className="text-emerald-600 dark:text-emerald-400 font-semibold">
+                          {ins.attendance_present}
+                        </span>{" "}
+                        present ·{" "}
+                        <span className="text-destructive font-semibold">{ins.attendance_absent}</span>{" "}
+                        absent
+                      </td>
+                      <td className="py-2 pr-3">
+                        <ReadinessBadge readiness={ins.readiness} />
+                      </td>
+                      <td className="py-2 pr-3 text-right whitespace-nowrap">
+                        <Button
+                          size="xs"
+                          variant="outline"
+                          onClick={() => {
+                            if (
+                              window.confirm(
+                                `Remove ${ins.full_name} from all sessions in this cohort?`
+                              )
+                            ) {
+                              onUnassignInstructor(ins.user_id)
+                            }
+                          }}
+                        >
+                          <Trash2 className="size-3" /> Unassign
+                        </Button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
       )}
 
       {section === "prequiz" && (
-      <div>
-        <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
-          <div>
-            <h3 className="font-semibold text-sm flex items-center gap-2">
-              <ClipboardCheck className="size-4 text-primary" /> Pre-Session Readiness Quiz
-            </h3>
-            <p className="text-xs text-muted-foreground">
-              Instructors must pass this quiz before they can start a session in this cohort.
-            </p>
-          </div>
-          <div className="flex flex-wrap items-center gap-2 shrink-0">
-            <select
-              value={presetId}
-              onChange={(e) => setPresetDraft(e.target.value)}
-              className="input h-8 text-xs w-auto min-w-[220px] !py-0"
-            >
-              <option value="">No readiness quiz</option>
-              {presets.map((p) => (
-                <option key={p.id} value={p.id}>
-                  {p.name} ({p.question_count} questions){p.is_own ? " · Org" : ""}
-                </option>
-              ))}
-            </select>
-            <Button size="sm" variant="outline" onClick={() => onSetReadiness(presetId || null)}>
-              Save
-            </Button>
-            <Button size="sm" onClick={() => setCreatePresetOpen(true)}>
-              <Plus className="size-3.5" /> Create Assessment
-            </Button>
-          </div>
-        </div>
-
-        {createPresetOpen && (
-          <CreateOrgReadinessModal
-            cohortId={cohortId}
-            onClose={() => setCreatePresetOpen(false)}
-            onCreated={(created) => {
-              setCreatePresetOpen(false)
-              setPresetDraft(created.id)
-              void qc.invalidateQueries({ queryKey: ["org-readiness-presets", cohortId] })
-              onSetReadiness(created.id)
-            }}
-          />
-        )}
-
-        <p className="text-xs text-muted-foreground mb-3">
-          Currently assigned:{" "}
-          <span className="font-semibold text-foreground">
-            {readiness?.preset ? readiness.preset.name : "None"}
-          </span>
-          {readiness?.preset?.description ? ` — ${readiness.preset.description}` : ""}
-        </p>
-
-        {!readiness || readiness.instructors.length === 0 ? (
-          <p className="text-xs text-muted-foreground">
-            No instructor readiness results yet. Results appear here once instructors take the quiz.
-          </p>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="text-left text-[11px] uppercase tracking-wide text-muted-foreground border-b border-border">
-                  <th className="py-2 pr-3">Instructor</th>
-                  <th className="py-2 pr-3">Score</th>
-                  <th className="py-2 pr-3">Submitted</th>
-                  <th className="py-2 pr-3">Status</th>
-                </tr>
-              </thead>
-              <tbody>
-                {readiness.instructors.map((r) => (
-                  <tr key={r.user_id} className="border-b border-border/60">
-                    <td className="py-2 pr-3">
-                      <span className="font-medium text-foreground block">{r.full_name}</span>
-                      <span className="text-[11px] text-muted-foreground">{r.email}</span>
-                    </td>
-                    <td className="py-2 pr-3 whitespace-nowrap text-foreground font-semibold">
-                      {Math.round(r.final_score || 0)}% of {r.total_questions} questions
-                    </td>
-                    <td className="py-2 pr-3 whitespace-nowrap text-muted-foreground">
-                      {r.submitted_at ? new Date(r.submitted_at).toLocaleDateString() : "—"}
-                    </td>
-                    <td className="py-2 pr-3">
-                      <ReadinessBadge
-                        readiness={{
-                          status: r.status,
-                          final_score: r.final_score,
-                          total_questions: r.total_questions,
-                          submitted_at: r.submitted_at,
-                          passed: r.passed,
-                        }}
-                      />
-                      {r.pending_review_count > 0 && (
-                        <span className="ml-2 text-[10px] text-muted-foreground">
-                          {r.pending_review_count} pending review
-                        </span>
-                      )}
-                    </td>
-                  </tr>
+        <div>
+          <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
+            <div>
+              <h3 className="font-semibold text-sm flex items-center gap-2">
+                <ClipboardCheck className="size-4 text-primary" /> Pre-Session Readiness Quiz
+              </h3>
+              <p className="text-xs text-muted-foreground">
+                Instructors must pass this quiz before they can start a session in this cohort.
+              </p>
+            </div>
+            <div className="flex flex-wrap items-center gap-2 shrink-0">
+              <select
+                value={presetId}
+                onChange={(e) => setPresetDraft(e.target.value)}
+                className="input h-8 text-xs w-auto min-w-[220px] !py-0"
+              >
+                <option value="">No readiness quiz</option>
+                {presets.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.name} ({p.question_count} questions){p.is_own ? " · Org" : ""}
+                  </option>
                 ))}
-              </tbody>
-            </table>
+              </select>
+              <Button size="sm" variant="outline" onClick={() => onSetReadiness(presetId || null)}>
+                Save
+              </Button>
+              <Button size="sm" onClick={() => setCreatePresetOpen(true)}>
+                <Plus className="size-3.5" /> Create Assessment
+              </Button>
+            </div>
           </div>
-        )}
-      </div>
+
+          {createPresetOpen && (
+            <CreateOrgReadinessModal
+              cohortId={cohortId}
+              onClose={() => setCreatePresetOpen(false)}
+              onCreated={(created) => {
+                setCreatePresetOpen(false)
+                setPresetDraft(created.id)
+                void qc.invalidateQueries({ queryKey: ["org-readiness-presets", cohortId] })
+                onSetReadiness(created.id)
+              }}
+            />
+          )}
+
+          <p className="text-xs text-muted-foreground mb-3">
+            Currently assigned:{" "}
+            <span className="font-semibold text-foreground">
+              {readiness?.preset ? readiness.preset.name : "None"}
+            </span>
+            {readiness?.preset?.description ? ` — ${readiness.preset.description}` : ""}
+          </p>
+
+          {!readiness || readiness.instructors.length === 0 ? (
+            <p className="text-xs text-muted-foreground">
+              No instructor readiness results yet. Results appear here once instructors take the quiz.
+            </p>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="text-left text-[11px] uppercase tracking-wide text-muted-foreground border-b border-border">
+                    <th className="py-2 pr-3">Instructor</th>
+                    <th className="py-2 pr-3">Score</th>
+                    <th className="py-2 pr-3">Submitted</th>
+                    <th className="py-2 pr-3">Status</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {readiness.instructors.map((r) => (
+                    <tr key={r.user_id} className="border-b border-border/60">
+                      <td className="py-2 pr-3">
+                        <span className="font-medium text-foreground block">{r.full_name}</span>
+                        <span className="text-[11px] text-muted-foreground">{r.email}</span>
+                      </td>
+                      <td className="py-2 pr-3 whitespace-nowrap text-foreground font-semibold">
+                        {Math.round(r.final_score || 0)}% of {r.total_questions} questions
+                      </td>
+                      <td className="py-2 pr-3 whitespace-nowrap text-muted-foreground">
+                        {r.submitted_at ? new Date(r.submitted_at).toLocaleDateString() : "—"}
+                      </td>
+                      <td className="py-2 pr-3">
+                        <ReadinessBadge
+                          readiness={{
+                            status: r.status,
+                            final_score: r.final_score,
+                            total_questions: r.total_questions,
+                            submitted_at: r.submitted_at,
+                            passed: r.passed,
+                          }}
+                        />
+                        {r.pending_review_count > 0 && (
+                          <span className="ml-2 text-[10px] text-muted-foreground">
+                            {r.pending_review_count} pending review
+                          </span>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
       )}
     </div>
   )
