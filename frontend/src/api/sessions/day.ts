@@ -48,6 +48,7 @@ export const setChecklistItemsApi = (
   scope: ChecklistScope,
   ownerId: string,
   items: {
+    id?: string | null
     title: string
     description?: string | null
     requires_proof?: boolean
@@ -67,6 +68,76 @@ export const setChecklistItemsApi = (
       target_audience: targetAudience,
     },
   }).then((r) => r.data)
+
+export interface SessionChecklistSummary {
+  session_id: string
+  day_number: number
+  meeting_date: string
+  starts_at?: string | null
+  title?: string | null
+  instructor_items_count: number
+  effective_instructor_items_count: number
+  internal_items_count: number
+  effective_internal_items_count: number
+  is_instructor_inherited: boolean
+  is_internal_inherited: boolean
+  has_instructor_progress: boolean
+  has_internal_progress: boolean
+  has_approved_instructor_day?: boolean
+}
+
+export interface CohortChecklistsSummary {
+  cohort_id: string
+  pre_workshop_instructor_count: number
+  pre_workshop_internal_count: number
+  sessions: SessionChecklistSummary[]
+}
+
+export interface DayImportMapping {
+  target_session_id: string
+  source_session_id: string | null
+}
+
+export interface ImportCohortDefaultsInput {
+  source_type: "program" | "cohort"
+  source_id?: string | null
+  include_instructor: boolean
+  include_internal: boolean
+  include_pre_workshop: boolean
+  include_titles: boolean
+  mode: "replace" | "fill_empty"
+  day_mappings?: DayImportMapping[] | null
+  create_missing_sessions?: boolean
+}
+
+export interface ImportCohortDefaultsResult {
+  imported_pre_workshop_count: number
+  imported_session_items_count: number
+  sessions_updated: number
+  sessions_created: number
+}
+
+export type SwitchDaysScope = "both" | "instructor" | "internal"
+
+export interface SwitchDaysInput {
+  session_plan_order: string[]
+  scope: SwitchDaysScope
+  include_titles: boolean
+}
+
+export interface SwitchDaysResult {
+  sessions_switched: number
+  items_moved: number
+}
+
+export const getCohortChecklistsSummaryApi = (cohortId: string) =>
+  api.get<CohortChecklistsSummary>(`/sessions/cohorts/${cohortId}/checklists/summary`).then((r) => r.data)
+
+export const importCohortDefaultsApi = (cohortId: string, data: ImportCohortDefaultsInput) =>
+  api.post<ImportCohortDefaultsResult>(`/sessions/cohorts/${cohortId}/checklists/import-default`, data).then((r) => r.data)
+
+export const switchCohortDaysApi = (cohortId: string, data: SwitchDaysInput) =>
+  api.post<SwitchDaysResult>(`/sessions/cohorts/${cohortId}/checklists/switch-days`, data).then((r) => r.data)
 
 export interface ImportChecklistItemsInput {
   source_scope: ChecklistScope

@@ -166,6 +166,7 @@ export interface Cohort {
   program_is_competition?: boolean;
   org_capacity_limit?: number | null;
   linked_event_slug?: string | null;
+  inherit_default_checklists?: boolean;
 }
 
 export interface SessionInstructor {
@@ -213,6 +214,8 @@ export interface Session {
   /** This session's own override, if it has one — NULL inherits the
    *  cohort's (then the program's) duration. */
   duration_hours?: number | null;
+  instructor_checklist_overridden?: boolean;
+  internal_checklist_overridden?: boolean;
 }
 
 export interface GenerateSessionsResult {

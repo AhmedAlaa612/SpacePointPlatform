@@ -55,6 +55,8 @@ class CohortCreate(CohortBase):
     program_id: UUID
     status: CohortStatus = "planned"
     keep_course_access_after_completion: bool | None = None
+    import_default_checklists: bool = True
+    checklist_source_program_id: UUID | None = None
 
 
 class CohortUpdate(BaseModel):
@@ -109,6 +111,7 @@ class CohortOut(CohortBase):
     next_session_date: date | None = None
     org_capacity_limit: int | None = None
     linked_event_slug: str | None = None
+    inherit_default_checklists: bool = True
 
     class Config:
         from_attributes = True
@@ -173,6 +176,8 @@ class SessionOut(BaseModel):
     kits_count: int = 0
     started_at: datetime | None = None
     completed_at: datetime | None = None
+    instructor_checklist_overridden: bool = False
+    internal_checklist_overridden: bool = False
 
     class Config:
         from_attributes = True

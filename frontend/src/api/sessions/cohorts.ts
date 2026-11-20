@@ -35,6 +35,8 @@ export const createCohortApi = (data: {
   notes?: string
   poster_template_url?: string
   keep_course_access_after_completion?: boolean
+  import_default_checklists?: boolean
+  checklist_source_program_id?: string | null
 }) => api.post<Cohort>("/sessions/cohorts", data).then((r) => r.data)
 
 export const updateCohortApi = (

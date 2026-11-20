@@ -546,9 +546,9 @@ async def get_program_template(
     current_user: User = Depends(require_session_delivery),
 ):
     """Returns the program's template cohort, default days, and session IDs."""
-    from app.services.org_access import is_ops_or_admin, is_program_org_manager
+    from app.services.org_access import can_org_manager_read_program_template, is_ops_or_admin
 
-    if not is_ops_or_admin(current_user) and not await is_program_org_manager(db, program_id, current_user):
+    if not is_ops_or_admin(current_user) and not await can_org_manager_read_program_template(db, program_id, current_user):
         raise HTTPException(status.HTTP_403_FORBIDDEN, detail="Operation not permitted")
     program = await db.get(Program, program_id)
     if program is None:

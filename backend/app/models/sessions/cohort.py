@@ -71,5 +71,8 @@ class Cohort(Base):
     keep_course_access_after_completion = Column(
         Boolean, nullable=False, default=True, server_default="true",
     )
+    inherit_default_checklists = Column(
+        Boolean, nullable=False, default=True, server_default="true",
+    )
 
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))

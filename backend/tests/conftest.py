@@ -83,6 +83,9 @@ async def _engine():
         await conn.execute(text("ALTER TABLE pre_session_quiz_questions ADD COLUMN IF NOT EXISTS organization_id UUID REFERENCES organizations(id) ON DELETE CASCADE;"))
         await conn.execute(text("ALTER TABLE pre_session_quiz_datasheets ADD COLUMN IF NOT EXISTS organization_id UUID REFERENCES organizations(id) ON DELETE CASCADE;"))
         await conn.execute(text("ALTER TABLE pre_session_quiz_presets ADD COLUMN IF NOT EXISTS organization_id UUID REFERENCES organizations(id) ON DELETE CASCADE;"))
+        await conn.execute(text("ALTER TABLE cohorts ADD COLUMN IF NOT EXISTS inherit_default_checklists BOOLEAN NOT NULL DEFAULT TRUE;"))
+        await conn.execute(text("ALTER TABLE sessions ADD COLUMN IF NOT EXISTS instructor_checklist_overridden BOOLEAN NOT NULL DEFAULT FALSE;"))
+        await conn.execute(text("ALTER TABLE sessions ADD COLUMN IF NOT EXISTS internal_checklist_overridden BOOLEAN NOT NULL DEFAULT FALSE;"))
     yield engine
     await engine.dispose()
 

@@ -10,11 +10,13 @@
 import { useEffect, useState } from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import {
+  ArrowLeftRight,
   ChevronDown,
   ChevronRight,
   ChevronUp,
   ClipboardCheck,
   Copy,
+  Download,
   ExternalLink,
   Eye,
   FileText,
@@ -39,14 +41,26 @@ import {
 } from "@/api/sessions/openings"
 import { getSessionsApi } from "@/api/sessions/cohorts"
 import { getProgramTemplateApi } from "@/api/sessions/programs"
-import { listChecklistItemsApi, setChecklistItemsApi, type ChecklistScope } from "@/api/sessions/day"
+import {
+  getCohortChecklistsSummaryApi,
+  listChecklistItemsApi,
+  setChecklistItemsApi,
+  type ChecklistScope,
+  type CohortChecklistsSummary,
+} from "@/api/sessions/day"
 import { useToast } from "@/components/ui/toast"
 import { cn, ensureAbsoluteUrl, getErrorMessage } from "@/lib/utils"
 import { MediaPreviewModal } from "@/components/media/MediaPreviewModal"
 import { ChecklistAttachmentPicker } from "./ChecklistAttachmentPicker"
 import { ImportInstructorChecklistModal } from "./ImportInstructorChecklistModal"
+import { ImportCohortDefaultModal } from "./ImportCohortDefaultModal"
+import { SwitchCohortDaysModal } from "./SwitchCohortDaysModal"
+import { OrderNumberInput } from "./OrderNumberInput"
+
+export { OrderNumberInput }
 
 export type ChecklistDraftLine = {
+  id?: string
   key: string
   title: string
   description?: string | null
@@ -86,6 +100,7 @@ export function toDraftLines(items: ChecklistItem[]): ChecklistDraftLine[] {
       requires_proof: Boolean(s.requires_proof),
     }))
     return {
+      id: i.id,
       key: i.id || `item-${Math.random().toString(36).substring(2, 9)}`,
       title: i.title,
       description: i.description,
@@ -99,10 +114,21 @@ export function toDraftLines(items: ChecklistItem[]): ChecklistDraftLine[] {
   })
 }
 
+/** Chronological session ordering matching backend `_cohort_sessions_chronological`. */
+export function compareSessionsChronologically(a: Session, b: Session) {
+  const d = a.meeting_date.localeCompare(b.meeting_date)
+  if (d !== 0) return d
+  const s = (a.starts_at || "").localeCompare(b.starts_at || "")
+  if (s !== 0) return s
+  return (a.created_at || "").localeCompare(b.created_at || "")
+}
+
 /** Fallback resolution ladder:
- *  1. If scope is session -> check cohort for role, then cohort general.
- *  2. If roleId is set -> check same level general.
- *  3. Program level -> program for role, then program general.
+ *  1. If scope is session and explicitly overridden to empty -> [].
+ *  2. If scope is session and cohort inherits defaults -> check program template day.
+ *  3. If scope is session -> check cohort for role, then cohort general.
+ *  4. If roleId is set -> check same level general.
+ *  5. Program level (only if cohort inherits defaults) -> program for role, then program general.
  */
 async function fetchFallbackChecklistItems(
   scope: ChecklistScope,
@@ -112,9 +138,15 @@ async function fetchFallbackChecklistItems(
   cohortId?: string,
   targetAudience: "instructor" | "internal" = "instructor",
   allSessions?: Session[],
+  options?: { cohortInheritDefaults?: boolean; isExplicitlyOverridden?: boolean },
 ): Promise<ChecklistItem[]> {
+  if (scope === "sessions" && options?.isExplicitlyOverridden) {
+    return []
+  }
+  const inheritDefaults = options?.cohortInheritDefaults ?? true
+
   let templateSessionId: string | undefined
-  if (scope === "sessions" && programId && allSessions && allSessions.length > 0) {
+  if (inheritDefaults && scope === "sessions" && programId && allSessions && allSessions.length > 0) {
     const dayIdx = allSessions.findIndex((s) => s.id === ownerId)
     if (dayIdx >= 0) {
       try {
@@ -137,7 +169,7 @@ async function fetchFallbackChecklistItems(
         if (cohortInternal.length > 0) return cohortInternal
       } catch { }
     }
-    if (programId) {
+    if (inheritDefaults && programId) {
       try {
         const progInternal = await listChecklistItemsApi("programs", programId, null, "internal")
         if (progInternal.length > 0) return progInternal
@@ -179,7 +211,7 @@ async function fetchFallbackChecklistItems(
     } catch { }
   }
 
-  if (programId) {
+  if (inheritDefaults && programId) {
     if (roleId) {
       try {
         const progRole = await listChecklistItemsApi("programs", programId, roleId)
@@ -194,55 +226,7 @@ async function fetchFallbackChecklistItems(
   return []
 }
 
-/** Editable order number box (mobile & keyboard friendly jump-to-position) */
-export function OrderNumberInput({
-  value,
-  totalCount,
-  onCommit,
-  disabled,
-}: {
-  value: number
-  totalCount: number
-  onCommit: (pos: number) => void
-  disabled?: boolean
-}) {
-  const [text, setText] = useState(String(value))
-  useEffect(() => {
-    setText(String(value))
-  }, [value])
-
-  const commit = () => {
-    const parsed = Number.parseInt(text, 10)
-    if (!Number.isFinite(parsed) || parsed === value) {
-      setText(String(value))
-      return
-    }
-    onCommit(parsed)
-    setText(String(value))
-  }
-
-  return (
-    <input
-      type="number"
-      value={text}
-      min={1}
-      max={totalCount}
-      inputMode="numeric"
-      disabled={disabled}
-      onChange={(e) => setText(e.target.value)}
-      onBlur={commit}
-      onKeyDown={(e) => {
-        if (e.key === "Enter") (e.target as HTMLInputElement).blur()
-        if (e.key === "Escape") {
-          setText(String(value))
-            ; (e.target as HTMLInputElement).blur()
-        }
-      }}
-      onClick={(e) => e.stopPropagation()}
-      className="w-9 h-7 px-1 border border-border bg-background text-foreground rounded text-xs font-semibold text-center focus:outline-none focus:border-primary transition-colors disabled:opacity-50 shrink-0"
-    />
-  )
-}
+/** Editable order number box imported from OrderNumberInput.tsx */
 
 /** Reorderable checklist items list with drag-and-drop & order numbers */
 function ReorderableChecklistList({
@@ -732,6 +716,9 @@ function DayChecklistEditor({
   allSessions,
   targetAudience = "instructor",
   roles = [],
+  refreshToken = 0,
+  cohortInheritDefaults = true,
+  isExplicitlyOverridden = false,
 }: {
   scope: ChecklistScope
   ownerId: string
@@ -744,6 +731,9 @@ function DayChecklistEditor({
   allSessions: Session[]
   targetAudience?: "instructor" | "internal"
   roles?: DeliveryRole[]
+  refreshToken?: number
+  cohortInheritDefaults?: boolean
+  isExplicitlyOverridden?: boolean
 }) {
   const qc = useQueryClient()
   const toast = useToast()
@@ -756,7 +746,7 @@ function DayChecklistEditor({
 
   const audienceKey = targetAudience === "internal" ? "internal" : (roleId ?? "general")
   const queryKey = ["checklist-items", scope, ownerId, audienceKey]
-  const { data: items = [], isLoading } = useQuery({
+  const { data: items = [], isLoading, isFetching } = useQuery({
     queryKey,
     queryFn: () => listChecklistItemsApi(scope, ownerId, roleId, targetAudience),
   })
@@ -777,37 +767,63 @@ function DayChecklistEditor({
     },
   })
 
-  // Reset draft on day/role switch
+  // Reset draft on day/role switch or bulk refresh
   useEffect(() => {
     setDraft(null)
     setIsInherited(false)
     setError("")
-  }, [scope, ownerId, roleId, targetAudience])
+  }, [scope, ownerId, roleId, targetAudience, refreshToken])
 
   useEffect(() => {
-    if (draft !== null || isLoading) return
+    if (draft !== null || isLoading || isFetching) return
 
+    let cancelled = false
     if (items.length > 0) {
       setDraft(toDraftLines(items))
       setIsInherited(false)
     } else {
       setIsLoadingFallback(true)
-      fetchFallbackChecklistItems(scope, ownerId, programId, roleId, cohortId, targetAudience, allSessions)
+      fetchFallbackChecklistItems(scope, ownerId, programId, roleId, cohortId, targetAudience, allSessions, {
+        cohortInheritDefaults,
+        isExplicitlyOverridden,
+      })
         .then((fb) => {
+          if (cancelled) return
           setDraft(toDraftLines(fb))
           setIsInherited(fb.length > 0)
         })
         .catch(() => {
+          if (cancelled) return
           setDraft([])
           setIsInherited(false)
         })
-        .finally(() => setIsLoadingFallback(false))
+        .finally(() => {
+          if (!cancelled) setIsLoadingFallback(false)
+        })
     }
-  }, [isLoading, items, draft, scope, ownerId, programId, roleId, cohortId, targetAudience, allSessions])
+    return () => {
+      cancelled = true
+    }
+  }, [
+    isLoading,
+    isFetching,
+    items,
+    draft,
+    scope,
+    ownerId,
+    programId,
+    roleId,
+    cohortId,
+    targetAudience,
+    allSessions,
+    cohortInheritDefaults,
+    isExplicitlyOverridden,
+  ])
 
   const saveMutation = useMutation({
     mutationFn: () => {
       const payload = (draft ?? []).map((l, i) => ({
+        id: !isInherited ? l.id : undefined,
         title: l.title,
         description: l.description,
         requires_proof: l.requires_proof,
@@ -820,11 +836,18 @@ function DayChecklistEditor({
       }))
       return setChecklistItemsApi(scope, ownerId, payload, roleId, targetAudience)
     },
-    onSuccess: () => {
+    onSuccess: (saved) => {
       toast.success(`${dayTitle} checklist saved`)
       setError("")
       setIsInherited(false)
-      qc.invalidateQueries({ queryKey })
+      if (saved) {
+        setDraft(toDraftLines(saved))
+      }
+      void qc.invalidateQueries({ queryKey })
+      void qc.invalidateQueries({ queryKey: ["cohort-checklists-summary", cohortId] })
+      void qc.invalidateQueries({ queryKey: ["sessions-sessions", cohortId] })
+      void qc.invalidateQueries({ queryKey: ["wizard-sessions", cohortId] })
+      void qc.invalidateQueries({ queryKey: ["session-internal-checklist"] })
     },
     onError: (e: any) => setError(getErrorMessage(e, "Could not save checklist")),
   })
@@ -858,7 +881,13 @@ function DayChecklistEditor({
   const handleRevertToTemplate = async () => {
     try {
       await setChecklistItemsApi(scope, ownerId, [], roleId, targetAudience)
-      qc.invalidateQueries({ queryKey })
+      await Promise.all([
+        qc.invalidateQueries({ queryKey }),
+        qc.invalidateQueries({ queryKey: ["cohort-checklists-summary", cohortId] }),
+        qc.invalidateQueries({ queryKey: ["sessions-sessions", cohortId] }),
+        qc.invalidateQueries({ queryKey: ["wizard-sessions", cohortId] }),
+        qc.invalidateQueries({ queryKey: ["session-internal-checklist"] }),
+      ])
       setDraft(null)
       toast.success("Reverted to inherited template")
     } catch {
@@ -893,7 +922,13 @@ function DayChecklistEditor({
       await Promise.all(
         allSessions.map((s) => setChecklistItemsApi("sessions", s.id, payload, roleId, targetAudience)),
       )
-      qc.invalidateQueries({ queryKey: ["checklist-items"] })
+      await Promise.all([
+        qc.invalidateQueries({ queryKey: ["checklist-items"] }),
+        qc.invalidateQueries({ queryKey: ["cohort-checklists-summary", cohortId] }),
+        qc.invalidateQueries({ queryKey: ["sessions-sessions", cohortId] }),
+        qc.invalidateQueries({ queryKey: ["wizard-sessions", cohortId] }),
+        qc.invalidateQueries({ queryKey: ["session-internal-checklist"] }),
+      ])
       toast.success(`Checklist applied to all ${allSessions.length} sessions`)
     } catch {
       toast.error("Failed to apply checklist to all sessions")
@@ -935,7 +970,7 @@ function DayChecklistEditor({
               >
                 <Copy size={13} /> Copy Default
               </button>
-              {!isInherited && items.length > 0 && (
+              {((!isInherited && items.length > 0) || (isExplicitlyOverridden && cohortInheritDefaults)) && (
                 <button
                   type="button"
                   onClick={handleRevertToTemplate}
@@ -1027,7 +1062,11 @@ function DayChecklistEditor({
         onImportSuccess={(newItems) => {
           setDraft(toDraftLines(newItems))
           setIsInherited(false)
-          qc.invalidateQueries({ queryKey })
+          void qc.invalidateQueries({ queryKey })
+          void qc.invalidateQueries({ queryKey: ["cohort-checklists-summary", cohortId] })
+          void qc.invalidateQueries({ queryKey: ["sessions-sessions", cohortId] })
+          void qc.invalidateQueries({ queryKey: ["wizard-sessions", cohortId] })
+          void qc.invalidateQueries({ queryKey: ["session-internal-checklist"] })
         }}
       />
     </div>
@@ -1048,14 +1087,22 @@ export function CohortDayChecklistManager({
   initialSessionId?: string
   isOrgScope?: boolean
 }) {
-  const sortedSessions = [...sessions].sort((a, b) => {
-    const d = a.meeting_date.localeCompare(b.meeting_date)
-    return d !== 0 ? d : (a.starts_at || "").localeCompare(b.starts_at || "")
-  })
+  const sortedSessions = [...sessions].sort(compareSessionsChronologically)
 
   const [selectedDay, setSelectedDay] = useState<string>(initialSessionId || "default")
   const [activeRoleId, setActiveRoleId] = useState<string | null>(null)
   const [isInternalChecklist, setIsInternalChecklist] = useState(false)
+  const [showImportDefaultModal, setShowImportDefaultModal] = useState(false)
+  const [showSwitchDaysModal, setShowSwitchDaysModal] = useState(false)
+  const [editorRefreshToken, setEditorRefreshToken] = useState(0)
+
+  const { data: checklistSummary, isLoading: summaryLoading } = useQuery<CohortChecklistsSummary>({
+    queryKey: ["cohort-checklists-summary", cohort.id],
+    queryFn: () => getCohortChecklistsSummaryApi(cohort.id),
+  })
+  const summaryBySessionId = new Map(
+    (checklistSummary?.sessions ?? []).map((s) => [s.session_id, s]),
+  )
 
   const isDefaultScope = selectedDay === "default"
   const currentSession = !isDefaultScope ? sortedSessions.find((s) => s.id === selectedDay) : null
@@ -1078,16 +1125,38 @@ export function CohortDayChecklistManager({
   return (
     <div className="flex flex-col gap-4">
       {/* 1. Box Day Selector Cards */}
-      <div className="flex flex-col gap-1.5">
-        <div className="flex items-center justify-between">
-          <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-            Day Selector
-          </span>
-          {sortedSessions.length > 0 && (
-            <span className="text-xs text-muted-foreground">
-              {sortedSessions.length} session{sortedSessions.length === 1 ? "" : "s"}
+      <div className="flex flex-col gap-2">
+        <div className="flex items-center justify-between gap-2 flex-wrap">
+          <div className="flex items-center gap-2">
+            <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+              Day Selector
             </span>
-          )}
+            {sortedSessions.length > 0 && (
+              <span className="text-xs text-muted-foreground">
+                · {sortedSessions.length} session{sortedSessions.length === 1 ? "" : "s"}
+              </span>
+            )}
+          </div>
+          <div className="flex items-center gap-1.5 flex-wrap">
+            <button
+              type="button"
+              onClick={() => setShowImportDefaultModal(true)}
+              className="flex items-center gap-1.5 h-8 px-2.5 border border-border bg-card rounded-lg text-xs font-semibold text-foreground hover:border-primary/50 hover:bg-primary/5 transition-colors cursor-pointer shadow-sm"
+              title="Import full program or cohort defaults across all days and teams"
+            >
+              <Download size={13} className="text-primary" /> Import Default
+            </button>
+            {sortedSessions.length >= 2 && (
+              <button
+                type="button"
+                onClick={() => setShowSwitchDaysModal(true)}
+                className="flex items-center gap-1.5 h-8 px-2.5 border border-border bg-card rounded-lg text-xs font-semibold text-foreground hover:border-primary/50 hover:bg-primary/5 transition-colors cursor-pointer shadow-sm"
+                title="Switch day checklists across fixed session dates"
+              >
+                <ArrowLeftRight size={13} className="text-primary" /> Switch Days
+              </button>
+            )}
+          </div>
         </div>
 
         <div className="flex items-stretch gap-2 overflow-x-auto pb-1 scrollbar-none no-scrollbar">
@@ -1116,7 +1185,9 @@ export function CohortDayChecklistManager({
               </p>
             </div>
             <span className="text-[11px] text-muted-foreground mt-2 truncate">
-              Shared fallback
+              {checklistSummary
+                ? `${checklistSummary.pre_workshop_instructor_count} inst · ${checklistSummary.pre_workshop_internal_count} ${isOrgScope ? "ops" : "int"}`
+                : "Shared fallback"}
             </span>
           </button>
 
@@ -1130,6 +1201,7 @@ export function CohortDayChecklistManager({
                 day: "numeric",
               })
               : ""
+            const daySum = summaryBySessionId.get(session.id)
 
             return (
               <button
@@ -1162,7 +1234,11 @@ export function CohortDayChecklistManager({
                   </p>
                 </div>
                 <span className="text-[11px] text-muted-foreground mt-2 truncate">
-                  {session.title ? dateFormatted || `Session ${idx + 1}` : "Day checklist"}
+                  {daySum
+                    ? `${daySum.effective_instructor_items_count} inst · ${daySum.effective_internal_items_count} ${isOrgScope ? "ops" : "int"}`
+                    : session.title
+                    ? dateFormatted || `Session ${idx + 1}`
+                    : "Day checklist"}
                 </span>
               </button>
             )
@@ -1246,8 +1322,37 @@ export function CohortDayChecklistManager({
           allSessions={sortedSessions}
           targetAudience={isInternalChecklist ? "internal" : "instructor"}
           roles={roles}
+          refreshToken={editorRefreshToken}
+          cohortInheritDefaults={cohort.inherit_default_checklists !== false}
+          isExplicitlyOverridden={Boolean(
+            !isDefaultScope &&
+              currentSession &&
+              (isInternalChecklist
+                ? currentSession.internal_checklist_overridden
+                : currentSession.instructor_checklist_overridden),
+          )}
         />
       </div>
+
+      <ImportCohortDefaultModal
+        open={showImportDefaultModal}
+        onClose={() => setShowImportDefaultModal(false)}
+        cohort={cohort}
+        sessions={sortedSessions}
+        summary={checklistSummary}
+        isOrgScope={isOrgScope}
+        onSuccess={() => setEditorRefreshToken((t) => t + 1)}
+      />
+
+      <SwitchCohortDaysModal
+        open={showSwitchDaysModal}
+        onClose={() => setShowSwitchDaysModal(false)}
+        cohort={cohort}
+        summary={checklistSummary}
+        summaryLoading={summaryLoading}
+        isOrgScope={isOrgScope}
+        onSuccess={() => setEditorRefreshToken((t) => t + 1)}
+      />
     </div>
   )
 }
@@ -1333,6 +1438,7 @@ export function ChecklistSection({
         scope,
         ownerId,
         (draft ?? []).map((l, i) => ({
+          id: !isInherited ? l.id : undefined,
           title: l.title,
           description: l.description,
           requires_proof: l.requires_proof,
@@ -1345,10 +1451,13 @@ export function ChecklistSection({
         })),
         roleId,
       ),
-    onSuccess: () => {
+    onSuccess: (saved) => {
       toast.success(`${label} checklist saved`)
       setError("")
       setIsInherited(false)
+      if (saved) {
+        setDraft(toDraftLines(saved))
+      }
       qc.invalidateQueries({ queryKey })
     },
     onError: (e: any) => setError(getErrorMessage(e, "Could not save this checklist")),
@@ -1661,7 +1770,7 @@ export function CohortRolesPanel({
   const { data: fetchedSessions = [], isLoading: sessionsLoading } = useQuery({
     queryKey: ["sessions-sessions", cohort.id],
     queryFn: () => getSessionsApi(cohort.id),
-    enabled: !sessions && !sessionId,
+    enabled: !sessions,
   })
 
   const allSessions = sessions ?? fetchedSessions

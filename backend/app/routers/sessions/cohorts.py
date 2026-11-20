@@ -287,6 +287,15 @@ async def create_cohort(
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Warehouse not found")
 
     data = body.model_dump()
+    import_default_checklists = data.pop("import_default_checklists", True)
+    checklist_source_program_id = data.pop("checklist_source_program_id", None)
+    if import_default_checklists and checklist_source_program_id is not None and checklist_source_program_id != program.id:
+        if await db.get(Program, checklist_source_program_id) is None:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Checklist source program not found")
+    data["inherit_default_checklists"] = bool(
+        import_default_checklists
+        and (checklist_source_program_id is None or checklist_source_program_id == program.id)
+    )
     if data.get("capacity") is None and program.default_capacity is not None:
         data["capacity"] = program.default_capacity
     if data.get("duration_hours") is None and program.duration_hours is not None:
@@ -328,130 +337,93 @@ async def create_cohort(
             preset_id=prog_quiz.preset_id,
         ))
 
-    program_checklist_items = (await db.execute(
-        select(DeliveryChecklistItem).where(DeliveryChecklistItem.program_id == program.id)
-        .order_by(DeliveryChecklistItem.sort_order, DeliveryChecklistItem.created_at)
-    )).scalars().all()
-    for ci in program_checklist_items:
-        db.add(DeliveryChecklistItem(
-            id=uuid.uuid4(),
-            cohort_id=cohort.id,
-            role_id=ci.role_id,
-            title=ci.title,
-            description=ci.description,
-            requires_proof=ci.requires_proof,
-            is_required=ci.is_required,
-            sort_order=ci.sort_order,
-            target_audience=ci.target_audience,
-            material_id=ci.material_id,
-            link_url=ci.link_url,
-            attachments=list(ci.attachments or []),
-            sub_items=list(ci.sub_items or []),
-            created_by=current_user.id,
-        ))
-    if program_checklist_items:
-        await db.flush()
+    if import_default_checklists:
+        src_prog_id = checklist_source_program_id or program.id
 
-    # Seed cohort sessions, per-day checklists, and quizzes from the program template cohort
-    template_cohort = await db.scalar(
-        select(Cohort).where(
-            Cohort.program_id == program.id,
-            or_(_template_cohort_match(), Cohort.name.ilike("%template%")),
-            Cohort.id != cohort.id,
-        ).order_by(Cohort.created_at.asc())
-    )
-    if template_cohort:
-        template_sessions = (await db.execute(
-            select(Session).where(Session.cohort_id == template_cohort.id)
-            .order_by(Session.meeting_date, Session.starts_at, Session.created_at)
+        program_checklist_items = (await db.execute(
+            select(DeliveryChecklistItem).where(DeliveryChecklistItem.program_id == src_prog_id)
+            .order_by(DeliveryChecklistItem.sort_order, DeliveryChecklistItem.created_at)
         )).scalars().all()
-
-        start_date = cohort.starts_on or date.today()
-        for idx, t_sess in enumerate(template_sessions):
-            sess_date = start_date + timedelta(days=idx)
-            new_s = Session(
-                id=uuid.uuid4(),
-                cohort_id=cohort.id,
-                meeting_date=sess_date,
-                starts_at=t_sess.starts_at,
-                title=t_sess.title or f"Day {idx + 1}",
-                duration_hours=(
-                    t_sess.duration_hours
-                    if t_sess.duration_hours is not None
-                    else (cohort.duration_hours if cohort.duration_hours is not None else program.duration_hours)
-                ),
-            )
-            db.add(new_s)
+        for ci in program_checklist_items:
+            db.add(day_service.clone_delivery_checklist_item(
+                ci, actor_user_id=current_user.id, cohort_id=cohort.id,
+            ))
+        if program_checklist_items:
             await db.flush()
 
-            t_items = (await db.execute(
-                select(DeliveryChecklistItem).where(DeliveryChecklistItem.session_id == t_sess.id)
-                .order_by(DeliveryChecklistItem.sort_order, DeliveryChecklistItem.created_at)
+        # Seed cohort sessions, per-day checklists, and quizzes from the source program template cohort
+        template_cohort = await day_service.find_program_template_cohort(
+            db, src_prog_id, exclude_cohort_id=cohort.id,
+        )
+        if template_cohort:
+            template_sessions = (await db.execute(
+                select(Session).where(Session.cohort_id == template_cohort.id)
+                .order_by(Session.meeting_date, Session.starts_at, Session.created_at)
             )).scalars().all()
-            for ci in t_items:
-                db.add(DeliveryChecklistItem(
-                    id=uuid.uuid4(),
-                    session_id=new_s.id,
-                    role_id=ci.role_id,
-                    title=ci.title,
-                    description=ci.description,
-                    requires_proof=ci.requires_proof,
-                    is_required=ci.is_required,
-                    sort_order=ci.sort_order,
-                    target_audience=ci.target_audience,
-                    material_id=ci.material_id,
-                    link_url=ci.link_url,
-                    attachments=list(ci.attachments or []),
-                    sub_items=list(ci.sub_items or []),
-                    created_by=current_user.id,
-                ))
-            t_sess_quiz = (await db.execute(
-                select(PreSessionQuizAssignment).where(PreSessionQuizAssignment.session_id == t_sess.id)
-            )).scalars().first()
-            if t_sess_quiz is not None:
-                db.add(PreSessionQuizAssignment(
-                    id=uuid.uuid4(),
-                    session_id=new_s.id,
-                    preset_id=t_sess_quiz.preset_id,
-                ))
-            if t_items or t_sess_quiz is not None:
-                await db.flush()
 
-        if prog_quiz is None:
-            t_cohort_quiz = (await db.execute(
-                select(PreSessionQuizAssignment).where(PreSessionQuizAssignment.cohort_id == template_cohort.id)
-            )).scalars().first()
-            if t_cohort_quiz is not None:
-                db.add(PreSessionQuizAssignment(
+            start_date = cohort.starts_on or date.today()
+            for idx, t_sess in enumerate(template_sessions):
+                sess_date = start_date + timedelta(days=idx)
+                new_s = Session(
                     id=uuid.uuid4(),
                     cohort_id=cohort.id,
-                    preset_id=t_cohort_quiz.preset_id,
-                ))
-
-        if not program_checklist_items:
-            template_cohort_items = (await db.execute(
-                select(DeliveryChecklistItem).where(DeliveryChecklistItem.cohort_id == template_cohort.id)
-                .order_by(DeliveryChecklistItem.sort_order, DeliveryChecklistItem.created_at)
-            )).scalars().all()
-            for ci in template_cohort_items:
-                db.add(DeliveryChecklistItem(
-                    id=uuid.uuid4(),
-                    cohort_id=cohort.id,
-                    role_id=ci.role_id,
-                    title=ci.title,
-                    description=ci.description,
-                    requires_proof=ci.requires_proof,
-                    is_required=ci.is_required,
-                    sort_order=ci.sort_order,
-                    target_audience=ci.target_audience,
-                    material_id=ci.material_id,
-                    link_url=ci.link_url,
-                    attachments=list(ci.attachments or []),
-                    sub_items=list(ci.sub_items or []),
-                    created_by=current_user.id,
-                ))
-            if template_cohort_items:
+                    meeting_date=sess_date,
+                    starts_at=t_sess.starts_at,
+                    title=t_sess.title or f"Day {idx + 1}",
+                    duration_hours=(
+                        t_sess.duration_hours
+                        if t_sess.duration_hours is not None
+                        else (cohort.duration_hours if cohort.duration_hours is not None else program.duration_hours)
+                    ),
+                )
+                db.add(new_s)
                 await db.flush()
+
+                t_items = (await db.execute(
+                    select(DeliveryChecklistItem).where(DeliveryChecklistItem.session_id == t_sess.id)
+                    .order_by(DeliveryChecklistItem.sort_order, DeliveryChecklistItem.created_at)
+                )).scalars().all()
+                for ci in t_items:
+                    db.add(day_service.clone_delivery_checklist_item(
+                        ci, actor_user_id=current_user.id, session_id=new_s.id,
+                    ))
+                copied_sess_quiz = False
+                if src_prog_id == program.id:
+                    t_sess_quiz = (await db.execute(
+                        select(PreSessionQuizAssignment).where(PreSessionQuizAssignment.session_id == t_sess.id)
+                    )).scalars().first()
+                    if t_sess_quiz is not None:
+                        db.add(PreSessionQuizAssignment(
+                            id=uuid.uuid4(),
+                            session_id=new_s.id,
+                            preset_id=t_sess_quiz.preset_id,
+                        ))
+                        copied_sess_quiz = True
+                if t_items or copied_sess_quiz:
+                    await db.flush()
+
+            if prog_quiz is None and src_prog_id == program.id:
+                t_cohort_quiz = (await db.execute(
+                    select(PreSessionQuizAssignment).where(PreSessionQuizAssignment.cohort_id == template_cohort.id)
+                )).scalars().first()
+                if t_cohort_quiz is not None:
+                    db.add(PreSessionQuizAssignment(
+                        id=uuid.uuid4(),
+                        cohort_id=cohort.id,
+                        preset_id=t_cohort_quiz.preset_id,
+                    ))
+
+            if not program_checklist_items:
+                template_cohort_items = (await db.execute(
+                    select(DeliveryChecklistItem).where(DeliveryChecklistItem.cohort_id == template_cohort.id)
+                    .order_by(DeliveryChecklistItem.sort_order, DeliveryChecklistItem.created_at)
+                )).scalars().all()
+                for ci in template_cohort_items:
+                    db.add(day_service.clone_delivery_checklist_item(
+                        ci, actor_user_id=current_user.id, cohort_id=cohort.id,
+                    ))
+                if template_cohort_items:
+                    await db.flush()
 
     await db.commit()
     await db.refresh(cohort)
@@ -832,23 +804,8 @@ async def clone_cohort(
             .order_by(DeliveryChecklistItem.sort_order, DeliveryChecklistItem.created_at)
         )).scalars().all()
         for ci in source_checklist_items:
-            db.add(DeliveryChecklistItem(
-                id=uuid.uuid4(),
-                program_id=None,
-                cohort_id=new_cohort.id,
-                session_id=None,
-                role_id=ci.role_id,
-                title=ci.title,
-                description=ci.description,
-                requires_proof=ci.requires_proof,
-                is_required=ci.is_required,
-                sort_order=ci.sort_order,
-                target_audience=ci.target_audience,
-                material_id=ci.material_id,
-                link_url=ci.link_url,
-                attachments=list(ci.attachments or []),
-                sub_items=list(ci.sub_items or []),
-                created_by=current_user.id,
+            db.add(day_service.clone_delivery_checklist_item(
+                ci, actor_user_id=current_user.id, cohort_id=new_cohort.id,
             ))
         if source_checklist_items:
             await db.flush()
@@ -1034,20 +991,15 @@ async def seed_cohort_sessions_from_template(
 ) -> None:
     """When sessions are added or generated for a cohort, inherit day config
     (titles, duration, checklists, and pre-session quizzes) from the program's template cohort sessions."""
-    template_cohort = await db.scalar(
-        select(Cohort).where(
-            Cohort.program_id == cohort.program_id,
-            or_(_template_cohort_match(), Cohort.name.ilike("%template%")),
-            Cohort.id != cohort.id,
-        ).order_by(Cohort.created_at.asc())
+    if not getattr(cohort, "inherit_default_checklists", True):
+        return
+    new_ids = {s.id for s in new_sessions}
+    if not new_ids:
+        return
+
+    template_cohort = await day_service.find_program_template_cohort(
+        db, cohort.program_id, exclude_cohort_id=cohort.id,
     )
-    if template_cohort is None:
-        template_cohort = await db.scalar(
-            select(Cohort).join(Session, Session.cohort_id == Cohort.id)
-            .join(DeliveryChecklistItem, DeliveryChecklistItem.session_id == Session.id)
-            .where(Cohort.program_id == cohort.program_id, Cohort.id != cohort.id)
-            .order_by(Cohort.created_at.asc())
-        )
     if template_cohort is None:
         return
 
@@ -1064,6 +1016,8 @@ async def seed_cohort_sessions_from_template(
     )).scalars().all()
 
     for idx, s in enumerate(all_sessions):
+        if s.id not in new_ids:
+            continue
         if idx >= len(template_sessions):
             break
         t_sess = template_sessions[idx]
@@ -1084,23 +1038,8 @@ async def seed_cohort_sessions_from_template(
                 .order_by(DeliveryChecklistItem.sort_order, DeliveryChecklistItem.created_at)
             )).scalars().all()
             for ti in t_items:
-                db.add(DeliveryChecklistItem(
-                    id=uuid.uuid4(),
-                    program_id=None,
-                    cohort_id=None,
-                    session_id=s.id,
-                    role_id=ti.role_id,
-                    title=ti.title,
-                    description=ti.description,
-                    requires_proof=ti.requires_proof,
-                    is_required=ti.is_required,
-                    sort_order=ti.sort_order,
-                    target_audience=ti.target_audience,
-                    material_id=ti.material_id,
-                    link_url=ti.link_url,
-                    attachments=list(ti.attachments or []),
-                    sub_items=list(ti.sub_items or []),
-                    created_by=actor_user_id,
+                db.add(day_service.clone_delivery_checklist_item(
+                    ti, actor_user_id=actor_user_id, session_id=s.id,
                 ))
 
         existing_quiz = (await db.execute(
@@ -1195,7 +1134,7 @@ async def list_sessions(
     result = await db.execute(
         select(Session)
         .where(Session.cohort_id == cohort_id)
-        .order_by(Session.meeting_date, Session.starts_at)
+        .order_by(Session.meeting_date, Session.starts_at, Session.created_at)
     )
     return [await _session_out(db, s, cohort) for s in result.scalars().all()]
 

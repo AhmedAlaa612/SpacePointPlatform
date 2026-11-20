@@ -120,9 +120,9 @@ export default function CohortWizard() {
   const [skipped, setSkipped] = useState<Record<number, boolean>>({})
   const [cohort, setCohort] = useState<Cohort | null>(null)
 
-  const [basicsForm, setBasicsForm] = useState<{ save: () => void; isPending: boolean; canSubmit: boolean }>({ save: () => {}, isPending: false, canSubmit: false })
-  const [templateForm, setTemplateForm] = useState<{ save: () => void; isPending: boolean; canSubmit: boolean }>({ save: () => {}, isPending: false, canSubmit: true })
-  const [rolesForm, setRolesForm] = useState<{ ensure: () => Promise<void> }>({ ensure: async () => {} })
+  const [basicsForm, setBasicsForm] = useState<{ save: () => void; isPending: boolean; canSubmit: boolean }>({ save: () => { }, isPending: false, canSubmit: false })
+  const [templateForm, setTemplateForm] = useState<{ save: () => void; isPending: boolean; canSubmit: boolean }>({ save: () => { }, isPending: false, canSubmit: true })
+  const [rolesForm, setRolesForm] = useState<{ ensure: () => Promise<void> }>({ ensure: async () => { } })
 
   useEffect(() => {
     const prev = document.body.style.overflow
@@ -383,10 +383,10 @@ function StepDots({ steps, current, skipped, onGo }: {
               isCurrent
                 ? { width: 26, height: 26, background: "hsl(var(--primary))", boxShadow: "0 0 0 4px hsl(var(--primary) / 0.12)" }
                 : isDone
-                ? { width: 22, height: 22, background: "hsl(var(--muted-foreground) / 0.4)" }
-                : isSkipped
-                ? { width: 22, height: 22, border: "2px solid hsl(var(--muted-foreground) / 0.5)" }
-                : { width: 22, height: 22, border: "2px solid hsl(var(--border))" }
+                  ? { width: 22, height: 22, background: "hsl(var(--muted-foreground) / 0.4)" }
+                  : isSkipped
+                    ? { width: 22, height: 22, border: "2px solid hsl(var(--muted-foreground) / 0.5)" }
+                    : { width: 22, height: 22, border: "2px solid hsl(var(--border))" }
             }
             className="rounded-full flex items-center justify-center shrink-0 transition-all"
           >
@@ -670,15 +670,15 @@ function BasicsStep({ programs, program, cohort, onSaved, onFormChange }: {
     cohort?.capacity != null
       ? String(cohort.capacity)
       : program?.default_capacity != null
-      ? String(program.default_capacity)
-      : ""
+        ? String(program.default_capacity)
+        : ""
   )
   const [durationHours, setDurationHours] = useState(
     cohort?.duration_hours != null
       ? String(cohort.duration_hours)
       : program?.duration_hours != null
-      ? String(program.duration_hours)
-      : ""
+        ? String(program.duration_hours)
+        : ""
   )
   const [posterTemplateUrl, setPosterTemplateUrl] = useState(
     cohort?.poster_template_url ?? program?.poster_template_url ?? ""
@@ -687,6 +687,8 @@ function BasicsStep({ programs, program, cohort, onSaved, onFormChange }: {
   const [keepCourseAccessAfterCompletion, setKeepCourseAccessAfterCompletion] = useState(
     cohort?.keep_course_access_after_completion ?? program?.keep_course_access_after_completion ?? true,
   )
+  const [importDefaultChecklists, setImportDefaultChecklists] = useState(true)
+  const [checklistSourceProgramId, setChecklistSourceProgramId] = useState("")
   const [error, setError] = useState("")
 
   const [nameManuallyEdited, setNameManuallyEdited] = useState(Boolean(cohort?.name))
@@ -746,27 +748,37 @@ function BasicsStep({ programs, program, cohort, onSaved, onFormChange }: {
     onError: (e: any) => setNewLocError(getErrorMessage(e, "Could not create the location")),
   })
 
+  const effectiveChecklistSourceProgramId =
+    checklistSourceProgramId && checklistSourceProgramId !== (programId || program?.id)
+      ? checklistSourceProgramId
+      : ""
+
   const save = useMutation({
     mutationFn: () => cohort
       ? updateCohortApi(cohort.id, {
-          name: name.trim(), starts_on: startsOn || null, ends_on: endsOn || null,
-          location_id: locationId || null, warehouse_id: warehouseId || null,
-          capacity: capacity.trim() ? Number(capacity) : null,
-          duration_hours: durationHours.trim() ? Number(durationHours) : null,
-          visibility,
-          poster_template_url: posterTemplateUrl.trim() || null,
-          keep_course_access_after_completion: keepCourseAccessAfterCompletion,
-        })
+        name: name.trim(), starts_on: startsOn || null, ends_on: endsOn || null,
+        location_id: locationId || null, warehouse_id: warehouseId || null,
+        capacity: capacity.trim() ? Number(capacity) : null,
+        duration_hours: durationHours.trim() ? Number(durationHours) : null,
+        visibility,
+        poster_template_url: posterTemplateUrl.trim() || null,
+        keep_course_access_after_completion: keepCourseAccessAfterCompletion,
+      })
       : createCohortApi({
-          program_id: programId || program?.id || "",
-          name: name.trim(), starts_on: startsOn || undefined, ends_on: endsOn || undefined,
-          location_id: locationId || undefined, warehouse_id: warehouseId || undefined,
-          capacity: capacity.trim() ? Number(capacity) : undefined,
-          duration_hours: durationHours.trim() ? Number(durationHours) : undefined,
-          visibility,
-          poster_template_url: posterTemplateUrl.trim() || undefined,
-          keep_course_access_after_completion: keepCourseAccessAfterCompletion,
-        }),
+        program_id: programId || program?.id || "",
+        name: name.trim(), starts_on: startsOn || undefined, ends_on: endsOn || undefined,
+        location_id: locationId || undefined, warehouse_id: warehouseId || undefined,
+        capacity: capacity.trim() ? Number(capacity) : undefined,
+        duration_hours: durationHours.trim() ? Number(durationHours) : undefined,
+        visibility,
+        poster_template_url: posterTemplateUrl.trim() || undefined,
+        keep_course_access_after_completion: keepCourseAccessAfterCompletion,
+        import_default_checklists: importDefaultChecklists,
+        checklist_source_program_id:
+          importDefaultChecklists && effectiveChecklistSourceProgramId
+            ? effectiveChecklistSourceProgramId
+            : null,
+      }),
     onSuccess: (c) => { toast.success(cohort ? "Cohort updated" : "Cohort created"); qc.invalidateQueries({ queryKey: ["sessions-cohorts"] }); onSaved(c) },
     onError: (e: any) => setError(getErrorMessage(e, "Failed to save cohort")),
   })
@@ -779,7 +791,7 @@ function BasicsStep({ programs, program, cohort, onSaved, onFormChange }: {
       isPending: save.isPending,
       canSubmit,
     })
-  }, [name, programId, program, cohort, save.isPending, canSubmit, startsOn, endsOn, locationId, warehouseId, capacity, durationHours, posterTemplateUrl, visibility, keepCourseAccessAfterCompletion])
+  }, [name, programId, program, cohort, save.isPending, canSubmit, startsOn, endsOn, locationId, warehouseId, capacity, durationHours, posterTemplateUrl, visibility, keepCourseAccessAfterCompletion, importDefaultChecklists, effectiveChecklistSourceProgramId])
 
   const selectStyle: React.CSSProperties = { ...bigInput, cursor: "pointer" }
 
@@ -820,6 +832,7 @@ function BasicsStep({ programs, program, cohort, onSaved, onFormChange }: {
             onChange={(e) => {
               const nextId = e.target.value
               setProgramId(nextId)
+              setChecklistSourceProgramId("")
               const prog = programs.find((p) => p.id === nextId)
               if (prog) {
                 setKeepCourseAccessAfterCompletion(prog.keep_course_access_after_completion ?? true)
@@ -992,6 +1005,45 @@ function BasicsStep({ programs, program, cohort, onSaved, onFormChange }: {
             <span>Keep course access after completion</span>
           </label>
         </div>
+
+        {!cohort && (
+          <div className="col-span-1 sm:col-span-2 flex flex-col gap-3 rounded-xl border border-border bg-muted/20 p-4">
+            <label className="flex items-start gap-2.5 text-foreground cursor-pointer select-none" style={{ fontSize: 14 }}>
+              <input
+                type="checkbox"
+                checked={importDefaultChecklists}
+                onChange={(e) => setImportDefaultChecklists(e.target.checked)}
+                className="mt-1 rounded border-border accent-primary w-4 h-4 cursor-pointer"
+              />
+              <span className="flex flex-col gap-0.5">
+                <span className="font-semibold">Import default days &amp; checklists</span>
+                <span style={{ fontSize: 13 }} className="text-muted-foreground">
+                  Copies the program&rsquo;s Pre-Workshop and Day 1..N checklists (for instructors and internal teams) onto this cohort so you can customize or switch days later.
+                </span>
+              </span>
+            </label>
+
+            {importDefaultChecklists && programs.length > 1 && (
+              <BigField label="Checklist source">
+                <select
+                  value={effectiveChecklistSourceProgramId}
+                  onChange={(e) => setChecklistSourceProgramId(e.target.value)}
+                  style={selectStyle}
+                  className="border border-border bg-background text-foreground focus:outline-none focus:border-primary transition-colors"
+                >
+                  <option value="">This program&rsquo;s default</option>
+                  {programs
+                    .filter((p) => p.id !== (programId || program?.id))
+                    .map((p) => (
+                      <option key={p.id} value={p.id}>
+                        {p.name}
+                      </option>
+                    ))}
+                </select>
+              </BigField>
+            )}
+          </div>
+        )}
       </div>
 
       {error && <p style={{ fontSize: 14 }} className="text-red-500">{error}</p>}

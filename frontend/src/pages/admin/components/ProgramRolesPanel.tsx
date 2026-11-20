@@ -591,6 +591,7 @@ function ProgramDayChecklistEditor({
       const payload = (draft ?? [])
         .filter((l) => l.title.trim() !== "")
         .map((l, i) => ({
+          id: l.id,
           title: l.title.trim(),
           description: l.description,
           requires_proof: l.requires_proof,

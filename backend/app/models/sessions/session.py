@@ -67,6 +67,16 @@ class Session(Base):
     # would silently revert to inheriting the cohort default on the next
     # read, which is exactly the bug this column exists to prevent.
     kits_overridden = Column(Boolean, nullable=False, default=False)
+    # Set when Ops explicitly overrides a session checklist down to zero rows
+    # (for instance via Switch Days with an empty day or Replace with empty)
+    # so 0 direct rows stays empty instead of silently falling back to the
+    # program template; cleared back to False on an explicit Revert.
+    instructor_checklist_overridden = Column(
+        Boolean, nullable=False, default=False, server_default="false",
+    )
+    internal_checklist_overridden = Column(
+        Boolean, nullable=False, default=False, server_default="false",
+    )
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
 
 

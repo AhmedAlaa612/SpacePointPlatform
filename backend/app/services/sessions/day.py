@@ -27,12 +27,14 @@ Services raise `HTTPException` directly — house convention.
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import date, datetime, timedelta, timezone
+from typing import Any
 from uuid import UUID, uuid4
 
 from fastapi import HTTPException, status
-from sqlalchemy import func, or_, select
+from sqlalchemy import and_, delete as sa_delete, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm.attributes import flag_modified
 
 from app.models.sessions.checklist import (
     DeliveryChecklistItem,
@@ -125,6 +127,159 @@ def _extract_sub_item_proof_maps(
     return proof_ids_out, urls_out
 
 
+_UNSET = object()
+
+
+async def find_program_template_cohort(
+    db: AsyncSession, program_id: UUID, *, exclude_cohort_id: UUID | None = None,
+) -> Cohort | None:
+    """Strict lookup for a program's official template cohort (never matches arbitrary real cohorts)."""
+    stmt = select(Cohort).where(
+        Cohort.program_id == program_id,
+        or_(
+            Cohort.status == "draft",
+            Cohort.name.ilike("[Template]%"),
+            func.lower(func.trim(Cohort.name)) == "template",
+        ),
+    )
+    if exclude_cohort_id is not None:
+        stmt = stmt.where(Cohort.id != exclude_cohort_id)
+    return await db.scalar(stmt.order_by(Cohort.created_at.asc()))
+
+
+def clone_delivery_checklist_item(
+    src: DeliveryChecklistItem,
+    *,
+    actor_user_id: UUID,
+    program_id: UUID | None = None,
+    cohort_id: UUID | None = None,
+    session_id: UUID | None = None,
+    role_id: Any = _UNSET,
+    target_audience: str | None = None,
+    sort_order: int | None = None,
+) -> DeliveryChecklistItem:
+    """Deep-clone a DeliveryChecklistItem onto a new owner with fresh child attachment and sub-item IDs."""
+    cloned_attachments = []
+    for att in (src.attachments or []):
+        if isinstance(att, dict):
+            cloned_attachments.append({
+                "id": str(uuid4()),
+                "type": att.get("type") or "link",
+                "material_id": att.get("material_id"),
+                "title": att.get("title"),
+                "url": att.get("url"),
+            })
+        else:
+            cloned_attachments.append(att)
+
+    return DeliveryChecklistItem(
+        id=uuid4(),
+        program_id=program_id,
+        cohort_id=cohort_id,
+        session_id=session_id,
+        role_id=src.role_id if role_id is _UNSET else role_id,
+        target_audience=target_audience if target_audience is not None else src.target_audience,
+        title=src.title,
+        description=src.description,
+        requires_proof=src.requires_proof,
+        is_required=src.is_required,
+        sort_order=sort_order if sort_order is not None else src.sort_order,
+        material_id=src.material_id,
+        link_url=src.link_url,
+        attachments=cloned_attachments,
+        sub_items=_normalize_sub_items(src.sub_items, fresh_ids=True),
+        created_by=actor_user_id,
+    )
+
+
+def _parse_checklist_line_fields(line: dict, fallback_sort_order: int) -> dict[str, Any]:
+    title = (line.get("title") or "").strip()
+    if not title:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="A checklist item needs a title")
+
+    raw_attachments = line.get("attachments") or []
+    attachments = []
+    for att in raw_attachments:
+        if isinstance(att, dict):
+            mat_id = att.get("material_id")
+            attachments.append({
+                "id": str(att.get("id") or uuid4()),
+                "type": att.get("type") or ("material" if mat_id else "link"),
+                "material_id": str(mat_id) if mat_id else None,
+                "title": att.get("title"),
+                "url": att.get("url"),
+            })
+        elif hasattr(att, "model_dump"):
+            d = att.model_dump()
+            mat_id = d.get("material_id")
+            attachments.append({
+                "id": str(d.get("id") or uuid4()),
+                "type": d.get("type") or ("material" if mat_id else "link"),
+                "material_id": str(mat_id) if mat_id else None,
+                "title": d.get("title"),
+                "url": d.get("url"),
+            })
+
+    mat_id = line.get("material_id")
+    link_u = line.get("link_url")
+    if not attachments:
+        if mat_id:
+            attachments.append({
+                "id": str(uuid4()),
+                "type": "material",
+                "material_id": str(mat_id),
+                "title": None,
+                "url": None,
+            })
+        if link_u:
+            attachments.append({
+                "id": str(uuid4()),
+                "type": "link",
+                "material_id": None,
+                "title": link_u,
+                "url": link_u,
+            })
+
+    primary_mat_id = mat_id
+    primary_link_url = link_u
+    if not primary_mat_id:
+        for a in attachments:
+            if a.get("type") == "material" and a.get("material_id"):
+                try:
+                    primary_mat_id = UUID(str(a["material_id"]))
+                    break
+                except (ValueError, TypeError):
+                    pass
+    if not primary_link_url:
+        for a in attachments:
+            if a.get("type") == "link" and a.get("url"):
+                primary_link_url = a["url"]
+                break
+
+    return {
+        "title": title,
+        "description": line.get("description"),
+        "requires_proof": bool(line.get("requires_proof")),
+        "is_required": bool(line.get("is_required", True)),
+        "sort_order": int(line.get("sort_order") or fallback_sort_order),
+        "material_id": primary_mat_id,
+        "link_url": primary_link_url,
+        "attachments": attachments,
+        "sub_items": _normalize_sub_items(line.get("sub_items"), fresh_ids=False),
+    }
+
+
+def _parse_optional_uuid(raw_id: Any) -> UUID | None:
+    if raw_id is None or raw_id == "":
+        return None
+    if isinstance(raw_id, UUID):
+        return raw_id
+    try:
+        return UUID(str(raw_id))
+    except (ValueError, TypeError):
+        return None
+
+
 # ── checklist templates (ops) ───────────────────────────────────────────────
 
 async def _items_at_level(
@@ -171,7 +326,7 @@ async def set_checklist_items(
     role_id: UUID | None = None,
     target_audience: str = "instructor",
 ) -> list[DeliveryChecklistItem]:
-    """Replace one (level, role, target_audience) bucket wholesale."""
+    """Replace one (level, role, target_audience) bucket, updating matching IDs in place to preserve progress."""
     owners = [program_id, cohort_id, session_id]
     if sum(1 for o in owners if o is not None) != 1:
         raise HTTPException(
@@ -183,93 +338,53 @@ async def set_checklist_items(
         db, program_id=program_id, cohort_id=cohort_id, session_id=session_id, role_id=role_id,
         target_audience=target_audience,
     )
-    for item in existing:
-        await db.delete(item)
-    await db.flush()
+    existing_by_id = {item.id: item for item in existing}
+    kept_ids: set[UUID] = set()
 
     out = []
     for i, line in enumerate(lines):
-        title = (line.get("title") or "").strip()
-        if not title:
-            raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="A checklist item needs a title")
+        parsed = _parse_checklist_line_fields(line, i + 1)
+        parsed_id = _parse_optional_uuid(line.get("id"))
+        if parsed_id is not None and parsed_id in existing_by_id and parsed_id not in kept_ids:
+            item = existing_by_id[parsed_id]
+            for field, val in parsed.items():
+                setattr(item, field, val)
+            flag_modified(item, "attachments")
+            flag_modified(item, "sub_items")
+            kept_ids.add(parsed_id)
+            out.append(item)
+        else:
+            item = DeliveryChecklistItem(
+                id=uuid4(),
+                program_id=program_id,
+                cohort_id=cohort_id,
+                session_id=session_id,
+                role_id=role_id,
+                target_audience=target_audience,
+                created_by=actor_user_id,
+                **parsed,
+            )
+            db.add(item)
+            out.append(item)
 
-        raw_attachments = line.get("attachments") or []
-        attachments = []
-        for att in raw_attachments:
-            if isinstance(att, dict):
-                mat_id = att.get("material_id")
-                attachments.append({
-                    "id": str(att.get("id") or uuid4()),
-                    "type": att.get("type") or ("material" if mat_id else "link"),
-                    "material_id": str(mat_id) if mat_id else None,
-                    "title": att.get("title"),
-                    "url": att.get("url"),
-                })
-            elif hasattr(att, "model_dump"):
-                d = att.model_dump()
-                mat_id = d.get("material_id")
-                attachments.append({
-                    "id": str(d.get("id") or uuid4()),
-                    "type": d.get("type") or ("material" if mat_id else "link"),
-                    "material_id": str(mat_id) if mat_id else None,
-                    "title": d.get("title"),
-                    "url": d.get("url"),
-                })
-
-        mat_id = line.get("material_id")
-        link_u = line.get("link_url")
-        if not attachments:
-            if mat_id:
-                attachments.append({
-                    "id": str(uuid4()),
-                    "type": "material",
-                    "material_id": str(mat_id),
-                    "title": None,
-                    "url": None,
-                })
-            if link_u:
-                attachments.append({
-                    "id": str(uuid4()),
-                    "type": "link",
-                    "material_id": None,
-                    "title": link_u,
-                    "url": link_u,
-                })
-
-        primary_mat_id = mat_id
-        primary_link_url = link_u
-        if not primary_mat_id:
-            for a in attachments:
-                if a.get("type") == "material" and a.get("material_id"):
-                    try:
-                        primary_mat_id = UUID(str(a["material_id"]))
-                        break
-                    except (ValueError, TypeError):
-                        pass
-        if not primary_link_url:
-            for a in attachments:
-                if a.get("type") == "link" and a.get("url"):
-                    primary_link_url = a["url"]
-                    break
-
-        sub_items = _normalize_sub_items(line.get("sub_items"), fresh_ids=False)
-
-        item = DeliveryChecklistItem(
-            id=uuid4(), program_id=program_id, cohort_id=cohort_id, session_id=session_id, role_id=role_id,
-            target_audience=target_audience,
-            material_id=primary_mat_id,
-            link_url=primary_link_url,
-            attachments=attachments,
-            sub_items=sub_items,
-            title=title, description=line.get("description"),
-            requires_proof=bool(line.get("requires_proof")),
-            is_required=bool(line.get("is_required", True)),
-            sort_order=int(line.get("sort_order") or (i + 1)),
-            created_by=actor_user_id,
-        )
-        db.add(item)
-        out.append(item)
+    for item in existing:
+        if item.id not in kept_ids:
+            await db.delete(item)
     await db.flush()
+
+    if session_id is not None:
+        sess = await db.get(Session, session_id)
+        if sess is not None:
+            should_clear = bool(lines) or not await _all_items_at_level(
+                db, session_id=session_id, target_audience=target_audience,
+            )
+            if should_clear:
+                if target_audience == "instructor":
+                    sess.instructor_checklist_overridden = False
+                elif target_audience == "internal":
+                    sess.internal_checklist_overridden = False
+                await db.flush()
+
     return out
 
 
@@ -353,45 +468,640 @@ async def import_checklist_items(
 
     # 3. Create cloned items with fresh child IDs for sub-items and attachments
     for offset, src in enumerate(raw_items):
-        cloned_attachments = []
-        for att in (src.attachments or []):
-            if isinstance(att, dict):
-                cloned_attachments.append({
-                    "id": str(uuid4()),
-                    "type": att.get("type") or "link",
-                    "material_id": att.get("material_id"),
-                    "title": att.get("title"),
-                    "url": att.get("url"),
-                })
-            else:
-                cloned_attachments.append(att)
-
-        cloned_sub_items = _normalize_sub_items(src.sub_items, fresh_ids=True)
-
-        new_item = DeliveryChecklistItem(
-            id=uuid4(),
+        db.add(clone_delivery_checklist_item(
+            src,
+            actor_user_id=actor_user_id,
             program_id=program_id,
             cohort_id=cohort_id,
             session_id=session_id,
             role_id=role_id,
             target_audience=target_audience,
-            title=src.title,
-            description=src.description,
-            requires_proof=src.requires_proof,
-            is_required=src.is_required,
             sort_order=next_sort_order + offset,
-            material_id=src.material_id,
-            link_url=src.link_url,
-            attachments=cloned_attachments,
-            sub_items=cloned_sub_items,
-            created_by=actor_user_id,
-        )
-        db.add(new_item)
+        ))
 
     await db.flush()
     return await list_checklist_items(
         db, role_id=role_id, target_audience=target_audience, **target_kwargs
     )
+
+
+async def _cohort_sessions_chronological(db: AsyncSession, cohort_id: UUID) -> list[Session]:
+    return list((await db.execute(
+        select(Session)
+        .where(Session.cohort_id == cohort_id)
+        .order_by(Session.meeting_date, Session.starts_at, Session.created_at)
+    )).scalars().all())
+
+
+async def _clear_session_audience_progress(
+    db: AsyncSession, session_ids: list[UUID] | set[UUID], audiences: list[str],
+) -> None:
+    sids = list(session_ids)
+    if not sids:
+        return
+    if "instructor" in audiences:
+        day_ids = list((await db.execute(
+            select(InstructorSessionDay.id).where(InstructorSessionDay.session_id.in_(sids))
+        )).scalars().all())
+        if day_ids:
+            await db.execute(
+                sa_delete(InstructorChecklistProgress).where(InstructorChecklistProgress.day_id.in_(day_ids))
+            )
+    if "internal" in audiences:
+        await db.execute(
+            sa_delete(SessionOpsChecklistProgress).where(SessionOpsChecklistProgress.session_id.in_(sids))
+        )
+
+
+async def _done_item_ids_by_day(db: AsyncSession, day_ids: list[UUID]) -> dict[UUID, set[UUID]]:
+    if not day_ids:
+        return {}
+    rows = (await db.execute(
+        select(InstructorChecklistProgress.day_id, InstructorChecklistProgress.checklist_item_id)
+        .where(
+            InstructorChecklistProgress.day_id.in_(day_ids),
+            InstructorChecklistProgress.is_done.is_(True),
+        )
+    )).all()
+    out: dict[UUID, set[UUID]] = {}
+    for day_id, item_id in rows:
+        out.setdefault(day_id, set()).add(item_id)
+    return out
+
+
+async def get_cohort_checklists_summary(db: AsyncSession, cohort_id: UUID) -> dict:
+    """Return per-session checklist counts, inheritance flags, and active progress flags for a cohort."""
+    cohort = await db.get(Cohort, cohort_id)
+    if cohort is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Cohort not found")
+
+    sessions = await _cohort_sessions_chronological(db, cohort_id)
+    inherit = getattr(cohort, "inherit_default_checklists", True)
+
+    cohort_pre_items = await _all_items_at_level(db, cohort_id=cohort_id)
+    cohort_pre_by_aud: dict[str, list[DeliveryChecklistItem]] = {"instructor": [], "internal": []}
+    for item in cohort_pre_items:
+        cohort_pre_by_aud.setdefault(item.target_audience, []).append(item)
+
+    prog_pre_by_aud: dict[str, list[DeliveryChecklistItem]] = {"instructor": [], "internal": []}
+    tpl_sessions: list[Session] = []
+    tpl_items_by_sess_aud: dict[tuple[UUID, str], list[DeliveryChecklistItem]] = {}
+    if inherit:
+        prog_pre_items = await _all_items_at_level(db, program_id=cohort.program_id)
+        for item in prog_pre_items:
+            prog_pre_by_aud.setdefault(item.target_audience, []).append(item)
+        template_cohort = await find_program_template_cohort(
+            db, cohort.program_id, exclude_cohort_id=cohort.id,
+        )
+        if template_cohort is not None:
+            tpl_sessions = await _cohort_sessions_chronological(db, template_cohort.id)
+            tpl_session_ids = [ts.id for ts in tpl_sessions]
+            if tpl_session_ids:
+                tpl_rows = (await db.execute(
+                    select(DeliveryChecklistItem)
+                    .where(DeliveryChecklistItem.session_id.in_(tpl_session_ids))
+                    .order_by(DeliveryChecklistItem.sort_order, DeliveryChecklistItem.created_at)
+                )).scalars().all()
+                for row in tpl_rows:
+                    tpl_items_by_sess_aud.setdefault((row.session_id, row.target_audience), []).append(row)
+
+    session_ids = [s.id for s in sessions]
+    direct_by_sess_aud: dict[tuple[UUID, str], list[DeliveryChecklistItem]] = {}
+    active_inst_items_by_sid: dict[UUID, set[UUID]] = {}
+    active_int_items_by_sid: dict[UUID, set[UUID]] = {}
+    approved_inst_sids: set[UUID] = set()
+
+    if session_ids:
+        direct_rows = (await db.execute(
+            select(DeliveryChecklistItem)
+            .where(DeliveryChecklistItem.session_id.in_(session_ids))
+            .order_by(DeliveryChecklistItem.sort_order, DeliveryChecklistItem.created_at)
+        )).scalars().all()
+        for row in direct_rows:
+            direct_by_sess_aud.setdefault((row.session_id, row.target_audience), []).append(row)
+
+        inst_prog_rows = (await db.execute(
+            select(InstructorSessionDay.session_id, InstructorChecklistProgress.checklist_item_id)
+            .join(InstructorChecklistProgress, InstructorChecklistProgress.day_id == InstructorSessionDay.id)
+            .where(
+                InstructorSessionDay.session_id.in_(session_ids),
+                or_(
+                    InstructorChecklistProgress.is_done.is_(True),
+                    InstructorChecklistProgress.proof_report_id.isnot(None),
+                    and_(
+                        InstructorChecklistProgress.note.isnot(None),
+                        func.trim(InstructorChecklistProgress.note) != "",
+                    ),
+                    func.coalesce(func.jsonb_array_length(InstructorChecklistProgress.completed_sub_items), 0) > 0,
+                ),
+            )
+        )).all()
+        for sid, item_id in inst_prog_rows:
+            active_inst_items_by_sid.setdefault(sid, set()).add(item_id)
+
+        int_prog_rows = (await db.execute(
+            select(SessionOpsChecklistProgress.session_id, SessionOpsChecklistProgress.checklist_item_id)
+            .where(
+                SessionOpsChecklistProgress.session_id.in_(session_ids),
+                or_(
+                    SessionOpsChecklistProgress.is_done.is_(True),
+                    SessionOpsChecklistProgress.proof_report_id.isnot(None),
+                    and_(
+                        SessionOpsChecklistProgress.note.isnot(None),
+                        func.trim(SessionOpsChecklistProgress.note) != "",
+                    ),
+                    func.coalesce(func.jsonb_array_length(SessionOpsChecklistProgress.completed_sub_items), 0) > 0,
+                ),
+            )
+        )).all()
+        for sid, item_id in int_prog_rows:
+            active_int_items_by_sid.setdefault(sid, set()).add(item_id)
+
+        approved_inst_sids = set((await db.execute(
+            select(InstructorSessionDay.session_id)
+            .where(
+                InstructorSessionDay.session_id.in_(session_ids),
+                InstructorSessionDay.status == "approved",
+            )
+            .distinct()
+        )).scalars().all())
+
+    sessions_out = []
+    for idx, s in enumerate(sessions):
+        res_eff: dict[str, list[DeliveryChecklistItem]] = {}
+        res_inherited: dict[str, bool] = {}
+        direct_counts: dict[str, int] = {}
+        eff_item_ids: dict[str, set[UUID]] = {}
+        for aud in ("instructor", "internal"):
+            direct_items = direct_by_sess_aud.get((s.id, aud), [])
+            direct_counts[aud] = len(direct_items)
+            is_overridden = (
+                bool(getattr(s, "instructor_checklist_overridden", False))
+                if aud == "instructor"
+                else bool(getattr(s, "internal_checklist_overridden", False))
+            )
+            fb: list[DeliveryChecklistItem] = []
+            if not is_overridden:
+                if inherit and idx < len(tpl_sessions):
+                    fb = tpl_items_by_sess_aud.get((tpl_sessions[idx].id, aud), [])
+                if not fb:
+                    fb = cohort_pre_by_aud.get(aud, [])
+                if not fb and inherit:
+                    fb = prog_pre_by_aud.get(aud, [])
+
+            if direct_items:
+                res_eff[aud] = direct_items
+                res_inherited[aud] = False
+                eff_ids = {i.id for i in direct_items}
+                if aud == "instructor" and not any(i.role_id is None for i in direct_items):
+                    eff_ids |= {i.id for i in fb if i.role_id is None}
+                eff_item_ids[aud] = eff_ids
+            elif is_overridden:
+                res_eff[aud] = []
+                res_inherited[aud] = False
+                eff_item_ids[aud] = set()
+            else:
+                res_eff[aud] = fb
+                res_inherited[aud] = len(fb) > 0
+                eff_item_ids[aud] = {i.id for i in fb}
+
+        sessions_out.append({
+            "session_id": s.id,
+            "day_number": idx + 1,
+            "meeting_date": s.meeting_date,
+            "starts_at": s.starts_at,
+            "title": s.title,
+            "instructor_items_count": direct_counts["instructor"],
+            "effective_instructor_items_count": len(res_eff["instructor"]),
+            "internal_items_count": direct_counts["internal"],
+            "effective_internal_items_count": len(res_eff["internal"]),
+            "is_instructor_inherited": res_inherited["instructor"],
+            "is_internal_inherited": res_inherited["internal"],
+            "has_instructor_progress": bool(active_inst_items_by_sid.get(s.id, set()) & eff_item_ids["instructor"]),
+            "has_internal_progress": bool(active_int_items_by_sid.get(s.id, set()) & eff_item_ids["internal"]),
+            "has_approved_instructor_day": s.id in approved_inst_sids,
+        })
+
+    return {
+        "cohort_id": cohort.id,
+        "pre_workshop_instructor_count": len(cohort_pre_by_aud.get("instructor", [])),
+        "pre_workshop_internal_count": len(cohort_pre_by_aud.get("internal", [])),
+        "sessions": sessions_out,
+    }
+
+
+async def _all_items_at_level(
+    db: AsyncSession, *,
+    program_id: UUID | None = None, cohort_id: UUID | None = None, session_id: UUID | None = None,
+    target_audience: str | None = None,
+) -> list[DeliveryChecklistItem]:
+    column = (
+        DeliveryChecklistItem.program_id if program_id
+        else DeliveryChecklistItem.cohort_id if cohort_id
+        else DeliveryChecklistItem.session_id if session_id
+        else None
+    )
+    value = program_id or cohort_id or session_id
+    if column is None:
+        return []
+    stmt = select(DeliveryChecklistItem).where(column == value)
+    if target_audience is not None:
+        stmt = stmt.where(DeliveryChecklistItem.target_audience == target_audience)
+    return list((await db.execute(
+        stmt.order_by(DeliveryChecklistItem.sort_order, DeliveryChecklistItem.created_at)
+    )).scalars().all())
+
+
+async def _resolve_import_source(
+    db: AsyncSession,
+    target_cohort: Cohort,
+    *,
+    source_type: str,
+    source_id: UUID | None,
+) -> tuple[dict[str, list[DeliveryChecklistItem]], list[Session], dict[str, Any]]:
+    if source_type == "program":
+        src_prog_id = source_id or target_cohort.program_id
+        src_program = await db.get(Program, src_prog_id)
+        if src_program is None:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Source program not found")
+        template_cohort = await find_program_template_cohort(
+            db, src_prog_id, exclude_cohort_id=target_cohort.id,
+        )
+        prog_items = await _all_items_at_level(db, program_id=src_prog_id)
+        tpl_cohort_items = (
+            await _all_items_at_level(db, cohort_id=template_cohort.id)
+            if template_cohort is not None else []
+        )
+        pre_by_aud: dict[str, list[DeliveryChecklistItem]] = {}
+        for aud in ("instructor", "internal"):
+            direct = [i for i in prog_items if i.target_audience == aud]
+            pre_by_aud[aud] = direct if direct else [i for i in tpl_cohort_items if i.target_audience == aud]
+        source_sessions = (
+            await _cohort_sessions_chronological(db, template_cohort.id)
+            if template_cohort is not None else []
+        )
+        return pre_by_aud, source_sessions, {"source_type": "program", "program_id": src_prog_id}
+
+    if source_type == "cohort":
+        if source_id is None:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="Select a source cohort to import from")
+        if source_id == target_cohort.id:
+            raise HTTPException(
+                status.HTTP_400_BAD_REQUEST,
+                detail="Cannot import defaults from the same cohort; use Switch Days instead",
+            )
+        src_cohort = await db.get(Cohort, source_id)
+        if src_cohort is None:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Source cohort not found")
+        src_inherit = getattr(src_cohort, "inherit_default_checklists", True)
+        cohort_items = await _all_items_at_level(db, cohort_id=src_cohort.id)
+        prog_items = (
+            await _all_items_at_level(db, program_id=src_cohort.program_id)
+            if src_inherit else []
+        )
+        pre_by_aud = {}
+        for aud in ("instructor", "internal"):
+            direct = [i for i in cohort_items if i.target_audience == aud]
+            pre_by_aud[aud] = direct if direct else [i for i in prog_items if i.target_audience == aud]
+        source_sessions = await _cohort_sessions_chronological(db, src_cohort.id)
+        src_tpl = (
+            await find_program_template_cohort(
+                db, src_cohort.program_id, exclude_cohort_id=src_cohort.id,
+            )
+            if src_inherit else None
+        )
+        src_tpl_sessions = (
+            await _cohort_sessions_chronological(db, src_tpl.id)
+            if src_tpl is not None else []
+        )
+        return pre_by_aud, source_sessions, {
+            "source_type": "cohort",
+            "cohort": src_cohort,
+            "template_sessions": src_tpl_sessions,
+            "cohort_pre": pre_by_aud,
+        }
+
+    raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="Invalid source_type")
+
+
+async def _source_session_items_for_audience(
+    db: AsyncSession,
+    s_sess: Session,
+    s_idx: int,
+    aud: str,
+    source_meta: dict[str, Any],
+) -> list[DeliveryChecklistItem]:
+    direct = await _all_items_at_level(db, session_id=s_sess.id, target_audience=aud)
+    if direct or source_meta["source_type"] != "cohort":
+        return direct
+    is_overridden = (
+        bool(getattr(s_sess, "instructor_checklist_overridden", False))
+        if aud == "instructor"
+        else bool(getattr(s_sess, "internal_checklist_overridden", False))
+    )
+    if is_overridden:
+        return []
+    tpl_sessions: list[Session] = source_meta.get("template_sessions") or []
+    if s_idx < len(tpl_sessions):
+        tpl_items = await _all_items_at_level(db, session_id=tpl_sessions[s_idx].id, target_audience=aud)
+        if tpl_items:
+            return tpl_items
+    return list(source_meta["cohort_pre"].get(aud, []))
+
+
+async def import_cohort_defaults(
+    db: AsyncSession,
+    *,
+    cohort_id: UUID,
+    actor_user_id: UUID,
+    source_type: str = "program",
+    source_id: UUID | None = None,
+    include_instructor: bool = True,
+    include_internal: bool = True,
+    include_pre_workshop: bool = True,
+    include_titles: bool = False,
+    mode: str = "replace",
+    day_mappings: list[dict[str, UUID | None]] | None = None,
+    create_missing_sessions: bool = False,
+) -> dict:
+    """Bulk-materialize checklists from a program default or another cohort onto a target cohort."""
+    cohort = await db.get(Cohort, cohort_id)
+    if cohort is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Cohort not found")
+
+    audiences = [aud for aud, enabled in (("instructor", include_instructor), ("internal", include_internal)) if enabled]
+    if not audiences:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="Select at least one checklist audience to import")
+
+    pre_by_aud, source_sessions, source_meta = await _resolve_import_source(
+        db, cohort, source_type=source_type, source_id=source_id,
+    )
+
+    target_sessions = await _cohort_sessions_chronological(db, cohort.id)
+    will_create_sessions = not target_sessions and create_missing_sessions and bool(source_sessions)
+    effective_target_sessions = list(target_sessions)
+
+    pairs_plan: list[tuple[Session | None, Session, int]] = []
+    if not target_sessions:
+        if will_create_sessions:
+            for idx, s_src in enumerate(source_sessions):
+                pairs_plan.append((None, s_src, idx))
+    elif day_mappings is None:
+        for idx, (t_sess, s_sess) in enumerate(zip(effective_target_sessions, source_sessions)):
+            pairs_plan.append((t_sess, s_sess, idx))
+    else:
+        target_by_id = {s.id: s for s in effective_target_sessions}
+        source_by_id = {s.id: (s, idx) for idx, s in enumerate(source_sessions)}
+        seen_targets: set[UUID] = set()
+        for m in day_mappings:
+            tid = m.get("target_session_id")
+            sid = m.get("source_session_id")
+            if tid not in target_by_id:
+                raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="Target session does not belong to this cohort")
+            if tid in seen_targets:
+                raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="Duplicate target session in day mapping")
+            seen_targets.add(tid)
+            if sid is None:
+                continue
+            if sid not in source_by_id:
+                raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="Source session does not belong to the chosen source")
+            s_sess, s_idx = source_by_id[sid]
+            pairs_plan.append((target_by_id[tid], s_sess, s_idx))
+
+    if mode == "replace" and "instructor" in audiences and target_sessions:
+        mapped_existing_ids = [t_sess.id for t_sess, _, _ in pairs_plan if t_sess is not None]
+        if mapped_existing_ids:
+            approved_sid = await db.scalar(
+                select(InstructorSessionDay.session_id)
+                .where(
+                    InstructorSessionDay.session_id.in_(mapped_existing_ids),
+                    InstructorSessionDay.status == "approved",
+                )
+                .limit(1)
+            )
+            if approved_sid is not None:
+                raise HTTPException(
+                    status.HTTP_409_CONFLICT,
+                    detail=(
+                        "Cannot replace instructor checklists on a day that already has an approved "
+                        "instructor report. Use 'Fill empty days only' or skip that day."
+                    ),
+                )
+
+    imported_pre = 0
+    if include_pre_workshop:
+        for aud in audiences:
+            existing_pre = await _all_items_at_level(db, cohort_id=cohort.id, target_audience=aud)
+            if mode == "fill_empty" and existing_pre:
+                continue
+            if mode == "replace" and existing_pre:
+                for item in existing_pre:
+                    await db.delete(item)
+                await db.flush()
+            for src in pre_by_aud.get(aud, []):
+                db.add(clone_delivery_checklist_item(src, actor_user_id=actor_user_id, cohort_id=cohort.id))
+                imported_pre += 1
+        await db.flush()
+
+    sessions_created = 0
+    pairs: list[tuple[Session, Session, int]] = []
+    if will_create_sessions:
+        start_date = cohort.starts_on or date.today()
+        created_list: list[Session] = []
+        for idx, s_src in enumerate(source_sessions):
+            new_s = Session(
+                id=uuid4(),
+                cohort_id=cohort.id,
+                meeting_date=start_date + timedelta(days=idx),
+                starts_at=s_src.starts_at,
+                title=s_src.title or f"Day {idx + 1}",
+                duration_hours=s_src.duration_hours if s_src.duration_hours is not None else cohort.duration_hours,
+            )
+            db.add(new_s)
+            created_list.append(new_s)
+            sessions_created += 1
+        await db.flush()
+        for idx, (new_s, s_src) in enumerate(zip(created_list, source_sessions)):
+            pairs.append((new_s, s_src, idx))
+    else:
+        pairs = [(t_sess, s_sess, s_idx) for t_sess, s_sess, s_idx in pairs_plan if t_sess is not None]
+
+    imported_session_items = 0
+    sessions_updated = 0
+    for t_sess, s_sess, s_idx in pairs:
+        updated_this = False
+        for aud in audiences:
+            existing_sess = await _all_items_at_level(db, session_id=t_sess.id, target_audience=aud)
+            if mode == "fill_empty" and existing_sess:
+                continue
+            src_items = await _source_session_items_for_audience(db, s_sess, s_idx, aud, source_meta)
+            if mode == "replace":
+                await _clear_session_audience_progress(db, [t_sess.id], [aud])
+                if existing_sess:
+                    for item in existing_sess:
+                        await db.delete(item)
+                    await db.flush()
+                    updated_this = True
+                if aud == "instructor":
+                    t_sess.instructor_checklist_overridden = len(src_items) == 0
+                elif aud == "internal":
+                    t_sess.internal_checklist_overridden = len(src_items) == 0
+                if not src_items:
+                    updated_this = True
+            elif src_items:
+                if aud == "instructor":
+                    t_sess.instructor_checklist_overridden = False
+                elif aud == "internal":
+                    t_sess.internal_checklist_overridden = False
+            for src in src_items:
+                db.add(clone_delivery_checklist_item(src, actor_user_id=actor_user_id, session_id=t_sess.id))
+                imported_session_items += 1
+                updated_this = True
+        if include_titles and s_sess.title:
+            t_sess.title = s_sess.title
+            updated_this = True
+        if updated_this:
+            sessions_updated += 1
+
+    await db.flush()
+    return {
+        "imported_pre_workshop_count": imported_pre,
+        "imported_session_items_count": imported_session_items,
+        "sessions_updated": sessions_updated,
+        "sessions_created": sessions_created,
+    }
+
+
+async def switch_cohort_day_checklists(
+    db: AsyncSession,
+    *,
+    cohort_id: UUID,
+    session_plan_order: list[UUID],
+    scope: str = "both",
+    include_titles: bool = True,
+    actor_user_id: UUID,
+) -> dict:
+    """Swap day checklists (and optionally titles) across fixed chronological session dates."""
+    cohort = await db.get(Cohort, cohort_id)
+    if cohort is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Cohort not found")
+
+    sessions = await _cohort_sessions_chronological(db, cohort_id)
+    expected_ids = [s.id for s in sessions]
+    if (
+        len(session_plan_order) != len(expected_ids)
+        or len(set(session_plan_order)) != len(expected_ids)
+        or set(session_plan_order) != set(expected_ids)
+    ):
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            detail="session_plan_order must be an exact permutation of this cohort's sessions",
+        )
+
+    moved_indices = [i for i, src_id in enumerate(session_plan_order) if src_id != expected_ids[i]]
+    if not moved_indices:
+        return {"sessions_switched": 0, "items_moved": 0}
+
+    audiences = ["instructor", "internal"] if scope == "both" else [scope]
+    involved_ids = {expected_ids[i] for i in moved_indices} | {session_plan_order[i] for i in moved_indices}
+
+    if "instructor" in audiences:
+        approved_sid = await db.scalar(
+            select(InstructorSessionDay.session_id)
+            .where(
+                InstructorSessionDay.session_id.in_(list(involved_ids)),
+                InstructorSessionDay.status == "approved",
+            )
+            .limit(1)
+        )
+        if approved_sid is not None:
+            raise HTTPException(
+                status.HTTP_409_CONFLICT,
+                detail=(
+                    "Cannot switch a day that already has an approved instructor report. "
+                    "Reopen it first, or switch Internal team only."
+                ),
+            )
+
+    # Materialize inherited fallback checklists onto involved sessions first so moving preserves each day's full plan.
+    inherit = getattr(cohort, "inherit_default_checklists", True)
+    template_cohort = (
+        await find_program_template_cohort(db, cohort.program_id, exclude_cohort_id=cohort.id)
+        if inherit else None
+    )
+    template_sessions = (
+        await _cohort_sessions_chronological(db, template_cohort.id)
+        if template_cohort is not None else []
+    )
+    cohort_pre_cache: dict[str, list[DeliveryChecklistItem]] = {}
+    prog_pre_cache: dict[str, list[DeliveryChecklistItem]] = {}
+
+    for idx, sess in enumerate(sessions):
+        if sess.id not in involved_ids:
+            continue
+        for aud in audiences:
+            direct = await _all_items_at_level(db, session_id=sess.id, target_audience=aud)
+            if direct:
+                continue
+            is_overridden = (
+                bool(getattr(sess, "instructor_checklist_overridden", False))
+                if aud == "instructor"
+                else bool(getattr(sess, "internal_checklist_overridden", False))
+            )
+            if is_overridden:
+                continue
+            fallback_items: list[DeliveryChecklistItem] = []
+            if inherit and idx < len(template_sessions):
+                fallback_items = await _all_items_at_level(
+                    db, session_id=template_sessions[idx].id, target_audience=aud,
+                )
+            if not fallback_items:
+                if aud not in cohort_pre_cache:
+                    cohort_pre_cache[aud] = await _all_items_at_level(
+                        db, cohort_id=cohort.id, target_audience=aud,
+                    )
+                fallback_items = cohort_pre_cache[aud]
+            if not fallback_items and inherit:
+                if aud not in prog_pre_cache:
+                    prog_pre_cache[aud] = await _all_items_at_level(
+                        db, program_id=cohort.program_id, target_audience=aud,
+                    )
+                fallback_items = prog_pre_cache[aud]
+            for src in fallback_items:
+                db.add(clone_delivery_checklist_item(src, actor_user_id=actor_user_id, session_id=sess.id))
+    await db.flush()
+
+    snapshot_rows = list((await db.execute(
+        select(DeliveryChecklistItem).where(
+            DeliveryChecklistItem.session_id.in_(list(involved_ids)),
+            DeliveryChecklistItem.target_audience.in_(audiences),
+        )
+    )).scalars().all())
+    items_by_sess_aud: dict[tuple[UUID, str], list[DeliveryChecklistItem]] = {}
+    for row in snapshot_rows:
+        items_by_sess_aud.setdefault((row.session_id, row.target_audience), []).append(row)
+    titles_by_id = {s.id: s.title for s in sessions}
+
+    await _clear_session_audience_progress(db, involved_ids, audiences)
+
+    items_moved = 0
+    for idx in moved_indices:
+        dst = sessions[idx]
+        src_id = session_plan_order[idx]
+        for aud in audiences:
+            moved = items_by_sess_aud.get((src_id, aud), [])
+            for item in moved:
+                item.session_id = dst.id
+                items_moved += 1
+            if aud == "instructor":
+                dst.instructor_checklist_overridden = len(moved) == 0
+            elif aud == "internal":
+                dst.internal_checklist_overridden = len(moved) == 0
+        if include_titles:
+            dst.title = titles_by_id[src_id]
+
+    await db.flush()
+    return {"sessions_switched": len(moved_indices), "items_moved": items_moved}
 
 
 async def _instructor_role(db: AsyncSession, session_id: UUID, user_id: UUID) -> UUID | None:
@@ -441,42 +1151,39 @@ async def resolve_checklist(
         if general:
             return general
 
+    if getattr(session, "instructor_checklist_overridden", False):
+        return []
+
     # 2. Template session fallback
     cohort = await db.get(Cohort, session.cohort_id)
     if cohort is not None:
-        template_cohort = await db.scalar(
-            select(Cohort).where(
-                Cohort.program_id == cohort.program_id,
-                or_(
-                    Cohort.status == "draft",
-                    Cohort.name.ilike("[Template]%"),
-                    Cohort.name.ilike("%template%"),
-                ),
-                Cohort.id != cohort.id,
-            ).order_by(Cohort.created_at.asc())
-        )
-        if template_cohort is not None:
-            all_sessions = (await db.execute(
-                select(Session.id).where(Session.cohort_id == cohort.id)
-                .order_by(Session.meeting_date, Session.starts_at, Session.created_at)
-            )).scalars().all()
-            try:
-                s_idx = all_sessions.index(session.id)
-                t_sessions = (await db.execute(
-                    select(Session.id).where(Session.cohort_id == template_cohort.id)
+        inherit = getattr(cohort, "inherit_default_checklists", True)
+        if inherit:
+            template_cohort = await find_program_template_cohort(
+                db, cohort.program_id, exclude_cohort_id=cohort.id,
+            )
+            if template_cohort is not None:
+                all_sessions = (await db.execute(
+                    select(Session.id).where(Session.cohort_id == cohort.id)
                     .order_by(Session.meeting_date, Session.starts_at, Session.created_at)
                 )).scalars().all()
-                if s_idx < len(t_sessions):
-                    t_items = await _items_at_level(db, session_id=t_sessions[s_idx])
-                    if t_items:
-                        role_items = [i for i in t_items if i.role_id == role_id] if role_id is not None else []
-                        if role_items:
-                            return role_items
-                        general = [i for i in t_items if i.role_id is None]
-                        if general:
-                            return general
-            except ValueError:
-                pass
+                try:
+                    s_idx = all_sessions.index(session.id)
+                    t_sessions = (await db.execute(
+                        select(Session.id).where(Session.cohort_id == template_cohort.id)
+                        .order_by(Session.meeting_date, Session.starts_at, Session.created_at)
+                    )).scalars().all()
+                    if s_idx < len(t_sessions):
+                        t_items = await _items_at_level(db, session_id=t_sessions[s_idx])
+                        if t_items:
+                            role_items = [i for i in t_items if i.role_id == role_id] if role_id is not None else []
+                            if role_items:
+                                return role_items
+                            general = [i for i in t_items if i.role_id is None]
+                            if general:
+                                return general
+                except ValueError:
+                    pass
 
         # 3. Cohort level
         cohort_items = await _items_at_level(db, cohort_id=cohort.id)
@@ -489,11 +1196,12 @@ async def resolve_checklist(
                 return general
 
         # 4. Program level
-        program_items = await _items_at_level(db, program_id=cohort.program_id)
-        role_items = [i for i in program_items if i.role_id == role_id] if role_id is not None else []
-        if role_items:
-            return role_items
-        return [i for i in program_items if i.role_id is None]
+        if inherit:
+            program_items = await _items_at_level(db, program_id=cohort.program_id)
+            role_items = [i for i in program_items if i.role_id == role_id] if role_id is not None else []
+            if role_items:
+                return role_items
+            return [i for i in program_items if i.role_id is None]
 
     return []
 
@@ -509,37 +1217,34 @@ async def resolve_internal_checklist(
     if items:
         return items
 
+    if getattr(session, "internal_checklist_overridden", False):
+        return []
+
     # 2. Template session fallback
     cohort = await db.get(Cohort, session.cohort_id)
     if cohort is not None:
-        template_cohort = await db.scalar(
-            select(Cohort).where(
-                Cohort.program_id == cohort.program_id,
-                or_(
-                    Cohort.status == "draft",
-                    Cohort.name.ilike("[Template]%"),
-                    Cohort.name.ilike("%template%"),
-                ),
-                Cohort.id != cohort.id,
-            ).order_by(Cohort.created_at.asc())
-        )
-        if template_cohort is not None:
-            all_sessions = (await db.execute(
-                select(Session.id).where(Session.cohort_id == cohort.id)
-                .order_by(Session.meeting_date, Session.starts_at, Session.created_at)
-            )).scalars().all()
-            try:
-                s_idx = all_sessions.index(session.id)
-                t_sessions = (await db.execute(
-                    select(Session.id).where(Session.cohort_id == template_cohort.id)
+        inherit = getattr(cohort, "inherit_default_checklists", True)
+        if inherit:
+            template_cohort = await find_program_template_cohort(
+                db, cohort.program_id, exclude_cohort_id=cohort.id,
+            )
+            if template_cohort is not None:
+                all_sessions = (await db.execute(
+                    select(Session.id).where(Session.cohort_id == cohort.id)
                     .order_by(Session.meeting_date, Session.starts_at, Session.created_at)
                 )).scalars().all()
-                if s_idx < len(t_sessions):
-                    t_items = await _items_at_level(db, session_id=t_sessions[s_idx], target_audience="internal")
-                    if t_items:
-                        return t_items
-            except ValueError:
-                pass
+                try:
+                    s_idx = all_sessions.index(session.id)
+                    t_sessions = (await db.execute(
+                        select(Session.id).where(Session.cohort_id == template_cohort.id)
+                        .order_by(Session.meeting_date, Session.starts_at, Session.created_at)
+                    )).scalars().all()
+                    if s_idx < len(t_sessions):
+                        t_items = await _items_at_level(db, session_id=t_sessions[s_idx], target_audience="internal")
+                        if t_items:
+                            return t_items
+                except ValueError:
+                    pass
 
         # 3. Cohort level
         cohort_items = await _items_at_level(db, cohort_id=cohort.id, target_audience="internal")
@@ -547,9 +1252,10 @@ async def resolve_internal_checklist(
             return cohort_items
 
         # 4. Program level
-        program_items = await _items_at_level(db, program_id=cohort.program_id, target_audience="internal")
-        if program_items:
-            return program_items
+        if inherit:
+            program_items = await _items_at_level(db, program_id=cohort.program_id, target_audience="internal")
+            if program_items:
+                return program_items
 
     return []
 
@@ -1091,19 +1797,14 @@ async def list_day_reviews(
         return []
 
     day_ids = [d.id for d, _u, _s, _c, _p in rows]
-    done_counts = dict((await db.execute(
-        select(InstructorChecklistProgress.day_id, func.count())
-        .where(
-            InstructorChecklistProgress.day_id.in_(day_ids),
-            InstructorChecklistProgress.is_done.is_(True),
-        )
-        .group_by(InstructorChecklistProgress.day_id)
-    )).all())
+    done_by_day = await _done_item_ids_by_day(db, day_ids)
 
     out = []
     for day, user, session, cohort, program in rows:
         role_id = await _instructor_role(db, session.id, user.id)
-        total = len(await resolve_checklist(db, session, role_id))
+        resolved_items = await resolve_checklist(db, session, role_id)
+        resolved_ids = {i.id for i in resolved_items}
+        done_count = len(done_by_day.get(day.id, set()) & resolved_ids)
         out.append({
             "day_id": day.id,
             "session_id": session.id,
@@ -1121,8 +1822,8 @@ async def list_day_reviews(
             "submitted_at": day.submitted_at,
             "review_comment": day.review_comment,
             "instructor_notes": day.instructor_notes,
-            "checklist_done": done_counts.get(day.id, 0),
-            "checklist_total": total,
+            "checklist_done": done_count,
+            "checklist_total": len(resolved_items),
         })
     return out
 
@@ -1288,27 +1989,20 @@ async def _instructor_breakdown(db: AsyncSession, session: Session) -> list[dict
             select(InstructorSessionDay).where(InstructorSessionDay.session_id == session.id)
         )).scalars().all()
     }
-    done_counts = {}
     day_ids = [d.id for d in days.values()]
-    if day_ids:
-        done_counts = dict((await db.execute(
-            select(InstructorChecklistProgress.day_id, func.count())
-            .where(
-                InstructorChecklistProgress.day_id.in_(day_ids),
-                InstructorChecklistProgress.is_done.is_(True),
-            )
-            .group_by(InstructorChecklistProgress.day_id)
-        )).all())
+    done_by_day = await _done_item_ids_by_day(db, day_ids)
 
     out = []
     for si, user in rows:
         day = days.get(user.id)
-        total = len(await resolve_checklist(db, session, si.role_id))
+        resolved_items = await resolve_checklist(db, session, si.role_id)
+        resolved_ids = {i.id for i in resolved_items}
+        done_count = len(done_by_day.get(day.id, set()) & resolved_ids) if day else 0
         out.append({
             "user_id": user.id,
             "full_name": user.full_name,
-            "checklist_done": done_counts.get(day.id, 0) if day else 0,
-            "checklist_total": total,
+            "checklist_done": done_count,
+            "checklist_total": len(resolved_items),
             "att_status": day.att_status if day else None,
             "checked_in_at": day.checked_in_at if day else None,
             "day_status": day.status if day else None,

@@ -223,6 +223,27 @@ async def is_program_org_manager(db: AsyncSession, program_id: uuid.UUID, user: 
     return program is not None and program.organization_id == org.id
 
 
+async def can_org_manager_read_program_template(
+    db: AsyncSession, program_id: uuid.UUID, user: User
+) -> bool:
+    """True if `user` manages the program directly OR manages an org cohort under that program."""
+    if await is_program_org_manager(db, program_id, user):
+        return True
+    if "organization" not in user.role_values or not is_org_manager(user):
+        return False
+    from app.services.website_events import resolve_user_organization
+
+    org = await resolve_user_organization(db, user)
+    if org is None:
+        return False
+    cohort_id = await db.scalar(
+        select(Cohort.id)
+        .where(Cohort.program_id == program_id, Cohort.organization_id == org.id)
+        .limit(1)
+    )
+    return cohort_id is not None
+
+
 async def require_cohort_manager_or_ops(
     db: AsyncSession, cohort_id: uuid.UUID, user: User
 ) -> Cohort:

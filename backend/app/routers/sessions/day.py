@@ -36,16 +36,21 @@ from app.schemas.sessions.day import (
     ChecklistItemOut,
     CheckInIn,
     ChecklistProgressIn,
+    CohortChecklistsSummaryOut,
     DayActionOut,
     DayDetailOut,
     DayReviewOut,
     ImportChecklistItemsIn,
+    ImportCohortDefaultsIn,
+    ImportCohortDefaultsOut,
     OpsChecklistItemOut,
     OpsChecklistProgressIn,
     ReturnDayIn,
     SessionBoardOut,
     SetChecklistItemsIn,
     SubmitDayIn,
+    SwitchDaysIn,
+    SwitchDaysOut,
 )
 from app.services.games import runs as games_runs_svc
 from app.services.notification import create_notification
@@ -79,6 +84,74 @@ async def _assert_checklist_scope_access(
     if scope == "programs" and await is_program_org_manager(db, owner_id, user):
         return
     raise HTTPException(status.HTTP_403_FORBIDDEN, detail="Operation not permitted")
+
+
+# ── ops: cohort-wide checklist management ───────────────────────────────────
+
+@router.get("/cohorts/{cohort_id}/checklists/summary", response_model=CohortChecklistsSummaryOut)
+async def get_cohort_checklists_summary(
+    cohort_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_session_delivery),
+):
+    """Per-day checklist counts, inheritance flags, and recorded-progress status for a cohort."""
+    await require_cohort_manager_or_ops(db, cohort_id, current_user)
+    return await svc.get_cohort_checklists_summary(db, cohort_id)
+
+
+@router.post("/cohorts/{cohort_id}/checklists/import-default", response_model=ImportCohortDefaultsOut)
+async def import_cohort_defaults(
+    cohort_id: uuid.UUID,
+    body: ImportCohortDefaultsIn,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_session_delivery),
+):
+    """Materialize a program's default template (or another cohort's checklists) onto this cohort."""
+    cohort = await require_cohort_manager_or_ops(db, cohort_id, current_user)
+    if body.source_type == "program":
+        src_prog_id = body.source_id or cohort.program_id
+        if not is_ops_or_admin(current_user) and src_prog_id != cohort.program_id:
+            await _assert_checklist_scope_access(db, "programs", src_prog_id, current_user)
+    elif body.source_type == "cohort" and body.source_id is not None:
+        await _assert_checklist_scope_access(db, "cohorts", body.source_id, current_user)
+
+    result = await svc.import_cohort_defaults(
+        db,
+        cohort_id=cohort_id,
+        actor_user_id=current_user.id,
+        source_type=body.source_type,
+        source_id=body.source_id,
+        include_instructor=body.include_instructor,
+        include_internal=body.include_internal,
+        include_pre_workshop=body.include_pre_workshop,
+        include_titles=body.include_titles,
+        mode=body.mode,
+        day_mappings=[m.model_dump() for m in body.day_mappings] if body.day_mappings is not None else None,
+        create_missing_sessions=body.create_missing_sessions,
+    )
+    await db.commit()
+    return result
+
+
+@router.post("/cohorts/{cohort_id}/checklists/switch-days", response_model=SwitchDaysOut)
+async def switch_cohort_days(
+    cohort_id: uuid.UUID,
+    body: SwitchDaysIn,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_session_delivery),
+):
+    """Switch day checklists (and optionally titles) across fixed session dates without altering dates or staffing."""
+    await require_cohort_manager_or_ops(db, cohort_id, current_user)
+    result = await svc.switch_cohort_day_checklists(
+        db,
+        cohort_id=cohort_id,
+        session_plan_order=body.session_plan_order,
+        scope=body.scope,
+        include_titles=body.include_titles,
+        actor_user_id=current_user.id,
+    )
+    await db.commit()
+    return result
 
 
 # ── ops: checklist templates ────────────────────────────────────────────────

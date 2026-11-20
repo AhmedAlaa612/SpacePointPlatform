@@ -54,6 +54,7 @@ class ChecklistSubItemOut(BaseModel):
 
 
 class ChecklistItemIn(BaseModel):
+    id: UUID | None = None
     title: str
     description: str | None = None
     # §5: this item can't be ticked off without a photo/screenshot attached.
@@ -71,6 +72,65 @@ class ChecklistItemIn(BaseModel):
 class SetChecklistItemsIn(BaseModel):
     """Whole-set replace, like `SetOpeningsIn` — the client never has to diff."""
     items: list[ChecklistItemIn] = []
+
+
+class SessionChecklistSummaryOut(BaseModel):
+    session_id: UUID
+    day_number: int
+    meeting_date: date
+    starts_at: time | None = None
+    title: str | None = None
+    instructor_items_count: int
+    effective_instructor_items_count: int
+    internal_items_count: int
+    effective_internal_items_count: int
+    is_instructor_inherited: bool
+    is_internal_inherited: bool
+    has_instructor_progress: bool
+    has_internal_progress: bool
+    has_approved_instructor_day: bool = False
+
+
+class CohortChecklistsSummaryOut(BaseModel):
+    cohort_id: UUID
+    pre_workshop_instructor_count: int
+    pre_workshop_internal_count: int
+    sessions: list[SessionChecklistSummaryOut]
+
+
+class DayImportMappingIn(BaseModel):
+    target_session_id: UUID
+    source_session_id: UUID | None = None
+
+
+class ImportCohortDefaultsIn(BaseModel):
+    source_type: Literal["program", "cohort"] = "program"
+    source_id: UUID | None = None
+    include_instructor: bool = True
+    include_internal: bool = True
+    include_pre_workshop: bool = True
+    include_titles: bool = False
+    mode: Literal["replace", "fill_empty"] = "replace"
+    day_mappings: list[DayImportMappingIn] | None = None
+    create_missing_sessions: bool = False
+
+
+class ImportCohortDefaultsOut(BaseModel):
+    imported_pre_workshop_count: int
+    imported_session_items_count: int
+    sessions_updated: int
+    sessions_created: int
+
+
+class SwitchDaysIn(BaseModel):
+    session_plan_order: list[UUID]
+    scope: Literal["both", "instructor", "internal"] = "both"
+    include_titles: bool = True
+
+
+class SwitchDaysOut(BaseModel):
+    sessions_switched: int
+    items_moved: int
 
 
 class ImportChecklistItemsIn(BaseModel):
