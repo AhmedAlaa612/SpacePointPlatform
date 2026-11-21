@@ -40,7 +40,9 @@ export function ImportHintStationModal({
 }: {
   open: boolean;
   onClose: () => void;
-  targetScope: { type: "program"; programId: string } | { type: "cohort"; cohortId: string; cohortName?: string };
+  targetScope:
+    | { type: "program"; programId: string; variationId?: string | null }
+    | { type: "cohort"; cohortId: string; cohortName?: string };
   onSuccess?: () => void;
 }) {
   const toast = useToast();
@@ -141,12 +143,16 @@ export function ImportHintStationModal({
           replace_existing: replaceExisting,
         });
       } else {
-        return await importProgramHintsAdminApi(targetScope.programId, {
-          source_type: source.type,
-          source_id: source.id,
-          challenge_ids: ids,
-          replace_existing: replaceExisting,
-        });
+        return await importProgramHintsAdminApi(
+          targetScope.programId,
+          {
+            source_type: source.type,
+            source_id: source.id,
+            challenge_ids: ids,
+            replace_existing: replaceExisting,
+          },
+          targetScope.variationId,
+        );
       }
     },
     onSuccess: (res) => {

@@ -22,6 +22,7 @@ from app.models.sessions.instructor_interest import InstructorInterest
 from app.models.sessions.opening import SessionAddon, SessionOpening
 from app.models.sessions.program import Program
 from app.models.sessions.program_opening import ProgramOpening
+from app.models.sessions.program_variation import ProgramVariation
 from app.models.sessions.session import Session, SessionInstructor
 from app.models.user import User
 
@@ -36,13 +37,7 @@ _OPS_SOURCES = {"offer", "invite", "payment"}
 # ── I5-2: duration ──────────────────────────────────────────────────────────
 
 async def resolve_duration(db: AsyncSession, session: Session) -> Decimal | None:
-    """Session → cohort → program, first non-NULL wins.
-
-    Same three-level fallback the operator asked for, and the same shape
-    `price` already uses. Returns None when nobody has set it anywhere, which
-    is honest — the payment line then stays blank rather than printing a
-    guessed number on a document someone signs.
-    """
+    """Session -> cohort -> variation -> program, first non-NULL wins."""
     if session.duration_hours is not None:
         return session.duration_hours
 
@@ -51,6 +46,11 @@ async def resolve_duration(db: AsyncSession, session: Session) -> Decimal | None
         return None
     if cohort.duration_hours is not None:
         return cohort.duration_hours
+
+    if getattr(cohort, "variation_id", None) is not None:
+        var = await db.get(ProgramVariation, cohort.variation_id)
+        if var is not None and var.duration_hours is not None:
+            return var.duration_hours
 
     program = await db.get(Program, cohort.program_id)
     return program.duration_hours if program else None
@@ -451,17 +451,31 @@ async def cohort_openings(db: AsyncSession, cohort_id: uuid.UUID) -> list[dict]:
 # ── program-level role template (2026-09) ───────────────────────────────────
 
 async def set_program_openings(
-    db: AsyncSession, *, program_id: uuid.UUID, lines: list[dict], actor_user_id: uuid.UUID
+    db: AsyncSession,
+    *,
+    program_id: uuid.UUID,
+    lines: list[dict],
+    actor_user_id: uuid.UUID,
+    variation_id: uuid.UUID | None = None,
 ) -> list[ProgramOpening]:
-    """Replace the whole template. Same no-assignments-to-orphan reasoning as
-    `set_cohort_openings` — nothing reads this at request time, so there is
-    nothing here for a change to break out from under."""
+    """Replace the program (or variation) role template."""
     if await db.get(Program, program_id) is None:
         raise HTTPException(404, detail="Program not found")
+    if variation_id is not None:
+        var = await db.get(ProgramVariation, variation_id)
+        if var is None or var.program_id != program_id:
+            raise HTTPException(404, detail="Program variation not found")
+        owner_col = ProgramOpening.variation_id
+        owner_val = variation_id
+        owner_kwargs = {"variation_id": variation_id}
+    else:
+        owner_col = ProgramOpening.program_id
+        owner_val = program_id
+        owner_kwargs = {"program_id": program_id}
 
     existing = {
         o.role_id: o for o in (await db.execute(
-            select(ProgramOpening).where(ProgramOpening.program_id == program_id)
+            select(ProgramOpening).where(owner_col == owner_val)
         )).scalars().all()
     }
     wanted_role_ids = {line["role_id"] for line in lines}
@@ -481,7 +495,7 @@ async def set_program_openings(
         opening = existing.get(role_id)
         if opening is None:
             opening = ProgramOpening(
-                id=uuid.uuid4(), program_id=program_id, role_id=role_id, created_by=actor_user_id,
+                id=uuid.uuid4(), role_id=role_id, created_by=actor_user_id, **owner_kwargs,
             )
             db.add(opening)
         opening.slots = slots
@@ -494,16 +508,21 @@ async def set_program_openings(
     return out
 
 
-async def program_openings(db: AsyncSession, program_id: uuid.UUID) -> list[dict]:
+async def program_openings(
+    db: AsyncSession, program_id: uuid.UUID, *, variation_id: uuid.UUID | None = None
+) -> list[dict]:
+    owner_col = ProgramOpening.variation_id if variation_id is not None else ProgramOpening.program_id
+    owner_val = variation_id if variation_id is not None else program_id
     rows = (await db.execute(
         select(ProgramOpening, DeliveryRole)
         .join(DeliveryRole, DeliveryRole.id == ProgramOpening.role_id)
-        .where(ProgramOpening.program_id == program_id)
+        .where(owner_col == owner_val)
         .order_by(DeliveryRole.sort_order)
     )).all()
     return [
         {
-            "id": o.id, "program_id": o.program_id, "role_id": role.id, "role_name": role.name,
+            "id": o.id, "program_id": o.program_id, "variation_id": o.variation_id,
+            "role_id": role.id, "role_name": role.name,
             "slots": o.slots, "amount_aed": o.amount_aed, "notes": o.notes,
             "role_default_rate_aed": role.default_rate_aed,
             "responsibilities_override": o.responsibilities_override,
@@ -514,16 +533,23 @@ async def program_openings(db: AsyncSession, program_id: uuid.UUID) -> list[dict
 
 
 async def copy_program_openings_to_cohort(
-    db: AsyncSession, *, program_id: uuid.UUID, cohort_id: uuid.UUID, actor_user_id: uuid.UUID,
+    db: AsyncSession,
+    *,
+    program_id: uuid.UUID,
+    cohort_id: uuid.UUID,
+    actor_user_id: uuid.UUID,
+    variation_id: uuid.UUID | None = None,
 ) -> None:
-    """Seed a brand-new cohort's `CohortOpening` rows from its program's
-    template — once, at creation (`create_cohort`). Never called again for
-    this cohort: see `ProgramOpening`'s docstring for why this is a copy and
-    not a live fallback. A program with no template rows leaves the new
-    cohort exactly as it is today — nothing to copy, nothing changes."""
-    rows = (await db.execute(
-        select(ProgramOpening).where(ProgramOpening.program_id == program_id)
-    )).scalars().all()
+    """Seed a brand-new cohort's `CohortOpening` rows from its variation (or program fallback) — once, at creation."""
+    rows: list[ProgramOpening] = []
+    if variation_id is not None:
+        rows = list((await db.execute(
+            select(ProgramOpening).where(ProgramOpening.variation_id == variation_id)
+        )).scalars().all())
+    if not rows:
+        rows = list((await db.execute(
+            select(ProgramOpening).where(ProgramOpening.program_id == program_id)
+        )).scalars().all())
     for row in rows:
         db.add(CohortOpening(
             id=uuid.uuid4(), cohort_id=cohort_id, role_id=row.role_id,

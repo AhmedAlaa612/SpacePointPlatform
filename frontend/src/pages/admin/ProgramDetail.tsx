@@ -23,9 +23,11 @@ import type {
 } from "@/types/sessions"
 import {
   getProgramApi,
+  listProgramVariationsApi,
   updateProgramApi,
   deleteProgramApi,
 } from "@/api/sessions/programs"
+import type { ProgramVariation } from "@/types/sessions"
 import { getCohortsApi, deleteCohortApi } from "@/api/sessions/cohorts"
 import { Modal, Spinner } from "@/pages/admin/components/common"
 import { SubCard } from "@/components/ui/primitives"
@@ -35,6 +37,7 @@ import { PreSessionQuizAssignmentBar } from "@/pages/admin/components/PreSession
 import { MaterialsPanel } from "@/pages/admin/components/MaterialsPanel"
 import { ProgramCertificateStudioModal } from "@/pages/admin/components/ProgramCertificateStudioModal"
 import { ProgramLmsSection } from "@/pages/admin/components/ProgramLmsSection"
+import { ProgramVariationBar } from "@/pages/admin/components/ProgramVariationBar"
 import { CohortModal } from "@/pages/admin/Cohorts"
 import { useToast } from "@/components/ui/toast"
 import { getErrorMessage } from "@/lib/utils"
@@ -101,12 +104,30 @@ export default function ProgramDetail() {
   const [editingCohort, setEditingCohort] = useState<Cohort | null>(null)
   const [editOpen, setEditOpen] = useState(false)
   const [expandedPast, setExpandedPast] = useState(false)
+  const [selectedVariationId, setSelectedVariationId] = useState<string | null>(null)
+  const [editingBase, setEditingBase] = useState(false)
 
   // Query Program
   const { data: program, isLoading: programLoading } = useQuery<Program>({
     queryKey: ["sessions-program", programId],
     queryFn: () => getProgramApi(programId),
   })
+
+  const { data: variations = [] } = useQuery<ProgramVariation[]>({
+    queryKey: ["program-variations", programId],
+    queryFn: () => listProgramVariationsApi(programId),
+  })
+
+  const activeVariation = useMemo(() => {
+    if (editingBase || variations.length === 0) return null
+    if (selectedVariationId) {
+      const match = variations.find((v) => v.id === selectedVariationId)
+      if (match) return match
+    }
+    return variations.find((v) => v.is_default) ?? variations[0] ?? null
+  }, [variations, selectedVariationId, editingBase])
+
+  const effectiveVariationId = activeVariation?.id ?? null
 
   // Query Cohorts of this Program
   const { data: allCohorts = [], isLoading: cohortsLoading } = useQuery<Cohort[]>({
@@ -408,8 +429,19 @@ export default function ProgramDetail() {
             </div>
           )}
 
-          <div className="rounded-[10px] border border-border bg-card p-6">
-            <MaterialsPanel owner={{ program_id: program.id }} />
+          <div className="rounded-[10px] border border-border bg-card p-6 flex flex-col gap-4">
+            <ProgramVariationBar
+              program={program}
+              variations={variations}
+              selectedVariationId={effectiveVariationId}
+              onSelectVariation={setSelectedVariationId}
+              editingBase={editingBase}
+              onToggleEditingBase={setEditingBase}
+            />
+            <MaterialsPanel
+              owner={effectiveVariationId ? { variation_id: effectiveVariationId } : { program_id: program.id }}
+              level={effectiveVariationId ? "program" : undefined}
+            />
           </div>
         </div>
       )}
@@ -417,6 +449,14 @@ export default function ProgramDetail() {
       {/* ── TAB 2: INSTRUCTORS (ROLES & ASSESSMENT GATE) ────────────── */}
       {activeTab === "instructors" && (
         <div className="flex flex-col gap-4">
+          <ProgramVariationBar
+            program={program}
+            variations={variations}
+            selectedVariationId={effectiveVariationId}
+            onSelectVariation={setSelectedVariationId}
+            editingBase={editingBase}
+            onToggleEditingBase={setEditingBase}
+          />
           <div className="flex items-center gap-1.5 flex-wrap">
             {(
               [
@@ -441,7 +481,7 @@ export default function ProgramDetail() {
 
           {instructorSub === "roles" && (
             <div className="rounded-[10px] border border-border bg-card p-6">
-              <ProgramRolesPanel program={program} />
+              <ProgramRolesPanel program={program} variationId={effectiveVariationId} />
             </div>
           )}
 
@@ -449,6 +489,7 @@ export default function ProgramDetail() {
             <div className="rounded-[10px] border border-border bg-card p-6">
               <ProgramAssessmentDefaultPanel
                 program={program}
+                variation={activeVariation}
                 onUpdated={() =>
                   queryClient.invalidateQueries({ queryKey: ["sessions-program", programId] })
                 }
@@ -458,14 +499,29 @@ export default function ProgramDetail() {
 
           {instructorSub === "prequiz" && (
             <div className="rounded-[10px] border border-border bg-card p-6">
-              <PreSessionQuizAssignmentBar scope="programs" ownerId={program.id} />
+              <PreSessionQuizAssignmentBar
+                scope={effectiveVariationId ? "variations" : "programs"}
+                ownerId={effectiveVariationId ?? program.id}
+              />
             </div>
           )}
         </div>
       )}
 
       {/* ── TAB 3: LMS AUTHORING ───────────────────────────────────── */}
-      {activeTab === "lms" && <ProgramLmsSection program={program} />}
+      {activeTab === "lms" && (
+        <div className="flex flex-col gap-4">
+          <ProgramVariationBar
+            program={program}
+            variations={variations}
+            selectedVariationId={effectiveVariationId}
+            onSelectVariation={setSelectedVariationId}
+            editingBase={editingBase}
+            onToggleEditingBase={setEditingBase}
+          />
+          <ProgramLmsSection program={program} variationId={effectiveVariationId} />
+        </div>
+      )}
 
       {/* ── TAB 4: CERTIFICATES ────────────────────────────────────── */}
       {activeTab === "certificates" && (
@@ -535,6 +591,14 @@ function CohortDetailCard({
           </Link>
           <CohortStatusBadge status={c.status} />
         </div>
+
+        {c.variation_name && (
+          <div className="mb-2">
+            <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold bg-primary/10 text-primary border border-primary/20">
+              {c.variation_name}
+            </span>
+          </div>
+        )}
 
         {unstaffed > 0 && (
           <div className="mb-2">

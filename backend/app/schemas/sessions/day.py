@@ -106,6 +106,7 @@ class DayImportMappingIn(BaseModel):
 class ImportCohortDefaultsIn(BaseModel):
     source_type: Literal["program", "cohort"] = "program"
     source_id: UUID | None = None
+    source_variation_id: UUID | None = None
     include_instructor: bool = True
     include_internal: bool = True
     include_pre_workshop: bool = True
@@ -134,8 +135,8 @@ class SwitchDaysOut(BaseModel):
 
 
 class ImportChecklistItemsIn(BaseModel):
-    """Import selected delivery checklist items from another program, cohort, or session."""
-    source_scope: Literal["programs", "cohorts", "sessions"]
+    """Import selected delivery checklist items from another program, variation, variation day, cohort, or session."""
+    source_scope: Literal["programs", "variations", "variation_days", "cohorts", "sessions"]
     source_owner_id: UUID
     source_role_id: UUID | None = None
     source_target_audience: str = "instructor"
@@ -148,6 +149,8 @@ class ImportChecklistItemsIn(BaseModel):
 class ChecklistItemOut(BaseModel):
     id: UUID
     program_id: UUID | None = None
+    variation_id: UUID | None = None
+    variation_day_id: UUID | None = None
     cohort_id: UUID | None = None
     session_id: UUID | None = None
     role_id: UUID | None = None

@@ -277,19 +277,26 @@ async def put_cohort_rubric(cohort_id: uuid.UUID, body: CompetitionRubricIn, db:
 
 
 @router.get("/programs/{program_id}/rubric", response_model=CompetitionRubricOut)
-async def get_program_rubric(program_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
-    result = await judging_service.get_rubric(db, program_id=program_id)
+async def get_program_rubric(
+    program_id: uuid.UUID, variation_id: uuid.UUID | None = None, db: AsyncSession = Depends(get_db),
+):
+    result = await judging_service.get_rubric(db, variation_id=variation_id, program_id=program_id)
     if result is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="No rubric configured for this program yet")
     return _rubric_out(*result)
 
 
 @router.put("/programs/{program_id}/rubric", response_model=CompetitionRubricOut)
-async def put_program_rubric(program_id: uuid.UUID, body: CompetitionRubricIn, db: AsyncSession = Depends(get_db)):
+async def put_program_rubric(
+    program_id: uuid.UUID,
+    body: CompetitionRubricIn,
+    variation_id: uuid.UUID | None = None,
+    db: AsyncSession = Depends(get_db),
+):
     if await db.get(Program, program_id) is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Program not found")
     rubric, criteria = await judging_service.upsert_rubric(
-        db, program_id=program_id, name=body.name,
+        db, program_id=program_id, variation_id=variation_id, name=body.name,
         criteria=[c.model_dump() for c in body.criteria],
     )
     await db.commit()

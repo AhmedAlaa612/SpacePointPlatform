@@ -22,13 +22,27 @@ from app.models.sessions.material import Material
 from app.models.sessions.pre_session_quiz import PreSessionQuizAssignment
 from app.models.sessions.program import Program
 from app.models.sessions.program_opening import ProgramOpening
+from app.models.sessions.program_variation import ProgramVariation, ProgramVariationDay
 from app.models.sessions.session import Session
 from app.models.competitions.judging import CompetitionRubric, CompetitionRubricCriterion
 from app.models.lms.program import LmsProgram, LmsProgramItem
 from app.models.user import User
-from app.schemas.sessions.programs import ProgramCloneRequest, ProgramCreate, ProgramOut, ProgramUpdate
+from app.schemas.sessions.programs import (
+    ProgramCloneRequest,
+    ProgramCreate,
+    ProgramOut,
+    ProgramUpdate,
+    ProgramVariationCreate,
+    ProgramVariationDayCreate,
+    ProgramVariationDayOut,
+    ProgramVariationDaysReorderIn,
+    ProgramVariationDayUpdate,
+    ProgramVariationOut,
+    ProgramVariationUpdate,
+)
 from app.services import storage
 from app.services.lms.program import PROGRAM_ITEM_PDF_BUCKET
+from app.services.sessions import variations as var_svc
 
 class TemplateDayOut(BaseModel):
     id: uuid.UUID
@@ -174,6 +188,7 @@ async def delete_program(
     cohort_count = await db.scalar(
         select(func.count()).select_from(Cohort).where(
             Cohort.program_id == program_id,
+            Cohort.is_template_legacy.is_(False),
             Cohort.status != "draft",
             ~Cohort.name.ilike("[Template]%"),
             func.lower(Cohort.name) != "template",
@@ -187,6 +202,12 @@ async def delete_program(
                 "Delete those first, or set the program to inactive to hide it."
             ),
         )
+
+    existing_vars = (await db.execute(
+        select(ProgramVariation).where(ProgramVariation.program_id == program_id)
+    )).scalars().all()
+    for v in existing_vars:
+        await var_svc.delete_variation(db, program_id=program_id, variation_id=v.id)
 
     template_cohort_ids = list((
         await db.execute(
@@ -414,70 +435,33 @@ async def clone_program(
             ))
             await db.flush()
 
-        # ── Clone program's template cohort, days, checklists and quiz assignments ──
-        source_template_cohort = await _find_template_cohort(db, source.id)
-        if source_template_cohort:
-            new_template_cohort = Cohort(
-                id=uuid.uuid4(),
-                program_id=new_program.id,
-                name=f"[Template] {new_program.name}",
-                status="draft",
-                visibility="private",
-                duration_hours=source_template_cohort.duration_hours,
-            )
-            db.add(new_template_cohort)
-            await db.flush()
-
-            source_template_sessions = (await db.execute(
-                select(Session).where(Session.cohort_id == source_template_cohort.id)
-                .order_by(Session.meeting_date, Session.starts_at, Session.created_at)
-            )).scalars().all()
-
-            for s in source_template_sessions:
-                new_session = Session(
+        # ── Clone Program Variations (replaces legacy [Template] cohort creation) ──
+        source_variations = (await db.execute(
+            select(ProgramVariation)
+            .where(ProgramVariation.program_id == source.id)
+            .order_by(ProgramVariation.is_default.desc(), ProgramVariation.sort_order.asc())
+        )).scalars().all()
+        if source_variations:
+            carry_buckets = {"days", "pre_quiz", "roles", "scalars", "materials", "assessment", "certificate"}
+            if "checklist" in body.carry:
+                carry_buckets |= {"lms", "component_config", "hints"}
+            if "rubric" in body.carry and source.is_competition:
+                carry_buckets.add("rubric")
+            for sv in source_variations:
+                cloned_var = ProgramVariation(
                     id=uuid.uuid4(),
-                    cohort_id=new_template_cohort.id,
-                    meeting_date=s.meeting_date,
-                    starts_at=s.starts_at,
-                    title=s.title,
-                    duration_hours=s.duration_hours,
+                    program_id=new_program.id,
+                    name=sv.name,
+                    description=sv.description,
+                    is_default=sv.is_default,
+                    is_active=sv.is_active,
+                    sort_order=sv.sort_order,
                 )
-                db.add(new_session)
+                db.add(cloned_var)
                 await db.flush()
-
-                items = (await db.execute(
-                    select(DeliveryChecklistItem).where(DeliveryChecklistItem.session_id == s.id)
-                    .order_by(DeliveryChecklistItem.sort_order, DeliveryChecklistItem.created_at)
-                )).scalars().all()
-                for item in items:
-                    db.add(DeliveryChecklistItem(
-                        id=uuid.uuid4(),
-                        session_id=new_session.id,
-                        role_id=item.role_id,
-                        title=item.title,
-                        description=item.description,
-                        requires_proof=item.requires_proof,
-                        is_required=item.is_required,
-                        sort_order=item.sort_order,
-                        target_audience=item.target_audience,
-                        material_id=item.material_id,
-                        link_url=item.link_url,
-                        attachments=list(item.attachments or []),
-                        sub_items=list(item.sub_items or []),
-                        created_by=current_user.id,
-                    ))
-
-                s_quiz = await db.scalar(
-                    select(PreSessionQuizAssignment).where(PreSessionQuizAssignment.session_id == s.id)
+                await var_svc.copy_variation_contents(
+                    db, source=sv, target=cloned_var, carry=carry_buckets, actor_user_id=current_user.id,
                 )
-                if s_quiz is not None and s_quiz.preset_id is not None:
-                    db.add(PreSessionQuizAssignment(
-                        id=uuid.uuid4(),
-                        session_id=new_session.id,
-                        preset_id=s_quiz.preset_id,
-                    ))
-            if source_template_sessions:
-                await db.flush()
 
     if "rubric" in body.carry and source.is_competition:
         source_rubric = await db.scalar(
@@ -519,33 +503,166 @@ async def clone_program(
     return new_program
 
 
-async def _get_or_create_template_cohort(db: AsyncSession, program: Program) -> Cohort:
-    """Finds or auto-creates the draft template cohort where a program defines its default days & checklists."""
-    template_cohort = await _find_template_cohort(db, program.id)
-    if template_cohort is None:
-        template_cohort = Cohort(
-            id=uuid.uuid4(),
-            name=f"[Template] {program.name}",
-            program_id=program.id,
-            status="draft",
-            visibility="private",
-            duration_hours=program.duration_hours or 4.0,
-        )
-        db.add(template_cohort)
-        await db.flush()
-    else:
-        template_cohort.status = "draft"
-        template_cohort.visibility = "private"
-    return template_cohort
+# ── Program Variations CRUD (first-class defaults, replaces legacy template cohorts) ──
 
+@router.get("/programs/{program_id}/variations", response_model=list[ProgramVariationOut])
+async def list_program_variations(
+    program_id: uuid.UUID,
+    active_only: bool = False,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_session_delivery),
+):
+    from app.services.org_access import (
+        can_org_manager_read_program_template,
+        is_ops_or_admin,
+        is_program_org_manager,
+    )
+
+    if (
+        not is_ops_or_admin(current_user)
+        and not await is_program_org_manager(db, program_id, current_user)
+        and not await can_org_manager_read_program_template(db, program_id, current_user)
+    ):
+        raise HTTPException(status.HTTP_403_FORBIDDEN, detail="Operation not permitted")
+    program = await db.get(Program, program_id)
+    if program is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Program not found")
+    return await var_svc.list_variations(db, program_id, active_only=active_only)
+
+
+@router.post("/programs/{program_id}/variations", response_model=ProgramVariationOut, status_code=status.HTTP_201_CREATED)
+async def create_program_variation(
+    program_id: uuid.UUID,
+    body: ProgramVariationCreate,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_operations),
+):
+    out = await var_svc.create_variation(
+        db, program_id=program_id, payload=body.model_dump(), actor_user_id=current_user.id,
+    )
+    await db.commit()
+    return out
+
+
+@router.patch("/programs/{program_id}/variations/{variation_id}", response_model=ProgramVariationOut)
+async def update_program_variation(
+    program_id: uuid.UUID,
+    variation_id: uuid.UUID,
+    body: ProgramVariationUpdate,
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(require_operations),
+):
+    out = await var_svc.update_variation(
+        db, program_id=program_id, variation_id=variation_id, payload=body.model_dump(exclude_unset=True),
+    )
+    await db.commit()
+    return out
+
+
+@router.delete("/programs/{program_id}/variations/{variation_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_program_variation(
+    program_id: uuid.UUID,
+    variation_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(require_operations),
+):
+    await var_svc.delete_variation(db, program_id=program_id, variation_id=variation_id)
+    await db.commit()
+
+
+@router.post(
+    "/programs/{program_id}/variations/{variation_id}/days",
+    response_model=ProgramVariationDayOut,
+    status_code=status.HTTP_201_CREATED,
+)
+async def add_program_variation_day(
+    program_id: uuid.UUID,
+    variation_id: uuid.UUID,
+    body: ProgramVariationDayCreate,
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(require_operations),
+):
+    day = await var_svc.add_variation_day(
+        db,
+        program_id=program_id,
+        variation_id=variation_id,
+        title=body.title,
+        duration_hours=body.duration_hours,
+        starts_at=body.starts_at,
+        day_number=body.day_number,
+    )
+    await db.commit()
+    await db.refresh(day)
+    return day
+
+
+@router.patch(
+    "/programs/{program_id}/variations/{variation_id}/days/{day_id}",
+    response_model=ProgramVariationDayOut,
+)
+async def update_program_variation_day(
+    program_id: uuid.UUID,
+    variation_id: uuid.UUID,
+    day_id: uuid.UUID,
+    body: ProgramVariationDayUpdate,
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(require_operations),
+):
+    day = await var_svc.update_variation_day(
+        db,
+        program_id=program_id,
+        variation_id=variation_id,
+        day_id=day_id,
+        payload=body.model_dump(exclude_unset=True),
+    )
+    await db.commit()
+    await db.refresh(day)
+    return day
+
+
+@router.delete(
+    "/programs/{program_id}/variations/{variation_id}/days/{day_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+async def delete_program_variation_day(
+    program_id: uuid.UUID,
+    variation_id: uuid.UUID,
+    day_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(require_operations),
+):
+    await var_svc.delete_variation_day(db, program_id=program_id, variation_id=variation_id, day_id=day_id)
+    await db.commit()
+
+
+@router.post(
+    "/programs/{program_id}/variations/{variation_id}/days/reorder",
+    response_model=list[ProgramVariationDayOut],
+)
+async def reorder_program_variation_days(
+    program_id: uuid.UUID,
+    variation_id: uuid.UUID,
+    body: ProgramVariationDaysReorderIn,
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(require_operations),
+):
+    days = await var_svc.reorder_variation_days(
+        db, program_id=program_id, variation_id=variation_id, day_ids=body.day_ids,
+    )
+    await db.commit()
+    return days
+
+
+# ── Legacy /template & /template-days routes backed by default ProgramVariation ──
 
 @router.get("/programs/{program_id}/template", response_model=ProgramTemplateOut)
 async def get_program_template(
     program_id: uuid.UUID,
+    variation_id: uuid.UUID | None = None,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_session_delivery),
 ):
-    """Returns the program's template cohort, default days, and session IDs."""
+    """Returns the program variation's template days cleanly without creating a draft Cohort."""
     from app.services.org_access import can_org_manager_read_program_template, is_ops_or_admin
 
     if not is_ops_or_admin(current_user) and not await can_org_manager_read_program_template(db, program_id, current_user):
@@ -554,8 +671,8 @@ async def get_program_template(
     if program is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Program not found")
 
-    template_cohort = await _find_template_cohort(db, program.id)
-    if template_cohort is None:
+    var = await var_svc.resolve_variation_for_program(db, program.id, variation_id)
+    if var is None:
         return ProgramTemplateOut(
             program_id=program.id,
             template_cohort_id=None,
@@ -563,25 +680,21 @@ async def get_program_template(
             sessions=[],
         )
 
-    sessions = (await db.execute(
-        select(Session).where(Session.cohort_id == template_cohort.id)
-        .order_by(Session.meeting_date, Session.starts_at, Session.created_at)
-    )).scalars().all()
-
+    days = await var_svc.variation_days(db, var.id)
     return ProgramTemplateOut(
         program_id=program.id,
-        template_cohort_id=template_cohort.id,
-        days_count=len(sessions),
+        template_cohort_id=var.id,
+        days_count=len(days),
         sessions=[
             TemplateDayOut(
-                id=s.id,
-                cohort_id=s.cohort_id,
-                day_number=idx + 1,
-                title=s.title or f"Day {idx + 1}",
-                duration_hours=float(s.duration_hours) if s.duration_hours is not None else None,
-                meeting_date=str(s.meeting_date) if s.meeting_date else None,
+                id=d.id,
+                cohort_id=d.variation_id,
+                day_number=d.day_number,
+                title=d.title or f"Day {d.day_number}",
+                duration_hours=float(d.duration_hours) if d.duration_hours is not None else None,
+                meeting_date=None,
             )
-            for idx, s in enumerate(sessions)
+            for d in days
         ],
     )
 
@@ -590,69 +703,82 @@ async def get_program_template(
 async def add_program_template_day(
     program_id: uuid.UUID,
     body: TemplateDayCreate,
+    variation_id: uuid.UUID | None = None,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_operations),
 ):
-    """Adds a new default day to the program template."""
+    """Adds a day to the specified (or default) ProgramVariation."""
     program = await db.get(Program, program_id)
     if program is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Program not found")
 
-    template_cohort = await _get_or_create_template_cohort(db, program)
-    existing_sessions = (await db.execute(
-        select(Session).where(Session.cohort_id == template_cohort.id)
-        .order_by(Session.meeting_date, Session.starts_at, Session.created_at)
-    )).scalars().all()
+    if variation_id is not None:
+        var = await var_svc.resolve_variation_for_program(db, program.id, variation_id)
+    else:
+        var = await var_svc.get_or_create_default_variation(db, program.id)
 
-    next_idx = len(existing_sessions) + 1
-    new_day = Session(
-        id=uuid.uuid4(),
-        cohort_id=template_cohort.id,
-        meeting_date=date.today() + timedelta(days=next_idx),
-        title=body.title or f"Day {next_idx}",
-        duration_hours=body.duration_hours or program.duration_hours or 4.0,
+    day = await var_svc.add_variation_day(
+        db,
+        program_id=program.id,
+        variation_id=var.id,
+        title=body.title,
+        duration_hours=body.duration_hours if body.duration_hours is not None else (var.duration_hours or program.duration_hours),
     )
-    db.add(new_day)
     await db.commit()
-    await db.refresh(new_day)
-
+    await db.refresh(day)
     return TemplateDayOut(
-        id=new_day.id,
-        cohort_id=new_day.cohort_id,
-        day_number=next_idx,
-        title=new_day.title,
-        duration_hours=float(new_day.duration_hours) if new_day.duration_hours is not None else None,
-        meeting_date=str(new_day.meeting_date),
+        id=day.id,
+        cohort_id=day.variation_id,
+        day_number=day.day_number,
+        title=day.title,
+        duration_hours=float(day.duration_hours) if day.duration_hours is not None else None,
+        meeting_date=None,
     )
 
 
-@router.patch("/programs/{program_id}/template-days/{session_id}", response_model=TemplateDayOut)
+@router.patch("/programs/{program_id}/template-days/{day_id}", response_model=TemplateDayOut)
 async def update_program_template_day(
     program_id: uuid.UUID,
-    session_id: uuid.UUID,
+    day_id: uuid.UUID,
     body: TemplateDayUpdate,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_operations),
 ):
-    """Updates a program template day's title or duration."""
-    session = await db.get(Session, session_id)
+    """Updates a ProgramVariationDay's title or duration."""
+    day = await db.get(ProgramVariationDay, day_id)
+    if day is not None:
+        day = await var_svc.update_variation_day(
+            db,
+            program_id=program_id,
+            variation_id=day.variation_id,
+            day_id=day_id,
+            payload=body.model_dump(exclude_unset=True),
+        )
+        await db.commit()
+        await db.refresh(day)
+        return TemplateDayOut(
+            id=day.id,
+            cohort_id=day.variation_id,
+            day_number=day.day_number,
+            title=day.title,
+            duration_hours=float(day.duration_hours) if day.duration_hours is not None else None,
+            meeting_date=None,
+        )
+
+    session = await db.get(Session, day_id)
     if session is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Template day not found")
-
     if body.title is not None:
         session.title = body.title.strip()
     if body.duration_hours is not None:
         session.duration_hours = body.duration_hours
-
     await db.commit()
     await db.refresh(session)
-
     all_sessions = (await db.execute(
         select(Session).where(Session.cohort_id == session.cohort_id)
         .order_by(Session.meeting_date, Session.starts_at, Session.created_at)
     )).scalars().all()
     day_idx = next((i + 1 for i, s in enumerate(all_sessions) if s.id == session.id), 1)
-
     return TemplateDayOut(
         id=session.id,
         cohort_id=session.cohort_id,
@@ -663,21 +789,24 @@ async def update_program_template_day(
     )
 
 
-@router.delete("/programs/{program_id}/template-days/{session_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete("/programs/{program_id}/template-days/{day_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_program_template_day(
     program_id: uuid.UUID,
-    session_id: uuid.UUID,
+    day_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_operations),
 ):
-    """Deletes a template day from the program template."""
-    session = await db.get(Session, session_id)
+    """Deletes a ProgramVariationDay (or legacy template session)."""
+    day = await db.get(ProgramVariationDay, day_id)
+    if day is not None:
+        await var_svc.delete_variation_day(db, program_id=program_id, variation_id=day.variation_id, day_id=day_id)
+        await db.commit()
+        return
+
+    session = await db.get(Session, day_id)
     if session is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Template day not found")
-
-    await db.execute(
-        sa_delete(DeliveryChecklistItem).where(DeliveryChecklistItem.session_id == session_id)
-    )
+    await db.execute(sa_delete(DeliveryChecklistItem).where(DeliveryChecklistItem.session_id == day_id))
     await db.delete(session)
     await db.commit()
 

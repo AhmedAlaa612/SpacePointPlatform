@@ -17,7 +17,7 @@ export interface ComponentItemSummary {
 }
 
 export interface ComponentConfigOut {
-  owner_type: "program" | "cohort";
+  owner_type: "program" | "variation" | "cohort";
   owner_id: string;
   is_inherited: boolean;
   has_override: boolean;
@@ -39,21 +39,28 @@ export interface ComponentConfigIn {
   disabled_component_ids: string[];
 }
 
-export async function getProgramComponentsApi(lmsProgramId: string): Promise<ComponentConfigOut> {
-  const { data } = await api.get<ComponentConfigOut>(`/lms/admin/programs/${lmsProgramId}/components`);
+export async function getProgramComponentsApi(lmsProgramId: string, variationId?: string | null): Promise<ComponentConfigOut> {
+  const { data } = await api.get<ComponentConfigOut>(`/lms/admin/programs/${lmsProgramId}/components`, {
+    params: variationId ? { variation_id: variationId } : undefined,
+  });
   return data;
 }
 
 export async function updateProgramComponentsApi(
   lmsProgramId: string,
-  body: ComponentConfigIn
+  body: ComponentConfigIn,
+  variationId?: string | null,
 ): Promise<ComponentConfigOut> {
-  const { data } = await api.put<ComponentConfigOut>(`/lms/admin/programs/${lmsProgramId}/components`, body);
+  const { data } = await api.put<ComponentConfigOut>(`/lms/admin/programs/${lmsProgramId}/components`, body, {
+    params: variationId ? { variation_id: variationId } : undefined,
+  });
   return data;
 }
 
-export async function resetProgramComponentsApi(lmsProgramId: string): Promise<ComponentConfigOut> {
-  const { data } = await api.delete<ComponentConfigOut>(`/lms/admin/programs/${lmsProgramId}/components`);
+export async function resetProgramComponentsApi(lmsProgramId: string, variationId?: string | null): Promise<ComponentConfigOut> {
+  const { data } = await api.delete<ComponentConfigOut>(`/lms/admin/programs/${lmsProgramId}/components`, {
+    params: variationId ? { variation_id: variationId } : undefined,
+  });
   return data;
 }
 

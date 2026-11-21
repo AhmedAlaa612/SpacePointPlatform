@@ -234,7 +234,7 @@ async def public_register(
     # P0-8: public_register never set this, so every website registration
     # recorded NULL — indistinguishable from "not yet resolved" even for a
     # free programme. Snapshot a real number now (LMS_DESIGN_AUDIT.md §5.1).
-    price_charged = await resolve_registration_price(db, program=program, session_ids=body.session_ids)
+    price_charged = await resolve_registration_price(db, program=program, cohort=cohort, session_ids=body.session_ids)
 
     registration = await register(
         db,

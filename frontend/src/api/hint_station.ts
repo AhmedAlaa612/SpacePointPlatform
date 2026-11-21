@@ -21,7 +21,7 @@ export interface CohortHintCard {
 
 export interface CohortHintChallenge {
   id: string;
-  owner_type: "program" | "cohort";
+  owner_type: "program" | "variation" | "cohort";
   owner_id: string;
   title: string;
   challenge_code?: string | null;
@@ -101,8 +101,10 @@ export const revealHintCardApi = (assignmentId: string, cardId: string) =>
 
 // ── Ops & Authoring Surface ────────────────────────────────────────────────
 
-export const listProgramChallengesAdminApi = (programId: string) =>
-  api.get<CohortHintChallenge[]>(`/lms/admin/hints/program/${programId}`).then((r) => r.data);
+export const listProgramChallengesAdminApi = (programId: string, variationId?: string | null) =>
+  api.get<CohortHintChallenge[]>(`/lms/admin/hints/program/${programId}`, {
+    params: variationId ? { variation_id: variationId } : undefined,
+  }).then((r) => r.data);
 
 export const listCohortChallengesAdminApi = (cohortId: string) =>
   api.get<CohortHintChallenge[]>(`/lms/admin/hints/cohort/${cohortId}`).then((r) => r.data);
@@ -111,7 +113,7 @@ export const forkCohortChallengesAdminApi = (cohortId: string) =>
   api.post<CohortHintChallenge[]>(`/lms/admin/hints/cohort/${cohortId}/fork`).then((r) => r.data);
 
 export const createHintChallengeApi = (data: {
-  owner_type: "program" | "cohort";
+  owner_type: "program" | "variation" | "cohort";
   owner_id: string;
   title: string;
   challenge_code?: string | null;
@@ -167,12 +169,16 @@ export const importCohortHintsAdminApi = (
 export const importProgramHintsAdminApi = (
   programId: string,
   data: {
-    source_type: "program" | "cohort";
+    source_type: "program" | "variation" | "cohort";
     source_id: string;
     challenge_ids?: string[];
     replace_existing?: boolean;
   },
-) => api.post<{ cloned_count: number }>(`/lms/admin/hints/program/${programId}/import`, data).then((r) => r.data);
+  variationId?: string | null,
+) =>
+  api.post<{ cloned_count: number }>(`/lms/admin/hints/program/${programId}/import`, data, {
+    params: variationId ? { variation_id: variationId } : undefined,
+  }).then((r) => r.data);
 
 // ── Judging & Operations Surface ───────────────────────────────────────────
 

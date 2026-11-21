@@ -166,28 +166,36 @@ async def set_cohort_openings(
 @router.get("/programs/{program_id}/openings-defaults", response_model=list[ProgramOpeningOut])
 async def get_program_openings(
     program_id: uuid.UUID,
+    variation_id: uuid.UUID | None = None,
     db: AsyncSession = Depends(get_db),
     _: User = Depends(require_operations),
 ):
-    """The template new cohorts of this program are seeded from at creation —
-    a one-time copy, not a live fallback. See `ProgramOpening`'s docstring."""
-    return [ProgramOpeningOut(**row) for row in await svc.program_openings(db, program_id)]
+    """The template new cohorts of this program/variation are seeded from at creation."""
+    return [
+        ProgramOpeningOut(**row)
+        for row in await svc.program_openings(db, program_id, variation_id=variation_id)
+    ]
 
 
 @router.put("/programs/{program_id}/openings-defaults", response_model=list[ProgramOpeningOut])
 async def set_program_openings(
     program_id: uuid.UUID,
     body: SetOpeningsIn,
+    variation_id: uuid.UUID | None = None,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_operations),
 ):
     await svc.set_program_openings(
         db, program_id=program_id,
+        variation_id=variation_id,
         lines=[line.model_dump() for line in body.openings],
         actor_user_id=current_user.id,
     )
     await db.commit()
-    return [ProgramOpeningOut(**row) for row in await svc.program_openings(db, program_id)]
+    return [
+        ProgramOpeningOut(**row)
+        for row in await svc.program_openings(db, program_id, variation_id=variation_id)
+    ]
 
 
 # ── add-ons ─────────────────────────────────────────────────────────────────

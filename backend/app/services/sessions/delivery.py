@@ -212,16 +212,33 @@ async def _present_count(db: AsyncSession, registration_id: UUID) -> int:
     ) or 0
 
 
-def _meets_completion_rule(program: Program, present: int, total: int) -> bool:
-    """Per-program completion requirement (operator request 2026-07-25 —
-    was a hardcoded global 0.7 from V1 P3-2; now admin-configurable per
-    program, as either a percentage of sessions attended or an absolute
-    session count)."""
-    if program.completion_rule_type == "session_count":
-        return present >= int(program.completion_rule_value)
-    # "percentage" (default) — completion_rule_value is 0-100.
+def _meets_completion_rule(
+    program: Program,
+    present: int,
+    total: int,
+    *,
+    cohort: Cohort | None = None,
+    variation=None,
+) -> bool:
+    """Resolve completion rule along cohort -> variation -> program."""
+    rule_type = (
+        getattr(cohort, "completion_rule_type", None)
+        or (getattr(variation, "completion_rule_type", None) if variation else None)
+        or program.completion_rule_type
+    )
+    rule_value = (
+        getattr(cohort, "completion_rule_value", None)
+        if cohort is not None and getattr(cohort, "completion_rule_value", None) is not None
+        else (
+            variation.completion_rule_value
+            if variation is not None and getattr(variation, "completion_rule_value", None) is not None
+            else program.completion_rule_value
+        )
+    )
+    if rule_type == "session_count":
+        return present >= int(rule_value)
     rate = (present / total) if total else 0.0
-    return rate >= (float(program.completion_rule_value) / 100)
+    return rate >= (float(rule_value) / 100)
 
 
 async def _send_certificate_email(
@@ -230,7 +247,7 @@ async def _send_certificate_email(
     if not contact.email:
         return
     from app.services.competitions.certificates import _resolve_certificate_template
-    layout = await _resolve_certificate_template(db, program=program, theme="dark")
+    layout = await _resolve_certificate_template(db, program=program, cohort=cohort, theme="dark")
     if layout.get("is_custom"):
         template_body = layout.get("body_text_template") or ""
     else:
@@ -365,6 +382,10 @@ async def complete_cohort(
     if cohort is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Cohort not found")
     program = await db.get(Program, cohort.program_id)
+    variation = None
+    if getattr(cohort, "variation_id", None) is not None:
+        from app.models.sessions.program_variation import ProgramVariation
+        variation = await db.get(ProgramVariation, cohort.variation_id)
 
     registrations = (await db.execute(
         select(Registration).where(Registration.cohort_id == cohort_id, Registration.status != "cancelled")
@@ -394,7 +415,7 @@ async def complete_cohort(
         effective_send_certificates = False if is_org_program else send_certificates
 
         gate_ok = False if is_observer else await certificate_gate_satisfied(db, cohort_id=cohort_id, user_id=user_id)
-        if _meets_completion_rule(program, present, total) and gate_ok:
+        if _meets_completion_rule(program, present, total, cohort=cohort, variation=variation) and gate_ok:
             registration.status = "completed"
             contact = await db.get(Contact, registration.contact_id)
             if not is_org_program:

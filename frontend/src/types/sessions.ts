@@ -38,6 +38,41 @@ export interface Program {
   created_at: string;
 }
 
+export interface ProgramVariationDay {
+  id: string;
+  variation_id: string;
+  day_number: number;
+  title?: string | null;
+  duration_hours?: number | null;
+  starts_at?: string | null;
+  created_at: string;
+}
+
+export interface ProgramVariation {
+  id: string;
+  program_id: string;
+  name: string;
+  description?: string | null;
+  is_default: boolean;
+  is_active: boolean;
+  sort_order: number;
+  duration_hours?: number | null;
+  default_capacity?: number | null;
+  poster_template_url?: string | null;
+  keep_course_access_after_completion?: boolean | null;
+  pricing_model?: PricingModel | null;
+  price?: number | null;
+  completion_rule_type?: CompletionRuleType | null;
+  completion_rule_value?: number | null;
+  default_assessment_config_id?: string | null;
+  default_certificate_template_id?: string | null;
+  default_team_certificate_template_id?: string | null;
+  created_at: string;
+  days: ProgramVariationDay[];
+  days_count: number;
+  cohorts_count: number;
+}
+
 export type CertificateTemplateKind = "individual" | "team";
 export type CertificateEmailTemplateKind = "individual" | "team" | "combined" | "profile";
 
@@ -167,6 +202,14 @@ export interface Cohort {
   org_capacity_limit?: number | null;
   linked_event_slug?: string | null;
   inherit_default_checklists?: boolean;
+  variation_id?: string | null;
+  variation_name?: string | null;
+  pricing_model?: string | null;
+  price?: number | null;
+  completion_rule_type?: string | null;
+  completion_rule_value?: number | null;
+  default_certificate_template_id?: string | null;
+  default_team_certificate_template_id?: string | null;
 }
 
 export interface SessionInstructor {

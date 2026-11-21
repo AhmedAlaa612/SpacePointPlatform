@@ -84,8 +84,60 @@ async def _engine():
         await conn.execute(text("ALTER TABLE pre_session_quiz_datasheets ADD COLUMN IF NOT EXISTS organization_id UUID REFERENCES organizations(id) ON DELETE CASCADE;"))
         await conn.execute(text("ALTER TABLE pre_session_quiz_presets ADD COLUMN IF NOT EXISTS organization_id UUID REFERENCES organizations(id) ON DELETE CASCADE;"))
         await conn.execute(text("ALTER TABLE cohorts ADD COLUMN IF NOT EXISTS inherit_default_checklists BOOLEAN NOT NULL DEFAULT TRUE;"))
+        await conn.execute(text("ALTER TABLE cohorts ADD COLUMN IF NOT EXISTS variation_id UUID REFERENCES program_variations(id) ON DELETE SET NULL;"))
+        await conn.execute(text("ALTER TABLE cohorts ADD COLUMN IF NOT EXISTS is_template_legacy BOOLEAN NOT NULL DEFAULT FALSE;"))
+        await conn.execute(text("ALTER TABLE cohorts ADD COLUMN IF NOT EXISTS pricing_model VARCHAR(24);"))
+        await conn.execute(text("ALTER TABLE cohorts ADD COLUMN IF NOT EXISTS price NUMERIC(10, 2);"))
+        await conn.execute(text("ALTER TABLE cohorts ADD COLUMN IF NOT EXISTS completion_rule_type VARCHAR(16);"))
+        await conn.execute(text("ALTER TABLE cohorts ADD COLUMN IF NOT EXISTS completion_rule_value NUMERIC(6, 2);"))
+        await conn.execute(text("ALTER TABLE cohorts ADD COLUMN IF NOT EXISTS default_certificate_template_id UUID REFERENCES program_certificate_templates(id) ON DELETE SET NULL;"))
+        await conn.execute(text("ALTER TABLE cohorts ADD COLUMN IF NOT EXISTS default_team_certificate_template_id UUID REFERENCES program_certificate_templates(id) ON DELETE SET NULL;"))
         await conn.execute(text("ALTER TABLE sessions ADD COLUMN IF NOT EXISTS instructor_checklist_overridden BOOLEAN NOT NULL DEFAULT FALSE;"))
         await conn.execute(text("ALTER TABLE sessions ADD COLUMN IF NOT EXISTS internal_checklist_overridden BOOLEAN NOT NULL DEFAULT FALSE;"))
+        await conn.execute(text("ALTER TABLE delivery_checklist_items ADD COLUMN IF NOT EXISTS variation_id UUID REFERENCES program_variations(id) ON DELETE CASCADE;"))
+        await conn.execute(text("ALTER TABLE delivery_checklist_items ADD COLUMN IF NOT EXISTS variation_day_id UUID REFERENCES program_variation_days(id) ON DELETE CASCADE;"))
+        await conn.execute(text("ALTER TABLE delivery_checklist_items DROP CONSTRAINT IF EXISTS ck_delivery_checklist_exactly_one_owner;"))
+        await conn.execute(text(
+            "ALTER TABLE delivery_checklist_items ADD CONSTRAINT ck_delivery_checklist_exactly_one_owner CHECK ("
+            "(CASE WHEN program_id IS NOT NULL THEN 1 ELSE 0 END + "
+            "CASE WHEN variation_id IS NOT NULL THEN 1 ELSE 0 END + "
+            "CASE WHEN variation_day_id IS NOT NULL THEN 1 ELSE 0 END + "
+            "CASE WHEN cohort_id IS NOT NULL THEN 1 ELSE 0 END + "
+            "CASE WHEN session_id IS NOT NULL THEN 1 ELSE 0 END) = 1);"
+        ))
+        await conn.execute(text("ALTER TABLE pre_session_quiz_assignments ADD COLUMN IF NOT EXISTS variation_id UUID REFERENCES program_variations(id) ON DELETE CASCADE;"))
+        await conn.execute(text("ALTER TABLE pre_session_quiz_assignments ADD COLUMN IF NOT EXISTS variation_day_id UUID REFERENCES program_variation_days(id) ON DELETE CASCADE;"))
+        await conn.execute(text("ALTER TABLE pre_session_quiz_assignments DROP CONSTRAINT IF EXISTS ck_pre_session_quiz_assignment_one_owner;"))
+        await conn.execute(text(
+            "ALTER TABLE pre_session_quiz_assignments ADD CONSTRAINT ck_pre_session_quiz_assignment_one_owner CHECK ("
+            "(CASE WHEN program_id IS NOT NULL THEN 1 ELSE 0 END + "
+            "CASE WHEN variation_id IS NOT NULL THEN 1 ELSE 0 END + "
+            "CASE WHEN variation_day_id IS NOT NULL THEN 1 ELSE 0 END + "
+            "CASE WHEN cohort_id IS NOT NULL THEN 1 ELSE 0 END + "
+            "CASE WHEN session_id IS NOT NULL THEN 1 ELSE 0 END) = 1);"
+        ))
+        await conn.execute(text("ALTER TABLE program_openings ALTER COLUMN program_id DROP NOT NULL;"))
+        await conn.execute(text("ALTER TABLE program_openings ADD COLUMN IF NOT EXISTS variation_id UUID REFERENCES program_variations(id) ON DELETE CASCADE;"))
+        await conn.execute(text("ALTER TABLE program_openings DROP CONSTRAINT IF EXISTS uq_program_opening_role;"))
+        await conn.execute(text("ALTER TABLE program_openings DROP CONSTRAINT IF EXISTS ck_program_opening_one_owner;"))
+        await conn.execute(text(
+            "ALTER TABLE program_openings ADD CONSTRAINT ck_program_opening_one_owner CHECK ("
+            "(CASE WHEN program_id IS NOT NULL THEN 1 ELSE 0 END + "
+            "CASE WHEN variation_id IS NOT NULL THEN 1 ELSE 0 END) = 1);"
+        ))
+        await conn.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS uq_program_opening_role ON program_openings (program_id, role_id) WHERE program_id IS NOT NULL;"))
+        await conn.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS uq_program_opening_variation_role ON program_openings (variation_id, role_id) WHERE variation_id IS NOT NULL;"))
+        await conn.execute(text("ALTER TABLE session_materials ADD COLUMN IF NOT EXISTS variation_id UUID REFERENCES program_variations(id) ON DELETE CASCADE;"))
+        await conn.execute(text("ALTER TABLE session_materials DROP CONSTRAINT IF EXISTS ck_material_exactly_one_owner;"))
+        await conn.execute(text(
+            "ALTER TABLE session_materials ADD CONSTRAINT ck_material_exactly_one_owner CHECK ("
+            "(CASE WHEN program_id IS NOT NULL THEN 1 ELSE 0 END + "
+            "CASE WHEN variation_id IS NOT NULL THEN 1 ELSE 0 END + "
+            "CASE WHEN cohort_id IS NOT NULL THEN 1 ELSE 0 END + "
+            "CASE WHEN session_id IS NOT NULL THEN 1 ELSE 0 END) = 1);"
+        ))
+        await conn.execute(text("ALTER TABLE competition_rubrics ADD COLUMN IF NOT EXISTS variation_id UUID REFERENCES program_variations(id) ON DELETE CASCADE;"))
+        await conn.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS uq_competition_rubrics_variation_id ON competition_rubrics (variation_id) WHERE variation_id IS NOT NULL;"))
     yield engine
     await engine.dispose()
 

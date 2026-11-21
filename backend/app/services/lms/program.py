@@ -502,14 +502,36 @@ async def renumber_program_items(
     return items
 
 
+async def _resolve_program_or_variation_items(
+    db: AsyncSession, cohort: Cohort, program: LmsProgram, *, commit_renumber: bool = False
+) -> list[LmsProgramItem]:
+    if getattr(cohort, "variation_id", None) is not None:
+        v_items = (await db.execute(
+            select(LmsProgramItem)
+            .where(LmsProgramItem.owner_type == "variation", LmsProgramItem.owner_id == cohort.variation_id)
+            .order_by(LmsProgramItem.position)
+        )).scalars().all()
+        if v_items:
+            if [i.position for i in v_items] != list(range(1, len(v_items) + 1)):
+                v_items = await renumber_program_items(
+                    db, owner_type="variation", owner_id=cohort.variation_id, commit=commit_renumber
+                )
+            return list(v_items)
+
+    items = (await db.execute(
+        select(LmsProgramItem)
+        .where(LmsProgramItem.owner_type == "program", LmsProgramItem.owner_id == program.id)
+        .order_by(LmsProgramItem.position)
+    )).scalars().all()
+    if items and [i.position for i in items] != list(range(1, len(items) + 1)):
+        items = await renumber_program_items(db, owner_type="program", owner_id=program.id, commit=commit_renumber)
+    return list(items)
+
+
 async def resolve_cohort_program(
     db: AsyncSession, cohort_id: uuid.UUID,
 ) -> tuple[LmsProgram, list[LmsProgramItem]] | None:
-    """The winning `(LmsProgram, items)` pair for this cohort — a cohort
-    override with any item rows wins outright over its program's own
-    checklist, never merged (the `CohortCurriculum` idiom). Returns None
-    when the cohort has no checklist at all (no override, and its program
-    has none either) — not every cohort needs one."""
+    """The winning `(LmsProgram, items)` pair for this cohort: cohort_override -> variation -> program."""
     cohort = await db.get(Cohort, cohort_id)
     if cohort is None:
         return None
@@ -532,27 +554,14 @@ async def resolve_cohort_program(
     program = await db.scalar(select(LmsProgram).where(LmsProgram.program_id == cohort.program_id))
     if program is None:
         return None
-    items = (await db.execute(
-        select(LmsProgramItem)
-        .where(LmsProgramItem.owner_type == "program", LmsProgramItem.owner_id == program.id)
-        .order_by(LmsProgramItem.position)
-    )).scalars().all()
-    if items and [i.position for i in items] != list(range(1, len(items) + 1)):
-        items = await renumber_program_items(db, owner_type="program", owner_id=program.id)
-    return program, list(items)
+    items = await _resolve_program_or_variation_items(db, cohort, program, commit_renumber=False)
+    return program, items
 
 
 async def effective_cohort_program_items(
     db: AsyncSession, cohort_id: uuid.UUID,
 ) -> tuple[LmsProgram, list[LmsProgramItem], bool] | None:
-    """`resolve_cohort_program`, plus whether what's being shown is the
-    program's own template rather than a real per-cohort override yet
-    (`is_inherited`) — the authoring UI's "don't start me from scratch"
-    ask (operator, 2026-08-22): a cohort with no override, or an override
-    with zero items, should still show and let you edit the program's
-    current checklist, exactly as `resolve_cohort_program` already
-    resolves it for a real student. The actual fork only happens on a
-    write — see `fork_cohort_override` below."""
+    """`resolve_cohort_program`, plus whether what's being shown is inherited."""
     cohort = await db.get(Cohort, cohort_id)
     if cohort is None:
         return None
@@ -574,14 +583,8 @@ async def effective_cohort_program_items(
     program = await db.scalar(select(LmsProgram).where(LmsProgram.program_id == cohort.program_id))
     if program is None:
         return None
-    items = (await db.execute(
-        select(LmsProgramItem)
-        .where(LmsProgramItem.owner_type == "program", LmsProgramItem.owner_id == program.id)
-        .order_by(LmsProgramItem.position)
-    )).scalars().all()
-    if items and [i.position for i in items] != list(range(1, len(items) + 1)):
-        items = await renumber_program_items(db, owner_type="program", owner_id=program.id, commit=True)
-    return program, list(items), True
+    items = await _resolve_program_or_variation_items(db, cohort, program, commit_renumber=True)
+    return program, items, True
 
 
 async def team_submission_items(db: AsyncSession, *, team_id: uuid.UUID) -> list[dict]:
@@ -767,11 +770,19 @@ async def fork_cohort_override(
         db.add(override)
         await db.flush()
 
-    program_items = (await db.execute(
-        select(LmsProgramItem)
-        .where(LmsProgramItem.owner_type == "program", LmsProgramItem.owner_id == program.id)
-        .order_by(LmsProgramItem.position)
-    )).scalars().all()
+    program_items: list[LmsProgramItem] = []
+    if getattr(cohort, "variation_id", None) is not None:
+        program_items = list((await db.execute(
+            select(LmsProgramItem)
+            .where(LmsProgramItem.owner_type == "variation", LmsProgramItem.owner_id == cohort.variation_id)
+            .order_by(LmsProgramItem.position)
+        )).scalars().all())
+    if not program_items:
+        program_items = list((await db.execute(
+            select(LmsProgramItem)
+            .where(LmsProgramItem.owner_type == "program", LmsProgramItem.owner_id == program.id)
+            .order_by(LmsProgramItem.position)
+        )).scalars().all())
 
     id_map: dict[uuid.UUID, uuid.UUID] = {}
     for item in program_items:

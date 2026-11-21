@@ -204,10 +204,23 @@ async def get_cohort_certificate_recipients(
         )
     )).scalars().all()
 
-    # Load templates for this cohort's program
+    # Load templates for this cohort's program (resolving defaults via cohort -> variation -> program)
     program = await db.get(Program, cohort.program_id)
-    default_tid = str(program.default_certificate_template_id) if program and program.default_certificate_template_id else None
-    default_team_tid = str(program.default_team_certificate_template_id) if program and getattr(program, "default_team_certificate_template_id", None) else None
+    variation = None
+    if getattr(cohort, "variation_id", None) is not None:
+        from app.models.sessions.program_variation import ProgramVariation
+        variation = await db.get(ProgramVariation, cohort.variation_id)
+
+    def _eff_cert_tid(attr: str) -> str | None:
+        val = (
+            getattr(cohort, attr, None)
+            or (getattr(variation, attr, None) if variation else None)
+            or (getattr(program, attr, None) if program else None)
+        )
+        return str(val) if val else None
+
+    default_tid = _eff_cert_tid("default_certificate_template_id")
+    default_team_tid = _eff_cert_tid("default_team_certificate_template_id")
     templates_rows = (await db.execute(
         select(ProgramCertificateTemplate)
         .where(ProgramCertificateTemplate.program_id == cohort.program_id)
@@ -595,6 +608,7 @@ async def _resolve_certificate_template(
     db: AsyncSession,
     *,
     program: Program,
+    cohort: Cohort | None = None,
     template_id: str | uuid.UUID | None = None,
     theme: str = "dark",
     kind: str = "individual",
@@ -612,12 +626,24 @@ async def _resolve_certificate_template(
         except (ValueError, TypeError):
             selected_template = None
 
-    # 2. If template_id is None or 'default', check program default
+    # 2. If template_id is None or 'default', check cohort -> variation -> program defaults
     if selected_template is None and (template_id is None or template_id == "default"):
+        variation = None
+        if cohort is not None and getattr(cohort, "variation_id", None) is not None:
+            from app.models.sessions.program_variation import ProgramVariation
+            variation = await db.get(ProgramVariation, cohort.variation_id)
+
+        def _pick_tid(attr: str):
+            return (
+                (getattr(cohort, attr, None) if cohort is not None else None)
+                or (getattr(variation, attr, None) if variation is not None else None)
+                or getattr(program, attr, None)
+            )
+
         default_field = (
-            (getattr(program, "default_team_certificate_template_id", None) or program.default_certificate_template_id)
+            (_pick_tid("default_team_certificate_template_id") or _pick_tid("default_certificate_template_id"))
             if kind == "team"
-            else program.default_certificate_template_id
+            else _pick_tid("default_certificate_template_id")
         )
         if default_field:
             selected_template = await db.get(ProgramCertificateTemplate, default_field)
@@ -845,11 +871,11 @@ async def send_cohort_certificates(
     location = await resolve_session_location_display(db, None, cohort)
 
     ind_layout = (
-        await _resolve_certificate_template(db, program=program, template_id=ind_tpl_id, theme=theme, kind="individual")
+        await _resolve_certificate_template(db, program=program, cohort=cohort, template_id=ind_tpl_id, theme=theme, kind="individual")
         if send_individual else None
     )
     team_layout = (
-        await _resolve_certificate_template(db, program=program, template_id=team_tpl_id, theme=theme, kind="team")
+        await _resolve_certificate_template(db, program=program, cohort=cohort, template_id=team_tpl_id, theme=theme, kind="team")
         if send_team else None
     )
 
@@ -1135,7 +1161,7 @@ async def render_cohort_certificates_pdf(
 
     dates = format_cohort_dates(cohort)
     location = await resolve_session_location_display(db, None, cohort)
-    layout = await _resolve_certificate_template(db, program=program, template_id=template_id, theme=theme, kind=kind)
+    layout = await _resolve_certificate_template(db, program=program, cohort=cohort, template_id=template_id, theme=theme, kind=kind)
 
     template = (await db.execute(
         select(DocumentTemplate).where(DocumentTemplate.key == "student_completion")
@@ -1241,7 +1267,7 @@ async def send_test_certificate_email(
 
     dates = format_cohort_dates(cohort)
     location = await resolve_session_location_display(db, None, cohort)
-    layout = await _resolve_certificate_template(db, program=program, template_id=template_id, theme=theme, kind=kind)
+    layout = await _resolve_certificate_template(db, program=program, cohort=cohort, template_id=template_id, theme=theme, kind=kind)
     email_tpl = await _resolve_email_template(
         db,
         email_template_id,

@@ -30,113 +30,74 @@ async def get_raw_component_config(
 
 
 async def resolve_effective_component_config(
-    db: AsyncSession, *, cohort_id: UUID | None = None, lms_program_id: UUID | None = None
+    db: AsyncSession,
+    *,
+    cohort_id: UUID | None = None,
+    lms_program_id: UUID | None = None,
+    variation_id: UUID | None = None,
 ) -> tuple[dict, bool, bool]:
-    """Resolve effective component configuration:
-    Returns (config_dict, is_inherited, has_override).
+    """Resolve effective component configuration along cohort -> variation -> program."""
+    def _unpack(cfg: DesignComponentConfig, is_inherited: bool, has_override: bool):
+        return (
+            {
+                "disabled_subsystems": list(cfg.disabled_subsystems or []),
+                "disabled_tags": list(cfg.disabled_tags or []),
+                "disabled_component_ids": [UUID(str(x)) for x in (cfg.disabled_component_ids or [])],
+                "updated_at": cfg.updated_at,
+                "updated_by": cfg.updated_by,
+            },
+            is_inherited,
+            has_override,
+        )
 
-    - If cohort_id is provided:
-      1. Check cohort override in design_component_configs.
-         If found -> return with is_inherited=False, has_override=True.
-      2. If not found -> find cohort's LmsProgram -> check program config in design_component_configs.
-         If found -> return with is_inherited=True, has_override=False.
-      3. If neither has config -> return empty disabled lists with is_inherited=True, has_override=False.
+    _empty = {
+        "disabled_subsystems": [],
+        "disabled_tags": [],
+        "disabled_component_ids": [],
+        "updated_at": None,
+        "updated_by": None,
+    }
 
-    - If lms_program_id is provided:
-      1. Check program config in design_component_configs.
-         If found -> return with is_inherited=False, has_override=True.
-      2. If not found -> return empty disabled lists with is_inherited=False, has_override=False.
-    """
     if cohort_id is not None:
         cohort_cfg = await get_raw_component_config(db, "cohort", cohort_id)
         if cohort_cfg is not None:
-            return (
-                {
-                    "disabled_subsystems": list(cohort_cfg.disabled_subsystems or []),
-                    "disabled_tags": list(cohort_cfg.disabled_tags or []),
-                    "disabled_component_ids": [UUID(str(x)) for x in (cohort_cfg.disabled_component_ids or [])],
-                    "updated_at": cohort_cfg.updated_at,
-                    "updated_by": cohort_cfg.updated_by,
-                },
-                False,
-                True,
-            )
+            return _unpack(cohort_cfg, False, True)
 
-        # Look up parent program
         cohort = await db.get(Cohort, cohort_id)
+        if cohort and getattr(cohort, "variation_id", None) is not None:
+            var_cfg = await get_raw_component_config(db, "variation", cohort.variation_id)
+            if var_cfg is not None:
+                return _unpack(var_cfg, True, False)
+
         prog_cfg = None
         if cohort and cohort.program_id:
             lms_prog = (
-                await db.execute(
-                    select(LmsProgram).where(LmsProgram.program_id == cohort.program_id)
-                )
+                await db.execute(select(LmsProgram).where(LmsProgram.program_id == cohort.program_id))
             ).scalars().first()
             if lms_prog is not None:
                 prog_cfg = await get_raw_component_config(db, "program", lms_prog.id)
 
         if prog_cfg is not None:
-            return (
-                {
-                    "disabled_subsystems": list(prog_cfg.disabled_subsystems or []),
-                    "disabled_tags": list(prog_cfg.disabled_tags or []),
-                    "disabled_component_ids": [UUID(str(x)) for x in (prog_cfg.disabled_component_ids or [])],
-                    "updated_at": prog_cfg.updated_at,
-                    "updated_by": prog_cfg.updated_by,
-                },
-                True,
-                False,
-            )
+            return _unpack(prog_cfg, True, False)
+        return dict(_empty), True, False
 
-        return (
-            {
-                "disabled_subsystems": [],
-                "disabled_tags": [],
-                "disabled_component_ids": [],
-                "updated_at": None,
-                "updated_by": None,
-            },
-            True,
-            False,
-        )
+    if variation_id is not None:
+        var_cfg = await get_raw_component_config(db, "variation", variation_id)
+        if var_cfg is not None:
+            return _unpack(var_cfg, False, True)
+        if lms_program_id is not None:
+            prog_cfg = await get_raw_component_config(db, "program", lms_program_id)
+            if prog_cfg is not None:
+                return _unpack(prog_cfg, True, False)
+        return dict(_empty), True, False
 
     if lms_program_id is not None:
         prog_cfg = await get_raw_component_config(db, "program", lms_program_id)
         if prog_cfg is not None:
-            return (
-                {
-                    "disabled_subsystems": list(prog_cfg.disabled_subsystems or []),
-                    "disabled_tags": list(prog_cfg.disabled_tags or []),
-                    "disabled_component_ids": [UUID(str(x)) for x in (prog_cfg.disabled_component_ids or [])],
-                    "updated_at": prog_cfg.updated_at,
-                    "updated_by": prog_cfg.updated_by,
-                },
-                False,
-                True,
-            )
+            return _unpack(prog_cfg, False, True)
+        return dict(_empty), False, False
 
-        return (
-            {
-                "disabled_subsystems": [],
-                "disabled_tags": [],
-                "disabled_component_ids": [],
-                "updated_at": None,
-                "updated_by": None,
-            },
-            False,
-            False,
-        )
-
-    return (
-        {
-            "disabled_subsystems": [],
-            "disabled_tags": [],
-            "disabled_component_ids": [],
-            "updated_at": None,
-            "updated_by": None,
-        },
-        False,
-        False,
-    )
+    return dict(_empty), False, False
 
 
 async def save_component_config(
@@ -191,12 +152,16 @@ async def reset_component_config(
 
 
 async def build_component_config_out(
-    db: AsyncSession, *, owner_type: str, owner_id: UUID
+    db: AsyncSession, *, owner_type: str, owner_id: UUID, lms_program_id: UUID | None = None
 ) -> ComponentConfigOut:
     """Build full ComponentConfigOut view model for authoring UI."""
     if owner_type == "cohort":
         config_dict, is_inherited, has_override = await resolve_effective_component_config(
             db, cohort_id=owner_id
+        )
+    elif owner_type == "variation":
+        config_dict, is_inherited, has_override = await resolve_effective_component_config(
+            db, variation_id=owner_id, lms_program_id=lms_program_id
         )
     else:
         config_dict, is_inherited, has_override = await resolve_effective_component_config(

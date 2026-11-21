@@ -16,6 +16,7 @@ from app.models.sessions.pre_session_quiz import (
     PreSessionQuizQuestion,
 )
 from app.models.sessions.program import Program
+from app.models.sessions.program_variation import ProgramVariation, ProgramVariationDay
 from app.models.sessions.session import Session
 from app.models.user import User
 from app.schemas.sessions.pre_session_quiz import (
@@ -596,153 +597,186 @@ async def import_questions_from_file(
     return len(created_questions), errors, created_questions
 
 
-# ── Assignment & Inheritance (Program -> Cohort -> Session) ─────────────────
+# ── Assignment & Inheritance (Program -> Variation -> VariationDay / Cohort -> Session) ─
+
+async def _resolve_assignment_row(
+    db: AsyncSession, assign: PreSessionQuizAssignment | None, level: str, *, inherited: bool
+) -> dict | None:
+    if assign is None:
+        return None
+    if assign.preset_id is None:
+        return {"level": level, "preset_id": None, "preset_name": None, "inherited": inherited}
+    preset = await db.get(PreSessionQuizPreset, assign.preset_id)
+    if preset is None:
+        return None
+    return {
+        "level": level,
+        "preset_id": preset.id,
+        "preset_name": preset.name,
+        "inherited": inherited,
+    }
+
+
+async def _cohort_variation(db: AsyncSession, cohort: Cohort) -> ProgramVariation | None:
+    if getattr(cohort, "variation_id", None) is not None:
+        v = await db.get(ProgramVariation, cohort.variation_id)
+        if v is not None:
+            return v
+    if cohort.program_id is not None:
+        return await db.scalar(
+            select(ProgramVariation)
+            .where(ProgramVariation.program_id == cohort.program_id)
+            .order_by(
+                ProgramVariation.is_default.desc(),
+                ProgramVariation.sort_order.asc(),
+                ProgramVariation.created_at.asc(),
+            )
+            .limit(1)
+        )
+    return None
+
 
 async def get_assignment_for_scope(
     db: AsyncSession, scope: str, owner_id: UUID
 ) -> dict:
-    """Resolve the active pre-session quiz assignment for a program, cohort, or session."""
+    """Resolve the active pre-session quiz assignment for a program, variation, variation_day, cohort, or session."""
     if scope == "programs":
         program = await db.get(Program, owner_id)
         if not program:
             raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Program not found")
-        assign = (
-            await db.execute(
-                select(PreSessionQuizAssignment).where(PreSessionQuizAssignment.program_id == owner_id)
-            )
-        ).scalars().first()
-        if assign and assign.preset_id:
-            preset = await db.get(PreSessionQuizPreset, assign.preset_id)
-            if preset:
-                return {
-                    "level": "program",
-                    "preset_id": preset.id,
-                    "preset_name": preset.name,
-                    "inherited": False,
-                }
+        assign = (await db.execute(
+            select(PreSessionQuizAssignment).where(PreSessionQuizAssignment.program_id == owner_id)
+        )).scalars().first()
+        res = await _resolve_assignment_row(db, assign, "program", inherited=False)
+        if res and res["preset_id"] is not None:
+            return res
         return {"level": "none", "preset_id": None, "preset_name": None, "inherited": False}
+
+    if scope == "variations":
+        var = await db.get(ProgramVariation, owner_id)
+        if not var:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Program variation not found")
+        v_assign = (await db.execute(
+            select(PreSessionQuizAssignment).where(PreSessionQuizAssignment.variation_id == owner_id)
+        )).scalars().first()
+        res = await _resolve_assignment_row(db, v_assign, "variation", inherited=False)
+        if res is not None:
+            return res
+        p_res = await get_assignment_for_scope(db, "programs", var.program_id)
+        if p_res["preset_id"] is not None:
+            p_res["inherited"] = True
+        return p_res
+
+    if scope == "variation_days":
+        v_day = await db.get(ProgramVariationDay, owner_id)
+        if not v_day:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Variation day not found")
+        vd_assign = (await db.execute(
+            select(PreSessionQuizAssignment).where(PreSessionQuizAssignment.variation_day_id == owner_id)
+        )).scalars().first()
+        res = await _resolve_assignment_row(db, vd_assign, "variation_day", inherited=False)
+        if res is not None:
+            return res
+        v_res = await get_assignment_for_scope(db, "variations", v_day.variation_id)
+        if v_res["preset_id"] is not None or v_res["level"] != "none":
+            v_res["inherited"] = True
+        return v_res
 
     if scope == "cohorts":
         cohort = await db.get(Cohort, owner_id)
         if not cohort:
             raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Cohort not found")
-        c_assign = (
-            await db.execute(
-                select(PreSessionQuizAssignment).where(PreSessionQuizAssignment.cohort_id == owner_id)
-            )
-        ).scalars().first()
-        if c_assign is not None:
-            if c_assign.preset_id is None:
-                return {"level": "cohort", "preset_id": None, "preset_name": None, "inherited": False}
-            preset = await db.get(PreSessionQuizPreset, c_assign.preset_id)
-            if preset:
-                return {
-                    "level": "cohort",
-                    "preset_id": preset.id,
-                    "preset_name": preset.name,
-                    "inherited": False,
-                }
-        # Fallback to program
-        if cohort.program_id:
-            p_assign = (
-                await db.execute(
-                    select(PreSessionQuizAssignment).where(
-                        PreSessionQuizAssignment.program_id == cohort.program_id
-                    )
-                )
-            ).scalars().first()
-            if p_assign and p_assign.preset_id:
-                preset = await db.get(PreSessionQuizPreset, p_assign.preset_id)
-                if preset:
-                    return {
-                        "level": "program",
-                        "preset_id": preset.id,
-                        "preset_name": preset.name,
-                        "inherited": True,
-                    }
+        c_assign = (await db.execute(
+            select(PreSessionQuizAssignment).where(PreSessionQuizAssignment.cohort_id == owner_id)
+        )).scalars().first()
+        res = await _resolve_assignment_row(db, c_assign, "cohort", inherited=False)
+        if res is not None:
+            return res
+        var = await _cohort_variation(db, cohort)
+        if var is not None:
+            v_res = await get_assignment_for_scope(db, "variations", var.id)
+            if v_res["level"] != "none":
+                v_res["inherited"] = True
+                return v_res
+        elif cohort.program_id:
+            p_res = await get_assignment_for_scope(db, "programs", cohort.program_id)
+            if p_res["preset_id"] is not None:
+                p_res["inherited"] = True
+                return p_res
         return {"level": "none", "preset_id": None, "preset_name": None, "inherited": False}
 
     if scope == "sessions":
         session = await db.get(Session, owner_id)
         if not session:
+            if await db.get(ProgramVariationDay, owner_id) is not None:
+                return await get_assignment_for_scope(db, "variation_days", owner_id)
             raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Session not found")
-        s_assign = (
-            await db.execute(
-                select(PreSessionQuizAssignment).where(PreSessionQuizAssignment.session_id == owner_id)
-            )
-        ).scalars().first()
-        if s_assign is not None:
-            if s_assign.preset_id is None:
-                return {"level": "session", "preset_id": None, "preset_name": None, "inherited": False}
-            preset = await db.get(PreSessionQuizPreset, s_assign.preset_id)
-            if preset:
-                return {
-                    "level": "session",
-                    "preset_id": preset.id,
-                    "preset_name": preset.name,
-                    "inherited": False,
-                }
-        # Fallback to matching template day, then cohort (and cohort -> program)
+        s_assign = (await db.execute(
+            select(PreSessionQuizAssignment).where(PreSessionQuizAssignment.session_id == owner_id)
+        )).scalars().first()
+        res = await _resolve_assignment_row(db, s_assign, "session", inherited=False)
+        if res is not None:
+            return res
         if session.cohort_id:
             cohort = await db.get(Cohort, session.cohort_id)
             if cohort is not None:
-                norm_name = (cohort.name or "").strip().lower()
-                is_template = (
-                    cohort.status == "draft"
-                    or norm_name.startswith("[template]")
-                    or norm_name == "template"
-                )
-                if not is_template:
+                var = await _cohort_variation(db, cohort)
+                all_sessions = (await db.execute(
+                    select(Session.id).where(Session.cohort_id == cohort.id)
+                    .order_by(Session.meeting_date, Session.starts_at, Session.created_at)
+                )).scalars().all()
+                try:
+                    s_idx = all_sessions.index(session.id)
+                except ValueError:
+                    s_idx = -1
+
+                if var is not None and s_idx >= 0:
+                    v_days = (await db.execute(
+                        select(ProgramVariationDay.id)
+                        .where(ProgramVariationDay.variation_id == var.id)
+                        .order_by(ProgramVariationDay.day_number.asc(), ProgramVariationDay.created_at.asc())
+                    )).scalars().all()
+                    if s_idx < len(v_days):
+                        vd_assign = (await db.execute(
+                            select(PreSessionQuizAssignment).where(
+                                PreSessionQuizAssignment.variation_day_id == v_days[s_idx]
+                            )
+                        )).scalars().first()
+                        vd_res = await _resolve_assignment_row(db, vd_assign, "variation_day", inherited=True)
+                        if vd_res is not None:
+                            return vd_res
+                elif var is None and s_idx >= 0:
+                    # Legacy template cohort fallback only if program has no variations yet
                     template_cohort = await db.scalar(
                         select(Cohort).where(
                             Cohort.program_id == cohort.program_id,
                             or_(
                                 Cohort.status == "draft",
                                 Cohort.name.ilike("[Template]%"),
-                                Cohort.name.ilike("%template%"),
+                                func.lower(func.trim(Cohort.name)) == "template",
                             ),
                             Cohort.id != cohort.id,
                         ).order_by(Cohort.created_at.asc())
                     )
                     if template_cohort is not None:
-                        all_sessions = (await db.execute(
-                            select(Session.id).where(Session.cohort_id == cohort.id)
+                        t_sessions = (await db.execute(
+                            select(Session.id).where(Session.cohort_id == template_cohort.id)
                             .order_by(Session.meeting_date, Session.starts_at, Session.created_at)
                         )).scalars().all()
-                        try:
-                            s_idx = all_sessions.index(session.id)
-                            t_sessions = (await db.execute(
-                                select(Session.id).where(Session.cohort_id == template_cohort.id)
-                                .order_by(Session.meeting_date, Session.starts_at, Session.created_at)
-                            )).scalars().all()
-                            if s_idx < len(t_sessions):
-                                t_assign = (await db.execute(
-                                    select(PreSessionQuizAssignment).where(
-                                        PreSessionQuizAssignment.session_id == t_sessions[s_idx]
-                                    )
-                                )).scalars().first()
-                                if t_assign is not None:
-                                    if t_assign.preset_id is None:
-                                        return {
-                                            "level": "program",
-                                            "preset_id": None,
-                                            "preset_name": None,
-                                            "inherited": True,
-                                        }
-                                    preset = await db.get(PreSessionQuizPreset, t_assign.preset_id)
-                                    if preset:
-                                        return {
-                                            "level": "program",
-                                            "preset_id": preset.id,
-                                            "preset_name": preset.name,
-                                            "inherited": True,
-                                        }
-                        except ValueError:
-                            pass
-            res = await get_assignment_for_scope(db, "cohorts", session.cohort_id)
-            if res["preset_id"] is not None:
-                res["inherited"] = True
-            return res
+                        if s_idx < len(t_sessions):
+                            t_assign = (await db.execute(
+                                select(PreSessionQuizAssignment).where(
+                                    PreSessionQuizAssignment.session_id == t_sessions[s_idx]
+                                )
+                            )).scalars().first()
+                            t_res = await _resolve_assignment_row(db, t_assign, "program", inherited=True)
+                            if t_res is not None:
+                                return t_res
+
+            c_res = await get_assignment_for_scope(db, "cohorts", session.cohort_id)
+            if c_res["preset_id"] is not None:
+                c_res["inherited"] = True
+            return c_res
         return {"level": "none", "preset_id": None, "preset_name": None, "inherited": False}
 
     raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="Invalid scope")
@@ -751,17 +785,21 @@ async def get_assignment_for_scope(
 async def set_assignment_for_scope(
     db: AsyncSession, scope: str, owner_id: UUID, preset_id: UUID | None, *, clear_override: bool = False
 ) -> dict:
-    if scope == "programs":
-        col = PreSessionQuizAssignment.program_id
-        kwargs = {"program_id": owner_id}
-    elif scope == "cohorts":
-        col = PreSessionQuizAssignment.cohort_id
-        kwargs = {"cohort_id": owner_id}
-    elif scope == "sessions":
-        col = PreSessionQuizAssignment.session_id
-        kwargs = {"session_id": owner_id}
-    else:
+    if scope == "sessions" and await db.get(Session, owner_id) is None:
+        if await db.get(ProgramVariationDay, owner_id) is not None:
+            scope = "variation_days"
+    scope_cols = {
+        "programs": (PreSessionQuizAssignment.program_id, "program_id"),
+        "variations": (PreSessionQuizAssignment.variation_id, "variation_id"),
+        "variation_days": (PreSessionQuizAssignment.variation_day_id, "variation_day_id"),
+        "cohorts": (PreSessionQuizAssignment.cohort_id, "cohort_id"),
+        "sessions": (PreSessionQuizAssignment.session_id, "session_id"),
+    }
+    entry = scope_cols.get(scope)
+    if entry is None:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="Invalid scope")
+    col, field_name = entry
+    kwargs = {field_name: owner_id}
 
     existing = (await db.execute(select(PreSessionQuizAssignment).where(col == owner_id))).scalars().first()
 

@@ -9,14 +9,19 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog"
 import { useToast } from "@/components/ui/toast"
-import { getProgramsApi, getProgramTemplateApi, type ProgramTemplate } from "@/api/sessions/programs"
+import {
+  getProgramsApi,
+  getProgramTemplateApi,
+  listProgramVariationsApi,
+  type ProgramTemplate,
+} from "@/api/sessions/programs"
 import { getCohortsApi, getSessionsApi } from "@/api/sessions/cohorts"
 import {
   importCohortDefaultsApi,
   type CohortChecklistsSummary,
   type SessionChecklistSummary,
 } from "@/api/sessions/day"
-import type { Cohort, Program, Session } from "@/types/sessions"
+import type { Cohort, Program, ProgramVariation, Session } from "@/types/sessions"
 import { cn, getErrorMessage } from "@/lib/utils"
 
 const EMPTY_PROGRAMS: Program[] = []
@@ -104,6 +109,7 @@ function ImportCohortDefaultBody({
 
   const [sourceType, setSourceType] = useState<"program" | "cohort">("program")
   const [selectedProgramId, setSelectedProgramId] = useState<string>(cohort.program_id)
+  const [selectedVariationId, setSelectedVariationId] = useState<string>(cohort.variation_id ?? "")
   const [selectedSourceCohortId, setSelectedSourceCohortId] = useState<string>("")
   const [includeInstructor, setIncludeInstructor] = useState(true)
   const [includeInternal, setIncludeInternal] = useState(true)
@@ -127,9 +133,26 @@ function ImportCohortDefaultBody({
 
   const effectiveProgramId = isOrgScope ? cohort.program_id : selectedProgramId || cohort.program_id
 
+  const { data: programVariations = [] } = useQuery<ProgramVariation[]>({
+    queryKey: ["program-variations-import", effectiveProgramId],
+    queryFn: () => listProgramVariationsApi(effectiveProgramId),
+    enabled: sourceType === "program" && !!effectiveProgramId,
+  })
+
+  const effectiveVariationId = useMemo(() => {
+    if (selectedVariationId && programVariations.some((v) => v.id === selectedVariationId)) {
+      return selectedVariationId
+    }
+    return (
+      programVariations.find((v) => v.is_default)?.id ??
+      programVariations[0]?.id ??
+      ""
+    )
+  }, [selectedVariationId, programVariations])
+
   const { data: programTemplate, isLoading: loadingTemplate } = useQuery<ProgramTemplate>({
-    queryKey: ["program-template-for-cohort-import", effectiveProgramId],
-    queryFn: () => getProgramTemplateApi(effectiveProgramId),
+    queryKey: ["program-template-for-cohort-import", effectiveProgramId, effectiveVariationId || "default"],
+    queryFn: () => getProgramTemplateApi(effectiveProgramId, effectiveVariationId || undefined),
     enabled: sourceType === "program" && !!effectiveProgramId,
   })
 
@@ -226,6 +249,7 @@ function ImportCohortDefaultBody({
       return importCohortDefaultsApi(cohort.id, {
         source_type: sourceType,
         source_id: sourceType === "program" ? effectiveProgramId : effectiveSourceCohortId,
+        source_variation_id: sourceType === "program" && effectiveVariationId ? effectiveVariationId : null,
         include_instructor: includeInstructor,
         include_internal: includeInternal,
         include_pre_workshop: includePreWorkshop,
@@ -352,6 +376,25 @@ function ImportCohortDefaultBody({
                   ))}
                 </select>
               </label>
+
+              {sourceType === "program" && programVariations.length > 0 && (
+                <label className="flex flex-col gap-1">
+                  <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+                    Variation
+                  </span>
+                  <select
+                    value={effectiveVariationId}
+                    onChange={(e) => setSelectedVariationId(e.target.value)}
+                    className="h-9 px-3 border border-border bg-card text-foreground rounded-xl text-xs font-medium focus:outline-none focus:border-primary cursor-pointer"
+                  >
+                    {programVariations.map((v) => (
+                      <option key={v.id} value={v.id}>
+                        {v.name}{v.is_default ? " (Default)" : ""} · {v.days_count}d
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              )}
 
               {sourceType === "cohort" && (
                 <label className="flex flex-col gap-1">

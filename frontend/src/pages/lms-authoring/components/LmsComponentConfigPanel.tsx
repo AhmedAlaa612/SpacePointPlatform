@@ -35,8 +35,9 @@ import {
 } from "@/api/missionsLibrary"
 
 interface LmsComponentConfigPanelProps {
-  ownerType: "program" | "cohort"
+  ownerType: "program" | "variation" | "cohort"
   ownerId: string
+  variationId?: string | null
   isStaff: boolean
 }
 
@@ -53,12 +54,13 @@ const SUBSYSTEM_ICONS: Record<string, typeof Cpu> = {
 export function LmsComponentConfigPanel({
   ownerType,
   ownerId,
+  variationId,
   isStaff,
 }: LmsComponentConfigPanelProps) {
   const queryClient = useQueryClient()
   const toast = useToast()
 
-  const queryKey = ["lms-component-config", ownerType, ownerId]
+  const queryKey = ["lms-component-config", ownerType, ownerId, variationId ?? "base"]
   const isInstructor = !isStaff
 
   const {
@@ -69,9 +71,9 @@ export function LmsComponentConfigPanel({
   } = useQuery<ComponentConfigOut>({
     queryKey,
     queryFn: () =>
-      ownerType === "program"
-        ? getProgramComponentsApi(ownerId)
-        : getCohortComponentsApi(ownerId, isInstructor),
+      ownerType === "cohort"
+        ? getCohortComponentsApi(ownerId, isInstructor)
+        : getProgramComponentsApi(ownerId, variationId),
   })
 
   // Local draft state
@@ -112,7 +114,7 @@ export function LmsComponentConfigPanel({
 
   // Sync draft once per owner — never on background refetch, otherwise an
   // unsaved toggle (e.g. block customs) gets silently wiped back to Allowed.
-  const configKey = `${ownerType}:${ownerId}`
+  const configKey = `${ownerType}:${ownerId}:${variationId ?? "base"}`
   const syncedKeyRef = useRef("")
   useEffect(() => {
     if (config && syncedKeyRef.current !== configKey) {
@@ -136,16 +138,18 @@ export function LmsComponentConfigPanel({
         disabled_tags: Array.from(disabledTags),
         disabled_component_ids: Array.from(disabledComponentIds),
       }
-      return ownerType === "program"
-        ? updateProgramComponentsApi(ownerId, payload)
-        : updateCohortComponentsApi(ownerId, payload, isInstructor)
+      return ownerType === "cohort"
+        ? updateCohortComponentsApi(ownerId, payload, isInstructor)
+        : updateProgramComponentsApi(ownerId, payload, variationId)
     },
     onSuccess: (updated) => {
       applyServerConfig(updated)
       toast.success(
-        ownerType === "program"
-          ? "Program component defaults saved."
-          : "Cohort component overrides saved."
+        ownerType === "cohort"
+          ? "Cohort component overrides saved."
+          : variationId
+            ? "Variation component defaults saved."
+            : "Program component defaults saved."
       )
     },
     onError: (err: any) => {
@@ -159,16 +163,18 @@ export function LmsComponentConfigPanel({
 
   const resetMutation = useMutation({
     mutationFn: async () => {
-      return ownerType === "program"
-        ? resetProgramComponentsApi(ownerId)
-        : resetCohortComponentsApi(ownerId, isInstructor)
+      return ownerType === "cohort"
+        ? resetCohortComponentsApi(ownerId, isInstructor)
+        : resetProgramComponentsApi(ownerId, variationId)
     },
     onSuccess: (updated) => {
       applyServerConfig(updated)
       toast.success(
-        ownerType === "program"
-          ? "Reset program component defaults to enabled."
-          : "Reset cohort to inherit program defaults."
+        ownerType === "cohort"
+          ? "Reset cohort to inherit defaults."
+          : variationId
+            ? "Reset variation to inherit program defaults."
+            : "Reset program component defaults to enabled."
       )
     },
     onError: (err: any) => {

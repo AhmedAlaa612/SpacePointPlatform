@@ -36,7 +36,7 @@ import { Spinner } from "@/components/ui/primitives";
 import { ImportHintStationModal } from "./ImportHintStationModal";
 import { cn } from "@/lib/utils";
 
-type Scope = "program" | { cohortId: string; cohortName: string };
+type Scope = "program" | { variationId: string } | { cohortId: string; cohortName: string };
 
 export function LmsHintStationAuthoring({
   programId,
@@ -49,7 +49,9 @@ export function LmsHintStationAuthoring({
   const queryClient = useQueryClient();
 
   const isProgramScope = scope === "program";
-  const cohortId = !isProgramScope ? scope.cohortId : null;
+  const isVariationScope = typeof scope === "object" && "variationId" in scope;
+  const variationId = isVariationScope ? scope.variationId : null;
+  const cohortId = typeof scope === "object" && "cohortId" in scope ? scope.cohortId : null;
 
   const [importOpen, setImportOpen] = useState(false);
   const [editingChallenge, setEditingChallenge] = useState<Partial<CohortHintChallenge> | null>(null);
@@ -60,8 +62,8 @@ export function LmsHintStationAuthoring({
   const [expandedChallengeIds, setExpandedChallengeIds] = useState<Set<string>>(new Set());
 
   // ── Query Challenges ───────────────────────────────────────────────────────
-  const queryKey = isProgramScope
-    ? ["admin-hints-program", programId]
+  const queryKey = isProgramScope || isVariationScope
+    ? ["admin-hints-program", programId, variationId ?? "base"]
     : ["admin-hints-cohort", cohortId];
 
   const {
@@ -71,16 +73,17 @@ export function LmsHintStationAuthoring({
   } = useQuery<CohortHintChallenge[]>({
     queryKey,
     queryFn: () =>
-      isProgramScope
-        ? listProgramChallengesAdminApi(programId)
+      isProgramScope || isVariationScope
+        ? listProgramChallengesAdminApi(programId, variationId)
         : listCohortChallengesAdminApi(cohortId!),
-    enabled: isProgramScope ? !!programId : !!cohortId,
+    enabled: isProgramScope || isVariationScope ? !!programId : !!cohortId,
   });
 
   const isInherited =
     !isProgramScope &&
+    !isVariationScope &&
     challenges.length > 0 &&
-    challenges.some((c) => c.owner_type === "program");
+    challenges.some((c) => c.owner_type === "program" || c.owner_type === "variation");
 
   // ── Fork Mutation ──────────────────────────────────────────────────────────
   const forkMutation = useMutation({
@@ -98,8 +101,8 @@ export function LmsHintStationAuthoring({
       if (data.id) {
         return await updateHintChallengeApi(data.id, data);
       } else {
-        const ownerType = isProgramScope ? "program" : "cohort";
-        const ownerId = isProgramScope ? programId : cohortId!;
+        const ownerType = isVariationScope ? "variation" : isProgramScope ? "program" : "cohort";
+        const ownerId = isVariationScope ? variationId! : isProgramScope ? programId : cohortId!;
         return await createHintChallengeApi({
           owner_type: ownerType,
           owner_id: ownerId,
@@ -189,10 +192,12 @@ export function LmsHintStationAuthoring({
             <h2 className="font-display font-extrabold text-lg text-foreground">
               {isProgramScope
                 ? "Program Baseline Challenges & Hints"
-                : `Cohort Hints: ${scope.cohortName}`}
+                : isVariationScope
+                  ? "Variation Challenges & Hints"
+                  : `Cohort Hints: ${(scope as { cohortName: string }).cohortName}`}
             </h2>
             <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-primary/10 text-primary border border-primary/20">
-              {isProgramScope ? "Program Template" : isInherited ? "Inherited Baseline" : "Cohort Override"}
+              {isProgramScope ? "Program Template" : isVariationScope ? "Variation Template" : isInherited ? "Inherited Baseline" : "Cohort Override"}
             </span>
           </div>
           <p className="text-xs text-muted-foreground">
@@ -673,9 +678,9 @@ export function LmsHintStationAuthoring({
         open={importOpen}
         onClose={() => setImportOpen(false)}
         targetScope={
-          isProgramScope
-            ? { type: "program", programId }
-            : { type: "cohort", cohortId: cohortId!, cohortName: scope.cohortName }
+          isProgramScope || isVariationScope
+            ? { type: "program", programId, variationId }
+            : { type: "cohort", cohortId: cohortId!, cohortName: (scope as { cohortName?: string }).cohortName }
         }
         onSuccess={() => refetch()}
       />

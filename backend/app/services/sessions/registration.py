@@ -52,20 +52,37 @@ _CHANNEL_BY_REGISTERED_VIA = {"form": "web", "import": "system", "desk": "offlin
 
 
 async def resolve_registration_price(
-    db: AsyncSession, *, program: Program, session_ids: list[UUID] | None = None,
+    db: AsyncSession,
+    *,
+    program: Program,
+    cohort: Cohort | None = None,
+    session_ids: list[UUID] | None = None,
 ) -> Decimal:
-    """P0-8: what a registration for `program` should snapshot into
-    `price_charged`. `0` for a free program — never `NULL`, so "free" and
-    "not yet resolved" stop being the same value (LMS_DESIGN_AUDIT.md §5.1).
+    """Resolve registration price along cohort -> variation -> program."""
+    from app.models.sessions.program_variation import ProgramVariation
 
-    Always the program's own price (2026-08-30) — people pay for the
-    program/cohort, not a specific session, and per-session pricing was
-    never wired to a real payment processor anyway. `session_ids` is kept
-    as a parameter so callers scoping a registration to specific sessions
-    don't need special-casing, but it no longer affects the amount."""
-    if program.pricing_model == "free":
+    variation: ProgramVariation | None = None
+    if cohort is not None and getattr(cohort, "variation_id", None) is not None:
+        variation = await db.get(ProgramVariation, cohort.variation_id)
+
+    pricing_model = (
+        getattr(cohort, "pricing_model", None)
+        or (getattr(variation, "pricing_model", None) if variation else None)
+        or program.pricing_model
+    )
+    if pricing_model == "free":
         return Decimal("0")
-    return program.price or Decimal("0")
+
+    price = (
+        getattr(cohort, "price", None)
+        if cohort is not None and getattr(cohort, "price", None) is not None
+        else (
+            variation.price
+            if variation is not None and getattr(variation, "price", None) is not None
+            else program.price
+        )
+    )
+    return price or Decimal("0")
 
 
 async def register(

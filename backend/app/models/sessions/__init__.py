@@ -1,4 +1,5 @@
 from app.models.sessions.program import Program
+from app.models.sessions.program_variation import ProgramVariation, ProgramVariationDay
 from app.models.sessions.program_certificate_template import ProgramCertificateTemplate
 from app.models.sessions.certificate_email_template import CertificateEmailTemplate
 from app.models.sessions.cohort import Cohort
@@ -37,6 +38,8 @@ from app.models.sessions.pre_session_quiz import (
 
 __all__ = [
     "Program",
+    "ProgramVariation",
+    "ProgramVariationDay",
     "ProgramCertificateTemplate",
     "CertificateEmailTemplate",
     "Cohort",

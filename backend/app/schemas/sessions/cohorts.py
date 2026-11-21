@@ -49,6 +49,13 @@ class CohortBase(BaseModel):
     # to the default fallback.
     checklist_title_override: str | None = None
     keep_course_access_after_completion: bool = True
+    variation_id: UUID | None = None
+    pricing_model: str | None = None
+    price: Decimal | None = None
+    completion_rule_type: str | None = None
+    completion_rule_value: Decimal | None = None
+    default_certificate_template_id: UUID | None = None
+    default_team_certificate_template_id: UUID | None = None
 
 
 class CohortCreate(CohortBase):
@@ -57,6 +64,7 @@ class CohortCreate(CohortBase):
     keep_course_access_after_completion: bool | None = None
     import_default_checklists: bool = True
     checklist_source_program_id: UUID | None = None
+    checklist_source_variation_id: UUID | None = None
 
 
 class CohortUpdate(BaseModel):
@@ -77,6 +85,13 @@ class CohortUpdate(BaseModel):
     poster_template_url: str | None = None
     checklist_title_override: str | None = None
     keep_course_access_after_completion: bool | None = None
+    variation_id: UUID | None = None
+    pricing_model: str | None = None
+    price: Decimal | None = None
+    completion_rule_type: str | None = None
+    completion_rule_value: Decimal | None = None
+    default_certificate_template_id: UUID | None = None
+    default_team_certificate_template_id: UUID | None = None
 
 
 class CohortOut(CohortBase):
@@ -112,6 +127,8 @@ class CohortOut(CohortBase):
     org_capacity_limit: int | None = None
     linked_event_slug: str | None = None
     inherit_default_checklists: bool = True
+    variation_name: str | None = None
+    is_template_legacy: bool = False
 
     class Config:
         from_attributes = True

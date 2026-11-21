@@ -114,7 +114,8 @@ class ProgramOpeningOut(BaseModel):
     way `CohortOpening` -> `SessionOpening` is."""
 
     id: UUID
-    program_id: UUID
+    program_id: UUID | None = None
+    variation_id: UUID | None = None
     role_id: UUID
     role_name: str
     slots: int

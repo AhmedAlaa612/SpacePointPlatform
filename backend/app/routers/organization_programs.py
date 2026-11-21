@@ -348,6 +348,7 @@ async def get_organization_programs_overview(
             select(Cohort)
             .where(
                 Cohort.organization_id == org.id,
+                Cohort.is_template_legacy.is_(False),
                 Cohort.status != "draft",
                 ~Cohort.name.ilike("[Template]%"),
                 func.lower(func.trim(Cohort.name)) != "template",
@@ -382,6 +383,7 @@ async def get_organization_programs_overview(
                         Cohort.organization_id == org.id,
                         Cohort.program_id.in_(owned_program_ids) if owned_program_ids else False,
                     ),
+                    Cohort.is_template_legacy.is_(False),
                     Cohort.status != "draft",
                     ~Cohort.name.ilike("[Template]%"),
                     func.lower(func.trim(Cohort.name)) != "template",

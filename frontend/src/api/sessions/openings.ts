@@ -63,7 +63,8 @@ export interface CohortOpening {
  *  ProgramOpening model's docstring. Same shape as CohortOpening. */
 export interface ProgramOpening {
   id: string
-  program_id: string
+  program_id: string | null
+  variation_id?: string | null
   role_id: string
   role_name: string
   slots: number
@@ -147,11 +148,14 @@ export const setCohortOpeningsApi = ({ cohortId, openings }: {
 
 /* ── program-level role template (2026-09) ───────────────────────────────── */
 
-export const getProgramOpeningsApi = (programId: string) =>
-  api.get<ProgramOpening[]>(`/sessions/programs/${programId}/openings-defaults`).then((r) => r.data)
+export const getProgramOpeningsApi = (programId: string, variationId?: string | null) =>
+  api.get<ProgramOpening[]>(`/sessions/programs/${programId}/openings-defaults`, {
+    params: variationId ? { variation_id: variationId } : undefined,
+  }).then((r) => r.data)
 
-export const setProgramOpeningsApi = ({ programId, openings }: {
+export const setProgramOpeningsApi = ({ programId, variationId, openings }: {
   programId: string
+  variationId?: string | null
   openings: {
     role_id: string
     slots: number
@@ -159,7 +163,12 @@ export const setProgramOpeningsApi = ({ programId, openings }: {
     notes?: string | null
     responsibilities_override?: string | null
   }[]
-}) => api.put<ProgramOpening[]>(`/sessions/programs/${programId}/openings-defaults`, { openings }).then((r) => r.data)
+}) =>
+  api.put<ProgramOpening[]>(
+    `/sessions/programs/${programId}/openings-defaults`,
+    { openings },
+    { params: variationId ? { variation_id: variationId } : undefined },
+  ).then((r) => r.data)
 
 /* ── add-ons ───────────────────────────────────────────────────────────── */
 
@@ -198,6 +207,7 @@ export const deleteAddonApi = (addonId: string) =>
 export interface Material {
   id: string
   program_id: string | null
+  variation_id?: string | null
   cohort_id: string | null
   session_id: string | null
   title: string
@@ -219,6 +229,7 @@ export interface SessionMaterials {
 
 export type MaterialOwner =
   | { program_id: string }
+  | { variation_id: string }
   | { cohort_id: string }
   | { session_id: string }
 

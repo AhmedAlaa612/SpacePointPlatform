@@ -269,7 +269,7 @@ export interface PhaseTrialSubmitIn {
   answers?: PreSessionQuizAnswerIn[]
 }
 
-export type PreQuizScope = "programs" | "cohorts" | "sessions"
+export type PreQuizScope = "programs" | "variations" | "variation_days" | "cohorts" | "sessions"
 
 /* ── Question Bank API ─────────────────────────────────────────────────────── */
 

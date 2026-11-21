@@ -49,6 +49,7 @@ from app.services.games.realtime import get_realtime_redis_dep, safe_publish_to_
 from app.services.games.runs import close_open_runs_for_session
 from app.services.sessions.openings import fully_staffed, lead_role_id
 from app.services.sessions.staffing import resolve_session_location_display
+from app.services.sessions import variations as var_svc
 from app.models.inventory.location import Location
 from app.models.inventory.warehouse import Warehouse
 from app.models.sessions.attendance import AttendanceRecord
@@ -58,6 +59,7 @@ from app.models.sessions.cohort_opening import CohortOpening
 from app.models.sessions.material import Material
 from app.models.sessions.instructor_interest import InstructorInterest
 from app.models.sessions.program import Program
+from app.models.sessions.program_variation import ProgramVariation, ProgramVariationDay
 from app.models.sessions.registration import Registration
 from app.models.sessions.session import Session, SessionInstructor
 from app.models.sessions.session_report import SessionReport
@@ -165,7 +167,7 @@ async def _resolve_effective_warehouse(
 async def _cohort_out(
     db: AsyncSession, cohort: Cohort, program_name: str | None = None, program_code: str | None = None,
     location: Location | None = None, counts: tuple[int, int, int, date | None] | None = None,
-    program_is_competition: bool = False,
+    program_is_competition: bool = False, variation_name: str | None = None,
 ) -> CohortOut:
     # 2026-09-30: one bad row (e.g. a hand-inserted status outside the
     # CohortStatus literal) used to 500 the entire cohorts list, since a
@@ -181,6 +183,12 @@ async def _cohort_out(
     out.program_name = program_name
     out.program_code = program_code
     out.program_is_competition = program_is_competition
+    if variation_name is not None:
+        out.variation_name = variation_name
+    elif getattr(cohort, "variation_id", None) is not None:
+        out.variation_name = await db.scalar(
+            select(ProgramVariation.name).where(ProgramVariation.id == cohort.variation_id)
+        )
     if counts is not None:
         out.sessions_count, out.registrations_count, out.unstaffed_count, out.next_session_date = counts
     if location is not None:
@@ -199,6 +207,7 @@ async def _cohort_out(
 def _template_cohort_match():
     """Match internal draft/template cohorts created for Program Templates."""
     return or_(
+        Cohort.is_template_legacy.is_(True),
         Cohort.status == "draft",
         Cohort.name.ilike("[Template]%"),
         func.lower(func.trim(Cohort.name)) == "template",
@@ -208,6 +217,7 @@ def _template_cohort_match():
 def _real_cohort_clauses():
     """SQLAlchemy filter clauses excluding internal program template cohorts."""
     return (
+        Cohort.is_template_legacy.is_(False),
         Cohort.status != "draft",
         ~Cohort.name.ilike("[Template]%"),
         func.lower(func.trim(Cohort.name)) != "template",
@@ -247,10 +257,12 @@ async def list_cohorts(
     stmt = (
         select(
             Cohort, Program.name, Program.code, Location,
-            sessions_count, registrations_count, unstaffed_count, next_session_date, Program.program_type,
+            sessions_count, registrations_count, unstaffed_count, next_session_date,
+            Program.program_type, ProgramVariation.name,
         )
         .join(Program, Program.id == Cohort.program_id)
         .outerjoin(Location, Location.id == Cohort.location_id)
+        .outerjoin(ProgramVariation, ProgramVariation.id == Cohort.variation_id)
         .where(
             *_real_cohort_clauses(),
             Cohort.organization_id.is_(None),
@@ -266,8 +278,9 @@ async def list_cohorts(
         await _cohort_out(
             db, cohort, program_name, program_code, location, (sessions, regs, unstaffed, next_date),
             program_is_competition=(program_type == "competition"),
+            variation_name=variation_name,
         )
-        for cohort, program_name, program_code, location, sessions, regs, unstaffed, next_date, program_type in rows
+        for cohort, program_name, program_code, location, sessions, regs, unstaffed, next_date, program_type, variation_name in rows
     ]
 
 
@@ -289,61 +302,101 @@ async def create_cohort(
     data = body.model_dump()
     import_default_checklists = data.pop("import_default_checklists", True)
     checklist_source_program_id = data.pop("checklist_source_program_id", None)
+    checklist_source_variation_id = data.pop("checklist_source_variation_id", None)
     if import_default_checklists and checklist_source_program_id is not None and checklist_source_program_id != program.id:
         if await db.get(Program, checklist_source_program_id) is None:
             raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Checklist source program not found")
+
+    selected_var: ProgramVariation | None = None
+    if data.get("variation_id") is not None:
+        selected_var = await var_svc.resolve_variation_for_program(db, program.id, data["variation_id"])
+    elif import_default_checklists:
+        selected_var = await var_svc.resolve_variation_for_program(db, program.id, active_only=True)
+        if selected_var is not None:
+            data["variation_id"] = selected_var.id
+
+    apply_defaults = bool(import_default_checklists or selected_var is not None)
     data["inherit_default_checklists"] = bool(
         import_default_checklists
         and (checklist_source_program_id is None or checklist_source_program_id == program.id)
     )
-    if data.get("capacity") is None and program.default_capacity is not None:
-        data["capacity"] = program.default_capacity
-    if data.get("duration_hours") is None and program.duration_hours is not None:
-        data["duration_hours"] = program.duration_hours
-    if data.get("poster_template_url") is None and program.poster_template_url:
-        data["poster_template_url"] = program.poster_template_url
-    if data.get("keep_course_access_after_completion") is None:
+    eff_scalars = var_svc.resolve_effective_scalars(program, selected_var if apply_defaults else None)
+    if apply_defaults:
+        if data.get("capacity") is None and eff_scalars["capacity"] is not None:
+            data["capacity"] = eff_scalars["capacity"]
+        if data.get("duration_hours") is None and eff_scalars["duration_hours"] is not None:
+            data["duration_hours"] = eff_scalars["duration_hours"]
+        if data.get("poster_template_url") is None and eff_scalars["poster_template_url"]:
+            data["poster_template_url"] = eff_scalars["poster_template_url"]
+        if data.get("keep_course_access_after_completion") is None:
+            data["keep_course_access_after_completion"] = eff_scalars["keep_course_access_after_completion"]
+    elif data.get("keep_course_access_after_completion") is None:
         data["keep_course_access_after_completion"] = program.keep_course_access_after_completion
+
     cohort = Cohort(id=uuid.uuid4(), **data)
     db.add(cohort)
     await db.flush()
-    # One-time seed from the program's role template (2026-09) — never
-    # touched again for this cohort. See ProgramOpening's docstring for why
-    # this is a copy, not a live fallback like materials/checklist use.
-    await openings_svc.copy_program_openings_to_cohort(
-        db, program_id=program.id, cohort_id=cohort.id, actor_user_id=current_user.id,
-    )
-    # Same one-time-seed shape as the openings copy above (2026-09-13): a
-    # program with a default assessment config gives every new cohort its
-    # own real AssessmentCohortAssignment from the start, rather than ops
-    # having to remember to set it on the cohort's Assessment tab (or the
-    # wizard's Staffing step, which shows the same panel) every time. Purely
-    # a starting point — overriding or clearing it here never reaches back
-    # into the program template.
-    if program.default_assessment_config_id is not None:
-        db.add(AssessmentCohortAssignment(
-            id=uuid.uuid4(), cohort_id=cohort.id, config_id=program.default_assessment_config_id,
-            assigned_by=current_user.id,
-        ))
 
-    # Copy program-level pre-session quiz assignment and general delivery checklist items
-    prog_quiz = (await db.execute(
-        select(PreSessionQuizAssignment).where(PreSessionQuizAssignment.program_id == program.id)
-    )).scalars().first()
-    if prog_quiz is not None:
-        db.add(PreSessionQuizAssignment(
-            id=uuid.uuid4(),
+    if apply_defaults:
+        await openings_svc.copy_program_openings_to_cohort(
+            db,
+            program_id=program.id,
+            variation_id=cohort.variation_id,
             cohort_id=cohort.id,
-            preset_id=prog_quiz.preset_id,
-        ))
+            actor_user_id=current_user.id,
+        )
+        if eff_scalars["default_assessment_config_id"] is not None:
+            db.add(AssessmentCohortAssignment(
+                id=uuid.uuid4(),
+                cohort_id=cohort.id,
+                config_id=eff_scalars["default_assessment_config_id"],
+                assigned_by=current_user.id,
+            ))
+
+    # Cohort-level pre-session quiz assignment: variation overrides program
+    prog_or_var_quiz = None
+    if apply_defaults:
+        if cohort.variation_id is not None:
+            prog_or_var_quiz = (await db.execute(
+                select(PreSessionQuizAssignment).where(PreSessionQuizAssignment.variation_id == cohort.variation_id)
+            )).scalars().first()
+        if prog_or_var_quiz is None:
+            prog_or_var_quiz = (await db.execute(
+                select(PreSessionQuizAssignment).where(PreSessionQuizAssignment.program_id == program.id)
+            )).scalars().first()
+        if prog_or_var_quiz is not None:
+            db.add(PreSessionQuizAssignment(
+                id=uuid.uuid4(),
+                cohort_id=cohort.id,
+                preset_id=prog_or_var_quiz.preset_id,
+            ))
 
     if import_default_checklists:
         src_prog_id = checklist_source_program_id or program.id
+        src_var: ProgramVariation | None = None
+        if checklist_source_variation_id is not None:
+            src_var = await var_svc.resolve_variation_for_program(db, src_prog_id, checklist_source_variation_id)
+        elif src_prog_id == program.id:
+            src_var = selected_var
+        else:
+            src_var = await var_svc.resolve_variation_for_program(db, src_prog_id, active_only=True)
 
-        program_checklist_items = (await db.execute(
-            select(DeliveryChecklistItem).where(DeliveryChecklistItem.program_id == src_prog_id)
-            .order_by(DeliveryChecklistItem.sort_order, DeliveryChecklistItem.created_at)
-        )).scalars().all()
+        # Pre-workshop checklist items: variation overrides program
+        var_checklist_items = (
+            list((await db.execute(
+                select(DeliveryChecklistItem).where(DeliveryChecklistItem.variation_id == src_var.id)
+                .order_by(DeliveryChecklistItem.sort_order, DeliveryChecklistItem.created_at)
+            )).scalars().all())
+            if src_var is not None else []
+        )
+        program_checklist_items = (
+            var_checklist_items
+            if var_checklist_items
+            else list((await db.execute(
+                select(DeliveryChecklistItem).where(DeliveryChecklistItem.program_id == src_prog_id)
+                .order_by(DeliveryChecklistItem.sort_order, DeliveryChecklistItem.created_at)
+            )).scalars().all())
+        )
         for ci in program_checklist_items:
             db.add(day_service.clone_delivery_checklist_item(
                 ci, actor_user_id=current_user.id, cohort_id=cohort.id,
@@ -351,79 +404,121 @@ async def create_cohort(
         if program_checklist_items:
             await db.flush()
 
-        # Seed cohort sessions, per-day checklists, and quizzes from the source program template cohort
-        template_cohort = await day_service.find_program_template_cohort(
-            db, src_prog_id, exclude_cohort_id=cohort.id,
-        )
-        if template_cohort:
-            template_sessions = (await db.execute(
-                select(Session).where(Session.cohort_id == template_cohort.id)
-                .order_by(Session.meeting_date, Session.starts_at, Session.created_at)
-            )).scalars().all()
-
-            start_date = cohort.starts_on or date.today()
-            for idx, t_sess in enumerate(template_sessions):
+        # Seed sessions from ProgramVariationDay (or legacy template cohort only when no variation exists)
+        start_date = cohort.starts_on or date.today()
+        if src_var is not None:
+            v_days = await var_svc.variation_days(db, src_var.id)
+            for idx, v_day in enumerate(v_days):
                 sess_date = start_date + timedelta(days=idx)
                 new_s = Session(
                     id=uuid.uuid4(),
                     cohort_id=cohort.id,
                     meeting_date=sess_date,
-                    starts_at=t_sess.starts_at,
-                    title=t_sess.title or f"Day {idx + 1}",
+                    starts_at=v_day.starts_at,
+                    title=v_day.title or f"Day {idx + 1}",
                     duration_hours=(
-                        t_sess.duration_hours
-                        if t_sess.duration_hours is not None
-                        else (cohort.duration_hours if cohort.duration_hours is not None else program.duration_hours)
+                        v_day.duration_hours
+                        if v_day.duration_hours is not None
+                        else (cohort.duration_hours if cohort.duration_hours is not None else eff_scalars["duration_hours"])
                     ),
                 )
                 db.add(new_s)
                 await db.flush()
 
-                t_items = (await db.execute(
-                    select(DeliveryChecklistItem).where(DeliveryChecklistItem.session_id == t_sess.id)
+                d_items = (await db.execute(
+                    select(DeliveryChecklistItem).where(DeliveryChecklistItem.variation_day_id == v_day.id)
                     .order_by(DeliveryChecklistItem.sort_order, DeliveryChecklistItem.created_at)
                 )).scalars().all()
-                for ci in t_items:
+                for ci in d_items:
                     db.add(day_service.clone_delivery_checklist_item(
                         ci, actor_user_id=current_user.id, session_id=new_s.id,
                     ))
-                copied_sess_quiz = False
+                copied_day_quiz = False
                 if src_prog_id == program.id:
-                    t_sess_quiz = (await db.execute(
-                        select(PreSessionQuizAssignment).where(PreSessionQuizAssignment.session_id == t_sess.id)
+                    d_quiz = (await db.execute(
+                        select(PreSessionQuizAssignment).where(PreSessionQuizAssignment.variation_day_id == v_day.id)
                     )).scalars().first()
-                    if t_sess_quiz is not None:
+                    if d_quiz is not None:
                         db.add(PreSessionQuizAssignment(
                             id=uuid.uuid4(),
                             session_id=new_s.id,
-                            preset_id=t_sess_quiz.preset_id,
+                            preset_id=d_quiz.preset_id,
                         ))
-                        copied_sess_quiz = True
-                if t_items or copied_sess_quiz:
+                        copied_day_quiz = True
+                if d_items or copied_day_quiz:
                     await db.flush()
+        else:
+            template_cohort = await day_service.find_program_template_cohort(
+                db, src_prog_id, exclude_cohort_id=cohort.id,
+            )
+            if template_cohort:
+                template_sessions = (await db.execute(
+                    select(Session).where(Session.cohort_id == template_cohort.id)
+                    .order_by(Session.meeting_date, Session.starts_at, Session.created_at)
+                )).scalars().all()
 
-            if prog_quiz is None and src_prog_id == program.id:
-                t_cohort_quiz = (await db.execute(
-                    select(PreSessionQuizAssignment).where(PreSessionQuizAssignment.cohort_id == template_cohort.id)
-                )).scalars().first()
-                if t_cohort_quiz is not None:
-                    db.add(PreSessionQuizAssignment(
+                for idx, t_sess in enumerate(template_sessions):
+                    sess_date = start_date + timedelta(days=idx)
+                    new_s = Session(
                         id=uuid.uuid4(),
                         cohort_id=cohort.id,
-                        preset_id=t_cohort_quiz.preset_id,
-                    ))
-
-            if not program_checklist_items:
-                template_cohort_items = (await db.execute(
-                    select(DeliveryChecklistItem).where(DeliveryChecklistItem.cohort_id == template_cohort.id)
-                    .order_by(DeliveryChecklistItem.sort_order, DeliveryChecklistItem.created_at)
-                )).scalars().all()
-                for ci in template_cohort_items:
-                    db.add(day_service.clone_delivery_checklist_item(
-                        ci, actor_user_id=current_user.id, cohort_id=cohort.id,
-                    ))
-                if template_cohort_items:
+                        meeting_date=sess_date,
+                        starts_at=t_sess.starts_at,
+                        title=t_sess.title or f"Day {idx + 1}",
+                        duration_hours=(
+                            t_sess.duration_hours
+                            if t_sess.duration_hours is not None
+                            else (cohort.duration_hours if cohort.duration_hours is not None else program.duration_hours)
+                        ),
+                    )
+                    db.add(new_s)
                     await db.flush()
+
+                    t_items = (await db.execute(
+                        select(DeliveryChecklistItem).where(DeliveryChecklistItem.session_id == t_sess.id)
+                        .order_by(DeliveryChecklistItem.sort_order, DeliveryChecklistItem.created_at)
+                    )).scalars().all()
+                    for ci in t_items:
+                        db.add(day_service.clone_delivery_checklist_item(
+                            ci, actor_user_id=current_user.id, session_id=new_s.id,
+                        ))
+                    copied_sess_quiz = False
+                    if src_prog_id == program.id:
+                        t_sess_quiz = (await db.execute(
+                            select(PreSessionQuizAssignment).where(PreSessionQuizAssignment.session_id == t_sess.id)
+                        )).scalars().first()
+                        if t_sess_quiz is not None:
+                            db.add(PreSessionQuizAssignment(
+                                id=uuid.uuid4(),
+                                session_id=new_s.id,
+                                preset_id=t_sess_quiz.preset_id,
+                            ))
+                            copied_sess_quiz = True
+                    if t_items or copied_sess_quiz:
+                        await db.flush()
+
+                if prog_or_var_quiz is None and src_prog_id == program.id:
+                    t_cohort_quiz = (await db.execute(
+                        select(PreSessionQuizAssignment).where(PreSessionQuizAssignment.cohort_id == template_cohort.id)
+                    )).scalars().first()
+                    if t_cohort_quiz is not None:
+                        db.add(PreSessionQuizAssignment(
+                            id=uuid.uuid4(),
+                            cohort_id=cohort.id,
+                            preset_id=t_cohort_quiz.preset_id,
+                        ))
+
+                if not program_checklist_items:
+                    template_cohort_items = (await db.execute(
+                        select(DeliveryChecklistItem).where(DeliveryChecklistItem.cohort_id == template_cohort.id)
+                        .order_by(DeliveryChecklistItem.sort_order, DeliveryChecklistItem.created_at)
+                    )).scalars().all()
+                    for ci in template_cohort_items:
+                        db.add(day_service.clone_delivery_checklist_item(
+                            ci, actor_user_id=current_user.id, cohort_id=cohort.id,
+                        ))
+                    if template_cohort_items:
+                        await db.flush()
 
     await db.commit()
     await db.refresh(cohort)
@@ -631,11 +726,18 @@ async def clone_cohort(
     new_cohort = Cohort(
         id=uuid.uuid4(),
         program_id=target_program.id,
+        variation_id=source.variation_id if target_program.id == source.program_id else None,
         name=body.name.strip(),
         starts_on=body.starts_on,
         ends_on=body.ends_on,
         status="planned",
         keep_course_access_after_completion=target_program.keep_course_access_after_completion,
+        pricing_model=source.pricing_model,
+        price=source.price,
+        completion_rule_type=source.completion_rule_type,
+        completion_rule_value=source.completion_rule_value,
+        default_certificate_template_id=source.default_certificate_template_id,
+        default_team_certificate_template_id=source.default_team_certificate_template_id,
     )
     if "basics" in body.carry:
         new_cohort.location_id = source.location_id
@@ -990,24 +1092,35 @@ async def seed_cohort_sessions_from_template(
     db: AsyncSession, cohort: Cohort, new_sessions: list[Session], actor_user_id: uuid.UUID,
 ) -> None:
     """When sessions are added or generated for a cohort, inherit day config
-    (titles, duration, checklists, and pre-session quizzes) from the program's template cohort sessions."""
+    (titles, duration, checklists, and pre-session quizzes) from its variation days
+    (or legacy template cohort if no variation exists)."""
     if not getattr(cohort, "inherit_default_checklists", True):
         return
     new_ids = {s.id for s in new_sessions}
     if not new_ids:
         return
 
-    template_cohort = await day_service.find_program_template_cohort(
-        db, cohort.program_id, exclude_cohort_id=cohort.id,
-    )
-    if template_cohort is None:
+    var = await var_svc.resolve_variation_for_program(db, cohort.program_id, getattr(cohort, "variation_id", None))
+    v_days = await var_svc.variation_days(db, var.id) if var is not None else []
+
+    if var is not None and not v_days:
         return
 
-    template_sessions = (await db.execute(
-        select(Session).where(Session.cohort_id == template_cohort.id)
-        .order_by(Session.meeting_date, Session.starts_at, Session.created_at)
-    )).scalars().all()
-    if not template_sessions:
+    template_days: list[ProgramVariationDay | Session] = list(v_days)
+    is_legacy = False
+    if var is None:
+        template_cohort = await day_service.find_program_template_cohort(
+            db, cohort.program_id, exclude_cohort_id=cohort.id,
+        )
+        if template_cohort is None:
+            return
+        template_days = list((await db.execute(
+            select(Session).where(Session.cohort_id == template_cohort.id)
+            .order_by(Session.meeting_date, Session.starts_at, Session.created_at)
+        )).scalars().all())
+        is_legacy = True
+
+    if not template_days:
         return
 
     all_sessions = (await db.execute(
@@ -1018,23 +1131,28 @@ async def seed_cohort_sessions_from_template(
     for idx, s in enumerate(all_sessions):
         if s.id not in new_ids:
             continue
-        if idx >= len(template_sessions):
+        if idx >= len(template_days):
             break
-        t_sess = template_sessions[idx]
-        if not s.title and t_sess.title:
-            s.title = t_sess.title
+        t_day = template_days[idx]
+        if not s.title and t_day.title:
+            s.title = t_day.title
+        if s.starts_at is None and getattr(t_day, "starts_at", None) is not None:
+            s.starts_at = t_day.starts_at
         if s.duration_hours is None:
-            if t_sess.duration_hours is not None:
-                s.duration_hours = t_sess.duration_hours
+            if t_day.duration_hours is not None:
+                s.duration_hours = t_day.duration_hours
             elif cohort.duration_hours is not None:
                 s.duration_hours = cohort.duration_hours
+
+        src_col = DeliveryChecklistItem.session_id if is_legacy else DeliveryChecklistItem.variation_day_id
+        quiz_col = PreSessionQuizAssignment.session_id if is_legacy else PreSessionQuizAssignment.variation_day_id
 
         existing_count = await db.scalar(
             select(func.count(DeliveryChecklistItem.id)).where(DeliveryChecklistItem.session_id == s.id)
         )
         if existing_count == 0:
             t_items = (await db.execute(
-                select(DeliveryChecklistItem).where(DeliveryChecklistItem.session_id == t_sess.id)
+                select(DeliveryChecklistItem).where(src_col == t_day.id)
                 .order_by(DeliveryChecklistItem.sort_order, DeliveryChecklistItem.created_at)
             )).scalars().all()
             for ti in t_items:
@@ -1047,7 +1165,7 @@ async def seed_cohort_sessions_from_template(
         )).scalars().first()
         if existing_quiz is None:
             t_quiz = (await db.execute(
-                select(PreSessionQuizAssignment).where(PreSessionQuizAssignment.session_id == t_sess.id)
+                select(PreSessionQuizAssignment).where(quiz_col == t_day.id)
             )).scalars().first()
             if t_quiz is not None:
                 db.add(PreSessionQuizAssignment(
@@ -1980,7 +2098,7 @@ async def download_cohort_certificates(
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="No registered students in this cohort yet")
 
     from app.services.competitions.certificates import _resolve_certificate_template
-    layout = await _resolve_certificate_template(db, program=program, template_id=template_id, theme=theme)
+    layout = await _resolve_certificate_template(db, program=program, cohort=cohort, template_id=template_id, theme=theme)
 
     template = (await db.execute(
         select(DocumentTemplate).where(DocumentTemplate.key == "student_completion")

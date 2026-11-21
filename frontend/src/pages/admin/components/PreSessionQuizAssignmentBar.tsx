@@ -55,9 +55,13 @@ export function PreSessionQuizAssignmentBar({
   const scopeLabel =
     scope === "programs"
       ? "Program Default"
-      : scope === "cohorts"
-        ? "Cohort Default"
-        : dayTitle || "This Session"
+      : scope === "variations"
+        ? "Variation Default"
+        : scope === "variation_days"
+          ? dayTitle || "Variation Day"
+          : scope === "cohorts"
+            ? "Cohort Default"
+            : dayTitle || "This Session"
 
   const selectedPreset = presets.find((p) => p.id === assignment?.preset_id) ?? null
 

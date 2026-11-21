@@ -57,7 +57,12 @@ async def get_calendar(
         select(Session, Cohort, Program)
         .join(Cohort, Cohort.id == Session.cohort_id)
         .join(Program, Program.id == Cohort.program_id)
-        .where(Session.meeting_date.between(from_date, to_date))
+        .where(
+            Session.meeting_date.between(from_date, to_date),
+            Cohort.is_template_legacy.is_(False),
+            Cohort.status != "draft",
+            ~Cohort.name.ilike("[Template]%"),
+        )
         .order_by(Session.meeting_date, Session.starts_at)
     )
     if scope == "instructor" and not is_ops:

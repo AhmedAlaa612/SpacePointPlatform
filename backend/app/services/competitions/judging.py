@@ -96,7 +96,11 @@ def _validate_sub_criteria(label: str, max_points: int, subs: list[dict]) -> lis
     ]
 
 async def get_rubric(
-    db: AsyncSession, *, cohort_id: uuid.UUID | None = None, program_id: uuid.UUID | None = None
+    db: AsyncSession,
+    *,
+    cohort_id: uuid.UUID | None = None,
+    variation_id: uuid.UUID | None = None,
+    program_id: uuid.UUID | None = None,
 ) -> tuple[CompetitionRubric, list[CompetitionRubricCriterion]] | None:
     rubric = None
     if cohort_id is not None:
@@ -104,12 +108,22 @@ async def get_rubric(
         if rubric is None:
             cohort = await db.get(Cohort, cohort_id)
             if cohort is not None:
+                if getattr(cohort, "variation_id", None) is not None:
+                    variation_id = cohort.variation_id
                 program_id = cohort.program_id
+
+    if rubric is None and variation_id is not None:
+        rubric = await db.scalar(
+            select(CompetitionRubric).where(CompetitionRubric.variation_id == variation_id)
+        )
 
     if rubric is None and program_id is not None:
         rubric = await db.scalar(
-            select(CompetitionRubric)
-            .where(CompetitionRubric.program_id == program_id, CompetitionRubric.cohort_id.is_(None))
+            select(CompetitionRubric).where(
+                CompetitionRubric.program_id == program_id,
+                CompetitionRubric.variation_id.is_(None),
+                CompetitionRubric.cohort_id.is_(None),
+            )
         )
         if rubric is None:
             rubric = await db.scalar(
@@ -129,12 +143,15 @@ async def get_rubric(
 
 
 async def upsert_rubric(
-    db: AsyncSession, *, cohort_id: uuid.UUID | None = None, program_id: uuid.UUID | None = None,
-    name: str, criteria: list[dict],
+    db: AsyncSession,
+    *,
+    cohort_id: uuid.UUID | None = None,
+    variation_id: uuid.UUID | None = None,
+    program_id: uuid.UUID | None = None,
+    name: str,
+    criteria: list[dict],
 ) -> tuple[CompetitionRubric, list[CompetitionRubricCriterion]]:
-    """Declarative sync, scoped by cohort (or fallback program):
-    `criteria` is the full intended list. Existing `competition_scores`
-    rows referencing deleted criterion keys simply stop being read for them."""
+    """Declarative sync, scoped by cohort, variation, or fallback program."""
     rubric = None
     if cohort_id is not None:
         cohort = await db.get(Cohort, cohort_id)
@@ -148,13 +165,27 @@ async def upsert_rubric(
             await db.flush()
         else:
             rubric.name = name
+    elif variation_id is not None:
+        from app.models.sessions.program_variation import ProgramVariation
+        var = await db.get(ProgramVariation, variation_id)
+        if var is None:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Program variation not found")
+        program_id = var.program_id
+        rubric = await db.scalar(select(CompetitionRubric).where(CompetitionRubric.variation_id == variation_id))
+        if rubric is None:
+            rubric = CompetitionRubric(id=uuid.uuid4(), program_id=program_id, variation_id=variation_id, name=name)
+            db.add(rubric)
+            await db.flush()
+        else:
+            rubric.name = name
     elif program_id is not None:
         rubric = await db.scalar(
-            select(CompetitionRubric)
-            .where(CompetitionRubric.program_id == program_id, CompetitionRubric.cohort_id.is_(None))
+            select(CompetitionRubric).where(
+                CompetitionRubric.program_id == program_id,
+                CompetitionRubric.variation_id.is_(None),
+                CompetitionRubric.cohort_id.is_(None),
+            )
         )
-        if rubric is None:
-            rubric = await db.scalar(select(CompetitionRubric).where(CompetitionRubric.program_id == program_id))
         if rubric is None:
             rubric = CompetitionRubric(id=uuid.uuid4(), program_id=program_id, name=name)
             db.add(rubric)
@@ -162,7 +193,7 @@ async def upsert_rubric(
         else:
             rubric.name = name
     else:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="Either cohort_id or program_id must be provided")
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="cohort_id, variation_id, or program_id required")
 
     existing = {
         c.key: c for c in (await db.execute(

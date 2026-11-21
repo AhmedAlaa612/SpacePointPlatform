@@ -15,9 +15,9 @@ import { useEffect, useMemo, useState, type ReactNode } from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useNavigate } from "@tanstack/react-router"
 import { Check, ChevronLeft, ChevronRight, Clock, Info, Lock, Mail, Pencil, Phone, Plus, Trash2, X } from "lucide-react"
-import type { Cohort, CohortAssignment, CohortVisibility, Program, Registration, Session } from "@/types/sessions"
+import type { Cohort, CohortAssignment, CohortVisibility, Program, ProgramVariation, Registration, Session } from "@/types/sessions"
 import type { City, Location, Warehouse } from "@/types/inventory"
-import { getProgramsApi } from "@/api/sessions/programs"
+import { getProgramsApi, listProgramVariationsApi } from "@/api/sessions/programs"
 import { getLocationsApi, getWarehousesApi, createLocationApi, getCitiesApi } from "@/api/inventory"
 import {
   cloneCohortApi, createCohortApi, updateCohortApi, generateSessionsApi, getCohortsApi, getSessionsApi, addSessionApi, updateSessionApi, deleteSessionApi,
@@ -687,6 +687,7 @@ function BasicsStep({ programs, program, cohort, onSaved, onFormChange }: {
   const [keepCourseAccessAfterCompletion, setKeepCourseAccessAfterCompletion] = useState(
     cohort?.keep_course_access_after_completion ?? program?.keep_course_access_after_completion ?? true,
   )
+  const [variationChoice, setVariationChoice] = useState<string>(cohort?.variation_id ?? "")
   const [importDefaultChecklists, setImportDefaultChecklists] = useState(true)
   const [checklistSourceProgramId, setChecklistSourceProgramId] = useState("")
   const [error, setError] = useState("")
@@ -695,6 +696,29 @@ function BasicsStep({ programs, program, cohort, onSaved, onFormChange }: {
   const [capacityManuallyEdited, setCapacityManuallyEdited] = useState(Boolean(cohort?.capacity != null))
   const [durationManuallyEdited, setDurationManuallyEdited] = useState(Boolean(cohort?.duration_hours != null))
   const [posterManuallyEdited, setPosterManuallyEdited] = useState(Boolean(cohort?.poster_template_url))
+
+  const activeProgId = cohort?.program_id ?? programId ?? program?.id ?? ""
+  const activeProgram = program ?? programs.find((p) => p.id === activeProgId)
+
+  const { data: activeVariations = [] } = useQuery<ProgramVariation[]>({
+    queryKey: ["program-variations-active", activeProgId],
+    queryFn: () => listProgramVariationsApi(activeProgId, true),
+    enabled: Boolean(activeProgId),
+  })
+
+  // Auto-select default active variation when creating and variations load
+  const resolvedVariationChoice = useMemo(() => {
+    if (variationChoice === "__blank__") return "__blank__"
+    if (variationChoice && activeVariations.some((v) => v.id === variationChoice)) return variationChoice
+    if (cohort) return cohort.variation_id ?? ""
+    if (activeVariations.length > 0) {
+      return (activeVariations.find((v) => v.is_default) ?? activeVariations[0]).id
+    }
+    return ""
+  }, [variationChoice, activeVariations, cohort])
+
+  const selectedVariation = activeVariations.find((v) => v.id === resolvedVariationChoice) ?? null
+  const isBlankChoice = resolvedVariationChoice === "__blank__"
 
   const { data: rawCohorts = [] } = useQuery({ queryKey: ["sessions-cohorts-all"], queryFn: () => getCohortsApi() })
   const allCohorts = useMemo(
@@ -707,27 +731,30 @@ function BasicsStep({ programs, program, cohort, onSaved, onFormChange }: {
     [rawCohorts],
   )
 
-  // Auto-fill defaults from the selected/inherited program whenever program data resolves or changes
+  // Auto-fill defaults from the chosen variation (falling back to parent program) unless manually edited
   useEffect(() => {
-    if (!cohort && program) {
-      if (!capacityManuallyEdited && program.default_capacity != null) {
-        setCapacity(String(program.default_capacity))
-      }
-      if (!durationManuallyEdited && program.duration_hours != null) {
-        setDurationHours(String(program.duration_hours))
-      }
-      if (!posterManuallyEdited && program.poster_template_url) {
-        setPosterTemplateUrl(program.poster_template_url)
-      }
-      if (program.keep_course_access_after_completion != null) {
-        setKeepCourseAccessAfterCompletion(program.keep_course_access_after_completion)
+    if (!cohort && activeProgram) {
+      if (isBlankChoice) {
+        if (!capacityManuallyEdited) setCapacity("")
+        if (!durationManuallyEdited) setDurationHours("")
+        if (!posterManuallyEdited) setPosterTemplateUrl("")
+        setKeepCourseAccessAfterCompletion(activeProgram.keep_course_access_after_completion ?? true)
+      } else {
+        const effCap = selectedVariation?.default_capacity ?? activeProgram.default_capacity
+        const effDur = selectedVariation?.duration_hours ?? activeProgram.duration_hours
+        const effPoster = selectedVariation?.poster_template_url ?? activeProgram.poster_template_url
+        const effKeep = selectedVariation?.keep_course_access_after_completion ?? activeProgram.keep_course_access_after_completion
+        if (!capacityManuallyEdited) setCapacity(effCap != null ? String(effCap) : "")
+        if (!durationManuallyEdited) setDurationHours(effDur != null ? String(effDur) : "")
+        if (!posterManuallyEdited) setPosterTemplateUrl(effPoster || "")
+        if (effKeep != null) setKeepCourseAccessAfterCompletion(effKeep)
       }
       if (!nameManuallyEdited) {
-        const existing = allCohorts.filter((c) => c.program_id === program.id)
+        const existing = allCohorts.filter((c) => c.program_id === activeProgram.id)
         setName(`Cohort ${existing.length + 1}`)
       }
     }
-  }, [program, cohort, allCohorts, capacityManuallyEdited, durationManuallyEdited, posterManuallyEdited, nameManuallyEdited])
+  }, [activeProgram, selectedVariation, isBlankChoice, cohort, allCohorts, capacityManuallyEdited, durationManuallyEdited, posterManuallyEdited, nameManuallyEdited])
 
   const { data: locations = [] } = useQuery({ queryKey: ["inv-locations"], queryFn: () => getLocationsApi() })
   const { data: warehouses = [] } = useQuery({ queryKey: ["inv-warehouses"], queryFn: () => getWarehousesApi() })
@@ -763,6 +790,7 @@ function BasicsStep({ programs, program, cohort, onSaved, onFormChange }: {
         visibility,
         poster_template_url: posterTemplateUrl.trim() || null,
         keep_course_access_after_completion: keepCourseAccessAfterCompletion,
+        variation_id: resolvedVariationChoice && !isBlankChoice ? resolvedVariationChoice : null,
       })
       : createCohortApi({
         program_id: programId || program?.id || "",
@@ -773,9 +801,10 @@ function BasicsStep({ programs, program, cohort, onSaved, onFormChange }: {
         visibility,
         poster_template_url: posterTemplateUrl.trim() || undefined,
         keep_course_access_after_completion: keepCourseAccessAfterCompletion,
-        import_default_checklists: importDefaultChecklists,
+        variation_id: !isBlankChoice && selectedVariation ? selectedVariation.id : null,
+        import_default_checklists: !isBlankChoice && importDefaultChecklists,
         checklist_source_program_id:
-          importDefaultChecklists && effectiveChecklistSourceProgramId
+          !isBlankChoice && importDefaultChecklists && effectiveChecklistSourceProgramId
             ? effectiveChecklistSourceProgramId
             : null,
       }),
@@ -791,7 +820,7 @@ function BasicsStep({ programs, program, cohort, onSaved, onFormChange }: {
       isPending: save.isPending,
       canSubmit,
     })
-  }, [name, programId, program, cohort, save.isPending, canSubmit, startsOn, endsOn, locationId, warehouseId, capacity, durationHours, posterTemplateUrl, visibility, keepCourseAccessAfterCompletion, importDefaultChecklists, effectiveChecklistSourceProgramId])
+  }, [name, programId, program, cohort, save.isPending, canSubmit, startsOn, endsOn, locationId, warehouseId, capacity, durationHours, posterTemplateUrl, visibility, keepCourseAccessAfterCompletion, importDefaultChecklists, effectiveChecklistSourceProgramId, resolvedVariationChoice])
 
   const selectStyle: React.CSSProperties = { ...bigInput, cursor: "pointer" }
 
@@ -845,6 +874,90 @@ function BasicsStep({ programs, program, cohort, onSaved, onFormChange }: {
             {programs.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
           </select>
         </BigField>
+      )}
+
+      {!cohort && activeProgId && (
+        <div className="flex flex-col gap-2.5 rounded-xl border border-primary/25 bg-primary/5 p-4">
+          <div className="flex items-center justify-between gap-2 flex-wrap">
+            <span style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em" }} className="text-primary">
+              {activeVariations.length > 0 ? "Which variation is this cohort?" : "Apply program defaults?"}
+            </span>
+            {selectedVariation && !isBlankChoice && (
+              <span className="text-xs text-muted-foreground">
+                Prefills {selectedVariation.days_count} day{selectedVariation.days_count === 1 ? "" : "s"}, checklists, roles &amp; settings
+              </span>
+            )}
+          </div>
+
+          <div className="flex flex-wrap gap-2">
+            {activeVariations.length > 0 ? (
+              activeVariations.map((v) => {
+                const active = resolvedVariationChoice === v.id
+                return (
+                  <button
+                    key={v.id}
+                    type="button"
+                    onClick={() => {
+                      setVariationChoice(v.id)
+                      setImportDefaultChecklists(true)
+                    }}
+                    className={cn(
+                      "px-3.5 py-2 rounded-xl border text-left transition-all cursor-pointer",
+                      active
+                        ? "border-primary bg-primary text-primary-foreground shadow-sm"
+                        : "border-border bg-background text-foreground hover:border-primary/50",
+                    )}
+                  >
+                    <p className="text-xs font-semibold">
+                      {v.name}{v.is_default ? " ★" : ""}
+                    </p>
+                    <p className={cn("text-[11px]", active ? "text-primary-foreground/80" : "text-muted-foreground")}>
+                      {v.days_count}d
+                      {v.default_capacity != null ? ` · ${v.default_capacity} seats` : ""}
+                      {v.pricing_model ? (v.pricing_model === "free" ? " · Free" : ` · AED ${v.price ?? activeProgram?.price ?? 0}`) : ""}
+                    </p>
+                  </button>
+                )
+              })
+            ) : (
+              <button
+                type="button"
+                onClick={() => {
+                  setVariationChoice("")
+                  setImportDefaultChecklists(true)
+                }}
+                className={cn(
+                  "px-3.5 py-2 rounded-xl border text-left transition-all cursor-pointer",
+                  !isBlankChoice
+                    ? "border-primary bg-primary text-primary-foreground shadow-sm"
+                    : "border-border bg-background text-foreground hover:border-primary/50",
+                )}
+              >
+                <p className="text-xs font-semibold">Yes — Apply Program Defaults</p>
+                <p className={cn("text-[11px]", !isBlankChoice ? "text-primary-foreground/80" : "text-muted-foreground")}>
+                  Copy roles, days, checklists &amp; settings
+                </p>
+              </button>
+            )}
+
+            <button
+              type="button"
+              onClick={() => {
+                setVariationChoice("__blank__")
+                setImportDefaultChecklists(false)
+              }}
+              className={cn(
+                "px-3.5 py-2 rounded-xl border text-left transition-all cursor-pointer",
+                isBlankChoice
+                  ? "border-foreground bg-muted text-foreground font-semibold"
+                  : "border-border bg-background text-muted-foreground hover:text-foreground",
+              )}
+            >
+              <p className="text-xs font-semibold">No — Start Blank</p>
+              <p className="text-[11px] text-muted-foreground">Empty cohort, no prefilled defaults</p>
+            </button>
+          </div>
+        </div>
       )}
 
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 sm:gap-6">
@@ -1006,7 +1119,7 @@ function BasicsStep({ programs, program, cohort, onSaved, onFormChange }: {
           </label>
         </div>
 
-        {!cohort && (
+        {!cohort && !isBlankChoice && (
           <div className="col-span-1 sm:col-span-2 flex flex-col gap-3 rounded-xl border border-border bg-muted/20 p-4">
             <label className="flex items-start gap-2.5 text-foreground cursor-pointer select-none" style={{ fontSize: 14 }}>
               <input
@@ -1016,22 +1129,26 @@ function BasicsStep({ programs, program, cohort, onSaved, onFormChange }: {
                 className="mt-1 rounded border-border accent-primary w-4 h-4 cursor-pointer"
               />
               <span className="flex flex-col gap-0.5">
-                <span className="font-semibold">Import default days &amp; checklists</span>
+                <span className="font-semibold">
+                  Import days &amp; checklists{selectedVariation ? ` from "${selectedVariation.name}"` : ""}
+                </span>
                 <span style={{ fontSize: 13 }} className="text-muted-foreground">
-                  Copies the program&rsquo;s Pre-Workshop and Day 1..N checklists (for instructors and internal teams) onto this cohort so you can customize or switch days later.
+                  Copies Pre-Workshop and Day 1..N sessions &amp; checklists so you can customize or switch days later.
                 </span>
               </span>
             </label>
 
             {importDefaultChecklists && programs.length > 1 && (
-              <BigField label="Checklist source">
+              <BigField label="Checklist source override (optional)">
                 <select
                   value={effectiveChecklistSourceProgramId}
                   onChange={(e) => setChecklistSourceProgramId(e.target.value)}
                   style={selectStyle}
                   className="border border-border bg-background text-foreground focus:outline-none focus:border-primary transition-colors"
                 >
-                  <option value="">This program&rsquo;s default</option>
+                  <option value="">
+                    {selectedVariation ? `${selectedVariation.name} (selected variation)` : "This program’s default"}
+                  </option>
                   {programs
                     .filter((p) => p.id !== (programId || program?.id))
                     .map((p) => (

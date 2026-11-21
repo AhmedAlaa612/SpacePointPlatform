@@ -25,6 +25,7 @@ from app.core.dependencies import (
 from app.db.session import get_db
 from app.models.sessions.instructor_interest import InstructorInterest
 from app.models.sessions.material import Material
+from app.models.sessions.program_variation import ProgramVariation
 from app.models.user import User
 from app.schemas.sessions.journey import (
     AcceptResponsibilitiesIn,
@@ -54,6 +55,7 @@ async def _assert_materials_scope(
     user: User,
     *,
     program_id: uuid.UUID | None = None,
+    variation_id: uuid.UUID | None = None,
     cohort_id: uuid.UUID | None = None,
     session_id: uuid.UUID | None = None,
 ) -> None:
@@ -65,6 +67,10 @@ async def _assert_materials_scope(
     if cohort_id is not None:
         await require_cohort_manager_or_ops(db, cohort_id, user)
         return
+    if variation_id is not None:
+        var = await db.get(ProgramVariation, variation_id)
+        if var and await is_program_org_manager(db, var.program_id, user):
+            return
     if program_id is not None and await is_program_org_manager(db, program_id, user):
         return
     raise HTTPException(status.HTTP_403_FORBIDDEN, detail="Operation not permitted")
@@ -73,8 +79,8 @@ async def _assert_materials_scope(
 async def _out(material: Material) -> MaterialOut:
     return MaterialOut(
         id=material.id,
-        program_id=material.program_id, cohort_id=material.cohort_id,
-        session_id=material.session_id,
+        program_id=material.program_id, variation_id=material.variation_id,
+        cohort_id=material.cohort_id, session_id=material.session_id,
         title=material.title, notes=material.notes,
         url=await mat.material_url(material),
         filename=mat.display_filename(material.file_path) if material.file_path else None,
@@ -89,6 +95,7 @@ async def _out(material: Material) -> MaterialOut:
 @router.get("/materials", response_model=list[MaterialOut])
 async def list_materials(
     program_id: uuid.UUID | None = None,
+    variation_id: uuid.UUID | None = None,
     cohort_id: uuid.UUID | None = None,
     session_id: uuid.UUID | None = None,
     db: AsyncSession = Depends(get_db),
@@ -97,10 +104,10 @@ async def list_materials(
     """Rows attached at exactly one level, with no inheritance applied — the
     management view. Ops editing a program must see the program's own rows."""
     await _assert_materials_scope(
-        db, current_user, program_id=program_id, cohort_id=cohort_id, session_id=session_id
+        db, current_user, program_id=program_id, variation_id=variation_id, cohort_id=cohort_id, session_id=session_id
     )
     rows = await mat.list_materials(
-        db, program_id=program_id, cohort_id=cohort_id, session_id=session_id
+        db, program_id=program_id, variation_id=variation_id, cohort_id=cohort_id, session_id=session_id
     )
     return [await _out(m) for m in rows]
 
@@ -109,17 +116,18 @@ async def list_materials(
 async def add_material_link(
     body: MaterialLinkIn,
     program_id: uuid.UUID | None = None,
+    variation_id: uuid.UUID | None = None,
     cohort_id: uuid.UUID | None = None,
     session_id: uuid.UUID | None = None,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_session_delivery),
 ):
     await _assert_materials_scope(
-        db, current_user, program_id=program_id, cohort_id=cohort_id, session_id=session_id
+        db, current_user, program_id=program_id, variation_id=variation_id, cohort_id=cohort_id, session_id=session_id
     )
     material = await mat.add_material(
         db, user=current_user, title=body.title, url=body.url, notes=body.notes,
-        program_id=program_id, cohort_id=cohort_id, session_id=session_id,
+        program_id=program_id, variation_id=variation_id, cohort_id=cohort_id, session_id=session_id,
         is_published=body.is_published,
     )
     await db.commit()
@@ -132,6 +140,7 @@ async def add_material_file(
     title: str = Form(...),
     notes: str | None = Form(None),
     program_id: uuid.UUID | None = Form(None),
+    variation_id: uuid.UUID | None = Form(None),
     cohort_id: uuid.UUID | None = Form(None),
     session_id: uuid.UUID | None = Form(None),
     is_published: bool = Form(False),
@@ -140,11 +149,11 @@ async def add_material_file(
     current_user: User = Depends(require_session_delivery),
 ):
     await _assert_materials_scope(
-        db, current_user, program_id=program_id, cohort_id=cohort_id, session_id=session_id
+        db, current_user, program_id=program_id, variation_id=variation_id, cohort_id=cohort_id, session_id=session_id
     )
     material = await mat.add_material(
         db, user=current_user, title=title, notes=notes,
-        program_id=program_id, cohort_id=cohort_id, session_id=session_id,
+        program_id=program_id, variation_id=variation_id, cohort_id=cohort_id, session_id=session_id,
         file_bytes=await file.read(), filename=file.filename,
         content_type=file.content_type,
         is_published=is_published,
@@ -168,6 +177,7 @@ async def update_material(
         db,
         current_user,
         program_id=material.program_id,
+        variation_id=material.variation_id,
         cohort_id=material.cohort_id,
         session_id=material.session_id,
     )
@@ -195,6 +205,7 @@ async def delete_material(
         db,
         current_user,
         program_id=material.program_id,
+        variation_id=material.variation_id,
         cohort_id=material.cohort_id,
         session_id=material.session_id,
     )

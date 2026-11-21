@@ -636,10 +636,8 @@ async def test_cross_program_checklist_source_does_not_copy_quizzes(db, client, 
 
     b1 = (await client.post(f"/sessions/programs/{prog_b.id}/template-days", json={"title": "B Day 1"}, headers=operations_headers)).json()
     await client.put(f"/sessions/sessions/{b1['id']}/checklist-items", json={"items": [{"title": "B Check"}]}, headers=operations_headers)
-    b_tpl_cohort = await day_svc.find_program_template_cohort(db, prog_b.id)
-    assert b_tpl_cohort is not None
-    db.add(PreSessionQuizAssignment(id=uuid.uuid4(), cohort_id=b_tpl_cohort.id, preset_id=preset_b.id))
-    db.add(PreSessionQuizAssignment(id=uuid.uuid4(), session_id=uuid.UUID(b1["id"]), preset_id=preset_b.id))
+    db.add(PreSessionQuizAssignment(id=uuid.uuid4(), variation_id=uuid.UUID(b1["cohort_id"]), preset_id=preset_b.id))
+    db.add(PreSessionQuizAssignment(id=uuid.uuid4(), variation_day_id=uuid.UUID(b1["id"]), preset_id=preset_b.id))
     await db.commit()
 
     created = (await client.post(

@@ -9,7 +9,7 @@ invitation-code endpoints).
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, time
 from decimal import Decimal
 from typing import Literal
 from uuid import UUID
@@ -100,3 +100,120 @@ class ProgramCloneRequest(BaseModel):
     carry: list[ProgramCloneCarryBucket] = Field(
         default_factory=lambda: ["roles", "checklist", "materials", "assessment", "certificate", "rubric"]
     )
+
+
+VariationCarryBucket = Literal[
+    "days",  # ProgramVariationDay rows + day/variation delivery checklists
+    "roles",  # ProgramOpening rows (role rates & slots)
+    "pre_quiz",  # PreSessionQuizAssignment rows (variation & variation_day)
+    "lms",  # LmsProgramItem rows (owner_type="variation")
+    "component_config",  # DesignComponentConfig (owner_type="variation")
+    "hints",  # CohortHintChallenge (owner_type="variation")
+    "materials",  # SessionMaterial (variation_id)
+    "assessment",  # default_assessment_config_id
+    "certificate",  # default_certificate_template_id & default_team_certificate_template_id
+    "rubric",  # CompetitionRubric + CompetitionRubricCriterion
+    "scalars",  # duration_hours, default_capacity, pricing, completion_rule, poster, keep_access
+]
+
+
+class ProgramVariationDayCreate(BaseModel):
+    day_number: int | None = None
+    title: str | None = None
+    duration_hours: Decimal | None = None
+    starts_at: time | None = None
+
+
+class ProgramVariationDayUpdate(BaseModel):
+    day_number: int | None = None
+    title: str | None = None
+    duration_hours: Decimal | None = None
+    starts_at: time | None = None
+
+
+class ProgramVariationDayOut(BaseModel):
+    id: UUID
+    variation_id: UUID
+    day_number: int
+    title: str | None = None
+    duration_hours: Decimal | None = None
+    starts_at: time | None = None
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class ProgramVariationDaysReorderIn(BaseModel):
+    day_ids: list[UUID]
+
+
+class ProgramVariationBase(BaseModel):
+    name: str
+    description: str | None = None
+    is_default: bool = False
+    is_active: bool = True
+    sort_order: int = 1
+    duration_hours: Decimal | None = None
+    default_capacity: int | None = None
+    poster_template_url: str | None = None
+    keep_course_access_after_completion: bool | None = None
+    pricing_model: PricingModel | None = None
+    price: Decimal | None = None
+    completion_rule_type: CompletionRuleType | None = None
+    completion_rule_value: Decimal | None = None
+    default_assessment_config_id: UUID | None = None
+    default_certificate_template_id: UUID | None = None
+    default_team_certificate_template_id: UUID | None = None
+
+
+class ProgramVariationCreate(ProgramVariationBase):
+    mode: Literal["blank", "duplicate", "from_cohort"] = "blank"
+    source_variation_id: UUID | None = None
+    source_cohort_id: UUID | None = None
+    carry: list[VariationCarryBucket] = Field(
+        default_factory=lambda: [
+            "days",
+            "roles",
+            "pre_quiz",
+            "lms",
+            "component_config",
+            "hints",
+            "materials",
+            "assessment",
+            "certificate",
+            "rubric",
+            "scalars",
+        ]
+    )
+
+
+class ProgramVariationUpdate(BaseModel):
+    name: str | None = None
+    description: str | None = None
+    is_default: bool | None = None
+    is_active: bool | None = None
+    sort_order: int | None = None
+    duration_hours: Decimal | None = None
+    default_capacity: int | None = None
+    poster_template_url: str | None = None
+    keep_course_access_after_completion: bool | None = None
+    pricing_model: PricingModel | None = None
+    price: Decimal | None = None
+    completion_rule_type: CompletionRuleType | None = None
+    completion_rule_value: Decimal | None = None
+    default_assessment_config_id: UUID | None = None
+    default_certificate_template_id: UUID | None = None
+    default_team_certificate_template_id: UUID | None = None
+
+
+class ProgramVariationOut(ProgramVariationBase):
+    id: UUID
+    program_id: UUID
+    created_at: datetime
+    days: list[ProgramVariationDayOut] = []
+    days_count: int = 0
+    cohorts_count: int = 0
+
+    class Config:
+        from_attributes = True

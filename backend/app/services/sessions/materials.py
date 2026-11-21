@@ -44,14 +44,15 @@ async def _rows(db: AsyncSession, published_only: bool = False, **owner) -> list
 async def list_materials(
     db: AsyncSession, *,
     program_id: uuid.UUID | None = None,
+    variation_id: uuid.UUID | None = None,
     cohort_id: uuid.UUID | None = None,
     session_id: uuid.UUID | None = None,
 ) -> list[Material]:
-    """Materials attached at exactly one level — no inheritance applied.
-    This is the management view: ops editing a program's materials must see
-    the program's own rows, not whatever a cohort inherited."""
+    """Materials attached at exactly one level — no inheritance applied."""
     if program_id:
         return await _rows(db, program_id=program_id)
+    if variation_id:
+        return await _rows(db, variation_id=variation_id)
     if cohort_id:
         return await _rows(db, cohort_id=cohort_id)
     if session_id:
@@ -62,12 +63,7 @@ async def list_materials(
 async def resolve_for_session(
     db: AsyncSession, session: Session, published_only: bool = True
 ) -> tuple[list[Material], str]:
-    """What this session's instructor actually sees, and where it came from.
-
-    Session's own rows if it has any, else the cohort's, else the program's.
-    Returns the level too, so the UI can say "inherited from the program"
-    rather than leaving ops guessing why editing the cohort changed nothing.
-    """
+    """What this session's instructor actually sees: session -> cohort -> variation -> program."""
     own = await _rows(db, published_only=published_only, session_id=session.id)
     if own:
         return own, "session"
@@ -80,6 +76,11 @@ async def resolve_for_session(
     if at_cohort:
         return at_cohort, "cohort"
 
+    if getattr(cohort, "variation_id", None) is not None:
+        at_variation = await _rows(db, published_only=published_only, variation_id=cohort.variation_id)
+        if at_variation:
+            return at_variation, "variation"
+
     at_program = await _rows(db, published_only=published_only, program_id=cohort.program_id)
     return (at_program, "program") if at_program else ([], "none")
 
@@ -90,6 +91,7 @@ async def add_material(
     user: User,
     title: str,
     program_id: uuid.UUID | None = None,
+    variation_id: uuid.UUID | None = None,
     cohort_id: uuid.UUID | None = None,
     session_id: uuid.UUID | None = None,
     url: str | None = None,
@@ -99,11 +101,10 @@ async def add_material(
     notes: str | None = None,
     is_published: bool = False,
 ) -> Material:
-    """Attach a file or a link at one level. Never both — a row that is
-    somehow both would leave every reader guessing which to open."""
-    owners = [x for x in (program_id, cohort_id, session_id) if x is not None]
+    """Attach a file or a link at one level."""
+    owners = [x for x in (program_id, variation_id, cohort_id, session_id) if x is not None]
     if len(owners) != 1:
-        raise HTTPException(400, detail="Attach a material to exactly one of program, cohort or session")
+        raise HTTPException(400, detail="Attach a material to exactly one of program, variation, cohort or session")
 
     title = (title or "").strip()
     if not title:
@@ -122,7 +123,7 @@ async def add_material(
 
     material = Material(
         id=uuid.uuid4(),
-        program_id=program_id, cohort_id=cohort_id, session_id=session_id,
+        program_id=program_id, variation_id=variation_id, cohort_id=cohort_id, session_id=session_id,
         title=title, notes=notes,
         bucket=bucket, file_path=stored_path, url=url or None,
         sort_order=1,

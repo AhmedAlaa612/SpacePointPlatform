@@ -21,7 +21,7 @@ import type {
 
 // ── ops: checklist templates ────────────────────────────────────────────────
 
-export type ChecklistScope = "programs" | "cohorts" | "sessions"
+export type ChecklistScope = "programs" | "variations" | "variation_days" | "cohorts" | "sessions"
 
 /** One (level, role) bucket — the management view, no inheritance applied.
  *  Omit `roleId` for the general bucket; pass a role to see that role's own
@@ -101,6 +101,7 @@ export interface DayImportMapping {
 export interface ImportCohortDefaultsInput {
   source_type: "program" | "cohort"
   source_id?: string | null
+  source_variation_id?: string | null
   include_instructor: boolean
   include_internal: boolean
   include_pre_workshop: boolean

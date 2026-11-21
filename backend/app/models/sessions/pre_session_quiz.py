@@ -133,6 +133,8 @@ class PreSessionQuizAssignment(Base):
     __table_args__ = (
         CheckConstraint(
             "(CASE WHEN program_id IS NOT NULL THEN 1 ELSE 0 END + "
+            "CASE WHEN variation_id IS NOT NULL THEN 1 ELSE 0 END + "
+            "CASE WHEN variation_day_id IS NOT NULL THEN 1 ELSE 0 END + "
             "CASE WHEN cohort_id IS NOT NULL THEN 1 ELSE 0 END + "
             "CASE WHEN session_id IS NOT NULL THEN 1 ELSE 0 END) = 1",
             name="ck_pre_session_quiz_assignment_one_owner",
@@ -141,6 +143,12 @@ class PreSessionQuizAssignment(Base):
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     program_id = Column(UUID(as_uuid=True), ForeignKey("programs.id", ondelete="CASCADE"), nullable=True, index=True)
+    variation_id = Column(
+        UUID(as_uuid=True), ForeignKey("program_variations.id", ondelete="CASCADE"), nullable=True, index=True,
+    )
+    variation_day_id = Column(
+        UUID(as_uuid=True), ForeignKey("program_variation_days.id", ondelete="CASCADE"), nullable=True, index=True,
+    )
     cohort_id = Column(UUID(as_uuid=True), ForeignKey("cohorts.id", ondelete="CASCADE"), nullable=True, index=True)
     session_id = Column(UUID(as_uuid=True), ForeignKey("sessions.id", ondelete="CASCADE"), nullable=True, index=True)
 

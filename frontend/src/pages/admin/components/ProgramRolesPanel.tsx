@@ -725,9 +725,11 @@ function ProgramDayChecklistEditor({
 /** Main ProgramRolesPanel */
 export function ProgramRolesPanel({
   program,
+  variationId,
   onFormChange,
 }: {
   program: Program
+  variationId?: string | null
   onFormChange?: (form: { ensure: () => Promise<void>; isPending: boolean }) => void
 }) {
   const qc = useQueryClient()
@@ -741,6 +743,10 @@ export function ProgramRolesPanel({
   const checklistSaveRef = useRef<(() => Promise<void>) | null>(null)
   const [checklistPending, setChecklistPending] = useState(false)
   const [ratesDirty, setRatesDirty] = useState(false)
+
+  useEffect(() => {
+    setSelectedDayId("default")
+  }, [variationId])
 
   const handleChecklistDirtyChange = useCallback(
     (saveFn: (() => Promise<void>) | null, isPending: boolean) => {
@@ -756,14 +762,14 @@ export function ProgramRolesPanel({
     queryFn: () => getDeliveryRolesApi(),
   })
   const { data: openings = [], isLoading: openingsLoading } = useQuery({
-    queryKey: ["program-openings-defaults", program.id],
-    queryFn: () => getProgramOpeningsApi(program.id),
+    queryKey: ["program-openings-defaults", program.id, variationId ?? "base"],
+    queryFn: () => getProgramOpeningsApi(program.id, variationId),
   })
 
   // 2. Program Template Days
   const { data: template, isLoading: templateLoading } = useQuery({
-    queryKey: ["program-template", program.id],
-    queryFn: () => getProgramTemplateApi(program.id),
+    queryKey: ["program-template", program.id, variationId ?? "base"],
+    queryFn: () => getProgramTemplateApi(program.id, variationId),
   })
 
   const templateSessions = template?.sessions ?? []
@@ -790,13 +796,18 @@ export function ProgramRolesPanel({
   // Mutations for adding/updating/deleting template days
   const addDayMutation = useMutation({
     mutationFn: () =>
-      addProgramTemplateDayApi(program.id, {
-        title: `Day ${templateSessions.length + 1}`,
-        duration_hours: (program as any).duration_hours ? Number((program as any).duration_hours) : 4.0,
-      }),
+      addProgramTemplateDayApi(
+        program.id,
+        {
+          title: `Day ${templateSessions.length + 1}`,
+          duration_hours: (program as any).duration_hours ? Number((program as any).duration_hours) : 4.0,
+        },
+        variationId,
+      ),
     onSuccess: (newDay) => {
       toast.success(`Added ${newDay.title || "new day"}`)
       qc.invalidateQueries({ queryKey: ["program-template", program.id] })
+      qc.invalidateQueries({ queryKey: ["program-variations", program.id] })
       setSelectedDayId(newDay.id)
     },
     onError: (e: any) => toast.error(getErrorMessage(e, "Could not add day")),
@@ -807,6 +818,7 @@ export function ProgramRolesPanel({
       updateProgramTemplateDayApi(program.id, selectedDayId, data),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["program-template", program.id] })
+      qc.invalidateQueries({ queryKey: ["program-variations", program.id] })
     },
     onError: (e: any) => toast.error(getErrorMessage(e, "Could not update day")),
   })
@@ -816,6 +828,7 @@ export function ProgramRolesPanel({
     onSuccess: () => {
       toast.success("Day deleted from template")
       qc.invalidateQueries({ queryKey: ["program-template", program.id] })
+      qc.invalidateQueries({ queryKey: ["program-variations", program.id] })
       setSelectedDayId("default")
     },
     onError: (e: any) => toast.error(getErrorMessage(e, "Could not delete day")),
@@ -853,6 +866,7 @@ export function ProgramRolesPanel({
     mutationFn: () =>
       setProgramOpeningsApi({
         programId: program.id,
+        variationId,
         openings: (ratesDraft ?? [])
           .filter(
             (d) =>
@@ -1186,8 +1200,18 @@ export function ProgramRolesPanel({
           {/* 4. Active Day & Role Checklist Editor */}
           <div className="p-3 sm:p-4 rounded-xl border border-border bg-card/60">
             <ProgramDayChecklistEditor
-              scope={isDefaultSelected ? "programs" : "sessions"}
-              ownerId={isDefaultSelected ? program.id : selectedDayId}
+              scope={
+                isDefaultSelected
+                  ? variationId
+                    ? "variations"
+                    : "programs"
+                  : "variation_days"
+              }
+              ownerId={
+                isDefaultSelected
+                  ? variationId ?? program.id
+                  : selectedDayId
+              }
               programId={program.id}
               roleId={activeRoleId}
               roleName={activeRoleName}

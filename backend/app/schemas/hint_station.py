@@ -79,7 +79,7 @@ class CohortHintChallengeOut(BaseModel):
 
 
 class CohortHintChallengeCreateIn(BaseModel):
-    owner_type: str = Field(pattern="^(program|cohort)$")
+    owner_type: str = Field(pattern="^(program|variation|cohort)$")
     owner_id: UUID
     title: str = Field(min_length=1, max_length=255)
     challenge_code: str | None = Field(default=None, max_length=64)
@@ -163,7 +163,7 @@ class CohortHintJudgingSummaryOut(BaseModel):
 # ── Import Schema ───────────────────────────────────────────────────────────
 
 class CohortHintImportIn(BaseModel):
-    source_type: str = Field(pattern="^(program|cohort)$")
+    source_type: str = Field(pattern="^(program|variation|cohort)$")
     source_id: UUID
     challenge_ids: list[UUID] | None = None
     replace_existing: bool = False

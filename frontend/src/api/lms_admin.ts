@@ -645,12 +645,21 @@ export const revokeCohortLmsEditorApi = (cohortId: string, userId: string) =>
   api.delete<void>(`/lms/admin/cohorts/${cohortId}/editors/${userId}`).then((r) => r.data);
 
 
-export const listLmsProgramsApi = (programId?: string) =>
-  api.get<LmsProgram[]>("/lms/admin/programs", { params: programId ? { program_id: programId } : undefined }).then((r) => r.data);
+export const listLmsProgramsApi = (programId?: string, variationId?: string | null) =>
+  api.get<LmsProgram[]>("/lms/admin/programs", {
+    params: {
+      ...(programId ? { program_id: programId } : {}),
+      ...(variationId ? { variation_id: variationId } : {}),
+    },
+  }).then((r) => r.data);
 export const createLmsProgramApi = (data: { program_id?: string | null; name: string; description?: string | null; certificate_required?: boolean; poster_template_url?: string | null }) =>
   api.post<LmsProgram>("/lms/admin/programs", data).then((r) => r.data);
-export const getLmsProgramApi = (id: string) =>
-  api.get<LmsProgram>(`/lms/admin/programs/${id}`).then((r) => r.data);
+export const getLmsProgramApi = (id: string, variationId?: string | null) =>
+  api.get<LmsProgram>(`/lms/admin/programs/${id}`, {
+    params: variationId ? { variation_id: variationId } : undefined,
+  }).then((r) => r.data);
+export const forkLmsProgramToVariationApi = (lmsProgramId: string, variationId: string) =>
+  api.post<LmsProgram>(`/lms/admin/programs/${lmsProgramId}/variations/${variationId}/fork`).then((r) => r.data);
 export const updateLmsProgramApi = (id: string, data: Partial<{ name: string; description: string | null; certificate_required: boolean; poster_template_url: string | null }>) =>
   api.patch<LmsProgram>(`/lms/admin/programs/${id}`, data).then((r) => r.data);
 export const deleteLmsProgramApi = (id: string) =>
@@ -663,14 +672,22 @@ export const uploadLmsProgramImageApi = (id: string, file: File) => {
   return api.post<LmsProgram>(`/lms/admin/programs/${id}/image`, form).then((r) => r.data);
 };
 
-export const addLmsProgramItemApi = (lmsProgramId: string, data: LmsProgramItemInput) =>
-  api.post<LmsProgramItem>(`/lms/admin/programs/${lmsProgramId}/items`, data).then((r) => r.data);
-export const updateLmsProgramItemApi = (lmsProgramId: string, itemId: string, data: LmsProgramItemInput) =>
-  api.patch<LmsProgramItem>(`/lms/admin/programs/${lmsProgramId}/items/${itemId}`, data).then((r) => r.data);
-export const deleteLmsProgramItemApi = (lmsProgramId: string, itemId: string) =>
-  api.delete<void>(`/lms/admin/programs/${lmsProgramId}/items/${itemId}`).then((r) => r.data);
-export const reorderLmsProgramItemsApi = (lmsProgramId: string, itemIds: string[]) =>
-  api.post<LmsProgramItem[]>(`/lms/admin/programs/${lmsProgramId}/items/reorder`, { item_ids: itemIds }).then((r) => r.data);
+export const addLmsProgramItemApi = (lmsProgramId: string, data: LmsProgramItemInput, variationId?: string | null) =>
+  api.post<LmsProgramItem>(`/lms/admin/programs/${lmsProgramId}/items`, data, {
+    params: variationId ? { variation_id: variationId } : undefined,
+  }).then((r) => r.data);
+export const updateLmsProgramItemApi = (lmsProgramId: string, itemId: string, data: LmsProgramItemInput, variationId?: string | null) =>
+  api.patch<LmsProgramItem>(`/lms/admin/programs/${lmsProgramId}/items/${itemId}`, data, {
+    params: variationId ? { variation_id: variationId } : undefined,
+  }).then((r) => r.data);
+export const deleteLmsProgramItemApi = (lmsProgramId: string, itemId: string, variationId?: string | null) =>
+  api.delete<void>(`/lms/admin/programs/${lmsProgramId}/items/${itemId}`, {
+    params: variationId ? { variation_id: variationId } : undefined,
+  }).then((r) => r.data);
+export const reorderLmsProgramItemsApi = (lmsProgramId: string, itemIds: string[], variationId?: string | null) =>
+  api.post<LmsProgramItem[]>(`/lms/admin/programs/${lmsProgramId}/items/reorder`, { item_ids: itemIds }, {
+    params: variationId ? { variation_id: variationId } : undefined,
+  }).then((r) => r.data);
 
 // Flat by item_id — same LmsProgramItem row regardless of whether it's
 // program- or cohort-override-owned, so no need for a separate owner-scoped

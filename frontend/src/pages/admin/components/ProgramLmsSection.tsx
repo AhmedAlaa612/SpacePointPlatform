@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import type { Program } from "@/types/sessions"
 import {
   createLmsProgramApi,
+  forkLmsProgramToVariationApi,
   getLmsProgramApi,
   listLmsProgramsApi,
 } from "@/api/lms_admin"
@@ -24,7 +25,13 @@ const SUBTAB_LABEL: Record<SubTab, string> = {
   hints: "Hints",
 }
 
-export function ProgramLmsSection({ program }: { program: Program }) {
+export function ProgramLmsSection({
+  program,
+  variationId,
+}: {
+  program: Program
+  variationId?: string | null
+}) {
   const queryClient = useQueryClient()
   const [subtab, setSubtab] = useState<SubTab>("checklist")
 
@@ -35,19 +42,26 @@ export function ProgramLmsSection({ program }: { program: Program }) {
   const lmsProgramId = lmsPrograms[0]?.id ?? ""
 
   const { data: lmsProgramDetail } = useQuery({
-    queryKey: ["lms-program", lmsProgramId],
-    queryFn: () => getLmsProgramApi(lmsProgramId),
+    queryKey: ["lms-program", lmsProgramId, variationId ?? "base"],
+    queryFn: () => getLmsProgramApi(lmsProgramId, variationId),
     enabled: !!lmsProgramId,
   })
 
   const effective = lmsProgramDetail ?? lmsPrograms[0] ?? null
+
+  const forkMut = useMutation({
+    mutationFn: () => forkLmsProgramToVariationApi(lmsProgramId, variationId!),
+    onSuccess: (updated) => {
+      queryClient.setQueryData(["lms-program", lmsProgramId, variationId], updated)
+    },
+  })
 
   const createMutation = useMutation({
     mutationFn: (name: string) =>
       createLmsProgramApi({ program_id: program.id, name }),
     onSuccess: (created) => {
       queryClient.setQueryData(["lms-programs", program.id], [created])
-      queryClient.setQueryData(["lms-program", created.id], created)
+      queryClient.setQueryData(["lms-program", created.id, variationId ?? "base"], created)
     },
   })
 
@@ -89,11 +103,29 @@ export function ProgramLmsSection({ program }: { program: Program }) {
       </div>
 
       {subtab === "checklist" && (
-        <ProgramTemplateEditor
-          program={effective}
-          onChanged={refresh}
-          readOnly={false}
-        />
+        <div className="flex flex-col gap-3">
+          {variationId && effective.items.length === 0 && (lmsPrograms[0]?.items?.length ?? 0) > 0 && (
+            <div className="flex items-center justify-between gap-3 flex-wrap p-3 rounded-xl border border-amber-500/30 bg-amber-500/10 text-xs">
+              <span className="text-foreground">
+                Currently inheriting <strong>Program Base</strong> ({lmsPrograms[0].items.length} items). Add items below or copy base items to customize this variation.
+              </span>
+              <button
+                type="button"
+                onClick={() => forkMut.mutate()}
+                disabled={forkMut.isPending}
+                className="h-8 px-3 rounded-lg bg-primary text-primary-foreground font-semibold hover:opacity-90 disabled:opacity-50 cursor-pointer shrink-0"
+              >
+                {forkMut.isPending ? "Copying…" : "Copy from Program Base"}
+              </button>
+            </div>
+          )}
+          <ProgramTemplateEditor
+            program={effective}
+            variationId={variationId}
+            onChanged={refresh}
+            readOnly={false}
+          />
+        </div>
       )}
       {subtab === "missions" && (
         <ProgramMissionsPanel
@@ -104,13 +136,17 @@ export function ProgramLmsSection({ program }: { program: Program }) {
       )}
       {subtab === "components" && (
         <LmsComponentConfigPanel
-          ownerType="program"
+          ownerType={variationId ? "variation" : "program"}
           ownerId={effective.id}
+          variationId={variationId}
           isStaff
         />
       )}
       {subtab === "hints" && (
-        <LmsHintStationAuthoring programId={program.id} scope="program" />
+        <LmsHintStationAuthoring
+          programId={program.id}
+          scope={variationId ? { variationId } : "program"}
+        />
       )}
     </div>
   )

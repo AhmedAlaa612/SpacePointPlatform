@@ -16,10 +16,14 @@ class CompetitionRubric(Base):
     __tablename__ = "competition_rubrics"
     __table_args__ = (
         UniqueConstraint("cohort_id", name="uq_competition_rubrics_cohort_id"),
+        UniqueConstraint("variation_id", name="uq_competition_rubrics_variation_id"),
     )
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     program_id = Column(UUID(as_uuid=True), ForeignKey("programs.id", ondelete="CASCADE"), nullable=False, index=True)
+    variation_id = Column(
+        UUID(as_uuid=True), ForeignKey("program_variations.id", ondelete="CASCADE"), nullable=True, index=True,
+    )
     cohort_id = Column(UUID(as_uuid=True), ForeignKey("cohorts.id", ondelete="CASCADE"), nullable=True, index=True)
     name = Column(String(255), nullable=False)
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))

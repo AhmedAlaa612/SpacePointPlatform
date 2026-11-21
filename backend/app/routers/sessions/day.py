@@ -29,6 +29,7 @@ from app.core.dependencies import require_operations, require_session_delivery
 from app.db.session import get_db
 from app.models.sessions.cohort import Cohort
 from app.models.sessions.program import Program
+from app.models.sessions.program_variation import ProgramVariation, ProgramVariationDay
 from app.models.sessions.session import Session
 from app.models.user import User
 from app.schemas.games_live import SessionGameRunOut
@@ -71,7 +72,7 @@ async def _assert_checklist_scope_access(
     if scope not in _SCOPES:
         raise HTTPException(
             status.HTTP_404_NOT_FOUND,
-            detail="A checklist belongs to a program, a cohort or a session",
+            detail="Invalid checklist scope",
         )
     if is_ops_or_admin(user):
         return
@@ -83,6 +84,16 @@ async def _assert_checklist_scope_access(
         return
     if scope == "programs" and await is_program_org_manager(db, owner_id, user):
         return
+    if scope == "variations":
+        var = await db.get(ProgramVariation, owner_id)
+        if var and await is_program_org_manager(db, var.program_id, user):
+            return
+    if scope == "variation_days":
+        v_day = await db.get(ProgramVariationDay, owner_id)
+        if v_day:
+            var = await db.get(ProgramVariation, v_day.variation_id)
+            if var and await is_program_org_manager(db, var.program_id, user):
+                return
     raise HTTPException(status.HTTP_403_FORBIDDEN, detail="Operation not permitted")
 
 
@@ -121,6 +132,7 @@ async def import_cohort_defaults(
         actor_user_id=current_user.id,
         source_type=body.source_type,
         source_id=body.source_id,
+        source_variation_id=body.source_variation_id,
         include_instructor=body.include_instructor,
         include_internal=body.include_internal,
         include_pre_workshop=body.include_pre_workshop,
@@ -156,16 +168,58 @@ async def switch_cohort_days(
 
 # ── ops: checklist templates ────────────────────────────────────────────────
 
-_SCOPES = {"programs": "program_id", "cohorts": "cohort_id", "sessions": "session_id"}
+_SCOPES = {
+    "programs": "program_id",
+    "variations": "variation_id",
+    "variation_days": "variation_day_id",
+    "cohorts": "cohort_id",
+    "sessions": "session_id",
+}
 
 
 def _scope_kwarg(scope: str, owner_id: uuid.UUID) -> dict:
     if scope not in _SCOPES:
         raise HTTPException(
             status.HTTP_404_NOT_FOUND,
-            detail="A checklist belongs to a program, a cohort or a session",
+            detail="Invalid checklist scope",
         )
     return {_SCOPES[scope]: owner_id}
+
+
+def _serialize_checklist_items(items, hydrated: dict) -> list[dict]:
+    return [
+        {
+            "id": item.id,
+            "program_id": item.program_id,
+            "variation_id": item.variation_id,
+            "variation_day_id": item.variation_day_id,
+            "cohort_id": item.cohort_id,
+            "session_id": item.session_id,
+            "role_id": item.role_id,
+            "title": item.title,
+            "description": item.description,
+            "requires_proof": item.requires_proof,
+            "is_required": item.is_required,
+            "sort_order": item.sort_order,
+            "target_audience": item.target_audience,
+            "material_id": item.material_id,
+            "link_url": item.link_url,
+            "attachments": hydrated.get(item.id, []),
+            "sub_items": item.sub_items or [],
+        }
+        for item in items
+    ]
+
+
+async def _normalize_checklist_scope(
+    db: AsyncSession, scope: str, owner_id: uuid.UUID
+) -> tuple[str, uuid.UUID]:
+    """Backwards-compatibility bridge: legacy callers post to /sessions/{day_id}/checklist-items
+    with a ProgramVariationDay id returned by /programs/{id}/template-days."""
+    if scope == "sessions" and await db.get(Session, owner_id) is None:
+        if await db.get(ProgramVariationDay, owner_id) is not None:
+            return "variation_days", owner_id
+    return scope, owner_id
 
 
 @router.get("/{scope}/{owner_id}/checklist-items", response_model=list[ChecklistItemOut])
@@ -180,31 +234,13 @@ async def list_checklist_items(
     """One (level, role, target_audience) bucket — the management view, no inheritance applied.
     Omit `role_id` for the general bucket; pass a role to edit that role's own
     list. Use the instructor's day endpoint to see what actually resolves."""
+    scope, owner_id = await _normalize_checklist_scope(db, scope, owner_id)
     await _assert_checklist_scope_access(db, scope, owner_id, current_user)
     items = await svc.list_checklist_items(
         db, role_id=role_id, target_audience=target_audience, **_scope_kwarg(scope, owner_id)
     )
     hydrated = await svc.hydrate_checklist_attachments(db, items, is_ops=True)
-    out = []
-    for item in items:
-        out.append({
-            "id": item.id,
-            "program_id": item.program_id,
-            "cohort_id": item.cohort_id,
-            "session_id": item.session_id,
-            "role_id": item.role_id,
-            "title": item.title,
-            "description": item.description,
-            "requires_proof": item.requires_proof,
-            "is_required": item.is_required,
-            "sort_order": item.sort_order,
-            "target_audience": item.target_audience,
-            "material_id": item.material_id,
-            "link_url": item.link_url,
-            "attachments": hydrated.get(item.id, []),
-            "sub_items": item.sub_items or [],
-        })
-    return out
+    return _serialize_checklist_items(items, hydrated)
 
 
 @router.put("/{scope}/{owner_id}/checklist-items", response_model=list[ChecklistItemOut])
@@ -221,6 +257,7 @@ async def set_checklist_items(
     makes the next fallback apply again — general at this level if a role's
     list is cleared, or the next level up if the general one is cleared. That
     is how you go back to inheriting rather than overriding."""
+    scope, owner_id = await _normalize_checklist_scope(db, scope, owner_id)
     await _assert_checklist_scope_access(db, scope, owner_id, current_user)
     items = await svc.set_checklist_items(
         db, lines=[i.model_dump() for i in body.items], actor_user_id=current_user.id, role_id=role_id,
@@ -229,26 +266,7 @@ async def set_checklist_items(
     )
     await db.commit()
     hydrated = await svc.hydrate_checklist_attachments(db, items, is_ops=True)
-    out = []
-    for item in items:
-        out.append({
-            "id": item.id,
-            "program_id": item.program_id,
-            "cohort_id": item.cohort_id,
-            "session_id": item.session_id,
-            "role_id": item.role_id,
-            "title": item.title,
-            "description": item.description,
-            "requires_proof": item.requires_proof,
-            "is_required": item.is_required,
-            "sort_order": item.sort_order,
-            "target_audience": item.target_audience,
-            "material_id": item.material_id,
-            "link_url": item.link_url,
-            "attachments": hydrated.get(item.id, []),
-            "sub_items": item.sub_items or [],
-        })
-    return out
+    return _serialize_checklist_items(items, hydrated)
 
 
 @router.post("/{scope}/{owner_id}/checklist-items/import", response_model=list[ChecklistItemOut])
@@ -261,15 +279,17 @@ async def import_checklist_items(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_session_delivery),
 ):
-    """Import selected delivery checklist items from another program, cohort, or session."""
+    """Import selected delivery checklist items from another program, variation, variation day, cohort, or session."""
+    scope, owner_id = await _normalize_checklist_scope(db, scope, owner_id)
+    src_scope, src_owner_id = await _normalize_checklist_scope(db, body.source_scope, body.source_owner_id)
     await _assert_checklist_scope_access(db, scope, owner_id, current_user)
-    await _assert_checklist_scope_access(db, body.source_scope, body.source_owner_id, current_user)
+    await _assert_checklist_scope_access(db, src_scope, src_owner_id, current_user)
     effective_role_id = body.role_id if body.role_id is not None else role_id
     effective_target_audience = body.target_audience or target_audience
     items = await svc.import_checklist_items(
         db,
-        source_scope=body.source_scope,
-        source_owner_id=body.source_owner_id,
+        source_scope=src_scope,
+        source_owner_id=src_owner_id,
         source_role_id=body.source_role_id,
         source_target_audience=body.source_target_audience,
         item_ids=body.item_ids,
@@ -281,26 +301,7 @@ async def import_checklist_items(
     )
     await db.commit()
     hydrated = await svc.hydrate_checklist_attachments(db, items, is_ops=True)
-    out = []
-    for item in items:
-        out.append({
-            "id": item.id,
-            "program_id": item.program_id,
-            "cohort_id": item.cohort_id,
-            "session_id": item.session_id,
-            "role_id": item.role_id,
-            "title": item.title,
-            "description": item.description,
-            "requires_proof": item.requires_proof,
-            "is_required": item.is_required,
-            "sort_order": item.sort_order,
-            "target_audience": item.target_audience,
-            "material_id": item.material_id,
-            "link_url": item.link_url,
-            "attachments": hydrated.get(item.id, []),
-            "sub_items": item.sub_items or [],
-        })
-    return out
+    return _serialize_checklist_items(items, hydrated)
 
 
 @router.get("/{session_id}/internal-checklist", response_model=list[OpsChecklistItemOut])

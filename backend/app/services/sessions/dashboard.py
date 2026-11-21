@@ -58,18 +58,29 @@ async def get_ops_dashboard(db: AsyncSession) -> OpsDashboardOut:
         select(func.count(Registration.id)).where(
             Registration.status != "cancelled",
             Registration.cohort_id.in_(
-                select(Cohort.id).where(Cohort.status == "completed")
+                select(Cohort.id).where(
+                    Cohort.status == "completed",
+                    Cohort.is_template_legacy.is_(False),
+                )
             ),
         )
     ) or 0
 
     active = await db.scalar(
-        select(func.count(Cohort.id)).where(Cohort.status == "running")
+        select(func.count(Cohort.id)).where(
+            Cohort.status == "running",
+            Cohort.is_template_legacy.is_(False),
+        )
     ) or 0
 
     upcoming = await db.scalar(
-        select(func.count(Session.id)).where(
-            Session.meeting_date.between(today, today + timedelta(days=7))
+        select(func.count(Session.id))
+        .join(Cohort, Cohort.id == Session.cohort_id)
+        .where(
+            Session.meeting_date.between(today, today + timedelta(days=7)),
+            Cohort.is_template_legacy.is_(False),
+            Cohort.status != "draft",
+            ~Cohort.name.ilike("[Template]%"),
         )
     ) or 0
 
@@ -252,8 +263,8 @@ async def _fetch_team_summary(
     teams = (
         await db.execute(
             select(Team.id, Team.final_locked_at, Team.created_at)
-            .join(Cohort, Cohort.id == Team.cohort_id)
-            .where(Team.is_observer.is_(False), cohort_filter)
+        .join(Cohort, Cohort.id == Team.cohort_id)
+        .where(Team.is_observer.is_(False), cohort_filter, Cohort.is_template_legacy.is_(False))
         )
     ).all()
     if not teams:

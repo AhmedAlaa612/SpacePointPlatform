@@ -37,6 +37,8 @@ export const createCohortApi = (data: {
   keep_course_access_after_completion?: boolean
   import_default_checklists?: boolean
   checklist_source_program_id?: string | null
+  variation_id?: string | null
+  checklist_source_variation_id?: string | null
 }) => api.post<Cohort>("/sessions/cohorts", data).then((r) => r.data)
 
 export const updateCohortApi = (
@@ -59,6 +61,7 @@ export const updateCohortApi = (
      *  revert to the default fallback. */
     checklist_title_override: string | null
     keep_course_access_after_completion: boolean
+    variation_id: string | null
   }>
 ) => api.patch<Cohort>(`/sessions/cohorts/${id}`, data).then((r) => r.data)
 

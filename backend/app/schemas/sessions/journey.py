@@ -11,6 +11,7 @@ from pydantic import BaseModel
 class MaterialOut(BaseModel):
     id: UUID
     program_id: UUID | None = None
+    variation_id: UUID | None = None
     cohort_id: UUID | None = None
     session_id: UUID | None = None
     title: str

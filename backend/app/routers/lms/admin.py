@@ -2179,8 +2179,13 @@ async def _items_for_owner(db: AsyncSession, *, owner_type: str, owner_id: uuid.
     return items
 
 
-async def program_out(db: AsyncSession, program: LmsProgram) -> LmsProgramOut:
-    items = await _items_for_owner(db, owner_type="program", owner_id=program.id)
+async def program_out(
+    db: AsyncSession, program: LmsProgram, *, variation_id: uuid.UUID | None = None
+) -> LmsProgramOut:
+    if variation_id is not None:
+        items = await _items_for_owner(db, owner_type="variation", owner_id=variation_id)
+    else:
+        items = await _items_for_owner(db, owner_type="program", owner_id=program.id)
     poster_url = program.poster_template_url
     if not poster_url and program.program_id is not None:
         sp = await db.get(Program, program.program_id)
@@ -2198,6 +2203,7 @@ async def program_out(db: AsyncSession, program: LmsProgram) -> LmsProgramOut:
 @router.get("/programs", response_model=list[LmsProgramOut])
 async def list_lms_programs(
     program_id: uuid.UUID | None = None,
+    variation_id: uuid.UUID | None = None,
     db: AsyncSession = Depends(get_db), _: User = Depends(require_lms_content),
 ):
     """`?program_id=` is how the authoring UI finds "does this Sessions
@@ -2208,7 +2214,7 @@ async def list_lms_programs(
     if program_id is not None:
         query = query.where(LmsProgram.program_id == program_id)
     programs = (await db.execute(query.order_by(LmsProgram.name))).scalars().all()
-    return [await program_out(db, p) for p in programs]
+    return [await program_out(db, p, variation_id=variation_id) for p in programs]
 
 
 @router.post("/programs", response_model=LmsProgramOut, status_code=status.HTTP_201_CREATED)
@@ -2239,12 +2245,15 @@ async def create_lms_program(
 
 @router.get("/programs/{lms_program_id}", response_model=LmsProgramOut)
 async def get_lms_program(
-    lms_program_id: uuid.UUID, db: AsyncSession = Depends(get_db), _: User = Depends(require_lms_content),
+    lms_program_id: uuid.UUID,
+    variation_id: uuid.UUID | None = None,
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(require_lms_content),
 ):
     entry = await db.get(LmsProgram, lms_program_id)
     if entry is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="LMS Program not found")
-    return await program_out(db, entry)
+    return await program_out(db, entry, variation_id=variation_id)
 
 
 @router.patch("/programs/{lms_program_id}", response_model=LmsProgramOut)
@@ -2305,38 +2314,74 @@ async def upload_lms_program_image(
     return await program_out(db, program)
 
 
+def _lms_item_owner(lms_program_id: uuid.UUID, variation_id: uuid.UUID | None) -> tuple[str, uuid.UUID]:
+    return ("variation", variation_id) if variation_id is not None else ("program", lms_program_id)
+
+
 @router.post("/programs/{lms_program_id}/items", response_model=LmsProgramItemOut, status_code=status.HTTP_201_CREATED)
 async def add_lms_program_item(
     lms_program_id: uuid.UUID, body: LmsProgramItemIn,
+    variation_id: uuid.UUID | None = None,
     db: AsyncSession = Depends(get_db), _: User = Depends(require_lms_content),
 ):
     program = await db.get(LmsProgram, lms_program_id)
     if program is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="LMS Program not found")
+    owner_type, owner_id = _lms_item_owner(program.id, variation_id)
     validate_item_payload(body)
     await validate_item_refs(db, body)
-    await check_item_conflicts(db, owner_type="program", owner_id=program.id, body=body)
-    position = body.position or await next_position(db, owner_type="program", owner_id=program.id)
+    await check_item_conflicts(db, owner_type=owner_type, owner_id=owner_id, body=body)
+    position = body.position or await next_position(db, owner_type=owner_type, owner_id=owner_id)
     item = LmsProgramItem(
-        id=uuid.uuid4(), owner_type="program", owner_id=program.id, position=position,
+        id=uuid.uuid4(), owner_type=owner_type, owner_id=owner_id, position=position,
         **body.model_dump(exclude={"position"}),
     )
     db.add(item)
     await db.flush()
-    await sync_program_assignments(db, lms_program_id=program.id)
+    if variation_id is None:
+        await sync_program_assignments(db, lms_program_id=program.id)
     await db.commit()
     await db.refresh(item)
     return await item_out(db, item)
 
 
+@router.post("/programs/{lms_program_id}/variations/{variation_id}/fork", response_model=LmsProgramOut)
+async def fork_lms_program_to_variation(
+    lms_program_id: uuid.UUID,
+    variation_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(require_lms_content),
+):
+    """Clone program-level LMS checklist items into a variation's own item list (no-op if already customized)."""
+    from app.models.sessions.program_variation import ProgramVariation
+    from app.services.sessions.variations import _clone_lms_items_to_variation
+
+    lms_prog = await db.get(LmsProgram, lms_program_id)
+    if lms_prog is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="LMS Program not found")
+    var = await db.get(ProgramVariation, variation_id)
+    if var is None or (lms_prog.program_id is not None and var.program_id != lms_prog.program_id):
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Program variation not found")
+
+    existing = await _items_for_owner(db, owner_type="variation", owner_id=variation_id)
+    if not existing:
+        prog_items = await _items_for_owner(db, owner_type="program", owner_id=lms_prog.id)
+        if prog_items:
+            await _clone_lms_items_to_variation(db, prog_items, var.program_id, variation_id)
+            await db.commit()
+    return await program_out(db, lms_prog, variation_id=variation_id)
+
+
 @router.patch("/programs/{lms_program_id}/items/{item_id}", response_model=LmsProgramItemOut)
 async def update_lms_program_item(
     lms_program_id: uuid.UUID, item_id: uuid.UUID, body: LmsProgramItemIn,
+    variation_id: uuid.UUID | None = None,
     db: AsyncSession = Depends(get_db), _: User = Depends(require_lms_content),
 ):
+    owner_type, owner_id = _lms_item_owner(lms_program_id, variation_id)
     item = (await db.execute(
         select(LmsProgramItem).where(
-            LmsProgramItem.id == item_id, LmsProgramItem.owner_type == "program", LmsProgramItem.owner_id == lms_program_id,
+            LmsProgramItem.id == item_id, LmsProgramItem.owner_type == owner_type, LmsProgramItem.owner_id == owner_id,
         )
     )).scalars().first()
     if item is None:
@@ -2344,7 +2389,7 @@ async def update_lms_program_item(
     guard_locked_submission_scope(item, body)
     validate_item_payload(body)
     await validate_item_refs(db, body, require_active_quiz=False)
-    await check_item_conflicts(db, owner_type="program", owner_id=lms_program_id, body=body, exclude_item_id=item.id)
+    await check_item_conflicts(db, owner_type=owner_type, owner_id=owner_id, body=body, exclude_item_id=item.id)
     for field, value in body.model_dump(exclude={"position"}).items():
         setattr(item, field, value)
     if body.position is not None:
@@ -2354,14 +2399,17 @@ async def update_lms_program_item(
     return await item_out(db, item)
 
 
+
 @router.delete("/programs/{lms_program_id}/items/{item_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_lms_program_item(
     lms_program_id: uuid.UUID, item_id: uuid.UUID,
+    variation_id: uuid.UUID | None = None,
     db: AsyncSession = Depends(get_db), _: User = Depends(require_lms_content),
 ):
+    owner_type, owner_id = _lms_item_owner(lms_program_id, variation_id)
     item = (await db.execute(
         select(LmsProgramItem).where(
-            LmsProgramItem.id == item_id, LmsProgramItem.owner_type == "program", LmsProgramItem.owner_id == lms_program_id,
+            LmsProgramItem.id == item_id, LmsProgramItem.owner_type == owner_type, LmsProgramItem.owner_id == owner_id,
         )
     )).scalars().first()
     if item is None:
@@ -2370,7 +2418,7 @@ async def delete_lms_program_item(
         await storage.delete_file(PROGRAM_ITEM_PDF_BUCKET, item.pdf_path)
     await db.delete(item)
     await db.flush()
-    await renumber_program_items(db, owner_type="program", owner_id=lms_program_id)
+    await renumber_program_items(db, owner_type=owner_type, owner_id=owner_id)
     await db.commit()
 
 
@@ -2412,6 +2460,7 @@ async def upload_program_item_pdf(
     return await item_out(db, item)
 
 
+
 @router.delete("/items/{item_id}/pdf", response_model=LmsProgramItemOut)
 async def delete_program_item_pdf(
     item_id: uuid.UUID, db: AsyncSession = Depends(get_db), _: User = Depends(require_lms_content),
@@ -2425,6 +2474,7 @@ async def delete_program_item_pdf(
         await db.commit()
         await db.refresh(item)
     return await item_out(db, item)
+
 
 
 @router.get("/items/{item_id}/pdf-url")
@@ -2466,6 +2516,7 @@ async def attach_program_item_guideline_video_embed(
     return await item_out(db, item)
 
 
+
 @router.post(
     "/items/{item_id}/guideline/video/upload", response_model=LmsProgramItemOut,
     status_code=status.HTTP_201_CREATED,
@@ -2498,6 +2549,7 @@ async def upload_program_item_guideline_video(
     return await item_out(db, item)
 
 
+
 @router.delete("/items/{item_id}/guideline/video", response_model=LmsProgramItemOut)
 async def delete_program_item_guideline_video(
     item_id: uuid.UUID, db: AsyncSession = Depends(get_db), _: User = Depends(require_lms_content),
@@ -2509,6 +2561,7 @@ async def delete_program_item_guideline_video(
     if video is not None:
         await delete_video(db, video)
     return await item_out(db, item)
+
 
 
 @router.get("/items/{item_id}/guideline/video/url")
@@ -2535,12 +2588,14 @@ async def get_program_item_guideline_video_url(
 @router.post("/programs/{lms_program_id}/items/reorder", response_model=list[LmsProgramItemOut])
 async def reorder_lms_program_items(
     lms_program_id: uuid.UUID, body: LmsProgramItemReorderIn,
+    variation_id: uuid.UUID | None = None,
     db: AsyncSession = Depends(get_db), _: User = Depends(require_lms_content),
 ):
     program = await db.get(LmsProgram, lms_program_id)
     if program is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="LMS Program not found")
-    reordered = await reorder_program_items(db, owner_type="program", owner_id=program.id, item_ids=body.item_ids)
+    owner_type, owner_id = _lms_item_owner(program.id, variation_id)
+    reordered = await reorder_program_items(db, owner_type=owner_type, owner_id=owner_id, item_ids=body.item_ids)
     if reordered is None:
         raise HTTPException(
             status.HTTP_400_BAD_REQUEST, detail="item_ids must include every item on this checklist exactly once",
@@ -2936,6 +2991,7 @@ async def add_cohort_override_item(
     return await item_out(db, item)
 
 
+
 @router.patch("/cohorts/{cohort_id}/program-override/items/{item_id}", response_model=LmsProgramItemOut)
 async def update_cohort_override_item(
     cohort_id: uuid.UUID, item_id: uuid.UUID, body: LmsProgramItemIn,
@@ -2971,6 +3027,7 @@ async def update_cohort_override_item(
     await db.commit()
     await db.refresh(item)
     return await item_out(db, item)
+
 
 
 @router.delete("/cohorts/{cohort_id}/program-override/items/{item_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -3229,12 +3286,17 @@ async def import_cohort_override_items(
 @router.get("/programs/{lms_program_id}/components", response_model=ComponentConfigOut)
 async def get_lms_program_components(
     lms_program_id: uuid.UUID,
+    variation_id: uuid.UUID | None = None,
     db: AsyncSession = Depends(get_db),
     _: User = Depends(require_lms_content),
 ):
     program = await db.get(LmsProgram, lms_program_id)
     if program is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="LMS Program not found")
+    if variation_id is not None:
+        return await component_config_service.build_component_config_out(
+            db, owner_type="variation", owner_id=variation_id, lms_program_id=lms_program_id
+        )
     return await component_config_service.build_component_config_out(db, owner_type="program", owner_id=lms_program_id)
 
 
@@ -3242,37 +3304,47 @@ async def get_lms_program_components(
 async def update_lms_program_components(
     lms_program_id: uuid.UUID,
     body: ComponentConfigIn,
+    variation_id: uuid.UUID | None = None,
     db: AsyncSession = Depends(get_db),
     current: User = Depends(require_lms_content),
 ):
     program = await db.get(LmsProgram, lms_program_id)
     if program is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="LMS Program not found")
+    owner_type = "variation" if variation_id is not None else "program"
+    owner_id = variation_id if variation_id is not None else lms_program_id
     await component_config_service.save_component_config(
         db,
-        owner_type="program",
-        owner_id=lms_program_id,
+        owner_type=owner_type,
+        owner_id=owner_id,
         disabled_subsystems=body.disabled_subsystems,
         disabled_tags=body.disabled_tags,
         disabled_component_ids=body.disabled_component_ids,
         user_id=current.id,
     )
     await db.commit()
-    return await component_config_service.build_component_config_out(db, owner_type="program", owner_id=lms_program_id)
+    return await component_config_service.build_component_config_out(
+        db, owner_type=owner_type, owner_id=owner_id, lms_program_id=lms_program_id
+    )
 
 
 @router.delete("/programs/{lms_program_id}/components", response_model=ComponentConfigOut)
 async def reset_lms_program_components(
     lms_program_id: uuid.UUID,
+    variation_id: uuid.UUID | None = None,
     db: AsyncSession = Depends(get_db),
     _: User = Depends(require_lms_content),
 ):
     program = await db.get(LmsProgram, lms_program_id)
     if program is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="LMS Program not found")
-    await component_config_service.reset_component_config(db, owner_type="program", owner_id=lms_program_id)
+    owner_type = "variation" if variation_id is not None else "program"
+    owner_id = variation_id if variation_id is not None else lms_program_id
+    await component_config_service.reset_component_config(db, owner_type=owner_type, owner_id=owner_id)
     await db.commit()
-    return await component_config_service.build_component_config_out(db, owner_type="program", owner_id=lms_program_id)
+    return await component_config_service.build_component_config_out(
+        db, owner_type=owner_type, owner_id=owner_id, lms_program_id=lms_program_id
+    )
 
 
 async def _enforce_cohort_lms_access(db: AsyncSession, cohort_id: uuid.UUID, user: User) -> None:

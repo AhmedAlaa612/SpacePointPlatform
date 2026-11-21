@@ -52,13 +52,14 @@ async def _require_cohort_hint_access(db: AsyncSession, cohort_id: uuid.UUID, us
 @router.get("/program/{program_id}", response_model=list[CohortHintChallengeOut])
 async def list_program_challenges_admin(
     program_id: uuid.UUID,
+    variation_id: uuid.UUID | None = None,
     db: AsyncSession = Depends(get_db),
     current: User = Depends(get_current_active_user),
 ):
-    """Lists authoring challenges on a program template."""
+    """Lists authoring challenges on a program template (or variation)."""
     # Includes full revealed_content of every hint — ops/admin only.
     _require_ops_or_admin(current)
-    return await get_program_challenges(db, program_id=program_id)
+    return await get_program_challenges(db, program_id=program_id, variation_id=variation_id)
 
 
 @router.get("/cohort/{cohort_id}", response_model=list[CohortHintChallengeOut])
@@ -414,15 +415,16 @@ async def import_cohort_hints_admin(
 async def import_program_hints_admin(
     program_id: uuid.UUID,
     body: CohortHintImportIn,
+    variation_id: uuid.UUID | None = None,
     db: AsyncSession = Depends(get_db),
     current: User = Depends(get_current_active_user),
 ):
-    """Clones challenges and cards into a program template."""
+    """Clones challenges and cards into a program (or variation) template."""
     _require_ops_or_admin(current)
     cloned = await import_cohort_challenges(
         db,
-        target_owner_type="program",
-        target_owner_id=program_id,
+        target_owner_type="variation" if variation_id is not None else "program",
+        target_owner_id=variation_id if variation_id is not None else program_id,
         source_type=body.source_type,
         source_id=body.source_id,
         challenge_ids=body.challenge_ids,

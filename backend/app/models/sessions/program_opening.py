@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime, timezone
 
-from sqlalchemy import Column, DateTime, ForeignKey, Integer, Numeric, Text, UniqueConstraint
+from sqlalchemy import CheckConstraint, Column, DateTime, ForeignKey, Index, Integer, Numeric, Text, text
 from sqlalchemy.dialects.postgresql import UUID
 
 from app.db.base import Base
@@ -31,11 +31,32 @@ class ProgramOpening(Base):
 
     __tablename__ = "program_openings"
     __table_args__ = (
-        UniqueConstraint("program_id", "role_id", name="uq_program_opening_role"),
+        CheckConstraint(
+            "(CASE WHEN program_id IS NOT NULL THEN 1 ELSE 0 END + "
+            "CASE WHEN variation_id IS NOT NULL THEN 1 ELSE 0 END) = 1",
+            name="ck_program_opening_one_owner",
+        ),
+        Index(
+            "uq_program_opening_role",
+            "program_id",
+            "role_id",
+            unique=True,
+            postgresql_where=text("program_id IS NOT NULL"),
+        ),
+        Index(
+            "uq_program_opening_variation_role",
+            "variation_id",
+            "role_id",
+            unique=True,
+            postgresql_where=text("variation_id IS NOT NULL"),
+        ),
     )
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    program_id = Column(UUID(as_uuid=True), ForeignKey("programs.id", ondelete="CASCADE"), nullable=False, index=True)
+    program_id = Column(UUID(as_uuid=True), ForeignKey("programs.id", ondelete="CASCADE"), nullable=True, index=True)
+    variation_id = Column(
+        UUID(as_uuid=True), ForeignKey("program_variations.id", ondelete="CASCADE"), nullable=True, index=True,
+    )
     role_id = Column(UUID(as_uuid=True), ForeignKey("delivery_roles.id", ondelete="RESTRICT"), nullable=False)
     slots = Column(Integer, nullable=False, default=1)
     amount_aed = Column(Numeric(10, 2), nullable=True)

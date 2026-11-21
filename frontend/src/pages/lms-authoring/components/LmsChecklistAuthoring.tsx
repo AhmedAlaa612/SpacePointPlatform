@@ -73,8 +73,8 @@ export function CreateChecklistPrompt({ onCreate, pending }: { onCreate: (name: 
 }
 
 export function ProgramTemplateEditor({
-  program, onChanged, readOnly,
-}: { program: LmsProgram; onChanged: () => void; readOnly: boolean }) {
+  program, variationId, onChanged, readOnly,
+}: { program: LmsProgram; variationId?: string | null; onChanged: () => void; readOnly: boolean }) {
   const toast = useToast()
   const [titleValue, setTitleValue] = useState(program.name)
 
@@ -271,14 +271,14 @@ export function ProgramTemplateEditor({
       <ChecklistItemsEditor
         items={program.items}
         readOnly={readOnly}
-        onAdd={(data) => addLmsProgramItemApi(program.id, data).then(onChanged)}
-        onUpdate={(itemId, data) => updateLmsProgramItemApi(program.id, itemId, data).then(onChanged)}
-        onDelete={(itemId) => deleteLmsProgramItemApi(program.id, itemId).then(onChanged)}
+        onAdd={(data) => addLmsProgramItemApi(program.id, data, variationId).then(onChanged)}
+        onUpdate={(itemId, data) => updateLmsProgramItemApi(program.id, itemId, data, variationId).then(onChanged)}
+        onDelete={(itemId) => deleteLmsProgramItemApi(program.id, itemId, variationId).then(onChanged)}
         onUploadPdf={(itemId, file) => uploadLmsProgramItemPdfApi(itemId, file).then(onChanged)}
         onRemovePdf={(itemId) => deleteLmsProgramItemPdfApi(itemId).then(onChanged)}
         onUploadGuidelineVideo={(itemId, file) => uploadLmsProgramItemGuidelineVideoApi(itemId, file).then(onChanged)}
         onRemoveGuidelineVideo={(itemId) => deleteLmsProgramItemGuidelineVideoApi(itemId).then(onChanged)}
-        onReorder={(itemIds) => reorderLmsProgramItemsApi(program.id, itemIds).then(onChanged)}
+        onReorder={(itemIds) => reorderLmsProgramItemsApi(program.id, itemIds, variationId).then(onChanged)}
       />
     </div>
   )

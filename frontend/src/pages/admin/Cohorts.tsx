@@ -2,8 +2,8 @@ import { useEffect, useMemo, useState } from "react"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
 import { Link, useNavigate } from "@tanstack/react-router"
 import { Plus, Pencil, Trash2, Search, X, Layers, Calendar, MapPin, Clock, Users } from "lucide-react"
-import type { Cohort, CohortStatus, CohortVisibility, Program } from "@/types/sessions"
-import { getProgramsApi } from "@/api/sessions/programs"
+import type { Cohort, CohortStatus, CohortVisibility, Program, ProgramVariation } from "@/types/sessions"
+import { getProgramsApi, listProgramVariationsApi } from "@/api/sessions/programs"
 import { getLocationsApi, getWarehousesApi, getCitiesApi, createLocationApi } from "@/api/inventory"
 import {
   getCohortsApi, createCohortApi, updateCohortApi, deleteCohortApi,
@@ -264,6 +264,11 @@ function CohortRow({ cohort: c, onEdit, onDelete, deleting }: {
           <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${COHORT_STATUS_COLOR[c.status]}`}>
             {COHORT_STATUS_LABEL[c.status]}
           </span>
+          {c.variation_name && (
+            <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full bg-primary/10 text-primary">
+              {c.variation_name}
+            </span>
+          )}
           {/* Only ever shown when there's something to do about it — a "0
               unstaffed" pill on every row is noise, not information. */}
           {(c.unstaffed_count ?? 0) > 0 && (
@@ -371,25 +376,48 @@ const { data: warehouses = [] } = useQuery({
   const [keepCourseAccessAfterCompletion, setKeepCourseAccessAfterCompletion] = useState(
     cohort?.keep_course_access_after_completion ?? true,
   )
+  const [variationChoice, setVariationChoice] = useState<string>(cohort?.variation_id ?? "")
   const [error, setError] = useState("")
 
   const selectedProgram = programs.find((p) => p.id === programId)
+  const { data: variations = [] } = useQuery<ProgramVariation[]>({
+    queryKey: ["program-variations-modal", programId, isEdit],
+    queryFn: () => listProgramVariationsApi(programId, !isEdit),
+    enabled: Boolean(programId),
+  })
+
+  const effectiveVariationId = useMemo(() => {
+    if (variationChoice === "__blank__") return "__blank__"
+    if (variationChoice && variations.some((v) => v.id === variationChoice)) return variationChoice
+    if (isEdit) return cohort?.variation_id ?? ""
+    if (variations.length > 0) return (variations.find((v) => v.is_default) ?? variations[0]).id
+    return ""
+  }, [variationChoice, variations, isEdit, cohort])
+
+  const selectedVariation = variations.find((v) => v.id === effectiveVariationId) ?? null
+  const isBlankChoice = effectiveVariationId === "__blank__"
+
   useEffect(() => {
     if (!isEdit && selectedProgram) {
-      if (selectedProgram.default_capacity != null && !capacity) {
-        setCapacity(String(selectedProgram.default_capacity))
+      if (isBlankChoice) {
+        setCapacity("")
+        setDurationHours("")
+        setPosterTemplateUrl("")
+        setKeepCourseAccessAfterCompletion(selectedProgram.keep_course_access_after_completion ?? true)
+        return
       }
-      if (selectedProgram.duration_hours != null && !durationHours) {
-        setDurationHours(String(selectedProgram.duration_hours))
-      }
-      if (selectedProgram.poster_template_url && !posterTemplateUrl) {
-        setPosterTemplateUrl(selectedProgram.poster_template_url)
-      }
-      if (selectedProgram.keep_course_access_after_completion != null) {
-        setKeepCourseAccessAfterCompletion(selectedProgram.keep_course_access_after_completion)
+      const effCap = selectedVariation?.default_capacity ?? selectedProgram.default_capacity
+      const effDur = selectedVariation?.duration_hours ?? selectedProgram.duration_hours
+      const effPoster = selectedVariation?.poster_template_url ?? selectedProgram.poster_template_url
+      const effKeep = selectedVariation?.keep_course_access_after_completion ?? selectedProgram.keep_course_access_after_completion
+      setCapacity(effCap != null ? String(effCap) : "")
+      setDurationHours(effDur != null ? String(effDur) : "")
+      setPosterTemplateUrl(effPoster || "")
+      if (effKeep != null) {
+        setKeepCourseAccessAfterCompletion(effKeep)
       }
     }
-  }, [selectedProgram, isEdit])
+  }, [selectedProgram, selectedVariation, isBlankChoice, isEdit])
 
   // Inline "+ New location" — so ops doesn't have to leave the cohort form
   // to reach the Catalogue page just to add a venue. Only operations/admin
@@ -440,6 +468,7 @@ const { data: warehouses = [] } = useQuery({
           notes: notes.trim() || null,
           poster_template_url: posterTemplateUrl.trim() || null,
           keep_course_access_after_completion: keepCourseAccessAfterCompletion,
+          variation_id: effectiveVariationId && !isBlankChoice ? effectiveVariationId : null,
         })
       }
       return createCohortApi({
@@ -455,6 +484,8 @@ const { data: warehouses = [] } = useQuery({
         notes: notes.trim() || undefined,
         poster_template_url: posterTemplateUrl.trim() || undefined,
         keep_course_access_after_completion: keepCourseAccessAfterCompletion,
+        variation_id: !isBlankChoice && selectedVariation ? selectedVariation.id : null,
+        import_default_checklists: !isBlankChoice,
       })
     },
     onSuccess: () => { toast.success(isEdit ? "Cohort updated" : "Cohort created"); onSuccess() },
@@ -480,6 +511,26 @@ const { data: warehouses = [] } = useQuery({
             >
               <option value="">— Select a program —</option>
               {programs.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+            </select>
+          </Field>
+        )}
+        {programId && (
+          <Field label={isEdit ? "Program variation" : "Variation / Program defaults"}>
+            <select
+              value={effectiveVariationId}
+              onChange={(e) => setVariationChoice(e.target.value)}
+              className="w-full h-10 px-3 border border-border bg-card text-foreground rounded-xl text-sm focus:outline-none focus:border-primary transition-colors cursor-pointer"
+            >
+              {variations.length === 0 && !isEdit && (
+                <option value="">Apply Program Base Defaults</option>
+              )}
+              {isEdit && <option value="">Program Base (no variation)</option>}
+              {variations.map((v) => (
+                <option key={v.id} value={v.id}>
+                  {v.name}{v.is_default ? " ★" : ""} · {v.days_count} day{v.days_count === 1 ? "" : "s"}
+                </option>
+              ))}
+              {!isEdit && <option value="__blank__">Start blank (do not apply defaults)</option>}
             </select>
           </Field>
         )}

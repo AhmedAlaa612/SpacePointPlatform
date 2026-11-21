@@ -62,7 +62,19 @@ async def get_effective_cohort_challenges(
         )
     ).scalars().all()
 
-    # 2. Fall back to program baseline template if no cohort-level challenges exist
+    # 2. Fall back to variation override, then program baseline template
+    if not challenges and getattr(cohort, "variation_id", None) is not None:
+        challenges = (
+            await db.execute(
+                select(CohortHintChallenge)
+                .where(
+                    CohortHintChallenge.owner_type == "variation",
+                    CohortHintChallenge.owner_id == cohort.variation_id,
+                )
+                .order_by(CohortHintChallenge.position, CohortHintChallenge.created_at)
+            )
+        ).scalars().all()
+
     if not challenges and cohort.program_id:
         challenges = (
             await db.execute(
@@ -197,12 +209,20 @@ async def get_program_challenges(
     program_id: uuid.UUID,
 ) -> list[CohortHintChallengeOut]:
     """Returns challenges configured directly on the program baseline template."""
+async def get_program_challenges(
+    db: AsyncSession,
+    *,
+    program_id: uuid.UUID,
+    variation_id: uuid.UUID | None = None,
+) -> list[CohortHintChallengeOut]:
+    owner_type = "variation" if variation_id is not None else "program"
+    owner_id = variation_id if variation_id is not None else program_id
     challenges = (
         await db.execute(
             select(CohortHintChallenge)
             .where(
-                CohortHintChallenge.owner_type == "program",
-                CohortHintChallenge.owner_id == program_id,
+                CohortHintChallenge.owner_type == owner_type,
+                CohortHintChallenge.owner_id == owner_id,
             )
             .order_by(CohortHintChallenge.position, CohortHintChallenge.created_at)
         )
@@ -295,14 +315,25 @@ async def fork_cohort_challenges(
     if not cohort.program_id:
         return []
 
-    program_challenges = (
-        await db.execute(
-            select(CohortHintChallenge).where(
-                CohortHintChallenge.owner_type == "program",
-                CohortHintChallenge.owner_id == cohort.program_id,
+    program_challenges: list[CohortHintChallenge] = []
+    if getattr(cohort, "variation_id", None) is not None:
+        program_challenges = list((
+            await db.execute(
+                select(CohortHintChallenge).where(
+                    CohortHintChallenge.owner_type == "variation",
+                    CohortHintChallenge.owner_id == cohort.variation_id,
+                )
             )
-        )
-    ).scalars().all()
+        ).scalars().all())
+    if not program_challenges:
+        program_challenges = list((
+            await db.execute(
+                select(CohortHintChallenge).where(
+                    CohortHintChallenge.owner_type == "program",
+                    CohortHintChallenge.owner_id == cohort.program_id,
+                )
+            )
+        ).scalars().all())
 
     if not program_challenges:
         return []

@@ -44,6 +44,7 @@ from app.models.sessions.checklist import (
 )
 from app.models.sessions.cohort import Cohort
 from app.models.sessions.program import Program
+from app.models.sessions.program_variation import ProgramVariation, ProgramVariationDay
 from app.models.sessions.session import Session, SessionInstructor
 from app.models.sessions.session_report import SessionReport
 from app.models.user import User
@@ -152,6 +153,8 @@ def clone_delivery_checklist_item(
     *,
     actor_user_id: UUID,
     program_id: UUID | None = None,
+    variation_id: UUID | None = None,
+    variation_day_id: UUID | None = None,
     cohort_id: UUID | None = None,
     session_id: UUID | None = None,
     role_id: Any = _UNSET,
@@ -175,6 +178,8 @@ def clone_delivery_checklist_item(
     return DeliveryChecklistItem(
         id=uuid4(),
         program_id=program_id,
+        variation_id=variation_id,
+        variation_day_id=variation_day_id,
         cohort_id=cohort_id,
         session_id=session_id,
         role_id=src.role_id if role_id is _UNSET else role_id,
@@ -282,20 +287,45 @@ def _parse_optional_uuid(raw_id: Any) -> UUID | None:
 
 # ── checklist templates (ops) ───────────────────────────────────────────────
 
+def _owner_column_and_value(
+    *,
+    program_id: UUID | None = None,
+    variation_id: UUID | None = None,
+    variation_day_id: UUID | None = None,
+    cohort_id: UUID | None = None,
+    session_id: UUID | None = None,
+):
+    pairs = [
+        (DeliveryChecklistItem.program_id, program_id),
+        (DeliveryChecklistItem.variation_id, variation_id),
+        (DeliveryChecklistItem.variation_day_id, variation_day_id),
+        (DeliveryChecklistItem.cohort_id, cohort_id),
+        (DeliveryChecklistItem.session_id, session_id),
+    ]
+    chosen = [(col, val) for col, val in pairs if val is not None]
+    if len(chosen) != 1:
+        return None, None, len(chosen)
+    return chosen[0][0], chosen[0][1], 1
+
+
 async def _items_at_level(
     db: AsyncSession, *,
-    program_id: UUID | None = None, cohort_id: UUID | None = None, session_id: UUID | None = None,
+    program_id: UUID | None = None,
+    variation_id: UUID | None = None,
+    variation_day_id: UUID | None = None,
+    cohort_id: UUID | None = None,
+    session_id: UUID | None = None,
     target_audience: str = "instructor",
 ) -> list[DeliveryChecklistItem]:
     """Every item set at exactly one level for a specific target_audience ('instructor' or 'internal')."""
-    column = (
-        DeliveryChecklistItem.program_id if program_id
-        else DeliveryChecklistItem.cohort_id if cohort_id
-        else DeliveryChecklistItem.session_id if session_id
-        else None
+    column, value, count = _owner_column_and_value(
+        program_id=program_id,
+        variation_id=variation_id,
+        variation_day_id=variation_day_id,
+        cohort_id=cohort_id,
+        session_id=session_id,
     )
-    value = program_id or cohort_id or session_id
-    if column is None:
+    if count != 1 or column is None:
         return []
     return list((await db.execute(
         select(DeliveryChecklistItem).where(
@@ -308,13 +338,22 @@ async def _items_at_level(
 
 async def list_checklist_items(
     db: AsyncSession, *,
-    program_id: UUID | None = None, cohort_id: UUID | None = None, session_id: UUID | None = None,
+    program_id: UUID | None = None,
+    variation_id: UUID | None = None,
+    variation_day_id: UUID | None = None,
+    cohort_id: UUID | None = None,
+    session_id: UUID | None = None,
     role_id: UUID | None = None,
     target_audience: str = "instructor",
 ) -> list[DeliveryChecklistItem]:
     """One (level, role, target_audience) bucket — no inheritance, no role fallback applied."""
     items = await _items_at_level(
-        db, program_id=program_id, cohort_id=cohort_id, session_id=session_id,
+        db,
+        program_id=program_id,
+        variation_id=variation_id,
+        variation_day_id=variation_day_id,
+        cohort_id=cohort_id,
+        session_id=session_id,
         target_audience=target_audience,
     )
     return [i for i in items if i.role_id == role_id]
@@ -322,21 +361,31 @@ async def list_checklist_items(
 
 async def set_checklist_items(
     db: AsyncSession, *, lines: list[dict], actor_user_id: UUID,
-    program_id: UUID | None = None, cohort_id: UUID | None = None, session_id: UUID | None = None,
+    program_id: UUID | None = None,
+    variation_id: UUID | None = None,
+    variation_day_id: UUID | None = None,
+    cohort_id: UUID | None = None,
+    session_id: UUID | None = None,
     role_id: UUID | None = None,
     target_audience: str = "instructor",
 ) -> list[DeliveryChecklistItem]:
     """Replace one (level, role, target_audience) bucket, updating matching IDs in place to preserve progress."""
-    owners = [program_id, cohort_id, session_id]
-    if sum(1 for o in owners if o is not None) != 1:
+    owner_kwargs = dict(
+        program_id=program_id,
+        variation_id=variation_id,
+        variation_day_id=variation_day_id,
+        cohort_id=cohort_id,
+        session_id=session_id,
+    )
+    _, _, count = _owner_column_and_value(**owner_kwargs)
+    if count != 1:
         raise HTTPException(
             status.HTTP_400_BAD_REQUEST,
-            detail="A checklist belongs to exactly one of a program, a cohort or a session",
+            detail="A checklist belongs to exactly one owner",
         )
 
     existing = await list_checklist_items(
-        db, program_id=program_id, cohort_id=cohort_id, session_id=session_id, role_id=role_id,
-        target_audience=target_audience,
+        db, role_id=role_id, target_audience=target_audience, **owner_kwargs,
     )
     existing_by_id = {item.id: item for item in existing}
     kept_ids: set[UUID] = set()
@@ -356,9 +405,7 @@ async def set_checklist_items(
         else:
             item = DeliveryChecklistItem(
                 id=uuid4(),
-                program_id=program_id,
-                cohort_id=cohort_id,
-                session_id=session_id,
+                **owner_kwargs,
                 role_id=role_id,
                 target_audience=target_audience,
                 created_by=actor_user_id,
@@ -398,32 +445,42 @@ async def import_checklist_items(
     replace_existing: bool = False,
     actor_user_id: UUID,
     program_id: UUID | None = None,
+    variation_id: UUID | None = None,
+    variation_day_id: UUID | None = None,
     cohort_id: UUID | None = None,
     session_id: UUID | None = None,
     role_id: UUID | None = None,
     target_audience: str = "instructor",
 ) -> list[DeliveryChecklistItem]:
-    """Import selected delivery checklist items from a source program, cohort, or session."""
-    owners = [program_id, cohort_id, session_id]
-    if sum(1 for o in owners if o is not None) != 1:
+    """Import selected delivery checklist items from a source program, variation, variation day, cohort, or session."""
+    target_kwargs = dict(
+        program_id=program_id,
+        variation_id=variation_id,
+        variation_day_id=variation_day_id,
+        cohort_id=cohort_id,
+        session_id=session_id,
+    )
+    _, _, count = _owner_column_and_value(**target_kwargs)
+    if count != 1:
         raise HTTPException(
             status.HTTP_400_BAD_REQUEST,
-            detail="A checklist belongs to exactly one of a program, a cohort or a session",
+            detail="A checklist belongs to exactly one owner",
         )
 
-    target_kwargs = dict(program_id=program_id, cohort_id=cohort_id, session_id=session_id)
     if not item_ids:
         return await list_checklist_items(
             db, role_id=role_id, target_audience=target_audience, **target_kwargs
         )
 
     # 1. Fetch source items
-    source_col = (
-        DeliveryChecklistItem.program_id if source_scope == "programs"
-        else DeliveryChecklistItem.cohort_id if source_scope == "cohorts"
-        else DeliveryChecklistItem.session_id if source_scope == "sessions"
-        else None
-    )
+    scope_col_map = {
+        "programs": DeliveryChecklistItem.program_id,
+        "variations": DeliveryChecklistItem.variation_id,
+        "variation_days": DeliveryChecklistItem.variation_day_id,
+        "cohorts": DeliveryChecklistItem.cohort_id,
+        "sessions": DeliveryChecklistItem.session_id,
+    }
+    source_col = scope_col_map.get(source_scope)
     if source_col is None:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="Invalid source scope")
 
@@ -444,9 +501,22 @@ async def import_checklist_items(
             raw_items = [i for i in resolved if i.id in id_set]
     elif not raw_items and source_scope == "cohorts":
         cohort = await db.get(Cohort, source_owner_id)
-        if cohort and cohort.program_id:
+        if cohort:
+            id_set = set(item_ids)
+            var, _, _, _ = await _resolve_cohort_variation_and_days(db, cohort)
+            if var is not None:
+                v_items = await _items_at_level(db, variation_id=var.id, target_audience=source_target_audience)
+                raw_items = [i for i in v_items if i.id in id_set]
+            if not raw_items and cohort.program_id:
+                prog_items = await _items_at_level(
+                    db, program_id=cohort.program_id, target_audience=source_target_audience
+                )
+                raw_items = [i for i in prog_items if i.id in id_set]
+    elif not raw_items and source_scope == "variations":
+        var = await db.get(ProgramVariation, source_owner_id)
+        if var and var.program_id:
             prog_items = await _items_at_level(
-                db, program_id=cohort.program_id, target_audience=source_target_audience
+                db, program_id=var.program_id, target_audience=source_target_audience
             )
             id_set = set(item_ids)
             raw_items = [i for i in prog_items if i.id in id_set]
@@ -471,9 +541,7 @@ async def import_checklist_items(
         db.add(clone_delivery_checklist_item(
             src,
             actor_user_id=actor_user_id,
-            program_id=program_id,
-            cohort_id=cohort_id,
-            session_id=session_id,
+            **target_kwargs,
             role_id=role_id,
             target_audience=target_audience,
             sort_order=next_sort_order + offset,
@@ -529,6 +597,39 @@ async def _done_item_ids_by_day(db: AsyncSession, day_ids: list[UUID]) -> dict[U
     return out
 
 
+async def _resolve_cohort_variation_and_days(
+    db: AsyncSession, cohort: Cohort
+) -> tuple[ProgramVariation | None, list[ProgramVariationDay], Cohort | None, list[Session]]:
+    """Resolve cohort -> ProgramVariation + days, falling back to legacy template cohort only when no variation exists."""
+    var: ProgramVariation | None = None
+    if getattr(cohort, "variation_id", None) is not None:
+        var = await db.get(ProgramVariation, cohort.variation_id)
+    if var is None and cohort.program_id is not None:
+        var = await db.scalar(
+            select(ProgramVariation)
+            .where(ProgramVariation.program_id == cohort.program_id)
+            .order_by(
+                ProgramVariation.is_default.desc(),
+                ProgramVariation.sort_order.asc(),
+                ProgramVariation.created_at.asc(),
+            )
+            .limit(1)
+        )
+    if var is not None:
+        v_days = list((await db.execute(
+            select(ProgramVariationDay)
+            .where(ProgramVariationDay.variation_id == var.id)
+            .order_by(ProgramVariationDay.day_number.asc(), ProgramVariationDay.created_at.asc())
+        )).scalars().all())
+        return var, v_days, None, []
+
+    legacy_tpl = await find_program_template_cohort(
+        db, cohort.program_id, exclude_cohort_id=cohort.id,
+    )
+    legacy_sessions = await _cohort_sessions_chronological(db, legacy_tpl.id) if legacy_tpl else []
+    return None, [], legacy_tpl, legacy_sessions
+
+
 async def get_cohort_checklists_summary(db: AsyncSession, cohort_id: UUID) -> dict:
     """Return per-session checklist counts, inheritance flags, and active progress flags for a cohort."""
     cohort = await db.get(Cohort, cohort_id)
@@ -543,27 +644,35 @@ async def get_cohort_checklists_summary(db: AsyncSession, cohort_id: UUID) -> di
     for item in cohort_pre_items:
         cohort_pre_by_aud.setdefault(item.target_audience, []).append(item)
 
+    var_pre_by_aud: dict[str, list[DeliveryChecklistItem]] = {"instructor": [], "internal": []}
     prog_pre_by_aud: dict[str, list[DeliveryChecklistItem]] = {"instructor": [], "internal": []}
-    tpl_sessions: list[Session] = []
-    tpl_items_by_sess_aud: dict[tuple[UUID, str], list[DeliveryChecklistItem]] = {}
+    tpl_day_ids: list[UUID] = []
+    tpl_items_by_day_aud: dict[tuple[UUID, str], list[DeliveryChecklistItem]] = {}
     if inherit:
-        prog_pre_items = await _all_items_at_level(db, program_id=cohort.program_id)
-        for item in prog_pre_items:
+        var, v_days, legacy_tpl, legacy_sessions = await _resolve_cohort_variation_and_days(db, cohort)
+        if var is not None:
+            for item in await _all_items_at_level(db, variation_id=var.id):
+                var_pre_by_aud.setdefault(item.target_audience, []).append(item)
+        for item in await _all_items_at_level(db, program_id=cohort.program_id):
             prog_pre_by_aud.setdefault(item.target_audience, []).append(item)
-        template_cohort = await find_program_template_cohort(
-            db, cohort.program_id, exclude_cohort_id=cohort.id,
-        )
-        if template_cohort is not None:
-            tpl_sessions = await _cohort_sessions_chronological(db, template_cohort.id)
-            tpl_session_ids = [ts.id for ts in tpl_sessions]
-            if tpl_session_ids:
-                tpl_rows = (await db.execute(
-                    select(DeliveryChecklistItem)
-                    .where(DeliveryChecklistItem.session_id.in_(tpl_session_ids))
-                    .order_by(DeliveryChecklistItem.sort_order, DeliveryChecklistItem.created_at)
-                )).scalars().all()
-                for row in tpl_rows:
-                    tpl_items_by_sess_aud.setdefault((row.session_id, row.target_audience), []).append(row)
+        if v_days:
+            tpl_day_ids = [d.id for d in v_days]
+            tpl_rows = (await db.execute(
+                select(DeliveryChecklistItem)
+                .where(DeliveryChecklistItem.variation_day_id.in_(tpl_day_ids))
+                .order_by(DeliveryChecklistItem.sort_order, DeliveryChecklistItem.created_at)
+            )).scalars().all()
+            for row in tpl_rows:
+                tpl_items_by_day_aud.setdefault((row.variation_day_id, row.target_audience), []).append(row)
+        elif legacy_tpl is not None and legacy_sessions:
+            tpl_day_ids = [ts.id for ts in legacy_sessions]
+            tpl_rows = (await db.execute(
+                select(DeliveryChecklistItem)
+                .where(DeliveryChecklistItem.session_id.in_(tpl_day_ids))
+                .order_by(DeliveryChecklistItem.sort_order, DeliveryChecklistItem.created_at)
+            )).scalars().all()
+            for row in tpl_rows:
+                tpl_items_by_day_aud.setdefault((row.session_id, row.target_audience), []).append(row)
 
     session_ids = [s.id for s in sessions]
     direct_by_sess_aud: dict[tuple[UUID, str], list[DeliveryChecklistItem]] = {}
@@ -642,10 +751,12 @@ async def get_cohort_checklists_summary(db: AsyncSession, cohort_id: UUID) -> di
             )
             fb: list[DeliveryChecklistItem] = []
             if not is_overridden:
-                if inherit and idx < len(tpl_sessions):
-                    fb = tpl_items_by_sess_aud.get((tpl_sessions[idx].id, aud), [])
+                if inherit and idx < len(tpl_day_ids):
+                    fb = tpl_items_by_day_aud.get((tpl_day_ids[idx], aud), [])
                 if not fb:
                     fb = cohort_pre_by_aud.get(aud, [])
+                if not fb and inherit:
+                    fb = var_pre_by_aud.get(aud, [])
                 if not fb and inherit:
                     fb = prog_pre_by_aud.get(aud, [])
 
@@ -692,17 +803,21 @@ async def get_cohort_checklists_summary(db: AsyncSession, cohort_id: UUID) -> di
 
 async def _all_items_at_level(
     db: AsyncSession, *,
-    program_id: UUID | None = None, cohort_id: UUID | None = None, session_id: UUID | None = None,
+    program_id: UUID | None = None,
+    variation_id: UUID | None = None,
+    variation_day_id: UUID | None = None,
+    cohort_id: UUID | None = None,
+    session_id: UUID | None = None,
     target_audience: str | None = None,
 ) -> list[DeliveryChecklistItem]:
-    column = (
-        DeliveryChecklistItem.program_id if program_id
-        else DeliveryChecklistItem.cohort_id if cohort_id
-        else DeliveryChecklistItem.session_id if session_id
-        else None
+    column, value, count = _owner_column_and_value(
+        program_id=program_id,
+        variation_id=variation_id,
+        variation_day_id=variation_day_id,
+        cohort_id=cohort_id,
+        session_id=session_id,
     )
-    value = program_id or cohort_id or session_id
-    if column is None:
+    if count != 1 or column is None:
         return []
     stmt = select(DeliveryChecklistItem).where(column == value)
     if target_audience is not None:
@@ -718,25 +833,61 @@ async def _resolve_import_source(
     *,
     source_type: str,
     source_id: UUID | None,
-) -> tuple[dict[str, list[DeliveryChecklistItem]], list[Session], dict[str, Any]]:
+    source_variation_id: UUID | None = None,
+) -> tuple[dict[str, list[DeliveryChecklistItem]], list[ProgramVariationDay | Session], dict[str, Any]]:
     if source_type == "program":
         src_prog_id = source_id or target_cohort.program_id
         src_program = await db.get(Program, src_prog_id)
         if src_program is None:
             raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Source program not found")
+
+        src_var: ProgramVariation | None = None
+        if source_variation_id is not None:
+            src_var = await db.get(ProgramVariation, source_variation_id)
+            if src_var is None or src_var.program_id != src_prog_id:
+                raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Source variation not found for program")
+        else:
+            src_var = await db.scalar(
+                select(ProgramVariation)
+                .where(ProgramVariation.program_id == src_prog_id)
+                .order_by(
+                    ProgramVariation.is_default.desc(),
+                    ProgramVariation.sort_order.asc(),
+                    ProgramVariation.created_at.asc(),
+                )
+                .limit(1)
+            )
+
+        prog_items = await _all_items_at_level(db, program_id=src_prog_id)
+        if src_var is not None:
+            var_items = await _all_items_at_level(db, variation_id=src_var.id)
+            pre_by_aud: dict[str, list[DeliveryChecklistItem]] = {}
+            for aud in ("instructor", "internal"):
+                direct = [i for i in var_items if i.target_audience == aud]
+                pre_by_aud[aud] = direct if direct else [i for i in prog_items if i.target_audience == aud]
+            source_days: list[ProgramVariationDay | Session] = list((await db.execute(
+                select(ProgramVariationDay)
+                .where(ProgramVariationDay.variation_id == src_var.id)
+                .order_by(ProgramVariationDay.day_number.asc(), ProgramVariationDay.created_at.asc())
+            )).scalars().all())
+            return pre_by_aud, source_days, {
+                "source_type": "program",
+                "program_id": src_prog_id,
+                "variation_id": src_var.id,
+            }
+
         template_cohort = await find_program_template_cohort(
             db, src_prog_id, exclude_cohort_id=target_cohort.id,
         )
-        prog_items = await _all_items_at_level(db, program_id=src_prog_id)
         tpl_cohort_items = (
             await _all_items_at_level(db, cohort_id=template_cohort.id)
             if template_cohort is not None else []
         )
-        pre_by_aud: dict[str, list[DeliveryChecklistItem]] = {}
+        pre_by_aud = {}
         for aud in ("instructor", "internal"):
             direct = [i for i in prog_items if i.target_audience == aud]
             pre_by_aud[aud] = direct if direct else [i for i in tpl_cohort_items if i.target_audience == aud]
-        source_sessions = (
+        source_sessions: list[ProgramVariationDay | Session] = list(
             await _cohort_sessions_chronological(db, template_cohort.id)
             if template_cohort is not None else []
         )
@@ -754,7 +905,15 @@ async def _resolve_import_source(
         if src_cohort is None:
             raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Source cohort not found")
         src_inherit = getattr(src_cohort, "inherit_default_checklists", True)
+        src_var, src_v_days, _, src_legacy_tpl_sessions = (
+            await _resolve_cohort_variation_and_days(db, src_cohort)
+            if src_inherit else (None, [], None, [])
+        )
         cohort_items = await _all_items_at_level(db, cohort_id=src_cohort.id)
+        var_items = (
+            await _all_items_at_level(db, variation_id=src_var.id)
+            if src_inherit and src_var is not None else []
+        )
         prog_items = (
             await _all_items_at_level(db, program_id=src_cohort.program_id)
             if src_inherit else []
@@ -762,22 +921,17 @@ async def _resolve_import_source(
         pre_by_aud = {}
         for aud in ("instructor", "internal"):
             direct = [i for i in cohort_items if i.target_audience == aud]
-            pre_by_aud[aud] = direct if direct else [i for i in prog_items if i.target_audience == aud]
-        source_sessions = await _cohort_sessions_chronological(db, src_cohort.id)
-        src_tpl = (
-            await find_program_template_cohort(
-                db, src_cohort.program_id, exclude_cohort_id=src_cohort.id,
+            pre_by_aud[aud] = (
+                direct
+                or [i for i in var_items if i.target_audience == aud]
+                or [i for i in prog_items if i.target_audience == aud]
             )
-            if src_inherit else None
-        )
-        src_tpl_sessions = (
-            await _cohort_sessions_chronological(db, src_tpl.id)
-            if src_tpl is not None else []
-        )
-        return pre_by_aud, source_sessions, {
+        source_sessions = await _cohort_sessions_chronological(db, src_cohort.id)
+        return pre_by_aud, list(source_sessions), {
             "source_type": "cohort",
             "cohort": src_cohort,
-            "template_sessions": src_tpl_sessions,
+            "variation_days": src_v_days,
+            "template_sessions": src_legacy_tpl_sessions,
             "cohort_pre": pre_by_aud,
         }
 
@@ -786,11 +940,13 @@ async def _resolve_import_source(
 
 async def _source_session_items_for_audience(
     db: AsyncSession,
-    s_sess: Session,
+    s_sess: ProgramVariationDay | Session,
     s_idx: int,
     aud: str,
     source_meta: dict[str, Any],
 ) -> list[DeliveryChecklistItem]:
+    if isinstance(s_sess, ProgramVariationDay):
+        return await _all_items_at_level(db, variation_day_id=s_sess.id, target_audience=aud)
     direct = await _all_items_at_level(db, session_id=s_sess.id, target_audience=aud)
     if direct or source_meta["source_type"] != "cohort":
         return direct
@@ -801,6 +957,11 @@ async def _source_session_items_for_audience(
     )
     if is_overridden:
         return []
+    v_days: list[ProgramVariationDay] = source_meta.get("variation_days") or []
+    if s_idx < len(v_days):
+        vd_items = await _all_items_at_level(db, variation_day_id=v_days[s_idx].id, target_audience=aud)
+        if vd_items:
+            return vd_items
     tpl_sessions: list[Session] = source_meta.get("template_sessions") or []
     if s_idx < len(tpl_sessions):
         tpl_items = await _all_items_at_level(db, session_id=tpl_sessions[s_idx].id, target_audience=aud)
@@ -816,6 +977,7 @@ async def import_cohort_defaults(
     actor_user_id: UUID,
     source_type: str = "program",
     source_id: UUID | None = None,
+    source_variation_id: UUID | None = None,
     include_instructor: bool = True,
     include_internal: bool = True,
     include_pre_workshop: bool = True,
@@ -824,7 +986,7 @@ async def import_cohort_defaults(
     day_mappings: list[dict[str, UUID | None]] | None = None,
     create_missing_sessions: bool = False,
 ) -> dict:
-    """Bulk-materialize checklists from a program default or another cohort onto a target cohort."""
+    """Bulk-materialize checklists from a program variation/default or another cohort onto a target cohort."""
     cohort = await db.get(Cohort, cohort_id)
     if cohort is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Cohort not found")
@@ -834,7 +996,7 @@ async def import_cohort_defaults(
         raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="Select at least one checklist audience to import")
 
     pre_by_aud, source_sessions, source_meta = await _resolve_import_source(
-        db, cohort, source_type=source_type, source_id=source_id,
+        db, cohort, source_type=source_type, source_id=source_id, source_variation_id=source_variation_id,
     )
 
     target_sessions = await _cohort_sessions_chronological(db, cohort.id)
@@ -1025,15 +1187,12 @@ async def switch_cohort_day_checklists(
 
     # Materialize inherited fallback checklists onto involved sessions first so moving preserves each day's full plan.
     inherit = getattr(cohort, "inherit_default_checklists", True)
-    template_cohort = (
-        await find_program_template_cohort(db, cohort.program_id, exclude_cohort_id=cohort.id)
-        if inherit else None
-    )
-    template_sessions = (
-        await _cohort_sessions_chronological(db, template_cohort.id)
-        if template_cohort is not None else []
+    eff_var, eff_v_days, _, legacy_tpl_sessions = (
+        await _resolve_cohort_variation_and_days(db, cohort)
+        if inherit else (None, [], None, [])
     )
     cohort_pre_cache: dict[str, list[DeliveryChecklistItem]] = {}
+    var_pre_cache: dict[str, list[DeliveryChecklistItem]] = {}
     prog_pre_cache: dict[str, list[DeliveryChecklistItem]] = {}
 
     for idx, sess in enumerate(sessions):
@@ -1051,9 +1210,13 @@ async def switch_cohort_day_checklists(
             if is_overridden:
                 continue
             fallback_items: list[DeliveryChecklistItem] = []
-            if inherit and idx < len(template_sessions):
+            if inherit and idx < len(eff_v_days):
                 fallback_items = await _all_items_at_level(
-                    db, session_id=template_sessions[idx].id, target_audience=aud,
+                    db, variation_day_id=eff_v_days[idx].id, target_audience=aud,
+                )
+            elif inherit and idx < len(legacy_tpl_sessions):
+                fallback_items = await _all_items_at_level(
+                    db, session_id=legacy_tpl_sessions[idx].id, target_audience=aud,
                 )
             if not fallback_items:
                 if aud not in cohort_pre_cache:
@@ -1061,6 +1224,12 @@ async def switch_cohort_day_checklists(
                         db, cohort_id=cohort.id, target_audience=aud,
                     )
                 fallback_items = cohort_pre_cache[aud]
+            if not fallback_items and inherit and eff_var is not None:
+                if aud not in var_pre_cache:
+                    var_pre_cache[aud] = await _all_items_at_level(
+                        db, variation_id=eff_var.id, target_audience=aud,
+                    )
+                fallback_items = var_pre_cache[aud]
             if not fallback_items and inherit:
                 if aud not in prog_pre_cache:
                     prog_pre_cache[aud] = await _all_items_at_level(
@@ -1116,92 +1285,81 @@ async def _instructor_role(db: AsyncSession, session_id: UUID, user_id: UUID) ->
     )
 
 
+def _pick_role_or_general(
+    items: list[DeliveryChecklistItem], role_id: UUID | None
+) -> list[DeliveryChecklistItem]:
+    role_items = [i for i in items if i.role_id == role_id] if role_id is not None else []
+    return role_items if role_items else [i for i in items if i.role_id is None]
+
+
 async def resolve_checklist(
     db: AsyncSession, session: Session, role_id: UUID | None = None,
 ) -> list[DeliveryChecklistItem]:
     """What this instructor actually works through on this session.
 
-    Two overrides stacked, both **override, not merge**:
-
-    * **Level** — the nearest of session -> cohort -> program with *anything*
-      set at all wins outright; a level with nothing set is skipped entirely,
-      not treated as "zero items."
-    * **Role**, within whichever level wins — that role's own items if any
-      exist there, else that level's general (role_id IS NULL) items. A role
-      checklist replaces the general one for that role; it is never added on
-      top of it.
-
-    Merging either axis would make it impossible to *remove* an item for one
-    cohort or one role, which is exactly what overridable has to mean (see
-    `materials.py` for the level half of this reasoning).
-
-    Returns `[]`, not a fabricated default, when nothing is configured
-    anywhere — a checklist item's id is a real foreign key
-    (`InstructorChecklistProgress.checklist_item_id`), so any placeholder
-    item not backed by a `delivery_checklist_items` row would 500 the
-    instant an instructor tried to check it off.
+    Resolution order: session -> variation_day -> cohort -> variation -> program
+    (and within each winning level: role-specific items if any, else general).
     """
     # 1. Session level
     items = await _items_at_level(db, session_id=session.id)
     if items:
-        role_items = [i for i in items if i.role_id == role_id] if role_id is not None else []
-        if role_items:
-            return role_items
-        general = [i for i in items if i.role_id is None]
-        if general:
-            return general
+        chosen = _pick_role_or_general(items, role_id)
+        if chosen:
+            return chosen
 
     if getattr(session, "instructor_checklist_overridden", False):
         return []
 
-    # 2. Template session fallback
     cohort = await db.get(Cohort, session.cohort_id)
-    if cohort is not None:
-        inherit = getattr(cohort, "inherit_default_checklists", True)
-        if inherit:
-            template_cohort = await find_program_template_cohort(
-                db, cohort.program_id, exclude_cohort_id=cohort.id,
-            )
-            if template_cohort is not None:
-                all_sessions = (await db.execute(
-                    select(Session.id).where(Session.cohort_id == cohort.id)
-                    .order_by(Session.meeting_date, Session.starts_at, Session.created_at)
-                )).scalars().all()
-                try:
-                    s_idx = all_sessions.index(session.id)
-                    t_sessions = (await db.execute(
-                        select(Session.id).where(Session.cohort_id == template_cohort.id)
-                        .order_by(Session.meeting_date, Session.starts_at, Session.created_at)
-                    )).scalars().all()
-                    if s_idx < len(t_sessions):
-                        t_items = await _items_at_level(db, session_id=t_sessions[s_idx])
-                        if t_items:
-                            role_items = [i for i in t_items if i.role_id == role_id] if role_id is not None else []
-                            if role_items:
-                                return role_items
-                            general = [i for i in t_items if i.role_id is None]
-                            if general:
-                                return general
-                except ValueError:
-                    pass
+    if cohort is None:
+        return []
 
-        # 3. Cohort level
-        cohort_items = await _items_at_level(db, cohort_id=cohort.id)
-        if cohort_items:
-            role_items = [i for i in cohort_items if i.role_id == role_id] if role_id is not None else []
-            if role_items:
-                return role_items
-            general = [i for i in cohort_items if i.role_id is None]
-            if general:
-                return general
+    inherit = getattr(cohort, "inherit_default_checklists", True)
+    eff_var, eff_v_days, _, legacy_tpl_sessions = (
+        await _resolve_cohort_variation_and_days(db, cohort)
+        if inherit else (None, [], None, [])
+    )
 
-        # 4. Program level
-        if inherit:
-            program_items = await _items_at_level(db, program_id=cohort.program_id)
-            role_items = [i for i in program_items if i.role_id == role_id] if role_id is not None else []
-            if role_items:
-                return role_items
-            return [i for i in program_items if i.role_id is None]
+    # 2. Variation day / legacy template day fallback
+    if inherit and (eff_v_days or legacy_tpl_sessions):
+        all_sessions = (await db.execute(
+            select(Session.id).where(Session.cohort_id == cohort.id)
+            .order_by(Session.meeting_date, Session.starts_at, Session.created_at)
+        )).scalars().all()
+        try:
+            s_idx = all_sessions.index(session.id)
+            if s_idx < len(eff_v_days):
+                vd_items = await _items_at_level(db, variation_day_id=eff_v_days[s_idx].id)
+                if vd_items:
+                    chosen = _pick_role_or_general(vd_items, role_id)
+                    if chosen:
+                        return chosen
+            elif s_idx < len(legacy_tpl_sessions):
+                t_items = await _items_at_level(db, session_id=legacy_tpl_sessions[s_idx].id)
+                if t_items:
+                    chosen = _pick_role_or_general(t_items, role_id)
+                    if chosen:
+                        return chosen
+        except ValueError:
+            pass
+
+    # 3. Cohort level
+    cohort_items = await _items_at_level(db, cohort_id=cohort.id)
+    if cohort_items:
+        chosen = _pick_role_or_general(cohort_items, role_id)
+        if chosen:
+            return chosen
+
+    # 4. Variation level -> 5. Program level
+    if inherit:
+        if eff_var is not None:
+            var_items = await _items_at_level(db, variation_id=eff_var.id)
+            if var_items:
+                chosen = _pick_role_or_general(var_items, role_id)
+                if chosen:
+                    return chosen
+        program_items = await _items_at_level(db, program_id=cohort.program_id)
+        return _pick_role_or_general(program_items, role_id)
 
     return []
 
@@ -1210,7 +1368,7 @@ async def resolve_internal_checklist(
     db: AsyncSession, session: Session
 ) -> list[DeliveryChecklistItem]:
     """Resolves operational / internal checklist items for a session.
-    Overrides program -> cohort -> session, exactly mirroring materials and instructor checklist.
+    Overrides session -> variation_day -> cohort -> variation -> program.
     """
     # 1. Session level
     items = await _items_at_level(db, session_id=session.id, target_audience="internal")
@@ -1220,42 +1378,51 @@ async def resolve_internal_checklist(
     if getattr(session, "internal_checklist_overridden", False):
         return []
 
-    # 2. Template session fallback
     cohort = await db.get(Cohort, session.cohort_id)
-    if cohort is not None:
-        inherit = getattr(cohort, "inherit_default_checklists", True)
-        if inherit:
-            template_cohort = await find_program_template_cohort(
-                db, cohort.program_id, exclude_cohort_id=cohort.id,
-            )
-            if template_cohort is not None:
-                all_sessions = (await db.execute(
-                    select(Session.id).where(Session.cohort_id == cohort.id)
-                    .order_by(Session.meeting_date, Session.starts_at, Session.created_at)
-                )).scalars().all()
-                try:
-                    s_idx = all_sessions.index(session.id)
-                    t_sessions = (await db.execute(
-                        select(Session.id).where(Session.cohort_id == template_cohort.id)
-                        .order_by(Session.meeting_date, Session.starts_at, Session.created_at)
-                    )).scalars().all()
-                    if s_idx < len(t_sessions):
-                        t_items = await _items_at_level(db, session_id=t_sessions[s_idx], target_audience="internal")
-                        if t_items:
-                            return t_items
-                except ValueError:
-                    pass
+    if cohort is None:
+        return []
 
-        # 3. Cohort level
-        cohort_items = await _items_at_level(db, cohort_id=cohort.id, target_audience="internal")
-        if cohort_items:
-            return cohort_items
+    inherit = getattr(cohort, "inherit_default_checklists", True)
+    eff_var, eff_v_days, _, legacy_tpl_sessions = (
+        await _resolve_cohort_variation_and_days(db, cohort)
+        if inherit else (None, [], None, [])
+    )
 
-        # 4. Program level
-        if inherit:
-            program_items = await _items_at_level(db, program_id=cohort.program_id, target_audience="internal")
-            if program_items:
-                return program_items
+    # 2. Variation day / legacy template day fallback
+    if inherit and (eff_v_days or legacy_tpl_sessions):
+        all_sessions = (await db.execute(
+            select(Session.id).where(Session.cohort_id == cohort.id)
+            .order_by(Session.meeting_date, Session.starts_at, Session.created_at)
+        )).scalars().all()
+        try:
+            s_idx = all_sessions.index(session.id)
+            if s_idx < len(eff_v_days):
+                vd_items = await _items_at_level(db, variation_day_id=eff_v_days[s_idx].id, target_audience="internal")
+                if vd_items:
+                    return vd_items
+            elif s_idx < len(legacy_tpl_sessions):
+                t_items = await _items_at_level(
+                    db, session_id=legacy_tpl_sessions[s_idx].id, target_audience="internal"
+                )
+                if t_items:
+                    return t_items
+        except ValueError:
+            pass
+
+    # 3. Cohort level
+    cohort_items = await _items_at_level(db, cohort_id=cohort.id, target_audience="internal")
+    if cohort_items:
+        return cohort_items
+
+    # 4. Variation level -> 5. Program level
+    if inherit:
+        if eff_var is not None:
+            var_items = await _items_at_level(db, variation_id=eff_var.id, target_audience="internal")
+            if var_items:
+                return var_items
+        program_items = await _items_at_level(db, program_id=cohort.program_id, target_audience="internal")
+        if program_items:
+            return program_items
 
     return []
 

@@ -13,18 +13,19 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { Spinner } from "@/components/ui/primitives"
 import { useToast } from "@/components/ui/toast"
 import { getErrorMessage } from "@/lib/utils"
-import type { Program } from "@/types/sessions"
+import type { Program, ProgramVariation } from "@/types/sessions"
 import { listAssessmentConfigsApi } from "@/api/instructor_assessment"
-import { updateProgramApi } from "@/api/sessions/programs"
+import { updateProgramApi, updateProgramVariationApi } from "@/api/sessions/programs"
 
 const NONE = "__none__"
 
-export function ProgramAssessmentDefaultPanel({ program, onUpdated }: {
+export function ProgramAssessmentDefaultPanel({
+  program,
+  variation,
+  onUpdated,
+}: {
   program: Program
-  /** Programs.tsx and the Program Wizard each hold their own copy of
-   *  `program` in local state — unlike the role template, this field lives
-   *  directly on the Program row, so a caller that needs the fresh value
-   *  (the wizard's Review step, in particular) has to be told about it. */
+  variation?: ProgramVariation | null
   onUpdated?: (program: Program) => void
 }) {
   const queryClient = useQueryClient()
@@ -38,9 +39,13 @@ export function ProgramAssessmentDefaultPanel({ program, onUpdated }: {
 
   const mutation = useMutation({
     mutationFn: (configId: string | null) =>
-      updateProgramApi(program.id, { default_assessment_config_id: configId }),
+      variation
+        ? updateProgramVariationApi(program.id, variation.id, { default_assessment_config_id: configId }).then(() => program)
+        : updateProgramApi(program.id, { default_assessment_config_id: configId }),
     onSuccess: (updated) => {
       queryClient.invalidateQueries({ queryKey: ["sessions-programs"] })
+      queryClient.invalidateQueries({ queryKey: ["program-variations", program.id] })
+      toast.success("Assessment default saved")
       onUpdated?.(updated)
     },
     onError: (e: any) => {
@@ -51,7 +56,10 @@ export function ProgramAssessmentDefaultPanel({ program, onUpdated }: {
 
   if (isLoading) return <Spinner />
 
-  const currentValue = pendingConfigId ?? program.default_assessment_config_id ?? NONE
+  const currentValue =
+    pendingConfigId ??
+    (variation ? variation.default_assessment_config_id : program.default_assessment_config_id) ??
+    NONE
   const currentConfig = configs.find((c) => c.id === currentValue)
 
   return (
@@ -59,7 +67,7 @@ export function ProgramAssessmentDefaultPanel({ program, onUpdated }: {
       <div>
         <div className="flex items-center justify-between mb-1">
           <label className="text-xs font-medium uppercase tracking-wider text-muted-foreground block">
-            Default instructor assessment preset
+            {variation ? `Assessment Preset Override — ${variation.name}` : "Default instructor assessment preset"}
           </label>
           <Link to="/instructors/facilitator/quizzes" className="text-xs text-primary hover:underline">
             Manage question bank &amp; presets →
@@ -74,7 +82,9 @@ export function ProgramAssessmentDefaultPanel({ program, onUpdated }: {
           }}
           className="w-full max-w-md h-10 px-3 border border-border bg-card text-foreground rounded-xl text-sm focus:outline-none focus:border-primary"
         >
-          <option value={NONE}>None — new cohorts start with no assessment gate</option>
+          <option value={NONE}>
+            {variation ? "Inherit from Program Base" : "None — new cohorts start with no assessment gate"}
+          </option>
           {configs.map((c) => (
             <option key={c.id} value={c.id}>{c.name}</option>
           ))}
@@ -83,8 +93,10 @@ export function ProgramAssessmentDefaultPanel({ program, onUpdated }: {
 
       <p className="text-xs text-muted-foreground max-w-md">
         {currentConfig
-          ? <>Every new cohort of this program starts requiring <strong className="text-foreground">{currentConfig.name}</strong> before instructors can apply — a one-time copy at creation, not a live link. </>
-          : "A one-time copy at creation, not a live link. "}
+          ? <>Every new cohort {variation ? `of "${variation.name}" ` : ""}starts requiring <strong className="text-foreground">{currentConfig.name}</strong> before instructors can apply — a one-time copy at creation, not a live link. </>
+          : variation
+            ? "Inherits from Program Base when unset."
+            : "A one-time copy at creation, not a live link. "}
         Editing this later never reaches a cohort that already exists; override or clear it per cohort from that
         cohort's own Assessment tab.
       </p>

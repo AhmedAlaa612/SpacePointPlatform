@@ -19,6 +19,10 @@ class Cohort(Base):
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     program_id = Column(UUID(as_uuid=True), ForeignKey("programs.id", ondelete="CASCADE"), nullable=False)
+    variation_id = Column(
+        UUID(as_uuid=True), ForeignKey("program_variations.id", ondelete="SET NULL"), nullable=True, index=True,
+    )
+    is_template_legacy = Column(Boolean, nullable=False, default=False, server_default="false")
     name = Column(String(255), nullable=False)
     starts_on = Column(Date, nullable=True)
     ends_on = Column(Date, nullable=True)
@@ -73,6 +77,18 @@ class Cohort(Base):
     )
     inherit_default_checklists = Column(
         Boolean, nullable=False, default=True, server_default="true",
+    )
+
+    # Nullable cohort-level overrides (seeded from variation on create; NULL = inherit from Program)
+    pricing_model = Column(String(24), nullable=True)
+    price = Column(Numeric(10, 2), nullable=True)
+    completion_rule_type = Column(String(16), nullable=True)
+    completion_rule_value = Column(Numeric(6, 2), nullable=True)
+    default_certificate_template_id = Column(
+        UUID(as_uuid=True), ForeignKey("program_certificate_templates.id", ondelete="SET NULL"), nullable=True,
+    )
+    default_team_certificate_template_id = Column(
+        UUID(as_uuid=True), ForeignKey("program_certificate_templates.id", ondelete="SET NULL"), nullable=True,
     )
 
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
