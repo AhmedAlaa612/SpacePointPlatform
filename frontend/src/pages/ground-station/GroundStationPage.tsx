@@ -85,21 +85,23 @@ export function DeviceConsole({ deviceId, device }: { deviceId: string; device: 
 
     setHistory((h) => {
       const prev = h[h.length - 1];
+      const num = (v: unknown, fallback?: number): number | undefined =>
+        typeof v === "number" && Number.isFinite(v) ? v : fallback;
       const next: TelemetryFrame = {
         t: (prev?.t ?? -1) + 1,
         recorded_at: recordedAt ?? new Date().toISOString(),
-        temp: d.temp ?? prev?.temp,
-        voltage: d.voltage ?? prev?.voltage,
-        current: d.current ?? prev?.current,
-        power: d.power ?? prev?.power,
-        rssi: d.rssi ?? prev?.rssi,
-        snr: d.snr ?? prev?.snr,
-        pitch: d.pitch ?? prev?.pitch,
-        roll: d.roll ?? prev?.roll,
-        yaw: d.yaw ?? prev?.yaw,
-        lat: d.lat ?? prev?.lat,
-        lon: d.lon ?? prev?.lon,
-        alt: d.alt ?? prev?.alt,
+        temp: num(d.temp, prev?.temp),
+        voltage: num(d.voltage, prev?.voltage),
+        current: num(d.current, prev?.current),
+        power: num(d.power, prev?.power),
+        rssi: num(d.rssi, prev?.rssi),
+        snr: num(d.snr, prev?.snr),
+        pitch: num(d.pitch, prev?.pitch),
+        roll: num(d.roll, prev?.roll),
+        yaw: num(d.yaw, prev?.yaw),
+        lat: num(d.lat, prev?.lat),
+        lon: num(d.lon, prev?.lon),
+        alt: num(d.alt, prev?.alt),
       };
       const out = [...h, next];
       return out.length > MAX_TREND_POINTS ? out.slice(out.length - MAX_TREND_POINTS) : out;
