@@ -71,8 +71,8 @@ export function DeviceConsole({ deviceId, device }: { deviceId: string; device: 
   const liveChartsRef = useRef<HTMLDivElement>(null);
 
   function appendFrame(raw: Record<string, unknown>, recordedAt?: string, source: "ws" | "local" = "ws") {
-    const d = normalizeTelemetryPayload(raw) ?? {};
-    if (Object.keys(d).length === 0) return;
+    const d = normalizeTelemetryPayload(raw);
+    if (!d || Object.keys(d).length === 0) return;
 
     const nowMs = Date.now();
     if (source === "local") {
