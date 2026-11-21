@@ -19,7 +19,12 @@ from app.services import storage
 from app.services.games.realtime import get_realtime_redis_dep
 from app.services.ground_station.devices import pop_pending_commands, touch_last_seen
 from app.services.ground_station.realtime import safe_publish_to_device
-from app.services.ground_station.telemetry import check_thresholds, persist_image, persist_telemetry
+from app.services.ground_station.telemetry import (
+    check_thresholds,
+    normalize_telemetry_payload,
+    persist_image,
+    persist_telemetry,
+)
 
 router = APIRouter(prefix="/ground-station/devices/{device_id}", tags=["ground-station-ingest"])
 
@@ -28,10 +33,11 @@ async def _ingest_and_broadcast(
     db: AsyncSession, realtime: redis.Redis | None, device_id: uuid.UUID, data: dict, recorded_at: datetime | None,
 ) -> None:
     ts = recorded_at or datetime.now(timezone.utc)
-    await persist_telemetry(db, device_id, data, ts)
-    alerts = await check_thresholds(db, device_id, data)
+    norm = normalize_telemetry_payload(data)
+    await persist_telemetry(db, device_id, norm, ts)
+    alerts = await check_thresholds(db, device_id, norm)
     await db.commit()
-    await safe_publish_to_device(realtime, str(device_id), "telemetry_frame", {"data": data, "recorded_at": ts.isoformat()})
+    await safe_publish_to_device(realtime, str(device_id), "telemetry_frame", {"data": norm, "recorded_at": ts.isoformat()})
     for alert in alerts:
         await safe_publish_to_device(realtime, str(device_id), "alert", {
             "id": str(alert.id), "alert_type": alert.alert_type, "threshold": alert.threshold,

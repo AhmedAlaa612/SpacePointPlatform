@@ -17,7 +17,8 @@ import AlertsPanel from "@/components/ground-station/AlertsPanel";
 import EarthGlobe from "@/components/ground-station/EarthGlobe";
 import SimToggle from "@/components/ground-station/SimToggle";
 import WebSerialConnect from "@/components/ground-station/WebSerialConnect";
-import { isWebSerialConnected, writeSerialCommand } from "@/lib/groundStationWebSerial";
+import ConnectionGuideModal from "@/components/ground-station/ConnectionGuideModal";
+import { isWebSerialConnected, normalizeTelemetryPayload, writeSerialCommand } from "@/lib/groundStationWebSerial";
 import { buildGroundStationReport } from "@/lib/pdf";
 
 const MAX_TREND_POINTS = 240;
@@ -64,7 +65,119 @@ export function DeviceConsole({ deviceId, device }: { deviceId: string; device: 
   const [photos, setPhotos] = useState<GroundStationPhoto[]>([]);
   const [alertRefreshToken, setAlertRefreshToken] = useState(0);
   const [exporting, setExporting] = useState(false);
+  const [wifiHost, setWifiHost] = useState<string | null>(null);
+  const [localConnected, setLocalConnected] = useState(false);
+  const lastLocalAtRef = useRef<number>(0);
   const liveChartsRef = useRef<HTMLDivElement>(null);
+
+  function appendFrame(raw: Record<string, unknown>, recordedAt?: string, source: "ws" | "local" = "ws") {
+    const d = normalizeTelemetryPayload(raw) ?? {};
+    if (Object.keys(d).length === 0) return;
+
+    const nowMs = Date.now();
+    if (source === "local") {
+      lastLocalAtRef.current = nowMs;
+      setLocalConnected(true);
+    } else if (nowMs - lastLocalAtRef.current < 1500) {
+      // Avoid duplicate point when a local frame is echoed back over the cloud WebSocket
+      return;
+    }
+
+    setHistory((h) => {
+      const prev = h[h.length - 1];
+      const next: TelemetryFrame = {
+        t: (prev?.t ?? -1) + 1,
+        recorded_at: recordedAt ?? new Date().toISOString(),
+        temp: d.temp ?? prev?.temp,
+        voltage: d.voltage ?? prev?.voltage,
+        current: d.current ?? prev?.current,
+        power: d.power ?? prev?.power,
+        rssi: d.rssi ?? prev?.rssi,
+        snr: d.snr ?? prev?.snr,
+        pitch: d.pitch ?? prev?.pitch,
+        roll: d.roll ?? prev?.roll,
+        yaw: d.yaw ?? prev?.yaw,
+        lat: d.lat ?? prev?.lat,
+        lon: d.lon ?? prev?.lon,
+        alt: d.alt ?? prev?.alt,
+      };
+      const out = [...h, next];
+      return out.length > MAX_TREND_POINTS ? out.slice(out.length - MAX_TREND_POINTS) : out;
+    });
+  }
+
+  async function handleDirectCommand(name: string): Promise<boolean> {
+    // 1. Direct SatKit Wi-Fi command (works offline on ALFALAJ-SAT1 AP)
+    if (wifiHost) {
+      try {
+        let path = "/api/telemetry";
+        let detail = `Wi-Fi ${wifiHost}`;
+        if (name === "TAKE_PICTURE") {
+          path = "/api/cmd?capture=1";
+          detail = "Captured photo via SatKit Wi-Fi";
+        } else if (name === "SPIN_CW") {
+          path = "/api/cmd?wz=180";
+          detail = "Wheel Z +180 via SatKit Wi-Fi";
+        } else if (name === "SPIN_CCW") {
+          path = "/api/cmd?wz=-180";
+          detail = "Wheel Z -180 via SatKit Wi-Fi";
+        } else if (name === "STOP") {
+          path = "/api/cmd?adcs=OFF";
+          detail = "ADCS OFF via SatKit Wi-Fi";
+        } else if (name === "FAKE") {
+          path = "/api/cmd?mode=SIM";
+          detail = "Toggled mode via SatKit Wi-Fi";
+        }
+        const res = await fetch(`http://${wifiHost}${path}`);
+        const ok = res.ok;
+        if (ok && name === "TAKE_PICTURE") {
+          const url = `http://${wifiHost}/last.jpg?t=${Date.now()}`;
+          setPhotos((p) => [
+            ...p,
+            {
+              path: url,
+              url,
+              captured_at: new Date().toISOString(),
+              lat: latest?.lat ?? null,
+              lon: latest?.lon ?? null,
+              alt: latest?.alt ?? null,
+            },
+          ]);
+        }
+        setAcks((a) => [
+          ...a,
+          {
+            commandId: `wifi-${Date.now()}`,
+            name,
+            ok,
+            detail,
+            at: new Date().toISOString(),
+          },
+        ]);
+        return ok;
+      } catch {
+        // Fall through to Web Serial or backend queue
+      }
+    }
+
+    // 2. Direct USB Web Serial command (works even if cloud WebSocket is offline)
+    if (isWebSerialConnected()) {
+      const ok = await writeSerialCommand(name);
+      setAcks((a) => [
+        ...a,
+        {
+          commandId: `usb-${Date.now()}`,
+          name,
+          ok,
+          detail: "Sent directly over USB Serial",
+          at: new Date().toISOString(),
+        },
+      ]);
+      return ok;
+    }
+
+    return false;
+  }
 
   useEffect(() => {
     listPhotos(deviceId).then(setPhotos).catch(() => setPhotos([]));
@@ -90,17 +203,7 @@ export function DeviceConsole({ deviceId, device }: { deviceId: string; device: 
 
   const { connected } = useGroundStationSocket(deviceId, (msg: GroundStationMessage) => {
     if (msg.type === "telemetry_frame") {
-      const d = msg.payload.data as Record<string, number>;
-      setHistory((h) => {
-        const next: TelemetryFrame = {
-          t: h.length, recorded_at: msg.payload.recorded_at,
-          temp: d.temp, voltage: d.voltage, current: d.current, power: d.power,
-          rssi: d.rssi, snr: d.snr, pitch: d.pitch, roll: d.roll, yaw: d.yaw,
-          lat: d.lat, lon: (d.lon ?? d.lng), alt: d.alt,
-        };
-        const out = [...h, next];
-        return out.length > MAX_TREND_POINTS ? out.slice(out.length - MAX_TREND_POINTS) : out;
-      });
+      appendFrame(msg.payload.data as Record<string, unknown>, msg.payload.recorded_at, "ws");
     } else if (msg.type === "command_queued") {
       // Best-effort forwarding: whichever open tab actually has Web Serial
       // connected to the rig relays the command down the wire and acks it
@@ -141,13 +244,21 @@ export function DeviceConsole({ deviceId, device }: { deviceId: string; device: 
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex flex-wrap items-center gap-2">
-          <WebSerialConnect deviceId={deviceId} />
-          <SimToggle deviceId={deviceId} onToggle={() => setHistory([])} />
+          <WebSerialConnect
+            deviceId={deviceId}
+            onLocalFrame={(d) => appendFrame(d as Record<string, unknown>, undefined, "local")}
+            onWifiHostChange={setWifiHost}
+          />
+          <SimToggle
+            deviceId={deviceId}
+            onToggle={() => setHistory([])}
+            onLocalFrame={(d) => appendFrame(d, undefined, "local")}
+          />
         </div>
         <div className="flex items-center gap-3">
-          <span className={`inline-flex items-center gap-1.5 text-xs font-medium ${connected ? "text-emerald-500" : "text-muted-foreground"}`}>
-            <span className={`h-1.5 w-1.5 rounded-full ${connected ? "bg-emerald-500" : "bg-muted-foreground"}`} />
-            {connected ? "Live" : "Connecting…"}
+          <span className={`inline-flex items-center gap-1.5 text-xs font-medium ${connected || localConnected ? "text-emerald-500" : "text-muted-foreground"}`}>
+            <span className={`h-1.5 w-1.5 rounded-full ${connected || localConnected ? "bg-emerald-500" : "bg-muted-foreground"}`} />
+            {connected ? "Live" : localConnected ? "Live (Local SatKit)" : "Connecting…"}
           </span>
           <button
             type="button"
@@ -159,6 +270,8 @@ export function DeviceConsole({ deviceId, device }: { deviceId: string; device: 
           </button>
         </div>
       </div>
+
+      <ConnectionGuideModal />
 
       {history.length >= 2 ? (
         <div ref={liveChartsRef} className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
@@ -206,15 +319,15 @@ export function DeviceConsole({ deviceId, device }: { deviceId: string; device: 
         </div>
       )}
 
-      {latest?.pitch !== undefined && latest?.roll !== undefined && latest?.yaw !== undefined && (
-        <AttitudeCube pitch={latest.pitch} roll={latest.roll} yaw={latest.yaw} />
+      {(latest?.pitch !== undefined || latest?.roll !== undefined || latest?.yaw !== undefined) && (
+        <AttitudeCube pitch={latest?.pitch ?? 0} roll={latest?.roll ?? 0} yaw={latest?.yaw ?? 0} />
       )}
 
       <EarthGlobe lat={latest?.lat ?? null} lon={latest?.lon ?? null} alt={latest?.alt ?? null} />
 
       <HistoryPanel deviceId={deviceId} />
       <AlertsPanel deviceId={deviceId} refreshToken={alertRefreshToken} />
-      <CommandConsole deviceId={deviceId} acks={acks} />
+      <CommandConsole deviceId={deviceId} acks={acks} onDirectCommand={handleDirectCommand} />
       <MissionGallery photos={photos} />
     </div>
   );

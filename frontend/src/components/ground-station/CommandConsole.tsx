@@ -43,20 +43,30 @@ function Btn({ name, className = "", children, pending, onFire }: BtnProps) {
 interface Props {
   deviceId: string;
   acks: AckEntry[];
+  /** Optional direct hardware command handler (Wi-Fi `192.168.4.1/api/cmd`
+   * or USB Web Serial) so commands still reach the SatKit even when the
+   * student's laptop is connected to the SatKit Wi-Fi AP without internet. */
+  onDirectCommand?: (name: string) => Promise<boolean>;
 }
 
-export default function CommandConsole({ deviceId, acks }: Props) {
+export default function CommandConsole({ deviceId, acks, onDirectCommand }: Props) {
   const [pending, setPending] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   async function fire(name: string) {
     setPending(name);
     setError(null);
+    let directHandled = false;
     try {
+      if (onDirectCommand) {
+        directHandled = await onDirectCommand(name);
+      }
       await sendCommand(deviceId, name);
     } catch (e) {
-      const msg = e instanceof Error ? e.message : "Command failed";
-      setError(msg);
+      if (!directHandled) {
+        const msg = e instanceof Error ? e.message : "Command failed";
+        setError(msg);
+      }
     } finally {
       setPending(null);
     }

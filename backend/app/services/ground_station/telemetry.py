@@ -33,29 +33,93 @@ _DEBOUNCE_SECONDS = 5
 
 def _field(data: dict, *names: str) -> float | None:
     for n in names:
-        if data.get(n) is not None:
+        val = data
+        for part in n.split("."):
+            if isinstance(val, dict):
+                val = val.get(part)
+            else:
+                val = None
+                break
+        if val is not None:
             try:
-                return float(data[n])
+                f = float(val)
+                if f == f:  # guard against NaN
+                    return f
             except (TypeError, ValueError):
-                return None
+                pass
     return None
+
+
+def normalize_telemetry_payload(data: dict) -> dict:
+    """Normalize both flat Ground Station frames and nested AlFalaj_CDHS /
+    AlFalaj_Sensors frames into a single flat+raw dictionary so downstream
+    charts, thresholds, and WebSocket consumers always see standard keys."""
+    temp = _field(data, "temp_C", "temp", "temp.c", "imu.temp_c", "ir.amb_c")
+    voltage = _field(data, "bus_voltage_V", "voltage", "bus_v", "power.bus_v")
+    current = _field(data, "current", "current_A")
+    if current is None:
+        ma = _field(data, "current_mA", "ma", "power.ma")
+        if ma is not None:
+            current = ma / 1000.0 if "power" in data or "ma" in data else ma
+    power = _field(data, "power_mW", "power", "mw", "power.mw")
+    if power is None and voltage is not None and current is not None:
+        power = round(voltage * current * 1000.0 if current < 10 else voltage * current, 2)
+    rssi = _field(data, "rssi", "wifi.rssi", "payload.rssi")
+    snr = _field(data, "snr")
+    uptime = _field(data, "uptime", "uptime_s")
+    lat = _field(data, "lat", "gps.lat")
+    lon = _field(data, "lon", "lng", "gps.lon")
+    alt = _field(data, "alt", "gps.alt")
+    pitch = _field(data, "pitch", "imu.pitch")
+    roll = _field(data, "roll", "imu.roll")
+    yaw = _field(data, "yaw", "heading", "mag.heading", "imu.gz")
+
+    out = dict(data)
+    if temp is not None:
+        out["temp"] = temp
+    if voltage is not None:
+        out["voltage"] = voltage
+    if current is not None:
+        out["current"] = current
+    if power is not None:
+        out["power"] = power
+    if rssi is not None:
+        out["rssi"] = rssi
+    if snr is not None:
+        out["snr"] = snr
+    if uptime is not None:
+        out["uptime"] = int(uptime)
+    if lat is not None:
+        out["lat"] = lat
+    if lon is not None:
+        out["lon"] = lon
+    if alt is not None:
+        out["alt"] = alt
+    if pitch is not None:
+        out["pitch"] = pitch
+    if roll is not None:
+        out["roll"] = roll
+    if yaw is not None:
+        out["yaw"] = yaw
+    return out
 
 
 async def persist_telemetry(
     db: AsyncSession, device_id: uuid.UUID, data: dict, recorded_at: datetime | None = None,
 ) -> GroundStationTelemetry:
+    norm = normalize_telemetry_payload(data)
     row = GroundStationTelemetry(
         id=uuid.uuid4(), device_id=device_id, recorded_at=recorded_at or datetime.now(timezone.utc),
-        temp=_field(data, "temp_C", "temp"),
-        voltage=_field(data, "bus_voltage_V", "voltage"),
-        current=_field(data, "current_mA", "current"),
-        power=_field(data, "power_mW", "power"),
-        rssi=_field(data, "rssi"),
-        snr=_field(data, "snr"),
-        uptime=int(v) if (v := _field(data, "uptime")) is not None else None,
-        lat=_field(data, "lat"), lon=_field(data, "lon", "lng"), alt=_field(data, "alt"),
-        pitch=_field(data, "pitch"), roll=_field(data, "roll"), yaw=_field(data, "yaw"),
-        data=data,
+        temp=_field(norm, "temp"),
+        voltage=_field(norm, "voltage"),
+        current=_field(norm, "current"),
+        power=_field(norm, "power"),
+        rssi=_field(norm, "rssi"),
+        snr=_field(norm, "snr"),
+        uptime=int(v) if (v := _field(norm, "uptime")) is not None else None,
+        lat=_field(norm, "lat"), lon=_field(norm, "lon", "lng"), alt=_field(norm, "alt"),
+        pitch=_field(norm, "pitch"), roll=_field(norm, "roll"), yaw=_field(norm, "yaw"),
+        data=norm,
     )
     db.add(row)
     await db.flush()

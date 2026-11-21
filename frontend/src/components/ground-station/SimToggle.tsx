@@ -16,6 +16,9 @@ interface Props {
    * just leaves the last simulated reading frozen there, which reads as
    * live data that never actually stopped. */
   onToggle?: (on: boolean) => void;
+  /** Also feed the simulated frame locally so Sim works even if the user
+   * is currently offline on the SatKit Wi-Fi access point. */
+  onLocalFrame?: (data: Record<string, unknown>) => void;
 }
 
 function fakeFrame() {
@@ -24,7 +27,7 @@ function fakeFrame() {
     temp: 25.0 + 5.0 * Math.sin(t * 0.1),
     voltage: 3.7 + 0.3 * Math.sin(t * 0.05),
     current: 0.4 + 0.1 * Math.sin(t * 0.2),
-    power: (3.7 + 0.3 * Math.sin(t * 0.05)) * (0.4 + 0.1 * Math.sin(t * 0.2)),
+    power: (3.7 + 0.3 * Math.sin(t * 0.05)) * (0.4 + 0.1 * Math.sin(t * 0.2)) * 1000,
     rssi: -70 + 8 * Math.sin(t * 0.15),
     snr: 8 + 3 * Math.sin(t * 0.25),
     roll: 10.0 * Math.sin(t * 0.3),
@@ -33,7 +36,7 @@ function fakeFrame() {
   };
 }
 
-export default function SimToggle({ deviceId, onToggle }: Props) {
+export default function SimToggle({ deviceId, onToggle, onLocalFrame }: Props) {
   const [simOn, setSimOn] = useState(false);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
@@ -45,10 +48,13 @@ export default function SimToggle({ deviceId, onToggle }: Props) {
 
   useEffect(() => {
     if (!simOn) return;
-    void sendBrowserTelemetry(deviceId, fakeFrame());
-    timerRef.current = setInterval(() => {
-      void sendBrowserTelemetry(deviceId, fakeFrame());
-    }, INTERVAL_MS);
+    const step = () => {
+      const f = fakeFrame();
+      onLocalFrame?.(f);
+      void sendBrowserTelemetry(deviceId, f).catch(() => undefined);
+    };
+    step();
+    timerRef.current = setInterval(step, INTERVAL_MS);
     return () => {
       if (timerRef.current) clearInterval(timerRef.current);
     };
