@@ -66,7 +66,7 @@ async def list_public_events(
     return {
         "countries": sorted(countries_set),
         "mega_events": await serialize_mega_events(db, filtered_megas, published_only_counts=True),
-        "events": await serialize_website_events(db, filtered_events),
+        "events": await serialize_website_events(db, filtered_events, use_cache=True),
     }
 
 
@@ -104,7 +104,7 @@ async def resolve_public_event_or_mega(
         return {
             "kind": "mega_event",
             "mega_event": mega_serialized,
-            "events": await serialize_website_events(db, children),
+            "events": await serialize_website_events(db, children, use_cache=True),
         }
 
     ev = (
@@ -116,7 +116,7 @@ async def resolve_public_event_or_mega(
         )
     ).scalars().first()
     if ev is not None:
-        ev_serialized = (await serialize_website_events(db, [ev]))[0]
+        ev_serialized = (await serialize_website_events(db, [ev], use_cache=True))[0]
         parent_mega = None
         if ev.mega_event_id:
             pm = await db.get(MegaEvent, ev.mega_event_id)

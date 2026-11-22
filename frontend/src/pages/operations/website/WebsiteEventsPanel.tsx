@@ -27,10 +27,11 @@ import { UserProfileModal } from "@/components/UserProfileModal"
 import { apiBaseUrl } from "@/api/client"
 import { uploadWebsiteAsset } from "@/api/websiteConfig"
 import { OrgGrantsAndQuotasForm } from "@/components/organization/OrgGrantsAndQuotasForm"
+import { ProgramLandingSplitEditor } from "./components/ProgramLandingSplitEditor"
+import { SharePagePopover } from "./components/SharePagePopover"
 import {
   createAdminMegaEvent,
   createAdminOrganizationAccount,
-  createAdminWebsiteEvent,
   deleteAdminMegaEvent,
   deleteAdminOrganizationAccount,
   deleteAdminWebsiteEvent,
@@ -38,6 +39,7 @@ import {
   getAdminMegaEvents,
   getAdminOrganizationResetLink,
   getAdminWebsiteEvents,
+  regenerateAdminWebsiteEventToken,
   togglePublishWebsiteEvent,
   updateAdminMegaEvent,
   updateAdminOrganizationAccount,
@@ -152,7 +154,7 @@ function TextAreaField({
 
 export function getUploadedBannerUrl(url?: string | null): string | null {
   const clean = (url || "").trim()
-  if (!clean || clean === "/assets/img/The Mission.jpg") return null
+  if (!clean || clean === "/assets/img/default-event-hero.jpg") return null
   return clean
 }
 
@@ -222,12 +224,12 @@ export function EventBannerUploader({
   }
 
   return (
-    <div className="rounded-xl border border-border bg-background p-4 space-y-3">
+    <div className="rounded-[10px] border border-border bg-background p-4 space-y-3">
       <div className="flex items-start gap-4">
         <button
           type="button"
           onClick={() => fileInputRef.current?.click()}
-          className="group relative w-24 h-24 shrink-0 rounded-2xl bg-muted overflow-hidden ring-1 ring-border cursor-pointer"
+          className="group relative w-24 h-24 shrink-0 rounded-[10px] bg-muted overflow-hidden ring-1 ring-border cursor-pointer"
           title="Upload top banner image"
         >
           {effectiveUrl ? (
@@ -251,19 +253,16 @@ export function EventBannerUploader({
           onChange={handleFilePicked}
         />
 
-        <div className="flex flex-col gap-1 pt-0.5 flex-1 min-w-0">
+        <div className="flex flex-col gap-2 pt-0.5 flex-1 min-w-0">
           <div className="text-sm font-semibold text-foreground">
-            Event Page Top Banner (Optional)
-          </div>
-          <div className="text-xs text-muted-foreground">
-            Displayed full-width between the top navbar and the route breadcrumb (just like LMS checklists). If no banner is uploaded, nothing is shown.
+            Top Banner
           </div>
 
-          <div className="flex flex-wrap items-center gap-3 mt-1.5">
+          <div className="flex flex-wrap items-center gap-3">
             <button
               type="button"
               onClick={() => fileInputRef.current?.click()}
-              className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-card px-3 py-1.5 text-xs font-semibold text-foreground hover:bg-muted transition cursor-pointer"
+              className="inline-flex items-center gap-1.5 rounded-[10px] border border-border bg-card px-3 py-1.5 text-xs font-semibold text-foreground hover:bg-muted transition cursor-pointer"
             >
               <Upload size={12} />
               <span>{effectiveUrl ? "Replace Image" : "Upload Banner"}</span>
@@ -280,19 +279,19 @@ export function EventBannerUploader({
                   className="text-xs font-semibold text-primary hover:underline flex items-center gap-1 cursor-pointer"
                 >
                   <Crop size={12} />
-                  <span>Crop &amp; Preview Banner</span>
+                  <span>Crop &amp; Preview</span>
                 </button>
 
                 <button
                   type="button"
                   onClick={() => {
                     onChange(null)
-                    toast.success("Banner removed (click Save to apply)")
+                    toast.success("Banner removed")
                   }}
                   className="text-xs font-semibold text-destructive hover:underline flex items-center gap-1 cursor-pointer"
                 >
                   <Trash2 size={12} />
-                  <span>Remove Banner</span>
+                  <span>Remove</span>
                 </button>
               </>
             )}
@@ -301,7 +300,7 @@ export function EventBannerUploader({
       </div>
 
       {effectiveUrl && (
-        <div className="relative rounded-xl overflow-hidden border border-border bg-neutral-950">
+        <div className="relative rounded-[10px] overflow-hidden border border-border bg-neutral-950">
           <img src={effectiveUrl} alt="Event top banner preview" className="w-full h-auto max-h-44 object-cover block" />
         </div>
       )}
@@ -357,12 +356,12 @@ export function HeroBackgroundUploader({
   }
 
   return (
-    <div className="rounded-xl border border-border bg-background p-4 space-y-3">
+    <div className="rounded-[10px] border border-border bg-background p-4 space-y-3">
       <div className="flex items-start gap-4">
         <button
           type="button"
           onClick={() => fileInputRef.current?.click()}
-          className="group relative w-24 h-24 shrink-0 rounded-2xl bg-muted overflow-hidden ring-1 ring-border cursor-pointer"
+          className="group relative w-24 h-24 shrink-0 rounded-[10px] bg-muted overflow-hidden ring-1 ring-border cursor-pointer"
           title="Upload hero card background image"
         >
           {previewSrc ? (
@@ -386,35 +385,32 @@ export function HeroBackgroundUploader({
           onChange={handleFilePicked}
         />
 
-        <div className="flex flex-col gap-1 pt-0.5 flex-1 min-w-0">
+        <div className="flex flex-col gap-2 pt-0.5 flex-1 min-w-0">
           <div className="text-sm font-semibold text-foreground">
-            Hero Card Background Image (Inside Hero Box)
-          </div>
-          <div className="text-xs text-muted-foreground">
-            Displayed as a subtle 20%-opacity background inside the Hero card and on event directory cards.
+            Hero Card Background Image
           </div>
 
-          <div className="flex flex-wrap items-center gap-2.5 mt-1.5">
+          <div className="flex flex-wrap items-center gap-2.5">
             <button
               type="button"
               disabled={uploading}
               onClick={() => fileInputRef.current?.click()}
-              className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-card px-3 py-1.5 text-xs font-semibold text-foreground hover:bg-muted transition cursor-pointer"
+              className="inline-flex items-center gap-1.5 rounded-[10px] border border-border bg-card px-3 py-1.5 text-xs font-semibold text-foreground hover:bg-muted transition cursor-pointer"
             >
               <Upload size={12} />
               <span>{uploading ? "Uploading..." : cleanUrl ? "Upload Custom Image" : "Upload Image"}</span>
             </button>
 
-            {cleanUrl !== "/assets/img/The Mission.jpg" && (
+            {cleanUrl !== "/assets/img/default-event-hero.jpg" && (
               <button
                 type="button"
                 onClick={() => {
-                  onChange("/assets/img/The Mission.jpg")
-                  toast.success("Restored default Hero background (click Save to apply)")
+                  onChange("/assets/img/default-event-hero.jpg")
+                  toast.success("Default hero background restored")
                 }}
                 className="text-xs font-semibold text-primary hover:underline cursor-pointer"
               >
-                Use Default (The Mission.jpg)
+                Use Default
               </button>
             )}
 
@@ -423,23 +419,23 @@ export function HeroBackgroundUploader({
                 type="button"
                 onClick={() => {
                   onChange(null)
-                  toast.success("Hero background removed (click Save to apply)")
+                  toast.success("Hero background removed")
                 }}
                 className="text-xs font-semibold text-destructive hover:underline flex items-center gap-1 cursor-pointer"
               >
                 <Trash2 size={12} />
-                <span>Remove Background</span>
+                <span>Remove</span>
               </button>
             )}
           </div>
 
-          <div className="mt-2">
+          <div>
             <input
               type="text"
               value={cleanUrl || ""}
               onChange={(e) => onChange(e.target.value || null)}
-              placeholder="/assets/img/The Mission.jpg or uploaded image URL"
-              className={cn(inputCls, "h-8 text-xs")}
+              placeholder="/assets/img/default-event-hero.jpg"
+              className={cn(inputCls, "h-8 text-xs rounded-[10px]")}
             />
           </div>
         </div>
@@ -493,7 +489,7 @@ export function emptyEventDraft(defaults?: Partial<WebsiteEventInput>): WebsiteE
     title_ar: "",
     subtitle: "",
     tagline: "",
-    banner_url: "/assets/img/The Mission.jpg",
+    banner_url: "/assets/img/default-event-hero.jpg",
     top_banner_url: null,
     host_org_name: "",
     date_label: "",
@@ -1983,20 +1979,13 @@ export function WebsiteEventsPanel() {
   }
   const [orgForm, setOrgForm] = useState(defaultOrgForm)
 
-  const saveEventMut = useMutation({
-    mutationFn: (payload: WebsiteEventInput) =>
-      editingEvent
-        ? updateAdminWebsiteEvent(editingEvent.id, payload)
-        : createAdminWebsiteEvent(payload),
+  const regenEventTokenMut = useMutation({
+    mutationFn: (id: string) => regenerateAdminWebsiteEventToken(id),
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ["admin-website-events"] })
-      void qc.invalidateQueries({ queryKey: ["admin-website-mega-events"] })
-      void qc.invalidateQueries({ queryKey: ["admin-website-organizations"] })
-      setEditingEvent(null)
-      setCreatingEvent(false)
-      toast.success("Event saved")
+      toast.success("Preview link regenerated")
     },
-    onError: (err) => toast.error(getErrorMessage(err, "Failed to save event")),
+    onError: (err) => toast.error(getErrorMessage(err, "Could not regenerate link")),
   })
 
   const publishToggleMut = useMutation({
@@ -2118,20 +2107,27 @@ export function WebsiteEventsPanel() {
     )
   }
 
-  // 1. FULL-PAGE EVENT VIEW / EDITOR
+  // 1. FULL-PAGE SPLIT-SCREEN VISUAL BUILDER (Program-linked & Standalone Events)
   if (creatingEvent || editingEvent) {
+    const closeEditor = () => {
+      setCreatingEvent(false)
+      setEditingEvent(null)
+      void qc.invalidateQueries({ queryKey: ["admin-website-events"] })
+    }
+    if (editingEvent?.program_id) {
+      return <ProgramLandingSplitEditor programId={editingEvent.program_id} onBack={closeEditor} />
+    }
     return (
-      <EventEditorModal
-        onClose={() => {
-          setCreatingEvent(false)
-          setEditingEvent(null)
-        }}
-        initial={editingEvent ? editingEvent : emptyEventDraft()}
+      <ProgramLandingSplitEditor
+        standaloneEvent={editingEvent ?? "new"}
         megaEvents={megaEvents}
         organizations={organizations}
-        isAdmin={true}
-        saving={saveEventMut.isPending}
-        onSave={(payload) => saveEventMut.mutate(payload)}
+        onBack={closeEditor}
+        onCreated={(created) => {
+          setCreatingEvent(false)
+          setEditingEvent(created)
+          void qc.invalidateQueries({ queryKey: ["admin-website-events"] })
+        }}
       />
     )
   }
@@ -2703,12 +2699,21 @@ export function WebsiteEventsPanel() {
                       <>
                         <CheckCircle2 className="h-3.5 w-3.5" /> Published
                       </>
+                    ) : ev.submitted_for_review_at ? (
+                      <>
+                        <Clock className="h-3.5 w-3.5" /> Submitted for Review
+                      </>
                     ) : (
                       <>
-                        <Clock className="h-3.5 w-3.5" /> Pending / Draft
+                        <Clock className="h-3.5 w-3.5" /> Draft
                       </>
                     )}
                   </span>
+                  {ev.program_id && (
+                    <span className="rounded-full border border-emerald-500/30 bg-emerald-500/15 px-2.5 py-0.5 text-[11px] font-bold text-emerald-600 dark:text-emerald-400">
+                      Program-Linked
+                    </span>
+                  )}
                   <span className="rounded-full bg-muted px-2.5 py-0.5 text-xs font-semibold uppercase text-foreground">
                     /{ev.country}/{ev.slug}
                   </span>
@@ -2829,21 +2834,20 @@ export function WebsiteEventsPanel() {
                   )}
                 </button>
 
-                <a
-                  href={`${WEBSITE_BASE_URL}/events/${ev.country}/${ev.slug}`}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="inline-flex items-center gap-1 rounded-xl border border-border bg-background px-3.5 py-2 text-xs font-semibold text-foreground hover:bg-muted"
-                >
-                  <ExternalLink className="h-3.5 w-3.5" /> View
-                </a>
+                <SharePagePopover
+                  publicUrl={`${WEBSITE_BASE_URL}/events/${ev.country}/${ev.slug}`}
+                  previewToken={ev.preview_token}
+                  isPublished={ev.is_published}
+                  onRegenerate={() => regenEventTokenMut.mutate(ev.id)}
+                  regenerating={regenEventTokenMut.isPending}
+                />
 
                 <button
                   type="button"
                   onClick={() => setEditingEvent(ev)}
-                  className="inline-flex items-center gap-1 rounded-xl bg-primary/15 px-3.5 py-2 text-xs font-semibold text-primary hover:bg-primary/25 transition"
+                  className="inline-flex items-center gap-1 rounded-[10px] bg-primary/15 px-3.5 py-2 text-xs font-semibold text-primary hover:bg-primary/25 transition cursor-pointer"
                 >
-                  <Pencil className="h-3.5 w-3.5" /> Open Event
+                  <Pencil className="h-3.5 w-3.5" /> Visual Editor
                 </button>
 
                 <button

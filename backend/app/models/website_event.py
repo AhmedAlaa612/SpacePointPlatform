@@ -111,6 +111,12 @@ class WebsiteEvent(Base):
         nullable=True,
         index=True,
     )
+    program_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("programs.id", ondelete="CASCADE"),
+        nullable=True,
+        index=True,
+    )
     created_by_user_id = Column(
         UUID(as_uuid=True),
         ForeignKey("users.id", ondelete="SET NULL"),
@@ -193,6 +199,14 @@ class WebsiteEvent(Base):
 
     default_language = Column(String(8), nullable=False, default="en", server_default="en")
     ar_content = Column(JSONB, nullable=False, default=dict, server_default="{}")
+
+    # Hybrid-live Program Landing Page fields
+    live_linked = Column(Boolean, nullable=False, default=False, server_default="false")
+    overrides = Column(JSONB, nullable=False, default=dict, server_default="{}")
+    hidden_cohort_ids = Column(JSONB, nullable=False, default=list, server_default="[]")
+    hidden_sections = Column(JSONB, nullable=False, default=list, server_default="[]")
+    preview_token = Column(String(64), nullable=True, unique=True, index=True)
+    submitted_for_review_at = Column(DateTime(timezone=True), nullable=True)
 
     display_order = Column(Integer, nullable=False, default=0)
     is_published = Column(Boolean, nullable=False, default=False)

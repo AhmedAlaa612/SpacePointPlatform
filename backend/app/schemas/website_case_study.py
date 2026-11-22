@@ -1,4 +1,5 @@
 from datetime import datetime
+from typing import Any
 from uuid import UUID
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -148,6 +149,9 @@ class WebsiteCaseStudyUpdate(BaseModel):
     display_order: int | None = None
     is_featured: bool | None = None
     is_published: bool | None = None
+    live_linked: bool | None = None
+    overrides: dict[str, Any] | None = None
+    hidden_sections: list[str] | None = None
 
 
 class WebsiteCaseStudyOut(WebsiteCaseStudyBase):
@@ -155,8 +159,24 @@ class WebsiteCaseStudyOut(WebsiteCaseStudyBase):
 
     id: UUID
     slug: str
+    live_linked: bool = False
+    overrides: dict[str, Any] = Field(default_factory=dict)
+    hidden_sections: list[str] = Field(default_factory=list)
+    preview_token: str | None = None
+    field_states: dict[str, Any] | None = None
     created_at: datetime
     updated_at: datetime
+
+
+class CreateCaseStudyFromProgramIn(BaseModel):
+    program_id: UUID
+    cohort_ids: list[UUID] = Field(default_factory=list)
+    title: str | None = None
+    include_buckets: list[str] | None = None
+
+
+class ResetFieldIn(BaseModel):
+    field: str
 
 
 class CaseStudySnapshotRequest(BaseModel):

@@ -1,4 +1,5 @@
 from datetime import datetime, timezone
+import secrets
 from typing import Any
 from uuid import UUID
 
@@ -84,6 +85,7 @@ from app.services.website_events import (
     unique_mega_event_slug,
     unique_website_event_slug,
 )
+from app.services.program_web_live import invalidate_program_web_cache
 
 router = APIRouter(prefix="/website", tags=["admin-website-events"])
 
@@ -191,7 +193,12 @@ async def admin_create_website_event(
         org = await db.get(Organization, data["organization_id"])
         if org:
             data["host_org_name"] = org.name_latin
-    row = WebsiteEvent(**data, slug=slug, created_by_user_id=current_user.id)
+    row = WebsiteEvent(
+        **data,
+        slug=slug,
+        preview_token=secrets.token_urlsafe(24),
+        created_by_user_id=current_user.id,
+    )
     db.add(row)
     await db.commit()
     await db.refresh(row)
@@ -219,6 +226,26 @@ async def admin_update_website_event(
             updates["host_org_name"] = org.name_latin
     for k, v in updates.items():
         setattr(row, k, v)
+    if not row.preview_token:
+        row.preview_token = secrets.token_urlsafe(24)
+    row.updated_at = datetime.now(timezone.utc)
+    await db.commit()
+    await db.refresh(row)
+    if row.program_id:
+        invalidate_program_web_cache(row.program_id)
+    return (await serialize_website_events(db, [row]))[0]
+
+
+@router.post("/events/{event_id}/preview-token/regenerate", response_model=WebsiteEventOut)
+async def admin_regenerate_event_preview_token(
+    event_id: UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_website_admin),
+):
+    row = await db.get(WebsiteEvent, event_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="Event not found")
+    row.preview_token = secrets.token_urlsafe(24)
     row.updated_at = datetime.now(timezone.utc)
     await db.commit()
     await db.refresh(row)
@@ -239,6 +266,8 @@ async def admin_toggle_publish_event(
     row.updated_at = datetime.now(timezone.utc)
     await db.commit()
     await db.refresh(row)
+    if row.program_id:
+        invalidate_program_web_cache(row.program_id)
     return (await serialize_website_events(db, [row]))[0]
 
 
@@ -251,8 +280,11 @@ async def admin_delete_website_event(
     row = await db.get(WebsiteEvent, event_id)
     if row is None:
         raise HTTPException(status_code=404, detail="Event not found")
+    prog_id = row.program_id
     await db.delete(row)
     await db.commit()
+    if prog_id:
+        invalidate_program_web_cache(prog_id)
     return None
 
 
@@ -572,6 +604,7 @@ async def _serialize_org_summaries(db: AsyncSession, orgs: list[Organization]) -
                 "allowed_readiness_preset_ids": allowed_readiness,
                 "program_scope": prog_scope,
                 "allowed_program_ids": allowed_programs,
+                "program_page_access": (getattr(o, "program_page_access", None) or "disabled").strip().lower(),
                 "max_events": o.max_events,
                 "max_programs": o.max_programs,
                 "max_cohorts": o.max_cohorts,
@@ -1330,6 +1363,9 @@ async def admin_create_organization_account(
     prog_scope = (body.program_scope or "own").strip().lower()
     if prog_scope not in ("own", "selected", "all"):
         raise HTTPException(status_code=422, detail="Invalid program_scope; must be own, selected, or all")
+    prog_page_access = (body.program_page_access or "disabled").strip().lower()
+    if prog_page_access not in ("disabled", "review", "direct"):
+        raise HTTPException(status_code=422, detail="Invalid program_page_access; must be disabled, review, or direct")
 
     org = Organization(
         name_latin=body.org_name_latin.strip(),
@@ -1351,6 +1387,7 @@ async def admin_create_organization_account(
         allowed_readiness_preset_ids=body.allowed_readiness_preset_ids,
         program_scope=prog_scope,
         allowed_program_ids=list(body.allowed_program_ids or []),
+        program_page_access=prog_page_access,
         max_events=body.max_events,
         max_programs=body.max_programs,
         max_cohorts=body.max_cohorts,
@@ -1435,6 +1472,11 @@ async def admin_update_organization_account(
         org.program_scope = prog_scope
     if payload.allowed_program_ids is not None:
         org.allowed_program_ids = payload.allowed_program_ids
+    if payload.program_page_access is not None and payload.program_page_access.strip():
+        ppa = payload.program_page_access.strip().lower()
+        if ppa not in ("disabled", "review", "direct"):
+            raise HTTPException(status_code=422, detail="Invalid program_page_access; must be disabled, review, or direct")
+        org.program_page_access = ppa
     if "max_events" in body:
         org.max_events = payload.max_events
     if "max_programs" in body:

@@ -26,6 +26,7 @@ from app.routers.public_people import router as public_people_router
 from app.routers.public_labs import router as public_labs_router
 from app.routers.public_shop import router as public_shop_router
 from app.routers.public_events import router as public_events_router
+from app.routers.program_web_pages import router as program_web_pages_router
 from app.routers.public_case_studies import router as public_case_studies_router
 from app.routers.public_policies import router as public_policies_router
 from app.routers.organization_events import router as organization_events_router
@@ -274,6 +275,7 @@ app.include_router(public_people_router)  # public: /public/team, /ambassadors, 
 app.include_router(public_labs_router)  # public: /public/labs/projects (Step 7)
 app.include_router(public_shop_router)  # public: /public/shop/* (Step 7 — products, checkout, webhook)
 app.include_router(public_events_router)  # public: /public/website/events/* (Step 8 — events & mega-events)
+app.include_router(program_web_pages_router)  # program landing pages (WebsiteEvent hybrid-live)
 app.include_router(public_case_studies_router)  # public: /public/website/case-studies/* (Case Studies & Missions)
 app.include_router(public_policies_router)  # public: /public/website/policies/* (Policies & Legal Documents)
 app.include_router(organization_events_router)  # organization self-service: /organization/* (Step 8)

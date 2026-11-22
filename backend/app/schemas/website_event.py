@@ -207,12 +207,29 @@ class WebsiteEventUpdate(BaseModel):
     default_language: str | None = None
     ar_content: dict[str, Any] | None = None
 
+    live_linked: bool | None = None
+    overrides: dict[str, Any] | None = None
+    hidden_cohort_ids: list[str] | None = None
+    hidden_sections: list[str] | None = None
+
     display_order: int | None = None
     is_published: bool | None = None
 
 
 class WebsiteEventOut(WebsiteEventBase):
     id: UUID
+    program_id: UUID | None = None
+    live_linked: bool = False
+    overrides: dict[str, Any] = Field(default_factory=dict)
+    hidden_cohort_ids: list[str] = Field(default_factory=list)
+    hidden_sections: list[str] = Field(default_factory=list)
+    preview_token: str | None = None
+    submitted_for_review_at: datetime | None = None
+    steps: list[dict[str, Any]] = Field(default_factory=list)
+    curriculum_chapters: list[dict[str, Any]] = Field(default_factory=list)
+    live_steps: list[dict[str, Any]] | None = None
+    field_states: dict[str, Any] | None = None
+    org_access: str | None = None
     mega_event_slug: str | None = None
     mega_event_title: str | None = None
     organization_name: str | None = None
@@ -248,6 +265,7 @@ class OrganizationAccountCreateIn(BaseModel):
     allowed_readiness_preset_ids: list[str] = Field(default_factory=list)
     program_scope: str = "own"
     allowed_program_ids: list[str] = Field(default_factory=list)
+    program_page_access: str = "disabled"
     max_events: int | None = None
     max_programs: int | None = None
     max_cohorts: int | None = None
@@ -279,6 +297,7 @@ class OrganizationAccountUpdateIn(BaseModel):
     allowed_readiness_preset_ids: list[str] | None = None
     program_scope: str | None = None
     allowed_program_ids: list[str] | None = None
+    program_page_access: str | None = None
     max_events: int | None = None
     max_programs: int | None = None
     max_cohorts: int | None = None
@@ -334,6 +353,7 @@ class OrganizationSummaryOut(BaseModel):
     allowed_readiness_preset_ids: list[str] = Field(default_factory=list)
     program_scope: str = "own"
     allowed_program_ids: list[str] = Field(default_factory=list)
+    program_page_access: str = "disabled"
     max_events: int | None = None
     max_programs: int | None = None
     max_cohorts: int | None = None

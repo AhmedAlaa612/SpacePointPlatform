@@ -136,6 +136,12 @@ class WebsiteCaseStudy(Base):
     cta_label = Column(String(255), nullable=True)
     cta_url = Column(String(512), nullable=True)
 
+    # Hybrid-live Program/Cohort linkage
+    live_linked = Column(Boolean, nullable=False, default=False, server_default="false")
+    overrides = Column(JSONB, nullable=False, default=dict, server_default="{}")
+    hidden_sections = Column(JSONB, nullable=False, default=list, server_default="[]")
+    preview_token = Column(String(64), nullable=True, unique=True, index=True)
+
     # Controls
     display_order = Column(Integer, nullable=False, default=0)
     is_featured = Column(Boolean, nullable=False, default=False, server_default="false")

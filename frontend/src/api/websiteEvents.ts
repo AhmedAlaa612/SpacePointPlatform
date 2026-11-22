@@ -179,6 +179,13 @@ export interface WebsiteEvent {
   is_published: boolean
   default_language?: string
   ar_content?: Record<string, any>
+  program_id?: string | null
+  live_linked?: boolean
+  overrides?: Record<string, any>
+  hidden_cohort_ids?: string[]
+  hidden_sections?: string[]
+  preview_token?: string | null
+  submitted_for_review_at?: string | null
   created_at: string
   updated_at: string
 }
@@ -245,6 +252,7 @@ export interface OrganizationAccountSummary {
   allowed_readiness_preset_ids?: string[]
   program_scope?: string
   allowed_program_ids?: string[]
+  program_page_access?: "disabled" | "review" | "direct" | string
   max_events?: number | null
   max_programs?: number | null
   max_cohorts?: number | null
@@ -420,6 +428,7 @@ export interface OrganizationAccountCreatePayload {
   allowed_readiness_preset_ids?: string[]
   program_scope?: string
   allowed_program_ids?: string[]
+  program_page_access?: "disabled" | "review" | "direct" | string
   max_events?: number | null
   max_programs?: number | null
   max_cohorts?: number | null
@@ -449,6 +458,7 @@ export interface OrganizationAccountUpdatePayload {
   allowed_readiness_preset_ids?: string[]
   program_scope?: string
   allowed_program_ids?: string[]
+  program_page_access?: "disabled" | "review" | "direct" | string
   max_events?: number | null
   max_programs?: number | null
   max_cohorts?: number | null
@@ -524,6 +534,9 @@ export const updateAdminWebsiteEvent = (id: string, payload: Partial<WebsiteEven
 
 export const togglePublishWebsiteEvent = (id: string, is_published: boolean) =>
   api.post<WebsiteEvent>(`/admin/website/events/${id}/publish`, { is_published }).then((r) => r.data)
+
+export const regenerateAdminWebsiteEventToken = (id: string) =>
+  api.post<WebsiteEvent>(`/admin/website/events/${id}/preview-token/regenerate`).then((r) => r.data)
 
 export const deleteAdminWebsiteEvent = (id: string) =>
   api.delete(`/admin/website/events/${id}`)

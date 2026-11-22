@@ -100,6 +100,8 @@ export interface WebsiteCaseStudy {
   display_order: number
   is_featured: boolean
   is_published: boolean
+  preview_token?: string | null
+  hidden_sections?: string[]
   created_at: string
   updated_at: string
 }

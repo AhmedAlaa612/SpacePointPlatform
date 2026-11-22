@@ -38,6 +38,8 @@ import { MaterialsPanel } from "@/pages/admin/components/MaterialsPanel"
 import { ProgramCertificateStudioModal } from "@/pages/admin/components/ProgramCertificateStudioModal"
 import { ProgramLmsSection } from "@/pages/admin/components/ProgramLmsSection"
 import { ProgramVariationBar } from "@/pages/admin/components/ProgramVariationBar"
+import { ProgramLandingSplitEditor } from "@/pages/operations/website/components/ProgramLandingSplitEditor"
+import { ProgramCaseStudiesPanel } from "@/pages/operations/website/components/ProgramCaseStudiesPanel"
 import { CohortModal } from "@/pages/admin/Cohorts"
 import { OrgCohortModal } from "@/components/organization/OrgCohortModal"
 import { getOrgProgramsOverviewApi } from "@/api/organizationPrograms"
@@ -65,8 +67,10 @@ type ProgramTab =
   | "instructors"
   | "lms"
   | "certificates"
+  | "landing-page"
+  | "case-studies"
 
-const TABS: { key: ProgramTab; label: string }[] = [
+const BASE_TABS: { key: ProgramTab; label: string }[] = [
   { key: "cohorts", label: "Cohorts & Materials" },
   { key: "instructors", label: "Instructors" },
   { key: "lms", label: "LMS Authoring" },
@@ -105,7 +109,15 @@ export default function ProgramDetail() {
   const isPartnerUser = activeRole === "organization"
   const isOrgObserver = isPartnerUser && activeOrgRole === "observer"
 
-  const [activeTab, setActiveTab] = useState<ProgramTab>("cohorts")
+  const [activeTab, setActiveTab] = useState<ProgramTab>(() => {
+    if (typeof window !== "undefined") {
+      const t = new URLSearchParams(window.location.search).get("tab")
+      if (t === "landing-page" || t === "case-studies" || t === "instructors" || t === "lms" || t === "certificates") {
+        return t
+      }
+    }
+    return "cohorts"
+  })
   const [instructorSub, setInstructorSub] = useState<InstructorSubTab>("roles")
   const [editingCohort, setEditingCohort] = useState<Cohort | null>(null)
   const [addCohortOpen, setAddCohortOpen] = useState(false)
@@ -351,7 +363,17 @@ export default function ProgramDetail() {
             className="flex items-center gap-1 border-b border-white/15 overflow-x-auto scrollbar-none no-scrollbar"
             role="tablist"
           >
-            {TABS.map((t) => (
+            {[
+              ...BASE_TABS,
+              ...(!isPartnerUser ||
+              (isOrgOwnedProgram &&
+                (orgOverview?.organization.program_page_access ?? "disabled") !== "disabled")
+                ? [{ key: "landing-page" as ProgramTab, label: "Landing Page" }]
+                : []),
+              ...(!isPartnerUser
+                ? [{ key: "case-studies" as ProgramTab, label: "Case Studies" }]
+                : []),
+            ].map((t) => (
               <button
                 key={t.key}
                 type="button"
@@ -617,6 +639,19 @@ export default function ProgramDetail() {
             queryClient.invalidateQueries({ queryKey: ["sessions-program", programId] })
           }}
         />
+      )}
+
+      {/* ── TAB 5: EVENT LANDING PAGE (1:1 SPLIT-SCREEN) ───────────── */}
+      {activeTab === "landing-page" &&
+        (!isPartnerUser ||
+          (isOrgOwnedProgram &&
+            (orgOverview?.organization.program_page_access ?? "disabled") !== "disabled")) && (
+          <ProgramLandingSplitEditor programId={program.id} readOnly={isOrgObserver} />
+        )}
+
+      {/* ── TAB 6: CASE STUDIES (OPS ONLY, MULTI-COHORT) ───────────── */}
+      {activeTab === "case-studies" && !isPartnerUser && (
+        <ProgramCaseStudiesPanel programId={program.id} programName={program.name} />
       )}
 
       {/* ── MODALS ─────────────────────────────────────────────────── */}

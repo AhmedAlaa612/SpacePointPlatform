@@ -664,6 +664,7 @@ async def get_organization_programs_overview(
             "allowed_course_ids": org.allowed_course_ids or [],
             "program_scope": scope,
             "allowed_program_ids": [str(pid) for pid in (org.allowed_program_ids or [])],
+            "program_page_access": (getattr(org, "program_page_access", None) or "disabled").strip().lower(),
             "max_events": org.max_events,
             "max_programs": org.max_programs,
             "max_cohorts": org.max_cohorts,

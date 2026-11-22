@@ -21,6 +21,7 @@ export interface OrgGrantsAndQuotasData {
   allowed_readiness_preset_ids?: string[]
   program_scope?: "all" | "selected" | "own"
   allowed_program_ids?: string[]
+  program_page_access?: "disabled" | "review" | "direct"
   max_events: number | null
   max_programs: number | null
   max_cohorts: number | null
@@ -218,6 +219,43 @@ export function OrgGrantsAndQuotasForm({
               </span>
             </div>
           </label>
+        </div>
+
+        {/* Program Landing Pages 3-state access */}
+        <div className="pt-2 border-t border-border/60 flex flex-col gap-2">
+          <div className="flex items-center gap-2">
+            <Globe className="w-4 h-4 text-primary" />
+            <span className="text-xs font-semibold text-foreground">Program Landing Pages Access</span>
+          </div>
+          <p className="text-[11px] text-muted-foreground">
+            Controls whether this organization can configure and publish public event landing pages for their own programs.
+          </p>
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+            {(
+              [
+                { key: "disabled", label: "Disabled", desc: "Ops-only; hidden from partner" },
+                { key: "review", label: "Submit for Review", desc: "Partner drafts & submits; Ops approves" },
+                { key: "direct", label: "Publish Directly", desc: "Partner can publish & unpublish live" },
+              ] as const
+            ).map((opt) => {
+              const active = (data.program_page_access ?? "disabled") === opt.key
+              return (
+                <button
+                  key={opt.key}
+                  type="button"
+                  onClick={() => onChange({ ...data, program_page_access: opt.key })}
+                  className={`p-2.5 rounded-xl border text-left transition cursor-pointer ${
+                    active
+                      ? "border-primary bg-primary/10"
+                      : "border-border bg-background hover:bg-muted/40"
+                  }`}
+                >
+                  <span className="text-xs font-bold text-foreground block">{opt.label}</span>
+                  <span className="text-[10px] text-muted-foreground block mt-0.5">{opt.desc}</span>
+                </button>
+              )
+            })}
+          </div>
         </div>
 
         {/* SpacePoint Catalog Course Sharing */}

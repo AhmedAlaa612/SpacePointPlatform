@@ -856,9 +856,17 @@ async def serialize_mega_events(
     return out
 
 
-async def serialize_website_events(db: AsyncSession, rows: list[WebsiteEvent]) -> list[dict]:
+async def serialize_website_events(
+    db: AsyncSession,
+    rows: list[WebsiteEvent],
+    *,
+    include_admin_meta: bool = False,
+    use_cache: bool = False,
+) -> list[dict]:
     if not rows:
         return []
+    from app.services.program_web_live import apply_event_live_merge, resolve_program_event_live
+
     mega_ids = {r.mega_event_id for r in rows if r.mega_event_id}
     org_ids = {r.organization_id for r in rows if r.organization_id}
 
@@ -880,5 +888,18 @@ async def serialize_website_events(db: AsyncSession, rows: list[WebsiteEvent]) -
         d["mega_event_slug"] = mega.slug if mega else None
         d["mega_event_title"] = mega.title if mega else None
         d["organization_name"] = org.name_latin if org else r.host_org_name
-        out.append(d)
+
+        live = None
+        if r.live_linked and r.program_id:
+            live = await resolve_program_event_live(db, r.program_id, use_cache=use_cache)
+        merged = apply_event_live_merge(
+            d,
+            live=live,
+            live_linked=bool(r.live_linked),
+            overrides=r.overrides,
+            hidden_cohort_ids=r.hidden_cohort_ids,
+            hidden_sections=r.hidden_sections,
+            include_admin_meta=include_admin_meta,
+        )
+        out.append(merged)
     return out

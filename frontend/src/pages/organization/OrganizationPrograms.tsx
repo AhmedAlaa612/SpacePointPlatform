@@ -13,8 +13,6 @@ import {
   ExternalLink,
   Globe,
   Layers,
-  LayoutGrid,
-  List,
   MapPin,
   Pencil,
   Plus,

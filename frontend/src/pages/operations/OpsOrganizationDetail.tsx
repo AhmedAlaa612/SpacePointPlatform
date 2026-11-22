@@ -79,12 +79,6 @@ function formatShortDate(iso?: string | null): string {
   })
 }
 
-function formatDateRange(startsOn?: string | null, endsOn?: string | null): string {
-  if (!startsOn && !endsOn) return "Dates TBD"
-  if (startsOn && endsOn) return `${formatShortDate(startsOn)} to ${formatShortDate(endsOn)}`
-  return startsOn ? `Starts ${formatShortDate(startsOn)}` : `Ends ${formatShortDate(endsOn)}`
-}
-
 export default function OpsOrganizationDetail() {
   const { orgId } = useParams({ strict: false }) as { orgId: string }
   const navigate = useNavigate()
@@ -576,6 +570,14 @@ export default function OpsOrganizationDetail() {
               : org.program_scope === "selected"
                 ? `${detail.shared_programs?.length ?? (org.allowed_program_ids ?? []).length} Selected`
                 : "Org Programs Only"}
+          </span>
+          <span className="rounded-[10px] border border-primary/25 bg-primary/10 px-2.5 py-1 text-xs font-semibold text-primary">
+            Program Pages:{" "}
+            {org.program_page_access === "direct"
+              ? "Publish Directly"
+              : org.program_page_access === "review"
+                ? "Submit for Review"
+                : "Disabled"}
           </span>
         </div>
       </div>

@@ -83,6 +83,7 @@ export interface OrgProgramsOverview {
     allowed_course_ids: string[]
     program_scope?: string
     allowed_program_ids?: string[]
+    program_page_access?: "disabled" | "review" | "direct" | string
     max_events: number | null
     max_programs: number | null
     max_cohorts: number | null

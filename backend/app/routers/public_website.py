@@ -10,7 +10,7 @@ import re
 import uuid
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile
+from fastapi import APIRouter, Depends, File, HTTPException, Request, Response, UploadFile
 from fastapi.responses import FileResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -172,4 +172,67 @@ async def serve_website_upload(filename: str):
             "Cache-Control": "public, max-age=31536000, immutable",
         },
     )
+
+
+@router.get("/preview/{token}")
+async def get_public_preview_by_token(
+    token: str,
+    response: Response,
+    db: AsyncSession = Depends(get_db),
+):
+    """Private shareable preview endpoint for draft or published Event Landing Pages
+    and Case Studies. Always sets `X-Robots-Tag: noindex, nofollow`."""
+    from app.models.website_case_study import WebsiteCaseStudy
+    from app.models.website_event import WebsiteEvent
+    from app.services.program_web_live import apply_case_study_live_merge, resolve_case_study_live
+    from app.services.website_events import serialize_website_events
+
+    clean = (token or "").strip()
+    if not clean:
+        raise HTTPException(status_code=404, detail="Preview link not found")
+
+    response.headers["X-Robots-Tag"] = "noindex, nofollow"
+    response.headers["Cache-Control"] = "no-store"
+
+    ev = (
+        await db.execute(select(WebsiteEvent).where(WebsiteEvent.preview_token == clean))
+    ).scalars().first()
+    if ev is not None:
+        ev_data = (await serialize_website_events(db, [ev], include_admin_meta=False, use_cache=False))[0]
+        return {
+            "kind": "event",
+            "is_published": bool(ev.is_published),
+            "data": ev_data,
+        }
+
+    cs = (
+        await db.execute(select(WebsiteCaseStudy).where(WebsiteCaseStudy.preview_token == clean))
+    ).scalars().first()
+    if cs is not None:
+        d = {c.name: getattr(cs, c.name) for c in cs.__table__.columns}
+        if cs.live_linked:
+            live = await resolve_case_study_live(
+                db,
+                source_type=cs.source_type,
+                program_id=cs.program_id,
+                cohort_id=cs.cohort_id,
+                cohort_ids=cs.cohort_ids,
+                use_cache=False,
+            )
+            d = apply_case_study_live_merge(
+                d,
+                live=live,
+                live_linked=True,
+                overrides=cs.overrides,
+                hidden_sections=cs.hidden_sections,
+                include_admin_meta=False,
+            )
+        return {
+            "kind": "case_study",
+            "is_published": bool(cs.is_published),
+            "data": d,
+        }
+
+    raise HTTPException(status_code=404, detail="Preview link not found or revoked")
+
 
