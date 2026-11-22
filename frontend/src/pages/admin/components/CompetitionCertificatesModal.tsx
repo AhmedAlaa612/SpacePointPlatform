@@ -33,6 +33,7 @@ interface CompetitionCertificatesModalProps {
   open?: boolean
   onClose?: () => void
   embedded?: boolean
+  readOnly?: boolean
 }
 
 type ViewMode = "students" | "teams"
@@ -44,6 +45,7 @@ export function CompetitionCertificatesModal({
   open = true,
   onClose = () => { },
   embedded = false,
+  readOnly = false,
 }: CompetitionCertificatesModalProps) {
   const toast = useToast()
   const queryClient = useQueryClient()
@@ -427,6 +429,7 @@ export function CompetitionCertificatesModal({
 
   const body = (
     <div className="space-y-4">
+      {!readOnly && (
       <div className="bg-card border border-border rounded-[10px] p-4 space-y-3">
         <div className="flex flex-wrap items-center justify-between gap-3 pb-2 border-b border-border">
           <div className="flex flex-wrap items-center gap-3">
@@ -571,6 +574,7 @@ export function CompetitionCertificatesModal({
           )}
         </div>
       </div>
+      )}
 
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="inline-flex rounded-[10px] border border-border overflow-hidden text-sm">
@@ -668,6 +672,7 @@ export function CompetitionCertificatesModal({
         </div>
       )}
 
+      {!readOnly && (
       <div className="flex flex-wrap items-center gap-2 text-xs">
         <span className="text-muted-foreground font-medium">Quick select:</span>
         {(view === "students"
@@ -710,6 +715,7 @@ export function CompetitionCertificatesModal({
           </button>
         )}
       </div>
+      )}
 
       <div className="bg-card border border-border rounded-[10px] overflow-x-auto">
         {isLoading ? (
@@ -721,6 +727,7 @@ export function CompetitionCertificatesModal({
           <table className="w-full text-sm">
             <thead className="text-xs text-muted-foreground bg-background border-b border-border">
               <tr>
+                {!readOnly && (
                 <th className="p-3 w-8">
                   <input
                     type="checkbox"
@@ -736,6 +743,7 @@ export function CompetitionCertificatesModal({
                     className="accent-primary"
                   />
                 </th>
+                )}
                 <th className="p-3 text-left">Student</th>
                 <th className="p-3 text-left">Team</th>
                 <th className="p-3 text-left">Progress</th>
@@ -754,6 +762,7 @@ export function CompetitionCertificatesModal({
                     key={r.registration_id}
                     className={`border-t border-border ${primaryIssued && skipAlreadyIssued ? "opacity-65" : ""}`}
                   >
+                    {!readOnly && (
                     <td className="p-3">
                       <input
                         type="checkbox"
@@ -762,6 +771,7 @@ export function CompetitionCertificatesModal({
                         className="accent-primary"
                       />
                     </td>
+                    )}
                     <td className="p-3">
                       <div className="font-medium text-foreground">{r.student_name}</div>
                       {r.email && <div className="text-xs text-muted-foreground">{r.email}</div>}
@@ -807,7 +817,7 @@ export function CompetitionCertificatesModal({
               })}
               {filteredStudents.length === 0 && (
                 <tr>
-                  <td colSpan={6} className="p-6 text-center text-sm text-muted-foreground">
+                  <td colSpan={readOnly ? 5 : 6} className="p-6 text-center text-sm text-muted-foreground">
                     No matching students
                   </td>
                 </tr>
@@ -818,6 +828,7 @@ export function CompetitionCertificatesModal({
           <table className="w-full text-sm">
             <thead className="text-xs text-muted-foreground bg-background border-b border-border">
               <tr>
+                {!readOnly && (
                 <th className="p-3 w-8">
                   <input
                     type="checkbox"
@@ -833,6 +844,7 @@ export function CompetitionCertificatesModal({
                     className="accent-primary"
                   />
                 </th>
+                )}
                 <th className="p-3 text-left">Rank</th>
                 <th className="p-3 text-left">Team</th>
                 <th className="p-3 text-left">Members</th>
@@ -852,6 +864,7 @@ export function CompetitionCertificatesModal({
                     key={t.team_id}
                     className={`border-t border-border ${primaryIssued && skipAlreadyIssued ? "opacity-65" : ""}`}
                   >
+                    {!readOnly && (
                     <td className="p-3">
                       <input
                         type="checkbox"
@@ -860,6 +873,7 @@ export function CompetitionCertificatesModal({
                         className="accent-primary"
                       />
                     </td>
+                    )}
                     <td className="p-3 font-medium">{t.rank != null ? t.rank : "—"}</td>
                     <td className="p-3 font-medium text-foreground">{t.team_name}</td>
                     <td className="p-3 text-foreground">{t.member_count}</td>
@@ -894,7 +908,7 @@ export function CompetitionCertificatesModal({
               })}
               {filteredTeams.length === 0 && (
                 <tr>
-                  <td colSpan={7} className="p-6 text-center text-sm text-muted-foreground">
+                  <td colSpan={readOnly ? 6 : 7} className="p-6 text-center text-sm text-muted-foreground">
                     No matching teams
                   </td>
                 </tr>
@@ -904,6 +918,7 @@ export function CompetitionCertificatesModal({
         )}
       </div>
 
+      {!readOnly && (
       <div className="bg-card border border-border rounded-[10px] p-4 space-y-3">
         <div className="flex flex-wrap items-center gap-6">
           <label className="inline-flex items-center gap-2.5 text-sm font-medium text-foreground cursor-pointer">
@@ -985,6 +1000,7 @@ export function CompetitionCertificatesModal({
           </button>
         </div>
       </div>
+      )}
 
       <CertificateEmailTemplatesModal
         open={emailModalOpen}

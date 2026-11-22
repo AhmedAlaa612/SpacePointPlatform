@@ -30,7 +30,17 @@ function sizes(large: boolean) {
   }
 }
 
-export function SessionOpeningsPanel({ sessionId, large = false }: { sessionId: string; large?: boolean }) {
+export function SessionOpeningsPanel({
+  sessionId,
+  large = false,
+  readOnly = false,
+  showRates = true,
+}: {
+  sessionId: string
+  large?: boolean
+  readOnly?: boolean
+  showRates?: boolean
+}) {
   const t = sizes(large)
   const qc = useQueryClient()
   const toast = useToast()
@@ -95,9 +105,10 @@ export function SessionOpeningsPanel({ sessionId, large = false }: { sessionId: 
           <InheritedBadge overridden={!inherited && openings.length > 0} />
         </div>
         <p className={t.desc}>
-          Which roles this session needs and how many slots — pay follows the cohort's Roles tab, not set
-          here. Slots left is worked out from who&apos;s assigned.
-          {inherited && " Saving customizes just this session — the cohort default stays as-is for the others."}
+          {showRates
+            ? "Which roles this session needs and how many slots — pay follows the cohort's Roles tab, not set here. Slots left is worked out from who's assigned."
+            : "Which roles this session needs and how many slots. Slots left is worked out from who's assigned."}
+          {!readOnly && inherited && " Saving customizes just this session — the cohort default stays as-is for the others."}
         </p>
       </div>
 
@@ -112,31 +123,36 @@ export function SessionOpeningsPanel({ sessionId, large = false }: { sessionId: 
                 <span className={t.fieldLabel}>Slots</span>
                 <input
                   type="number" min={1} value={d.slots}
+                  disabled={readOnly}
                   onChange={(e) => setDraft(rows.map((x, j) =>
                     j === i ? { ...x, slots: Math.max(1, Number(e.target.value) || 1) } : x))}
-                  className={t.slotsInput}
+                  className={cn(t.slotsInput, readOnly && "opacity-60")}
                 />
               </label>
               <label className="flex-1 min-w-[8rem] flex flex-col gap-1">
                 <span className={t.fieldLabel}>Notes</span>
                 <input
-                  placeholder="Optional" value={d.notes}
+                  placeholder={readOnly ? "—" : "Optional"} value={d.notes}
+                  disabled={readOnly}
                   onChange={(e) => setDraft(rows.map((x, j) =>
                     j === i ? { ...x, notes: e.target.value } : x))}
-                  className={t.notesInput}
+                  className={cn(t.notesInput, readOnly && "opacity-60")}
                 />
               </label>
               {live && (
                 <span className={t.liveInfo}>
-                  {live.amount_aed != null && <span>AED {Number(live.amount_aed).toLocaleString()}</span>}
+                  {showRates && live.amount_aed != null && <span>AED {Number(live.amount_aed).toLocaleString()}</span>}
                   <span>{live.filled}/{live.slots} filled</span>
                 </span>
               )}
-              <button
-                onClick={() => setDraft(rows.filter((_, j) => j !== i))}
-                className={cn("text-muted-foreground hover:text-red-600 transition-colors", large ? "p-2 h-12" : "p-1 h-9")}
-                aria-label="Remove opening"
-              ><Trash2 size={large ? 18 : 14} /></button>
+              {!readOnly && (
+                <button
+                  type="button"
+                  onClick={() => setDraft(rows.filter((_, j) => j !== i))}
+                  className={cn("text-muted-foreground hover:text-red-600 transition-colors", large ? "p-2 h-12" : "p-1 h-9")}
+                  aria-label="Remove opening"
+                ><Trash2 size={large ? 18 : 14} /></button>
+              )}
             </div>
           )
         })}
@@ -147,34 +163,38 @@ export function SessionOpeningsPanel({ sessionId, large = false }: { sessionId: 
         )}
       </div>
 
-      <div className="flex items-center gap-3 flex-wrap">
-        {unusedRoles.length > 0 && (
-          <select
-            value="" onChange={(e) => e.target.value && setDraft([
-              ...rows, { role_id: e.target.value, slots: 1, notes: "" },
-            ])}
-            className={t.select}
-          >
-            <option value="">+ Add a role…</option>
-            {unusedRoles.map((r) => <option key={r.id} value={r.id}>{r.name}</option>)}
-          </select>
-        )}
-        <button
-          onClick={() => { setError(""); save.mutate() }}
-          disabled={draft === null || save.isPending}
-          className={t.primaryBtn}
-        >
-          {save.isPending ? "Saving…" : "Save openings"}
-        </button>
-        {draft !== null && (
+      {!readOnly && (
+        <div className="flex items-center gap-3 flex-wrap">
+          {unusedRoles.length > 0 && (
+            <select
+              value="" onChange={(e) => e.target.value && setDraft([
+                ...rows, { role_id: e.target.value, slots: 1, notes: "" },
+              ])}
+              className={t.select}
+            >
+              <option value="">+ Add a role…</option>
+              {unusedRoles.map((r) => <option key={r.id} value={r.id}>{r.name}</option>)}
+            </select>
+          )}
           <button
-            onClick={() => { setDraft(null); setError("") }}
-            className={t.cancelBtn}
+            type="button"
+            onClick={() => { setError(""); save.mutate() }}
+            disabled={draft === null || save.isPending}
+            className={t.primaryBtn}
           >
-            Cancel
+            {save.isPending ? "Saving…" : "Save openings"}
           </button>
-        )}
-      </div>
+          {draft !== null && (
+            <button
+              type="button"
+              onClick={() => { setDraft(null); setError("") }}
+              className={t.cancelBtn}
+            >
+              Cancel
+            </button>
+          )}
+        </div>
+      )}
 
       {error && <p className="text-xs text-red-600 dark:text-red-400">{error}</p>}
     </div>

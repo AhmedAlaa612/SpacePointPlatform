@@ -39,6 +39,9 @@ import { ProgramCertificateStudioModal } from "@/pages/admin/components/ProgramC
 import { ProgramLmsSection } from "@/pages/admin/components/ProgramLmsSection"
 import { ProgramVariationBar } from "@/pages/admin/components/ProgramVariationBar"
 import { CohortModal } from "@/pages/admin/Cohorts"
+import { OrgCohortModal } from "@/components/organization/OrgCohortModal"
+import { getOrgProgramsOverviewApi } from "@/api/organizationPrograms"
+import { useAuth } from "@/context/AuthContext"
 import { useToast } from "@/components/ui/toast"
 import { getErrorMessage } from "@/lib/utils"
 
@@ -98,10 +101,14 @@ export default function ProgramDetail() {
   const navigate = useNavigate()
   const toast = useToast()
   const queryClient = useQueryClient()
+  const { activeRole, activeOrgRole } = useAuth()
+  const isPartnerUser = activeRole === "organization"
+  const isOrgObserver = isPartnerUser && activeOrgRole === "observer"
 
   const [activeTab, setActiveTab] = useState<ProgramTab>("cohorts")
   const [instructorSub, setInstructorSub] = useState<InstructorSubTab>("roles")
   const [editingCohort, setEditingCohort] = useState<Cohort | null>(null)
+  const [addCohortOpen, setAddCohortOpen] = useState(false)
   const [editOpen, setEditOpen] = useState(false)
   const [expandedPast, setExpandedPast] = useState(false)
   const [selectedVariationId, setSelectedVariationId] = useState<string | null>(null)
@@ -111,6 +118,12 @@ export default function ProgramDetail() {
   const { data: program, isLoading: programLoading } = useQuery<Program>({
     queryKey: ["sessions-program", programId],
     queryFn: () => getProgramApi(programId),
+  })
+
+  const { data: orgOverview } = useQuery({
+    queryKey: ["org-programs-overview"],
+    queryFn: getOrgProgramsOverviewApi,
+    enabled: isPartnerUser,
   })
 
   const { data: variations = [] } = useQuery<ProgramVariation[]>({
@@ -131,8 +144,8 @@ export default function ProgramDetail() {
 
   // Query Cohorts of this Program
   const { data: allCohorts = [], isLoading: cohortsLoading } = useQuery<Cohort[]>({
-    queryKey: ["sessions-cohorts"],
-    queryFn: () => getCohortsApi(),
+    queryKey: ["sessions-cohorts", programId],
+    queryFn: () => getCohortsApi({ program_id: programId, management_mode: "all" }),
   })
 
   const cohorts = useMemo(
@@ -165,7 +178,8 @@ export default function ProgramDetail() {
     onSuccess: () => {
       toast.success("Program deleted")
       queryClient.invalidateQueries({ queryKey: ["sessions-programs"] })
-      navigate({ to: "/operations/programs" })
+      queryClient.invalidateQueries({ queryKey: ["org-programs-overview"] })
+      navigate({ to: isPartnerUser ? "/organization/programs" : "/operations/programs" })
     },
     onError: (e: unknown) =>
       toast.error(getErrorMessage(e, "Failed to delete program")),
@@ -177,6 +191,7 @@ export default function ProgramDetail() {
     onSuccess: () => {
       toast.success("Cohort deleted")
       queryClient.invalidateQueries({ queryKey: ["sessions-cohorts"] })
+      queryClient.invalidateQueries({ queryKey: ["org-programs-overview"] })
     },
     onError: (e: unknown) =>
       toast.error(getErrorMessage(e, "Failed to delete cohort")),
@@ -189,7 +204,7 @@ export default function ProgramDetail() {
       <div className="p-8 text-center max-w-xl mx-auto">
         <p className="text-base font-bold text-foreground">Program not found</p>
         <Link
-          to="/operations/programs"
+          to={isPartnerUser ? "/organization/programs" : "/operations/programs"}
           className="mt-3 inline-flex items-center gap-1.5 text-sm font-bold text-primary hover:underline"
         >
           <ArrowLeft size={14} /> Back to Programs
@@ -197,6 +212,15 @@ export default function ProgramDetail() {
       </div>
     )
   }
+
+  const isOrgOwnedProgram = Boolean(program.organization_id)
+  const canEditProgram = !isPartnerUser || (isOrgOwnedProgram && !isOrgObserver)
+  const overviewProg = orgOverview?.programs.find((p) => p.id === programId)
+  const canCreateCohort =
+    !isPartnerUser ||
+    (!isOrgObserver && (overviewProg?.can_create_cohort ?? isOrgOwnedProgram))
+  const activeInstructorSub: InstructorSubTab =
+    isPartnerUser && instructorSub === "assessment" ? "roles" : instructorSub
 
   return (
     <div className="flex flex-col gap-5 sp-wireframe">
@@ -210,7 +234,7 @@ export default function ProgramDetail() {
 
         <div className="relative z-10">
           <Link
-            to="/operations/programs"
+            to={isPartnerUser ? "/organization/programs" : "/operations/programs"}
             className="inline-flex w-fit items-center gap-1.5 text-sm font-medium text-white/75 hover:text-white transition-colors mb-4"
           >
             <ArrowLeft size={14} /> Programs
@@ -225,6 +249,11 @@ export default function ProgramDetail() {
                 {!program.active && (
                   <span className="px-2.5 py-0.5 rounded-[10px] text-xs font-semibold bg-[#4b3b5c] text-white">
                     Inactive
+                  </span>
+                )}
+                {isPartnerUser && !isOrgOwnedProgram && (
+                  <span className="px-2.5 py-0.5 rounded-[10px] text-xs font-semibold bg-amber-500/20 text-amber-200 border border-amber-400/30">
+                    Shared by SpacePoint · Read-only Defaults
                   </span>
                 )}
               </div>
@@ -252,37 +281,51 @@ export default function ProgramDetail() {
             </div>
 
             <div className="flex flex-col gap-2 shrink-0 sm:min-w-[210px]">
-              <Link
-                to="/operations/cohorts/new"
-                search={{ programId: program.id }}
-                className="flex items-center justify-center gap-1.5 w-full h-9 px-4 rounded-[10px] bg-[#653F84] border-0 text-sm font-medium text-white hover:opacity-90 transition-opacity cursor-pointer"
-              >
-                <Plus size={14} /> Add Cohort
-              </Link>
-
-              <div className={`grid gap-2 ${cohorts.length === 0 ? "grid-cols-2" : "grid-cols-1"}`}>
-                <button
-                  type="button"
-                  onClick={() => setEditOpen(true)}
-                  className="flex items-center justify-center gap-1.5 h-9 px-3 bg-transparent border-2 border-solid border-[#D7D2CB] rounded-[10px] text-xs font-medium text-white hover:bg-white/10 transition-colors cursor-pointer"
-                >
-                  <Pencil size={13} /> Edit
-                </button>
-                {cohorts.length === 0 && (
+              {canCreateCohort && (
+                isPartnerUser ? (
                   <button
                     type="button"
-                    onClick={() => {
-                      if (confirm(`Delete the program "${program.name}"?`)) {
-                        deleteMutation.mutate()
-                      }
-                    }}
-                    disabled={deleteMutation.isPending}
-                    className="flex items-center justify-center gap-1.5 h-9 px-3 bg-transparent border-2 border-solid border-[#D7D2CB] rounded-[10px] text-xs font-medium text-rose-300 hover:bg-rose-500/15 transition-colors shrink-0 disabled:opacity-50 cursor-pointer"
+                    onClick={() => setAddCohortOpen(true)}
+                    className="flex items-center justify-center gap-1.5 w-full h-9 px-4 rounded-[10px] bg-[#653F84] border-0 text-sm font-medium text-white hover:opacity-90 transition-opacity cursor-pointer"
                   >
-                    <Trash2 size={13} /> Delete
+                    <Plus size={14} /> Add Cohort
                   </button>
-                )}
-              </div>
+                ) : (
+                  <Link
+                    to="/operations/cohorts/new"
+                    search={{ programId: program.id }}
+                    className="flex items-center justify-center gap-1.5 w-full h-9 px-4 rounded-[10px] bg-[#653F84] border-0 text-sm font-medium text-white hover:opacity-90 transition-opacity cursor-pointer"
+                  >
+                    <Plus size={14} /> Add Cohort
+                  </Link>
+                )
+              )}
+
+              {canEditProgram && (
+                <div className={`grid gap-2 ${cohorts.length === 0 ? "grid-cols-2" : "grid-cols-1"}`}>
+                  <button
+                    type="button"
+                    onClick={() => setEditOpen(true)}
+                    className="flex items-center justify-center gap-1.5 h-9 px-3 bg-transparent border-2 border-solid border-[#D7D2CB] rounded-[10px] text-xs font-medium text-white hover:bg-white/10 transition-colors cursor-pointer"
+                  >
+                    <Pencil size={13} /> Edit
+                  </button>
+                  {cohorts.length === 0 && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (confirm(`Delete the program "${program.name}"?`)) {
+                          deleteMutation.mutate()
+                        }
+                      }}
+                      disabled={deleteMutation.isPending}
+                      className="flex items-center justify-center gap-1.5 h-9 px-3 bg-transparent border-2 border-solid border-[#D7D2CB] rounded-[10px] text-xs font-medium text-rose-300 hover:bg-rose-500/15 transition-colors shrink-0 disabled:opacity-50 cursor-pointer"
+                    >
+                      <Trash2 size={13} /> Delete
+                    </button>
+                  )}
+                </div>
+              )}
             </div>
           </div>
 
@@ -333,13 +376,25 @@ export default function ProgramDetail() {
           {cohorts.length === 0 ? (
             <div className="p-12 text-center rounded-[10px] border border-dashed border-border bg-card">
               <p className="text-base font-bold text-foreground">No cohorts scheduled</p>
-              <Link
-                to="/operations/cohorts/new"
-                search={{ programId: program.id }}
-                className="mt-3 inline-flex items-center gap-1.5 h-9 px-4 rounded-[10px] bg-primary text-primary-foreground text-sm font-bold hover:opacity-90 transition-colors cursor-pointer"
-              >
-                <Plus size={15} /> Launch First Cohort
-              </Link>
+              {canCreateCohort && (
+                isPartnerUser ? (
+                  <button
+                    type="button"
+                    onClick={() => setAddCohortOpen(true)}
+                    className="mt-3 inline-flex items-center gap-1.5 h-9 px-4 rounded-[10px] bg-primary text-primary-foreground text-sm font-bold hover:opacity-90 transition-colors cursor-pointer"
+                  >
+                    <Plus size={15} /> Launch First Cohort
+                  </button>
+                ) : (
+                  <Link
+                    to="/operations/cohorts/new"
+                    search={{ programId: program.id }}
+                    className="mt-3 inline-flex items-center gap-1.5 h-9 px-4 rounded-[10px] bg-primary text-primary-foreground text-sm font-bold hover:opacity-90 transition-colors cursor-pointer"
+                  >
+                    <Plus size={15} /> Launch First Cohort
+                  </Link>
+                )
+              )}
             </div>
           ) : (
             <div className="space-y-6">
@@ -357,6 +412,8 @@ export default function ProgramDetail() {
                       <CohortDetailCard
                         key={c.id}
                         cohort={c}
+                        isPartnerUser={isPartnerUser}
+                        canManageCohort={!isOrgObserver && (!isPartnerUser || c.management_mode === "partner")}
                         onEdit={() => setEditingCohort(c)}
                         onDelete={() => {
                           if (confirm(`Delete cohort "${c.name}"?`)) {
@@ -383,6 +440,8 @@ export default function ProgramDetail() {
                       <CohortDetailCard
                         key={c.id}
                         cohort={c}
+                        isPartnerUser={isPartnerUser}
+                        canManageCohort={!isOrgObserver && (!isPartnerUser || c.management_mode === "partner")}
                         onEdit={() => setEditingCohort(c)}
                         onDelete={() => {
                           if (confirm(`Delete cohort "${c.name}"?`)) {
@@ -414,6 +473,8 @@ export default function ProgramDetail() {
                         <CohortDetailCard
                           key={c.id}
                           cohort={c}
+                          isPartnerUser={isPartnerUser}
+                          canManageCohort={!isOrgObserver && (!isPartnerUser || c.management_mode === "partner")}
                           onEdit={() => setEditingCohort(c)}
                           onDelete={() => {
                             if (confirm(`Delete cohort "${c.name}"?`)) {
@@ -437,10 +498,13 @@ export default function ProgramDetail() {
               onSelectVariation={setSelectedVariationId}
               editingBase={editingBase}
               onToggleEditingBase={setEditingBase}
+              readOnly={!canEditProgram}
+              hideFinancials={isPartnerUser}
             />
             <MaterialsPanel
               owner={effectiveVariationId ? { variation_id: effectiveVariationId } : { program_id: program.id }}
               level={effectiveVariationId ? "program" : undefined}
+              readOnly={!canEditProgram}
             />
           </div>
         </div>
@@ -456,20 +520,26 @@ export default function ProgramDetail() {
             onSelectVariation={setSelectedVariationId}
             editingBase={editingBase}
             onToggleEditingBase={setEditingBase}
+            readOnly={!canEditProgram}
+            hideFinancials={isPartnerUser}
           />
           <div className="flex items-center gap-1.5 flex-wrap">
-            {(
-              [
+            {(isPartnerUser
+              ? ([
+                ["roles", "Roles & Staffing"],
+                ["prequiz", "Pre-Session Quiz"],
+              ] as const)
+              : ([
                 ["roles", "Roles & Staffing"],
                 ["assessment", "Assessment Gate"],
                 ["prequiz", "Pre-Session Quiz"],
-              ] as const
+              ] as const)
             ).map(([k, label]) => (
               <button
                 key={k}
                 type="button"
                 onClick={() => setInstructorSub(k)}
-                className={`h-9 px-3.5 rounded-[10px] border text-sm font-medium transition-colors cursor-pointer ${instructorSub === k
+                className={`h-9 px-3.5 rounded-[10px] border text-sm font-medium transition-colors cursor-pointer ${activeInstructorSub === k
                   ? "bg-primary/10 border-primary/40 text-primary font-semibold"
                   : "border-border bg-card text-muted-foreground hover:text-foreground"
                   }`}
@@ -479,13 +549,18 @@ export default function ProgramDetail() {
             ))}
           </div>
 
-          {instructorSub === "roles" && (
+          {activeInstructorSub === "roles" && (
             <div className="rounded-[10px] border border-border bg-card p-6">
-              <ProgramRolesPanel program={program} variationId={effectiveVariationId} />
+              <ProgramRolesPanel
+                program={program}
+                variationId={effectiveVariationId}
+                readOnly={!canEditProgram}
+                hideFinancials={isPartnerUser}
+              />
             </div>
           )}
 
-          {instructorSub === "assessment" && (
+          {!isPartnerUser && activeInstructorSub === "assessment" && (
             <div className="rounded-[10px] border border-border bg-card p-6">
               <ProgramAssessmentDefaultPanel
                 program={program}
@@ -497,11 +572,13 @@ export default function ProgramDetail() {
             </div>
           )}
 
-          {instructorSub === "prequiz" && (
+          {activeInstructorSub === "prequiz" && (
             <div className="rounded-[10px] border border-border bg-card p-6">
               <PreSessionQuizAssignmentBar
                 scope={effectiveVariationId ? "variations" : "programs"}
                 ownerId={effectiveVariationId ?? program.id}
+                readOnly={!canEditProgram}
+                isPartnerContext={isPartnerUser}
               />
             </div>
           )}
@@ -518,8 +595,15 @@ export default function ProgramDetail() {
             onSelectVariation={setSelectedVariationId}
             editingBase={editingBase}
             onToggleEditingBase={setEditingBase}
+            readOnly={!canEditProgram}
+            hideFinancials={isPartnerUser}
           />
-          <ProgramLmsSection program={program} variationId={effectiveVariationId} />
+          <ProgramLmsSection
+            program={program}
+            variationId={effectiveVariationId}
+            readOnly={!canEditProgram}
+            isPartnerUser={isPartnerUser}
+          />
         </div>
       )}
 
@@ -528,6 +612,7 @@ export default function ProgramDetail() {
         <ProgramCertificateStudioModal
           program={program}
           embedded
+          readOnly={!canEditProgram}
           onUpdated={() => {
             queryClient.invalidateQueries({ queryKey: ["sessions-program", programId] })
           }}
@@ -535,19 +620,49 @@ export default function ProgramDetail() {
       )}
 
       {/* ── MODALS ─────────────────────────────────────────────────── */}
-      {editingCohort && (
-        <CohortModal
-          programs={[program]}
-          cohort={editingCohort}
-          onClose={() => setEditingCohort(null)}
-          onSuccess={() => {
-            queryClient.invalidateQueries({ queryKey: ["sessions-cohorts"] })
+      {isPartnerUser ? (
+        <OrgCohortModal
+          open={addCohortOpen || Boolean(editingCohort)}
+          onClose={() => {
+            setAddCohortOpen(false)
             setEditingCohort(null)
           }}
+          programs={[
+            {
+              id: program.id,
+              name: program.name,
+              code: program.code,
+              is_org_owned: isOrgOwnedProgram,
+              is_shared_program: !isOrgOwnedProgram,
+              can_create_cohort: canCreateCohort,
+              default_capacity: program.default_capacity,
+              duration_hours: program.duration_hours,
+            },
+          ]}
+          defaultProgramId={program.id}
+          cohort={editingCohort}
+          maxStudentsPerCohort={orgOverview?.organization.max_students_per_cohort}
+          onSuccess={() => {
+            queryClient.invalidateQueries({ queryKey: ["sessions-cohorts", programId] })
+            queryClient.invalidateQueries({ queryKey: ["sessions-cohorts"] })
+            queryClient.invalidateQueries({ queryKey: ["org-programs-overview"] })
+          }}
         />
+      ) : (
+        editingCohort && (
+          <CohortModal
+            programs={[program]}
+            cohort={editingCohort}
+            onClose={() => setEditingCohort(null)}
+            onSuccess={() => {
+              queryClient.invalidateQueries({ queryKey: ["sessions-cohorts"] })
+              setEditingCohort(null)
+            }}
+          />
+        )
       )}
 
-      {editOpen && (
+      {editOpen && canEditProgram && (
         <Modal
           title="Edit Program"
           onClose={() => setEditOpen(false)}
@@ -566,41 +681,63 @@ export default function ProgramDetail() {
 /* ── COHORT CARD (Inside Program Detail) ─────────────────────────── */
 function CohortDetailCard({
   cohort: c,
+  isPartnerUser = false,
+  canManageCohort = true,
   onEdit,
   onDelete,
 }: {
   cohort: Cohort
+  isPartnerUser?: boolean
+  canManageCohort?: boolean
   onEdit: () => void
   onDelete: () => void
 }) {
   const registered = c.registrations_count ?? 0
   const fillPct = c.capacity ? Math.min(100, Math.round((registered / c.capacity) * 100)) : null
   const unstaffed = c.unstaffed_count ?? 0
+  const isModeB = c.management_mode === "spacepoint"
+  const showModeBBadge = isModeB && (isPartnerUser || Boolean(c.organization_id))
+  const showUnstaffed = unstaffed > 0 && (!isPartnerUser || c.management_mode === "partner")
 
   return (
     <SubCard className="flex flex-col justify-between gap-3">
       <div>
         <div className="flex items-start justify-between gap-2 mb-2">
-          <Link
-            to="/operations/cohorts/$cohortId"
-            params={{ cohortId: c.id }}
-            search={{ from: `/operations/programs/${c.program_id}` } as never}
-            className="text-sm font-bold text-foreground hover:text-primary transition-colors truncate block"
-          >
-            {c.name}
-          </Link>
+          {isPartnerUser ? (
+            <Link
+              to="/organization/programs/$cohortId"
+              params={{ cohortId: c.id }}
+              className="text-sm font-bold text-foreground hover:text-primary transition-colors truncate block"
+            >
+              {c.name}
+            </Link>
+          ) : (
+            <Link
+              to="/operations/cohorts/$cohortId"
+              params={{ cohortId: c.id }}
+              search={{ from: `/operations/programs/${c.program_id}` } as never}
+              className="text-sm font-bold text-foreground hover:text-primary transition-colors truncate block"
+            >
+              {c.name}
+            </Link>
+          )}
           <CohortStatusBadge status={c.status} />
         </div>
 
-        {c.variation_name && (
-          <div className="mb-2">
+        <div className="flex items-center gap-1.5 flex-wrap mb-2">
+          {c.variation_name && (
             <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold bg-primary/10 text-primary border border-primary/20">
               {c.variation_name}
             </span>
-          </div>
-        )}
+          )}
+          {showModeBBadge && (
+            <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold bg-violet-500/15 text-violet-600 dark:text-violet-300 border border-violet-500/30">
+              Delivered by SpacePoint
+            </span>
+          )}
+        </div>
 
-        {unstaffed > 0 && (
+        {showUnstaffed && (
           <div className="mb-2">
             <span className="text-[11px] font-bold px-2 py-0.5 rounded-full bg-rose-500 text-white">
               {unstaffed} unstaffed
@@ -647,30 +784,44 @@ function CohortDetailCard({
 
       <div className="pt-3 border-t border-border flex items-center justify-between gap-2">
         <div className="flex items-center gap-1">
-          <button
-            onClick={onEdit}
-            className="p-1 rounded-[10px] text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
-            title="Edit Cohort"
-          >
-            <Pencil size={13} />
-          </button>
-          <button
-            onClick={onDelete}
-            className="p-1 rounded-[10px] text-muted-foreground hover:text-rose-600 hover:bg-rose-500/10 transition-colors"
-            title="Delete Cohort"
-          >
-            <Trash2 size={13} />
-          </button>
+          {canManageCohort && (
+            <>
+              <button
+                onClick={onEdit}
+                className="p-1 rounded-[10px] text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+                title="Edit Cohort"
+              >
+                <Pencil size={13} />
+              </button>
+              <button
+                onClick={onDelete}
+                className="p-1 rounded-[10px] text-muted-foreground hover:text-rose-600 hover:bg-rose-500/10 transition-colors"
+                title="Delete Cohort"
+              >
+                <Trash2 size={13} />
+              </button>
+            </>
+          )}
         </div>
 
-        <Link
-          to="/operations/cohorts/$cohortId"
-          params={{ cohortId: c.id }}
-          search={{ from: `/operations/programs/${c.program_id}` } as never}
-          className="text-xs font-bold text-primary hover:underline inline-flex items-center gap-1"
-        >
-          Manage <ArrowRight size={12} />
-        </Link>
+        {isPartnerUser ? (
+          <Link
+            to="/organization/programs/$cohortId"
+            params={{ cohortId: c.id }}
+            className="text-xs font-bold text-primary hover:underline inline-flex items-center gap-1 ml-auto"
+          >
+            Manage <ArrowRight size={12} />
+          </Link>
+        ) : (
+          <Link
+            to="/operations/cohorts/$cohortId"
+            params={{ cohortId: c.id }}
+            search={{ from: `/operations/programs/${c.program_id}` } as never}
+            className="text-xs font-bold text-primary hover:underline inline-flex items-center gap-1 ml-auto"
+          >
+            Manage <ArrowRight size={12} />
+          </Link>
+        )}
       </div>
     </SubCard>
   )
@@ -774,6 +925,7 @@ function ProgramSetupForm({
       toast.success("Program defaults updated")
       queryClient.invalidateQueries({ queryKey: ["sessions-program", program.id] })
       queryClient.invalidateQueries({ queryKey: ["sessions-programs"] })
+      queryClient.invalidateQueries({ queryKey: ["org-programs-overview"] })
       onSuccess?.()
     },
     onError: (e: unknown) =>

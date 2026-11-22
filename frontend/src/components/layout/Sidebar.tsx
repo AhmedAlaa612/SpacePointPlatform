@@ -315,6 +315,7 @@ function getNavItems(
     if (orgRole === "instructor") {
       return [
         mk("My Sessions", "/organization/my-sessions"),
+        mk("Check-In", "/organization/checkin"),
         mk("Learn", "/learn"),
       ];
     }
@@ -332,6 +333,7 @@ function getNavItems(
     }
     return [
       mk("Programs & Cohorts", "/organization/programs"),
+      mk("Check-In", "/organization/checkin"),
       mk("Students", "/lms-authoring/students"),
       mk("Invite Codes", "/lms-authoring/invite-codes"),
       mk("Courses", "/lms-authoring/courses"),

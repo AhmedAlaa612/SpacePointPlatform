@@ -1747,7 +1747,9 @@ async def set_checklist_progress(
     sub_item_proofs: dict[str, UUID | None] | None = None,
 ) -> InstructorChecklistProgress:
     """Tick an item, attach proof to it, or both."""
-    session = await _get_deliverable_session(db, session_id, user)
+    session = await _get_deliverable_session(
+        db, session_id, user, read_only=(for_user_id is not None),
+    )
     day = await _get_or_create_day(db, session_id, user.id)
     _refuse_if_locked(day)
 
@@ -1845,7 +1847,9 @@ async def submit_day(db: AsyncSession, session_id: UUID, user: User, *, notes: s
     `reviewed_by` stays `None` to mark this as a system auto-approval, not
     an ops decision.
     """
-    session = await _get_deliverable_session(db, session_id, user)
+    session = await _get_deliverable_session(
+        db, session_id, user, read_only=(for_user_id is not None),
+    )
     day = await _get_or_create_day(db, session_id, user.id)
     _refuse_if_locked(day)
 
@@ -1959,6 +1963,9 @@ async def list_day_reviews(
         stmt = stmt.where(Session.cohort_id == cohort_id)
     if session_id is not None:
         stmt = stmt.where(Session.id == session_id)
+    if cohort_id is None and session_id is None:
+        # Global Ops review queue excludes Mode A partner cohorts, keeps Mode B.
+        stmt = stmt.where(Cohort.management_mode == "spacepoint")
     rows = (await db.execute(stmt)).all()
     if not rows:
         return []
@@ -1998,7 +2005,9 @@ async def list_day_reviews(
 async def get_day_detail(db: AsyncSession, session_id: UUID, user: User, *, for_user_id: UUID | None = None) -> dict:
     """One instructor's day, with the resolved checklist and their progress —
     what both the instructor's own portal and the ops review card render."""
-    session = await _get_deliverable_session(db, session_id, user)
+    session = await _get_deliverable_session(
+        db, session_id, user, read_only=(for_user_id is not None),
+    )
     target_id = for_user_id or user.id
     day = await _get_or_create_day(db, session_id, target_id)
 
@@ -2221,6 +2230,7 @@ async def session_board(
         select(Session, Cohort, Program)
         .join(Cohort, Cohort.id == Session.cohort_id)
         .join(Program, Program.id == Cohort.program_id)
+        .where(Cohort.management_mode == "spacepoint")
     )
 
     running = await _rows(
@@ -2229,7 +2239,10 @@ async def session_board(
         with_instructors=True,
     )
     done_total = await db.scalar(
-        select(func.count()).select_from(Session).where(Session.completed_at.isnot(None))
+        select(func.count())
+        .select_from(Session)
+        .join(Cohort, Cohort.id == Session.cohort_id)
+        .where(Session.completed_at.isnot(None), Cohort.management_mode == "spacepoint")
     ) or 0
     done = await _rows(
         base.where(Session.completed_at.isnot(None))

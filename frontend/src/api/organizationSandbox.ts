@@ -14,7 +14,7 @@ export interface OrgCohortStaffSession {
   attendance_present?: number
   attendance_absent?: number
   attendance_total?: number
-  instructors?: { user_id: string; full_name: string }[]
+  instructors?: { user_id: string; full_name: string; role_id?: string | null; role_name?: string | null }[]
 }
 
 export interface OrgInstructorReadiness {
@@ -36,6 +36,8 @@ export interface OrgCohortStaffInstructor {
   completed_sessions: number
   attendance_present: number
   attendance_absent: number
+  role_id?: string | null
+  role_name?: string | null
   roles: string[]
   readiness: OrgInstructorReadiness | null
 }
@@ -51,6 +53,8 @@ export interface OrgCohortStaffJudge {
 
 export interface OrgCohortStaff {
   cohort_id: string
+  management_mode?: "spacepoint" | "partner"
+  can_manage_delivery?: boolean
   sessions: OrgCohortStaffSession[]
   instructors: OrgCohortStaffInstructor[]
   judges: OrgCohortStaffJudge[]
@@ -105,7 +109,7 @@ export const getOrgCohortStaff = (cohortId: string) =>
 
 export const assignOrgInstructor = (
   cohortId: string,
-  payload: { user_id: string; session_ids?: string[]; role_id?: string },
+  payload: { user_id: string; session_ids?: string[]; role_id?: string | null },
 ) =>
   api
     .post<{ assigned: number }>(`/organization/cohorts/${cohortId}/instructors`, payload)
@@ -115,6 +119,18 @@ export const unassignOrgInstructor = (cohortId: string, userId: string, sessionI
   api.delete(`/organization/cohorts/${cohortId}/instructors/${userId}`, {
     params: sessionId ? { session_id: sessionId } : undefined,
   })
+
+export const updateOrgCohortInstructorRoleApi = (
+  cohortId: string,
+  userId: string,
+  roleId: string | null,
+) =>
+  api
+    .patch<{ user_id: string; role_id: string | null; role_name: string | null }>(
+      `/organization/cohorts/${cohortId}/instructors/${userId}`,
+      { role_id: roleId },
+    )
+    .then((r) => r.data)
 
 export const assignOrgJudge = (cohortId: string, userId: string) =>
   api

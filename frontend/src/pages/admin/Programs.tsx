@@ -563,11 +563,18 @@ function CohortCard({
           </div>
         </div>
 
-        {unstaffed > 0 && (
-          <div className="mb-2.5">
-            <span className="text-[11px] font-bold px-2 py-0.5 rounded-full bg-rose-500/15 text-rose-600 dark:text-rose-400 border border-rose-500/30">
-              {unstaffed} unstaffed session{unstaffed === 1 ? "" : "s"}
-            </span>
+        {(c.organization_id || unstaffed > 0) && (
+          <div className="mb-2.5 flex items-center gap-1.5 flex-wrap">
+            {c.organization_id && (
+              <span className="text-[11px] font-bold px-2 py-0.5 rounded-full bg-violet-500/15 text-violet-600 dark:text-violet-400 border border-violet-500/30">
+                Partner: {c.organization_name || "Organization"}
+              </span>
+            )}
+            {unstaffed > 0 && (
+              <span className="text-[11px] font-bold px-2 py-0.5 rounded-full bg-rose-500/15 text-rose-600 dark:text-rose-400 border border-rose-500/30">
+                {unstaffed} unstaffed session{unstaffed === 1 ? "" : "s"}
+              </span>
+            )}
           </div>
         )}
 

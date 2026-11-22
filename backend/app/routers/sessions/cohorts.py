@@ -21,6 +21,7 @@ import asyncio
 import uuid
 from datetime import date, datetime, timedelta
 from html import escape
+from typing import Literal
 
 import redis.asyncio as redis
 from arq.connections import ArqRedis
@@ -107,13 +108,23 @@ from app.services.inventory.cohort_kits import resolve_session_kits
 from app.services.missions.cohort_access import instructor_cohort_ids, is_cohort_lms_editor
 from app.services.org_access import (
     assert_user_eligible_for_cohort_staffing,
+    can_manage_cohort_delivery,
+    can_read_cohort,
     cohort_organization_id,
+    effective_org_roles,
     is_cohort_org_manager,
     is_ops_or_admin,
+    is_partner_managed,
+    require_cohort_delivery_manager_or_ops,
     require_cohort_manager_or_ops,
+    require_cohort_read_or_ops,
     require_registration_manager_or_ops,
+    require_session_delivery_manager_or_ops,
     require_session_manager_or_ops,
+    require_session_read_or_ops,
 )
+from app.services.sessions.cohort_seeding import seed_cohort_from_program
+from app.services.website_events import resolve_user_organization
 from app.services.sessions import day as day_service
 from app.services.sessions import delivery
 from app.services.sessions import materials as materials_service
@@ -168,6 +179,7 @@ async def _cohort_out(
     db: AsyncSession, cohort: Cohort, program_name: str | None = None, program_code: str | None = None,
     location: Location | None = None, counts: tuple[int, int, int, date | None] | None = None,
     program_is_competition: bool = False, variation_name: str | None = None,
+    organization_name: str | None = None,
 ) -> CohortOut:
     # 2026-09-30: one bad row (e.g. a hand-inserted status outside the
     # CohortStatus literal) used to 500 the entire cohorts list, since a
@@ -183,6 +195,12 @@ async def _cohort_out(
     out.program_name = program_name
     out.program_code = program_code
     out.program_is_competition = program_is_competition
+    if organization_name is not None:
+        out.organization_name = organization_name
+    elif cohort.organization_id is not None:
+        out.organization_name = await db.scalar(
+            select(Organization.name_latin).where(Organization.id == cohort.organization_id)
+        )
     if variation_name is not None:
         out.variation_name = variation_name
     elif getattr(cohort, "variation_id", None) is not None:
@@ -227,9 +245,25 @@ def _real_cohort_clauses():
 @router.get("/cohorts", response_model=list[CohortOut])
 async def list_cohorts(
     program_id: uuid.UUID | None = Query(None),
+    management_mode: Literal["spacepoint", "partner", "all"] = Query("spacepoint"),
+    organization_id: uuid.UUID | None = Query(None),
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_operations),
+    current_user: User = Depends(require_session_delivery),
 ):
+    is_ops = is_ops_or_admin(current_user)
+    caller_org: Organization | None = None
+    if not is_ops:
+        if "organization" not in current_user.role_values:
+            raise HTTPException(status.HTTP_403_FORBIDDEN, detail="Forbidden")
+        caller_org = await resolve_user_organization(db, current_user)
+        if caller_org is None:
+            raise HTTPException(status.HTTP_403_FORBIDDEN, detail="Organization account required")
+        roles = effective_org_roles(current_user, is_owner=(caller_org.owner_user_id == current_user.id))
+        if not any(r in ("owner", "coordinator", "observer") for r in roles):
+            raise HTTPException(status.HTTP_403_FORBIDDEN, detail="Forbidden")
+        if organization_id is not None and organization_id != caller_org.id:
+            raise HTTPException(status.HTTP_403_FORBIDDEN, detail="Forbidden")
+
     # Correlated scalar subqueries rather than GROUP BY joins: counting
     # sessions and registrations in the same join would multiply the rows
     # against each other and inflate both. These are the numbers the cohorts
@@ -258,30 +292,44 @@ async def list_cohorts(
         select(
             Cohort, Program.name, Program.code, Location,
             sessions_count, registrations_count, unstaffed_count, next_session_date,
-            Program.program_type, ProgramVariation.name,
+            Program.program_type, ProgramVariation.name, Organization.name_latin,
         )
         .join(Program, Program.id == Cohort.program_id)
         .outerjoin(Location, Location.id == Cohort.location_id)
         .outerjoin(ProgramVariation, ProgramVariation.id == Cohort.variation_id)
-        .where(
-            *_real_cohort_clauses(),
-            Cohort.organization_id.is_(None),
-            Program.organization_id.is_(None),
-        )
+        .outerjoin(Organization, Organization.id == Cohort.organization_id)
+        .where(*_real_cohort_clauses())
     )
+    if is_ops:
+        if management_mode != "all":
+            stmt = stmt.where(Cohort.management_mode == management_mode)
+        if organization_id is not None:
+            stmt = stmt.where(Cohort.organization_id == organization_id)
+    else:
+        assert caller_org is not None
+        stmt = stmt.where(or_(Cohort.organization_id == caller_org.id, Program.organization_id == caller_org.id))
     if program_id is not None:
         stmt = stmt.where(Cohort.program_id == program_id)
     stmt = stmt.order_by(Cohort.created_at.desc())
 
     rows = (await db.execute(stmt)).all()
-    return [
+    results = [
         await _cohort_out(
             db, cohort, program_name, program_code, location, (sessions, regs, unstaffed, next_date),
             program_is_competition=(program_type == "competition"),
             variation_name=variation_name,
+            organization_name=org_name,
         )
-        for cohort, program_name, program_code, location, sessions, regs, unstaffed, next_date, program_type, variation_name in rows
+        for cohort, program_name, program_code, location, sessions, regs, unstaffed, next_date, program_type, variation_name, org_name in rows
     ]
+    if not is_ops:
+        for out in results:
+            out.warehouse_id = None
+            out.effective_warehouse_id = None
+            out.effective_warehouse_name = None
+            if out.management_mode != "partner":
+                out.unstaffed_count = 0
+    return results
 
 
 @router.post("/cohorts", response_model=CohortOut, status_code=status.HTTP_201_CREATED)
@@ -293,6 +341,8 @@ async def create_cohort(
     program = await db.get(Program, body.program_id)
     if program is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Program not found")
+    if body.organization_id is not None and await db.get(Organization, body.organization_id) is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Organization not found")
     location = await db.get(Location, body.location_id) if body.location_id else None
     if body.location_id and location is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Location not found")
@@ -300,6 +350,12 @@ async def create_cohort(
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Warehouse not found")
 
     data = body.model_dump()
+    if data.get("organization_id") is None and program.organization_id is not None:
+        data["organization_id"] = program.organization_id
+    if data.get("management_mode") is None:
+        data["management_mode"] = "partner" if program.organization_id is not None else "spacepoint"
+    if data["management_mode"] == "partner":
+        data["warehouse_id"] = None
     import_default_checklists = data.pop("import_default_checklists", True)
     checklist_source_program_id = data.pop("checklist_source_program_id", None)
     checklist_source_variation_id = data.pop("checklist_source_variation_id", None)
@@ -337,188 +393,19 @@ async def create_cohort(
     db.add(cohort)
     await db.flush()
 
-    if apply_defaults:
-        await openings_svc.copy_program_openings_to_cohort(
-            db,
-            program_id=program.id,
-            variation_id=cohort.variation_id,
-            cohort_id=cohort.id,
-            actor_user_id=current_user.id,
-        )
-        if eff_scalars["default_assessment_config_id"] is not None:
-            db.add(AssessmentCohortAssignment(
-                id=uuid.uuid4(),
-                cohort_id=cohort.id,
-                config_id=eff_scalars["default_assessment_config_id"],
-                assigned_by=current_user.id,
-            ))
-
-    # Cohort-level pre-session quiz assignment: variation overrides program
-    prog_or_var_quiz = None
-    if apply_defaults:
-        if cohort.variation_id is not None:
-            prog_or_var_quiz = (await db.execute(
-                select(PreSessionQuizAssignment).where(PreSessionQuizAssignment.variation_id == cohort.variation_id)
-            )).scalars().first()
-        if prog_or_var_quiz is None:
-            prog_or_var_quiz = (await db.execute(
-                select(PreSessionQuizAssignment).where(PreSessionQuizAssignment.program_id == program.id)
-            )).scalars().first()
-        if prog_or_var_quiz is not None:
-            db.add(PreSessionQuizAssignment(
-                id=uuid.uuid4(),
-                cohort_id=cohort.id,
-                preset_id=prog_or_var_quiz.preset_id,
-            ))
-
-    if import_default_checklists:
-        src_prog_id = checklist_source_program_id or program.id
-        src_var: ProgramVariation | None = None
-        if checklist_source_variation_id is not None:
-            src_var = await var_svc.resolve_variation_for_program(db, src_prog_id, checklist_source_variation_id)
-        elif src_prog_id == program.id:
-            src_var = selected_var
-        else:
-            src_var = await var_svc.resolve_variation_for_program(db, src_prog_id, active_only=True)
-
-        # Pre-workshop checklist items: variation overrides program
-        var_checklist_items = (
-            list((await db.execute(
-                select(DeliveryChecklistItem).where(DeliveryChecklistItem.variation_id == src_var.id)
-                .order_by(DeliveryChecklistItem.sort_order, DeliveryChecklistItem.created_at)
-            )).scalars().all())
-            if src_var is not None else []
-        )
-        program_checklist_items = (
-            var_checklist_items
-            if var_checklist_items
-            else list((await db.execute(
-                select(DeliveryChecklistItem).where(DeliveryChecklistItem.program_id == src_prog_id)
-                .order_by(DeliveryChecklistItem.sort_order, DeliveryChecklistItem.created_at)
-            )).scalars().all())
-        )
-        for ci in program_checklist_items:
-            db.add(day_service.clone_delivery_checklist_item(
-                ci, actor_user_id=current_user.id, cohort_id=cohort.id,
-            ))
-        if program_checklist_items:
-            await db.flush()
-
-        # Seed sessions from ProgramVariationDay (or legacy template cohort only when no variation exists)
-        start_date = cohort.starts_on or date.today()
-        if src_var is not None:
-            v_days = await var_svc.variation_days(db, src_var.id)
-            for idx, v_day in enumerate(v_days):
-                sess_date = start_date + timedelta(days=idx)
-                new_s = Session(
-                    id=uuid.uuid4(),
-                    cohort_id=cohort.id,
-                    meeting_date=sess_date,
-                    starts_at=v_day.starts_at,
-                    title=v_day.title or f"Day {idx + 1}",
-                    duration_hours=(
-                        v_day.duration_hours
-                        if v_day.duration_hours is not None
-                        else (cohort.duration_hours if cohort.duration_hours is not None else eff_scalars["duration_hours"])
-                    ),
-                )
-                db.add(new_s)
-                await db.flush()
-
-                d_items = (await db.execute(
-                    select(DeliveryChecklistItem).where(DeliveryChecklistItem.variation_day_id == v_day.id)
-                    .order_by(DeliveryChecklistItem.sort_order, DeliveryChecklistItem.created_at)
-                )).scalars().all()
-                for ci in d_items:
-                    db.add(day_service.clone_delivery_checklist_item(
-                        ci, actor_user_id=current_user.id, session_id=new_s.id,
-                    ))
-                copied_day_quiz = False
-                if src_prog_id == program.id:
-                    d_quiz = (await db.execute(
-                        select(PreSessionQuizAssignment).where(PreSessionQuizAssignment.variation_day_id == v_day.id)
-                    )).scalars().first()
-                    if d_quiz is not None:
-                        db.add(PreSessionQuizAssignment(
-                            id=uuid.uuid4(),
-                            session_id=new_s.id,
-                            preset_id=d_quiz.preset_id,
-                        ))
-                        copied_day_quiz = True
-                if d_items or copied_day_quiz:
-                    await db.flush()
-        else:
-            template_cohort = await day_service.find_program_template_cohort(
-                db, src_prog_id, exclude_cohort_id=cohort.id,
-            )
-            if template_cohort:
-                template_sessions = (await db.execute(
-                    select(Session).where(Session.cohort_id == template_cohort.id)
-                    .order_by(Session.meeting_date, Session.starts_at, Session.created_at)
-                )).scalars().all()
-
-                for idx, t_sess in enumerate(template_sessions):
-                    sess_date = start_date + timedelta(days=idx)
-                    new_s = Session(
-                        id=uuid.uuid4(),
-                        cohort_id=cohort.id,
-                        meeting_date=sess_date,
-                        starts_at=t_sess.starts_at,
-                        title=t_sess.title or f"Day {idx + 1}",
-                        duration_hours=(
-                            t_sess.duration_hours
-                            if t_sess.duration_hours is not None
-                            else (cohort.duration_hours if cohort.duration_hours is not None else program.duration_hours)
-                        ),
-                    )
-                    db.add(new_s)
-                    await db.flush()
-
-                    t_items = (await db.execute(
-                        select(DeliveryChecklistItem).where(DeliveryChecklistItem.session_id == t_sess.id)
-                        .order_by(DeliveryChecklistItem.sort_order, DeliveryChecklistItem.created_at)
-                    )).scalars().all()
-                    for ci in t_items:
-                        db.add(day_service.clone_delivery_checklist_item(
-                            ci, actor_user_id=current_user.id, session_id=new_s.id,
-                        ))
-                    copied_sess_quiz = False
-                    if src_prog_id == program.id:
-                        t_sess_quiz = (await db.execute(
-                            select(PreSessionQuizAssignment).where(PreSessionQuizAssignment.session_id == t_sess.id)
-                        )).scalars().first()
-                        if t_sess_quiz is not None:
-                            db.add(PreSessionQuizAssignment(
-                                id=uuid.uuid4(),
-                                session_id=new_s.id,
-                                preset_id=t_sess_quiz.preset_id,
-                            ))
-                            copied_sess_quiz = True
-                    if t_items or copied_sess_quiz:
-                        await db.flush()
-
-                if prog_or_var_quiz is None and src_prog_id == program.id:
-                    t_cohort_quiz = (await db.execute(
-                        select(PreSessionQuizAssignment).where(PreSessionQuizAssignment.cohort_id == template_cohort.id)
-                    )).scalars().first()
-                    if t_cohort_quiz is not None:
-                        db.add(PreSessionQuizAssignment(
-                            id=uuid.uuid4(),
-                            cohort_id=cohort.id,
-                            preset_id=t_cohort_quiz.preset_id,
-                        ))
-
-                if not program_checklist_items:
-                    template_cohort_items = (await db.execute(
-                        select(DeliveryChecklistItem).where(DeliveryChecklistItem.cohort_id == template_cohort.id)
-                        .order_by(DeliveryChecklistItem.sort_order, DeliveryChecklistItem.created_at)
-                    )).scalars().all()
-                    for ci in template_cohort_items:
-                        db.add(day_service.clone_delivery_checklist_item(
-                            ci, actor_user_id=current_user.id, cohort_id=cohort.id,
-                        ))
-                    if template_cohort_items:
-                        await db.flush()
+    await seed_cohort_from_program(
+        db,
+        cohort=cohort,
+        program=program,
+        selected_var=selected_var,
+        apply_defaults=apply_defaults,
+        eff_scalars=eff_scalars,
+        import_default_checklists=import_default_checklists,
+        actor_user_id=current_user.id,
+        checklist_source_program_id=checklist_source_program_id,
+        checklist_source_variation_id=checklist_source_variation_id,
+        ensure_lms_override=False,
+    )
 
     await db.commit()
     await db.refresh(cohort)
@@ -537,9 +424,7 @@ async def get_cohort(
 
     is_ops = bool({"operations", "admin", "coo"} & set(current_user.role_values))
     if not is_ops:
-        if await is_cohort_org_manager(db, cohort, current_user):
-            pass
-        elif "organization" in current_user.role_values and cohort.organization_id == current_user.organization_id:
+        if await can_read_cohort(db, cohort, current_user):
             pass
         elif await is_cohort_lms_editor(db, cohort_id=cohort_id, user=current_user):
             pass
@@ -567,11 +452,16 @@ async def get_cohort(
 
         org = await db.get(Organization, org_id)
         if org is not None:
-            out.org_capacity_limit = org.max_students_per_cohort
+            out.organization_name = org.name_latin
+            out.org_capacity_limit = org.max_students_per_cohort if is_partner_managed(cohort) else None
         ev_slug = await db.scalar(
             select(WebsiteEvent.slug).where(WebsiteEvent.cohort_id == cohort.id).limit(1)
         )
         out.linked_event_slug = ev_slug
+    if not is_ops:
+        out.warehouse_id = None
+        out.effective_warehouse_id = None
+        out.effective_warehouse_name = None
     return out
 
 
@@ -592,20 +482,31 @@ async def update_cohort(
     if not is_ops:
         if await is_cohort_org_manager(db, cohort, current_user):
             allowed_org_fields = {
-                "name", "starts_on", "ends_on", "location", "capacity", "notes",
+                "name", "starts_on", "ends_on", "location", "location_id", "capacity", "notes",
                 "visibility", "poster_template_url", "checklist_title_override",
                 "keep_course_access_after_completion", "status",
             }
+            if is_partner_managed(cohort):
+                allowed_org_fields.add("duration_hours")
             if not set(changes.keys()).issubset(allowed_org_fields):
                 raise HTTPException(status.HTTP_403_FORBIDDEN, detail="Forbidden")
             org_id = await cohort_organization_id(db, cohort)
-            if org_id is not None and changes.get("capacity") is not None:
+            if is_partner_managed(cohort) and org_id is not None and changes.get("capacity") is not None:
                 org = await db.get(Organization, org_id)
                 if org and org.max_students_per_cohort is not None and changes["capacity"] > org.max_students_per_cohort:
                     raise HTTPException(
                         status.HTTP_400_BAD_REQUEST,
                         detail=f"Your organization limit is {org.max_students_per_cohort} students per cohort.",
                     )
+            if (
+                changes.get("location_id") is not None
+                and changes["location_id"] != cohort.location_id
+            ):
+                loc = await db.get(Location, changes["location_id"])
+                if loc is None:
+                    raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Location not found")
+                if org_id is None or loc.organization_id != org_id:
+                    raise HTTPException(status.HTTP_403_FORBIDDEN, detail="Location does not belong to your organization")
         else:
             is_editor = await is_cohort_lms_editor(db, cohort_id=cohort_id, user=current_user)
             allowed_editor_fields = {"checklist_title_override", "keep_course_access_after_completion"}
@@ -975,29 +876,11 @@ async def complete_cohort(
     cohort_id: uuid.UUID,
     body: CompleteCohortRequest | None = None,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_operations),
+    current_user: User = Depends(require_session_delivery),
     rt: redis.Redis | None = Depends(get_realtime_redis_dep),
 ):
-    """Ops/admin only (W5 S5-1). S5-2 adds the zero-reports warning below —
-    it never blocks completion, just rides along in the response; S5-3 will
-    add the attendance-rate/certificate logic on top of this same function.
-
-    Still here, and still manual, even though completing a cohort is now also
-    triggered automatically once every instructor-day is approved
-    (`services/sessions/day.py::maybe_complete_cohort`). Ops needs the button
-    for the cohorts the daily loop doesn't cover — anything delivered before
-    it existed, or a run that ends without every day being submitted.
-
-    Does not touch payment letters either way (2026-08-30) — completing a
-    cohort just makes its delivered sessions billable (they show up on the
-    payments to-do list); a letter only gets drafted when ops explicitly
-    clicks "Create letter" there.
-
-    Since 2026-08-31 the service also completes any session nobody marked
-    done. That is reported as a warning rather than silently — ops should
-    see which days the system took its word for — and those sessions get the
-    same live-quiz cleanup the instructor's own "mark done" performs below.
-    """
+    """Complete a cohort (Ops/Admin on any cohort; Org Owner/Coordinator on Mode A partner cohorts only)."""
+    cohort = await require_cohort_delivery_manager_or_ops(db, cohort_id, current_user)
     warnings: list[str] = []
     unfinished_session_ids = list((await db.execute(
         select(Session.id).where(Session.cohort_id == cohort_id, Session.completed_at.is_(None))
@@ -1006,10 +889,13 @@ async def complete_cohort(
         warnings.append("No session reports were uploaded for this cohort.")
     unreviewed = await day_service.list_day_reviews(db, status_filter="submitted", cohort_id=cohort_id)
     if unreviewed:
-        warnings.append(
-            f"{len(unreviewed)} workshop day(s) are still awaiting review — "
-            "those days won't be counted on anyone's payment letter."
-        )
+        if is_partner_managed(cohort) and not is_ops_or_admin(current_user):
+            warnings.append(f"{len(unreviewed)} workshop day(s) are still awaiting review.")
+        else:
+            warnings.append(
+                f"{len(unreviewed)} workshop day(s) are still awaiting review — "
+                "those days won't be counted on anyone's payment letter."
+            )
     if unfinished_session_ids:
         warnings.append(
             f"{len(unfinished_session_ids)} session(s) had not been marked done — "
@@ -1245,7 +1131,7 @@ async def list_sessions(
     cohort = await db.get(Cohort, cohort_id)
     if cohort is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Cohort not found")
-    if not is_ops_or_admin(current_user) and not await is_cohort_org_manager(db, cohort, current_user):
+    if not await can_read_cohort(db, cohort, current_user):
         allowed = await instructor_cohort_ids(db, user=current_user)
         if allowed is not None and cohort_id not in allowed:
             raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Cohort not found")
@@ -1267,6 +1153,11 @@ async def add_session(
     """A single one-off session date — for schedules that don't fit the
     weekly generator above (an irregular extra session, a make-up date)."""
     cohort = await require_cohort_manager_or_ops(db, cohort_id, current_user)
+    if body.duration_hours is not None and not await can_manage_cohort_delivery(db, cohort, current_user):
+        raise HTTPException(
+            status.HTTP_403_FORBIDDEN,
+            detail="Duration hours for SpacePoint-managed cohorts are managed by SpacePoint Ops.",
+        )
 
     session = Session(
         id=uuid.uuid4(), cohort_id=cohort_id, meeting_date=body.meeting_date,
@@ -1297,10 +1188,24 @@ async def update_session(
 
     changes = body.model_dump(exclude_unset=True)
     if not is_ops_or_admin(current_user):
-        changes.pop("location_id", None)
         changes.pop("warehouse_id", None)
-    if changes.get("location_id") and await db.get(Location, changes["location_id"]) is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Location not found")
+        if (
+            "duration_hours" in changes
+            and changes["duration_hours"] != session.duration_hours
+            and not await can_manage_cohort_delivery(db, _cohort, current_user)
+        ):
+            raise HTTPException(
+                status.HTTP_403_FORBIDDEN,
+                detail="Duration hours for SpacePoint-managed cohorts are managed by SpacePoint Ops.",
+            )
+    if changes.get("location_id") and changes["location_id"] != session.location_id:
+        loc = await db.get(Location, changes["location_id"])
+        if loc is None:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Location not found")
+        if not is_ops_or_admin(current_user):
+            org_id = await cohort_organization_id(db, _cohort)
+            if org_id is None or loc.organization_id != org_id:
+                raise HTTPException(status.HTTP_403_FORBIDDEN, detail="Location does not belong to your organization")
     if changes.get("warehouse_id") and await db.get(Warehouse, changes["warehouse_id"]) is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Warehouse not found")
 
@@ -1361,7 +1266,7 @@ async def assign_instructor(
     current_user: User = Depends(require_session_delivery),
     arq_redis: ArqRedis | None = Depends(get_arq_redis),
 ):
-    session, cohort = await require_session_manager_or_ops(db, session_id, current_user, cohort_id=cohort_id)
+    session, cohort = await require_session_delivery_manager_or_ops(db, session_id, current_user, cohort_id=cohort_id)
     user = await db.get(User, body.user_id)
     if user is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="User not found")
@@ -1420,7 +1325,7 @@ async def unassign_instructor(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_session_delivery),
 ):
-    session, _cohort = await require_session_manager_or_ops(db, session_id, current_user, cohort_id=cohort_id)
+    session, _cohort = await require_session_delivery_manager_or_ops(db, session_id, current_user, cohort_id=cohort_id)
 
     assignment = await db.scalar(
         select(SessionInstructor).where(
@@ -1461,7 +1366,7 @@ async def bulk_assign_instructor(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_session_delivery),
 ):
-    cohort = await require_cohort_manager_or_ops(db, cohort_id, current_user)
+    cohort = await require_cohort_delivery_manager_or_ops(db, cohort_id, current_user)
     user = await db.get(User, body.user_id)
     if user is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="User not found")
@@ -1562,7 +1467,7 @@ async def list_cohort_reports(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_session_delivery),
 ):
-    await require_cohort_manager_or_ops(db, cohort_id, current_user)
+    await require_cohort_read_or_ops(db, cohort_id, current_user)
     rows = await reports_service.list_reports(db, cohort_id)
     return [
         SessionReportOut(
@@ -1584,7 +1489,7 @@ async def list_registrations(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_session_delivery),
 ):
-    cohort = await require_cohort_manager_or_ops(db, cohort_id, current_user)
+    cohort = await require_cohort_read_or_ops(db, cohort_id, current_user)
 
     Student = aliased(Contact)
     Guardian = aliased(Contact)
@@ -1777,7 +1682,7 @@ async def desk_register(
                     status.HTTP_403_FORBIDDEN,
                     detail="Your organization account is under review. Enrollment is locked until approved.",
                 )
-            if org.max_students_per_cohort is not None:
+            if is_partner_managed(cohort) and org.max_students_per_cohort is not None:
                 active_count = await db.scalar(
                     select(func.count(Registration.id)).where(
                         Registration.cohort_id == cohort.id,
@@ -2085,7 +1990,7 @@ async def download_cohort_certificates(
     Generated fresh each time, nothing persisted or emailed — this is a
     print run, not the student_completion issuance flow in delivery.py.
     `theme` or `template_id` picks the layout and background template."""
-    cohort = await require_cohort_manager_or_ops(db, cohort_id, current_user)
+    cohort = await require_cohort_read_or_ops(db, cohort_id, current_user)
     program = await db.get(Program, cohort.program_id)
 
     rows = (await db.execute(
@@ -2182,7 +2087,7 @@ async def session_history(
     current_user: User = Depends(require_session_delivery),
 ):
     """3-phase session audit trail: pre-session, during-session, post-session."""
-    session, _cohort = await require_session_manager_or_ops(db, session_id, current_user)
+    session, _cohort = await require_session_read_or_ops(db, session_id, current_user)
 
     instructors_rows = (await db.execute(
         select(SessionInstructor, User, DeliveryRole)

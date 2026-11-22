@@ -61,6 +61,7 @@ async def get_ops_dashboard(db: AsyncSession) -> OpsDashboardOut:
                 select(Cohort.id).where(
                     Cohort.status == "completed",
                     Cohort.is_template_legacy.is_(False),
+                    Cohort.management_mode == "spacepoint",
                 )
             ),
         )
@@ -70,6 +71,7 @@ async def get_ops_dashboard(db: AsyncSession) -> OpsDashboardOut:
         select(func.count(Cohort.id)).where(
             Cohort.status == "running",
             Cohort.is_template_legacy.is_(False),
+            Cohort.management_mode == "spacepoint",
         )
     ) or 0
 
@@ -81,6 +83,7 @@ async def get_ops_dashboard(db: AsyncSession) -> OpsDashboardOut:
             Cohort.is_template_legacy.is_(False),
             Cohort.status != "draft",
             ~Cohort.name.ilike("[Template]%"),
+            Cohort.management_mode == "spacepoint",
         )
     ) or 0
 
@@ -264,7 +267,12 @@ async def _fetch_team_summary(
         await db.execute(
             select(Team.id, Team.final_locked_at, Team.created_at)
         .join(Cohort, Cohort.id == Team.cohort_id)
-        .where(Team.is_observer.is_(False), cohort_filter, Cohort.is_template_legacy.is_(False))
+        .where(
+            Team.is_observer.is_(False),
+            cohort_filter,
+            Cohort.is_template_legacy.is_(False),
+            Cohort.management_mode == "spacepoint",
+        )
         )
     ).all()
     if not teams:
@@ -363,7 +371,11 @@ async def _fetch_active_programs(db: AsyncSession) -> list[ActiveProgramProgress
     running_cohorts = (
         await db.execute(
             select(Cohort)
-            .where(Cohort.status == "running")
+            .where(
+                Cohort.status == "running",
+                Cohort.is_template_legacy.is_(False),
+                Cohort.management_mode == "spacepoint",
+            )
             .order_by(Cohort.starts_on.asc().nulls_last(), Cohort.created_at.desc())
             .limit(6)
         )
@@ -821,11 +833,19 @@ async def get_ops_dashboard_overview(
     cutoff = _resolve_cutoff(now, range_key)
 
     active_cohorts = await db.scalar(
-        select(func.count(Cohort.id)).where(Cohort.status == "running")
+        select(func.count(Cohort.id)).where(
+            Cohort.status == "running",
+            Cohort.is_template_legacy.is_(False),
+            Cohort.management_mode == "spacepoint",
+        )
     ) or 0
     upcoming_sessions_7d = await db.scalar(
-        select(func.count(Session.id)).where(
-            Session.meeting_date.between(today, today + timedelta(days=7))
+        select(func.count(Session.id))
+        .join(Cohort, Cohort.id == Session.cohort_id)
+        .where(
+            Session.meeting_date.between(today, today + timedelta(days=7)),
+            Cohort.is_template_legacy.is_(False),
+            Cohort.management_mode == "spacepoint",
         )
     ) or 0
 

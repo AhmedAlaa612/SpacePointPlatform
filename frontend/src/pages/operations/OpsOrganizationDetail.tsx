@@ -3,6 +3,7 @@ import { Link, useNavigate, useParams } from "@tanstack/react-router"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import {
   ArrowLeft,
+  ArrowRight,
   ArrowUpRight,
   BookOpen,
   Calendar,
@@ -17,9 +18,11 @@ import {
   Globe,
   HelpCircle,
   KeyRound,
+  Layers,
   Mail,
   MapPin,
   Phone,
+  Plus,
   Search,
   ShieldAlert,
   ShieldCheck,
@@ -27,7 +30,16 @@ import {
   Ticket,
   UserPlus,
   Users,
+  Warehouse as WarehouseIcon,
+  X,
 } from "lucide-react"
+import { createOrgProgramApi } from "@/api/organizationPrograms"
+import { createCohortApi } from "@/api/sessions/cohorts"
+import { getFilteredProgramsApi, listProgramVariationsApi } from "@/api/sessions/programs"
+import { getLocationsApi, getWarehousesApi } from "@/api/inventory"
+import { QuickCreateLocationModal } from "@/pages/admin/components/QuickCreateLocationModal"
+import type { Location } from "@/types/inventory"
+import type { Program, ProgramVariation } from "@/types/sessions"
 import {
   createOrganizationMember,
   createOrganizationMemberResetLink,
@@ -38,7 +50,10 @@ import {
   toggleOrganizationCoursePublish,
   updateAdminOrganizationAccount,
   updateOrganizationMember,
+  type OrgCohortDetail,
+  type OrgProgramDetail,
   type OrgSandboxRole,
+  type OrgSharedProgram,
 } from "@/api/websiteEvents"
 import { OrgRolePickerGrid, OrgRoleToggleRow } from "@/components/organization/OrgRolePills"
 import {
@@ -83,15 +98,102 @@ export default function OpsOrganizationDetail() {
 
   const [activeTab, setActiveTab] = useState<DetailTab>("overview")
   const [editOpen, setEditOpen] = useState(false)
-  const [expandedPrograms, setExpandedPrograms] = useState<Record<string, boolean>>({})
+  const [programViewMode, setProgramViewMode] = useState<"program" | "worklist">("program")
+  const [programSearch, setProgramSearch] = useState("")
+  const [programTypeFilter, setProgramTypeFilter] = useState("")
+  const [cohortStatusFilter, setCohortStatusFilter] = useState("")
+  const [expandedPastMap, setExpandedPastMap] = useState<Record<string, boolean>>({})
   const [studentQuery, setStudentQuery] = useState("")
   const [studentCohortFilter, setStudentCohortFilter] = useState("all")
   const [copiedKey, setCopiedKey] = useState<string | null>(null)
   const [inviteOpen, setInviteOpen] = useState(false)
+  const [createProgramOpen, setCreateProgramOpen] = useState(false)
+  const [createCohortOpen, setCreateCohortOpen] = useState(false)
+  const [cohortDefaultProgramId, setCohortDefaultProgramId] = useState("")
+  const [cohortDefaultMode, setCohortDefaultMode] = useState<"spacepoint" | "partner" | undefined>(undefined)
+
+  const allOrgPrograms = useMemo(() => {
+    const base = detail?.programs ?? []
+    const seen = new Set(base.map((p) => p.id))
+    const sharedExtras: OrgProgramDetail[] = (detail?.shared_programs ?? [])
+      .filter((sp) => !seen.has(sp.id))
+      .map((sp) => ({
+        id: sp.id,
+        code: sp.code,
+        name: sp.name,
+        program_type: sp.program_type,
+        description: null,
+        is_org_owned: false,
+        active: sp.active,
+        lms_program_id: null,
+        checklist_name: null,
+        certificate_required: false,
+        cohorts_count: 0,
+        checklist_items: [],
+      }))
+    return [...base, ...sharedExtras]
+  }, [detail?.programs, detail?.shared_programs])
+
+  const cohortsByProgramId = useMemo(() => {
+    const map = new Map<string, typeof detail extends undefined ? never : NonNullable<typeof detail>["cohorts"]>()
+    for (const c of detail?.cohorts ?? []) {
+      const list = map.get(c.program_id) ?? []
+      list.push(c)
+      map.set(c.program_id, list)
+    }
+    return map
+  }, [detail?.cohorts])
+
+  const filteredOrgPrograms = useMemo(() => {
+    const q = programSearch.trim().toLowerCase()
+    return allOrgPrograms.filter((p) => {
+      if (programTypeFilter && p.program_type !== programTypeFilter) return false
+      if (!q) return true
+      const matchesProgram =
+        p.name.toLowerCase().includes(q) || (p.code ?? "").toLowerCase().includes(q)
+      if (matchesProgram) return true
+      const programCohorts = cohortsByProgramId.get(p.id) ?? []
+      return programCohorts.some(
+        (c) =>
+          c.name.toLowerCase().includes(q) ||
+          (c.location_name ?? "").toLowerCase().includes(q)
+      )
+    })
+  }, [allOrgPrograms, cohortsByProgramId, programTypeFilter, programSearch])
+
+  const filteredOrgWorklist = useMemo(() => {
+    const q = programSearch.trim().toLowerCase()
+    return (detail?.cohorts ?? []).filter((c) => {
+      if (cohortStatusFilter && c.status !== cohortStatusFilter) return false
+      if (!q) return true
+      return (
+        c.name.toLowerCase().includes(q) ||
+        (c.program_name ?? "").toLowerCase().includes(q) ||
+        (c.location_name ?? "").toLowerCase().includes(q)
+      )
+    })
+  }, [detail?.cohorts, cohortStatusFilter, programSearch])
+
+  const togglePast = (programId: string) => {
+    setExpandedPastMap((prev) => ({
+      ...prev,
+      [programId]: !prev[programId],
+    }))
+  }
+
+  const openLaunchCohort = (programId?: string, isOrgOwned?: boolean) => {
+    setCohortDefaultProgramId(programId ?? "")
+    setCohortDefaultMode(
+      programId === undefined ? undefined : isOrgOwned !== false ? "partner" : "spacepoint"
+    )
+    setCreateCohortOpen(true)
+  }
 
   const invalidateOrgQueries = () => {
     void qc.invalidateQueries({ queryKey: ["admin-organization-detail", orgId] })
     void qc.invalidateQueries({ queryKey: ["admin-website-organizations"] })
+    void qc.invalidateQueries({ queryKey: ["sessions-cohorts"] })
+    void qc.invalidateQueries({ queryKey: ["org-programs-overview"] })
   }
 
   const toggleApprovalMut = useMutation({
@@ -467,6 +569,14 @@ export default function OpsOrganizationDetail() {
                 ? `${(org.allowed_quiz_template_ids ?? []).length} Selected Templates`
                 : "Org Authored Only"}
           </span>
+          <span className="rounded-[10px] border border-primary/25 bg-primary/10 px-2.5 py-1 text-xs font-semibold text-primary">
+            Shared Programs:{" "}
+            {org.program_scope === "all"
+              ? "All Active SpacePoint"
+              : org.program_scope === "selected"
+                ? `${detail.shared_programs?.length ?? (org.allowed_program_ids ?? []).length} Selected`
+                : "Org Programs Only"}
+          </span>
         </div>
       </div>
 
@@ -513,7 +623,7 @@ export default function OpsOrganizationDetail() {
                 "inline-flex items-center gap-2 rounded-[10px] border px-4 py-2 text-xs font-semibold transition-colors",
                 active
                   ? "border-primary bg-primary text-primary-foreground"
-                  : "border-border bg-card text-muted-foreground hover:border-primary/50 hover:text-foreground"
+                  : "border-border bg-card text-muted-foreground hover:bg-muted/40 hover:text-foreground"
               )}
             >
               <span>{t.label}</span>
@@ -539,52 +649,84 @@ export default function OpsOrganizationDetail() {
           <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
             {/* Active & Recent Cohorts Snapshot */}
             <div className="rounded-[10px] border border-border bg-card p-5">
-              <div className="mb-4 flex items-center justify-between">
+              <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
                 <h2 className="text-base font-bold text-foreground">Cohorts Snapshot</h2>
-                <button
-                  type="button"
-                  onClick={() => setActiveTab("programs")}
-                  className="text-xs font-semibold text-primary hover:underline"
-                >
-                  View all ({detail.cohorts.length})
-                </button>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => openLaunchCohort()}
+                    className="inline-flex items-center gap-1.5 h-8 px-3 rounded-[10px] bg-primary text-primary-foreground text-xs font-bold hover:opacity-90 transition-colors cursor-pointer"
+                  >
+                    <Plus size={13} /> Add Cohort
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setActiveTab("programs")}
+                    className="inline-flex items-center gap-1 h-8 px-3 rounded-[10px] border border-border bg-background text-xs font-bold text-foreground hover:bg-muted transition-colors cursor-pointer"
+                  >
+                    View All ({detail.cohorts.length}) <ArrowRight size={12} />
+                  </button>
+                </div>
               </div>
               {detail.cohorts.length === 0 ? (
-                <div className="rounded-[10px] border border-border bg-background p-5 text-center text-xs text-muted-foreground">
-                  No cohorts created by this organization yet.
+                <div className="rounded-[10px] border border-dashed border-border bg-background p-6 text-center">
+                  <p className="text-xs font-semibold text-muted-foreground">
+                    No cohorts scheduled for this organization yet.
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => openLaunchCohort()}
+                    className="mt-3 inline-flex items-center gap-1.5 h-8 px-3 rounded-[10px] bg-primary text-primary-foreground text-xs font-bold hover:opacity-90 transition-colors cursor-pointer"
+                  >
+                    <Plus size={13} /> Launch First Cohort
+                  </button>
                 </div>
               ) : (
                 <div className="space-y-3">
                   {detail.cohorts.slice(0, 5).map((c) => (
                     <SubCard key={c.id}>
-                      <div className="flex flex-wrap items-center justify-between gap-2">
+                      <div className="flex flex-wrap items-start justify-between gap-2">
                         <div>
-                          <Link
-                            to="/operations/cohorts/$cohortId"
-                            params={{ cohortId: c.id }}
-                            className="text-sm font-bold text-foreground hover:text-primary"
-                          >
-                            {c.name}
-                          </Link>
+                          <div className="flex flex-wrap items-center gap-2">
+                            <Link
+                              to="/operations/cohorts/$cohortId"
+                              params={{ cohortId: c.id }}
+                              search={{ from: `/operations/organizations/${orgId}` } as never}
+                              className="text-sm font-bold text-foreground hover:text-primary transition-colors"
+                            >
+                              {c.name}
+                            </Link>
+                            <OpsCohortStatusBadge status={c.status} />
+                            <span
+                              className={cn(
+                                "rounded-full px-2 py-0.5 text-[10px] font-semibold border",
+                                c.management_mode === "spacepoint"
+                                  ? "border-violet-500/30 bg-violet-500/15 text-violet-700 dark:text-violet-300"
+                                  : "border-emerald-500/20 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300"
+                              )}
+                            >
+                              {c.management_mode === "spacepoint" ? "Delivered by SpacePoint" : "Partner-run"}
+                            </span>
+                          </div>
                           <div className="mt-1 text-xs text-muted-foreground">
                             {c.program_name}
+                            {c.location_name ? ` · ${c.location_name}` : ""}
                           </div>
                         </div>
-                        <span
-                          className={cn(
-                            "rounded-[10px] border px-2.5 py-1 text-xs font-semibold uppercase",
-                            c.status === "running"
-                              ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300"
-                              : "border-border bg-muted text-muted-foreground"
-                          )}
+
+                        <Link
+                          to="/operations/cohorts/$cohortId"
+                          params={{ cohortId: c.id }}
+                          search={{ from: `/operations/organizations/${orgId}` } as never}
+                          className="inline-flex items-center gap-1 h-8 px-3 rounded-[10px] border border-border bg-background text-xs font-bold text-foreground hover:bg-muted transition-colors shrink-0"
                         >
-                          {c.status}
-                        </span>
+                          Manage <ArrowRight size={12} />
+                        </Link>
                       </div>
                       <div className="mt-3 flex flex-wrap items-center justify-between gap-3 text-xs text-muted-foreground">
                         <span>
-                          Students: {c.enrolled_count}
-                          {c.capacity ? ` / ${c.capacity}` : ""}
+                          {c.enrolled_count}
+                          {c.capacity ? ` / ${c.capacity}` : ""} Registered
                         </span>
                         <span>Observers: {c.observers_count}</span>
                         <span className="font-semibold text-foreground">
@@ -603,52 +745,91 @@ export default function OpsOrganizationDetail() {
               )}
             </div>
 
-            {/* Programs & Learning Checklists Snapshot */}
+            {/* Programs Snapshot */}
             <div className="rounded-[10px] border border-border bg-card p-5">
-              <div className="mb-4 flex items-center justify-between">
-                <h2 className="text-base font-bold text-foreground">Programs & Checklists</h2>
-                <button
-                  type="button"
-                  onClick={() => setActiveTab("programs")}
-                  className="text-xs font-semibold text-primary hover:underline"
-                >
-                  Inspect ({detail.programs.length})
-                </button>
+              <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
+                <h2 className="text-base font-bold text-foreground">Programs</h2>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setCreateProgramOpen(true)}
+                    className="inline-flex items-center gap-1.5 h-8 px-3 rounded-[10px] bg-primary text-primary-foreground text-xs font-bold hover:opacity-90 transition-colors cursor-pointer"
+                  >
+                    <Plus size={13} /> New Program
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setActiveTab("programs")}
+                    className="inline-flex items-center gap-1 h-8 px-3 rounded-[10px] border border-border bg-background text-xs font-bold text-foreground hover:bg-muted transition-colors cursor-pointer"
+                  >
+                    View All ({allOrgPrograms.length}) <ArrowRight size={12} />
+                  </button>
+                </div>
               </div>
-              {detail.programs.length === 0 ? (
-                <div className="rounded-[10px] border border-border bg-background p-5 text-center text-xs text-muted-foreground">
-                  No programs created yet.
+              {allOrgPrograms.length === 0 ? (
+                <div className="rounded-[10px] border border-dashed border-border bg-background p-6 text-center">
+                  <p className="text-xs font-semibold text-muted-foreground">
+                    No programs configured for this organization yet.
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => setCreateProgramOpen(true)}
+                    className="mt-3 inline-flex items-center gap-1.5 h-8 px-3 rounded-[10px] bg-primary text-primary-foreground text-xs font-bold hover:opacity-90 transition-colors cursor-pointer"
+                  >
+                    <Plus size={13} /> New Program
+                  </button>
                 </div>
               ) : (
                 <div className="space-y-3">
-                  {detail.programs.slice(0, 5).map((p) => (
-                    <SubCard key={p.id}>
-                      <div className="flex flex-wrap items-center justify-between gap-2">
-                        <div className="text-sm font-bold text-foreground">{p.name}</div>
-                        <span
-                          className={cn(
-                            "rounded-[10px] border px-2.5 py-1 text-xs font-semibold",
-                            p.active
-                              ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300"
-                              : "border-border bg-muted text-muted-foreground"
-                          )}
-                        >
-                          {p.active ? "Active" : "Inactive"}
-                        </span>
-                      </div>
-                      <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-                        <span className="rounded-[10px] border border-border bg-muted px-2.5 py-1 text-foreground">
-                          Type: {p.program_type}
-                        </span>
-                        <span className="rounded-[10px] border border-border bg-muted px-2.5 py-1">
-                          {p.cohorts_count} cohorts
-                        </span>
-                        <span className="rounded-[10px] border border-border bg-muted px-2.5 py-1">
-                          {p.checklist_items.length} checklist steps
-                        </span>
-                      </div>
-                    </SubCard>
-                  ))}
+                  {allOrgPrograms.slice(0, 5).map((p) => {
+                    const isOrgOwned = p.is_org_owned !== false
+                    const cohortCount = (cohortsByProgramId.get(p.id) ?? []).length
+                    return (
+                      <SubCard key={p.id}>
+                        <div className="flex flex-wrap items-center justify-between gap-3">
+                          <div className="min-w-0">
+                            <div className="flex flex-wrap items-center gap-2">
+                              <Link
+                                to="/operations/programs/$programId"
+                                params={{ programId: p.id }}
+                                className="text-sm font-bold text-foreground hover:text-primary transition-colors"
+                              >
+                                {p.name}
+                              </Link>
+                              <span className="text-xs font-bold px-2.5 py-0.5 rounded-[10px] bg-primary/10 text-primary border border-primary/20 capitalize">
+                                {p.program_type}
+                              </span>
+                              {!isOrgOwned && (
+                                <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full bg-amber-500/15 text-amber-700 dark:text-amber-300 border border-amber-500/30">
+                                  Shared by SpacePoint
+                                </span>
+                              )}
+                            </div>
+                            <div className="mt-1.5 text-xs text-muted-foreground">
+                              {cohortCount} cohort{cohortCount === 1 ? "" : "s"}
+                            </div>
+                          </div>
+
+                          <div className="flex items-center gap-2 shrink-0">
+                            <button
+                              type="button"
+                              onClick={() => openLaunchCohort(p.id, isOrgOwned)}
+                              className="inline-flex items-center gap-1 h-8 px-3 rounded-[10px] bg-primary text-primary-foreground text-xs font-bold hover:opacity-90 transition-colors cursor-pointer"
+                            >
+                              <Plus size={13} /> Add Cohort
+                            </button>
+                            <Link
+                              to="/operations/programs/$programId"
+                              params={{ programId: p.id }}
+                              className="inline-flex items-center gap-1 h-8 px-3 rounded-[10px] border border-border bg-background text-xs font-bold text-foreground hover:bg-muted transition-colors"
+                            >
+                              Manage <ArrowRight size={12} />
+                            </Link>
+                          </div>
+                        </div>
+                      </SubCard>
+                    )
+                  })}
                 </div>
               )}
             </div>
@@ -702,203 +883,366 @@ export default function OpsOrganizationDetail() {
         </div>
       )}
 
-      {/* TAB 2: Programs & Cohorts */}
+      {/* TAB 2: Programs & Cohorts (Identical layout & wording to Ops Programs.tsx) */}
       {activeTab === "programs" && (
-        <div className="space-y-6">
-          <div className="rounded-[10px] border border-border bg-card p-5">
-            <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-              <h2 className="text-base font-bold text-foreground">
-                Programs & Curriculum Checklists ({detail.programs.length})
+        <div className="flex flex-col gap-6">
+          {/* ── Page Header ───────────────────────────────────────────── */}
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+            <div>
+              <h2 className="text-2xl font-extrabold tracking-tight text-foreground">
+                Programs
               </h2>
-              <Button asChild variant="outline" className="h-8 rounded-[10px] px-3 text-xs font-semibold">
-                <Link
-                  to="/lms-authoring/curriculum"
-                  search={{ programId: undefined, cohortId: undefined, tab: undefined }}
-                >
-                  Open Curriculum Manager
-                  <ArrowUpRight className="h-3.5 w-3.5" />
-                </Link>
-              </Button>
             </div>
 
-            {detail.programs.length === 0 ? (
-              <div className="rounded-[10px] border border-border bg-background p-6 text-center text-xs text-muted-foreground">
-                No programs configured for this organization.
+            <div className="flex items-center gap-2 flex-wrap">
+              <button
+                type="button"
+                onClick={() => setEditOpen(true)}
+                className="inline-flex items-center gap-2 h-10 px-4 rounded-[10px] border border-border bg-card text-foreground text-sm font-semibold hover:bg-muted transition-colors cursor-pointer"
+              >
+                <SlidersHorizontal size={15} /> Shared Programs ({(detail.shared_programs ?? []).length})
+              </button>
+              <button
+                type="button"
+                onClick={() => setCreateProgramOpen(true)}
+                className="inline-flex items-center gap-2 h-10 px-4 rounded-[10px] bg-primary text-primary-foreground text-sm font-semibold hover:opacity-90 transition-colors cursor-pointer"
+              >
+                <Plus size={16} /> New Program
+              </button>
+            </div>
+          </div>
+
+          {/* ── Filter & View Mode Controls ───────────────────────────── */}
+          <div className="flex flex-col sm:flex-row sm:flex-wrap sm:items-center justify-between gap-3">
+            <div className="flex flex-wrap flex-1 items-center gap-2 min-w-0">
+              <div className="relative w-full sm:flex-1 sm:min-w-[200px]">
+                <Search
+                  size={15}
+                  className="absolute left-3.5 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none"
+                />
+                <input
+                  value={programSearch}
+                  onChange={(e) => setProgramSearch(e.target.value)}
+                  placeholder="Search program, cohort, or venue..."
+                  className="w-full h-10 pl-10 pr-8 rounded-[10px] border border-border bg-card text-foreground text-sm font-medium focus:outline-none focus:border-primary transition-colors"
+                />
+                {programSearch && (
+                  <button
+                    type="button"
+                    onClick={() => setProgramSearch("")}
+                    aria-label="Clear search"
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground p-0.5 rounded-full transition-colors"
+                  >
+                    <X size={14} />
+                  </button>
+                )}
               </div>
-            ) : (
-              <div className="space-y-3">
-                {detail.programs.map((prog) => {
-                  const isOpen = !!expandedPrograms[prog.id]
+
+              <select
+                value={programTypeFilter}
+                onChange={(e) => setProgramTypeFilter(e.target.value)}
+                className="flex-1 sm:flex-none sm:w-44 shrink-0 h-10 px-3 rounded-[10px] border border-border bg-card text-foreground text-sm font-medium focus:outline-none focus:border-primary transition-colors cursor-pointer"
+              >
+                <option value="">All Types</option>
+                <option value="workshop">Workshop</option>
+                <option value="course">Course</option>
+                <option value="info_session">Info session</option>
+                <option value="competition">Competition</option>
+              </select>
+
+              {programViewMode === "worklist" && (
+                <select
+                  value={cohortStatusFilter}
+                  onChange={(e) => setCohortStatusFilter(e.target.value)}
+                  className="flex-1 sm:flex-none sm:w-44 shrink-0 h-10 px-3 rounded-[10px] border border-border bg-card text-foreground text-sm font-medium focus:outline-none focus:border-primary transition-colors cursor-pointer"
+                >
+                  <option value="">All Statuses</option>
+                  <option value="running">Running</option>
+                  <option value="registration_open">Registration open</option>
+                  <option value="planned">Planned</option>
+                  <option value="completed">Completed</option>
+                  <option value="cancelled">Cancelled</option>
+                </select>
+              )}
+            </div>
+
+            <div className="inline-flex self-start sm:self-auto shrink-0 p-1 rounded-[10px] bg-muted/60 border border-border">
+              <button
+                type="button"
+                onClick={() => setProgramViewMode("program")}
+                className={`inline-flex items-center gap-1.5 h-8 px-3 rounded-[10px] text-xs font-bold transition-all cursor-pointer ${programViewMode === "program"
+                    ? "bg-background text-foreground shadow-xs"
+                    : "text-muted-foreground hover:text-foreground"
+                  }`}
+              >
+                <Layers size={14} /> Program View
+              </button>
+              <button
+                type="button"
+                onClick={() => setProgramViewMode("worklist")}
+                className={`inline-flex items-center gap-1.5 h-8 px-3 rounded-[10px] text-xs font-bold transition-all cursor-pointer ${programViewMode === "worklist"
+                    ? "bg-background text-foreground shadow-xs"
+                    : "text-muted-foreground hover:text-foreground"
+                  }`}
+              >
+                <SlidersHorizontal size={14} /> Cohort View
+              </button>
+            </div>
+          </div>
+
+          {/* ── VIEW 1: PROGRAM-CENTRIC BLUEPRINT VIEW ─────────────────── */}
+          {programViewMode === "program" && (
+            <div className="space-y-6">
+              {filteredOrgPrograms.length === 0 ? (
+                <div className="p-12 text-center rounded-[10px] border border-border bg-card">
+                  <p className="text-base font-bold text-foreground">No programs found</p>
+                  <p className="text-sm text-muted-foreground mt-1">
+                    Try clearing your search query or type filters.
+                  </p>
+                </div>
+              ) : (
+                filteredOrgPrograms.map((program) => {
+                  const isOrgOwned = program.is_org_owned !== false
+                  const programCohorts = cohortsByProgramId.get(program.id) ?? []
+                  const runningCohorts = programCohorts.filter((c) => c.status === "running")
+                  const openCohorts = programCohorts.filter(
+                    (c) => c.status === "registration_open" || c.status === "planned"
+                  )
+                  const pastCohorts = programCohorts.filter(
+                    (c) => c.status === "completed" || c.status === "cancelled"
+                  )
+                  const pastExpanded = !!expandedPastMap[program.id]
+
                   return (
-                    <SubCard key={prog.id}>
-                      <div className="flex flex-wrap items-center justify-between gap-3">
-                        <div className="flex flex-wrap items-center gap-2.5">
-                          <button
-                            type="button"
-                            onClick={() =>
-                              setExpandedPrograms((prev) => ({ ...prev, [prog.id]: !prev[prog.id] }))
-                            }
-                            className="inline-flex items-center gap-2 text-left text-sm font-bold text-foreground hover:text-primary"
-                          >
-                            {isOpen ? (
-                              <ChevronDown className="h-4 w-4 text-primary" />
-                            ) : (
-                              <ChevronRight className="h-4 w-4 text-primary" />
+                    <div
+                      key={program.id}
+                      className="rounded-[10px] border border-border bg-card overflow-hidden transition-colors"
+                    >
+                      {/* Clean Program Header with Interactive Arrow */}
+                      <div className="p-5 sm:p-6 border-b border-border bg-muted/20 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center gap-2.5 flex-wrap">
+                            <Link
+                              to="/operations/programs/$programId"
+                              params={{ programId: program.id }}
+                              className="text-xl font-extrabold text-foreground tracking-tight hover:text-primary transition-colors"
+                            >
+                              {program.name}
+                            </Link>
+                            <span className="text-xs font-bold px-2.5 py-0.5 rounded-[10px] bg-primary/10 text-primary border border-primary/20 capitalize">
+                              {program.program_type}
+                            </span>
+                            {!isOrgOwned && (
+                              <span className="text-xs font-bold px-2.5 py-0.5 rounded-[10px] bg-amber-500/15 text-amber-700 dark:text-amber-300 border border-amber-500/30">
+                                Shared by SpacePoint
+                              </span>
                             )}
-                            {prog.name}
-                          </button>
-                          <span
-                            className={cn(
-                              "rounded-[10px] border px-2.5 py-0.5 text-xs font-semibold",
-                              prog.active
-                                ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300"
-                                : "border-border bg-muted text-muted-foreground"
-                            )}
-                          >
-                            {prog.active ? "Active" : "Inactive"}
-                          </span>
-                          <span className="rounded-[10px] border border-border bg-muted px-2.5 py-0.5 text-xs text-muted-foreground">
-                            {prog.program_type}
-                          </span>
+                          </div>
+
+                          {program.description && (
+                            <p className="text-sm text-muted-foreground mt-1 line-clamp-1">
+                              {program.description}
+                            </p>
+                          )}
                         </div>
 
-                        <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-                          {prog.checklist_name && (
-                            <span className="rounded-[10px] border border-primary/25 bg-primary/10 px-2.5 py-1 font-medium text-primary">
-                              Checklist: {prog.checklist_name}
-                            </span>
-                          )}
-                          <span className="rounded-[10px] border border-border bg-muted px-2.5 py-1">
-                            {prog.cohorts_count} cohorts
+                        {/* Master Action & Navigatable Arrow */}
+                        <div className="flex items-center gap-2 shrink-0">
+                          <button
+                            type="button"
+                            onClick={() => openLaunchCohort(program.id, isOrgOwned)}
+                            className="inline-flex items-center gap-1.5 h-10 px-4 rounded-[10px] bg-primary text-primary-foreground text-sm font-bold hover:opacity-90 transition-colors cursor-pointer"
+                          >
+                            <Plus size={15} /> Add Cohort
+                          </button>
+
+                          <Link
+                            to="/operations/programs/$programId"
+                            params={{ programId: program.id }}
+                            className="inline-flex items-center justify-center h-10 w-10 rounded-[10px] border border-border bg-background text-foreground hover:bg-muted hover:border-primary/40 transition-colors group cursor-pointer"
+                            title="Manage Program"
+                            aria-label={`Manage ${program.name}`}
+                          >
+                            <ChevronRight
+                              size={18}
+                              className="group-hover:translate-x-0.5 transition-transform"
+                            />
+                          </Link>
+                        </div>
+                      </div>
+
+                      {/* Child Cohorts Groups */}
+                      <div className="p-5 sm:p-6 space-y-6">
+                        {programCohorts.length === 0 ? (
+                          <div className="py-8 text-center rounded-[10px] border border-dashed border-border bg-muted/10">
+                            <p className="text-sm font-semibold text-muted-foreground">
+                              No cohorts scheduled under this program yet.
+                            </p>
+                            <button
+                              type="button"
+                              onClick={() => openLaunchCohort(program.id, isOrgOwned)}
+                              className="mt-3 inline-flex items-center gap-1.5 h-8 px-3 rounded-[10px] bg-primary text-primary-foreground text-xs font-bold hover:opacity-90 transition-colors cursor-pointer"
+                            >
+                              <Plus size={13} /> Launch First Cohort
+                            </button>
+                          </div>
+                        ) : (
+                          <>
+                            {/* 1. Running Cohorts */}
+                            {runningCohorts.length > 0 && (
+                              <div>
+                                <div className="flex items-center gap-2 mb-3">
+                                  <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 inline-block" />
+                                  <h3 className="text-xs font-extrabold uppercase tracking-wider text-muted-foreground">
+                                    Running Now ({runningCohorts.length})
+                                  </h3>
+                                </div>
+                                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+                                  {runningCohorts.map((c) => (
+                                    <OpsOrgCohortCard key={c.id} cohort={c} orgId={orgId} />
+                                  ))}
+                                </div>
+                              </div>
+                            )}
+
+                            {/* 2. Registration Open & Upcoming Cohorts */}
+                            {openCohorts.length > 0 && (
+                              <div>
+                                <div className="flex items-center gap-2 mb-3">
+                                  <span className="w-2.5 h-2.5 rounded-full bg-primary inline-block" />
+                                  <h3 className="text-xs font-extrabold uppercase tracking-wider text-muted-foreground">
+                                    Registration Open &amp; Upcoming ({openCohorts.length})
+                                  </h3>
+                                </div>
+                                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+                                  {openCohorts.map((c) => (
+                                    <OpsOrgCohortCard key={c.id} cohort={c} orgId={orgId} />
+                                  ))}
+                                </div>
+                              </div>
+                            )}
+
+                            {/* 3. Past & Completed Cohorts */}
+                            {pastCohorts.length > 0 && (
+                              <div className="pt-2 border-t border-border">
+                                <button
+                                  type="button"
+                                  onClick={() => togglePast(program.id)}
+                                  className="inline-flex items-center gap-2 text-xs font-extrabold uppercase tracking-wider text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
+                                >
+                                  <span className="w-2.5 h-2.5 rounded-full bg-muted-foreground/60 inline-block" />
+                                  <span>Past &amp; Completed ({pastCohorts.length} Cohorts)</span>
+                                  {pastExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+                                </button>
+
+                                {pastExpanded && (
+                                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 mt-3">
+                                    {pastCohorts.map((c) => (
+                                      <OpsOrgCohortCard key={c.id} cohort={c} orgId={orgId} />
+                                    ))}
+                                  </div>
+                                )}
+                              </div>
+                            )}
+                          </>
+                        )}
+                      </div>
+                    </div>
+                  )
+                })
+              )}
+            </div>
+          )}
+
+          {/* ── VIEW 2: GLOBAL OPERATIONAL WORKLIST (COHORT VIEW) ──────── */}
+          {programViewMode === "worklist" && (
+            <div className="rounded-[10px] border border-border bg-card overflow-hidden">
+              <div className="hidden md:grid md:grid-cols-12 gap-3 p-4 border-b border-border bg-muted/20 text-xs font-bold uppercase tracking-wider text-muted-foreground">
+                <div className="col-span-2">Status</div>
+                <div className="col-span-3">Cohort &amp; Program</div>
+                <div className="col-span-3">Dates &amp; Venue</div>
+                <div className="col-span-2">Staffing &amp; Capacity</div>
+                <div className="col-span-2 text-right">Actions</div>
+              </div>
+
+              <div className="divide-y divide-border">
+                {filteredOrgWorklist.length === 0 ? (
+                  <div className="p-12 text-center text-sm font-semibold text-muted-foreground">
+                    No cohorts match the selected filters.
+                  </div>
+                ) : (
+                  filteredOrgWorklist.map((c) => (
+                    <div
+                      key={c.id}
+                      className="flex flex-col md:grid md:grid-cols-12 gap-3 p-4 md:items-center hover:bg-muted/30 transition-colors"
+                    >
+                      <div className="md:col-span-2 flex items-center gap-1.5 flex-wrap">
+                        <OpsCohortStatusBadge status={c.status} />
+                      </div>
+
+                      <div className="md:col-span-3 min-w-0">
+                        <Link
+                          to="/operations/cohorts/$cohortId"
+                          params={{ cohortId: c.id }}
+                          search={{ from: `/operations/organizations/${orgId}` } as never}
+                          className="text-sm font-bold text-foreground hover:text-primary transition-colors block md:truncate"
+                        >
+                          {c.name}
+                        </Link>
+                        <div className="flex items-center gap-1.5 mt-0.5 flex-wrap">
+                          <span className="text-xs text-muted-foreground md:truncate">
+                            {c.program_name ?? "—"}
                           </span>
-                          <span className="rounded-[10px] border border-border bg-muted px-2.5 py-1">
-                            {prog.checklist_items.length} steps
+                          <span
+                            className={cn(
+                              "rounded-full px-2 py-0.5 text-[10px] font-semibold border",
+                              c.management_mode === "spacepoint"
+                                ? "border-violet-500/30 bg-violet-500/15 text-violet-700 dark:text-violet-300"
+                                : "border-emerald-500/20 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300"
+                            )}
+                          >
+                            {c.management_mode === "spacepoint" ? "Delivered by SpacePoint" : "Partner-run"}
                           </span>
                         </div>
                       </div>
 
-                      {isOpen && (
-                        <div className="mt-4 border-t border-border pt-3">
-                          {prog.checklist_items.length === 0 ? (
-                            <div className="text-xs text-muted-foreground">
-                              No LMS checklist steps attached to this program yet.
-                            </div>
-                          ) : (
-                            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-                              {prog.checklist_items.map((step) => (
-                                <div
-                                  key={step.id}
-                                  className="flex items-center justify-between gap-2 rounded-[10px] border border-border bg-card px-3 py-2 text-xs"
-                                >
-                                  <div className="flex items-center gap-2">
-                                    <span className="font-mono font-bold text-primary">
-                                      #{step.position}
-                                    </span>
-                                    <span className="font-medium text-foreground">{step.title}</span>
-                                  </div>
-                                  <div className="flex items-center gap-1.5">
-                                    <span className="rounded-[10px] border border-border bg-muted px-2 py-0.5 text-xs text-muted-foreground">
-                                      {step.item_type}
-                                    </span>
-                                    {step.optional && (
-                                      <span className="rounded-[10px] border border-border bg-muted px-2 py-0.5 text-xs text-muted-foreground">
-                                        Optional
-                                      </span>
-                                    )}
-                                  </div>
-                                </div>
-                              ))}
-                            </div>
-                          )}
+                      <div className="md:col-span-3 text-xs text-muted-foreground min-w-0">
+                        <div className="md:truncate">
+                          {c.starts_on
+                            ? `${c.starts_on}${c.ends_on && c.ends_on !== c.starts_on ? ` – ${c.ends_on}` : ""}`
+                            : "Dates unassigned"}
                         </div>
-                      )}
-                    </SubCard>
-                  )
-                })}
-              </div>
-            )}
-          </div>
+                        <div className="md:truncate text-foreground font-medium mt-0.5">
+                          {c.location_name || "Venue unassigned"}
+                        </div>
+                      </div>
 
-          <div className="rounded-[10px] border border-border bg-card p-5">
-            <h2 className="mb-4 text-base font-bold text-foreground">
-              Organization Cohorts ({detail.cohorts.length})
-            </h2>
-            {detail.cohorts.length === 0 ? (
-              <div className="rounded-[10px] border border-border bg-background p-6 text-center text-xs text-muted-foreground">
-                No cohorts registered for this organization.
-              </div>
-            ) : (
-              <div className="overflow-x-auto">
-                <table className="w-full text-left text-xs">
-                  <thead>
-                    <tr className="border-b border-border text-muted-foreground">
-                      <th className="py-3 pr-4 font-semibold uppercase">Cohort</th>
-                      <th className="py-3 pr-4 font-semibold uppercase">Program</th>
-                      <th className="py-3 pr-4 font-semibold uppercase">Dates</th>
-                      <th className="py-3 pr-4 font-semibold uppercase">Status</th>
-                      <th className="py-3 pr-4 font-semibold uppercase">Students</th>
-                      <th className="py-3 pr-4 font-semibold uppercase">Observers</th>
-                      <th className="py-3 pr-4 font-semibold uppercase">Sessions</th>
-                      <th className="py-3 pr-4 font-semibold uppercase">Completion</th>
-                      <th className="py-3 text-right font-semibold uppercase">Action</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-border">
-                    {detail.cohorts.map((c) => (
-                      <tr key={c.id} className="hover:bg-muted/40">
-                        <td className="py-3.5 pr-4 font-bold text-foreground">{c.name}</td>
-                        <td className="py-3.5 pr-4 text-muted-foreground">{c.program_name}</td>
-                        <td className="py-3.5 pr-4 text-muted-foreground">
-                          {formatDateRange(c.starts_on, c.ends_on)}
-                        </td>
-                        <td className="py-3.5 pr-4">
-                          <span
-                            className={cn(
-                              "rounded-[10px] border px-2.5 py-1 font-semibold uppercase",
-                              c.status === "running"
-                                ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300"
-                                : "border-border bg-muted text-muted-foreground"
-                            )}
-                          >
-                            {c.status}
-                          </span>
-                        </td>
-                        <td className="py-3.5 pr-4 text-foreground">
+                      <div className="md:col-span-2 flex md:block items-center justify-between gap-2 text-xs text-muted-foreground">
+                        <div className="font-bold text-foreground">
                           {c.enrolled_count}
-                          {c.capacity ? ` / ${c.capacity}` : ""}
-                        </td>
-                        <td className="py-3.5 pr-4 text-muted-foreground">{c.observers_count}</td>
-                        <td className="py-3.5 pr-4 text-muted-foreground">{c.sessions_count}</td>
-                        <td className="py-3.5 pr-4">
-                          <div className="flex items-center gap-2">
-                            <div className="h-1.5 w-20 overflow-hidden rounded-[10px] bg-muted">
-                              <div
-                                className="h-full rounded-[10px] bg-primary"
-                                style={{ width: `${c.completion_pct}%` }}
-                              />
-                            </div>
-                            <span className="font-semibold text-foreground">{c.completion_pct}%</span>
-                          </div>
-                        </td>
-                        <td className="py-3.5 text-right">
-                          <Button asChild variant="outline" size="sm" className="h-7 rounded-[10px] px-3 text-xs font-semibold">
-                            <Link
-                              to="/organization/programs/$cohortId"
-                              params={{ cohortId: c.id }}
-                              search={{ from: `/operations/organizations/${orgId}` } as never}
-                            >
-                              Open Cohort
-                              <ArrowUpRight className="h-3.5 w-3.5" />
-                            </Link>
-                          </Button>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+                          {c.capacity ? ` / ${c.capacity}` : ""} Seats
+                        </div>
+                        <div className="md:truncate md:mt-0.5">
+                          {c.sessions_count != null ? `${c.sessions_count} sessions` : ""}
+                        </div>
+                      </div>
+
+                      <div className="md:col-span-2 flex items-center justify-end gap-1.5 pt-2 md:pt-0 border-t border-border/50 md:border-t-0">
+                        <Link
+                          to="/operations/cohorts/$cohortId"
+                          params={{ cohortId: c.id }}
+                          search={{ from: `/operations/organizations/${orgId}` } as never}
+                          className="inline-flex items-center gap-1 h-8 px-3 rounded-[10px] border border-border bg-background text-xs font-bold text-foreground hover:bg-muted transition-colors"
+                        >
+                          Manage <ArrowRight size={12} />
+                        </Link>
+                      </div>
+                    </div>
+                  ))
+                )}
               </div>
-            )}
-          </div>
+            </div>
+          )}
         </div>
       )}
 
@@ -1348,7 +1692,7 @@ export default function OpsOrganizationDetail() {
                       <td className="py-3.5 pr-4 text-muted-foreground">
                         {ev.cohort_id && ev.cohort_name ? (
                           <Link
-                            to="/organization/programs/$cohortId"
+                            to="/operations/cohorts/$cohortId"
                             params={{ cohortId: ev.cohort_id }}
                             search={{ from: `/operations/organizations/${org.id}` } as never}
                             className="text-primary hover:underline"
@@ -1561,6 +1905,34 @@ export default function OpsOrganizationDetail() {
           }}
         />
       )}
+
+      {createProgramOpen && (
+        <OpsCreateOrgProgramModal
+          orgId={orgId}
+          orgName={org.name_latin}
+          onClose={() => setCreateProgramOpen(false)}
+          onSuccess={() => {
+            setCreateProgramOpen(false)
+            invalidateOrgQueries()
+          }}
+        />
+      )}
+
+      {createCohortOpen && (
+        <OpsCreateOrgCohortModal
+          orgId={orgId}
+          orgName={org.name_latin}
+          orgPrograms={detail.programs}
+          sharedPrograms={detail.shared_programs ?? []}
+          defaultProgramId={cohortDefaultProgramId}
+          defaultMode={cohortDefaultMode}
+          onClose={() => setCreateCohortOpen(false)}
+          onSuccess={() => {
+            setCreateCohortOpen(false)
+            invalidateOrgQueries()
+          }}
+        />
+      )}
     </div>
   )
 }
@@ -1674,5 +2046,657 @@ function InviteOrgMemberModal({
         </div>
       </div>
     </div>
+  )
+}
+
+function OpsCreateOrgProgramModal({
+  orgId,
+  orgName,
+  onClose,
+  onSuccess,
+}: {
+  orgId: string
+  orgName: string
+  onClose: () => void
+  onSuccess: () => void
+}) {
+  const toast = useToast()
+  const [name, setName] = useState("")
+  const [code, setCode] = useState("")
+  const [programType, setProgramType] = useState("competition")
+  const [defaultCapacity, setDefaultCapacity] = useState("30")
+  const [durationHours, setDurationHours] = useState("2")
+  const [description, setDescription] = useState("")
+  const [keepAccess, setKeepAccess] = useState(true)
+
+  const mut = useMutation({
+    mutationFn: () =>
+      createOrgProgramApi(
+        {
+          name: name.trim(),
+          code: code.trim().toUpperCase() || undefined,
+          program_type: programType,
+          default_capacity: defaultCapacity.trim() ? Number(defaultCapacity) : undefined,
+          duration_hours: durationHours.trim() ? Number(durationHours) : undefined,
+          keep_course_access_after_completion: keepAccess,
+          description: description.trim() || undefined,
+        },
+        orgId,
+      ),
+    onSuccess: (created) => {
+      toast.success(`Program "${created.name}" created for ${orgName}`)
+      onSuccess()
+    },
+    onError: (err) => toast.error(getErrorMessage(err, "Could not create organization program")),
+  })
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm">
+      <div className="w-full max-w-lg space-y-4 rounded-[12px] border border-border bg-card p-6 shadow-xl">
+        <div>
+          <h2 className="text-base font-bold text-foreground">New Program for {orgName}</h2>
+          <p className="mt-0.5 text-xs text-muted-foreground">
+            Creates an organization-owned program and its companion LMS curriculum checklist.
+          </p>
+        </div>
+
+        <div className="space-y-3">
+          <label className="flex flex-col gap-1">
+            <span className="text-xs font-semibold text-muted-foreground">Program Name *</span>
+            <input
+              type="text"
+              value={name}
+              onChange={(e) => {
+                setName(e.target.value)
+                if (!code) {
+                  setCode(
+                    e.target.value
+                      .replace(/[^a-zA-Z0-9]/g, "")
+                      .slice(0, 8)
+                      .toUpperCase(),
+                  )
+                }
+              }}
+              placeholder="e.g. UAE CubeSat Challenge"
+              className="h-9 rounded-[10px] border border-border bg-background px-3 text-sm focus:border-primary focus:outline-none"
+            />
+          </label>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <label className="flex flex-col gap-1">
+              <span className="text-xs font-semibold text-muted-foreground">Code (optional)</span>
+              <input
+                type="text"
+                value={code}
+                onChange={(e) => setCode(e.target.value.toUpperCase())}
+                placeholder="Auto-generated if blank"
+                className="h-9 rounded-[10px] border border-border bg-background px-3 font-mono text-sm focus:border-primary focus:outline-none"
+              />
+            </label>
+            <label className="flex flex-col gap-1">
+              <span className="text-xs font-semibold text-muted-foreground">Type</span>
+              <select
+                value={programType}
+                onChange={(e) => setProgramType(e.target.value)}
+                className="h-9 rounded-[10px] border border-border bg-background px-3 text-sm focus:border-primary focus:outline-none"
+              >
+                <option value="competition">Competition</option>
+                <option value="course">Course</option>
+                <option value="workshop">Workshop</option>
+                <option value="info_session">Info Session</option>
+              </select>
+            </label>
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <label className="flex flex-col gap-1">
+              <span className="text-xs font-semibold text-muted-foreground">Default Capacity</span>
+              <input
+                type="number"
+                min={1}
+                value={defaultCapacity}
+                onChange={(e) => setDefaultCapacity(e.target.value)}
+                className="h-9 rounded-[10px] border border-border bg-background px-3 text-sm focus:border-primary focus:outline-none"
+              />
+            </label>
+            <label className="flex flex-col gap-1">
+              <span className="text-xs font-semibold text-muted-foreground">Session Duration (hrs)</span>
+              <input
+                type="number"
+                step="0.5"
+                min="0.5"
+                value={durationHours}
+                onChange={(e) => setDurationHours(e.target.value)}
+                className="h-9 rounded-[10px] border border-border bg-background px-3 text-sm focus:border-primary focus:outline-none"
+              />
+            </label>
+          </div>
+
+          <label className="flex flex-col gap-1">
+            <span className="text-xs font-semibold text-muted-foreground">Description</span>
+            <textarea
+              rows={2}
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              className="rounded-[10px] border border-border bg-background p-3 text-sm focus:border-primary focus:outline-none resize-none"
+            />
+          </label>
+
+          <label className="flex items-center gap-2 text-xs font-medium text-foreground cursor-pointer">
+            <input
+              type="checkbox"
+              checked={keepAccess}
+              onChange={(e) => setKeepAccess(e.target.checked)}
+              className="rounded border-border"
+            />
+            Keep course access after program completion
+          </label>
+        </div>
+
+        <div className="flex items-center justify-end gap-2 pt-2">
+          <Button type="button" variant="outline" size="sm" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button
+            type="button"
+            size="sm"
+            disabled={!name.trim() || mut.isPending}
+            onClick={() => mut.mutate()}
+          >
+            {mut.isPending ? "Creating…" : "Create Program"}
+          </Button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function OpsCreateOrgCohortModal({
+  orgId,
+  orgName,
+  orgPrograms,
+  sharedPrograms,
+  defaultProgramId,
+  defaultMode,
+  onClose,
+  onSuccess,
+}: {
+  orgId: string
+  orgName: string
+  orgPrograms: OrgProgramDetail[]
+  sharedPrograms: OrgSharedProgram[]
+  defaultProgramId: string
+  defaultMode?: "spacepoint" | "partner"
+  onClose: () => void
+  onSuccess: () => void
+}) {
+  const qc = useQueryClient()
+  const toast = useToast()
+
+  const { data: platformPrograms = [] } = useQuery<Program[]>({
+    queryKey: ["admin-programs-catalog"],
+    queryFn: () => getFilteredProgramsApi({ include_org_programs: false }),
+  })
+
+  const { data: locations = [] } = useQuery<Location[]>({
+    queryKey: ["locations"],
+    queryFn: () => getLocationsApi(),
+  })
+
+  const ownPrograms = useMemo(
+    () => orgPrograms.filter((p) => p.is_org_owned !== false),
+    [orgPrograms],
+  )
+  const spPrograms = useMemo(
+    () => platformPrograms.filter((p) => !p.organization_id),
+    [platformPrograms],
+  )
+
+  const initialProgId =
+    defaultProgramId ||
+    ownPrograms[0]?.id ||
+    sharedPrograms[0]?.id ||
+    spPrograms[0]?.id ||
+    ""
+
+  const [programId, setProgramId] = useState(initialProgId)
+  const [managementMode, setManagementMode] = useState<"spacepoint" | "partner">(() => {
+    if (defaultMode) return defaultMode
+    return ownPrograms.some((p) => p.id === initialProgId) ? "partner" : "spacepoint"
+  })
+  const [variationId, setVariationId] = useState("")
+  const [name, setName] = useState("")
+  const [startsOn, setStartsOn] = useState("")
+  const [endsOn, setEndsOn] = useState("")
+  const [locationId, setLocationId] = useState("")
+  const [warehouseId, setWarehouseId] = useState("")
+  const [capacity, setCapacity] = useState("")
+  const [durationHours, setDurationHours] = useState("")
+  const [visibility, setVisibility] = useState<"public" | "private">("private")
+  const [createLocOpen, setCreateLocOpen] = useState(false)
+
+  const effectiveProgramId = programId || ownPrograms[0]?.id || spPrograms[0]?.id || ""
+
+  const { data: variations = [] } = useQuery<ProgramVariation[]>({
+    queryKey: ["program-variations-ops-modal", effectiveProgramId],
+    queryFn: () => listProgramVariationsApi(effectiveProgramId, true),
+    enabled: Boolean(effectiveProgramId),
+  })
+
+  const { data: warehouses = [] } = useQuery({
+    queryKey: ["inv-warehouses"],
+    queryFn: () => getWarehousesApi(),
+    enabled: managementMode === "spacepoint",
+  })
+
+  const selectedVariationId =
+    variationId && variations.some((v) => v.id === variationId)
+      ? variationId
+      : variations.find((v) => v.is_default)?.id ?? variations[0]?.id ?? ""
+
+  const mut = useMutation({
+    mutationFn: () =>
+      createCohortApi({
+        program_id: effectiveProgramId,
+        variation_id: selectedVariationId || null,
+        name: name.trim(),
+        starts_on: startsOn || undefined,
+        ends_on: endsOn || undefined,
+        location_id: locationId || undefined,
+        warehouse_id: managementMode === "spacepoint" && warehouseId ? warehouseId : undefined,
+        capacity: capacity.trim() ? Number(capacity) : undefined,
+        duration_hours: durationHours.trim() ? Number(durationHours) : undefined,
+        visibility,
+        organization_id: orgId,
+        management_mode: managementMode,
+      }),
+    onSuccess: (created) => {
+      toast.success(`Cohort "${created.name}" created for ${orgName}`)
+      onSuccess()
+    },
+    onError: (err) => toast.error(getErrorMessage(err, "Could not create cohort")),
+  })
+
+  return (
+    <>
+      <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm">
+        <div className="w-full max-w-xl max-h-[90vh] overflow-y-auto space-y-4 rounded-[12px] border border-border bg-card p-6 shadow-xl">
+          <div>
+            <h2 className="text-base font-bold text-foreground">Launch Cohort for {orgName}</h2>
+            <p className="mt-0.5 text-xs text-muted-foreground">
+              Choose whether SpacePoint delivers with SpacePoint instructors or the partner handles delivery.
+            </p>
+          </div>
+
+          <div className="space-y-3.5">
+            <div>
+              <span className="text-xs font-semibold text-muted-foreground block mb-1.5">
+                Delivery Mode
+              </span>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  onClick={() => setManagementMode("spacepoint")}
+                  className={cn(
+                    "p-3 rounded-[10px] border text-left transition cursor-pointer",
+                    managementMode === "spacepoint"
+                      ? "border-primary bg-primary/10"
+                      : "border-border bg-background hover:bg-muted/40",
+                  )}
+                >
+                  <div className="flex items-center gap-1.5 text-xs font-bold text-foreground">
+                    <Layers className="h-3.5 w-3.5 text-primary" />
+                    Delivered by SpacePoint
+                  </div>
+                  <p className="mt-1 text-[11px] text-muted-foreground">
+                    SpacePoint staffs instructors, warehouses, and payouts. Partner tracks progress &amp; students.
+                  </p>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setManagementMode("partner")}
+                  className={cn(
+                    "p-3 rounded-[10px] border text-left transition cursor-pointer",
+                    managementMode === "partner"
+                      ? "border-primary bg-primary/10"
+                      : "border-border bg-background hover:bg-muted/40",
+                  )}
+                >
+                  <div className="flex items-center gap-1.5 text-xs font-bold text-foreground">
+                    <Users className="h-3.5 w-3.5 text-primary" />
+                    Partner-run
+                  </div>
+                  <p className="mt-1 text-[11px] text-muted-foreground">
+                    Partner staffs their own team and handles delivery.
+                  </p>
+                </button>
+              </div>
+            </div>
+
+            <label className="flex flex-col gap-1">
+              <span className="text-xs font-semibold text-muted-foreground">Program *</span>
+              <select
+                value={effectiveProgramId}
+                onChange={(e) => {
+                  const nextId = e.target.value
+                  setProgramId(nextId)
+                  setVariationId("")
+                  setManagementMode(ownPrograms.some((p) => p.id === nextId) ? "partner" : "spacepoint")
+                }}
+                className="h-9 rounded-[10px] border border-border bg-background px-3 text-sm focus:border-primary focus:outline-none"
+              >
+                {ownPrograms.length > 0 && (
+                  <optgroup label={`${orgName} Programs`}>
+                    {ownPrograms.map((p) => (
+                      <option key={p.id} value={p.id}>
+                        {p.name} ({p.code || p.program_type})
+                      </option>
+                    ))}
+                  </optgroup>
+                )}
+                {spPrograms.length > 0 && (
+                  <optgroup label="SpacePoint Programs">
+                    {spPrograms.map((p) => (
+                      <option key={p.id} value={p.id}>
+                        {p.name} ({p.code})
+                      </option>
+                    ))}
+                  </optgroup>
+                )}
+              </select>
+            </label>
+
+            {variations.length > 0 && (
+              <label className="flex flex-col gap-1">
+                <span className="text-xs font-semibold text-muted-foreground">Program Variation</span>
+                <select
+                  value={selectedVariationId}
+                  onChange={(e) => setVariationId(e.target.value)}
+                  className="h-9 rounded-[10px] border border-border bg-background px-3 text-sm focus:border-primary focus:outline-none"
+                >
+                  {variations.map((v) => (
+                    <option key={v.id} value={v.id}>
+                      {v.name}
+                      {v.is_default ? " (Default)" : ""}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            )}
+
+            <label className="flex flex-col gap-1">
+              <span className="text-xs font-semibold text-muted-foreground">Cohort Name *</span>
+              <input
+                type="text"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                placeholder="e.g. Spring 2026 — Cohort 1"
+                className="h-9 rounded-[10px] border border-border bg-background px-3 text-sm focus:border-primary focus:outline-none"
+              />
+            </label>
+
+            <div className="grid grid-cols-2 gap-3">
+              <label className="flex flex-col gap-1">
+                <span className="text-xs font-semibold text-muted-foreground">Start Date</span>
+                <input
+                  type="date"
+                  value={startsOn}
+                  onChange={(e) => setStartsOn(e.target.value)}
+                  className="h-9 rounded-[10px] border border-border bg-background px-3 text-sm focus:border-primary focus:outline-none"
+                />
+              </label>
+              <label className="flex flex-col gap-1">
+                <span className="text-xs font-semibold text-muted-foreground">End Date</span>
+                <input
+                  type="date"
+                  value={endsOn}
+                  min={startsOn || undefined}
+                  onChange={(e) => setEndsOn(e.target.value)}
+                  className="h-9 rounded-[10px] border border-border bg-background px-3 text-sm focus:border-primary focus:outline-none"
+                />
+              </label>
+            </div>
+
+            <div className="flex flex-col gap-1">
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-xs font-semibold text-muted-foreground flex items-center gap-1">
+                  <MapPin className="h-3.5 w-3.5" /> Venue / Location
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setCreateLocOpen(true)}
+                  className="inline-flex items-center gap-1 text-xs font-semibold text-primary hover:underline cursor-pointer"
+                >
+                  <Plus className="h-3 w-3" /> New Location
+                </button>
+              </div>
+              <select
+                value={locationId}
+                onChange={(e) => setLocationId(e.target.value)}
+                className="h-9 rounded-[10px] border border-border bg-background px-3 text-sm focus:border-primary focus:outline-none"
+              >
+                <option value="">Select venue (optional)</option>
+                {locations.map((loc) => (
+                  <option key={loc.id} value={loc.id}>
+                    {loc.name}
+                    {loc.city_name ? ` — ${loc.city_name}` : ""}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            {managementMode === "spacepoint" && (
+              <label className="flex flex-col gap-1">
+                <span className="text-xs font-semibold text-muted-foreground flex items-center gap-1">
+                  <WarehouseIcon className="h-3.5 w-3.5" /> Warehouse (optional)
+                </span>
+                <select
+                  value={warehouseId}
+                  onChange={(e) => setWarehouseId(e.target.value)}
+                  className="h-9 rounded-[10px] border border-border bg-background px-3 text-sm focus:border-primary focus:outline-none"
+                >
+                  <option value="">Select SpacePoint warehouse (optional)</option>
+                  {warehouses.map((w) => (
+                    <option key={w.id} value={w.id}>
+                      {w.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            )}
+
+            <div className="grid grid-cols-3 gap-3">
+              <label className="flex flex-col gap-1">
+                <span className="text-xs font-semibold text-muted-foreground">Capacity</span>
+                <input
+                  type="number"
+                  min={1}
+                  value={capacity}
+                  onChange={(e) => setCapacity(e.target.value)}
+                  placeholder="Inherit"
+                  className="h-9 rounded-[10px] border border-border bg-background px-3 text-sm focus:border-primary focus:outline-none"
+                />
+              </label>
+              <label className="flex flex-col gap-1">
+                <span className="text-xs font-semibold text-muted-foreground">Duration (hrs)</span>
+                <input
+                  type="number"
+                  step="0.5"
+                  min="0.5"
+                  value={durationHours}
+                  onChange={(e) => setDurationHours(e.target.value)}
+                  placeholder="Inherit"
+                  className="h-9 rounded-[10px] border border-border bg-background px-3 text-sm focus:border-primary focus:outline-none"
+                />
+              </label>
+              <label className="flex flex-col gap-1">
+                <span className="text-xs font-semibold text-muted-foreground">Visibility</span>
+                <select
+                  value={visibility}
+                  onChange={(e) => setVisibility(e.target.value as "public" | "private")}
+                  className="h-9 rounded-[10px] border border-border bg-background px-3 text-sm focus:border-primary focus:outline-none"
+                >
+                  <option value="public">Public</option>
+                  <option value="private">Private</option>
+                </select>
+              </label>
+            </div>
+          </div>
+
+          <div className="flex items-center justify-end gap-2 pt-2 border-t border-border">
+            <Button type="button" variant="outline" size="sm" onClick={onClose}>
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              disabled={!effectiveProgramId || !name.trim() || mut.isPending}
+              onClick={() => mut.mutate()}
+            >
+              {mut.isPending ? "Launching…" : "Launch Cohort"}
+            </Button>
+          </div>
+        </div>
+      </div>
+
+      {createLocOpen && (
+        <QuickCreateLocationModal
+          onClose={() => setCreateLocOpen(false)}
+          onCreated={(loc) => {
+            setLocationId(loc.id)
+            void qc.invalidateQueries({ queryKey: ["locations"] })
+          }}
+        />
+      )}
+    </>
+  )
+}
+
+function OpsOrgCohortCard({
+  cohort: c,
+  orgId,
+}: {
+  cohort: OrgCohortDetail
+  orgId: string
+}) {
+  const registered = c.enrolled_count ?? 0
+  const fillPct = c.capacity ? Math.min(100, Math.round((registered / c.capacity) * 100)) : null
+
+  return (
+    <div className="rounded-[var(--sp-control-radius)] border-[length:var(--sp-control-border-width)] border-[var(--sp-control-border-color)] bg-transparent p-4 flex flex-col justify-between gap-3 hover:border-primary/60 transition-colors">
+      <div>
+        <div className="flex items-start justify-between gap-2 mb-2">
+          <Link
+            to="/operations/cohorts/$cohortId"
+            params={{ cohortId: c.id }}
+            search={{ from: `/operations/organizations/${orgId}` } as never}
+            className="text-sm font-bold text-foreground hover:text-primary transition-colors truncate block"
+          >
+            {c.name}
+          </Link>
+          <div className="flex items-center gap-1 shrink-0">
+            <OpsCohortStatusBadge status={c.status} />
+          </div>
+        </div>
+
+        <div className="mb-2.5 flex items-center gap-1.5 flex-wrap">
+          <span
+            className={cn(
+              "text-[11px] font-bold px-2 py-0.5 rounded-full border",
+              c.management_mode === "spacepoint"
+                ? "bg-violet-500/15 text-violet-600 dark:text-violet-400 border-violet-500/30"
+                : "bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border-emerald-500/20"
+            )}
+          >
+            {c.management_mode === "spacepoint" ? "Delivered by SpacePoint" : "Partner-run"}
+          </span>
+        </div>
+
+        <div className="space-y-1.5 text-xs text-muted-foreground mt-2">
+          <div className="flex items-center gap-1.5 truncate">
+            <Calendar size={13} className="shrink-0 text-muted-foreground" />
+            <span className="truncate">
+              {c.starts_on
+                ? `${c.starts_on}${c.ends_on && c.ends_on !== c.starts_on ? ` – ${c.ends_on}` : ""}`
+                : "Dates unassigned"}
+            </span>
+          </div>
+
+          <div className="flex items-center gap-1.5 truncate">
+            <MapPin size={13} className="shrink-0 text-muted-foreground" />
+            <span className="truncate">{c.location_name || "Venue unassigned"}</span>
+          </div>
+
+          <div className="flex items-center gap-1.5 truncate">
+            <Users size={13} className="shrink-0 text-muted-foreground" />
+            <span className="truncate">
+              {registered}
+              {c.capacity != null ? ` / ${c.capacity}` : ""} Registered
+            </span>
+          </div>
+        </div>
+
+        {fillPct != null && (
+          <div className="mt-2.5">
+            <div className="h-1.5 w-full rounded-[10px] bg-muted overflow-hidden">
+              <div
+                className={`h-full rounded-[10px] ${fillPct >= 100 ? "bg-rose-500" : "bg-primary"
+                  }`}
+                style={{ width: `${fillPct}%` }}
+              />
+            </div>
+          </div>
+        )}
+      </div>
+
+      <div className="pt-3 border-t border-border flex items-center justify-end gap-2">
+        <Link
+          to="/operations/cohorts/$cohortId"
+          params={{ cohortId: c.id }}
+          search={{ from: `/operations/organizations/${orgId}` } as never}
+          className="text-xs font-bold text-primary hover:underline inline-flex items-center gap-1"
+        >
+          Manage <ArrowRight size={12} />
+        </Link>
+      </div>
+    </div>
+  )
+}
+
+function OpsCohortStatusBadge({ status }: { status?: string | null }) {
+  const s = (status || "planned").toLowerCase()
+  if (s === "running") {
+    return (
+      <span className="text-[11px] font-bold px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30">
+        Running
+      </span>
+    )
+  }
+  if (s === "registration_open") {
+    return (
+      <span className="text-[11px] font-bold px-2 py-0.5 rounded-full bg-primary/10 text-primary border border-primary/20">
+        Registration Open
+      </span>
+    )
+  }
+  if (s === "planned") {
+    return (
+      <span className="text-[11px] font-bold px-2 py-0.5 rounded-full bg-muted text-muted-foreground border border-border">
+        Planned
+      </span>
+    )
+  }
+  if (s === "completed") {
+    return (
+      <span className="text-[11px] font-bold px-2 py-0.5 rounded-full bg-foreground text-background border border-foreground">
+        Completed
+      </span>
+    )
+  }
+  return (
+    <span className="text-[11px] font-bold px-2 py-0.5 rounded-[10px] bg-rose-500/15 text-rose-600 dark:text-rose-400 border border-rose-500/30">
+      Cancelled
+    </span>
   )
 }

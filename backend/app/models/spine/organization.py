@@ -50,6 +50,10 @@ class Organization(Base):
     # Specific SpacePoint PreSessionQuizPreset IDs this organization is allowed to access
     allowed_readiness_preset_ids = Column(JSONB, nullable=False, default=list, server_default="[]")
 
+    # SpacePoint program sharing scope ('own' | 'selected' | 'all')
+    program_scope = Column(String(20), nullable=False, default="own", server_default="own")
+    allowed_program_ids = Column(JSONB, nullable=False, default=list, server_default="[]")
+
     # Constraints (NULL = unlimited)
     max_events = Column(Integer, nullable=True)
     max_programs = Column(Integer, nullable=True)

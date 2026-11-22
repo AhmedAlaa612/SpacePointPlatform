@@ -7,18 +7,20 @@ export function CohortCertificatesPanel({
   cohortName,
   programName,
   onOpenExcuseLetter,
+  readOnly = false,
 }: {
   cohortId: string
   cohortName: string
   programName?: string
   programTemplates?: ProgramCertificateTemplate[]
   onOpenExcuseLetter?: () => void
+  readOnly?: boolean
 }) {
   return (
     <div className="flex flex-col gap-4">
       <div className="flex items-center justify-between gap-3 flex-wrap">
         <h2 className="text-base font-semibold text-foreground">Certificates & Excuse Letters</h2>
-        {onOpenExcuseLetter && (
+        {!readOnly && onOpenExcuseLetter && (
           <button
             type="button"
             onClick={onOpenExcuseLetter}
@@ -34,6 +36,7 @@ export function CohortCertificatesPanel({
         cohortName={cohortName}
         programName={programName}
         embedded
+        readOnly={readOnly}
       />
     </div>
   )

@@ -41,9 +41,11 @@ type Scope = "program" | { variationId: string } | { cohortId: string; cohortNam
 export function LmsHintStationAuthoring({
   programId,
   scope,
+  readOnly = false,
 }: {
   programId: string;
   scope: Scope;
+  readOnly?: boolean;
 }) {
   const toast = useToast();
   const queryClient = useQueryClient();
@@ -205,45 +207,47 @@ export function LmsHintStationAuthoring({
           </p>
         </div>
 
-        <div className="flex items-center gap-2 flex-wrap">
-          {isInherited && (
+        {!readOnly && (
+          <div className="flex items-center gap-2 flex-wrap">
+            {isInherited && (
+              <button
+                onClick={() => forkMutation.mutate()}
+                disabled={forkMutation.isPending}
+                className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-amber-500/10 hover:bg-amber-500/20 text-amber-700 dark:text-amber-300 border border-amber-500/30 text-xs font-bold transition-colors cursor-pointer"
+                title="Fork program baseline into a cohort-specific override"
+              >
+                <GitFork size={13} />
+                <span>{forkMutation.isPending ? "Forking…" : "Fork for this Cohort"}</span>
+              </button>
+            )}
+
             <button
-              onClick={() => forkMutation.mutate()}
-              disabled={forkMutation.isPending}
-              className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-amber-500/10 hover:bg-amber-500/20 text-amber-700 dark:text-amber-300 border border-amber-500/30 text-xs font-bold transition-colors cursor-pointer"
-              title="Fork program baseline into a cohort-specific override"
+              onClick={() => setImportOpen(true)}
+              className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl border border-border bg-muted/60 hover:bg-muted text-xs font-semibold transition-colors cursor-pointer"
             >
-              <GitFork size={13} />
-              <span>{forkMutation.isPending ? "Forking…" : "Fork for this Cohort"}</span>
+              <Copy size={13} />
+              <span>Import Challenges</span>
             </button>
-          )}
 
-          <button
-            onClick={() => setImportOpen(true)}
-            className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl border border-border bg-muted/60 hover:bg-muted text-xs font-semibold transition-colors cursor-pointer"
-          >
-            <Copy size={13} />
-            <span>Import Challenges</span>
-          </button>
-
-          <button
-            onClick={() => {
-              setEditingChallenge({
-                title: "",
-                topic: "",
-                description: "",
-                max_points: 20,
-                position: challenges.length,
-                is_active: true,
-              });
-              setChallengeModalOpen(true);
-            }}
-            className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-primary text-primary-foreground text-xs font-bold hover:opacity-90 transition-all cursor-pointer shadow-sm"
-          >
-            <Plus size={14} />
-            <span>New Challenge</span>
-          </button>
-        </div>
+            <button
+              onClick={() => {
+                setEditingChallenge({
+                  title: "",
+                  topic: "",
+                  description: "",
+                  max_points: 20,
+                  position: challenges.length,
+                  is_active: true,
+                });
+                setChallengeModalOpen(true);
+              }}
+              className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-primary text-primary-foreground text-xs font-bold hover:opacity-90 transition-all cursor-pointer shadow-sm"
+            >
+              <Plus size={14} />
+              <span>New Challenge</span>
+            </button>
+          </div>
+        )}
       </div>
 
       {/* ── Challenge List ─────────────────────────────────────────────────── */}
@@ -308,27 +312,31 @@ export function LmsHintStationAuthoring({
                     <span className="text-xs font-bold text-muted-foreground bg-muted px-2.5 py-1 rounded-lg">
                       {ch.cards.length} {ch.cards.length === 1 ? "hint" : "hints"} • {ch.max_points} pts
                     </span>
-                    <button
-                      onClick={() => {
-                        setEditingChallenge(ch);
-                        setChallengeModalOpen(true);
-                      }}
-                      className="p-1.5 rounded-lg border border-border hover:bg-muted text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
-                      title="Edit Challenge"
-                    >
-                      <Edit2 size={13} />
-                    </button>
-                    <button
-                      onClick={() => {
-                        if (window.confirm(`Delete challenge "${ch.title}" and all its hint cards?`)) {
-                          deleteChallengeMutation.mutate(ch.id);
-                        }
-                      }}
-                      className="p-1.5 rounded-lg border border-border hover:bg-destructive/10 text-muted-foreground hover:text-destructive transition-colors cursor-pointer"
-                      title="Delete Challenge"
-                    >
-                      <Trash2 size={13} />
-                    </button>
+                    {!readOnly && (
+                      <>
+                        <button
+                          onClick={() => {
+                            setEditingChallenge(ch);
+                            setChallengeModalOpen(true);
+                          }}
+                          className="p-1.5 rounded-lg border border-border hover:bg-muted text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
+                          title="Edit Challenge"
+                        >
+                          <Edit2 size={13} />
+                        </button>
+                        <button
+                          onClick={() => {
+                            if (window.confirm(`Delete challenge "${ch.title}" and all its hint cards?`)) {
+                              deleteChallengeMutation.mutate(ch.id);
+                            }
+                          }}
+                          className="p-1.5 rounded-lg border border-border hover:bg-destructive/10 text-muted-foreground hover:text-destructive transition-colors cursor-pointer"
+                          title="Delete Challenge"
+                        >
+                          <Trash2 size={13} />
+                        </button>
+                      </>
+                    )}
                   </div>
                 </div>
 
@@ -339,45 +347,47 @@ export function LmsHintStationAuthoring({
                       <span className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
                         Assistance Cards (Progressive Unlock)
                       </span>
-                      <button
-                        onClick={() => {
-                          const nextLevel = ch.cards.length + 1;
-                          setEditingCard({
-                            challengeId: ch.id,
-                            card: {
-                              level: nextLevel,
-                              level_label:
-                                nextLevel === 1
-                                  ? "Level 1 — Think about it"
-                                  : nextLevel === 2
-                                  ? "Level 2 — Go deeper"
-                                  : `Level ${nextLevel} — Focus Guidance`,
-                              badge_label:
-                                nextLevel === 1
-                                  ? "Guiding question"
-                                  : nextLevel === 2
-                                  ? "Technical guidance"
-                                  : "Solution guidance",
-                              title:
-                                nextLevel === 1
-                                  ? "Thinking Hint"
-                                  : nextLevel === 2
-                                  ? "Technical Hint"
-                                  : "Implementation Hint",
-                              teaser: "",
-                              revealed_content: "",
-                              point_deduction: nextLevel === 1 ? 2 : nextLevel === 2 ? 3 : 5,
-                              unlock_order: nextLevel,
-                              position: ch.cards.length,
-                            },
-                          });
-                          setCardModalOpen(true);
-                        }}
-                        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-primary/10 hover:bg-primary/20 text-primary text-xs font-bold transition-colors cursor-pointer"
-                      >
-                        <Plus size={13} />
-                        <span>Add Hint Card</span>
-                      </button>
+                      {!readOnly && (
+                        <button
+                          onClick={() => {
+                            const nextLevel = ch.cards.length + 1;
+                            setEditingCard({
+                              challengeId: ch.id,
+                              card: {
+                                level: nextLevel,
+                                level_label:
+                                  nextLevel === 1
+                                    ? "Level 1 — Think about it"
+                                    : nextLevel === 2
+                                      ? "Level 2 — Go deeper"
+                                      : `Level ${nextLevel} — Focus Guidance`,
+                                badge_label:
+                                  nextLevel === 1
+                                    ? "Guiding question"
+                                    : nextLevel === 2
+                                      ? "Technical guidance"
+                                      : "Solution guidance",
+                                title:
+                                  nextLevel === 1
+                                    ? "Thinking Hint"
+                                    : nextLevel === 2
+                                      ? "Technical Hint"
+                                      : "Implementation Hint",
+                                teaser: "",
+                                revealed_content: "",
+                                point_deduction: nextLevel === 1 ? 2 : nextLevel === 2 ? 3 : 5,
+                                unlock_order: nextLevel,
+                                position: ch.cards.length,
+                              },
+                            });
+                            setCardModalOpen(true);
+                          }}
+                          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-primary/10 hover:bg-primary/20 text-primary text-xs font-bold transition-colors cursor-pointer"
+                        >
+                          <Plus size={13} />
+                          <span>Add Hint Card</span>
+                        </button>
+                      )}
                     </div>
 
                     {ch.cards.length === 0 ? (
@@ -416,29 +426,31 @@ export function LmsHintStationAuthoring({
                               </p>
                             </div>
 
-                            <div className="flex items-center gap-1.5 shrink-0">
-                              <button
-                                onClick={() => {
-                                  setEditingCard({ challengeId: ch.id, card });
-                                  setCardModalOpen(true);
-                                }}
-                                className="p-1.5 rounded-lg border border-border hover:bg-muted text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
-                                title="Edit Card"
-                              >
-                                <Edit2 size={12} />
-                              </button>
-                              <button
-                                onClick={() => {
-                                  if (window.confirm(`Delete ${card.level_label}?`)) {
-                                    deleteCardMutation.mutate(card.id);
-                                  }
-                                }}
-                                className="p-1.5 rounded-lg border border-border hover:bg-destructive/10 text-muted-foreground hover:text-destructive transition-colors cursor-pointer"
-                                title="Delete Card"
-                              >
-                                <Trash2 size={12} />
-                              </button>
-                            </div>
+                            {!readOnly && (
+                              <div className="flex items-center gap-1.5 shrink-0">
+                                <button
+                                  onClick={() => {
+                                    setEditingCard({ challengeId: ch.id, card });
+                                    setCardModalOpen(true);
+                                  }}
+                                  className="p-1.5 rounded-lg border border-border hover:bg-muted text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
+                                  title="Edit Card"
+                                >
+                                  <Edit2 size={12} />
+                                </button>
+                                <button
+                                  onClick={() => {
+                                    if (window.confirm(`Delete ${card.level_label}?`)) {
+                                      deleteCardMutation.mutate(card.id);
+                                    }
+                                  }}
+                                  className="p-1.5 rounded-lg border border-border hover:bg-destructive/10 text-muted-foreground hover:text-destructive transition-colors cursor-pointer"
+                                  title="Delete Card"
+                                >
+                                  <Trash2 size={12} />
+                                </button>
+                              </div>
+                            )}
                           </div>
                         ))}
                       </div>

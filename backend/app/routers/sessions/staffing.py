@@ -609,6 +609,9 @@ async def list_my_sessions(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_session_delivery),
 ):
+    from app.services.org_access import is_partner_managed
+    from app.services.website_events import resolve_user_organization
+
     rows = await staffing.list_my_sessions(db, current_user)
     has_staff_or_instructor = any(
         r in current_user.role_values for r in ("instructor", "facilitator", "operations", "admin")
@@ -616,17 +619,23 @@ async def list_my_sessions(
     effective_scope = scope
     if "organization" in current_user.role_values and not has_staff_or_instructor:
         effective_scope = "org"
+    actor_org = (
+        await resolve_user_organization(db, current_user)
+        if "organization" in current_user.role_values
+        else None
+    )
+    actor_org_id = actor_org.id if actor_org else current_user.organization_id
 
     out = []
     for s, c, p, role, day in rows:
-        is_org_cohort = bool(c.organization_id or p.organization_id)
+        is_partner_cohort = is_partner_managed(c)
         if effective_scope == "org":
-            if not current_user.organization_id or (
-                c.organization_id != current_user.organization_id
-                and p.organization_id != current_user.organization_id
+            if not is_partner_cohort or not actor_org_id or (
+                c.organization_id != actor_org_id
+                and p.organization_id != actor_org_id
             ):
                 continue
-        elif effective_scope == "spacepoint" and is_org_cohort:
+        elif effective_scope == "spacepoint" and is_partner_cohort:
             continue
 
         location = await staffing.resolve_session_location_display(db, s, c)
@@ -750,9 +759,9 @@ async def list_eligible_instructors(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_session_delivery),
 ):
-    from app.services.org_access import require_session_manager_or_ops
+    from app.services.org_access import require_session_delivery_manager_or_ops
 
-    await require_session_manager_or_ops(db, session_id, current_user)
+    await require_session_delivery_manager_or_ops(db, session_id, current_user)
     """Full instructor|facilitator roster for the ops select screen — not
     interest-only (operator requirement 2026-07-24).
 

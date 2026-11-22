@@ -20,6 +20,8 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog"
 import { useToast } from "@/components/ui/toast"
+import { useAuth } from "@/context/AuthContext"
+import { getOrgProgramsOverviewApi } from "@/api/organizationPrograms"
 import { getProgramsApi, getProgramTemplateApi, type ProgramTemplate } from "@/api/sessions/programs"
 import { getCohortsApi, getSessionsApi } from "@/api/sessions/cohorts"
 import {
@@ -70,11 +72,15 @@ export function ImportInstructorChecklistModal({
 }) {
   const toast = useToast()
   const queryClient = useQueryClient()
+  const { activeRole } = useAuth()
+  const isPartnerUser = activeRole === "organization"
 
   // ── Programs Query ────────────────────────────────────────────────────────
   const { data: rawPrograms, isLoading: loadingPrograms } = useQuery<Program[]>({
-    queryKey: ["sessions-programs"],
-    queryFn: getProgramsApi,
+    queryKey: isPartnerUser ? ["org-programs-import"] : ["sessions-programs"],
+    queryFn: isPartnerUser
+      ? () => getOrgProgramsOverviewApi().then((d) => d.programs as unknown as Program[])
+      : getProgramsApi,
     enabled: open,
   })
   const programs = rawPrograms ?? EMPTY_PROGRAMS
@@ -384,18 +390,16 @@ export function ImportInstructorChecklistModal({
                       setSelectedCohortSessionId("default")
                     }
                   }}
-                  className={`flex items-start gap-3 p-3 rounded-xl border text-left transition-all cursor-pointer ${
-                    source?.scope === "programs" && source.ownerId === selectedProgramId
+                  className={`flex items-start gap-3 p-3 rounded-xl border text-left transition-all cursor-pointer ${source?.scope === "programs" && source.ownerId === selectedProgramId
                       ? "border-primary bg-primary/5 ring-1 ring-primary"
                       : "border-border bg-card hover:border-primary/50 hover:bg-muted/30"
-                  }`}
+                    }`}
                 >
                   <div
-                    className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 ${
-                      source?.scope === "programs" && source.ownerId === selectedProgramId
+                    className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 ${source?.scope === "programs" && source.ownerId === selectedProgramId
                         ? "bg-primary text-primary-foreground"
                         : "bg-muted text-muted-foreground"
-                    }`}
+                      }`}
                   >
                     <ListChecks className="w-4 h-4" />
                   </div>
@@ -435,18 +439,16 @@ export function ImportInstructorChecklistModal({
                         })
                         setSelectedCohortSessionId("default")
                       }}
-                      className={`flex items-start gap-3 p-3 rounded-xl border text-left transition-all cursor-pointer ${
-                        isSelected
+                      className={`flex items-start gap-3 p-3 rounded-xl border text-left transition-all cursor-pointer ${isSelected
                           ? "border-primary bg-primary/5 ring-1 ring-primary"
                           : "border-border bg-card hover:border-primary/50 hover:bg-muted/30"
-                      }`}
+                        }`}
                     >
                       <div
-                        className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 ${
-                          isSelected
+                        className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 ${isSelected
                             ? "bg-primary text-primary-foreground"
                             : "bg-muted text-muted-foreground"
-                        }`}
+                          }`}
                       >
                         <Layers className="w-4 h-4" />
                       </div>
@@ -485,11 +487,10 @@ export function ImportInstructorChecklistModal({
                   <button
                     type="button"
                     onClick={() => setSelectedCohortSessionId("default")}
-                    className={`h-7 px-3 rounded-lg text-xs font-medium transition-colors cursor-pointer ${
-                      selectedCohortSessionId === "default"
+                    className={`h-7 px-3 rounded-lg text-xs font-medium transition-colors cursor-pointer ${selectedCohortSessionId === "default"
                         ? "bg-primary text-primary-foreground font-semibold"
                         : "border border-border bg-background text-foreground hover:bg-muted"
-                    }`}
+                      }`}
                   >
                     Pre-Workshop / Default
                   </button>
@@ -500,11 +501,10 @@ export function ImportInstructorChecklistModal({
                         key={s.id}
                         type="button"
                         onClick={() => setSelectedCohortSessionId(s.id)}
-                        className={`h-7 px-3 rounded-lg text-xs font-medium transition-colors cursor-pointer ${
-                          isSelectedSession
+                        className={`h-7 px-3 rounded-lg text-xs font-medium transition-colors cursor-pointer ${isSelectedSession
                             ? "bg-primary text-primary-foreground font-semibold"
                             : "border border-border bg-background text-foreground hover:bg-muted"
-                        }`}
+                          }`}
                       >
                         Day {idx + 1}
                         {s.title ? `: ${s.title}` : ""}
@@ -547,13 +547,13 @@ export function ImportInstructorChecklistModal({
                     From source: <strong className="text-foreground">{source.label}</strong>
                     {selectedCohortSessionId !== "default"
                       ? (() => {
-                          const pickedIdx = subSelectorDays.findIndex(
-                            (s) => s.id === selectedCohortSessionId,
-                          )
-                          const picked = pickedIdx >= 0 ? subSelectorDays[pickedIdx] : undefined
-                          if (!picked) return " (Selected Day)"
-                          return ` (Day ${pickedIdx + 1}${picked.title ? `: ${picked.title}` : ""})`
-                        })()
+                        const pickedIdx = subSelectorDays.findIndex(
+                          (s) => s.id === selectedCohortSessionId,
+                        )
+                        const picked = pickedIdx >= 0 ? subSelectorDays[pickedIdx] : undefined
+                        if (!picked) return " (Selected Day)"
+                        return ` (Day ${pickedIdx + 1}${picked.title ? `: ${picked.title}` : ""})`
+                      })()
                       : ""}{" "}
                     ({sourceItems.length} total item{sourceItems.length === 1 ? "" : "s"})
                   </span>
@@ -621,19 +621,17 @@ export function ImportInstructorChecklistModal({
                           <div
                             key={item.id}
                             onClick={() => toggleItem(item.id)}
-                            className={`flex items-start gap-2.5 sm:gap-3 p-2.5 rounded-lg border transition-all cursor-pointer ${
-                              isChecked
+                            className={`flex items-start gap-2.5 sm:gap-3 p-2.5 rounded-lg border transition-all cursor-pointer ${isChecked
                                 ? "border-primary/40 bg-primary/5"
                                 : "border-border/60 hover:bg-muted/40 hover:border-border"
-                            }`}
+                              }`}
                           >
                             <button
                               type="button"
-                              className={`mt-0.5 w-4 h-4 rounded flex items-center justify-center transition-colors shrink-0 ${
-                                isChecked
+                              className={`mt-0.5 w-4 h-4 rounded flex items-center justify-center transition-colors shrink-0 ${isChecked
                                   ? "bg-primary text-primary-foreground"
                                   : "border border-border bg-background"
-                              }`}
+                                }`}
                             >
                               {isChecked && <Check className="w-3 h-3 stroke-[3]" />}
                             </button>
@@ -708,11 +706,10 @@ export function ImportInstructorChecklistModal({
                     </label>
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                       <label
-                        className={`flex items-start gap-2.5 p-3 rounded-xl border cursor-pointer transition-colors ${
-                          !replaceExisting
+                        className={`flex items-start gap-2.5 p-3 rounded-xl border cursor-pointer transition-colors ${!replaceExisting
                             ? "border-primary bg-primary/5 ring-1 ring-primary"
                             : "border-border bg-card hover:bg-muted/20"
-                        }`}
+                          }`}
                       >
                         <input
                           type="radio"
@@ -732,11 +729,10 @@ export function ImportInstructorChecklistModal({
                       </label>
 
                       <label
-                        className={`flex items-start gap-2.5 p-3 rounded-xl border cursor-pointer transition-colors ${
-                          replaceExisting
+                        className={`flex items-start gap-2.5 p-3 rounded-xl border cursor-pointer transition-colors ${replaceExisting
                             ? "border-destructive bg-destructive/5 ring-1 ring-destructive"
                             : "border-border bg-card hover:bg-muted/20"
-                        }`}
+                          }`}
                       >
                         <input
                           type="radio"
@@ -793,11 +789,10 @@ export function ImportInstructorChecklistModal({
               type="button"
               onClick={() => importMutation.mutate()}
               disabled={!source || selectedItemIds.size === 0 || importMutation.isPending}
-              className={`flex-1 sm:flex-none h-9 px-4 rounded-xl text-xs font-semibold transition-all inline-flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed ${
-                replaceExisting
+              className={`flex-1 sm:flex-none h-9 px-4 rounded-xl text-xs font-semibold transition-all inline-flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed ${replaceExisting
                   ? "bg-destructive text-destructive-foreground hover:opacity-90"
                   : "bg-primary text-primary-foreground hover:opacity-90"
-              }`}
+                }`}
             >
               {importMutation.isPending ? (
                 <>

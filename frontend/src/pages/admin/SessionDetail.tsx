@@ -30,6 +30,7 @@ import { InheritedFrom } from "@/pages/admin/components/InheritedFrom"
 import { UserProfileModal } from "@/components/UserProfileModal"
 import { AssessmentReviewModal } from "@/components/AssessmentReview"
 import { useToast } from "@/components/ui/toast"
+import { useAuth } from "@/context/AuthContext"
 import { Card } from "@/components/ui/card"
 import { cn, getErrorMessage } from "@/lib/utils"
 
@@ -101,6 +102,7 @@ export default function SessionDetail() {
       key={sessionId}
       cohort={cohort}
       session={session}
+      isOrgRoute={isOrgRoute}
       isOrgScope={isOrgScope}
       cohortBaseTo={cohortBaseTo}
       onChanged={invalidateSessions}
@@ -120,9 +122,10 @@ const SESSION_TABS: { key: SessionTab; label: string }[] = [
   { key: "report", label: "Report" },
 ]
 
-function SessionDetailView({ cohort, session, isOrgScope, cohortBaseTo, onChanged, onDeleted }: {
+function SessionDetailView({ cohort, session, isOrgRoute, cohortBaseTo, onChanged, onDeleted }: {
   cohort: Cohort
   session: Session
+  isOrgRoute: boolean
   isOrgScope: boolean
   cohortBaseTo: "/operations/cohorts/$cohortId" | "/organization/programs/$cohortId"
   onChanged: () => void
@@ -131,16 +134,26 @@ function SessionDetailView({ cohort, session, isOrgScope, cohortBaseTo, onChange
   const toast = useToast()
   const queryClient = useQueryClient()
   const navigate = useNavigate()
+  const { activeRole, activeOrgRole } = useAuth()
+  const isPartnerUser = isOrgRoute || activeRole === "organization"
+  const isOrgObserver = isPartnerUser && activeOrgRole === "observer"
+  const isPartnerMode = cohort.management_mode === "partner"
+  const isSpacePointManagedForOrg = isPartnerUser && cohort.management_mode === "spacepoint"
+  const canEditSession = !isOrgObserver
+  const canManageDelivery = !isOrgObserver && (isPartnerMode || !isPartnerUser)
+  const showFinancialsAndLogistics = !isPartnerUser
+
   const [activeTab, setActiveTab] = useState<SessionTab>("setup")
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false)
   const [completeConfirmOpen, setCompleteConfirmOpen] = useState(false)
   const [editModalOpen, setEditModalOpen] = useState(false)
   const [locationId, setLocationId] = useState(session.location_id ?? "")
   const [warehouseId, setWarehouseId] = useState(session.warehouse_id ?? "")
+  const locOrgParam = !isPartnerUser && isPartnerMode && cohort.organization_id ? cohort.organization_id : undefined
   const { data: locations = [] } = useQuery({
-    queryKey: ["inv-locations"],
-    queryFn: () => getLocationsApi(),
-    enabled: !isOrgScope,
+    queryKey: ["inv-locations", locOrgParam ?? "default"],
+    queryFn: () => getLocationsApi(false, locOrgParam),
+    enabled: canEditSession,
   })
   // Scoped to the session's own override when set, else the cohort's
   // effective location — same fallback chain the server resolves.
@@ -148,17 +161,21 @@ function SessionDetailView({ cohort, session, isOrgScope, cohortBaseTo, onChange
   const { data: warehouses = [] } = useQuery({
     queryKey: ["inv-warehouses", warehousePickerLocationId],
     queryFn: () => getWarehousesApi(warehousePickerLocationId || undefined),
-    enabled: !isOrgScope && !!warehousePickerLocationId,
+    enabled: showFinancialsAndLogistics && canEditSession && !!warehousePickerLocationId,
   })
   const [error, setError] = useState("")
 
   const saveMutation = useMutation({
     mutationFn: () => updateSessionApi(cohort.id, session.id, {
       location_id: locationId || null,
-      warehouse_id: warehouseId || null,
+      ...(showFinancialsAndLogistics ? { warehouse_id: warehouseId || null } : {}),
     }),
-    onSuccess: () => { setError(""); toast.success("Location & warehouse saved"); onChanged() },
-    onError: (e: any) => setError(e?.response?.data?.detail ?? "Failed to save location & warehouse"),
+    onSuccess: () => {
+      setError("")
+      toast.success(showFinancialsAndLogistics ? "Location & warehouse saved" : "Location saved")
+      onChanged()
+    },
+    onError: (e: any) => setError(e?.response?.data?.detail ?? "Failed to save location"),
   })
 
   // Ops closing out a day the instructor never marked done (2026-08-31) —
@@ -205,7 +222,7 @@ function SessionDetailView({ cohort, session, isOrgScope, cohortBaseTo, onChange
         subtitle={`${cohort.name} · ${session.meeting_date}${session.starts_at ? ` · ${session.starts_at.slice(0, 5)}` : ""}`}
         action={
           <div className="flex items-center gap-2 flex-wrap">
-            {!session.completed_at && (
+            {!session.completed_at && canManageDelivery && (
               <button
                 onClick={() => setCompleteConfirmOpen(true)}
                 disabled={markDoneMutation.isPending}
@@ -215,12 +232,14 @@ function SessionDetailView({ cohort, session, isOrgScope, cohortBaseTo, onChange
                 {markDoneMutation.isPending ? "Completing…" : "Mark completed"}
               </button>
             )}
-            <button
-              onClick={() => setEditModalOpen(true)}
-              className="flex items-center gap-1.5 h-9 px-3 border border-border rounded-xl text-sm font-medium text-foreground hover:bg-muted transition-colors shrink-0"
-            >
-              <Pencil size={14} /> Edit session
-            </button>
+            {canEditSession && (
+              <button
+                onClick={() => setEditModalOpen(true)}
+                className="flex items-center gap-1.5 h-9 px-3 border border-border rounded-xl text-sm font-medium text-foreground hover:bg-muted transition-colors shrink-0"
+              >
+                <Pencil size={14} /> Edit session
+              </button>
+            )}
           </div>
         }
       />
@@ -229,6 +248,8 @@ function SessionDetailView({ cohort, session, isOrgScope, cohortBaseTo, onChange
         <EditSessionModal
           cohortId={cohort.id}
           session={session}
+          canEditDuration={canManageDelivery}
+          hideLogistics={!showFinancialsAndLogistics}
           onClose={() => setEditModalOpen(false)}
           onSaved={onChanged}
         />
@@ -258,14 +279,14 @@ function SessionDetailView({ cohort, session, isOrgScope, cohortBaseTo, onChange
                 : "border-transparent text-muted-foreground hover:text-foreground"
             )}
           >
-            {isOrgScope && t.key === "roles" ? "Delivery Checklists" : t.label}
+            {isPartnerUser && t.key === "roles" ? "Roles & Checklists" : t.label}
           </button>
         ))}
       </div>
 
       {activeTab === "setup" && (
         <div className="flex flex-col gap-4">
-          {!isOrgScope && (
+          {showFinancialsAndLogistics && (
             <Card className="px-4">
               <SessionKitAssignment
                 sessionId={session.id}
@@ -282,6 +303,7 @@ function SessionDetailView({ cohort, session, isOrgScope, cohortBaseTo, onChange
               owner={{ session_id: session.id }}
               level="cohort"
               inheritedNote="Leave empty to use the cohort's (or the program's)."
+              readOnly={!canEditSession}
             />
           </Card>
 
@@ -289,12 +311,16 @@ function SessionDetailView({ cohort, session, isOrgScope, cohortBaseTo, onChange
             <GameAssignmentPanel sessionId={session.id} />
           </Card>
 
-          {!isOrgScope && (
+          {canEditSession && (
             <Card className="p-4 flex flex-col gap-4">
             <div>
-              <p className="text-sm font-semibold text-foreground">Location &amp; warehouse</p>
+              <p className="text-sm font-semibold text-foreground">
+                {showFinancialsAndLogistics ? "Location & warehouse" : "Location override"}
+              </p>
               <p className="text-xs text-muted-foreground mt-0.5">
-                Set location or warehouse overrides for this specific session. Leave blank to inherit from cohort defaults.
+                {showFinancialsAndLogistics
+                  ? "Set location or warehouse overrides for this specific session. Leave blank to inherit from cohort defaults."
+                  : "Set a location override for this specific session. Leave blank to inherit from cohort defaults."}
               </p>
             </div>
 
@@ -315,11 +341,14 @@ function SessionDetailView({ cohort, session, isOrgScope, cohortBaseTo, onChange
                 <option value="">
                   {cohort.location_name ? `Use cohort default (${cohort.location_name})` : "Use cohort default (none set)"}
                 </option>
+                {session.location_id && !locations.some((l) => l.id === session.location_id) && session.effective_location_name && (
+                  <option value={session.location_id}>{session.effective_location_name}</option>
+                )}
                 {locations.map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}
               </select>
             </div>
 
-            {warehousePickerLocationId && (
+            {showFinancialsAndLogistics && warehousePickerLocationId && (
               <div className="flex flex-col gap-1.5 border-t border-border pt-4">
                 <InheritedFrom
                   label="Warehouse"
@@ -349,30 +378,38 @@ function SessionDetailView({ cohort, session, isOrgScope, cohortBaseTo, onChange
               disabled={saveMutation.isPending}
               className="w-fit h-10 px-4 bg-primary text-primary-foreground rounded-xl text-sm font-medium hover:opacity-90 transition-colors disabled:opacity-50"
             >
-              {saveMutation.isPending ? "Saving…" : "Save location & warehouse"}
+              {saveMutation.isPending
+                ? "Saving…"
+                : showFinancialsAndLogistics
+                  ? "Save location & warehouse"
+                  : "Save location"}
             </button>
           </Card>
           )}
 
-          <div className="border-t border-border pt-3 mt-1 flex justify-end">
-            <button
-              onClick={() => setDeleteConfirmOpen(true)}
-              disabled={deleteMutation.isPending}
-              className="text-xs font-medium text-red-600 dark:text-red-400 hover:opacity-80 transition-colors disabled:opacity-50 inline-flex items-center gap-1.5"
-            >
-              <Trash2 size={13} /> Delete this session
-            </button>
-          </div>
+          {canEditSession && (
+            <div className="border-t border-border pt-3 mt-1 flex justify-end">
+              <button
+                onClick={() => setDeleteConfirmOpen(true)}
+                disabled={deleteMutation.isPending}
+                className="text-xs font-medium text-red-600 dark:text-red-400 hover:opacity-80 transition-colors disabled:opacity-50 inline-flex items-center gap-1.5"
+              >
+                <Trash2 size={13} /> Delete this session
+              </button>
+            </div>
+          )}
         </div>
       )}
 
       {activeTab === "checklist" && (
         <div className="flex flex-col gap-4">
-          {!isOrgScope && (
-            <Card className="p-4">
-              <SessionPreQuizOpsPanel sessionId={session.id} />
-            </Card>
-          )}
+          <Card className="p-4">
+            <SessionPreQuizOpsPanel
+              sessionId={session.id}
+              readOnly={!canManageDelivery}
+              isPartnerContext={isPartnerUser}
+            />
+          </Card>
           <Card className="p-4">
             <SessionOpsChecklistPanel sessionId={session.id} cohortId={cohort.id} />
           </Card>
@@ -381,27 +418,47 @@ function SessionDetailView({ cohort, session, isOrgScope, cohortBaseTo, onChange
 
       {activeTab === "roles" && (
         <div className="flex flex-col gap-4">
-          {!isOrgScope && (
-            <Card className="p-4">
-              <SessionOpeningsPanel sessionId={session.id} />
-            </Card>
-          )}
           <Card className="p-4">
-            <CohortRolesPanel cohort={cohort} sessionId={session.id} isOrgScope={isOrgScope} />
+            <SessionOpeningsPanel
+              sessionId={session.id}
+              readOnly={!canManageDelivery}
+              showRates={showFinancialsAndLogistics}
+            />
+          </Card>
+          <Card className="p-4">
+            <CohortRolesPanel
+              cohort={cohort}
+              sessionId={session.id}
+              isOrgScope={isPartnerUser}
+              showRates={showFinancialsAndLogistics}
+              canEditRoles={canManageDelivery}
+              canEditChecklists={canEditSession}
+            />
           </Card>
         </div>
       )}
 
       {activeTab === "staffing" && (
-        <StaffingSection cohort={cohort} session={session} isOrgScope={isOrgScope} onChanged={onChanged} />
+        <StaffingSection
+          cohort={cohort}
+          session={session}
+          isOrgScope={!showFinancialsAndLogistics}
+          canManageDelivery={canManageDelivery}
+          isSpacePointManagedForOrg={isSpacePointManagedForOrg}
+          onChanged={onChanged}
+        />
       )}
 
       {activeTab === "attendance" && (
-        <SessionAttendanceRosterSection sessionId={session.id} />
+        <SessionAttendanceRosterSection sessionId={session.id} readOnly={!canEditSession} />
       )}
 
       {activeTab === "report" && (
-        <SessionReportTab sessionId={session.id} isOrgScope={isOrgScope} />
+        <SessionReportTab
+          sessionId={session.id}
+          isOrgScope={!showFinancialsAndLogistics}
+          readOnly={!canManageDelivery}
+        />
       )}
 
       {deleteConfirmOpen && (
@@ -564,8 +621,20 @@ function EligibleInstructorDetailModal({
 /* shows every eligible instructor/facilitator, not just those who     */
 /* registered interest — multi-select, select-all, clickable profile.  */
 /* ================================================================== */
-function StaffingSection({ cohort, session, isOrgScope = false, onChanged }: {
-  cohort: Cohort; session: Session; isOrgScope?: boolean; onChanged: () => void
+function StaffingSection({
+  cohort,
+  session,
+  isOrgScope = false,
+  canManageDelivery = true,
+  isSpacePointManagedForOrg = false,
+  onChanged,
+}: {
+  cohort: Cohort
+  session: Session
+  isOrgScope?: boolean
+  canManageDelivery?: boolean
+  isSpacePointManagedForOrg?: boolean
+  onChanged: () => void
 }) {
   const queryClient = useQueryClient()
   const toast = useToast()
@@ -609,6 +678,7 @@ function StaffingSection({ cohort, session, isOrgScope = false, onChanged }: {
   const eligible = useQuery<EligibleInstructor[]>({
     queryKey: ["staffing-eligible-instructors", session.id],
     queryFn: () => listEligibleInstructorsApi(session.id),
+    enabled: canManageDelivery,
   })
   const assignableUsers = (eligible.data ?? [])
     .filter((e) => !session.instructors.some((si) => si.user_id === e.user_id))
@@ -629,7 +699,7 @@ function StaffingSection({ cohort, session, isOrgScope = false, onChanged }: {
   const calls = useQuery({
     queryKey: ["staffing-calls", session.id],
     queryFn: () => listSessionCallsApi(session.id),
-    enabled: !isOrgScope && isOpenCall,
+    enabled: !isOrgScope && canManageDelivery && isOpenCall,
   })
   const openCalls = (calls.data ?? []).filter((c) => c.status === "open")
   const closeOneMutation = useMutation({
@@ -733,10 +803,15 @@ function StaffingSection({ cohort, session, isOrgScope = false, onChanged }: {
           <p className="text-xs text-muted-foreground">Who's running this session, and who wants to</p>
         </div>
         <div className="flex items-center gap-2">
+          {isSpacePointManagedForOrg && (
+            <span className="text-xs font-semibold px-2.5 py-1 rounded-full bg-primary/15 text-primary border border-primary/25">
+              Staffed &amp; delivered by SpacePoint
+            </span>
+          )}
           <span className={`text-xs font-semibold px-2.5 py-1 rounded-full ${STAFFING_STATUS_COLOR[session.staffing_status]}`}>
             {STAFFING_STATUS_LABEL[session.staffing_status]}
           </span>
-          {!isOrgScope && isOpenCall && (
+          {!isOrgScope && canManageDelivery && isOpenCall && (
             <button
               onClick={() => { setError(""); setCloseCallOptionOpen(true) }}
               className="text-xs font-semibold text-red-500 hover:text-red-600 px-2 py-1 rounded-lg border border-red-500/20 hover:bg-red-500/10 transition-colors"
@@ -750,52 +825,58 @@ function StaffingSection({ cohort, session, isOrgScope = false, onChanged }: {
 
       {/* Assigned, then one way to add someone directly. Below that, the
           call layer — same job, but for people who put their hand up. */}
-      {session.instructors.length > 0 && (
+      {session.instructors.length > 0 ? (
         <div className="flex flex-col gap-1.5 mb-2">
           {session.instructors.map((si) => (
             <div key={si.user_id} className="flex items-center justify-between px-3 py-2 bg-background border border-border rounded-xl">
               <span className="text-sm text-foreground">
                 {si.full_name} <span className="text-xs text-muted-foreground">({si.role})</span>
               </span>
-              <button
-                onClick={() => unassignMutation.mutate(si.user_id)}
-                disabled={unassignMutation.isPending}
-                className="text-xs font-medium text-red-500 hover:opacity-80 transition-colors disabled:opacity-50"
-              >
-                Remove
-              </button>
+              {canManageDelivery && (
+                <button
+                  onClick={() => unassignMutation.mutate(si.user_id)}
+                  disabled={unassignMutation.isPending}
+                  className="text-xs font-medium text-red-500 hover:opacity-80 transition-colors disabled:opacity-50"
+                >
+                  Remove
+                </button>
+              )}
             </div>
           ))}
         </div>
+      ) : !canManageDelivery && (
+        <p className="text-xs text-muted-foreground mb-2">No instructors assigned yet.</p>
       )}
 
-      <div className="flex flex-wrap gap-2 mb-3">
-        <select
-          value={instructorId} onChange={(e) => setInstructorId(e.target.value)}
-          className="flex-1 h-9 px-3 border border-border bg-background text-foreground rounded-xl text-sm focus:outline-none focus:border-primary transition-colors cursor-pointer min-w-[160px]"
-        >
-          <option value="">— Add an instructor directly —</option>
-          {assignableUsers.map((u) => (
-            <option key={u.user_id} value={u.user_id}>{u.full_name || u.email}</option>
-          ))}
-        </select>
-        <select
-          value={assignRoleId} onChange={(e) => setAssignRoleId(e.target.value)}
-          disabled={!rolesLoaded}
-          className="h-9 px-3 border border-border bg-background text-foreground rounded-xl text-sm focus:outline-none focus:border-primary transition-colors cursor-pointer disabled:opacity-50"
-        >
-          {deliveryRoles.map((r) => <option key={r.id} value={r.id}>{r.name}</option>)}
-        </select>
-        <button
-          onClick={() => { setError(""); assignMutation.mutate() }}
-          disabled={!instructorId || !assignRoleId || assignMutation.isPending}
-          className="h-9 px-4 bg-primary text-primary-foreground rounded-xl text-sm font-medium hover:opacity-90 transition-colors disabled:opacity-50"
-        >
-          Assign
-        </button>
-      </div>
+      {canManageDelivery && (
+        <div className="flex flex-wrap gap-2 mb-3">
+          <select
+            value={instructorId} onChange={(e) => setInstructorId(e.target.value)}
+            className="flex-1 h-9 px-3 border border-border bg-background text-foreground rounded-xl text-sm focus:outline-none focus:border-primary transition-colors cursor-pointer min-w-[160px]"
+          >
+            <option value="">— Add an instructor directly —</option>
+            {assignableUsers.map((u) => (
+              <option key={u.user_id} value={u.user_id}>{u.full_name || u.email}</option>
+            ))}
+          </select>
+          <select
+            value={assignRoleId} onChange={(e) => setAssignRoleId(e.target.value)}
+            disabled={!rolesLoaded}
+            className="h-9 px-3 border border-border bg-background text-foreground rounded-xl text-sm focus:outline-none focus:border-primary transition-colors cursor-pointer disabled:opacity-50"
+          >
+            {deliveryRoles.map((r) => <option key={r.id} value={r.id}>{r.name}</option>)}
+          </select>
+          <button
+            onClick={() => { setError(""); assignMutation.mutate() }}
+            disabled={!instructorId || !assignRoleId || assignMutation.isPending}
+            className="h-9 px-4 bg-primary text-primary-foreground rounded-xl text-sm font-medium hover:opacity-90 transition-colors disabled:opacity-50"
+          >
+            Assign
+          </button>
+        </div>
+      )}
 
-      {!isOrgScope && isOpenCall && openCalls.length > 0 && (
+      {!isOrgScope && canManageDelivery && isOpenCall && openCalls.length > 0 && (
         <div className="mb-3 flex flex-col gap-1.5">
           <div className="flex items-center justify-between">
             <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">
@@ -830,7 +911,7 @@ function StaffingSection({ cohort, session, isOrgScope = false, onChanged }: {
         </div>
       )}
 
-      {!isOrgScope && session.staffing_status === "unstaffed" && (
+      {!isOrgScope && canManageDelivery && session.staffing_status === "unstaffed" && (
         <div className="flex flex-col sm:flex-row gap-2">
           <button
             onClick={() => { setError(""); openCallMutation.mutate({}) }}
@@ -848,7 +929,7 @@ function StaffingSection({ cohort, session, isOrgScope = false, onChanged }: {
         </div>
       )}
 
-      {!isOrgScope && session.staffing_status === "staffed" && (
+      {!isOrgScope && canManageDelivery && session.staffing_status === "staffed" && (
         <div className="flex flex-col gap-1.5">
           <button
             onClick={() => { setError(""); reopenMutation.mutate({}) }}
@@ -879,7 +960,7 @@ function StaffingSection({ cohort, session, isOrgScope = false, onChanged }: {
         </div>
       )}
 
-      {!isOrgScope && isOpenCall && (
+      {!isOrgScope && canManageDelivery && isOpenCall && (
         <div className="space-y-3">
           {eligible.isLoading ? (
             <Spinner />
@@ -1111,7 +1192,7 @@ function StaffingSection({ cohort, session, isOrgScope = false, onChanged }: {
 /* ================================================================== */
 /* Session attendance roster section inside SessionDetail              */
 /* ================================================================== */
-function SessionAttendanceRosterSection({ sessionId }: { sessionId: string }) {
+function SessionAttendanceRosterSection({ sessionId, readOnly = false }: { sessionId: string; readOnly?: boolean }) {
   const queryClient = useQueryClient()
   const { data: delivery, isLoading } = useQuery<SessionDelivery>({
     queryKey: ["session-delivery", sessionId],
@@ -1163,12 +1244,12 @@ function SessionAttendanceRosterSection({ sessionId }: { sessionId: string }) {
                   return (
                     <button
                       key={st}
-                      onClick={() => markMutation.mutate({ registrationId: entry.registration_id, status: st })}
-                      disabled={markMutation.isPending}
-                      className={`text-xs font-medium px-2.5 py-1 rounded-lg border transition-all ${
+                      onClick={() => { if (!readOnly) markMutation.mutate({ registrationId: entry.registration_id, status: st }) }}
+                      disabled={readOnly || markMutation.isPending}
+                      className={`text-xs font-medium px-2.5 py-1 rounded-lg border transition-all disabled:cursor-default ${
                         isActive
                           ? `${statusColors[st]} font-bold shadow-xs`
-                          : "border-border text-muted-foreground hover:bg-muted"
+                          : "border-border text-muted-foreground hover:bg-muted disabled:opacity-50"
                       }`}
                     >
                       {st.charAt(0).toUpperCase() + st.slice(1)}
@@ -1372,7 +1453,7 @@ function TargetedOpenCallModal({
 /** The Report tab (renamed from History, 2026-08-30): instructor reports
  *  lead, file uploads next, the old audit-only view now a secondary
  *  collapsible strip underneath rather than the whole tab. */
-function SessionReportTab({ sessionId, isOrgScope = false }: { sessionId: string; isOrgScope?: boolean }) {
+function SessionReportTab({ sessionId, isOrgScope = false, readOnly = false }: { sessionId: string; isOrgScope?: boolean; readOnly?: boolean }) {
   const { data: history } = useQuery({
     queryKey: ["session-history", sessionId],
     queryFn: () => getSessionHistoryApi(sessionId),
@@ -1383,7 +1464,7 @@ function SessionReportTab({ sessionId, isOrgScope = false }: { sessionId: string
       <div className="space-y-2">
         <h2 className="text-sm font-semibold text-foreground">Instructor checklists</h2>
         <Card className="px-4">
-          <CohortDayReviewsPanel sessionId={sessionId} embedded />
+          <CohortDayReviewsPanel sessionId={sessionId} embedded readOnly={readOnly} />
         </Card>
       </div>
 

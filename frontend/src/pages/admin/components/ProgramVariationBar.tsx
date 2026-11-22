@@ -9,6 +9,7 @@ import {
   updateProgramVariationApi,
   type VariationCarryBucket,
 } from "@/api/sessions/programs"
+import { getOrgProgramsOverviewApi } from "@/api/organizationPrograms"
 import { getCohortsApi } from "@/api/sessions/cohorts"
 import { listAssessmentConfigsApi } from "@/api/instructor_assessment"
 import { Modal } from "@/pages/admin/components/common"
@@ -36,6 +37,8 @@ export function ProgramVariationBar({
   onSelectVariation,
   editingBase,
   onToggleEditingBase,
+  readOnly = false,
+  hideFinancials = false,
 }: {
   program: Program
   variations: ProgramVariation[]
@@ -43,6 +46,8 @@ export function ProgramVariationBar({
   onSelectVariation: (id: string | null) => void
   editingBase: boolean
   onToggleEditingBase: (base: boolean) => void
+  readOnly?: boolean
+  hideFinancials?: boolean
 }) {
   const qc = useQueryClient()
   const toast = useToast()
@@ -86,7 +91,7 @@ export function ProgramVariationBar({
 
           {variations.length === 0 ? (
             <span className="text-xs text-muted-foreground">
-              Using Program Base defaults — add a variation for 4-Day vs 3-Day formats
+              Using Program Defaults — add a variation for 4-Day vs 3-Day formats
             </span>
           ) : (
             <div className="flex items-center gap-1.5 flex-wrap">
@@ -119,76 +124,81 @@ export function ProgramVariationBar({
                 )
               })}
 
-              <button
-                type="button"
-                onClick={() => onToggleEditingBase(true)}
-                className={cn(
-                  "inline-flex items-center gap-1 h-8 px-3 rounded-lg text-xs font-medium border border-dashed transition-colors cursor-pointer",
-                  editingBase
-                    ? "bg-muted text-foreground border-foreground/40 font-semibold"
-                    : "text-muted-foreground border-border hover:text-foreground",
-                )}
-                title="View or edit shared Program Base defaults"
-              >
-                <Settings2 size={12} /> Program Base
-              </button>
+              {(variations.length > 1 || editingBase) && (
+                <button
+                  type="button"
+                  onClick={() => onToggleEditingBase(true)}
+                  className={cn(
+                    "inline-flex items-center gap-1 h-8 px-3 rounded-lg text-xs font-medium border border-dashed transition-colors cursor-pointer",
+                    editingBase
+                      ? "bg-muted text-foreground border-foreground/40 font-semibold"
+                      : "text-muted-foreground border-border hover:text-foreground",
+                  )}
+                  title="View or edit shared Program Defaults"
+                >
+                  <Settings2 size={12} /> Program Defaults
+                </button>
+              )}
             </div>
           )}
         </div>
 
-        <div className="flex items-center gap-1.5 shrink-0">
-          {selected && !editingBase && (
-            <>
-              {!selected.is_default && (
+        {!readOnly && (
+          <div className="flex items-center gap-1.5 shrink-0">
+            {selected && !editingBase && (
+              <>
+                {!selected.is_default && (
+                  <button
+                    type="button"
+                    onClick={() => setDefaultMut.mutate(selected.id)}
+                    disabled={setDefaultMut.isPending}
+                    className="h-8 px-2.5 rounded-lg border border-border bg-background text-xs font-medium text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
+                    title="Set as default variation when creating a new cohort"
+                  >
+                    Set default
+                  </button>
+                )}
                 <button
                   type="button"
-                  onClick={() => setDefaultMut.mutate(selected.id)}
-                  disabled={setDefaultMut.isPending}
-                  className="h-8 px-2.5 rounded-lg border border-border bg-background text-xs font-medium text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
-                  title="Set as default variation when creating a new cohort"
+                  onClick={() => setEditingVar(selected)}
+                  className="h-8 px-2.5 rounded-lg border border-border bg-background text-xs font-medium text-foreground hover:bg-muted transition-colors inline-flex items-center gap-1 cursor-pointer"
+                  title="Edit variation defaults & settings"
                 >
-                  Set default
+                  <Pencil size={12} /> Edit
                 </button>
-              )}
-              <button
-                type="button"
-                onClick={() => setEditingVar(selected)}
-                className="h-8 px-2.5 rounded-lg border border-border bg-background text-xs font-medium text-foreground hover:bg-muted transition-colors inline-flex items-center gap-1 cursor-pointer"
-                title="Edit variation defaults & settings"
-              >
-                <Pencil size={12} /> Edit
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  const msg = selected.cohorts_count > 0
-                    ? `Delete "${selected.name}"? ${selected.cohorts_count} existing cohort(s) will stay intact and keep their sessions.`
-                    : `Delete variation "${selected.name}"?`
-                  if (confirm(msg)) deleteMut.mutate(selected.id)
-                }}
-                disabled={deleteMut.isPending}
-                className="h-8 w-8 rounded-lg border border-border bg-background text-rose-500 hover:bg-rose-500/10 transition-colors inline-flex items-center justify-center cursor-pointer"
-                title="Delete variation"
-              >
-                <Trash2 size={13} />
-              </button>
-            </>
-          )}
+                <button
+                  type="button"
+                  onClick={() => {
+                    const msg = selected.cohorts_count > 0
+                      ? `Delete "${selected.name}"? ${selected.cohorts_count} existing cohort(s) will stay intact and keep their sessions.`
+                      : `Delete variation "${selected.name}"?`
+                    if (confirm(msg)) deleteMut.mutate(selected.id)
+                  }}
+                  disabled={deleteMut.isPending}
+                  className="h-8 w-8 rounded-lg border border-border bg-background text-rose-500 hover:bg-rose-500/10 transition-colors inline-flex items-center justify-center cursor-pointer"
+                  title="Delete variation"
+                >
+                  <Trash2 size={13} />
+                </button>
+              </>
+            )}
 
-          <button
-            type="button"
-            onClick={() => setCreateOpen(true)}
-            className="inline-flex items-center gap-1.5 h-8 px-3 rounded-lg bg-primary text-primary-foreground text-xs font-semibold hover:opacity-90 transition-opacity cursor-pointer"
-          >
-            <Plus size={13} /> New Variation
-          </button>
-        </div>
+            <button
+              type="button"
+              onClick={() => setCreateOpen(true)}
+              className="inline-flex items-center gap-1.5 h-8 px-3 rounded-lg bg-primary text-primary-foreground text-xs font-semibold hover:opacity-90 transition-opacity cursor-pointer"
+            >
+              <Plus size={13} /> New Variation
+            </button>
+          </div>
+        )}
       </div>
 
       {selected && !editingBase && (
         <div className="flex items-center gap-3 flex-wrap text-[11px] text-muted-foreground pt-1 border-t border-border/60">
           <span>
-            Editing variation <strong className="text-foreground">{selected.name}</strong>
+            {readOnly ? "Viewing variation" : "Editing variation"}{" "}
+            <strong className="text-foreground">{selected.name}</strong>
           </span>
           {selected.duration_hours != null && <span>· {selected.duration_hours}h/day</span>}
           {selected.default_capacity != null && <span>· {selected.default_capacity} seats</span>}
@@ -196,14 +206,17 @@ export function ProgramVariationBar({
             <span>· {selected.pricing_model === "free" ? "Free" : `AED ${selected.price ?? program.price ?? 0}`}</span>
           )}
           {selected.cohorts_count > 0 && <span>· Used by {selected.cohorts_count} cohort{selected.cohorts_count === 1 ? "" : "s"}</span>}
-          <span className="ml-auto hidden sm:inline">Blank settings inherit from Program Base</span>
+          {variations.length > 1 && (
+            <span className="ml-auto hidden sm:inline">Blank settings inherit from Program Defaults</span>
+          )}
         </div>
       )}
 
-      {createOpen && (
+      {createOpen && !readOnly && (
         <CreateVariationModal
           program={program}
           variations={variations}
+          hideFinancials={hideFinancials}
           onClose={() => setCreateOpen(false)}
           onCreated={(v) => {
             invalidateAll()
@@ -214,10 +227,11 @@ export function ProgramVariationBar({
         />
       )}
 
-      {editingVar && (
+      {editingVar && !readOnly && (
         <EditVariationModal
           program={program}
           variation={editingVar}
+          hideFinancials={hideFinancials}
           onClose={() => setEditingVar(null)}
           onSaved={() => {
             invalidateAll()
@@ -232,11 +246,13 @@ export function ProgramVariationBar({
 function CreateVariationModal({
   program,
   variations,
+  hideFinancials = false,
   onClose,
   onCreated,
 }: {
   program: Program
   variations: ProgramVariation[]
+  hideFinancials?: boolean
   onClose: () => void
   onCreated: (v: ProgramVariation) => void
 }) {
@@ -249,14 +265,25 @@ function CreateVariationModal({
   const [sourceVariationId, setSourceVariationId] = useState(variations[0]?.id ?? "")
   const [sourceProgramId, setSourceProgramId] = useState(program.id)
   const [sourceCohortId, setSourceCohortId] = useState("")
-  const [carry, setCarry] = useState<VariationCarryBucket[]>(() => CARRY_OPTIONS.map((c) => c.key))
+  const visibleCarryOptions = useMemo(
+    () =>
+      CARRY_OPTIONS.filter((c) => !(hideFinancials && c.key === "assessment")).map((c) =>
+        hideFinancials && c.key === "roles" ? { ...c, label: "Role Slots & Checklists" } : c,
+      ),
+    [hideFinancials],
+  )
+  const [carry, setCarry] = useState<VariationCarryBucket[]>(() =>
+    CARRY_OPTIONS.filter((c) => !(hideFinancials && c.key === "assessment")).map((c) => c.key),
+  )
   const [isDefault, setIsDefault] = useState(variations.length === 0)
   const [durationHours, setDurationHours] = useState("")
   const [capacity, setCapacity] = useState("")
 
   const { data: allPrograms = [] } = useQuery({
-    queryKey: ["sessions-programs"],
-    queryFn: getProgramsApi,
+    queryKey: hideFinancials ? ["org-programs-var-source"] : ["sessions-programs"],
+    queryFn: hideFinancials
+      ? () => getOrgProgramsOverviewApi().then((d) => d.programs as unknown as Program[])
+      : getProgramsApi,
     enabled: mode === "from_cohort",
   })
 
@@ -448,7 +475,7 @@ function CreateVariationModal({
               Include From Source
             </span>
             <div className="grid grid-cols-2 gap-1.5">
-              {CARRY_OPTIONS.map((opt) => (
+              {visibleCarryOptions.map((opt) => (
                 <label key={opt.key} className="flex items-center gap-2 text-xs text-foreground cursor-pointer select-none">
                   <input
                     type="checkbox"
@@ -528,11 +555,13 @@ function CreateVariationModal({
 function EditVariationModal({
   program,
   variation,
+  hideFinancials = false,
   onClose,
   onSaved,
 }: {
   program: Program
   variation: ProgramVariation
+  hideFinancials?: boolean
   onClose: () => void
   onSaved: () => void
 }) {
@@ -553,6 +582,7 @@ function EditVariationModal({
   const { data: configs = [] } = useQuery({
     queryKey: ["assessment-configs"],
     queryFn: listAssessmentConfigsApi,
+    enabled: !hideFinancials,
   })
 
   const saveMut = useMutation({
@@ -671,19 +701,21 @@ function EditVariationModal({
             />
           </label>
 
-          <label className="flex flex-col gap-1 sm:col-span-2">
-            <span className="text-[11px] font-semibold uppercase text-muted-foreground">Assessment Gate Override</span>
-            <select
-              value={assessmentId}
-              onChange={(e) => setAssessmentId(e.target.value)}
-              className="h-9 px-2.5 rounded-lg border border-border bg-background text-sm text-foreground"
-            >
-              <option value="">Inherit from Program Base</option>
-              {configs.map((c) => (
-                <option key={c.id} value={c.id}>{c.name}</option>
-              ))}
-            </select>
-          </label>
+          {!hideFinancials && (
+            <label className="flex flex-col gap-1 sm:col-span-2">
+              <span className="text-[11px] font-semibold uppercase text-muted-foreground">Assessment Gate Override</span>
+              <select
+                value={assessmentId}
+                onChange={(e) => setAssessmentId(e.target.value)}
+                className="h-9 px-2.5 rounded-lg border border-border bg-background text-sm text-foreground"
+              >
+                <option value="">Inherit from Program Base</option>
+                {configs.map((c) => (
+                  <option key={c.id} value={c.id}>{c.name}</option>
+                ))}
+              </select>
+            </label>
+          )}
 
           <label className="flex flex-col gap-1 sm:col-span-2">
             <span className="text-[11px] font-semibold uppercase text-muted-foreground">Poster Template URL</span>

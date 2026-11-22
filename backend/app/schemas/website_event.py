@@ -246,6 +246,8 @@ class OrganizationAccountCreateIn(BaseModel):
     allowed_quiz_template_ids: list[str] = Field(default_factory=list)
     readiness_scope: str = "own"
     allowed_readiness_preset_ids: list[str] = Field(default_factory=list)
+    program_scope: str = "own"
+    allowed_program_ids: list[str] = Field(default_factory=list)
     max_events: int | None = None
     max_programs: int | None = None
     max_cohorts: int | None = None
@@ -275,6 +277,8 @@ class OrganizationAccountUpdateIn(BaseModel):
     allowed_quiz_template_ids: list[str] | None = None
     readiness_scope: str | None = None
     allowed_readiness_preset_ids: list[str] | None = None
+    program_scope: str | None = None
+    allowed_program_ids: list[str] | None = None
     max_events: int | None = None
     max_programs: int | None = None
     max_cohorts: int | None = None
@@ -311,6 +315,7 @@ class OrganizationSummaryOut(BaseModel):
     authored_courses_count: int = 0
     pending_review_courses_count: int = 0
     shared_courses_count: int = 0
+    shared_programs_count: int = 0
     invite_batches_active_count: int = 0
     invite_used_count: int = 0
     invite_max_count: int = 0
@@ -327,6 +332,8 @@ class OrganizationSummaryOut(BaseModel):
     allowed_quiz_template_ids: list[str] = Field(default_factory=list)
     readiness_scope: str = "own"
     allowed_readiness_preset_ids: list[str] = Field(default_factory=list)
+    program_scope: str = "own"
+    allowed_program_ids: list[str] = Field(default_factory=list)
     max_events: int | None = None
     max_programs: int | None = None
     max_cohorts: int | None = None
@@ -345,8 +352,11 @@ class OrgProgramChecklistItemOut(BaseModel):
 
 class OrgProgramDetailOut(BaseModel):
     id: UUID
+    code: str = ""
     name: str
     program_type: str
+    description: str | None = None
+    is_org_owned: bool = True
     active: bool = True
     lms_program_id: UUID | None = None
     checklist_name: str | None = None
@@ -355,12 +365,23 @@ class OrgProgramDetailOut(BaseModel):
     checklist_items: list[OrgProgramChecklistItemOut] = Field(default_factory=list)
 
 
+class OrgSharedProgramOut(BaseModel):
+    id: UUID
+    code: str = ""
+    name: str
+    program_type: str
+    active: bool = True
+
+
 class OrgCohortDetailOut(BaseModel):
     id: UUID
     program_id: UUID
     program_name: str
     name: str
     status: str
+    management_mode: str = "spacepoint"
+    location_id: UUID | None = None
+    location_name: str | None = None
     starts_on: str | None = None
     ends_on: str | None = None
     enrolled_count: int = 0
@@ -460,6 +481,7 @@ class OrganizationDetailOut(BaseModel):
     students: list[OrgStudentDetailOut] = Field(default_factory=list)
     authored_courses: list[OrgAuthoredCourseOut] = Field(default_factory=list)
     shared_courses: list[OrgSharedCourseOut] = Field(default_factory=list)
+    shared_programs: list[OrgSharedProgramOut] = Field(default_factory=list)
     quiz_templates: list[OrgQuizTemplateOut] = Field(default_factory=list)
     landing_pages: list[OrgLandingPageOut] = Field(default_factory=list)
     team: list[OrgTeamMemberDetailOut] = Field(default_factory=list)

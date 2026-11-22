@@ -72,6 +72,37 @@ async def check_course_access(db: AsyncSession, user: User, course: Course) -> N
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Course not found")
 
 
+async def _is_course_used_by_org_cohort(db: AsyncSession, org_id, course_id) -> bool:
+    from app.models.lms.program import LmsProgramCohortOverride, LmsProgramItem
+    from app.models.sessions.cohort import Cohort
+    from app.models.sessions.program import Program
+
+    via_override = await db.scalar(
+        select(LmsProgramItem.id)
+        .join(LmsProgramCohortOverride, LmsProgramCohortOverride.lms_program_id == LmsProgramItem.program_id)
+        .join(Cohort, Cohort.id == LmsProgramCohortOverride.cohort_id)
+        .join(Program, Program.id == Cohort.program_id)
+        .where(
+            LmsProgramItem.course_id == course_id,
+            (Cohort.organization_id == org_id) | (Program.organization_id == org_id),
+        )
+        .limit(1)
+    )
+    if via_override is not None:
+        return True
+    via_program = await db.scalar(
+        select(LmsProgramItem.id)
+        .join(Program, Program.lms_program_id == LmsProgramItem.program_id)
+        .join(Cohort, Cohort.program_id == Program.id)
+        .where(
+            LmsProgramItem.course_id == course_id,
+            (Cohort.organization_id == org_id) | (Program.organization_id == org_id),
+        )
+        .limit(1)
+    )
+    return via_program is not None
+
+
 async def can_preview_course(db: AsyncSession, user: User, course: Course) -> bool:
     """True when the user may open the course player without enrolling.
 
@@ -93,7 +124,9 @@ async def can_preview_course(db: AsyncSession, user: User, course: Course) -> bo
         return True
     if org.course_scope_all and course.is_published:
         return True
-    return str(course.id) in {str(cid) for cid in (org.allowed_course_ids or [])}
+    if str(course.id) in {str(cid) for cid in (org.allowed_course_ids or [])}:
+        return True
+    return await _is_course_used_by_org_cohort(db, org.id, course.id)
 
 
 async def check_course_read_access(db: AsyncSession, user: User, course: Course) -> None:
@@ -111,6 +144,8 @@ async def check_course_read_access(db: AsyncSession, user: User, course: Course)
                 return
             allowed_ids = {str(cid) for cid in (org.allowed_course_ids or [])}
             if str(course.id) in allowed_ids:
+                return
+            if await _is_course_used_by_org_cohort(db, org.id, course.id):
                 return
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Course not found")
     await check_course_access(db, user, course)

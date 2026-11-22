@@ -16,6 +16,7 @@ from pydantic import BaseModel, Field
 CohortStatus = Literal["planned", "registration_open", "running", "completed", "cancelled"]
 StaffingStatus = Literal["unstaffed", "open_call", "staffed"]
 Visibility = Literal["public", "private"]
+ManagementMode = Literal["spacepoint", "partner"]
 
 
 class CohortBase(BaseModel):
@@ -40,7 +41,8 @@ class CohortBase(BaseModel):
     madar_invitation_batch: str | None = None
     notes: str | None = None
     organization_id: UUID | None = None
-    visibility: Visibility = "public"
+    visibility: Visibility = "private"
+    management_mode: ManagementMode = "spacepoint"
     # Ops-set once per cohort — the master poster template link a team's
     # working copy is duplicated from.
     poster_template_url: str | None = None
@@ -61,6 +63,7 @@ class CohortBase(BaseModel):
 class CohortCreate(CohortBase):
     program_id: UUID
     status: CohortStatus = "planned"
+    management_mode: ManagementMode | None = None
     keep_course_access_after_completion: bool | None = None
     import_default_checklists: bool = True
     checklist_source_program_id: UUID | None = None
@@ -82,6 +85,7 @@ class CohortUpdate(BaseModel):
     notes: str | None = None
     organization_id: UUID | None = None
     visibility: Visibility | None = None
+    management_mode: ManagementMode | None = None
     poster_template_url: str | None = None
     checklist_title_override: str | None = None
     keep_course_access_after_completion: bool | None = None
@@ -105,6 +109,7 @@ class CohortOut(CohortBase):
     # belongs to.
     program_name: str | None = None
     program_code: str | None = None
+    organization_name: str | None = None
     # Same convenience-join pattern — whether this cohort's own program has
     # the competition domain's judging tools available (2026-08-24).
     program_is_competition: bool = False

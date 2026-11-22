@@ -11,6 +11,12 @@ import type {
 export const getProgramsApi = () =>
   api.get<Program[]>("/sessions/programs").then((r) => r.data)
 
+export const getFilteredProgramsApi = (params?: {
+  organization_id?: string
+  include_org_programs?: boolean
+}) =>
+  api.get<Program[]>("/sessions/programs", { params }).then((r) => r.data)
+
 export const getProgramApi = (id: string) =>
   api.get<Program>(`/sessions/programs/${id}`).then((r) => r.data)
 
@@ -27,6 +33,7 @@ export const createProgramApi = (data: {
   completion_rule_type?: CompletionRuleType
   completion_rule_value?: number
   default_assessment_config_id?: string | null
+  organization_id?: string | null
   keep_course_access_after_completion?: boolean
 }) => api.post<Program>("/sessions/programs", data).then((r) => r.data)
 

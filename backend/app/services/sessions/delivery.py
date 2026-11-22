@@ -41,32 +41,55 @@ from app.services.sessions.registration import check_in, format_cohort_dates
 from app.services.sessions.staffing import resolve_session_location_display
 
 
-async def _get_deliverable_session(db: AsyncSession, session_id: UUID, user: User) -> Session:
+async def _get_deliverable_session(
+    db: AsyncSession,
+    session_id: UUID,
+    user: User,
+    *,
+    read_only: bool = False,
+    delivery_control: bool = False,
+) -> Session:
     session = await db.get(Session, session_id)
     if session is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Session not found")
     if "operations" in user.role_values or "admin" in user.role_values:
         return session
-    if "organization" in user.role_values:
-        from app.services.org_access import is_cohort_org_manager
-
-        cohort = await db.get(Cohort, session.cohort_id)
-        if cohort is not None and await is_cohort_org_manager(db, cohort, user):
-            return session
     assigned = await db.scalar(
         select(SessionInstructor).where(
             SessionInstructor.session_id == session_id, SessionInstructor.user_id == user.id,
         )
     )
-    if assigned is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Session not found")
-    return session
+    if assigned is not None:
+        return session
+    if "organization" in user.role_values:
+        from app.services.org_access import (
+            can_manage_cohort_delivery,
+            can_read_cohort,
+            is_cohort_org_manager,
+        )
+
+        cohort = await db.get(Cohort, session.cohort_id)
+        if cohort is not None:
+            if read_only:
+                if await can_read_cohort(db, cohort, user):
+                    return session
+            elif delivery_control:
+                if await is_cohort_org_manager(db, cohort, user):
+                    if not await can_manage_cohort_delivery(db, cohort, user):
+                        raise HTTPException(
+                            status.HTTP_403_FORBIDDEN,
+                            detail="Delivery controls for SpacePoint-managed cohorts are managed by SpacePoint Ops.",
+                        )
+                    return session
+            elif await is_cohort_org_manager(db, cohort, user):
+                return session
+    raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Session not found")
 
 
 async def get_roster(
     db: AsyncSession, session_id: UUID, user: User,
 ) -> tuple[Session, Cohort, list[tuple[Registration, Contact, AttendanceRecord | None]]]:
-    session = await _get_deliverable_session(db, session_id, user)
+    session = await _get_deliverable_session(db, session_id, user, read_only=True)
     cohort = await db.get(Cohort, session.cohort_id)
 
     # A registration covers this session if it has an explicit RegistrationSession
@@ -98,7 +121,7 @@ async def start_session(db: AsyncSession, session_id: UUID, user: User) -> Sessi
     """Idempotent — tapping "start" twice (a real risk on a flaky 3G
     connection, per the mobile-first spec) must not error, just no-op past
     the first tap."""
-    session = await _get_deliverable_session(db, session_id, user)
+    session = await _get_deliverable_session(db, session_id, user, delivery_control=True)
     if session.started_at is None:
         # Gate on cohort-level readiness pipeline if one is assigned
         from app.models.sessions.pre_session_quiz import PreSessionQuizAttempt
@@ -142,7 +165,7 @@ async def mark_done(db: AsyncSession, session_id: UUID, user: User) -> Session:
     complete and close out the session regardless of whether kit post-checks
     have been performed.
     """
-    session = await _get_deliverable_session(db, session_id, user)
+    session = await _get_deliverable_session(db, session_id, user, delivery_control=True)
     if session.completed_at is None:
         session.completed_at = datetime.now(timezone.utc)
         await db.flush()
@@ -408,10 +431,11 @@ async def complete_cohort(
                 )
             ) is not None
 
-        # Partner organization programs/competitions manage certificates manually
-        # through judging and the certificates dashboard; never auto-generate or
-        # auto-email certificates on automated cohort completion.
-        is_org_program = bool(cohort.organization_id or (program and program.organization_id))
+        # Mode A partner cohorts manage certificates manually via judging / dashboard;
+        # Mode B ('spacepoint') cohorts auto-issue certificates just like SpacePoint runs.
+        from app.services.org_access import is_partner_managed
+
+        is_org_program = is_partner_managed(cohort)
         effective_send_certificates = False if is_org_program else send_certificates
 
         gate_ok = False if is_observer else await certificate_gate_satisfied(db, cohort_id=cohort_id, user_id=user_id)

@@ -6,6 +6,7 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, UploadFile, status
 from pydantic import BaseModel
+from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.dependencies import (
@@ -13,6 +14,15 @@ from app.core.dependencies import (
     require_materials_manager,
     require_session_delivery,
 )
+from app.models.sessions.cohort import Cohort
+from app.models.sessions.pre_session_quiz import (
+    PreSessionQuizAssignment,
+    PreSessionQuizAttempt,
+    PreSessionQuizPreset,
+)
+from app.models.sessions.program import Program
+from app.models.sessions.program_variation import ProgramVariation, ProgramVariationDay
+from app.models.sessions.session import Session
 from app.models.user import User
 from app.schemas.sessions.pre_session_quiz import (
     CohortPreQuizStatusOut,
@@ -34,9 +44,117 @@ from app.schemas.sessions.pre_session_quiz import (
     SessionPreQuizStatusOut,
 )
 from app.services import storage
+from app.services.org_access import (
+    can_org_read_program_template,
+    effective_org_roles,
+    is_program_org_manager,
+    require_cohort_delivery_manager_or_ops,
+    require_cohort_read_or_ops,
+    require_session_delivery_manager_or_ops,
+    require_session_read_or_ops,
+)
 from app.services.sessions import pre_session_quiz as svc
+from app.services.website_events import resolve_user_organization
 
 router = APIRouter(prefix="/sessions", tags=["sessions - pre-session quiz"])
+
+_PREQUIZ_STAFF_ROLES = ("operations", "admin", "facilitator", "lms_author")
+
+
+def _is_prequiz_staff(user: User) -> bool:
+    return any(r in user.role_values for r in _PREQUIZ_STAFF_ROLES)
+
+
+async def _org_visible_preset_ids(
+    db: AsyncSession, user: User, *, include_assigned: bool = True
+) -> set[UUID]:
+    if "organization" not in user.role_values:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, detail="Operation not permitted")
+    org = await resolve_user_organization(db, user)
+    if org is None:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, detail="No organization context")
+    roles = effective_org_roles(user, is_owner=(org.owner_user_id == user.id))
+    if not any(r in ("owner", "coordinator", "observer") for r in roles):
+        raise HTTPException(status.HTTP_403_FORBIDDEN, detail="Operation not permitted")
+
+    conds = [PreSessionQuizPreset.organization_id == org.id]
+    scope = getattr(org, "readiness_scope", "own") or "own"
+    if scope == "all":
+        conds.append(PreSessionQuizPreset.organization_id.is_(None))
+    elif scope == "selected":
+        allowed_raw = getattr(org, "allowed_readiness_preset_ids", None) or []
+        allowed_uuids: list[UUID] = []
+        for raw in allowed_raw:
+            try:
+                allowed_uuids.append(UUID(str(raw)))
+            except (ValueError, TypeError):
+                pass
+        if allowed_uuids:
+            conds.append(PreSessionQuizPreset.id.in_(allowed_uuids))
+
+    visible_ids = set(
+        (await db.execute(select(PreSessionQuizPreset.id).where(or_(*conds)))).scalars().all()
+    )
+    if include_assigned:
+        org_cohort_ids = (
+            await db.execute(
+                select(Cohort.id)
+                .join(Program, Program.id == Cohort.program_id)
+                .where((Cohort.organization_id == org.id) | (Program.organization_id == org.id))
+            )
+        ).scalars().all()
+        if org_cohort_ids:
+            assigned_ids = (
+                await db.execute(
+                    select(PreSessionQuizAssignment.preset_id).where(
+                        PreSessionQuizAssignment.preset_id.isnot(None),
+                        or_(
+                            PreSessionQuizAssignment.cohort_id.in_(org_cohort_ids),
+                            PreSessionQuizAssignment.session_id.in_(
+                                select(Session.id).where(Session.cohort_id.in_(org_cohort_ids))
+                            ),
+                        ),
+                    )
+                )
+            ).scalars().all()
+            visible_ids.update(pid for pid in assigned_ids if pid is not None)
+    return visible_ids
+
+
+async def _assert_prequiz_scope_access(
+    db: AsyncSession, scope: str, owner_id: UUID, user: User, *, read_only: bool
+) -> None:
+    if _is_prequiz_staff(user):
+        return
+    if scope == "sessions" and await db.get(Session, owner_id) is None:
+        if await db.get(ProgramVariationDay, owner_id) is not None:
+            scope = "variation_days"
+    if scope == "cohorts":
+        if read_only:
+            await require_cohort_read_or_ops(db, owner_id, user)
+        else:
+            await require_cohort_delivery_manager_or_ops(db, owner_id, user)
+        return
+    if scope == "sessions":
+        if read_only:
+            await require_session_read_or_ops(db, owner_id, user)
+        else:
+            await require_session_delivery_manager_or_ops(db, owner_id, user)
+        return
+    prog_check = can_org_read_program_template if read_only else is_program_org_manager
+    if scope == "programs" and await prog_check(db, owner_id, user):
+        return
+    if scope == "variations":
+        var = await db.get(ProgramVariation, owner_id)
+        if var and await prog_check(db, var.program_id, user):
+            return
+    if scope == "variation_days":
+        v_day = await db.get(ProgramVariationDay, owner_id)
+        if v_day:
+            var = await db.get(ProgramVariation, v_day.variation_id)
+            if var and await prog_check(db, var.program_id, user):
+                return
+    raise HTTPException(status.HTTP_403_FORBIDDEN, detail="Operation not permitted")
 
 QUIZ_IMAGE_BUCKET = "lms-quiz-images"
 MAX_QUIZ_IMAGE_BYTES = 20 * 1024 * 1024  # 20 MB (to support multi-page datasheet PDFs)
@@ -225,9 +343,12 @@ async def upload_pre_quiz_datasheet_pdf(
 async def list_pre_quiz_presets(
     active_only: bool = Query(True),
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_materials_manager),
+    current_user: User = Depends(require_session_delivery),
 ):
-    return await svc.list_presets(db, active_only=active_only)
+    allowed_ids = None
+    if not _is_prequiz_staff(current_user):
+        allowed_ids = await _org_visible_preset_ids(db, current_user, include_assigned=True)
+    return await svc.list_presets(db, active_only=active_only, allowed_preset_ids=allowed_ids)
 
 
 @router.post(
@@ -272,8 +393,9 @@ async def get_pre_quiz_assignment(
     scope: str,
     owner_id: UUID,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_materials_manager),
+    current_user: User = Depends(require_session_delivery),
 ):
+    await _assert_prequiz_scope_access(db, scope, owner_id, current_user, read_only=True)
     return await svc.get_assignment_for_scope(db, scope, owner_id)
 
 
@@ -287,8 +409,16 @@ async def set_pre_quiz_assignment(
     body: PreSessionQuizAssignmentIn,
     clear_override: bool = Query(False),
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_materials_manager),
+    current_user: User = Depends(require_session_delivery),
 ):
+    await _assert_prequiz_scope_access(db, scope, owner_id, current_user, read_only=False)
+    if not _is_prequiz_staff(current_user) and body.preset_id is not None:
+        allowed_ids = await _org_visible_preset_ids(db, current_user, include_assigned=False)
+        if body.preset_id not in allowed_ids:
+            raise HTTPException(
+                status.HTTP_403_FORBIDDEN,
+                detail="Your organization does not have access to this readiness assessment.",
+            )
     return await svc.set_assignment_for_scope(
         db, scope, owner_id, body.preset_id, clear_override=clear_override
     )
@@ -361,8 +491,15 @@ async def review_pre_quiz_attempt_question(
     attempt_id: UUID,
     body: PreSessionQuizReviewQuestionIn,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_materials_manager),
+    current_user: User = Depends(require_session_delivery),
 ):
+    if not _is_prequiz_staff(current_user):
+        attempt = await db.get(PreSessionQuizAttempt, attempt_id)
+        if attempt is None:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Attempt not found")
+        if attempt.cohort_id is None:
+            raise HTTPException(status.HTTP_403_FORBIDDEN, detail="Operation not permitted")
+        await require_cohort_delivery_manager_or_ops(db, attempt.cohort_id, current_user)
     return await svc.review_attempt_question(db, attempt_id, body, current_user)
 
 
@@ -373,6 +510,13 @@ async def review_pre_quiz_attempt_question(
 async def unlock_quiz_attempt_cooldown(
     attempt_id: UUID,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_materials_manager),
+    current_user: User = Depends(require_session_delivery),
 ):
+    if not _is_prequiz_staff(current_user):
+        attempt = await db.get(PreSessionQuizAttempt, attempt_id)
+        if attempt is None:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Attempt not found")
+        if attempt.cohort_id is None:
+            raise HTTPException(status.HTTP_403_FORBIDDEN, detail="Operation not permitted")
+        await require_cohort_delivery_manager_or_ops(db, attempt.cohort_id, current_user)
     return await svc.unlock_cooldown(db, attempt_id, current_user)

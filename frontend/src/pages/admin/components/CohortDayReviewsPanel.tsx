@@ -28,12 +28,14 @@ import { Button } from "@/components/ui/button"
 import { Spinner } from "@/pages/admin/components/common"
 import { cn, getErrorMessage } from "@/lib/utils"
 
-function DayCard({ d, onDone, linkToSession, defaultOpen }: {
+function DayCard({ d, onDone, linkToSession, defaultOpen, readOnly = false, sessionRouteTo }: {
   d: DayReview
   onDone: (msg: string) => void
   /** Suppressed when already rendered on that exact session's own page. */
   linkToSession: boolean
   defaultOpen: boolean
+  readOnly?: boolean
+  sessionRouteTo?: string
 }) {
   const qc = useQueryClient()
   const [open, setOpen] = useState(defaultOpen)
@@ -115,18 +117,20 @@ function DayCard({ d, onDone, linkToSession, defaultOpen }: {
             </p>
           </div>
         </div>
-        <div className="flex items-center gap-2 shrink-0" onClick={(e) => e.stopPropagation()}>
-          {canReview && (
-            <Button size="sm" variant="outline" onClick={() => setReturning((v) => !v)}>
-              Return
-            </Button>
-          )}
-          {canApprove && (
-            <Button size="sm" disabled={approve.isPending} onClick={() => { setError(""); approve.mutate() }}>
-              {approve.isPending ? "Approving…" : canReview ? "Approve" : "Approve anyway"}
-            </Button>
-          )}
-        </div>
+        {!readOnly && (
+          <div className="flex items-center gap-2 shrink-0" onClick={(e) => e.stopPropagation()}>
+            {canReview && (
+              <Button size="sm" variant="outline" onClick={() => setReturning((v) => !v)}>
+                Return
+              </Button>
+            )}
+            {canApprove && (
+              <Button size="sm" disabled={approve.isPending} onClick={() => { setError(""); approve.mutate() }}>
+                {approve.isPending ? "Approving…" : canReview ? "Approve" : "Approve anyway"}
+              </Button>
+            )}
+          </div>
+        )}
       </div>
 
       {returning && (
@@ -229,8 +233,8 @@ function DayCard({ d, onDone, linkToSession, defaultOpen }: {
       {linkToSession && (
         <div className="flex justify-end border-t border-border mt-3 pt-2">
           <Link
-            to="/operations/cohorts/$cohortId/sessions/$sessionId"
-            params={{ cohortId: d.cohort_id, sessionId: d.session_id }}
+            to={(sessionRouteTo ?? "/operations/cohorts/$cohortId/sessions/$sessionId") as any}
+            params={{ cohortId: d.cohort_id, sessionId: d.session_id } as any}
             className="inline-flex items-center gap-1 text-[11px] font-semibold text-primary hover:underline"
           >
             Open session <ArrowRight size={11} />
@@ -241,7 +245,13 @@ function DayCard({ d, onDone, linkToSession, defaultOpen }: {
   )
 }
 
-export default function CohortDayReviewsPanel({ cohort, sessionId, embedded = false }: {
+export default function CohortDayReviewsPanel({
+  cohort,
+  sessionId,
+  embedded = false,
+  readOnly = false,
+  sessionRouteTo,
+}: {
   cohort?: Cohort
   /** Scopes to one session's own Report tab — every assigned instructor's
    *  report, whatever state it's in, not just submitted ones. */
@@ -249,6 +259,8 @@ export default function CohortDayReviewsPanel({ cohort, sessionId, embedded = fa
   /** Hides the internal header — used inside the Reviews kanban's Need
    *  Review column, which already carries its own title. */
   embedded?: boolean
+  readOnly?: boolean
+  sessionRouteTo?: "/operations/cohorts/$cohortId/sessions/$sessionId" | "/organization/programs/$cohortId/sessions/$sessionId"
 }) {
   const [flash, setFlash] = useState("")
   const reviews = useQuery({
@@ -302,6 +314,8 @@ export default function CohortDayReviewsPanel({ cohort, sessionId, embedded = fa
               key={d.day_id} d={d} onDone={setFlash}
               linkToSession={!sessionId}
               defaultOpen={d.status === "submitted"}
+              readOnly={readOnly}
+              sessionRouteTo={sessionRouteTo}
             />
           ))}
         </div>

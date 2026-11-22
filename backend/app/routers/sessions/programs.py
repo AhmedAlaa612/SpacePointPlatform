@@ -8,7 +8,7 @@ invitation-code endpoints). Every route is gated by require_operations
 from datetime import date, timedelta
 import uuid
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel
 from sqlalchemy import delete as sa_delete, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -26,6 +26,7 @@ from app.models.sessions.program_variation import ProgramVariation, ProgramVaria
 from app.models.sessions.session import Session
 from app.models.competitions.judging import CompetitionRubric, CompetitionRubricCriterion
 from app.models.lms.program import LmsProgram, LmsProgramItem
+from app.models.spine.organization import Organization
 from app.models.user import User
 from app.schemas.sessions.programs import (
     ProgramCloneRequest,
@@ -42,6 +43,12 @@ from app.schemas.sessions.programs import (
 )
 from app.services import storage
 from app.services.lms.program import PROGRAM_ITEM_PDF_BUCKET
+from app.services.org_access import (
+    can_read_cohort,
+    is_ops_or_admin,
+    require_program_manager_or_ops,
+    require_program_read_or_ops,
+)
 from app.services.sessions import variations as var_svc
 
 class TemplateDayOut(BaseModel):
@@ -74,16 +81,17 @@ router = APIRouter(prefix="/sessions", tags=["sessions-programs"])
 
 @router.get("/programs", response_model=list[ProgramOut])
 async def list_programs(
+    organization_id: uuid.UUID | None = Query(None),
+    include_org_programs: bool = Query(False),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_operations),
 ):
-    rows = (
-        await db.execute(
-            select(Program)
-            .where(Program.organization_id.is_(None))
-            .order_by(Program.created_at.desc())
-        )
-    ).scalars().all()
+    stmt = select(Program)
+    if organization_id is not None:
+        stmt = stmt.where(Program.organization_id == organization_id)
+    elif not include_org_programs:
+        stmt = stmt.where(Program.organization_id.is_(None))
+    rows = (await db.execute(stmt.order_by(Program.created_at.desc()))).scalars().all()
     return rows
 
 
@@ -96,27 +104,44 @@ async def create_program(
     existing = (await db.execute(select(Program.id).where(Program.code == body.code))).first()
     if existing:
         raise HTTPException(status.HTTP_409_CONFLICT, detail="A program with this code already exists")
+    if body.organization_id is not None:
+        if await db.get(Organization, body.organization_id) is None:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Organization not found")
     if body.default_assessment_config_id is not None:
         if await db.get(AssessmentConfig, body.default_assessment_config_id) is None:
             raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Assessment config not found")
 
     program = Program(id=uuid.uuid4(), **body.model_dump())
     db.add(program)
+    await db.flush()
+    if body.organization_id is not None:
+        db.add(LmsProgram(
+            id=uuid.uuid4(),
+            program_id=program.id,
+            name=program.name,
+            certificate_required=True,
+        ))
     await db.commit()
     await db.refresh(program)
-    return program
+    return _program_out_for_user(program, current_user)
+
+
+def _program_out_for_user(program: Program, current_user: User) -> ProgramOut:
+    """Serialize a program while stripping ops-only fields for non-ops callers."""
+    out = ProgramOut.model_validate(program)
+    if not is_ops_or_admin(current_user):
+        out.default_assessment_config_id = None
+    return out
 
 
 @router.get("/programs/{program_id}", response_model=ProgramOut)
 async def get_program(
     program_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_operations),
+    current_user: User = Depends(require_session_delivery),
 ):
-    program = await db.get(Program, program_id)
-    if program is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Program not found")
-    return program
+    program = await require_program_read_or_ops(db, program_id, current_user)
+    return _program_out_for_user(program, current_user)
 
 
 def _template_cohort_match():
@@ -140,13 +165,13 @@ async def update_program(
     program_id: uuid.UUID,
     body: ProgramUpdate,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_operations),
+    current_user: User = Depends(require_session_delivery),
 ):
-    program = await db.get(Program, program_id)
-    if program is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Program not found")
+    program = await require_program_manager_or_ops(db, program_id, current_user)
 
     changes = body.model_dump(exclude_unset=True)
+    if not is_ops_or_admin(current_user):
+        changes.pop("default_assessment_config_id", None)
     if "code" in changes and changes["code"] != program.code:
         existing = (await db.execute(select(Program.id).where(Program.code == changes["code"]))).first()
         if existing:
@@ -158,6 +183,9 @@ async def update_program(
     for field, value in changes.items():
         setattr(program, field, value)
     if "name" in changes:
+        lms_prog = await db.scalar(select(LmsProgram).where(LmsProgram.program_id == program.id))
+        if lms_prog is not None:
+            lms_prog.name = program.name
         template_cohort = await _find_template_cohort(db, program.id)
         if template_cohort is not None:
             template_cohort.name = f"[Template] {program.name}"
@@ -165,14 +193,14 @@ async def update_program(
             template_cohort.visibility = "private"
     await db.commit()
     await db.refresh(program)
-    return program
+    return _program_out_for_user(program, current_user)
 
 
 @router.delete("/programs/{program_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_program(
     program_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_operations),
+    current_user: User = Depends(require_session_delivery),
 ):
     """Only ever deletes an empty program.
 
@@ -181,9 +209,7 @@ async def delete_program(
     A program that has been run is history, not a mistake — deactivate it
     (PATCH active=false) instead, which keeps it out of the pickers.
     """
-    program = await db.get(Program, program_id)
-    if program is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Program not found")
+    program = await require_program_manager_or_ops(db, program_id, current_user)
 
     cohort_count = await db.scalar(
         select(func.count()).select_from(Cohort).where(
@@ -512,21 +538,7 @@ async def list_program_variations(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_session_delivery),
 ):
-    from app.services.org_access import (
-        can_org_manager_read_program_template,
-        is_ops_or_admin,
-        is_program_org_manager,
-    )
-
-    if (
-        not is_ops_or_admin(current_user)
-        and not await is_program_org_manager(db, program_id, current_user)
-        and not await can_org_manager_read_program_template(db, program_id, current_user)
-    ):
-        raise HTTPException(status.HTTP_403_FORBIDDEN, detail="Operation not permitted")
-    program = await db.get(Program, program_id)
-    if program is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Program not found")
+    await require_program_read_or_ops(db, program_id, current_user)
     return await var_svc.list_variations(db, program_id, active_only=active_only)
 
 
@@ -535,10 +547,26 @@ async def create_program_variation(
     program_id: uuid.UUID,
     body: ProgramVariationCreate,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_operations),
+    current_user: User = Depends(require_session_delivery),
 ):
+    await require_program_manager_or_ops(db, program_id, current_user)
+    payload = body.model_dump()
+    include_rates = is_ops_or_admin(current_user)
+    if not include_rates:
+        payload["default_assessment_config_id"] = None
+        payload["carry"] = [c for c in payload.get("carry", []) if c != "assessment"]
+        if payload.get("mode") == "from_cohort" and payload.get("source_cohort_id") is not None:
+            src_cohort = await db.get(Cohort, payload["source_cohort_id"])
+            if src_cohort is None:
+                raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Source cohort not found")
+            if not await can_read_cohort(db, src_cohort, current_user):
+                raise HTTPException(status.HTTP_403_FORBIDDEN, detail="Operation not permitted")
     out = await var_svc.create_variation(
-        db, program_id=program_id, payload=body.model_dump(), actor_user_id=current_user.id,
+        db,
+        program_id=program_id,
+        payload=payload,
+        actor_user_id=current_user.id,
+        include_rates=include_rates,
     )
     await db.commit()
     return out
@@ -550,10 +578,14 @@ async def update_program_variation(
     variation_id: uuid.UUID,
     body: ProgramVariationUpdate,
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(require_operations),
+    current_user: User = Depends(require_session_delivery),
 ):
+    await require_program_manager_or_ops(db, program_id, current_user)
+    payload = body.model_dump(exclude_unset=True)
+    if not is_ops_or_admin(current_user):
+        payload.pop("default_assessment_config_id", None)
     out = await var_svc.update_variation(
-        db, program_id=program_id, variation_id=variation_id, payload=body.model_dump(exclude_unset=True),
+        db, program_id=program_id, variation_id=variation_id, payload=payload,
     )
     await db.commit()
     return out
@@ -564,8 +596,9 @@ async def delete_program_variation(
     program_id: uuid.UUID,
     variation_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(require_operations),
+    current_user: User = Depends(require_session_delivery),
 ):
+    await require_program_manager_or_ops(db, program_id, current_user)
     await var_svc.delete_variation(db, program_id=program_id, variation_id=variation_id)
     await db.commit()
 
@@ -580,8 +613,9 @@ async def add_program_variation_day(
     variation_id: uuid.UUID,
     body: ProgramVariationDayCreate,
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(require_operations),
+    current_user: User = Depends(require_session_delivery),
 ):
+    await require_program_manager_or_ops(db, program_id, current_user)
     day = await var_svc.add_variation_day(
         db,
         program_id=program_id,
@@ -606,8 +640,9 @@ async def update_program_variation_day(
     day_id: uuid.UUID,
     body: ProgramVariationDayUpdate,
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(require_operations),
+    current_user: User = Depends(require_session_delivery),
 ):
+    await require_program_manager_or_ops(db, program_id, current_user)
     day = await var_svc.update_variation_day(
         db,
         program_id=program_id,
@@ -629,8 +664,9 @@ async def delete_program_variation_day(
     variation_id: uuid.UUID,
     day_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(require_operations),
+    current_user: User = Depends(require_session_delivery),
 ):
+    await require_program_manager_or_ops(db, program_id, current_user)
     await var_svc.delete_variation_day(db, program_id=program_id, variation_id=variation_id, day_id=day_id)
     await db.commit()
 
@@ -644,8 +680,9 @@ async def reorder_program_variation_days(
     variation_id: uuid.UUID,
     body: ProgramVariationDaysReorderIn,
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(require_operations),
+    current_user: User = Depends(require_session_delivery),
 ):
+    await require_program_manager_or_ops(db, program_id, current_user)
     days = await var_svc.reorder_variation_days(
         db, program_id=program_id, variation_id=variation_id, day_ids=body.day_ids,
     )
@@ -663,13 +700,7 @@ async def get_program_template(
     current_user: User = Depends(require_session_delivery),
 ):
     """Returns the program variation's template days cleanly without creating a draft Cohort."""
-    from app.services.org_access import can_org_manager_read_program_template, is_ops_or_admin
-
-    if not is_ops_or_admin(current_user) and not await can_org_manager_read_program_template(db, program_id, current_user):
-        raise HTTPException(status.HTTP_403_FORBIDDEN, detail="Operation not permitted")
-    program = await db.get(Program, program_id)
-    if program is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Program not found")
+    program = await require_program_read_or_ops(db, program_id, current_user)
 
     var = await var_svc.resolve_variation_for_program(db, program.id, variation_id)
     if var is None:
@@ -705,12 +736,10 @@ async def add_program_template_day(
     body: TemplateDayCreate,
     variation_id: uuid.UUID | None = None,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_operations),
+    current_user: User = Depends(require_session_delivery),
 ):
     """Adds a day to the specified (or default) ProgramVariation."""
-    program = await db.get(Program, program_id)
-    if program is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Program not found")
+    program = await require_program_manager_or_ops(db, program_id, current_user)
 
     if variation_id is not None:
         var = await var_svc.resolve_variation_for_program(db, program.id, variation_id)
@@ -742,9 +771,10 @@ async def update_program_template_day(
     day_id: uuid.UUID,
     body: TemplateDayUpdate,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_operations),
+    current_user: User = Depends(require_session_delivery),
 ):
     """Updates a ProgramVariationDay's title or duration."""
+    await require_program_manager_or_ops(db, program_id, current_user)
     day = await db.get(ProgramVariationDay, day_id)
     if day is not None:
         day = await var_svc.update_variation_day(
@@ -794,9 +824,10 @@ async def delete_program_template_day(
     program_id: uuid.UUID,
     day_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_operations),
+    current_user: User = Depends(require_session_delivery),
 ):
     """Deletes a ProgramVariationDay (or legacy template session)."""
+    await require_program_manager_or_ops(db, program_id, current_user)
     day = await db.get(ProgramVariationDay, day_id)
     if day is not None:
         await var_svc.delete_variation_day(db, program_id=program_id, variation_id=day.variation_id, day_id=day_id)

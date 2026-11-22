@@ -232,12 +232,14 @@ async function fetchFallbackChecklistItems(
 function ReorderableChecklistList({
   rows,
   onChange,
+  readOnly = false,
   availableMaterials = [],
   owner,
   onMaterialUploaded,
 }: {
   rows: ChecklistDraftLine[]
   onChange: (updated: ChecklistDraftLine[]) => void
+  readOnly?: boolean
   availableMaterials?: Material[]
   owner?: MaterialOwner
   onMaterialUploaded?: (mat: Material) => void
@@ -327,7 +329,7 @@ function ReorderableChecklistList({
   if (rows.length === 0) {
     return (
       <div className="py-8 text-center text-xs text-muted-foreground border border-dashed border-border rounded-xl">
-        No checklist items yet. Click &ldquo;Add item&rdquo; below or copy from default.
+        {readOnly ? "No checklist items configured." : "No checklist items yet. Click \u201cAdd item\u201d below or copy from default."}
       </div>
     )
   }
@@ -337,12 +339,12 @@ function ReorderableChecklistList({
       {rows.map((line, i) => (
         <div
           key={line.key}
-          draggable
-          onDragStart={() => setDragKey(line.key)}
+          draggable={!readOnly}
+          onDragStart={() => { if (!readOnly) setDragKey(line.key) }}
           onDragOver={(e) => e.preventDefault()}
           onDrop={(e) => {
             e.preventDefault()
-            dropOnto(line.key)
+            if (!readOnly) dropOnto(line.key)
           }}
           onDragEnd={() => setDragKey(null)}
           className={`flex flex-col sm:flex-row sm:items-start gap-2 p-2.5 sm:p-2 bg-card border rounded-xl transition-all ${dragKey === line.key
@@ -352,40 +354,49 @@ function ReorderableChecklistList({
         >
           {/* Top bar on mobile / Reorder controls on desktop */}
           <div className="flex items-center justify-between sm:justify-start gap-1.5 shrink-0 sm:pt-1 flex-wrap">
-            <div className="flex items-center gap-1 shrink-0 text-muted-foreground" title="Drag to reorder">
-              <GripVertical
-                size={15}
-                className="cursor-grab active:cursor-grabbing hover:text-foreground shrink-0"
-              />
-              <OrderNumberInput
-                value={i + 1}
-                totalCount={rows.length}
-                onCommit={(pos) => moveToPosition(line.key, pos)}
-              />
-            </div>
+            {readOnly ? (
+              <span className="inline-flex items-center justify-center w-6 h-6 rounded-md bg-muted text-xs font-semibold text-muted-foreground tabular-nums">
+                {i + 1}
+              </span>
+            ) : (
+              <>
+                <div className="flex items-center gap-1 shrink-0 text-muted-foreground" title="Drag to reorder">
+                  <GripVertical
+                    size={15}
+                    className="cursor-grab active:cursor-grabbing hover:text-foreground shrink-0"
+                  />
+                  <OrderNumberInput
+                    value={i + 1}
+                    totalCount={rows.length}
+                    onCommit={(pos) => moveToPosition(line.key, pos)}
+                  />
+                </div>
 
-            <div className="flex items-center gap-0.5 shrink-0">
-              <button
-                type="button"
-                onClick={() => moveUp(i)}
-                disabled={i === 0}
-                title="Move up"
-                className="p-1 text-muted-foreground hover:text-foreground disabled:opacity-20 transition-colors cursor-pointer"
-              >
-                <ChevronUp size={13} />
-              </button>
-              <button
-                type="button"
-                onClick={() => moveDown(i)}
-                disabled={i === rows.length - 1}
-                title="Move down"
-                className="p-1 text-muted-foreground hover:text-foreground disabled:opacity-20 transition-colors cursor-pointer"
-              >
-                <ChevronDown size={13} />
-              </button>
-            </div>
+                <div className="flex items-center gap-0.5 shrink-0">
+                  <button
+                    type="button"
+                    onClick={() => moveUp(i)}
+                    disabled={i === 0}
+                    title="Move up"
+                    className="p-1 text-muted-foreground hover:text-foreground disabled:opacity-20 transition-colors cursor-pointer"
+                  >
+                    <ChevronUp size={13} />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => moveDown(i)}
+                    disabled={i === rows.length - 1}
+                    title="Move down"
+                    className="p-1 text-muted-foreground hover:text-foreground disabled:opacity-20 transition-colors cursor-pointer"
+                  >
+                    <ChevronDown size={13} />
+                  </button>
+                </div>
+              </>
+            )}
 
             {/* Mobile-only action buttons in top row */}
+            {!readOnly && (
             <div className="flex items-center gap-1 sm:hidden flex-wrap">
               <button
                 type="button"
@@ -431,17 +442,19 @@ function ReorderableChecklistList({
                 <Trash2 size={13} />
               </button>
             </div>
+            )}
           </div>
 
           {/* Description input + Attached References tags + Picker + Sub-topics */}
           <div className="flex flex-col gap-1.5 flex-1 min-w-0 w-full">
             <input
               value={line.title}
+              readOnly={readOnly}
               placeholder="Checklist item description… (supports [Links](url))"
               onChange={(e) =>
                 onChange(rows.map((r, j) => (j === i ? { ...r, title: e.target.value } : r)))
               }
-              className="w-full h-8 px-2.5 border border-border bg-background text-foreground rounded-lg text-xs sm:text-sm focus:outline-none focus:border-primary transition-colors"
+              className="w-full h-8 px-2.5 border border-border bg-background text-foreground rounded-lg text-xs sm:text-sm focus:outline-none focus:border-primary transition-colors read-only:opacity-80"
             />
 
             {/* Attached References Pills + Attach button */}
@@ -518,6 +531,7 @@ function ReorderableChecklistList({
                     </button>
 
                     {/* Remove Reference */}
+                    {!readOnly && (
                     <button
                       type="button"
                       onClick={() => {
@@ -529,10 +543,12 @@ function ReorderableChecklistList({
                     >
                       <X size={11} />
                     </button>
+                    )}
                   </div>
                 )
               })}
 
+              {!readOnly && (
               <ChecklistAttachmentPicker
                 availableMaterials={availableMaterials}
                 owner={owner}
@@ -542,10 +558,11 @@ function ReorderableChecklistList({
                   onChange(rows.map((r, j) => (j === i ? { ...r, attachments: nextAtts } : r)))
                 }}
               />
+              )}
             </div>
 
             {/* Sub-topics list (indented, matching Judging Criteria style) */}
-            {expandedKeys.has(line.key) && (
+            {(expandedKeys.has(line.key) || (readOnly && (line.sub_items?.length || 0) > 0)) && (
               <div className="w-full mt-1.5 pt-2 border-t border-border/60 flex flex-col gap-2 pl-1 sm:pl-3">
                 <div className="flex items-center justify-between">
                   <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
@@ -563,6 +580,7 @@ function ReorderableChecklistList({
                     <span className="text-muted-foreground text-xs w-3 shrink-0">↳</span>
                     <input
                       value={sub.title}
+                      readOnly={readOnly}
                       placeholder="Sub-topic description…"
                       onChange={(e) => {
                         const nextSubs = (line.sub_items ?? []).map((s, idx) =>
@@ -570,11 +588,12 @@ function ReorderableChecklistList({
                         )
                         onChange(rows.map((r, j) => (j === i ? { ...r, sub_items: nextSubs } : r)))
                       }}
-                      className="flex-1 min-w-0 h-7 px-2.5 border border-border bg-background text-foreground rounded-lg text-xs focus:outline-none focus:border-primary transition-colors"
+                      className="flex-1 min-w-0 h-7 px-2.5 border border-border bg-background text-foreground rounded-lg text-xs focus:outline-none focus:border-primary transition-colors read-only:opacity-80"
                     />
                     <label className="flex items-center gap-1 text-[11px] text-muted-foreground cursor-pointer select-none px-1.5 py-0.5 rounded hover:bg-muted/50 shrink-0">
                       <input
                         type="checkbox"
+                        disabled={readOnly}
                         checked={sub.is_required !== false}
                         onChange={(e) => {
                           const nextSubs = (line.sub_items ?? []).map((s, idx) =>
@@ -590,6 +609,7 @@ function ReorderableChecklistList({
                     <label className="flex items-center gap-1 text-[11px] text-muted-foreground cursor-pointer select-none px-1.5 py-0.5 rounded hover:bg-muted/50 shrink-0">
                       <input
                         type="checkbox"
+                        disabled={readOnly}
                         checked={Boolean(sub.requires_proof)}
                         onChange={(e) => {
                           const nextSubs = (line.sub_items ?? []).map((s, idx) =>
@@ -602,6 +622,7 @@ function ReorderableChecklistList({
                       <ImageIcon size={11} />
                       <span>Photo</span>
                     </label>
+                    {!readOnly && (
                     <button
                       type="button"
                       onClick={() => {
@@ -613,9 +634,11 @@ function ReorderableChecklistList({
                     >
                       <Trash2 size={12} />
                     </button>
+                    )}
                   </div>
                 ))}
 
+                {!readOnly && (
                 <button
                   type="button"
                   onClick={() => {
@@ -634,11 +657,24 @@ function ReorderableChecklistList({
                 >
                   <Plus size={12} /> Add sub-topic
                 </button>
+                )}
               </div>
             )}
           </div>
 
           {/* Desktop-only Right section: Subs, Required, Photo, and Delete */}
+          {readOnly ? (
+            <div className="hidden sm:flex items-center gap-1.5 shrink-0 sm:pt-1.5">
+              {line.is_required && (
+                <span className="px-2 py-0.5 rounded text-[11px] bg-muted text-muted-foreground">Required</span>
+              )}
+              {line.requires_proof && (
+                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] bg-muted text-muted-foreground">
+                  <ImageIcon size={11} /> Photo
+                </span>
+              )}
+            </div>
+          ) : (
           <div className="hidden sm:flex items-center justify-end gap-1.5 shrink-0 sm:pt-1">
             <button
               type="button"
@@ -689,6 +725,7 @@ function ReorderableChecklistList({
               <Trash2 size={14} />
             </button>
           </div>
+          )}
         </div>
       ))}
 
@@ -719,6 +756,7 @@ function DayChecklistEditor({
   refreshToken = 0,
   cohortInheritDefaults = true,
   isExplicitlyOverridden = false,
+  readOnly = false,
 }: {
   scope: ChecklistScope
   ownerId: string
@@ -734,6 +772,7 @@ function DayChecklistEditor({
   refreshToken?: number
   cohortInheritDefaults?: boolean
   isExplicitlyOverridden?: boolean
+  readOnly?: boolean
 }) {
   const qc = useQueryClient()
   const toast = useToast()
@@ -959,6 +998,7 @@ function DayChecklistEditor({
           </span>
         </div>
 
+        {!readOnly && (
         <div className="flex items-center gap-1.5 flex-wrap">
           {!isDefaultScope && (
             <>
@@ -1031,6 +1071,7 @@ function DayChecklistEditor({
             {saveMutation.isPending ? "Saving…" : "Save checklist"}
           </button>
         </div>
+        )}
       </div>
 
       {error && <p className="text-xs text-red-500 bg-red-500/10 p-2 rounded-lg">{error}</p>}
@@ -1041,6 +1082,7 @@ function DayChecklistEditor({
         <ReorderableChecklistList
           rows={rows}
           onChange={setDraft}
+          readOnly={readOnly}
           availableMaterials={availableMaterials}
           owner={scope === "sessions" ? { session_id: ownerId } : { cohort_id: ownerId }}
           onMaterialUploaded={() => {
@@ -1049,6 +1091,7 @@ function DayChecklistEditor({
         />
       )}
 
+      {!readOnly && (
       <ImportInstructorChecklistModal
         open={showImportModal}
         onClose={() => setShowImportModal(false)}
@@ -1069,6 +1112,7 @@ function DayChecklistEditor({
           void qc.invalidateQueries({ queryKey: ["session-internal-checklist"] })
         }}
       />
+      )}
     </div>
   )
 }
@@ -1080,12 +1124,14 @@ export function CohortDayChecklistManager({
   roles,
   initialSessionId,
   isOrgScope = false,
+  readOnly = false,
 }: {
   cohort: Cohort
   sessions: Session[]
   roles: DeliveryRole[]
   initialSessionId?: string
   isOrgScope?: boolean
+  readOnly?: boolean
 }) {
   const sortedSessions = [...sessions].sort(compareSessionsChronologically)
 
@@ -1137,6 +1183,7 @@ export function CohortDayChecklistManager({
               </span>
             )}
           </div>
+          {!readOnly && (
           <div className="flex items-center gap-1.5 flex-wrap">
             <button
               type="button"
@@ -1157,6 +1204,7 @@ export function CohortDayChecklistManager({
               </button>
             )}
           </div>
+          )}
         </div>
 
         <div className="flex items-stretch gap-2 overflow-x-auto pb-1 scrollbar-none no-scrollbar">
@@ -1266,30 +1314,29 @@ export function CohortDayChecklistManager({
         >
           {isOrgScope ? "Instructor Checklist" : "All Roles (General)"}
         </button>
-        {!isOrgScope &&
-          roles
-            .filter((r) => r.is_active)
-            .map((role) => {
-              const isRoleActive = !isInternalChecklist && activeRoleId === role.id
-              return (
-                <button
-                  key={role.id}
-                  type="button"
-                  onClick={() => {
-                    setIsInternalChecklist(false)
-                    setActiveRoleId(role.id)
-                  }}
-                  className={cn(
-                    "h-7 px-3 rounded-full text-xs font-medium transition-colors shrink-0 cursor-pointer",
-                    isRoleActive
-                      ? "bg-primary text-primary-foreground shadow-sm"
-                      : "bg-muted/60 text-muted-foreground hover:text-foreground hover:bg-muted",
-                  )}
-                >
-                  {role.name}
-                </button>
-              )
-            })}
+        {roles
+          .filter((r) => r.is_active)
+          .map((role) => {
+            const isRoleActive = !isInternalChecklist && activeRoleId === role.id
+            return (
+              <button
+                key={role.id}
+                type="button"
+                onClick={() => {
+                  setIsInternalChecklist(false)
+                  setActiveRoleId(role.id)
+                }}
+                className={cn(
+                  "h-7 px-3 rounded-full text-xs font-medium transition-colors shrink-0 cursor-pointer",
+                  isRoleActive
+                    ? "bg-primary text-primary-foreground shadow-sm"
+                    : "bg-muted/60 text-muted-foreground hover:text-foreground hover:bg-muted",
+                )}
+              >
+                {role.name}
+              </button>
+            )
+          })}
         <button
           type="button"
           onClick={() => {
@@ -1323,6 +1370,7 @@ export function CohortDayChecklistManager({
           targetAudience={isInternalChecklist ? "internal" : "instructor"}
           roles={roles}
           refreshToken={editorRefreshToken}
+          readOnly={readOnly}
           cohortInheritDefaults={cohort.inherit_default_checklists !== false}
           isExplicitlyOverridden={Boolean(
             !isDefaultScope &&
@@ -1334,25 +1382,29 @@ export function CohortDayChecklistManager({
         />
       </div>
 
-      <ImportCohortDefaultModal
-        open={showImportDefaultModal}
-        onClose={() => setShowImportDefaultModal(false)}
-        cohort={cohort}
-        sessions={sortedSessions}
-        summary={checklistSummary}
-        isOrgScope={isOrgScope}
-        onSuccess={() => setEditorRefreshToken((t) => t + 1)}
-      />
+      {!readOnly && (
+        <>
+          <ImportCohortDefaultModal
+            open={showImportDefaultModal}
+            onClose={() => setShowImportDefaultModal(false)}
+            cohort={cohort}
+            sessions={sortedSessions}
+            summary={checklistSummary}
+            isOrgScope={isOrgScope}
+            onSuccess={() => setEditorRefreshToken((t) => t + 1)}
+          />
 
-      <SwitchCohortDaysModal
-        open={showSwitchDaysModal}
-        onClose={() => setShowSwitchDaysModal(false)}
-        cohort={cohort}
-        summary={checklistSummary}
-        summaryLoading={summaryLoading}
-        isOrgScope={isOrgScope}
-        onSuccess={() => setEditorRefreshToken((t) => t + 1)}
-      />
+          <SwitchCohortDaysModal
+            open={showSwitchDaysModal}
+            onClose={() => setShowSwitchDaysModal(false)}
+            cohort={cohort}
+            summary={checklistSummary}
+            summaryLoading={summaryLoading}
+            isOrgScope={isOrgScope}
+            onSuccess={() => setEditorRefreshToken((t) => t + 1)}
+          />
+        </>
+      )}
     </div>
   )
 }
@@ -1578,11 +1630,15 @@ function CohortRolesRatesSection({
   roles,
   openings,
   sessionId: _sessionId,
+  showRates = true,
+  canEdit = true,
 }: {
   cohort: Cohort
   roles: DeliveryRole[]
   openings: any[]
   sessionId?: string
+  showRates?: boolean
+  canEdit?: boolean
 }) {
   const qc = useQueryClient()
   const toast = useToast()
@@ -1626,13 +1682,13 @@ function CohortRolesRatesSection({
           .map((d) => ({
             role_id: d.role_id,
             slots: d.slots,
-            amount_aed: d.amount_aed === "" ? null : Number(d.amount_aed),
+            amount_aed: !showRates ? null : (d.amount_aed === "" ? null : Number(d.amount_aed)),
             notes: d.notes || null,
             responsibilities_override: d.responsibilities_override || null,
           })),
       }),
     onSuccess: () => {
-      toast.success("Role rates & slots saved")
+      toast.success(showRates ? "Role rates & slots saved" : "Role slots saved")
       setError("")
       qc.invalidateQueries({ queryKey: ["cohort-openings-defaults", cohort.id] })
     },
@@ -1645,19 +1701,25 @@ function CohortRolesRatesSection({
     <div className="flex flex-col gap-4">
       <div className="flex items-center justify-between">
         <div>
-          <p className="text-sm font-semibold text-foreground">Role Rates & Staffing Slots</p>
+          <p className="text-sm font-semibold text-foreground">
+            {showRates ? "Role Rates & Staffing Slots" : "Staffing Slots & Role Responsibilities"}
+          </p>
           <p className="text-xs text-muted-foreground">
-            Per-session pay rates and slot counts for this cohort.
+            {showRates
+              ? "Per-session pay rates and slot counts for this cohort."
+              : "Per-session slot counts and responsibilities for this cohort."}
           </p>
         </div>
-        <button
-          type="button"
-          onClick={() => saveMutation.mutate()}
-          disabled={saveMutation.isPending}
-          className="h-8 px-4 bg-primary text-primary-foreground text-xs font-semibold rounded-lg hover:opacity-90 disabled:opacity-40 transition-colors shadow-sm cursor-pointer"
-        >
-          {saveMutation.isPending ? "Saving…" : "Save rates"}
-        </button>
+        {canEdit && (
+          <button
+            type="button"
+            onClick={() => saveMutation.mutate()}
+            disabled={saveMutation.isPending}
+            className="h-8 px-4 bg-primary text-primary-foreground text-xs font-semibold rounded-lg hover:opacity-90 disabled:opacity-40 transition-colors shadow-sm cursor-pointer"
+          >
+            {saveMutation.isPending ? "Saving…" : showRates ? "Save rates" : "Save slots"}
+          </button>
+        )}
       </div>
 
       {error && <p className="text-xs text-red-500 bg-red-500/10 p-2 rounded-lg">{error}</p>}
@@ -1671,29 +1733,34 @@ function CohortRolesRatesSection({
             <div key={d.role_id} className="border border-border rounded-xl p-3 bg-card flex flex-col gap-2.5">
               <div className="flex items-center justify-between">
                 <span className="text-sm font-semibold text-foreground">{role.name}</span>
-                <span className="text-xs text-muted-foreground">
-                  Default: {role.default_rate_aed != null ? `${role.default_rate_aed} AED` : "None"}
-                </span>
+                {showRates && (
+                  <span className="text-xs text-muted-foreground">
+                    Default: {role.default_rate_aed != null ? `${role.default_rate_aed} AED` : "None"}
+                  </span>
+                )}
               </div>
 
-              <div className="grid grid-cols-2 gap-2">
-                <label className="flex flex-col gap-1">
-                  <span className="text-[10px] font-semibold uppercase text-muted-foreground">
-                    Rate (AED)
-                  </span>
-                  <input
-                    type="number"
-                    min={0}
-                    placeholder={role.default_rate_aed != null ? String(role.default_rate_aed) : "0"}
-                    value={d.amount_aed}
-                    onChange={(e) =>
-                      setDraft(
-                        rows.map((x, j) => (j === i ? { ...x, amount_aed: e.target.value } : x)),
-                      )
-                    }
-                    className="h-8 px-2 border border-border bg-background text-foreground rounded-lg text-xs tabular-nums focus:outline-none focus:border-primary transition-colors"
-                  />
-                </label>
+              <div className={cn("grid gap-2", showRates ? "grid-cols-2" : "grid-cols-1")}>
+                {showRates && (
+                  <label className="flex flex-col gap-1">
+                    <span className="text-[10px] font-semibold uppercase text-muted-foreground">
+                      Rate (AED)
+                    </span>
+                    <input
+                      type="number"
+                      min={0}
+                      disabled={!canEdit}
+                      placeholder={role.default_rate_aed != null ? String(role.default_rate_aed) : "0"}
+                      value={d.amount_aed}
+                      onChange={(e) =>
+                        setDraft(
+                          rows.map((x, j) => (j === i ? { ...x, amount_aed: e.target.value } : x)),
+                        )
+                      }
+                      className="h-8 px-2 border border-border bg-background text-foreground rounded-lg text-xs tabular-nums focus:outline-none focus:border-primary transition-colors disabled:opacity-60"
+                    />
+                  </label>
+                )}
                 <label className="flex flex-col gap-1">
                   <span className="text-[10px] font-semibold uppercase text-muted-foreground">
                     Slots
@@ -1701,6 +1768,7 @@ function CohortRolesRatesSection({
                   <input
                     type="number"
                     min={1}
+                    disabled={!canEdit}
                     value={d.slots}
                     onChange={(e) =>
                       setDraft(
@@ -1709,7 +1777,7 @@ function CohortRolesRatesSection({
                         ),
                       )
                     }
-                    className="h-8 px-2 border border-border bg-background text-foreground rounded-lg text-xs tabular-nums focus:outline-none focus:border-primary transition-colors"
+                    className="h-8 px-2 border border-border bg-background text-foreground rounded-lg text-xs tabular-nums focus:outline-none focus:border-primary transition-colors disabled:opacity-60"
                   />
                 </label>
               </div>
@@ -1720,6 +1788,7 @@ function CohortRolesRatesSection({
                 </span>
                 <textarea
                   rows={2}
+                  disabled={!canEdit}
                   placeholder={role.description || "Role description…"}
                   value={d.responsibilities_override}
                   onChange={(e) =>
@@ -1729,7 +1798,7 @@ function CohortRolesRatesSection({
                       ),
                     )
                   }
-                  className="px-2 py-1.5 border border-border bg-background text-foreground rounded-lg text-xs resize-y focus:outline-none focus:border-primary transition-colors"
+                  className="px-2 py-1.5 border border-border bg-background text-foreground rounded-lg text-xs resize-y focus:outline-none focus:border-primary transition-colors disabled:opacity-60"
                 />
               </label>
             </div>
@@ -1747,13 +1816,22 @@ export function CohortRolesPanel({
   sessions,
   large: _large = false,
   isOrgScope = false,
+  showRates,
+  canEditRoles,
+  canEditChecklists,
 }: {
   cohort: Cohort
   sessionId?: string
   sessions?: Session[]
   large?: boolean
   isOrgScope?: boolean
+  showRates?: boolean
+  canEditRoles?: boolean
+  canEditChecklists?: boolean
 }) {
+  const effectiveShowRates = showRates ?? !isOrgScope
+  const effectiveCanEditRoles = canEditRoles ?? !isOrgScope
+  const effectiveCanEditChecklists = canEditChecklists ?? true
   const [activeTab, setActiveTab] = useState<"checklists" | "rates">("checklists")
 
   const { data: roles = [], isLoading: rolesLoading } = useQuery({
@@ -1764,7 +1842,7 @@ export function CohortRolesPanel({
   const { data: openings = [], isLoading: openingsLoading } = useQuery({
     queryKey: ["cohort-openings-defaults", cohort.id],
     queryFn: () => getCohortOpeningsApi(cohort.id),
-    enabled: !isOrgScope,
+    enabled: true,
   })
 
   const { data: fetchedSessions = [], isLoading: sessionsLoading } = useQuery({
@@ -1775,48 +1853,47 @@ export function CohortRolesPanel({
 
   const allSessions = sessions ?? fetchedSessions
 
-  if (rolesLoading || (!isOrgScope && openingsLoading) || (sessionsLoading && !sessions)) {
+  if (rolesLoading || openingsLoading || (sessionsLoading && !sessions)) {
     return <p className="text-xs text-muted-foreground py-2">Loading cohort checklists & roles…</p>
   }
 
   return (
     <div className="flex flex-col gap-4 py-1">
-      {!isOrgScope && (
-        <div className="flex items-center gap-1.5 border-b border-border pb-2.5">
-          <button
-            type="button"
-            onClick={() => setActiveTab("checklists")}
-            className={cn(
-              "h-8 px-3.5 rounded-lg text-xs font-semibold transition-colors cursor-pointer",
-              activeTab === "checklists"
-                ? "bg-primary text-primary-foreground shadow-sm"
-                : "text-muted-foreground hover:text-foreground hover:bg-muted",
-            )}
-          >
-            Delivery Checklists
-          </button>
-          <button
-            type="button"
-            onClick={() => setActiveTab("rates")}
-            className={cn(
-              "h-8 px-3.5 rounded-lg text-xs font-semibold transition-colors cursor-pointer",
-              activeTab === "rates"
-                ? "bg-primary text-primary-foreground shadow-sm"
-                : "text-muted-foreground hover:text-foreground hover:bg-muted",
-            )}
-          >
-            Role Rates & Slots
-          </button>
-        </div>
-      )}
+      <div className="flex items-center gap-1.5 border-b border-border pb-2.5">
+        <button
+          type="button"
+          onClick={() => setActiveTab("checklists")}
+          className={cn(
+            "h-8 px-3.5 rounded-lg text-xs font-semibold transition-colors cursor-pointer",
+            activeTab === "checklists"
+              ? "bg-primary text-primary-foreground shadow-sm"
+              : "text-muted-foreground hover:text-foreground hover:bg-muted",
+          )}
+        >
+          Delivery Checklists
+        </button>
+        <button
+          type="button"
+          onClick={() => setActiveTab("rates")}
+          className={cn(
+            "h-8 px-3.5 rounded-lg text-xs font-semibold transition-colors cursor-pointer",
+            activeTab === "rates"
+              ? "bg-primary text-primary-foreground shadow-sm"
+              : "text-muted-foreground hover:text-foreground hover:bg-muted",
+          )}
+        >
+          {effectiveShowRates ? "Role Rates & Slots" : "Role Slots"}
+        </button>
+      </div>
 
-      {(isOrgScope || activeTab === "checklists") ? (
+      {activeTab === "checklists" ? (
         <CohortDayChecklistManager
           cohort={cohort}
           sessions={allSessions}
           roles={roles}
           initialSessionId={sessionId}
           isOrgScope={isOrgScope}
+          readOnly={!effectiveCanEditChecklists}
         />
       ) : (
         <CohortRolesRatesSection
@@ -1824,6 +1901,8 @@ export function CohortRolesPanel({
           roles={roles}
           openings={openings}
           sessionId={sessionId}
+          showRates={effectiveShowRates}
+          canEdit={effectiveCanEditRoles}
         />
       )}
     </div>

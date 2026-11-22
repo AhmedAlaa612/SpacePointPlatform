@@ -20,12 +20,17 @@ No `/api` prefix — nginx strips it before the app sees the request.
 
 import uuid
 
-from fastapi import APIRouter, Depends, File, Header, HTTPException, UploadFile, status
+from fastapi import APIRouter, Depends, File, Header, HTTPException, Query, UploadFile, status
 from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.core.dependencies import require_admin, require_inventory_manage, require_storekeeper
+from app.core.dependencies import (
+    get_current_active_user,
+    require_admin,
+    require_inventory_manage,
+    require_storekeeper,
+)
 from app.db.session import get_db
 from app.models.inventory.city import City
 from app.models.inventory.equipment_flag import EquipmentReturnFlag
@@ -122,14 +127,30 @@ async def _location_out(db: AsyncSession, location: Location) -> LocationOut:
 @router.get("/locations", response_model=list[LocationOut])
 async def list_locations(
     include_inactive: bool = False,
+    organization_id: uuid.UUID | None = Query(None),
     db: AsyncSession = Depends(get_db),
-    # Read-only, and `require_storekeeper` admits storekeeper, operations, or
-    # coo. Every write below stays `require_inventory_manage`. A storekeeper cannot record
-    # a count, fulfil a kit or receive goods without naming a warehouse, so
-    # withholding the *list* of warehouses made all three unusable.
-    _: User = Depends(require_storekeeper),
+    current_user: User = Depends(get_current_active_user),
 ):
+    from app.services.org_access import effective_org_roles
+    from app.services.website_events import resolve_user_organization
+
+    is_staff = any(r in current_user.role_values for r in ("admin", "operations", "storekeeper", "coo"))
     stmt = select(Location).order_by(Location.country.asc().nullslast(), Location.name)
+    if is_staff:
+        if organization_id is not None:
+            stmt = stmt.where(Location.organization_id == organization_id)
+        else:
+            stmt = stmt.where(Location.organization_id.is_(None))
+    elif "organization" in current_user.role_values:
+        org = await resolve_user_organization(db, current_user)
+        if org is None:
+            raise HTTPException(status.HTTP_403_FORBIDDEN, detail="No organization context")
+        roles = effective_org_roles(current_user, is_owner=(org.owner_user_id == current_user.id))
+        if not any(r in ("owner", "coordinator", "observer") for r in roles):
+            raise HTTPException(status.HTTP_403_FORBIDDEN, detail="Forbidden")
+        stmt = stmt.where(Location.organization_id == org.id)
+    else:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, detail="Forbidden")
     if not include_inactive:
         stmt = stmt.where(Location.is_active.is_(True))
     rows = (await db.execute(stmt)).scalars().all()
@@ -140,7 +161,7 @@ async def list_locations(
 async def create_location(
     body: LocationCreate,
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(require_inventory_manage),
+    current_user: User = Depends(get_current_active_user),
 ):
     """No warehouse is created here (decoupled 2026-08-08, operator
     request) — a location is just a place; `POST /inventory/warehouses`
@@ -150,10 +171,28 @@ async def create_location(
     2026-08-08: the city is the required anchor — a location is in a
     city, a city is in a country (matching `City.country` 1:1, so the
     legacy `country` column is always the city's code, uppercased)."""
+    from app.models.spine.organization import Organization
+    from app.services.org_access import is_org_manager
+    from app.services.website_events import resolve_user_organization
+
+    is_mgr = any(r in current_user.role_values for r in ("admin", "operations", "coo"))
+    data = body.model_dump()
+    if is_mgr:
+        if data.get("organization_id") is not None:
+            if await db.get(Organization, data["organization_id"]) is None:
+                raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Organization not found")
+    elif "organization" in current_user.role_values and is_org_manager(current_user):
+        org = await resolve_user_organization(db, current_user)
+        if org is None:
+            raise HTTPException(status.HTTP_403_FORBIDDEN, detail="No organization context")
+        data["organization_id"] = org.id
+    else:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, detail="Forbidden")
+
     city = await db.get(City, body.city_id)
     if city is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="City not found")
-    location = Location(id=uuid.uuid4(), **body.model_dump(), country=city.country)
+    location = Location(id=uuid.uuid4(), **data, country=city.country)
     db.add(location)
     await db.commit()
     await db.refresh(location)
@@ -165,11 +204,23 @@ async def update_location(
     location_id: uuid.UUID,
     body: LocationUpdate,
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(require_inventory_manage),
+    current_user: User = Depends(get_current_active_user),
 ):
+    from app.services.org_access import is_org_manager
+    from app.services.website_events import resolve_user_organization
+
     location = await db.get(Location, location_id)
     if location is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Location not found")
+
+    is_mgr = any(r in current_user.role_values for r in ("admin", "operations", "coo"))
+    if not is_mgr:
+        if "organization" in current_user.role_values and is_org_manager(current_user):
+            org = await resolve_user_organization(db, current_user)
+            if org is None or location.organization_id != org.id:
+                raise HTTPException(status.HTTP_403_FORBIDDEN, detail="Forbidden")
+        else:
+            raise HTTPException(status.HTTP_403_FORBIDDEN, detail="Forbidden")
 
     changes = body.model_dump(exclude_unset=True)
     # Moving a location to a different city re-derives the legacy country
@@ -203,8 +254,14 @@ async def update_location(
 async def list_cities(
     include_inactive: bool = False,
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(require_storekeeper),
+    current_user: User = Depends(get_current_active_user),
 ):
+    allowed = any(
+        r in current_user.role_values
+        for r in ("admin", "operations", "storekeeper", "coo", "organization")
+    )
+    if not allowed:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, detail="Forbidden")
     stmt = select(City).order_by(City.country, City.name)
     if not include_inactive:
         stmt = stmt.where(City.is_active.is_(True))

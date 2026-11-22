@@ -59,6 +59,14 @@ class Cohort(Base):
     # B2B private cohort (V2 R1-2 delta)
     organization_id = Column(UUID(as_uuid=True), ForeignKey("organizations.id", ondelete="SET NULL"), nullable=True)
     visibility = Column(String(12), nullable=False, default="public")  # public|private
+    management_mode = Column(String(20), nullable=False, default="spacepoint", server_default="spacepoint", index=True)
+
+    def __init__(self, **kwargs):
+        if kwargs.get("management_mode") is None:
+            kwargs["management_mode"] = (
+                "partner" if kwargs.get("organization_id") is not None else "spacepoint"
+            )
+        super().__init__(**kwargs)
 
     # Student-facing title override for LMS checklist. When set, replaces the
     # default "Program Name — Cohort Name" label shown to students. Ops can

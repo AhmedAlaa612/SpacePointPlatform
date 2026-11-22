@@ -46,9 +46,16 @@ interface Props {
   onClose?: () => void
   onUpdated?: () => void
   embedded?: boolean
+  readOnly?: boolean
 }
 
-export function ProgramCertificateStudioModal({ program, onClose, onUpdated, embedded = false }: Props) {
+export function ProgramCertificateStudioModal({
+  program,
+  onClose,
+  onUpdated,
+  embedded = false,
+  readOnly = false,
+}: Props) {
   const queryClient = useQueryClient()
   const canvasRef = useRef<HTMLDivElement>(null)
   const [isOpeningPreview, setIsOpeningPreview] = useState(false)
@@ -188,8 +195,8 @@ export function ProgramCertificateStudioModal({ program, onClose, onUpdated, emb
     activeTab === "stock_dark"
       ? !program.default_certificate_template_id && !templates.some((t) => t.is_default)
       : activeTab === "stock_light"
-      ? false
-      : currentCustomTemplate?.is_default ?? false
+        ? false
+        : currentCustomTemplate?.is_default ?? false
 
   // Save / Update mutation
   const saveMutation = useMutation({
@@ -398,77 +405,76 @@ export function ProgramCertificateStudioModal({ program, onClose, onUpdated, emb
 
   const content = (
     <div className="flex flex-col gap-5 -mt-1">
-        {/* Top Header: Template Selector Pills & Actions Bar */}
-        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2.5 pb-2.5 border-b border-border">
-          {/* Template Selector Pills (Horizontally scrollable) */}
-          <div className="flex items-center gap-1.5 overflow-x-auto max-w-full pb-0.5 scrollbar-none shrink">
-            {/* Stock Dark Default */}
+      {/* Top Header: Template Selector Pills & Actions Bar */}
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2.5 pb-2.5 border-b border-border">
+        {/* Template Selector Pills (Horizontally scrollable) */}
+        <div className="flex items-center gap-1.5 overflow-x-auto max-w-full pb-0.5 scrollbar-none shrink">
+          {/* Stock Dark Default */}
+          <button
+            onClick={() => setActiveTab("stock_dark")}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-medium transition-colors whitespace-nowrap shrink-0 ${activeTab === "stock_dark"
+                ? "bg-primary text-primary-foreground shadow-sm"
+                : "bg-muted/60 text-muted-foreground hover:text-foreground hover:bg-muted"
+              }`}
+          >
+            <Award size={13} />
+            <span>Dark Default</span>
+            {!program.default_certificate_template_id && !templates.some((t) => t.is_default) && (
+              <span className="ml-1 text-[10px] bg-primary-foreground/20 text-primary-foreground font-semibold px-1.5 py-0.2 rounded-full">
+                Default
+              </span>
+            )}
+          </button>
+
+          {/* Stock Light Default */}
+          <button
+            onClick={() => setActiveTab("stock_light")}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-medium transition-colors whitespace-nowrap shrink-0 ${activeTab === "stock_light"
+                ? "bg-primary text-primary-foreground shadow-sm"
+                : "bg-muted/60 text-muted-foreground hover:text-foreground hover:bg-muted"
+              }`}
+          >
+            <Award size={13} />
+            <span>Light Default</span>
+          </button>
+
+          {/* Custom Templates List */}
+          {templates.map((t) => (
             <button
-              onClick={() => setActiveTab("stock_dark")}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-medium transition-colors whitespace-nowrap shrink-0 ${
-                activeTab === "stock_dark"
+              key={t.id}
+              onClick={() => setActiveTab(t.id)}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-medium transition-colors whitespace-nowrap shrink-0 ${activeTab === t.id
                   ? "bg-primary text-primary-foreground shadow-sm"
                   : "bg-muted/60 text-muted-foreground hover:text-foreground hover:bg-muted"
-              }`}
+                }`}
             >
               <Award size={13} />
-              <span>Dark Default</span>
-              {!program.default_certificate_template_id && !templates.some((t) => t.is_default) && (
-                <span className="ml-1 text-[10px] bg-primary-foreground/20 text-primary-foreground font-semibold px-1.5 py-0.2 rounded-full">
+              <span className="whitespace-nowrap">{t.name}</span>
+              {t.is_default && (
+                <span className="ml-1 text-[10px] bg-emerald-500 text-white font-semibold px-1.5 py-0.2 rounded-full">
                   Default
                 </span>
               )}
             </button>
+          ))}
 
-            {/* Stock Light Default */}
-            <button
-              onClick={() => setActiveTab("stock_light")}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-medium transition-colors whitespace-nowrap shrink-0 ${
-                activeTab === "stock_light"
-                  ? "bg-primary text-primary-foreground shadow-sm"
-                  : "bg-muted/60 text-muted-foreground hover:text-foreground hover:bg-muted"
-              }`}
-            >
-              <Award size={13} />
-              <span>Light Default</span>
-            </button>
-
-            {/* Custom Templates List */}
-            {templates.map((t) => (
-              <button
-                key={t.id}
-                onClick={() => setActiveTab(t.id)}
-                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-medium transition-colors whitespace-nowrap shrink-0 ${
-                  activeTab === t.id
-                    ? "bg-primary text-primary-foreground shadow-sm"
-                    : "bg-muted/60 text-muted-foreground hover:text-foreground hover:bg-muted"
-                }`}
-              >
-                <Award size={13} />
-                <span className="whitespace-nowrap">{t.name}</span>
-                {t.is_default && (
-                  <span className="ml-1 text-[10px] bg-emerald-500 text-white font-semibold px-1.5 py-0.2 rounded-full">
-                    Default
-                  </span>
-                )}
-              </button>
-            ))}
-
-            {/* + Add Custom Template */}
+          {/* + Add Custom Template */}
+          {!readOnly && (
             <button
               onClick={() => setActiveTab("new")}
-              className={`flex items-center gap-1 px-3 py-1.5 rounded-xl text-xs font-medium border border-dashed transition-colors whitespace-nowrap shrink-0 ${
-                activeTab === "new"
+              className={`flex items-center gap-1 px-3 py-1.5 rounded-xl text-xs font-medium border border-dashed transition-colors whitespace-nowrap shrink-0 ${activeTab === "new"
                   ? "border-primary bg-primary/10 text-primary font-semibold"
                   : "border-border text-muted-foreground hover:text-foreground hover:border-muted-foreground"
-              }`}
+                }`}
             >
               <Plus size={13} />
               <span>New Custom</span>
             </button>
-          </div>
+          )}
+        </div>
 
-          {/* Top Actions: Default on Left, Delete & Save on Right */}
+        {/* Top Actions: Default on Left, Delete & Save on Right */}
+        {!readOnly && (
           <div className="flex items-center justify-between sm:justify-end gap-2 shrink-0">
             {/* Set as Default (only shown when not currently default) */}
             {!isCurrentlyDefault && activeTab !== "new" && (
@@ -531,450 +537,446 @@ export function ProgramCertificateStudioModal({ program, onClose, onUpdated, emb
               </button>
             </div>
           </div>
-        </div>
+        )}
+      </div>
 
-        {/* Studio Grid: Controls on Left (4 cols), Live WYSIWYG Canvas on Right (8 cols) */}
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-3 sm:gap-6">
-          {/* Controls Column (4 cols) */}
-          <div className="lg:col-span-4 flex flex-col gap-4 lg:max-h-[74vh] lg:overflow-y-auto pr-1">
+      {/* Studio Grid: Controls on Left (4 cols), Live WYSIWYG Canvas on Right (8 cols) */}
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-3 sm:gap-6">
+        {/* Controls Column (4 cols) */}
+        <div className="lg:col-span-4 flex flex-col gap-4 lg:max-h-[74vh] lg:overflow-y-auto pr-1">
+          <fieldset disabled={readOnly} className={readOnly ? "flex flex-col gap-4 opacity-75 pointer-events-none" : "flex flex-col gap-4"}>
             {/* Template Name */}
-                <div>
-                  <label className="text-xs text-muted-foreground font-medium uppercase tracking-wider mb-1 block">
-                    Template Name
-                  </label>
-                  <input
-                    type="text"
-                    value={name}
-                    onChange={(e) => setName(e.target.value)}
-                    placeholder="e.g. Space Race Champion Finalist"
-                    className="w-full h-9 px-3 rounded-[10px] border border-border bg-background text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
-                  />
-                </div>
-
-                {/* Background Image Selection */}
-                <div className="border border-border rounded-xl p-3.5 flex flex-col gap-2.5 bg-card">
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs font-semibold text-foreground flex items-center gap-1.5">
-                      <ImageIcon size={14} className="text-primary" /> Certificate Background
-                    </span>
-                    <span className="text-[11px] text-muted-foreground">A4 Landscape</span>
-                  </div>
-
-                  <div className="grid grid-cols-3 gap-1.5">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setBackgroundType("dark")
-                        setBgFilePath(null)
-                        setBgFileUrl(null)
-                      }}
-                      className={`h-8 rounded-lg text-xs font-medium border transition-colors ${
-                        backgroundType === "dark" && !bgFileUrl
-                          ? "border-primary bg-primary/10 text-primary font-semibold"
-                          : "border-border text-muted-foreground hover:text-foreground"
-                      }`}
-                    >
-                      Stock Dark
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setBackgroundType("light")
-                        setBgFilePath(null)
-                        setBgFileUrl(null)
-                      }}
-                      className={`h-8 rounded-lg text-xs font-medium border transition-colors ${
-                        backgroundType === "light" && !bgFileUrl
-                          ? "border-primary bg-primary/10 text-primary font-semibold"
-                          : "border-border text-muted-foreground hover:text-foreground"
-                      }`}
-                    >
-                      Stock Light
-                    </button>
-                    <label
-                      className={`h-8 rounded-lg text-xs font-medium border flex items-center justify-center gap-1 cursor-pointer transition-colors ${
-                        backgroundType === "custom" && bgFileUrl
-                          ? "border-primary bg-primary/10 text-primary font-semibold"
-                          : "border-border text-muted-foreground hover:text-foreground"
-                      }`}
-                    >
-                      <Upload size={12} />
-                      <span>{isUploadingBg ? "Uploading…" : "Custom PNG"}</span>
-                      <input
-                        type="file"
-                        accept="image/png,image/jpeg,image/webp"
-                        className="hidden"
-                        onChange={handleBackgroundUpload}
-                        disabled={isUploadingBg}
-                      />
-                    </label>
-                  </div>
-
-                  {bgFileUrl && (
-                    <p className="text-[11px] text-emerald-600 dark:text-emerald-400 truncate">
-                      Custom image uploaded
-                    </p>
-                  )}
-                </div>
-
-                {/* Recipient Name Controls */}
-                <div className="border border-border rounded-xl p-3.5 flex flex-col gap-3 bg-card">
-                  <span className="text-xs font-semibold text-foreground flex items-center gap-1.5">
-                    <Sliders size={14} className="text-primary" /> Recipient Name Styling
-                  </span>
-
-                  {/* Font size */}
-                  <div>
-                    <div className="flex items-center justify-between text-xs text-muted-foreground mb-1">
-                      <span>Font Size</span>
-                      <span className="font-mono text-foreground">{nameFontSize} pt</span>
-                    </div>
-                    <input
-                      type="range"
-                      min="18"
-                      max="54"
-                      value={nameFontSize}
-                      onChange={(e) => setNameFontSize(Number(e.target.value))}
-                      className="w-full h-1.5 bg-muted rounded-lg appearance-none cursor-pointer accent-primary"
-                    />
-                  </div>
-
-                  {/* Vertical Position (Y) */}
-                  <div>
-                    <div className="flex items-center justify-between text-xs text-muted-foreground mb-1">
-                      <span>Vertical Position (from bottom)</span>
-                      <span className="font-mono text-foreground">{nameY} pt</span>
-                    </div>
-                    <input
-                      type="range"
-                      min="180"
-                      max="420"
-                      value={nameY}
-                      onChange={(e) => setNameY(Number(e.target.value))}
-                      className="w-full h-1.5 bg-muted rounded-lg appearance-none cursor-pointer accent-primary"
-                    />
-                  </div>
-
-                  {/* Color Picker */}
-                  <div>
-                    <span className="text-xs text-muted-foreground block mb-1.5">Name Color</span>
-                    <div className="flex items-center gap-2">
-                      <div className="flex items-center gap-1.5 flex-wrap">
-                        {COLOR_SWATCHES.map((swatch) => (
-                          <button
-                            key={swatch.value}
-                            type="button"
-                            onClick={() => setNameColor(swatch.value)}
-                            style={{ backgroundColor: swatch.value }}
-                            className={`w-5 h-5 rounded-full border transition-transform ${
-                              nameColor.toLowerCase() === swatch.value.toLowerCase()
-                                ? "scale-125 border-primary shadow-sm"
-                                : "border-border hover:scale-110"
-                            }`}
-                            title={swatch.label}
-                          />
-                        ))}
-                      </div>
-                      <input
-                        type="color"
-                        value={nameColor}
-                        onChange={(e) => setNameColor(e.target.value)}
-                        className="w-7 h-7 rounded-lg border border-border bg-transparent cursor-pointer ml-auto"
-                        title="Custom color"
-                      />
-                    </div>
-                  </div>
-                </div>
-
-                {/* Description Body Controls */}
-                <div className="border border-border rounded-xl p-3.5 flex flex-col gap-3 bg-card">
-                  <span className="text-xs font-semibold text-foreground flex items-center gap-1.5">
-                    <Sliders size={14} className="text-primary" /> Body Description Styling
-                  </span>
-
-                  {/* Body Text Template */}
-                  <div>
-                    <div className="flex items-center justify-between mb-1">
-                      <label className="text-[11px] text-muted-foreground block">
-                        Text template (use <code className="text-primary">&lt;br/&gt;</code> for line breaks)
-                      </label>
-                      <button
-                        type="button"
-                        onClick={() => setBodyText((prev) => `${prev} {cohort}`)}
-                        className="text-[10px] text-primary hover:underline font-medium cursor-pointer"
-                        title="Add {cohort} placeholder"
-                      >
-                        + Insert &#123;cohort&#125;
-                      </button>
-                    </div>
-                    <textarea
-                      rows={3}
-                      value={bodyText}
-                      onChange={(e) => setBodyText(e.target.value)}
-                      className="w-full px-3 py-2 rounded-xl border border-border bg-background text-xs font-mono text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
-                      placeholder="For successfully completing<br/>{program_name}<br/>{dates_line}"
-                    />
-                    <div className="flex flex-wrap items-center gap-1.5 mt-1 text-[10px] text-muted-foreground">
-                      <span>Variables:</span>
-                      <code className="bg-muted px-1 rounded text-foreground">&#123;program_name&#125;</code>
-                      <code className="bg-muted px-1 rounded text-foreground">&#123;cohort&#125;</code>
-                      <code className="bg-muted px-1 rounded text-foreground">&#123;dates&#125;</code>
-                      <code className="bg-muted px-1 rounded text-foreground">&#123;dates_line&#125;</code>
-                      <code className="bg-muted px-1 rounded text-foreground">&#123;location&#125;</code>
-                      <code className="bg-muted px-1 rounded text-foreground" title="Team certificates (competitions)">&#123;team_name&#125;</code>
-                      <code className="bg-muted px-1 rounded text-foreground" title="Team certificates: judging rank, e.g. 1st (blank if unranked)">&#123;rank&#125;</code>
-                    </div>
-                  </div>
-
-                  {/* Body Font size */}
-                  <div>
-                    <div className="flex items-center justify-between text-xs text-muted-foreground mb-1">
-                      <span>Font Size</span>
-                      <span className="font-mono text-foreground">{bodyFontSize} pt</span>
-                    </div>
-                    <input
-                      type="range"
-                      min="12"
-                      max="32"
-                      value={bodyFontSize}
-                      onChange={(e) => setBodyFontSize(Number(e.target.value))}
-                      className="w-full h-1.5 bg-muted rounded-lg appearance-none cursor-pointer accent-primary"
-                    />
-                  </div>
-
-                  {/* Body Vertical Position (Y) */}
-                  <div>
-                    <div className="flex items-center justify-between text-xs text-muted-foreground mb-1">
-                      <span>Vertical Position (from bottom)</span>
-                      <span className="font-mono text-foreground">{bodyY} pt</span>
-                    </div>
-                    <input
-                      type="range"
-                      min="140"
-                      max="360"
-                      value={bodyY}
-                      onChange={(e) => setBodyY(Number(e.target.value))}
-                      className="w-full h-1.5 bg-muted rounded-lg appearance-none cursor-pointer accent-primary"
-                    />
-                  </div>
-
-
-                  {/* Body Color Picker */}
-                  <div>
-                    <span className="text-xs text-muted-foreground block mb-1.5">Body Text Color</span>
-                    <div className="flex items-center gap-2">
-                      <div className="flex items-center gap-1.5 flex-wrap">
-                        {COLOR_SWATCHES.map((swatch) => (
-                          <button
-                            key={swatch.value}
-                            type="button"
-                            onClick={() => setBodyColor(swatch.value)}
-                            style={{ backgroundColor: swatch.value }}
-                            className={`w-5 h-5 rounded-full border transition-transform ${
-                              bodyColor.toLowerCase() === swatch.value.toLowerCase()
-                                ? "scale-125 border-primary shadow-sm"
-                                : "border-border hover:scale-110"
-                            }`}
-                            title={swatch.label}
-                          />
-                        ))}
-                      </div>
-                      <input
-                        type="color"
-                        value={bodyColor}
-                        onChange={(e) => setBodyColor(e.target.value)}
-                        className="w-7 h-7 rounded-lg border border-border bg-transparent cursor-pointer ml-auto"
-                        title="Custom color"
-                      />
-                    </div>
-                  </div>
-                </div>
-
-                {/* Signature Block Controls */}
-                <div className="border border-border rounded-xl p-3.5 flex flex-col gap-3 bg-card">
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs font-semibold text-foreground">
-                      Dynamic Signature Block
-                    </span>
-                    <label className="relative inline-flex items-center cursor-pointer">
-                      <input
-                        type="checkbox"
-                        checked={showSignature}
-                        onChange={(e) => setShowSignature(e.target.checked)}
-                        className="sr-only peer"
-                      />
-                      <div className="w-9 h-5 bg-muted peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-border after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-primary"></div>
-                    </label>
-                  </div>
-
-                  {showSignature && (
-                    <div className="flex flex-col gap-3 pt-2 border-t border-border/60">
-                      {/* System Settings Source Card */}
-                      <div className="p-2.5 rounded-xl border border-border/80 bg-muted/40 text-xs flex flex-col gap-0.5">
-                        <div className="flex items-center justify-between text-muted-foreground mb-1 text-[10px] font-semibold uppercase tracking-wider">
-                          <span>From System Settings</span>
-                          <span className="text-primary/90 font-medium">Automatic</span>
-                        </div>
-                        <p className="font-semibold text-foreground tracking-wide break-words">
-                          {signatoryInfo?.signatory_name || "ABDULLAH ALSALMANI"}
-                        </p>
-                        <p className="text-[11px] text-muted-foreground break-words">
-                          {signatoryInfo?.signatory_title || "Co-Founder & CEO of SpacePoint"}
-                        </p>
-                      </div>
-
-                      {/* Placement: Vertical Position (Y) */}
-                      <div>
-                        <div className="flex items-center justify-between text-xs text-muted-foreground mb-1">
-                          <span>Vertical Position (from bottom)</span>
-                          <span className="font-mono text-foreground">{sigY} pt</span>
-                        </div>
-                        <input
-                          type="range"
-                          min="30"
-                          max="200"
-                          value={sigY}
-                          onChange={(e) => setSigY(Number(e.target.value))}
-                          className="w-full h-1.5 bg-muted rounded-lg appearance-none cursor-pointer accent-primary"
-                        />
-                      </div>
-
-                      {/* Placement: Horizontal Position (X) */}
-                      <div>
-                        <div className="flex items-center justify-between text-xs text-muted-foreground mb-1.5">
-                          <span>Horizontal Alignment</span>
-                          <div className="flex items-center gap-1 bg-muted/70 p-0.5 rounded-lg border border-border">
-                            <button
-                              type="button"
-                              onClick={() => {
-                                setIsCustomX(false)
-                                setSigX(null)
-                              }}
-                              className={`px-2 py-0.5 rounded-md text-[10px] font-medium transition-colors ${
-                                !isCustomX
-                                  ? "bg-background text-foreground shadow-sm"
-                                  : "text-muted-foreground hover:text-foreground"
-                              }`}
-                            >
-                              Centered
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => {
-                                setIsCustomX(true)
-                                if (sigX === null) setSigX(Math.round((842 - sigWidth) / 2))
-                              }}
-                              className={`px-2 py-0.5 rounded-md text-[10px] font-medium transition-colors ${
-                                isCustomX
-                                  ? "bg-background text-foreground shadow-sm"
-                                  : "text-muted-foreground hover:text-foreground"
-                              }`}
-                            >
-                              Custom X
-                            </button>
-                          </div>
-                        </div>
-                        {isCustomX && (
-                          <div className="mt-2">
-                            <div className="flex items-center justify-between text-[11px] text-muted-foreground mb-1">
-                              <span>Left Offset (X)</span>
-                              <span className="font-mono text-foreground">{sigX ?? 350} pt</span>
-                            </div>
-                            <input
-                              type="range"
-                              min="40"
-                              max="680"
-                              step="5"
-                              value={sigX ?? 350}
-                              onChange={(e) => setSigX(Number(e.target.value))}
-                              className="w-full h-1.5 bg-muted rounded-lg appearance-none cursor-pointer accent-primary"
-                            />
-                          </div>
-                        )}
-                      </div>
-
-                      {/* Placement: Width */}
-                      <div>
-                        <div className="flex items-center justify-between text-xs text-muted-foreground mb-1">
-                          <span>Signature Width</span>
-                          <span className="font-mono text-foreground">{sigWidth} pt</span>
-                        </div>
-                        <input
-                          type="range"
-                          min="80"
-                          max="260"
-                          value={sigWidth}
-                          onChange={(e) => setSigWidth(Number(e.target.value))}
-                          className="w-full h-1.5 bg-muted rounded-lg appearance-none cursor-pointer accent-primary"
-                        />
-                      </div>
-                    </div>
-                  )}
-                </div>
-
-            {/* Test Student Name Input */}
-            <div className="p-3 bg-muted/20 border border-border rounded-xl">
+            <div>
               <label className="text-xs text-muted-foreground font-medium uppercase tracking-wider mb-1 block">
-                Live Test Student Name
+                Template Name
               </label>
               <input
                 type="text"
-                value={testStudentName}
-                onChange={(e) => setTestStudentName(e.target.value)}
-                placeholder="Test student name (English or Arabic)"
-                className="w-full h-8 px-2.5 rounded-lg border border-border bg-background text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                placeholder="e.g. Space Race Champion Finalist"
+                className="w-full h-9 px-3 rounded-[10px] border border-border bg-background text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
               />
             </div>
-          </div>
 
-          {/* Canvas & Actions Column (8 cols) */}
-          <div className="lg:col-span-8 flex flex-col gap-4">
-            {/* Top Toolbar */}
-            <div className="flex items-center justify-between flex-wrap gap-2">
-              <span className="text-xs font-semibold text-foreground">
-                Certificate Preview
+            {/* Background Image Selection */}
+            <div className="border border-border rounded-xl p-3.5 flex flex-col gap-2.5 bg-card">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-semibold text-foreground flex items-center gap-1.5">
+                  <ImageIcon size={14} className="text-primary" /> Certificate Background
+                </span>
+                <span className="text-[11px] text-muted-foreground">A4 Landscape</span>
+              </div>
+
+              <div className="grid grid-cols-3 gap-1.5">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setBackgroundType("dark")
+                    setBgFilePath(null)
+                    setBgFileUrl(null)
+                  }}
+                  className={`h-8 rounded-lg text-xs font-medium border transition-colors ${backgroundType === "dark" && !bgFileUrl
+                      ? "border-primary bg-primary/10 text-primary font-semibold"
+                      : "border-border text-muted-foreground hover:text-foreground"
+                    }`}
+                >
+                  Stock Dark
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setBackgroundType("light")
+                    setBgFilePath(null)
+                    setBgFileUrl(null)
+                  }}
+                  className={`h-8 rounded-lg text-xs font-medium border transition-colors ${backgroundType === "light" && !bgFileUrl
+                      ? "border-primary bg-primary/10 text-primary font-semibold"
+                      : "border-border text-muted-foreground hover:text-foreground"
+                    }`}
+                >
+                  Stock Light
+                </button>
+                <label
+                  className={`h-8 rounded-lg text-xs font-medium border flex items-center justify-center gap-1 cursor-pointer transition-colors ${backgroundType === "custom" && bgFileUrl
+                      ? "border-primary bg-primary/10 text-primary font-semibold"
+                      : "border-border text-muted-foreground hover:text-foreground"
+                    }`}
+                >
+                  <Upload size={12} />
+                  <span>{isUploadingBg ? "Uploading…" : "Custom PNG"}</span>
+                  <input
+                    type="file"
+                    accept="image/png,image/jpeg,image/webp"
+                    className="hidden"
+                    onChange={handleBackgroundUpload}
+                    disabled={isUploadingBg}
+                  />
+                </label>
+              </div>
+
+              {bgFileUrl && (
+                <p className="text-[11px] text-emerald-600 dark:text-emerald-400 truncate">
+                  Custom image uploaded
+                </p>
+              )}
+            </div>
+
+            {/* Recipient Name Controls */}
+            <div className="border border-border rounded-xl p-3.5 flex flex-col gap-3 bg-card">
+              <span className="text-xs font-semibold text-foreground flex items-center gap-1.5">
+                <Sliders size={14} className="text-primary" /> Recipient Name Styling
               </span>
 
-              <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  onClick={handleOpenPdfPreview}
-                  disabled={isOpeningPreview}
-                  className="flex items-center gap-1.5 h-8 px-3 rounded-xl border border-border bg-background hover:bg-muted text-xs font-medium text-foreground transition-colors disabled:opacity-50"
-                  title="Render and open live PDF in a new browser tab"
-                >
-                  <Eye size={13} className="text-primary" />
-                  <span>{isOpeningPreview ? "Loading…" : "Preview PDF"}</span>
-                </button>
+              {/* Font size */}
+              <div>
+                <div className="flex items-center justify-between text-xs text-muted-foreground mb-1">
+                  <span>Font Size</span>
+                  <span className="font-mono text-foreground">{nameFontSize} pt</span>
+                </div>
+                <input
+                  type="range"
+                  min="18"
+                  max="54"
+                  value={nameFontSize}
+                  onChange={(e) => setNameFontSize(Number(e.target.value))}
+                  className="w-full h-1.5 bg-muted rounded-lg appearance-none cursor-pointer accent-primary"
+                />
+              </div>
 
-                <button
-                  type="button"
-                  onClick={handleDownloadTestPdf}
-                  disabled={isPreviewDownloading}
-                  className="flex items-center gap-1.5 h-8 px-3 rounded-xl border border-border bg-background hover:bg-muted text-xs font-medium text-foreground transition-colors disabled:opacity-50"
-                  title="Generates and downloads pixel-perfect PDF using server ReportLab engine"
-                >
-                  <FileDown size={13} className="text-primary" />
-                  <span>{isPreviewDownloading ? "Generating…" : "Download PDF"}</span>
-                </button>
+              {/* Vertical Position (Y) */}
+              <div>
+                <div className="flex items-center justify-between text-xs text-muted-foreground mb-1">
+                  <span>Vertical Position (from bottom)</span>
+                  <span className="font-mono text-foreground">{nameY} pt</span>
+                </div>
+                <input
+                  type="range"
+                  min="180"
+                  max="420"
+                  value={nameY}
+                  onChange={(e) => setNameY(Number(e.target.value))}
+                  className="w-full h-1.5 bg-muted rounded-lg appearance-none cursor-pointer accent-primary"
+                />
+              </div>
+
+              {/* Color Picker */}
+              <div>
+                <span className="text-xs text-muted-foreground block mb-1.5">Name Color</span>
+                <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-1.5 flex-wrap">
+                    {COLOR_SWATCHES.map((swatch) => (
+                      <button
+                        key={swatch.value}
+                        type="button"
+                        onClick={() => setNameColor(swatch.value)}
+                        style={{ backgroundColor: swatch.value }}
+                        className={`w-5 h-5 rounded-full border transition-transform ${nameColor.toLowerCase() === swatch.value.toLowerCase()
+                            ? "scale-125 border-primary shadow-sm"
+                            : "border-border hover:scale-110"
+                          }`}
+                        title={swatch.label}
+                      />
+                    ))}
+                  </div>
+                  <input
+                    type="color"
+                    value={nameColor}
+                    onChange={(e) => setNameColor(e.target.value)}
+                    className="w-7 h-7 rounded-lg border border-border bg-transparent cursor-pointer ml-auto"
+                    title="Custom color"
+                  />
+                </div>
               </div>
             </div>
 
-            {/* WYSIWYG A4 Landscape Canvas Viewport (1:1 Actual, Left-start scrollable) */}
-            <div
-              className="w-full overflow-x-auto overflow-y-auto max-h-[72vh] rounded-2xl border-2 border-border/80 bg-slate-950/40 p-3 shadow-inner"
-            >
-              <div className="min-w-fit w-full flex justify-center items-start">
-                <div
-                  ref={canvasRef}
-                  className="relative shrink-0 rounded-xl border border-border/50 shadow-2xl overflow-hidden select-none bg-slate-950"
-                  style={{
-                    width: "841.89px",
-                    height: "595.27px",
-                    minWidth: "841.89px",
-                    minHeight: "595.27px",
-                  }}
-                >
+            {/* Description Body Controls */}
+            <div className="border border-border rounded-xl p-3.5 flex flex-col gap-3 bg-card">
+              <span className="text-xs font-semibold text-foreground flex items-center gap-1.5">
+                <Sliders size={14} className="text-primary" /> Body Description Styling
+              </span>
+
+              {/* Body Text Template */}
+              <div>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="text-[11px] text-muted-foreground block">
+                    Text template (use <code className="text-primary">&lt;br/&gt;</code> for line breaks)
+                  </label>
+                  <button
+                    type="button"
+                    onClick={() => setBodyText((prev) => `${prev} {cohort}`)}
+                    className="text-[10px] text-primary hover:underline font-medium cursor-pointer"
+                    title="Add {cohort} placeholder"
+                  >
+                    + Insert &#123;cohort&#125;
+                  </button>
+                </div>
+                <textarea
+                  rows={3}
+                  value={bodyText}
+                  onChange={(e) => setBodyText(e.target.value)}
+                  className="w-full px-3 py-2 rounded-xl border border-border bg-background text-xs font-mono text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
+                  placeholder="For successfully completing<br/>{program_name}<br/>{dates_line}"
+                />
+                <div className="flex flex-wrap items-center gap-1.5 mt-1 text-[10px] text-muted-foreground">
+                  <span>Variables:</span>
+                  <code className="bg-muted px-1 rounded text-foreground">&#123;program_name&#125;</code>
+                  <code className="bg-muted px-1 rounded text-foreground">&#123;cohort&#125;</code>
+                  <code className="bg-muted px-1 rounded text-foreground">&#123;dates&#125;</code>
+                  <code className="bg-muted px-1 rounded text-foreground">&#123;dates_line&#125;</code>
+                  <code className="bg-muted px-1 rounded text-foreground">&#123;location&#125;</code>
+                  <code className="bg-muted px-1 rounded text-foreground" title="Team certificates (competitions)">&#123;team_name&#125;</code>
+                  <code className="bg-muted px-1 rounded text-foreground" title="Team certificates: judging rank, e.g. 1st (blank if unranked)">&#123;rank&#125;</code>
+                </div>
+              </div>
+
+              {/* Body Font size */}
+              <div>
+                <div className="flex items-center justify-between text-xs text-muted-foreground mb-1">
+                  <span>Font Size</span>
+                  <span className="font-mono text-foreground">{bodyFontSize} pt</span>
+                </div>
+                <input
+                  type="range"
+                  min="12"
+                  max="32"
+                  value={bodyFontSize}
+                  onChange={(e) => setBodyFontSize(Number(e.target.value))}
+                  className="w-full h-1.5 bg-muted rounded-lg appearance-none cursor-pointer accent-primary"
+                />
+              </div>
+
+              {/* Body Vertical Position (Y) */}
+              <div>
+                <div className="flex items-center justify-between text-xs text-muted-foreground mb-1">
+                  <span>Vertical Position (from bottom)</span>
+                  <span className="font-mono text-foreground">{bodyY} pt</span>
+                </div>
+                <input
+                  type="range"
+                  min="140"
+                  max="360"
+                  value={bodyY}
+                  onChange={(e) => setBodyY(Number(e.target.value))}
+                  className="w-full h-1.5 bg-muted rounded-lg appearance-none cursor-pointer accent-primary"
+                />
+              </div>
+
+
+              {/* Body Color Picker */}
+              <div>
+                <span className="text-xs text-muted-foreground block mb-1.5">Body Text Color</span>
+                <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-1.5 flex-wrap">
+                    {COLOR_SWATCHES.map((swatch) => (
+                      <button
+                        key={swatch.value}
+                        type="button"
+                        onClick={() => setBodyColor(swatch.value)}
+                        style={{ backgroundColor: swatch.value }}
+                        className={`w-5 h-5 rounded-full border transition-transform ${bodyColor.toLowerCase() === swatch.value.toLowerCase()
+                            ? "scale-125 border-primary shadow-sm"
+                            : "border-border hover:scale-110"
+                          }`}
+                        title={swatch.label}
+                      />
+                    ))}
+                  </div>
+                  <input
+                    type="color"
+                    value={bodyColor}
+                    onChange={(e) => setBodyColor(e.target.value)}
+                    className="w-7 h-7 rounded-lg border border-border bg-transparent cursor-pointer ml-auto"
+                    title="Custom color"
+                  />
+                </div>
+              </div>
+            </div>
+
+            {/* Signature Block Controls */}
+            <div className="border border-border rounded-xl p-3.5 flex flex-col gap-3 bg-card">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-semibold text-foreground">
+                  Dynamic Signature Block
+                </span>
+                <label className="relative inline-flex items-center cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={showSignature}
+                    onChange={(e) => setShowSignature(e.target.checked)}
+                    className="sr-only peer"
+                  />
+                  <div className="w-9 h-5 bg-muted peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-border after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-primary"></div>
+                </label>
+              </div>
+
+              {showSignature && (
+                <div className="flex flex-col gap-3 pt-2 border-t border-border/60">
+                  {/* System Settings Source Card */}
+                  <div className="p-2.5 rounded-xl border border-border/80 bg-muted/40 text-xs flex flex-col gap-0.5">
+                    <div className="flex items-center justify-between text-muted-foreground mb-1 text-[10px] font-semibold uppercase tracking-wider">
+                      <span>From System Settings</span>
+                      <span className="text-primary/90 font-medium">Automatic</span>
+                    </div>
+                    <p className="font-semibold text-foreground tracking-wide break-words">
+                      {signatoryInfo?.signatory_name || "ABDULLAH ALSALMANI"}
+                    </p>
+                    <p className="text-[11px] text-muted-foreground break-words">
+                      {signatoryInfo?.signatory_title || "Co-Founder & CEO of SpacePoint"}
+                    </p>
+                  </div>
+
+                  {/* Placement: Vertical Position (Y) */}
+                  <div>
+                    <div className="flex items-center justify-between text-xs text-muted-foreground mb-1">
+                      <span>Vertical Position (from bottom)</span>
+                      <span className="font-mono text-foreground">{sigY} pt</span>
+                    </div>
+                    <input
+                      type="range"
+                      min="30"
+                      max="200"
+                      value={sigY}
+                      onChange={(e) => setSigY(Number(e.target.value))}
+                      className="w-full h-1.5 bg-muted rounded-lg appearance-none cursor-pointer accent-primary"
+                    />
+                  </div>
+
+                  {/* Placement: Horizontal Position (X) */}
+                  <div>
+                    <div className="flex items-center justify-between text-xs text-muted-foreground mb-1.5">
+                      <span>Horizontal Alignment</span>
+                      <div className="flex items-center gap-1 bg-muted/70 p-0.5 rounded-lg border border-border">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setIsCustomX(false)
+                            setSigX(null)
+                          }}
+                          className={`px-2 py-0.5 rounded-md text-[10px] font-medium transition-colors ${!isCustomX
+                              ? "bg-background text-foreground shadow-sm"
+                              : "text-muted-foreground hover:text-foreground"
+                            }`}
+                        >
+                          Centered
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setIsCustomX(true)
+                            if (sigX === null) setSigX(Math.round((842 - sigWidth) / 2))
+                          }}
+                          className={`px-2 py-0.5 rounded-md text-[10px] font-medium transition-colors ${isCustomX
+                              ? "bg-background text-foreground shadow-sm"
+                              : "text-muted-foreground hover:text-foreground"
+                            }`}
+                        >
+                          Custom X
+                        </button>
+                      </div>
+                    </div>
+                    {isCustomX && (
+                      <div className="mt-2">
+                        <div className="flex items-center justify-between text-[11px] text-muted-foreground mb-1">
+                          <span>Left Offset (X)</span>
+                          <span className="font-mono text-foreground">{sigX ?? 350} pt</span>
+                        </div>
+                        <input
+                          type="range"
+                          min="40"
+                          max="680"
+                          step="5"
+                          value={sigX ?? 350}
+                          onChange={(e) => setSigX(Number(e.target.value))}
+                          className="w-full h-1.5 bg-muted rounded-lg appearance-none cursor-pointer accent-primary"
+                        />
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Placement: Width */}
+                  <div>
+                    <div className="flex items-center justify-between text-xs text-muted-foreground mb-1">
+                      <span>Signature Width</span>
+                      <span className="font-mono text-foreground">{sigWidth} pt</span>
+                    </div>
+                    <input
+                      type="range"
+                      min="80"
+                      max="260"
+                      value={sigWidth}
+                      onChange={(e) => setSigWidth(Number(e.target.value))}
+                      className="w-full h-1.5 bg-muted rounded-lg appearance-none cursor-pointer accent-primary"
+                    />
+                  </div>
+                </div>
+              )}
+            </div>
+          </fieldset>
+
+          {/* Test Student Name Input */}
+          <div className="p-3 bg-muted/20 border border-border rounded-xl">
+            <label className="text-xs text-muted-foreground font-medium uppercase tracking-wider mb-1 block">
+              Live Test Student Name
+            </label>
+            <input
+              type="text"
+              value={testStudentName}
+              onChange={(e) => setTestStudentName(e.target.value)}
+              placeholder="Test student name (English or Arabic)"
+              className="w-full h-8 px-2.5 rounded-lg border border-border bg-background text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
+            />
+          </div>
+        </div>
+
+        {/* Canvas & Actions Column (8 cols) */}
+        <div className="lg:col-span-8 flex flex-col gap-4">
+          {/* Top Toolbar */}
+          <div className="flex items-center justify-between flex-wrap gap-2">
+            <span className="text-xs font-semibold text-foreground">
+              Certificate Preview
+            </span>
+
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={handleOpenPdfPreview}
+                disabled={isOpeningPreview}
+                className="flex items-center gap-1.5 h-8 px-3 rounded-xl border border-border bg-background hover:bg-muted text-xs font-medium text-foreground transition-colors disabled:opacity-50"
+                title="Render and open live PDF in a new browser tab"
+              >
+                <Eye size={13} className="text-primary" />
+                <span>{isOpeningPreview ? "Loading…" : "Preview PDF"}</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={handleDownloadTestPdf}
+                disabled={isPreviewDownloading}
+                className="flex items-center gap-1.5 h-8 px-3 rounded-xl border border-border bg-background hover:bg-muted text-xs font-medium text-foreground transition-colors disabled:opacity-50"
+                title="Generates and downloads pixel-perfect PDF using server ReportLab engine"
+              >
+                <FileDown size={13} className="text-primary" />
+                <span>{isPreviewDownloading ? "Generating…" : "Download PDF"}</span>
+              </button>
+            </div>
+          </div>
+
+          {/* WYSIWYG A4 Landscape Canvas Viewport (1:1 Actual, Left-start scrollable) */}
+          <div
+            className="w-full overflow-x-auto overflow-y-auto max-h-[72vh] rounded-2xl border-2 border-border/80 bg-slate-950/40 p-3 shadow-inner"
+          >
+            <div className="min-w-fit w-full flex justify-center items-start">
+              <div
+                ref={canvasRef}
+                className="relative shrink-0 rounded-xl border border-border/50 shadow-2xl overflow-hidden select-none bg-slate-950"
+                style={{
+                  width: "841.89px",
+                  height: "595.27px",
+                  minWidth: "841.89px",
+                  minHeight: "595.27px",
+                }}
+              >
                 {/* Template Background Image Layer */}
                 {effectiveBgUrl ? (
                   <img
@@ -1044,9 +1046,8 @@ export function ProgramCertificateStudioModal({ program, onClose, onUpdated, emb
                     }}
                   >
                     <img
-                      src={`${apiBaseUrl}/sessions/programs/stock-signature-image?theme=${
-                        backgroundType === "light" || activeTab === "stock_light" ? "light" : "dark"
-                      }`}
+                      src={`${apiBaseUrl}/sessions/programs/stock-signature-image?theme=${backgroundType === "light" || activeTab === "stock_light" ? "light" : "dark"
+                        }`}
                       alt="Signature"
                       className="w-full object-contain mb-1 pointer-events-none"
                       style={{
@@ -1083,21 +1084,21 @@ export function ProgramCertificateStudioModal({ program, onClose, onUpdated, emb
             </div>
           </div>
 
-            {/* Bottom Actions Row */}
-            {!embedded && onClose && (
-              <div className="flex items-center justify-end pt-2 border-t border-border mt-auto">
-                <button
-                  type="button"
-                  onClick={onClose}
-                  className="h-9 px-4 border border-border rounded-[10px] text-xs font-medium text-foreground hover:bg-muted transition-colors cursor-pointer"
-                >
-                  Close
-                </button>
-              </div>
-            )}
-          </div>
+          {/* Bottom Actions Row */}
+          {!embedded && onClose && (
+            <div className="flex items-center justify-end pt-2 border-t border-border mt-auto">
+              <button
+                type="button"
+                onClick={onClose}
+                className="h-9 px-4 border border-border rounded-[10px] text-xs font-medium text-foreground hover:bg-muted transition-colors cursor-pointer"
+              >
+                Close
+              </button>
+            </div>
+          )}
         </div>
       </div>
+    </div>
   )
 
   if (embedded) {
@@ -1111,7 +1112,7 @@ export function ProgramCertificateStudioModal({ program, onClose, onUpdated, emb
   return (
     <Modal
       title={`Certificate Templates: ${program.name}`}
-      onClose={onClose ?? (() => {})}
+      onClose={onClose ?? (() => { })}
       maxWidth="w-[98vw] max-w-[98vw] sm:w-full sm:max-w-7xl p-2.5 sm:p-6 max-h-[96vh] sm:max-h-[90vh]"
     >
       {content}

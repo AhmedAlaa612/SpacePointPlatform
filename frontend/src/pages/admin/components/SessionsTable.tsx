@@ -66,6 +66,10 @@ function SortHeader({ label, k, sortKey, sortDir, onSort }: {
 export function SessionsTable({
   cohortId, sessions, bulkMode, selectedSessionIds, onToggleSession,
   isOrgScope = false,
+  canEditSessions = true,
+  canMarkDone = true,
+  canEditDuration,
+  hideLogistics,
   sessionRouteTo = "/operations/cohorts/$cohortId/sessions/$sessionId",
 }: {
   cohortId: string
@@ -74,6 +78,10 @@ export function SessionsTable({
   selectedSessionIds: string[]
   onToggleSession: (id: string) => void
   isOrgScope?: boolean
+  canEditSessions?: boolean
+  canMarkDone?: boolean
+  canEditDuration?: boolean
+  hideLogistics?: boolean
   sessionRouteTo?: "/operations/cohorts/$cohortId/sessions/$sessionId" | "/organization/programs/$cohortId/sessions/$sessionId"
 }) {
   const navigate = useNavigate()
@@ -157,12 +165,12 @@ export function SessionsTable({
             <SortHeader label="Title" k="title" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
             <SortHeader label="Staffing" k="staffing" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
             <SortHeader label="State" k="status" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
-            {!isOrgScope && (
+            {!(hideLogistics ?? isOrgScope) && (
               <th className="px-3 py-2 text-left text-[11px] font-semibold text-muted-foreground uppercase tracking-wider whitespace-nowrap">
                 Kits
               </th>
             )}
-            <SortHeader label={isOrgScope ? "Location" : "Location / warehouse"} k="location" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
+            <SortHeader label={(hideLogistics ?? isOrgScope) ? "Location" : "Location / warehouse"} k="location" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
             <th className="w-24 px-2 py-2" />
           </tr>
         </thead>
@@ -235,14 +243,14 @@ export function SessionsTable({
                     </span>
                   )}
                 </td>
-                {!isOrgScope && (
+                {!(hideLogistics ?? isOrgScope) && (
                   <td className="px-3 py-2 text-xs text-muted-foreground">
                     {s.kits_count ? s.kits_count : "—"}
                   </td>
                 )}
                 <td className="px-3 py-2 text-xs text-foreground whitespace-nowrap">
                   {s.effective_location_name ?? "—"}
-                  {!isOrgScope && s.effective_warehouse_name ? (
+                  {!(hideLogistics ?? isOrgScope) && s.effective_warehouse_name ? (
                     <span className="text-muted-foreground">
                       {" · "}{s.effective_warehouse_name}
                     </span>
@@ -250,7 +258,7 @@ export function SessionsTable({
                 </td>
                 <td className="px-2 py-2 text-right whitespace-nowrap" onClick={(e) => e.stopPropagation()}>
                   <div className="flex items-center justify-end gap-1">
-                    {!s.completed_at && (
+                    {!s.completed_at && canMarkDone && (
                       <button
                         type="button"
                         onClick={() => setCompletingSession(s)}
@@ -260,22 +268,26 @@ export function SessionsTable({
                         <CheckCircle2 size={14} />
                       </button>
                     )}
-                    <button
-                      type="button"
-                      onClick={() => setEditingSession(s)}
-                      className="p-1.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
-                      title="Edit session details & title"
-                    >
-                      <Pencil size={14} />
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setDeletingSession(s)}
-                      className="p-1.5 rounded-lg text-muted-foreground hover:text-red-600 dark:hover:text-red-400 hover:bg-muted transition-colors"
-                      title="Delete session"
-                    >
-                      <Trash2 size={14} />
-                    </button>
+                    {canEditSessions && (
+                      <>
+                        <button
+                          type="button"
+                          onClick={() => setEditingSession(s)}
+                          className="p-1.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+                          title="Edit session details & title"
+                        >
+                          <Pencil size={14} />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setDeletingSession(s)}
+                          className="p-1.5 rounded-lg text-muted-foreground hover:text-red-600 dark:hover:text-red-400 hover:bg-muted transition-colors"
+                          title="Delete session"
+                        >
+                          <Trash2 size={14} />
+                        </button>
+                      </>
+                    )}
                   </div>
                 </td>
               </tr>
@@ -288,6 +300,8 @@ export function SessionsTable({
         <EditSessionModal
           cohortId={cohortId}
           session={editingSession}
+          canEditDuration={canEditDuration ?? canMarkDone}
+          hideLogistics={hideLogistics ?? isOrgScope}
           onClose={() => setEditingSession(null)}
         />
       )}

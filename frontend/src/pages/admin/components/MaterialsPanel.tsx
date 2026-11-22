@@ -27,13 +27,14 @@ import { MediaPreviewModal } from "@/components/media/MediaPreviewModal"
  * for one cohort, and it is the part people get wrong when reading the word
  * "override".
  */
-export function MaterialsPanel({ owner, inheritedNote: _inheritedNote, level }: {
+export function MaterialsPanel({ owner, inheritedNote: _inheritedNote, level, readOnly = false }: {
   owner: MaterialOwner
   /** e.g. "Sessions inherit these unless the cohort has its own." */
   inheritedNote?: string
   /** Where this level inherits FROM, for the shared badge. Omit at the
    *  program level — nothing sits above it to inherit from. */
   level?: "program" | "cohort"
+  readOnly?: boolean
 }) {
   const qc = useQueryClient()
   const toast = useToast()
@@ -132,11 +133,12 @@ export function MaterialsPanel({ owner, inheritedNote: _inheritedNote, level }: 
                 {/* Publish to instructors toggle */}
                 <button
                   type="button"
-                  onClick={() => togglePublish.mutate({ id: m.id, is_published: !m.is_published })}
-                  disabled={togglePublish.isPending}
-                  title={m.is_published ? "Click to set to internal only" : "Click to publish to instructors"}
+                  disabled={readOnly || togglePublish.isPending}
+                  onClick={() => !readOnly && togglePublish.mutate({ id: m.id, is_published: !m.is_published })}
+                  title={readOnly ? (m.is_published ? "Published to instructors" : "Internal only") : m.is_published ? "Click to set to internal only" : "Click to publish to instructors"}
                   className={cn(
                     "flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-medium transition-colors border",
+                    readOnly && "opacity-75 cursor-default",
                     m.is_published
                       ? "bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100 dark:bg-emerald-500/10 dark:text-emerald-400 dark:border-emerald-500/20"
                       : "bg-muted/80 text-muted-foreground border-border hover:bg-muted hover:text-foreground"
@@ -178,11 +180,13 @@ export function MaterialsPanel({ owner, inheritedNote: _inheritedNote, level }: 
                       View
                     </button>
                   )}
+                  {!readOnly && (
                   <button
                     onClick={() => remove.mutate(m.id)}
                     className="p-1 text-muted-foreground hover:text-red-600 shrink-0"
                     aria-label={`Remove ${m.title}`}
                   ><Trash2 size={14} /></button>
+                  )}
                 </div>
               </div>
             </div>
@@ -193,6 +197,7 @@ export function MaterialsPanel({ owner, inheritedNote: _inheritedNote, level }: 
         )}
       </div>
 
+      {!readOnly && (
       <div className="flex flex-col gap-2 pt-1">
         <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
           <input
@@ -238,6 +243,7 @@ export function MaterialsPanel({ owner, inheritedNote: _inheritedNote, level }: 
           </label>
         </div>
       </div>
+      )}
 
       {error && <p className="text-xs text-red-600 dark:text-red-400">{error}</p>}
 

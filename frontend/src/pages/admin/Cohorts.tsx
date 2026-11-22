@@ -77,6 +77,7 @@ export default function Cohorts() {
   const navigate = useNavigate()
   const [programFilter, setProgramFilter] = useState("")
   const [statusFilter, setStatusFilter] = useState<CohortStatus | "">("")
+  const [managementModeFilter, setManagementModeFilter] = useState<"spacepoint" | "partner" | "all">("spacepoint")
   const [search, setSearch] = useState("")
   const [showPast, setShowPast] = useState(false)
   const [editCohort, setEditCohort] = useState<Cohort | null>(null)
@@ -98,8 +99,12 @@ export default function Cohorts() {
 
   const { data: programs = [] } = useQuery<Program[]>({ queryKey: ["sessions-programs"], queryFn: getProgramsApi })
   const { data: rawCohorts = [], isLoading } = useQuery<Cohort[]>({
-    queryKey: ["sessions-cohorts", programFilter],
-    queryFn: () => getCohortsApi(programFilter || undefined),
+    queryKey: ["sessions-cohorts", programFilter, managementModeFilter],
+    queryFn: () =>
+      getCohortsApi({
+        ...(programFilter ? { program_id: programFilter } : {}),
+        management_mode: managementModeFilter,
+      }),
   })
   const cohorts = useMemo(
     () =>
@@ -116,7 +121,7 @@ export default function Cohorts() {
     const matching = cohorts.filter((c) => {
       if (statusFilter && c.status !== statusFilter) return false
       if (!q) return true
-      return [c.name, c.program_name, c.location_name, c.location].some(
+      return [c.name, c.program_name, c.location_name, c.location, c.organization_name].some(
         (v) => (v ?? "").toString().toLowerCase().includes(q),
       )
     })
@@ -174,6 +179,16 @@ export default function Cohorts() {
         >
           <option value="">Any status</option>
           {STATUS_OPTIONS.map((s) => <option key={s} value={s}>{COHORT_STATUS_LABEL[s]}</option>)}
+        </select>
+        <select
+          value={managementModeFilter}
+          onChange={(e) => setManagementModeFilter(e.target.value as "spacepoint" | "partner" | "all")}
+          aria-label="Management mode filter"
+          className="h-9 px-3 w-full sm:w-44 border border-border bg-card text-foreground rounded-xl text-sm focus:outline-none focus:border-primary transition-colors cursor-pointer"
+        >
+          <option value="spacepoint">SpacePoint-Run</option>
+          <option value="partner">Partner-Run</option>
+          <option value="all">All Modes</option>
         </select>
       </div>
 
@@ -264,6 +279,16 @@ function CohortRow({ cohort: c, onEdit, onDelete, deleting }: {
           <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${COHORT_STATUS_COLOR[c.status]}`}>
             {COHORT_STATUS_LABEL[c.status]}
           </span>
+          {c.organization_id && (
+            <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full bg-violet-500/15 text-violet-600 dark:text-violet-400">
+              Partner: {c.organization_name || "Organization"}
+            </span>
+          )}
+          {c.management_mode === "partner" && (
+            <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full bg-muted text-muted-foreground">
+              Partner-Run
+            </span>
+          )}
           {c.variation_name && (
             <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full bg-primary/10 text-primary">
               {c.variation_name}
@@ -349,14 +374,24 @@ function CohortRow({ cohort: c, onEdit, onDelete, deleting }: {
 /* Create/edit cohort modal — also reused by CohortDetail.tsx's "Edit"  */
 /* trigger, so this stays exported rather than duplicated.             */
 /* ================================================================== */
-export function CohortModal({ programs, cohort, onClose, onSuccess, initialProgramId }: {
-  programs: Program[]; cohort?: Cohort; onClose: () => void; onSuccess: () => void; initialProgramId?: string
+export function CohortModal({ programs, cohort, onClose, onSuccess, initialProgramId, organizationId, defaultManagementMode }: {
+  programs: Program[]
+  cohort?: Cohort
+  onClose: () => void
+  onSuccess: () => void
+  initialProgramId?: string
+  organizationId?: string | null
+  defaultManagementMode?: "spacepoint" | "partner"
 }) {
   const toast = useToast()
   const queryClient = useQueryClient()
   const { hasRole } = useAuth()
   const isEdit = !!cohort
   const [programId, setProgramId] = useState(cohort?.program_id ?? initialProgramId ?? "")
+  const [managementMode, setManagementMode] = useState<"spacepoint" | "partner">(
+    cohort?.management_mode ?? defaultManagementMode ?? "spacepoint",
+  )
+  const hideWarehouse = (cohort?.management_mode ?? managementMode) === "partner"
   const [name, setName] = useState(cohort?.name ?? "")
   const [startsOn, setStartsOn] = useState(cohort?.starts_on ?? "")
   const [endsOn, setEndsOn] = useState(cohort?.ends_on ?? "")
@@ -365,11 +400,12 @@ export function CohortModal({ programs, cohort, onClose, onSuccess, initialProgr
   const [capacity, setCapacity] = useState(cohort?.capacity != null ? String(cohort.capacity) : "")
   const [durationHours, setDurationHours] = useState(cohort?.duration_hours != null ? String(cohort.duration_hours) : "")
   const { data: locations = [] } = useQuery({ queryKey: ["inv-locations"], queryFn: () => getLocationsApi() })
-const { data: warehouses = [] } = useQuery({
+  const { data: warehouses = [] } = useQuery({
     queryKey: ["inv-warehouses"],
     queryFn: () => getWarehousesApi(),
+    enabled: !hideWarehouse,
   })
-  const [visibility, setVisibility] = useState<CohortVisibility>(cohort?.visibility ?? "public")
+  const [visibility, setVisibility] = useState<CohortVisibility>(cohort?.visibility ?? "private")
   const [status, setStatus] = useState<CohortStatus>(cohort?.status ?? "planned")
   const [notes, setNotes] = useState(cohort?.notes ?? "")
   const [posterTemplateUrl, setPosterTemplateUrl] = useState(cohort?.poster_template_url ?? "")
@@ -460,7 +496,7 @@ const { data: warehouses = [] } = useQuery({
           starts_on: startsOn || null,
           ends_on: endsOn || null,
           location_id: locationId || null,
-          warehouse_id: warehouseId || null,
+          warehouse_id: hideWarehouse ? undefined : (warehouseId || null),
           capacity: capacity.trim() ? Number(capacity) : null,
           duration_hours: durationHours.trim() ? Number(durationHours) : null,
           visibility,
@@ -477,9 +513,11 @@ const { data: warehouses = [] } = useQuery({
         starts_on: startsOn || undefined,
         ends_on: endsOn || undefined,
         location_id: locationId || undefined,
-        warehouse_id: warehouseId || undefined,
+        warehouse_id: hideWarehouse ? undefined : (warehouseId || undefined),
         capacity: capacity.trim() ? Number(capacity) : undefined,
         duration_hours: durationHours.trim() ? Number(durationHours) : undefined,
+        organization_id: organizationId || undefined,
+        management_mode: managementMode,
         visibility,
         notes: notes.trim() || undefined,
         poster_template_url: posterTemplateUrl.trim() || undefined,
@@ -505,6 +543,9 @@ const { data: warehouses = [] } = useQuery({
                 const prog = programs.find((p) => p.id === nextId)
                 if (prog) {
                   setKeepCourseAccessAfterCompletion(prog.keep_course_access_after_completion ?? true)
+                  if (!defaultManagementMode) {
+                    setManagementMode(prog.organization_id ? "partner" : "spacepoint")
+                  }
                 }
               }}
               className="w-full h-10 px-3 border border-border bg-card text-foreground rounded-xl text-sm focus:outline-none focus:border-primary transition-colors cursor-pointer"
@@ -626,7 +667,7 @@ const { data: warehouses = [] } = useQuery({
             </>
           )}
         </Field>
-        {locationId && (
+        {locationId && !hideWarehouse && (
           <Field label="Warehouse (optional)">
             <select
               value={warehouseId} onChange={(e) => setWarehouseId(e.target.value)}

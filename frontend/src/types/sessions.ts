@@ -34,6 +34,7 @@ export interface Program {
   default_assessment_config_id?: string | null;
   default_certificate_template_id?: string | null;
   default_team_certificate_template_id?: string | null;
+  organization_id?: string | null;
   keep_course_access_after_completion: boolean;
   created_at: string;
 }
@@ -184,6 +185,8 @@ export interface Cohort {
   madar_invitation_batch?: string | null;
   notes?: string | null;
   organization_id?: string | null;
+  organization_name?: string | null;
+  management_mode?: "spacepoint" | "partner";
   visibility: CohortVisibility;
   created_at: string;
   /** Ops-set once per cohort — the master poster template link a team's

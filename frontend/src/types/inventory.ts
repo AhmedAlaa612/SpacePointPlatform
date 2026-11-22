@@ -32,6 +32,7 @@ export interface Location {
    *  city_name is resolved by the backend. */
   city_id: string | null
   city_name: string | null
+  organization_id?: string | null
   created_at: string | null
 }
 

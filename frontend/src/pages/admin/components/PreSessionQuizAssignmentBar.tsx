@@ -10,6 +10,7 @@ import {
 } from "@/api/sessions/pre_session_quiz"
 import CohortReadinessQuiz from "@/pages/instructors/CohortReadinessQuiz"
 import { SessionPreQuizModal } from "@/pages/instructors/components/SessionPreQuizModal"
+import { CreateOrgReadinessModal } from "@/pages/admin/components/OrgCohortHelpers"
 import { useToast } from "@/components/ui/toast"
 import { getErrorMessage } from "@/lib/utils"
 
@@ -17,14 +18,19 @@ export function PreSessionQuizAssignmentBar({
   scope,
   ownerId,
   dayTitle,
+  readOnly = false,
+  isPartnerContext = false,
 }: {
   scope: PreQuizScope
   ownerId: string
   dayTitle?: string
+  readOnly?: boolean
+  isPartnerContext?: boolean
 }) {
   const qc = useQueryClient()
   const toast = useToast()
   const [previewOpen, setPreviewOpen] = useState(false)
+  const [createOpen, setCreateOpen] = useState(false)
 
   const { data: presets = [] } = useQuery({
     queryKey: ["pre-quiz-presets"],
@@ -92,13 +98,13 @@ export function PreSessionQuizAssignmentBar({
 
       <div className="flex items-center gap-2 flex-wrap w-full sm:w-auto">
         <select
-          disabled={isLoading || saveMut.isPending}
+          disabled={readOnly || isLoading || saveMut.isPending}
           value={assignment?.preset_id ?? ""}
           onChange={(e) => {
             const val = e.target.value
             saveMut.mutate({ preset_id: val ? val : null, clear_override: false })
           }}
-          className="h-8 px-2.5 rounded-lg border border-border bg-background text-xs font-medium text-foreground focus:outline-none focus:border-primary w-full sm:w-auto max-w-full sm:max-w-[260px]"
+          className="h-8 px-2.5 rounded-lg border border-border bg-background text-xs font-medium text-foreground focus:outline-none focus:border-primary w-full sm:w-auto max-w-full sm:max-w-[260px] disabled:opacity-60"
         >
           <option value="">None (No pre-session quiz)</option>
           {presets.map((p) => (
@@ -120,7 +126,7 @@ export function PreSessionQuizAssignmentBar({
             </button>
           )}
 
-          {assignment && !assignment.inherited && scope !== "programs" && (
+          {!readOnly && assignment && !assignment.inherited && scope !== "programs" && (
             <button
               type="button"
               disabled={saveMut.isPending}
@@ -132,14 +138,42 @@ export function PreSessionQuizAssignmentBar({
             </button>
           )}
 
-          <Link
-            to="/instructors/facilitator/quizzes"
-            className="flex-1 sm:flex-initial h-8 px-2.5 rounded-lg border border-border bg-card hover:bg-muted text-[11px] font-semibold text-primary inline-flex items-center justify-center shrink-0"
-          >
-            Quiz Bank
-          </Link>
+          {!readOnly && isPartnerContext && (
+            <button
+              type="button"
+              onClick={() => setCreateOpen(true)}
+              className="flex-1 sm:flex-initial h-8 px-2.5 rounded-lg border border-border bg-card hover:bg-muted text-[11px] font-semibold text-primary inline-flex items-center justify-center cursor-pointer shrink-0"
+            >
+              + Create Assessment
+            </button>
+          )}
+
+          {!isPartnerContext && (
+            <Link
+              to="/instructors/facilitator/quizzes"
+              className="flex-1 sm:flex-initial h-8 px-2.5 rounded-lg border border-border bg-card hover:bg-muted text-[11px] font-semibold text-primary inline-flex items-center justify-center shrink-0"
+            >
+              Quiz Bank
+            </Link>
+          )}
         </div>
       </div>
+
+      {createOpen && (
+        <CreateOrgReadinessModal
+          cohortId={scope === "cohorts" ? ownerId : undefined}
+          onClose={() => setCreateOpen(false)}
+          onCreated={(created) => {
+            qc.invalidateQueries({ queryKey: ["pre-quiz-presets"] })
+            qc.invalidateQueries({ queryKey: ["pre-quiz-assignment"] })
+            qc.invalidateQueries({ queryKey: ["pre-quiz-ops-status"] })
+            if (scope !== "cohorts") {
+              saveMut.mutate({ preset_id: created.id, clear_override: false })
+            }
+            setCreateOpen(false)
+          }}
+        />
+      )}
 
       {previewOpen && selectedPreset && (
         selectedPreset.phases && selectedPreset.phases.length > 0 ? (

@@ -539,6 +539,7 @@ async def copy_program_openings_to_cohort(
     cohort_id: uuid.UUID,
     actor_user_id: uuid.UUID,
     variation_id: uuid.UUID | None = None,
+    include_rates: bool = True,
 ) -> None:
     """Seed a brand-new cohort's `CohortOpening` rows from its variation (or program fallback) — once, at creation."""
     rows: list[ProgramOpening] = []
@@ -553,7 +554,9 @@ async def copy_program_openings_to_cohort(
     for row in rows:
         db.add(CohortOpening(
             id=uuid.uuid4(), cohort_id=cohort_id, role_id=row.role_id,
-            slots=row.slots, amount_aed=row.amount_aed, notes=row.notes,
+            slots=row.slots,
+            amount_aed=(row.amount_aed if include_rates else None),
+            notes=row.notes,
             responsibilities_override=row.responsibilities_override,
             created_by=actor_user_id,
         ))

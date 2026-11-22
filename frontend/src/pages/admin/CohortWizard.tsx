@@ -683,7 +683,7 @@ function BasicsStep({ programs, program, cohort, onSaved, onFormChange }: {
   const [posterTemplateUrl, setPosterTemplateUrl] = useState(
     cohort?.poster_template_url ?? program?.poster_template_url ?? ""
   )
-  const [visibility, setVisibility] = useState<CohortVisibility>(cohort?.visibility ?? "public")
+  const [visibility, setVisibility] = useState<CohortVisibility>(cohort?.visibility ?? "private")
   const [keepCourseAccessAfterCompletion, setKeepCourseAccessAfterCompletion] = useState(
     cohort?.keep_course_access_after_completion ?? program?.keep_course_access_after_completion ?? true,
   )

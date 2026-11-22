@@ -12,6 +12,7 @@ from app.core.dependencies import require_website_admin
 from app.core.security import get_password_hash
 from app.db.session import get_db
 from app.models.enums import UserRole
+from app.models.inventory.location import Location
 from app.models.instructors.invitation_code import InvitationCode
 from app.models.lms.cohort_quiz import (
     CohortQuizQuestion,
@@ -415,6 +416,9 @@ async def _serialize_org_summaries(db: AsyncSession, orgs: list[Organization]) -
     platform_course_count = await db.scalar(
         select(func.count(Course.id)).where(Course.organization_id.is_(None), Course.is_published == True)  # noqa: E712
     ) or 0
+    platform_program_count = await db.scalar(
+        select(func.count(Program.id)).where(Program.organization_id.is_(None), Program.active == True)  # noqa: E712
+    ) or 0
 
     # Quiz templates & questions authored by org
     qt_counts = dict(
@@ -511,7 +515,14 @@ async def _serialize_org_summaries(db: AsyncSession, orgs: list[Organization]) -
         allowed_courses = [str(c) for c in (o.allowed_course_ids or [])]
         allowed_quizzes = [str(q) for q in (o.allowed_quiz_template_ids or [])]
         allowed_readiness = [str(r) for r in (getattr(o, "allowed_readiness_preset_ids", None) or [])]
+        allowed_programs = [str(p) for p in (getattr(o, "allowed_program_ids", None) or [])]
+        prog_scope = (getattr(o, "program_scope", None) or "own").strip().lower()
         shared_cnt = platform_course_count if o.course_scope_all else len(_safe_uuids(allowed_courses))
+        shared_prog_cnt = (
+            platform_program_count
+            if prog_scope == "all"
+            else (len(_safe_uuids(allowed_programs)) if prog_scope == "selected" else 0)
+        )
 
         out.append(
             {
@@ -543,6 +554,7 @@ async def _serialize_org_summaries(db: AsyncSession, orgs: list[Organization]) -
                 "authored_courses_count": authored_counts.get(o.id, 0),
                 "pending_review_courses_count": pending_review_counts.get(o.id, 0),
                 "shared_courses_count": shared_cnt,
+                "shared_programs_count": shared_prog_cnt,
                 "invite_batches_active_count": invite_active_counts.get(o.id, 0),
                 "invite_used_count": invite_used_totals.get(o.id, 0),
                 "invite_max_count": invite_max_totals.get(o.id, 0),
@@ -558,6 +570,8 @@ async def _serialize_org_summaries(db: AsyncSession, orgs: list[Organization]) -
                 "allowed_quiz_template_ids": allowed_quizzes,
                 "readiness_scope": getattr(o, "readiness_scope", None) or "own",
                 "allowed_readiness_preset_ids": allowed_readiness,
+                "program_scope": prog_scope,
+                "allowed_program_ids": allowed_programs,
                 "max_events": o.max_events,
                 "max_programs": o.max_programs,
                 "max_cohorts": o.max_cohorts,
@@ -681,8 +695,11 @@ async def admin_get_organization_detail(
         programs_out.append(
             {
                 "id": p.id,
+                "code": p.code,
                 "name": p.name,
                 "program_type": p.program_type,
+                "description": p.description,
+                "is_org_owned": (p.organization_id == org.id),
                 "active": p.active,
                 "lms_program_id": lp.id if lp else None,
                 "checklist_name": lp.name if lp else None,
@@ -827,6 +844,14 @@ async def admin_get_organization_detail(
         for cid, pct_list in pcts_by_cohort.items():
             cohort_avg_completion[cid] = round(sum(pct_list) / len(pct_list)) if pct_list else 0
 
+    cohort_loc_ids = {c.location_id for c, _ in owned_cohort_pairs if c.location_id is not None}
+    loc_name_map: dict[UUID, str] = {}
+    if cohort_loc_ids:
+        loc_name_map = {
+            loc.id: loc.name
+            for loc in (await db.execute(select(Location).where(Location.id.in_(cohort_loc_ids)))).scalars().all()
+        }
+
     cohorts_out = [
         {
             "id": c.id,
@@ -834,6 +859,9 @@ async def admin_get_organization_detail(
             "program_name": p.name,
             "name": c.name,
             "status": c.status,
+            "management_mode": getattr(c, "management_mode", "spacepoint") or "spacepoint",
+            "location_id": c.location_id,
+            "location_name": loc_name_map.get(c.location_id) if c.location_id else None,
             "starts_on": c.starts_on.isoformat() if c.starts_on else None,
             "ends_on": c.ends_on.isoformat() if c.ends_on else None,
             "enrolled_count": reg_counts.get(c.id, 0),
@@ -1094,6 +1122,37 @@ async def admin_get_organization_detail(
         for c in shared_rows
     ]
 
+    shared_prog_rows: list[Program] = []
+    org_prog_scope = (getattr(org, "program_scope", None) or "own").strip().lower()
+    if org_prog_scope == "all":
+        shared_prog_rows = (
+            await db.execute(
+                select(Program)
+                .where(Program.organization_id.is_(None), Program.active == True)  # noqa: E712
+                .order_by(Program.name.asc())
+            )
+        ).scalars().all()
+    elif org_prog_scope == "selected":
+        allowed_prog_uuids = _safe_uuids([str(x) for x in (getattr(org, "allowed_program_ids", None) or [])])
+        if allowed_prog_uuids:
+            shared_prog_rows = (
+                await db.execute(
+                    select(Program)
+                    .where(Program.organization_id.is_(None), Program.id.in_(allowed_prog_uuids))
+                    .order_by(Program.name.asc())
+                )
+            ).scalars().all()
+    shared_programs_out = [
+        {
+            "id": sp.id,
+            "code": sp.code,
+            "name": sp.name,
+            "program_type": sp.program_type,
+            "active": bool(sp.active),
+        }
+        for sp in shared_prog_rows
+    ]
+
     # Org Quiz Templates
     qt_rows = (
         await db.execute(
@@ -1215,6 +1274,7 @@ async def admin_get_organization_detail(
         "students": students_out,
         "authored_courses": authored_courses_out,
         "shared_courses": shared_courses_out,
+        "shared_programs": shared_programs_out,
         "quiz_templates": quiz_templates_out,
         "landing_pages": landing_pages_out,
         "team": team_out,
@@ -1267,6 +1327,10 @@ async def admin_create_organization_account(
         await db.flush()
         await ensure_card_number(db, user)
 
+    prog_scope = (body.program_scope or "own").strip().lower()
+    if prog_scope not in ("own", "selected", "all"):
+        raise HTTPException(status_code=422, detail="Invalid program_scope; must be own, selected, or all")
+
     org = Organization(
         name_latin=body.org_name_latin.strip(),
         name_arabic=(body.org_name_arabic or "").strip() or None,
@@ -1285,6 +1349,8 @@ async def admin_create_organization_account(
         allowed_quiz_template_ids=body.allowed_quiz_template_ids,
         readiness_scope=(body.readiness_scope or "own").strip().lower(),
         allowed_readiness_preset_ids=body.allowed_readiness_preset_ids,
+        program_scope=prog_scope,
+        allowed_program_ids=list(body.allowed_program_ids or []),
         max_events=body.max_events,
         max_programs=body.max_programs,
         max_cohorts=body.max_cohorts,
@@ -1362,6 +1428,13 @@ async def admin_update_organization_account(
         org.readiness_scope = payload.readiness_scope.strip().lower()
     if payload.allowed_readiness_preset_ids is not None:
         org.allowed_readiness_preset_ids = payload.allowed_readiness_preset_ids
+    if payload.program_scope is not None and payload.program_scope.strip():
+        prog_scope = payload.program_scope.strip().lower()
+        if prog_scope not in ("own", "selected", "all"):
+            raise HTTPException(status_code=422, detail="Invalid program_scope; must be own, selected, or all")
+        org.program_scope = prog_scope
+    if payload.allowed_program_ids is not None:
+        org.allowed_program_ids = payload.allowed_program_ids
     if "max_events" in body:
         org.max_events = payload.max_events
     if "max_programs" in body:

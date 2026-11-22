@@ -5,8 +5,12 @@ import { Link } from "@tanstack/react-router"
 import {
   CheckCircle2, ClipboardCheck, Clock, ExternalLink, Eye, Pencil, Plus, Trash2, UserPlus, X,
 } from "lucide-react"
-import type { Cohort } from "@/types/sessions"
+import type { Cohort, CohortStatus } from "@/types/sessions"
+import type { Location } from "@/types/inventory"
 import { updateCohortApi } from "@/api/sessions/cohorts"
+import { getLocationsApi } from "@/api/inventory"
+import { getDeliveryRolesApi, type DeliveryRole } from "@/api/sessions/openings"
+import { QuickCreateLocationModal } from "@/pages/admin/components/QuickCreateLocationModal"
 import { getOrganizationTeamApi, memberOrgRoles, type OrgTeamMember } from "@/api/websiteEvents"
 import {
   assignOrgInstructor,
@@ -17,6 +21,7 @@ import {
   getOrgReadinessPresets,
   setOrgCohortReadiness,
   unassignOrgInstructor,
+  updateOrgCohortInstructorRoleApi,
   type OrgCohortReadiness,
   type OrgCohortStaff,
   type OrgInstructorReadiness,
@@ -62,19 +67,32 @@ function ReadinessBadge({ readiness }: { readiness: OrgInstructorReadiness | nul
 export function OrgCohortStaffingSection({
   cohortId,
   onChanged,
+  readOnly = false,
+  isSpacePointManaged = false,
 }: {
   cohortId: string
   onChanged?: () => void
+  readOnly?: boolean
+  isSpacePointManaged?: boolean
 }) {
   const qc = useQueryClient()
   const toast = useToast()
   const [instructorId, setInstructorId] = useState("")
+  const [roleId, setRoleId] = useState("")
+  const canEditStaffing = !readOnly && !isSpacePointManaged
 
   const { data: team = [] } = useQuery<OrgTeamMember[]>({
     queryKey: ["org-team-members", cohortId],
     queryFn: () => getOrganizationTeamApi({ cohort_id: cohortId }),
-    enabled: Boolean(cohortId),
+    enabled: Boolean(cohortId) && canEditStaffing,
   })
+
+  const { data: deliveryRoles = [] } = useQuery<DeliveryRole[]>({
+    queryKey: ["delivery-roles"],
+    queryFn: () => getDeliveryRolesApi(),
+    enabled: Boolean(cohortId) && canEditStaffing,
+  })
+  const activeRoles = deliveryRoles.filter((r) => r.is_active)
 
   const { data: staff, isLoading } = useQuery<OrgCohortStaff>({
     queryKey: ["org-cohort-staff", cohortId],
@@ -89,7 +107,11 @@ export function OrgCohortStaffingSection({
   }
 
   const assignMut = useMutation({
-    mutationFn: (userId: string) => assignOrgInstructor(cohortId, { user_id: userId }),
+    mutationFn: (userId: string) =>
+      assignOrgInstructor(cohortId, {
+        user_id: userId,
+        ...(roleId ? { role_id: roleId } : {}),
+      }),
     onSuccess: (res) => {
       toast.success(
         res.assigned > 0
@@ -97,9 +119,20 @@ export function OrgCohortStaffingSection({
           : "Instructor is already assigned to all sessions"
       )
       setInstructorId("")
+      setRoleId("")
       invalidate()
     },
     onError: (err) => toast.error(getErrorMessage(err, "Failed to assign instructor")),
+  })
+
+  const roleMut = useMutation({
+    mutationFn: ({ userId, nextRoleId }: { userId: string; nextRoleId: string | null }) =>
+      updateOrgCohortInstructorRoleApi(cohortId, userId, nextRoleId),
+    onSuccess: () => {
+      toast.success("Instructor role updated")
+      invalidate()
+    },
+    onError: (err) => toast.error(getErrorMessage(err, "Failed to update role")),
   })
 
   const unassignMut = useMutation({
@@ -121,33 +154,59 @@ export function OrgCohortStaffingSection({
         <div>
           <h3 className="font-semibold text-sm text-foreground">Cohort Instructors</h3>
           <p className="text-xs text-muted-foreground">
-            Assign an instructor from your organization team to all sessions in this cohort, or open an individual session to staff it separately.
+            {isSpacePointManaged
+              ? "Instructors for this cohort are staffed and delivered by SpacePoint."
+              : readOnly
+                ? "Instructors assigned to this cohort."
+                : "Assign an instructor and role from your organization team to all sessions in this cohort, or open an individual session to staff it separately."}
           </p>
         </div>
-        <div className="flex items-center gap-2 shrink-0">
-          <select
-            value={instructorId}
-            onChange={(e) => setInstructorId(e.target.value)}
-            className="h-9 px-3 rounded-xl border border-border bg-background text-xs text-foreground focus:outline-none focus:border-primary"
-          >
-            <option value="">Choose instructor…</option>
-            {candidates.map((m) => (
-              <option key={m.id} value={m.id}>
-                {m.full_name}
-              </option>
-            ))}
-          </select>
-          <Button
-            size="sm"
-            disabled={!instructorId || assignMut.isPending}
-            onClick={() => assignMut.mutate(instructorId)}
-          >
-            <UserPlus className="size-3.5" /> Assign to cohort
-          </Button>
-        </div>
+        {isSpacePointManaged && (
+          <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-semibold bg-primary/15 text-primary border border-primary/25 shrink-0">
+            Staffed &amp; delivered by SpacePoint
+          </span>
+        )}
+        {canEditStaffing && (
+          <div className="flex flex-wrap items-center gap-2 shrink-0">
+            <select
+              value={instructorId}
+              onChange={(e) => setInstructorId(e.target.value)}
+              className="h-9 px-3 rounded-xl border border-border bg-background text-xs text-foreground focus:outline-none focus:border-primary"
+            >
+              <option value="">Choose instructor…</option>
+              {candidates.map((m) => (
+                <option key={m.id} value={m.id}>
+                  {m.full_name}
+                </option>
+              ))}
+            </select>
+            {activeRoles.length > 0 && (
+              <select
+                value={roleId}
+                onChange={(e) => setRoleId(e.target.value)}
+                aria-label="Instructor role"
+                className="h-9 px-3 rounded-xl border border-border bg-background text-xs text-foreground focus:outline-none focus:border-primary"
+              >
+                <option value="">Default role</option>
+                {activeRoles.map((r) => (
+                  <option key={r.id} value={r.id}>
+                    {r.name}
+                  </option>
+                ))}
+              </select>
+            )}
+            <Button
+              size="sm"
+              disabled={!instructorId || assignMut.isPending}
+              onClick={() => assignMut.mutate(instructorId)}
+            >
+              <UserPlus className="size-3.5" /> Assign to cohort
+            </Button>
+          </div>
+        )}
       </div>
 
-      {candidates.length === 0 && instructors.length === 0 && (
+      {canEditStaffing && candidates.length === 0 && instructors.length === 0 && (
         <p className="text-xs text-muted-foreground mb-3">
           No team members have the Instructor role yet.{" "}
           <Link to="/organization/team" className="font-semibold text-primary hover:underline">
@@ -167,10 +226,11 @@ export function OrgCohortStaffingSection({
             <thead>
               <tr className="text-left text-[11px] uppercase tracking-wide text-muted-foreground border-b border-border">
                 <th className="py-2 pr-3">Instructor</th>
+                <th className="py-2 pr-3">Role</th>
                 <th className="py-2 pr-3">Sessions</th>
                 <th className="py-2 pr-3">Attendance</th>
                 <th className="py-2 pr-3">Readiness</th>
-                <th className="py-2 pr-3 text-right">Actions</th>
+                {canEditStaffing && <th className="py-2 pr-3 text-right">Actions</th>}
               </tr>
             </thead>
             <tbody>
@@ -178,7 +238,34 @@ export function OrgCohortStaffingSection({
                 <tr key={ins.user_id} className="border-b border-border/60">
                   <td className="py-2 pr-3">
                     <span className="font-medium text-foreground block">{ins.full_name}</span>
-                    <span className="text-[11px] text-muted-foreground">{ins.email}</span>
+                    {ins.email && <span className="text-[11px] text-muted-foreground">{ins.email}</span>}
+                  </td>
+                  <td className="py-2 pr-3 whitespace-nowrap">
+                    {canEditStaffing ? (
+                      <select
+                        value={ins.role_id ?? ""}
+                        disabled={roleMut.isPending}
+                        onChange={(e) =>
+                          roleMut.mutate({
+                            userId: ins.user_id,
+                            nextRoleId: e.target.value || null,
+                          })
+                        }
+                        aria-label={`Role for ${ins.full_name}`}
+                        className="h-7 px-2 rounded-lg border border-border bg-background text-xs text-foreground focus:outline-none focus:border-primary"
+                      >
+                        <option value="">— Unspecified —</option>
+                        {activeRoles.map((r) => (
+                          <option key={r.id} value={r.id}>
+                            {r.name}
+                          </option>
+                        ))}
+                      </select>
+                    ) : (
+                      <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-muted text-foreground">
+                        {ins.role_name || "Instructor"}
+                      </span>
+                    )}
                   </td>
                   <td className="py-2 pr-3 whitespace-nowrap text-muted-foreground">
                     {ins.completed_sessions} / {ins.sessions_count} completed
@@ -193,20 +280,22 @@ export function OrgCohortStaffingSection({
                   <td className="py-2 pr-3">
                     <ReadinessBadge readiness={ins.readiness} />
                   </td>
-                  <td className="py-2 pr-3 text-right whitespace-nowrap">
-                    <Button
-                      size="xs"
-                      variant="outline"
-                      disabled={unassignMut.isPending}
-                      onClick={() => {
-                        if (window.confirm(`Remove ${ins.full_name} from all sessions in this cohort?`)) {
-                          unassignMut.mutate(ins.user_id)
-                        }
-                      }}
-                    >
-                      <Trash2 className="size-3" /> Unassign
-                    </Button>
-                  </td>
+                  {canEditStaffing && (
+                    <td className="py-2 pr-3 text-right whitespace-nowrap">
+                      <Button
+                        size="xs"
+                        variant="outline"
+                        disabled={unassignMut.isPending}
+                        onClick={() => {
+                          if (window.confirm(`Remove ${ins.full_name} from all sessions in this cohort?`)) {
+                            unassignMut.mutate(ins.user_id)
+                          }
+                        }}
+                      >
+                        <Trash2 className="size-3" /> Unassign
+                      </Button>
+                    </td>
+                  )}
                 </tr>
               ))}
             </tbody>
@@ -408,12 +497,12 @@ export function OrgCohortReadinessSection({ cohortId }: { cohortId: string }) {
   )
 }
 
-function CreateOrgReadinessModal({
+export function CreateOrgReadinessModal({
   cohortId,
   onClose,
   onCreated,
 }: {
-  cohortId: string
+  cohortId?: string
   onClose: () => void
   onCreated: (preset: OrgReadinessPreset) => void
 }) {
@@ -439,11 +528,15 @@ function CreateOrgReadinessModal({
         name: name.trim(),
         description: description.trim() || null,
         passing_score_percent: passingScore,
-        cohort_id: cohortId,
+        ...(cohortId ? { cohort_id: cohortId } : {}),
         questions,
       }),
     onSuccess: (preset) => {
-      toast.success(`Created "${preset.name}" and assigned it to this cohort`)
+      toast.success(
+        cohortId
+          ? `Created "${preset.name}" and assigned it to this cohort`
+          : `Created "${preset.name}"`,
+      )
       onCreated(preset)
     },
     onError: (err) => toast.error(getErrorMessage(err, "Failed to create assessment")),
@@ -638,7 +731,7 @@ function CreateOrgReadinessModal({
   )
 }
 
-export function OrgObserversSection({ cohortId }: { cohortId: string }) {
+export function OrgObserversSection({ cohortId, readOnly = false }: { cohortId: string; readOnly?: boolean }) {
   const qc = useQueryClient()
   const toast = useToast()
   const [addOpen, setAddOpen] = useState(false)
@@ -653,7 +746,7 @@ export function OrgObserversSection({ cohortId }: { cohortId: string }) {
   const { data: team = [], isLoading: teamLoading } = useQuery<OrgTeamMember[]>({
     queryKey: ["org-team-members", cohortId],
     queryFn: () => getOrganizationTeamApi({ cohort_id: cohortId }),
-    enabled: addOpen,
+    enabled: !readOnly && addOpen,
   })
 
   const addMut = useMutation({
@@ -685,13 +778,15 @@ export function OrgObserversSection({ cohortId }: { cohortId: string }) {
         <p className="text-sm font-semibold text-foreground">
           Observers{observers.length > 0 ? ` (${observers.length})` : ""}
         </p>
-        <button
-          type="button"
-          onClick={() => setAddOpen(true)}
-          className="flex items-center gap-1.5 h-8 px-3 text-xs font-medium bg-[#653F84] text-white rounded-[10px] hover:opacity-90 transition-opacity cursor-pointer"
-        >
-          <Plus size={13} /> Add observer
-        </button>
+        {!readOnly && (
+          <button
+            type="button"
+            onClick={() => setAddOpen(true)}
+            className="flex items-center gap-1.5 h-8 px-3 text-xs font-medium bg-[#653F84] text-white rounded-[10px] hover:opacity-90 transition-opacity cursor-pointer"
+          >
+            <Plus size={13} /> Add observer
+          </button>
+        )}
       </div>
 
       {isLoading ? (
@@ -714,7 +809,7 @@ export function OrgObserversSection({ cohortId }: { cohortId: string }) {
                   <th className="py-3 px-4">Email</th>
                   <th className="py-3 px-4">Phone</th>
                   <th className="py-3 px-4">Assigned On</th>
-                  <th className="py-3 px-4 text-right">Actions</th>
+                  {!readOnly && <th className="py-3 px-4 text-right">Actions</th>}
                 </tr>
               </thead>
               <tbody className="divide-y divide-border">
@@ -731,19 +826,21 @@ export function OrgObserversSection({ cohortId }: { cohortId: string }) {
                     <td className="py-3 px-4 text-muted-foreground">
                       {obs.assigned_at ? new Date(obs.assigned_at).toLocaleDateString() : "—"}
                     </td>
-                    <td className="py-3 px-4 text-right">
-                      <button
-                        type="button"
-                        onClick={() => {
-                          if (window.confirm(`Remove ${obs.full_name} from cohort observers?`)) {
-                            removeMut.mutate(obs.user_id)
-                          }
-                        }}
-                        className="inline-flex items-center gap-1 text-xs text-destructive hover:underline"
-                      >
-                        <Trash2 className="w-3.5 h-3.5" /> Unassign
-                      </button>
-                    </td>
+                    {!readOnly && (
+                      <td className="py-3 px-4 text-right">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (window.confirm(`Remove ${obs.full_name} from cohort observers?`)) {
+                              removeMut.mutate(obs.user_id)
+                            }
+                          }}
+                          className="inline-flex items-center gap-1 text-xs text-destructive hover:underline"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" /> Unassign
+                        </button>
+                      </td>
+                    )}
                   </tr>
                 ))}
               </tbody>
@@ -752,7 +849,7 @@ export function OrgObserversSection({ cohortId }: { cohortId: string }) {
         </div>
       )}
 
-      {addOpen && (
+      {!readOnly && addOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-background/80 backdrop-blur-sm">
           <div className="w-full max-w-md rounded-2xl border border-border bg-card p-6 shadow-2xl flex flex-col gap-4">
             <div className="flex items-center justify-between border-b border-border pb-3">
@@ -835,6 +932,13 @@ export function OrgObserversSection({ cohortId }: { cohortId: string }) {
   )
 }
 
+const ORG_EDITABLE_STATUSES: { value: CohortStatus; label: string }[] = [
+  { value: "planned", label: "Planned" },
+  { value: "registration_open", label: "Registration open" },
+  { value: "running", label: "Running" },
+  { value: "cancelled", label: "Cancelled" },
+]
+
 export function OrgEditCohortModal({
   cohort,
   onClose,
@@ -844,31 +948,49 @@ export function OrgEditCohortModal({
   onClose: () => void
   onSaved: () => void
 }) {
+  const qc = useQueryClient()
   const toast = useToast()
+  const isPartnerManaged = cohort.management_mode !== "spacepoint"
   const [name, setName] = useState(cohort.name || "")
   const [startsOn, setStartsOn] = useState(cohort.starts_on || "")
   const [endsOn, setEndsOn] = useState(cohort.ends_on || "")
-  const [location, setLocation] = useState(cohort.location || "")
+  const [locationId, setLocationId] = useState(cohort.location_id || "")
+  const [locationQuickOpen, setLocationQuickOpen] = useState(false)
+  const [status, setStatus] = useState<CohortStatus>(cohort.status)
+  const [durationHours, setDurationHours] = useState(
+    cohort.duration_hours != null ? String(cohort.duration_hours) : "",
+  )
   const [capacity, setCapacity] = useState(cohort.capacity != null ? String(cohort.capacity) : "")
   const [checklistTitleOverride, setChecklistTitleOverride] = useState(cohort.checklist_title_override || "")
   const [isPublic, setIsPublic] = useState(cohort.visibility === "public")
 
+  const { data: locations = [] } = useQuery<Location[]>({
+    queryKey: ["locations", false],
+    queryFn: () => getLocationsApi(false),
+    staleTime: 60_000,
+  })
+
   const numericCap = capacity ? Number(capacity) : null
   const capacityQuotaExceeded = Boolean(
-    cohort.org_capacity_limit != null && numericCap != null && numericCap > cohort.org_capacity_limit
+    isPartnerManaged && cohort.org_capacity_limit != null && numericCap != null && numericCap > cohort.org_capacity_limit
   )
 
   const mut = useMutation({
-    mutationFn: () =>
-      updateCohortApi(cohort.id, {
+    mutationFn: () => {
+      const selectedLoc = locations.find((l) => l.id === locationId)
+      return updateCohortApi(cohort.id, {
         name: name.trim(),
         starts_on: startsOn || null,
         ends_on: endsOn || null,
-        location: location.trim() || null,
+        location_id: locationId || null,
+        location: selectedLoc ? selectedLoc.name : (locationId && cohort.location ? cohort.location : null),
+        ...(isPartnerManaged && cohort.status !== "completed" && status !== cohort.status ? { status } : {}),
+        ...(isPartnerManaged ? { duration_hours: durationHours ? Number(durationHours) : null } : {}),
         capacity: numericCap,
         checklist_title_override: checklistTitleOverride.trim() || null,
         visibility: isPublic ? "public" : "private",
-      }),
+      })
+    },
     onSuccess: () => {
       toast.success("Cohort details updated")
       onSaved()
@@ -887,7 +1009,7 @@ export function OrgEditCohortModal({
             </div>
             <div>
               <h2 className="text-base font-bold text-foreground">Edit Cohort Details</h2>
-              <p className="text-xs text-muted-foreground">Update cohort timing, capacity, and visibility settings</p>
+              <p className="text-xs text-muted-foreground">Update cohort timing, location, capacity, and visibility</p>
             </div>
           </div>
           <button
@@ -932,16 +1054,35 @@ export function OrgEditCohortModal({
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <label className="flex flex-col gap-1">
-              <span className="text-xs font-semibold text-muted-foreground">Location</span>
-              <input
-                type="text"
-                value={location}
-                onChange={(e) => setLocation(e.target.value)}
-                placeholder="e.g. Innovation Center, Lab 3"
+            <div className="flex flex-col gap-1">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-semibold text-muted-foreground">Location</span>
+                <button
+                  type="button"
+                  onClick={() => setLocationQuickOpen(true)}
+                  className="text-[11px] font-semibold text-primary hover:underline cursor-pointer"
+                >
+                  + New location
+                </button>
+              </div>
+              <select
+                value={locationId}
+                onChange={(e) => setLocationId(e.target.value)}
                 className="h-9 px-3 rounded-xl border border-border bg-background text-sm focus:outline-none focus:border-primary"
-              />
-            </label>
+              >
+                <option value="">— Select location —</option>
+                {cohort.location_id && !locations.some((l) => l.id === cohort.location_id) && (
+                  <option value={cohort.location_id}>
+                    {cohort.location_name || cohort.location || "Assigned venue"}
+                  </option>
+                )}
+                {locations.map((loc) => (
+                  <option key={loc.id} value={loc.id}>
+                    {loc.name}
+                  </option>
+                ))}
+              </select>
+            </div>
             <label className="flex flex-col gap-1">
               <span className="text-xs font-semibold text-muted-foreground">Capacity (Students)</span>
               <input
@@ -959,6 +1100,39 @@ export function OrgEditCohortModal({
               )}
             </label>
           </div>
+
+          {isPartnerManaged && (
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <label className="flex flex-col gap-1">
+                <span className="text-xs font-semibold text-muted-foreground">Status</span>
+                <select
+                  value={status}
+                  disabled={cohort.status === "completed"}
+                  onChange={(e) => setStatus(e.target.value as CohortStatus)}
+                  className="h-9 px-3 rounded-xl border border-border bg-background text-sm focus:outline-none focus:border-primary disabled:opacity-60"
+                >
+                  {cohort.status === "completed" && <option value="completed">Completed</option>}
+                  {ORG_EDITABLE_STATUSES.map((opt) => (
+                    <option key={opt.value} value={opt.value}>
+                      {opt.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="flex flex-col gap-1">
+                <span className="text-xs font-semibold text-muted-foreground">Session Duration (hours)</span>
+                <input
+                  type="number"
+                  min={0.5}
+                  step={0.5}
+                  value={durationHours}
+                  onChange={(e) => setDurationHours(e.target.value)}
+                  placeholder="e.g. 2"
+                  className="h-9 px-3 rounded-xl border border-border bg-background text-sm focus:outline-none focus:border-primary"
+                />
+              </label>
+            </div>
+          )}
 
           <label className="flex flex-col gap-1">
             <span className="text-xs font-semibold text-muted-foreground">
@@ -1009,6 +1183,16 @@ export function OrgEditCohortModal({
           </button>
         </div>
       </div>
+
+      {locationQuickOpen && (
+        <QuickCreateLocationModal
+          onClose={() => setLocationQuickOpen(false)}
+          onCreated={(loc) => {
+            void qc.invalidateQueries({ queryKey: ["locations"] })
+            setLocationId(loc.id)
+          }}
+        />
+      )}
     </div>
   )
 }

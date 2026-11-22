@@ -8,13 +8,14 @@ from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, EmailStr, Field
-from sqlalchemy import delete as sa_delete, func, or_, select
+from sqlalchemy import and_, delete as sa_delete, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.dependencies import require_organization_account
 from app.db.session import get_db
 from app.models.competitions.judging import CompetitionJudge
 from app.models.enums import UserRole
+from app.models.inventory.location import Location
 from app.models.lms.program import LmsProgram, LmsProgramAssignment, LmsProgramCohortOverride, LmsProgramItem
 from app.models.sessions.attendance import AttendanceRecord
 from app.models.sessions.cohort import Cohort
@@ -25,6 +26,7 @@ from app.models.sessions.pre_session_quiz import (
     PreSessionQuizPreset,
 )
 from app.models.sessions.program import Program
+from app.models.sessions.program_variation import ProgramVariation
 from app.models.sessions.registration import Registration
 from app.models.sessions.session import Session, SessionInstructor
 from app.models.spine.contact import Contact
@@ -35,11 +37,24 @@ from app.models.website_event import WebsiteEvent
 from app.services.lms.ops_integration import deactivate_registration_enrollments, sync_registration_lms
 from app.services.lms.program import team_for_cohort_member
 from app.services.org_access import (
+    can_manage_cohort_delivery,
+    can_org_use_shared_program,
+    can_read_cohort,
+    cohort_organization_id,
     effective_org_role,
+    effective_org_roles,
     global_roles_for_org_role,
     has_org_role,
+    is_ops_or_admin,
+    is_partner_managed,
+    is_program_allowed_for_org,
+    is_spacepoint_managed,
+    require_cohort_delivery_manager_or_ops,
     require_org_manager,
+    resolve_target_org_for_actor,
 )
+from app.services.sessions import variations as var_svc
+from app.services.sessions.cohort_seeding import seed_cohort_from_program
 from app.services.sessions.registration import ACTIVE_REGISTRATION_STATUSES, register
 from app.services.spine.identity import normalize_user_email, resolve_or_create_contact
 from app.services.website_events import resolve_user_organization
@@ -59,21 +74,31 @@ def _ensure_org_approved(org: Organization, current_user: User):
         )
 
 
-async def _get_org_or_400(db: AsyncSession, current_user: User) -> Organization:
-    org = await resolve_user_organization(db, current_user)
-    if org is None:
-        if _is_admin_or_ops(current_user):
+async def _get_org_or_400(
+    db: AsyncSession,
+    current_user: User,
+    organization_id: uuid.UUID | None = None,
+) -> Organization:
+    if organization_id is None and _is_admin_or_ops(current_user):
+        org = await resolve_user_organization(db, current_user)
+        if org is None:
             org = (await db.execute(select(Organization).order_by(Organization.created_at.asc()))).scalars().first()
         if org is None:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="No organization context found for this account",
             )
-    return org
+        return org
+    return await resolve_target_org_for_actor(db, current_user, organization_id)
 
 
 async def _resolve_cohort_and_org(
-    db: AsyncSession, cohort_id: uuid.UUID, current_user: User, *, not_found_detail: str = "Cohort not found"
+    db: AsyncSession,
+    cohort_id: uuid.UUID,
+    current_user: User,
+    *,
+    not_found_detail: str = "Cohort not found",
+    read_only: bool = False,
 ) -> tuple[Cohort, Organization]:
     """Resolve both a cohort and its owning Organization from the cohort itself.
 
@@ -98,6 +123,8 @@ async def _resolve_cohort_and_org(
     org = await _get_org_or_400(db, current_user)
     if cohort_org_id != org.id:
         raise HTTPException(status_code=404, detail=not_found_detail)
+    if read_only and not await can_read_cohort(db, cohort, current_user):
+        raise HTTPException(status_code=403, detail="Operation not permitted")
     return cohort, org
 
 
@@ -118,6 +145,7 @@ class OrganizationProgramCreate(BaseModel):
     program_type: str = "competition"  # competition|workshop|course|info_session
     description: str | None = None
     default_capacity: int | None = None
+    duration_hours: float | None = None
     pricing_model: str = "free"
     price: float | None = None
     completion_rule_type: str = "percentage"
@@ -131,11 +159,13 @@ class OrganizationProgramUpdate(BaseModel):
     program_type: str | None = None
     description: str | None = None
     default_capacity: int | None = None
+    duration_hours: float | None = None
     pricing_model: str | None = None
     price: float | None = None
     completion_rule_type: str | None = None
     completion_rule_value: float | None = None
     keep_course_access_after_completion: bool | None = None
+    active: bool | None = None
 
 
 class OrganizationCohortSummary(BaseModel):
@@ -149,6 +179,7 @@ class OrganizationCohortSummary(BaseModel):
     location: str | None = None
     status: str = "planned"
     capacity: int | None = None
+    duration_hours: float | None = None
     visibility: str = "public"
     is_public: bool = True
     registered_count: int = 0
@@ -156,8 +187,15 @@ class OrganizationCohortSummary(BaseModel):
     observers_count: int = 0
     active_observers_count: int = 0
     spots_left: int | None = None
+    sessions_count: int = 0
+    unstaffed_count: int = 0
     program_id: uuid.UUID | None = None
     program_name: str | None = None
+    variation_id: uuid.UUID | None = None
+    variation_name: str | None = None
+    management_mode: str = "spacepoint"
+    location_id: uuid.UUID | None = None
+    location_name: str | None = None
     checklist_title_override: str | None = None
     linked_event_id: uuid.UUID | None = None
     linked_event_slug: str | None = None
@@ -170,11 +208,16 @@ class OrganizationProgramOut(BaseModel):
     program_type: str
     description: str | None = None
     default_capacity: int | None = None
+    duration_hours: float | None = None
     pricing_model: str = "free"
     price: float | None = None
     completion_rule_type: str = "percentage"
     completion_rule_value: float = 70.0
     keep_course_access_after_completion: bool = True
+    is_org_owned: bool = True
+    is_shared_program: bool = False
+    can_create_cohort: bool = True
+    active: bool = True
     lms_program_id: uuid.UUID | None = None
     default_certificate_template_id: uuid.UUID | None = None
     created_at: datetime | None = None
@@ -187,8 +230,16 @@ class OrganizationCohortCreate(BaseModel):
     name: str
     starts_on: date | None = None
     ends_on: date | None = None
+    start_date: date | None = None
+    end_date: date | None = None
     capacity: int | None = None
-    visibility: str = "public"  # public|private
+    duration_hours: float | None = None
+    location_id: uuid.UUID | None = None
+    location: str | None = None
+    visibility: str = "private"  # public|private
+    is_public: bool | None = None
+    status: str | None = None
+    variation_id: uuid.UUID | None = None
     poster_template_url: str | None = None
     checklist_title_override: str | None = None
 
@@ -197,8 +248,15 @@ class OrganizationCohortUpdate(BaseModel):
     name: str | None = None
     starts_on: date | None = None
     ends_on: date | None = None
+    start_date: date | None = None
+    end_date: date | None = None
     capacity: int | None = None
+    duration_hours: float | None = None
+    location_id: uuid.UUID | None = None
+    location: str | None = None
     visibility: str | None = None
+    is_public: bool | None = None
+    variation_id: uuid.UUID | None = None
     poster_template_url: str | None = None
     checklist_title_override: str | None = None
     status: str | None = None
@@ -209,6 +267,8 @@ class OrganizationCohortOut(BaseModel):
     program_id: uuid.UUID
     program_name: str
     program_type: str
+    management_mode: str = "spacepoint"
+    can_manage_delivery: bool = True
     name: str
     code: str = ""
     starts_on: date | None = None
@@ -216,6 +276,8 @@ class OrganizationCohortOut(BaseModel):
     start_date: str = ""
     end_date: str = ""
     location: str | None = None
+    location_id: uuid.UUID | None = None
+    location_name: str | None = None
     status: str
     capacity: int | None = None
     org_capacity_limit: int | None = None
@@ -325,6 +387,10 @@ class AssignOrgInstructorIn(BaseModel):
     session_ids: list[uuid.UUID] | None = None
 
 
+class UpdateOrgInstructorRoleIn(BaseModel):
+    role_id: uuid.UUID
+
+
 class AssignOrgJudgeIn(BaseModel):
     user_id: uuid.UUID
 
@@ -336,10 +402,15 @@ class OrgReadinessAssignIn(BaseModel):
 # ── Programs Endpoints ───────────────────────────────────────────────────────
 @router.get("/programs-overview")
 async def get_organization_programs_overview(
+    organization_id: uuid.UUID | None = Query(None),
     current_user: User = Depends(require_organization_account),
     db: AsyncSession = Depends(get_db),
 ):
-    org = await _get_org_or_400(db, current_user)
+    org = await _get_org_or_400(db, current_user, organization_id=organization_id)
+    if not _is_admin_or_ops(current_user):
+        roles = effective_org_roles(current_user, is_owner=(org.owner_user_id == current_user.id))
+        if not any(r in ("owner", "coordinator", "observer") for r in roles):
+            raise HTTPException(status.HTTP_403_FORBIDDEN, detail="Operation not permitted")
 
     # Include both org-owned programs AND any SpacePoint program that has a
     # cohort assigned to this org (e.g. Ops created a cohort for the org).
@@ -358,9 +429,29 @@ async def get_organization_programs_overview(
     ).scalars().all()
     extra_program_ids = {c.program_id for c in direct_org_cohorts}
 
+    scope = (getattr(org, "program_scope", None) or "own").strip().lower()
+    shared_cond = None
+    if scope == "all":
+        shared_cond = and_(Program.organization_id.is_(None), Program.active.is_(True))
+    elif scope == "selected":
+        allowed_ids: list[uuid.UUID] = []
+        for raw_pid in (getattr(org, "allowed_program_ids", None) or []):
+            try:
+                allowed_ids.append(uuid.UUID(str(raw_pid)))
+            except ValueError:
+                continue
+        if allowed_ids:
+            shared_cond = and_(
+                Program.organization_id.is_(None),
+                Program.active.is_(True),
+                Program.id.in_(allowed_ids),
+            )
+
     prog_conds = [Program.organization_id == org.id]
     if extra_program_ids:
         prog_conds.append(Program.id.in_(extra_program_ids))
+    if shared_cond is not None:
+        prog_conds.append(shared_cond)
 
     programs = (
         await db.execute(
@@ -398,6 +489,8 @@ async def get_organization_programs_overview(
 
     reg_counts: dict[uuid.UUID, int] = {}
     obs_counts: dict[uuid.UUID, int] = {}
+    session_counts: dict[uuid.UUID, int] = {}
+    unstaffed_counts: dict[uuid.UUID, int] = {}
     if all_cohort_ids:
         r_rows = (
             await db.execute(
@@ -423,6 +516,27 @@ async def get_organization_programs_overview(
         ).all()
         obs_counts = dict(o_rows)
 
+        s_rows = (
+            await db.execute(
+                select(Session.cohort_id, func.count(Session.id))
+                .where(Session.cohort_id.in_(all_cohort_ids))
+                .group_by(Session.cohort_id)
+            )
+        ).all()
+        session_counts = dict(s_rows)
+
+        u_rows = (
+            await db.execute(
+                select(Session.cohort_id, func.count(Session.id))
+                .where(
+                    Session.cohort_id.in_(all_cohort_ids),
+                    Session.staffing_status == "unstaffed",
+                )
+                .group_by(Session.cohort_id)
+            )
+        ).all()
+        unstaffed_counts = dict(u_rows)
+
     events_by_cohort: dict[uuid.UUID, WebsiteEvent] = {}
     if all_cohort_ids:
         we_rows = (
@@ -445,11 +559,27 @@ async def get_organization_programs_overview(
         ).scalars().all()
         lms_prog_map = {lp.program_id: lp.id for lp in lp_rows if lp.program_id}
 
+    location_names: dict[uuid.UUID, str] = {}
+    loc_ids = {c.location_id for plist in cohorts_by_program.values() for c in plist if c.location_id is not None}
+    if loc_ids:
+        location_names = {
+            loc.id: loc.name
+            for loc in (await db.execute(select(Location).where(Location.id.in_(loc_ids)))).scalars().all()
+        }
+
+    variation_names: dict[uuid.UUID, str] = {}
+    var_ids = {c.variation_id for plist in cohorts_by_program.values() for c in plist if c.variation_id is not None}
+    if var_ids:
+        variation_names = {
+            v.id: v.name
+            for v in (await db.execute(select(ProgramVariation).where(ProgramVariation.id.in_(var_ids)))).scalars().all()
+        }
+
     programs_out: list[OrganizationProgramOut] = []
-    total_cohorts = 0
+    total_partner_cohorts = 0
     for p in programs:
         c_list = cohorts_by_program.get(p.id, [])
-        total_cohorts += len(c_list)
+        total_partner_cohorts += sum(1 for c in c_list if is_partner_managed(c))
         c_summaries = []
         for c in c_list:
             rc = reg_counts.get(c.id, 0)
@@ -466,8 +596,12 @@ async def get_organization_programs_overview(
                     start_date=c.starts_on.isoformat() if c.starts_on else "",
                     end_date=c.ends_on.isoformat() if c.ends_on else "",
                     location=c.location,
+                    location_id=c.location_id,
+                    location_name=location_names.get(c.location_id) if c.location_id else None,
+                    management_mode=getattr(c, "management_mode", "spacepoint") or "spacepoint",
                     status=c.status,
                     capacity=c.capacity,
+                    duration_hours=c.duration_hours,
                     visibility=c.visibility,
                     is_public=c.visibility == "public",
                     registered_count=rc,
@@ -475,13 +609,19 @@ async def get_organization_programs_overview(
                     observers_count=oc,
                     active_observers_count=oc,
                     spots_left=spots,
+                    sessions_count=session_counts.get(c.id, 0),
+                    unstaffed_count=(unstaffed_counts.get(c.id, 0) if is_partner_managed(c) else 0),
                     program_id=p.id,
                     program_name=p.name,
+                    variation_id=c.variation_id,
+                    variation_name=variation_names.get(c.variation_id) if c.variation_id else None,
                     checklist_title_override=c.checklist_title_override,
                     linked_event_id=linked_ev.id if linked_ev else None,
                     linked_event_slug=linked_ev.slug if linked_ev else None,
                 )
             )
+        is_org_owned = (p.organization_id == org.id)
+        is_shared = (p.organization_id is None) and can_org_use_shared_program(org, p)
         programs_out.append(
             OrganizationProgramOut(
                 id=p.id,
@@ -490,11 +630,16 @@ async def get_organization_programs_overview(
                 program_type=p.program_type,
                 description=p.description,
                 default_capacity=p.default_capacity,
+                duration_hours=float(p.duration_hours) if p.duration_hours is not None else None,
                 pricing_model=p.pricing_model or "free",
                 price=float(p.price) if p.price is not None else None,
                 completion_rule_type=p.completion_rule_type or "percentage",
                 completion_rule_value=float(p.completion_rule_value) if p.completion_rule_value is not None else 70.0,
                 keep_course_access_after_completion=bool(p.keep_course_access_after_completion),
+                is_org_owned=is_org_owned,
+                is_shared_program=is_shared,
+                can_create_cohort=(is_org_owned or is_shared),
+                active=bool(p.active),
                 lms_program_id=lms_prog_map.get(p.id),
                 default_certificate_template_id=p.default_certificate_template_id,
                 created_at=p.created_at,
@@ -517,6 +662,8 @@ async def get_organization_programs_overview(
             "can_publish_courses": bool(org.can_publish_courses),
             "course_scope_all": bool(org.course_scope_all),
             "allowed_course_ids": org.allowed_course_ids or [],
+            "program_scope": scope,
+            "allowed_program_ids": [str(pid) for pid in (org.allowed_program_ids or [])],
             "max_events": org.max_events,
             "max_programs": org.max_programs,
             "max_cohorts": org.max_cohorts,
@@ -525,9 +672,9 @@ async def get_organization_programs_overview(
         },
         "programs": programs_out,
         "quotas": {
-            "programs_count": len(programs),
+            "programs_count": sum(1 for p in programs if p.organization_id == org.id),
             "max_programs": org.max_programs,
-            "cohorts_count": total_cohorts,
+            "cohorts_count": total_partner_cohorts,
             "max_cohorts": org.max_cohorts,
             "events_count": events_count,
             "max_events": org.max_events,
@@ -540,10 +687,11 @@ async def get_organization_programs_overview(
 @router.post("/programs", response_model=OrganizationProgramOut, status_code=status.HTTP_201_CREATED)
 async def create_organization_program(
     body: OrganizationProgramCreate,
+    organization_id: uuid.UUID | None = Query(None),
     current_user: User = Depends(require_organization_account),
     db: AsyncSession = Depends(get_db),
 ):
-    org = await _get_org_or_400(db, current_user)
+    org = await _get_org_or_400(db, current_user, organization_id=organization_id)
     require_org_manager(current_user)
     _ensure_org_approved(org, current_user)
 
@@ -573,6 +721,7 @@ async def create_organization_program(
         program_type=body.program_type.strip().lower(),
         description=body.description.strip() if body.description else None,
         default_capacity=body.default_capacity,
+        duration_hours=body.duration_hours,
         pricing_model=body.pricing_model if body.pricing_model in ("paid", "free") else "free",
         price=body.price if body.pricing_model == "paid" else None,
         completion_rule_type=body.completion_rule_type if body.completion_rule_type in ("percentage", "session_count") else "percentage",
@@ -602,11 +751,14 @@ async def create_organization_program(
         program_type=program.program_type,
         description=program.description,
         default_capacity=program.default_capacity,
+        duration_hours=float(program.duration_hours) if program.duration_hours is not None else None,
         pricing_model=program.pricing_model,
         price=float(program.price) if program.price is not None else None,
         completion_rule_type=program.completion_rule_type,
         completion_rule_value=float(program.completion_rule_value) if program.completion_rule_value is not None else 70.0,
         keep_course_access_after_completion=program.keep_course_access_after_completion,
+        is_org_owned=True,
+        active=bool(program.active),
         lms_program_id=lms_prog.id,
         created_at=program.created_at,
         cohorts_count=0,
@@ -615,6 +767,7 @@ async def create_organization_program(
 
 
 @router.patch("/programs/{program_id}", response_model=OrganizationProgramOut)
+@router.put("/programs/{program_id}", response_model=OrganizationProgramOut)
 async def update_organization_program(
     program_id: uuid.UUID,
     body: OrganizationProgramUpdate,
@@ -634,12 +787,23 @@ async def update_organization_program(
         ).scalars().first()
         if lms_prog:
             lms_prog.name = program.name
+    if body.code is not None and body.code.strip():
+        candidate_code = body.code.strip().upper()
+        if candidate_code != program.code:
+            existing = await db.scalar(
+                select(func.count(Program.id)).where(Program.code == candidate_code, Program.id != program.id)
+            )
+            if existing:
+                raise HTTPException(status_code=409, detail="Program code already exists")
+            program.code = candidate_code
     if body.description is not None:
         program.description = body.description.strip() or None
     if body.program_type is not None and body.program_type.strip():
         program.program_type = body.program_type.strip().lower()
     if body.default_capacity is not None:
         program.default_capacity = body.default_capacity
+    if body.duration_hours is not None:
+        program.duration_hours = body.duration_hours
     if body.pricing_model is not None:
         program.pricing_model = body.pricing_model
     if body.price is not None:
@@ -650,6 +814,8 @@ async def update_organization_program(
         program.completion_rule_value = body.completion_rule_value
     if body.keep_course_access_after_completion is not None:
         program.keep_course_access_after_completion = body.keep_course_access_after_completion
+    if body.active is not None:
+        program.active = body.active
 
     await db.commit()
     await db.refresh(program)
@@ -665,11 +831,14 @@ async def update_organization_program(
         program_type=program.program_type,
         description=program.description,
         default_capacity=program.default_capacity,
+        duration_hours=float(program.duration_hours) if program.duration_hours is not None else None,
         pricing_model=program.pricing_model,
         price=float(program.price) if program.price is not None else None,
         completion_rule_type=program.completion_rule_type,
         completion_rule_value=float(program.completion_rule_value) if program.completion_rule_value is not None else 70.0,
         keep_course_access_after_completion=program.keep_course_access_after_completion,
+        is_org_owned=(program.organization_id == org.id),
+        active=bool(program.active),
         lms_program_id=lms_prog.id if lms_prog else None,
         created_at=program.created_at,
         cohorts_count=0,
@@ -707,20 +876,24 @@ async def delete_organization_program(
 @router.post("/cohorts", response_model=OrganizationCohortOut, status_code=status.HTTP_201_CREATED)
 async def create_organization_cohort(
     body: OrganizationCohortCreate,
+    organization_id: uuid.UUID | None = Query(None),
     current_user: User = Depends(require_organization_account),
     db: AsyncSession = Depends(get_db),
 ):
-    org = await _get_org_or_400(db, current_user)
+    org = await _get_org_or_400(db, current_user, organization_id=organization_id)
     require_org_manager(current_user)
     _ensure_org_approved(org, current_user)
 
     program = await db.get(Program, body.program_id)
-    if program is None or (program.organization_id != org.id and not _is_admin_or_ops(current_user)):
+    if program is None or (not _is_admin_or_ops(current_user) and not is_program_allowed_for_org(org, program)):
         raise HTTPException(status_code=404, detail="Program not found")
 
     if org.max_cohorts is not None and not _is_admin_or_ops(current_user):
         curr_cohorts = await db.scalar(
-            select(func.count(Cohort.id)).where(Cohort.organization_id == org.id)
+            select(func.count(Cohort.id)).where(
+                Cohort.organization_id == org.id,
+                Cohort.management_mode == "partner",
+            )
         ) or 0
         if curr_cohorts >= org.max_cohorts:
             raise HTTPException(
@@ -728,43 +901,81 @@ async def create_organization_cohort(
                 detail=f"Your organization limit is {org.max_cohorts} cohort(s). Contact the SpacePoint team to increase your limit.",
             )
 
-    capacity = body.capacity
+    if body.location_id is not None:
+        loc = await db.get(Location, body.location_id)
+        if loc is None:
+            raise HTTPException(status_code=404, detail="Location not found")
+        if not _is_admin_or_ops(current_user) and loc.organization_id != org.id:
+            raise HTTPException(status_code=403, detail="Location does not belong to your organization")
+
+    selected_var: ProgramVariation | None = None
+    if body.variation_id is not None:
+        selected_var = await var_svc.resolve_variation_for_program(db, program.id, body.variation_id)
+    else:
+        selected_var = await var_svc.resolve_variation_for_program(db, program.id, active_only=True)
+    eff_scalars = var_svc.resolve_effective_scalars(program, selected_var)
+
+    capacity = body.capacity if body.capacity is not None else eff_scalars.get("capacity")
     if org.max_students_per_cohort is not None and not _is_admin_or_ops(current_user):
-        if capacity is None:
-            capacity = org.max_students_per_cohort
-        elif capacity > org.max_students_per_cohort:
+        if body.capacity is None:
+            capacity = (
+                min(capacity, org.max_students_per_cohort)
+                if capacity is not None
+                else org.max_students_per_cohort
+            )
+        elif capacity is not None and capacity > org.max_students_per_cohort:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=f"Your organization limit is {org.max_students_per_cohort} students per cohort. Contact the SpacePoint team to increase your limit.",
             )
 
+    starts_on = body.starts_on or body.start_date
+    ends_on = body.ends_on or body.end_date
+    if body.is_public is not None:
+        visibility = "public" if body.is_public else "private"
+    else:
+        visibility = body.visibility if body.visibility in ("public", "private") else "private"
+    cohort_status = body.status if body.status in ("planned", "registration_open", "running") else "registration_open"
+
+    duration_hours = body.duration_hours if body.duration_hours is not None else eff_scalars.get("duration_hours")
+    poster_url = body.poster_template_url if body.poster_template_url is not None else eff_scalars.get("poster_template_url")
+
     cohort = Cohort(
+        id=uuid.uuid4(),
         program_id=program.id,
+        variation_id=selected_var.id if selected_var else None,
         name=body.name.strip(),
-        starts_on=body.starts_on,
-        ends_on=body.ends_on,
+        starts_on=starts_on,
+        ends_on=ends_on,
         capacity=capacity,
-        visibility=body.visibility if body.visibility in ("public", "private") else "public",
-        status="registration_open",
+        duration_hours=duration_hours,
+        location_id=body.location_id,
+        location=body.location,
+        visibility=visibility,
+        status=cohort_status,
         organization_id=org.id,
-        poster_template_url=body.poster_template_url,
+        management_mode="partner",
+        inherit_default_checklists=True,
+        poster_template_url=poster_url,
         checklist_title_override=body.checklist_title_override,
+        keep_course_access_after_completion=bool(
+            eff_scalars.get("keep_course_access_after_completion", program.keep_course_access_after_completion)
+        ),
     )
     db.add(cohort)
     await db.flush()
 
-    # Ensure LmsProgram exists
-    lms_prog = (
-        await db.execute(select(LmsProgram).where(LmsProgram.program_id == program.id))
-    ).scalars().first()
-    if lms_prog is None:
-        lms_prog = LmsProgram(program_id=program.id, name=program.name)
-        db.add(lms_prog)
-        await db.flush()
-
-    # Provision cohort override
-    override = LmsProgramCohortOverride(cohort_id=cohort.id, lms_program_id=lms_prog.id)
-    db.add(override)
+    await seed_cohort_from_program(
+        db,
+        cohort=cohort,
+        program=program,
+        selected_var=selected_var,
+        apply_defaults=True,
+        eff_scalars=eff_scalars,
+        import_default_checklists=True,
+        actor_user_id=current_user.id,
+        ensure_lms_override=True,
+    )
 
     await db.commit()
     await db.refresh(cohort)
@@ -778,7 +989,7 @@ async def get_organization_cohort_detail(
     current_user: User = Depends(require_organization_account),
     db: AsyncSession = Depends(get_db),
 ):
-    cohort, org = await _resolve_cohort_and_org(db, cohort_id, current_user)
+    cohort, org = await _resolve_cohort_and_org(db, cohort_id, current_user, read_only=True)
 
     program = await db.get(Program, cohort.program_id)
     if program is None:
@@ -837,22 +1048,31 @@ async def get_organization_cohort_detail(
             "is_published": landing_event.is_published,
         })
 
+    location_name = None
+    if cohort.location_id:
+        loc_obj = await db.get(Location, cohort.location_id)
+        location_name = loc_obj.name if loc_obj else None
+
     return OrganizationCohortOut(
         id=cohort.id,
         program_id=program.id,
         program_name=program.name,
         program_type=program.program_type,
+        management_mode=getattr(cohort, "management_mode", "spacepoint") or "spacepoint",
+        can_manage_delivery=await can_manage_cohort_delivery(db, cohort, current_user),
         name=cohort.name,
         code=cohort.name,
         starts_on=cohort.starts_on,
         ends_on=cohort.ends_on,
         start_date=cohort.starts_on.isoformat() if cohort.starts_on else "",
         end_date=cohort.ends_on.isoformat() if cohort.ends_on else "",
-        location=cohort.location or None,
+        location=cohort.location or location_name,
+        location_id=cohort.location_id,
+        location_name=location_name,
         status=cohort.status,
         capacity=cohort.capacity,
-        org_capacity_limit=org.max_students_per_cohort,
-        org_observer_limit=org.max_observers_per_cohort,
+        org_capacity_limit=org.max_students_per_cohort if is_partner_managed(cohort) else None,
+        org_observer_limit=org.max_observers_per_cohort if is_partner_managed(cohort) else None,
         visibility=cohort.visibility,
         is_public=cohort.visibility == "public",
         poster_template_url=cohort.poster_template_url,
@@ -881,7 +1101,12 @@ async def update_organization_cohort(
     require_org_manager(current_user)
     cohort, org = await _resolve_cohort_and_org(db, cohort_id, current_user)
 
-    if body.capacity is not None and org.max_students_per_cohort is not None and not _is_admin_or_ops(current_user):
+    if (
+        is_partner_managed(cohort)
+        and body.capacity is not None
+        and org.max_students_per_cohort is not None
+        and not _is_admin_or_ops(current_user)
+    ):
         if body.capacity > org.max_students_per_cohort:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
@@ -889,12 +1114,51 @@ async def update_organization_cohort(
             )
 
     updates = body.model_dump(exclude_unset=True)
+    if "status" in updates:
+        new_status = updates["status"]
+        if not await can_manage_cohort_delivery(db, cohort, current_user):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Status for SpacePoint-managed cohorts is managed by SpacePoint Ops.",
+            )
+        if new_status == "completed":
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Use the cohort completion workflow to mark a cohort completed.",
+            )
+        if new_status not in ("planned", "registration_open", "running", "cancelled"):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Invalid cohort status.",
+            )
+    if (
+        "duration_hours" in updates
+        and updates["duration_hours"] != cohort.duration_hours
+        and not await can_manage_cohort_delivery(db, cohort, current_user)
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Duration hours for SpacePoint-managed cohorts are managed by SpacePoint Ops.",
+        )
+    if "variation_id" in updates and updates["variation_id"] is not None:
+        await var_svc.resolve_variation_for_program(db, cohort.program_id, updates["variation_id"])
+    if (
+        updates.get("location_id") is not None
+        and updates["location_id"] != cohort.location_id
+    ):
+        loc = await db.get(Location, updates["location_id"])
+        if loc is None:
+            raise HTTPException(status_code=404, detail="Location not found")
+        if not _is_admin_or_ops(current_user) and loc.organization_id != org.id:
+            raise HTTPException(status_code=403, detail="Location does not belong to your organization")
     if "start_date" in updates:
         cohort.starts_on = updates.pop("start_date")
     if "end_date" in updates:
         cohort.ends_on = updates.pop("end_date")
     if "is_public" in updates:
-        cohort.visibility = "public" if updates.pop("is_public") else "private"
+        is_pub = updates.pop("is_public")
+        if is_pub is not None:
+            cohort.visibility = "public" if is_pub else "private"
     if "code" in updates:
         updates.pop("code")  # Cohort model does not have a code column
     for k, v in updates.items():
@@ -921,7 +1185,10 @@ async def duplicate_organization_cohort(
 
     if org.max_cohorts is not None and not _is_admin_or_ops(current_user):
         curr_cohorts = await db.scalar(
-            select(func.count(Cohort.id)).where(Cohort.organization_id == org.id)
+            select(func.count(Cohort.id)).where(
+                Cohort.organization_id == org.id,
+                Cohort.management_mode == "partner",
+            )
         ) or 0
         if curr_cohorts >= org.max_cohorts:
             raise HTTPException(
@@ -935,9 +1202,13 @@ async def duplicate_organization_cohort(
         starts_on=source.starts_on,
         ends_on=source.ends_on,
         capacity=source.capacity,
+        duration_hours=source.duration_hours,
+        location_id=source.location_id,
+        location=source.location,
         visibility=source.visibility,
         status="registration_open",
         organization_id=org.id,
+        management_mode="partner",
         poster_template_url=source.poster_template_url,
         checklist_title_override=source.checklist_title_override,
     )
@@ -1020,7 +1291,7 @@ async def list_cohort_registrations(
     current_user: User = Depends(require_organization_account),
     db: AsyncSession = Depends(get_db),
 ):
-    cohort, _org = await _resolve_cohort_and_org(db, cohort_id, current_user)
+    cohort, _org = await _resolve_cohort_and_org(db, cohort_id, current_user, read_only=True)
 
     rows = (
         await db.execute(
@@ -1240,7 +1511,7 @@ async def list_cohort_observers(
     current_user: User = Depends(require_organization_account),
     db: AsyncSession = Depends(get_db),
 ):
-    cohort, _org = await _resolve_cohort_and_org(db, cohort_id, current_user)
+    cohort, _org = await _resolve_cohort_and_org(db, cohort_id, current_user, read_only=True)
 
     rows = (
         await db.execute(
@@ -1302,7 +1573,11 @@ async def add_cohort_observer(
         )
     ) or 0
 
-    if org.max_observers_per_cohort is not None and not _is_admin_or_ops(current_user):
+    if (
+        is_partner_managed(cohort)
+        and org.max_observers_per_cohort is not None
+        and not _is_admin_or_ops(current_user)
+    ):
         if active_count >= org.max_observers_per_cohort:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
@@ -1320,7 +1595,7 @@ async def add_cohort_observer(
 
     if "observer" not in target_user.role_values and "student" not in target_user.role_values:
         roles = list(target_user.roles or [])
-        roles.append(UserRole.OBSERVER)
+        roles.append(UserRole.observer)
         target_user.roles = roles
 
     await db.commit()
@@ -1371,7 +1646,7 @@ async def list_cohort_sessions(
     current_user: User = Depends(require_organization_account),
     db: AsyncSession = Depends(get_db),
 ):
-    cohort, _org = await _resolve_cohort_and_org(db, cohort_id, current_user)
+    cohort, _org = await _resolve_cohort_and_org(db, cohort_id, current_user, read_only=True)
 
     rows = (
         await db.execute(
@@ -1402,6 +1677,12 @@ async def create_cohort_session(
 ):
     require_org_manager(current_user)
     cohort, _org = await _resolve_cohort_and_org(db, cohort_id, current_user)
+    can_delivery = await can_manage_cohort_delivery(db, cohort, current_user)
+    if not can_delivery and "duration_hours" in body.model_fields_set and body.duration_hours is not None:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Duration hours for SpacePoint-managed cohorts are managed by SpacePoint Ops.",
+        )
 
     meeting_date = body.meeting_date or body.date or date.today()
     starts_at = _coerce_time(body.starts_at or body.start_time)
@@ -1411,8 +1692,8 @@ async def create_cohort_session(
         title=body.title.strip(),
         meeting_date=meeting_date,
         starts_at=starts_at,
-        duration_hours=body.duration_hours,
-        staffing_status="staffed",
+        duration_hours=body.duration_hours if can_delivery else None,
+        staffing_status="staffed" if can_delivery else "unstaffed",
     )
     db.add(s)
     await db.commit()
@@ -1444,6 +1725,15 @@ async def update_cohort_session(
         raise HTTPException(status_code=404, detail="Session not found")
 
     updates = body.model_dump(exclude_unset=True)
+    if (
+        "duration_hours" in updates
+        and updates["duration_hours"] != s.duration_hours
+        and not await can_manage_cohort_delivery(db, cohort, current_user)
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Duration hours for SpacePoint-managed cohorts are managed by SpacePoint Ops.",
+        )
     if "date" in updates:
         s.meeting_date = updates.pop("date")
     if "meeting_date" in updates:
@@ -1542,8 +1832,7 @@ async def get_cohort_staff(
 ):
     """The org's staffing board: instructors assigned to this cohort, judges,
     per-session staffing & attendance, and readiness attempts."""
-    require_org_manager(current_user)
-    cohort, _org = await _resolve_cohort_and_org(db, cohort_id, current_user)
+    cohort, _org = await _resolve_cohort_and_org(db, cohort_id, current_user, read_only=True)
 
     sessions = (
         await db.execute(
@@ -1614,6 +1903,7 @@ async def get_cohort_staff(
         present = sum(attendance.get(sid, {}).get("present", 0) for sid in (s.id for s in assigned_sessions))
         absent = sum(attendance.get(sid, {}).get("absent", 0) for sid in (s.id for s in assigned_sessions))
         attempt = attempt_by_user.get(uid)
+        primary_role_id = rows[0].role_id if rows else None
         instructors_out.append(
             {
                 "user_id": str(uid),
@@ -1626,6 +1916,8 @@ async def get_cohort_staff(
                 "completed_sessions": sum(1 for s in assigned_sessions if s.completed_at is not None),
                 "attendance_present": present,
                 "attendance_absent": absent,
+                "role_id": str(primary_role_id) if primary_role_id else None,
+                "role_name": role_names.get(primary_role_id) if primary_role_id else None,
                 "roles": [role_names.get(r.role_id, "") for r in rows],
                 "readiness": (
                     {
@@ -1652,6 +1944,8 @@ async def get_cohort_staff(
 
     return {
         "cohort_id": str(cohort.id),
+        "management_mode": getattr(cohort, "management_mode", "spacepoint") or "spacepoint",
+        "can_manage_delivery": await can_manage_cohort_delivery(db, cohort, current_user),
         "sessions": [
             {
                 "id": str(s.id),
@@ -1664,7 +1958,12 @@ async def get_cohort_staff(
                 "attendance_absent": attendance.get(s.id, {}).get("absent", 0),
                 "attendance_total": sum(attendance.get(s.id, {}).values()),
                 "instructors": [
-                    {"user_id": str(u.id), "full_name": u.full_name}
+                    {
+                        "user_id": str(u.id),
+                        "full_name": u.full_name,
+                        "role_id": str(si.role_id) if si.role_id else None,
+                        "role_name": role_names.get(si.role_id) if si.role_id else None,
+                    }
                     for si, u in assignments
                     if si.session_id == s.id
                 ],
@@ -1695,9 +1994,13 @@ async def assign_instructor_to_cohort(
 ):
     """Assign an org instructor to the whole cohort (one `SessionInstructor` per
     session — the same shape Ops staffing writes)."""
-    require_org_manager(current_user)
-    cohort, org = await _resolve_cohort_and_org(db, cohort_id, current_user)
-    await _org_instructor_or_400(db, org, body.user_id)
+    cohort = await require_cohort_delivery_manager_or_ops(db, cohort_id, current_user)
+    if is_partner_managed(cohort):
+        org_id = await cohort_organization_id(db, cohort)
+        if org_id is not None:
+            org = await db.get(Organization, org_id)
+            if org is not None:
+                await _org_instructor_or_400(db, org, body.user_id)
 
     sessions = (
         await db.execute(select(Session).where(Session.cohort_id == cohort.id))
@@ -1708,6 +2011,8 @@ async def assign_instructor_to_cohort(
     if not sessions:
         raise HTTPException(status_code=400, detail="This cohort has no sessions to assign yet")
 
+    if body.role_id is not None and await db.get(DeliveryRole, body.role_id) is None:
+        raise HTTPException(status_code=404, detail="Delivery role not found")
     role_id = body.role_id or await _default_delivery_role_id(db)
     created = 0
     for s in sessions:
@@ -1736,6 +2041,39 @@ async def assign_instructor_to_cohort(
     return {"assigned": created}
 
 
+@router.patch("/cohorts/{cohort_id}/instructors/{user_id}")
+async def update_cohort_instructor_role(
+    cohort_id: uuid.UUID,
+    user_id: uuid.UUID,
+    body: UpdateOrgInstructorRoleIn,
+    current_user: User = Depends(require_organization_account),
+    db: AsyncSession = Depends(get_db),
+):
+    """Update the DeliveryRole for an assigned instructor across all sessions of this cohort."""
+    cohort = await require_cohort_delivery_manager_or_ops(db, cohort_id, current_user)
+    role = await db.get(DeliveryRole, body.role_id)
+    if role is None:
+        raise HTTPException(status_code=404, detail="Delivery role not found")
+
+    session_ids = (await db.execute(select(Session.id).where(Session.cohort_id == cohort.id))).scalars().all()
+    if not session_ids:
+        raise HTTPException(status_code=404, detail="No sessions found in this cohort")
+    rows = (
+        await db.execute(
+            select(SessionInstructor).where(
+                SessionInstructor.session_id.in_(session_ids),
+                SessionInstructor.user_id == user_id,
+            )
+        )
+    ).scalars().all()
+    if not rows:
+        raise HTTPException(status_code=404, detail="Instructor is not assigned to this cohort")
+    for r in rows:
+        r.role_id = role.id
+    await db.commit()
+    return {"user_id": str(user_id), "role_id": str(role.id), "role_name": role.name}
+
+
 @router.delete("/cohorts/{cohort_id}/instructors/{user_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def unassign_instructor_from_cohort(
     cohort_id: uuid.UUID,
@@ -1744,8 +2082,7 @@ async def unassign_instructor_from_cohort(
     current_user: User = Depends(require_organization_account),
     db: AsyncSession = Depends(get_db),
 ):
-    require_org_manager(current_user)
-    cohort, _org = await _resolve_cohort_and_org(db, cohort_id, current_user)
+    cohort = await require_cohort_delivery_manager_or_ops(db, cohort_id, current_user)
 
     if session_id is not None:
         session = await db.get(Session, session_id)
@@ -1859,7 +2196,7 @@ async def list_org_readiness_presets(
     from app.services.sessions import pre_session_quiz as quiz_svc
 
     if cohort_id is not None:
-        _cohort, org = await _resolve_cohort_and_org(db, cohort_id, current_user)
+        _cohort, org = await _resolve_cohort_and_org(db, cohort_id, current_user, read_only=True)
     else:
         org = await _get_org_or_400(db, current_user)
 
@@ -1891,7 +2228,7 @@ async def get_org_readiness_preset_detail(
     from app.services.sessions import pre_session_quiz as quiz_svc
 
     if cohort_id is not None:
-        _cohort, org = await _resolve_cohort_and_org(db, cohort_id, current_user)
+        _cohort, org = await _resolve_cohort_and_org(db, cohort_id, current_user, read_only=True)
     else:
         org = await _get_org_or_400(db, current_user)
 
@@ -2036,8 +2373,7 @@ async def get_org_cohort_readiness(
     attempt — the org-side view Ops already has."""
     from app.services.sessions import pre_session_quiz as quiz_svc
 
-    require_org_manager(current_user)
-    cohort, _org = await _resolve_cohort_and_org(db, cohort_id, current_user)
+    cohort, _org = await _resolve_cohort_and_org(db, cohort_id, current_user, read_only=True)
 
     assignment = await quiz_svc.get_assignment_for_scope(db, "cohorts", cohort.id)
     preset = None
@@ -2091,11 +2427,12 @@ async def set_org_cohort_readiness(
     passed a cohort-level preset."""
     from app.services.sessions import pre_session_quiz as quiz_svc
 
-    require_org_manager(current_user)
-    cohort, org = await _resolve_cohort_and_org(db, cohort_id, current_user)
+    cohort = await require_cohort_delivery_manager_or_ops(db, cohort_id, current_user)
+    org_id = await cohort_organization_id(db, cohort)
+    org = await db.get(Organization, org_id) if org_id else None
     if body.preset_id is not None and not _is_admin_or_ops(current_user):
         hydrated = await quiz_svc.get_preset_hydrated(db, body.preset_id)
-        if hydrated is None or not _org_allows_readiness_preset(org, hydrated):
+        if hydrated is None or org is None or not _org_allows_readiness_preset(org, hydrated):
             raise HTTPException(
                 status.HTTP_403_FORBIDDEN,
                 detail="This organization does not have access to the selected readiness assessment.",

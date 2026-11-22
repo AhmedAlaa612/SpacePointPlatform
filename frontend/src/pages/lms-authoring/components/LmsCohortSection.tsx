@@ -36,16 +36,20 @@ export function LmsCohortSection({
   cohortId,
   cohortName,
   mode = "all",
+  readOnly = false,
 }: {
   cohortId: string
   cohortName: string
   mode?: "all" | "authoring"
+  readOnly?: boolean
 }) {
   const { currentUser, activeOrgRole } = useAuth()
   const toast = useToast()
   const queryClient = useQueryClient()
   const isOrgRole = currentUser?.role === "organization"
-  const isStaff = currentUser?.role !== "instructor" && !(isOrgRole && activeOrgRole === "instructor")
+  const isObserver = isOrgRole && activeOrgRole === "observer"
+  const isStaff = !readOnly && !isObserver && currentUser?.role !== "instructor" && !(isOrgRole && activeOrgRole === "instructor")
+  const canReadOverride = !isOrgRole || activeOrgRole !== "instructor"
   const [subtab, setSubtab] = useState<SubTab>("checklist")
   const [showObserverModal, setShowObserverModal] = useState(false)
   const [showEditorsModal, setShowEditorsModal] = useState(false)
@@ -58,13 +62,13 @@ export function LmsCohortSection({
   const { data: instructorOverride } = useQuery({
     queryKey: ["lms-cohort-override-instructor", cohortId],
     queryFn: () => getCohortProgramOverrideInstructorApi(cohortId),
-    enabled: !isStaff,
+    enabled: !canReadOverride,
   })
 
   const { data: staffOverride } = useQuery({
     queryKey: ["lms-cohort-override", cohortId],
     queryFn: () => getCohortProgramOverrideApi(cohortId),
-    enabled: isStaff,
+    enabled: canReadOverride,
   })
 
   const { data: cohortData } = useQuery<{
@@ -74,7 +78,7 @@ export function LmsCohortSection({
   }>({
     queryKey: ["cohort-detail", cohortId, isOrgRole],
     queryFn: () => (isOrgRole ? getOrgCohortDetailApi(cohortId) : getCohortApi(cohortId)),
-    enabled: isStaff,
+    enabled: canReadOverride,
   })
 
   const { data: editorsData } = useQuery({
@@ -83,7 +87,7 @@ export function LmsCohortSection({
     enabled: isStaff,
   })
 
-  const canEdit = isStaff || Boolean(instructorOverride?.can_edit)
+  const canEdit = !readOnly && !isObserver && (isStaff || Boolean(instructorOverride?.can_edit))
   const editorCount = editorsData?.editors?.length ?? 0
 
   const storedOverride = cohortData?.checklist_title_override ?? null
@@ -129,7 +133,7 @@ export function LmsCohortSection({
   return (
     <div className="flex flex-col gap-5">
       <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3 p-3.5 bg-card border border-border rounded-[10px]">
-        {isStaff ? (
+        {canEdit ? (
           <div className="flex flex-col sm:flex-row sm:items-center gap-2.5 flex-1 min-w-0">
             <div className="flex items-center gap-1.5 flex-1 min-w-0">
               <input
@@ -187,10 +191,22 @@ export function LmsCohortSection({
             </div>
           </div>
         ) : (
-          <span className="font-semibold text-sm text-foreground truncate">{cohortName}</span>
+          <div className="flex items-center gap-2 min-w-0">
+            <span className="font-semibold text-sm text-foreground truncate">{cohortName}</span>
+            {effectivePosterUrl && (
+              <a
+                href={ensureAbsoluteUrl(effectivePosterUrl)}
+                target="_blank"
+                rel="noreferrer"
+                className="inline-flex items-center gap-1 h-7 px-2.5 border border-border rounded-lg text-xs font-medium text-primary hover:bg-muted shrink-0"
+              >
+                Poster <ExternalLink className="w-3 h-3" />
+              </a>
+            )}
+          </div>
         )}
         <div className="flex items-center gap-2 shrink-0">
-          {isStaff && (
+          {canEdit && (
             <button
               type="button"
               onClick={() => setShowEditorsModal(true)}
@@ -216,17 +232,16 @@ export function LmsCohortSection({
           <button
             key={t}
             onClick={() => setSubtab(t)}
-            className={`px-3 py-2 text-sm font-medium border-b-2 -mb-px transition-colors cursor-pointer shrink-0 whitespace-nowrap ${
-              subtab === t ? "border-primary text-primary" : "border-transparent text-muted-foreground hover:text-foreground"}`}
+            className={`px-3 py-2 text-sm font-medium border-b-2 -mb-px transition-colors cursor-pointer shrink-0 whitespace-nowrap ${subtab === t ? "border-primary text-primary" : "border-transparent text-muted-foreground hover:text-foreground"}`}
           >
             {SUBTAB_LABEL[t]}
           </button>
         ))}
       </div>
 
-      {subtab === "checklist" && <CohortOverrideEditor cohortId={cohortId} isStaff={isStaff} readOnly={!canEdit} />}
+      {subtab === "checklist" && <CohortOverrideEditor cohortId={cohortId} isStaff={canEdit} readOnly={!canEdit} />}
       {subtab === "missions" && <CohortMissionsPanel cohortId={cohortId} isStaff={canEdit} />}
-      {subtab === "components" && <LmsComponentConfigPanel ownerType="cohort" ownerId={cohortId} isStaff={isStaff} />}
+      {subtab === "components" && <LmsComponentConfigPanel ownerType="cohort" ownerId={cohortId} isStaff={canEdit} />}
       {subtab === "hints" && (
         <LmsHintStationAuthoring programId="" scope={{ cohortId, cohortName }} />
       )}
@@ -241,7 +256,7 @@ export function LmsCohortSection({
         onClose={() => setShowObserverModal(false)}
       />
 
-      {isStaff && (
+      {canEdit && (
         <CohortLmsEditorsModal
           cohortId={cohortId}
           cohortName={cohortName}

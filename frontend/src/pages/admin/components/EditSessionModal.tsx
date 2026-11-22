@@ -1,8 +1,11 @@
 import { useState } from "react"
-import { useMutation, useQueryClient } from "@tanstack/react-query"
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
+import { Plus } from "lucide-react"
 import type { Session } from "@/types/sessions"
 import { updateSessionApi } from "@/api/sessions/cohorts"
+import { getLocationsApi } from "@/api/inventory"
 import { Modal, Field } from "@/pages/admin/components/common"
+import { QuickCreateLocationModal } from "@/pages/admin/components/QuickCreateLocationModal"
 import { useToast } from "@/components/ui/toast"
 
 export function EditSessionModal({
@@ -10,11 +13,15 @@ export function EditSessionModal({
   session,
   onClose,
   onSaved,
+  canEditDuration = true,
+  hideLogistics: _hideLogistics = false,
 }: {
   cohortId: string
   session: Session
   onClose: () => void
   onSaved?: () => void
+  canEditDuration?: boolean
+  hideLogistics?: boolean
 }) {
   const toast = useToast()
   const queryClient = useQueryClient()
@@ -22,16 +29,30 @@ export function EditSessionModal({
   const [meetingDate, setMeetingDate] = useState(session.meeting_date ?? "")
   const [startsAt, setStartsAt] = useState(session.starts_at ? session.starts_at.slice(0, 5) : "")
   const [durationHours, setDurationHours] = useState(session.duration_hours != null ? String(session.duration_hours) : "")
+  const [locationId, setLocationId] = useState(session.location_id ?? "")
+  const [newLocOpen, setNewLocOpen] = useState(false)
   const [error, setError] = useState("")
 
+  const { data: locations = [] } = useQuery({
+    queryKey: ["locations"],
+    queryFn: () => getLocationsApi(false),
+  })
+
   const updateMutation = useMutation({
-    mutationFn: () =>
-      updateSessionApi(cohortId, session.id, {
+    mutationFn: () => {
+      const payload: Parameters<typeof updateSessionApi>[2] = {
         title: title.trim() || null,
         meeting_date: meetingDate,
         starts_at: startsAt || null,
-        duration_hours: durationHours.trim() ? Number(durationHours) : null,
-      }),
+      }
+      if (locationId !== (session.location_id ?? "")) {
+        payload.location_id = locationId || null
+      }
+      if (canEditDuration) {
+        payload.duration_hours = durationHours.trim() ? Number(durationHours) : null
+      }
+      return updateSessionApi(cohortId, session.id, payload)
+    },
     onSuccess: () => {
       toast.success("Session updated")
       queryClient.invalidateQueries({ queryKey: ["cohort-sessions", cohortId] })
@@ -42,7 +63,11 @@ export function EditSessionModal({
     onError: (e: any) => setError(e?.response?.data?.detail ?? "Could not update session"),
   })
 
+  const currentLocMissing =
+    Boolean(locationId) && !locations.some((loc) => loc.id === locationId)
+
   return (
+    <>
     <Modal title="Edit Session" onClose={onClose}>
       <form
         onSubmit={(e) => {
@@ -80,15 +105,46 @@ export function EditSessionModal({
           </Field>
         </div>
 
-        <Field label="Duration Override (hours, optional)">
-          <input
-            type="number" step="0.5" min="0"
-            value={durationHours}
-            onChange={(e) => setDurationHours(e.target.value)}
-            placeholder="Leave blank to use the cohort's duration"
-            className="w-full h-10 px-3 border border-border bg-background text-foreground rounded-xl text-sm focus:outline-none focus:border-primary transition-colors"
-          />
+        <Field label="Location Override (optional)">
+          <div className="flex items-center gap-2">
+            <select
+              value={locationId}
+              onChange={(e) => setLocationId(e.target.value)}
+              className="flex-1 h-10 px-3 border border-border bg-background text-foreground rounded-xl text-sm focus:outline-none focus:border-primary transition-colors"
+            >
+              <option value="">Inherit from cohort</option>
+              {currentLocMissing && (
+                <option value={locationId}>
+                  {session.effective_location_name ?? "Current session venue"}
+                </option>
+              )}
+              {locations.map((loc) => (
+                <option key={loc.id} value={loc.id}>
+                  {loc.name}{loc.city_name ? ` — ${loc.city_name}` : ""}
+                </option>
+              ))}
+            </select>
+            <button
+              type="button"
+              onClick={() => setNewLocOpen(true)}
+              className="h-10 px-2.5 inline-flex items-center gap-1 rounded-xl border border-border bg-background text-xs font-medium hover:bg-muted transition-colors shrink-0"
+            >
+              <Plus size={13} /> New
+            </button>
+          </div>
         </Field>
+
+        {canEditDuration && (
+          <Field label="Duration Override (hours, optional)">
+            <input
+              type="number" step="0.5" min="0"
+              value={durationHours}
+              onChange={(e) => setDurationHours(e.target.value)}
+              placeholder="Leave blank to use the cohort's duration"
+              className="w-full h-10 px-3 border border-border bg-background text-foreground rounded-xl text-sm focus:outline-none focus:border-primary transition-colors"
+            />
+          </Field>
+        )}
 
         {error && <p className="text-xs text-red-600 dark:text-red-400">{error}</p>}
 
@@ -110,5 +166,12 @@ export function EditSessionModal({
         </div>
       </form>
     </Modal>
+    {newLocOpen && (
+      <QuickCreateLocationModal
+        onClose={() => setNewLocOpen(false)}
+        onCreated={(loc) => setLocationId(loc.id)}
+      />
+    )}
+    </>
   )
 }

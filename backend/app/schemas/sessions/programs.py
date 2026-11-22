@@ -51,6 +51,7 @@ class ProgramCreate(ProgramBase):
     # only non-emptiness, via the plain `str` type — since no spec for the
     # exact validation rule was given; a stricter check can be added once one is.
     code: str
+    organization_id: UUID | None = None
 
 
 class ProgramUpdate(BaseModel):
@@ -74,6 +75,7 @@ class ProgramUpdate(BaseModel):
 class ProgramOut(ProgramBase):
     id: UUID
     code: str
+    organization_id: UUID | None = None
     created_at: datetime
     # Competition domain (2026-08-24) — read-only, derived from
     # `program_type == "competition"` (see the model's `is_competition`

@@ -24,14 +24,23 @@ import type {
 
 /* ── locations ─────────────────────────────────────────────────────────── */
 
-export const getLocationsApi = (includeInactive = false) =>
-  api.get<Location[]>("/inventory/locations", { params: { include_inactive: includeInactive } })
-    .then((r) => r.data)
+export const getLocationsApi = (includeInactive = false, organizationId?: string) =>
+  api.get<Location[]>("/inventory/locations", {
+    params: {
+      include_inactive: includeInactive,
+      ...(organizationId ? { organization_id: organizationId } : {}),
+    },
+  }).then((r) => r.data)
 
 /** A location is in a city — `city_id` is required; the country is derived
  *  from the city server-side and never sent. */
 export const createLocationApi = (body: {
-  name: string; city_id: string; notes?: string; address?: string | null; maps_url?: string | null
+  name: string
+  city_id: string
+  notes?: string
+  address?: string | null
+  maps_url?: string | null
+  organization_id?: string | null
 }) => api.post<Location>("/inventory/locations", body).then((r) => r.data)
 
 export const updateLocationApi = ({ id, ...body }: { id: string } & Partial<Location>) =>

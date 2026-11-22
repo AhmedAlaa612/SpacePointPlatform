@@ -40,10 +40,56 @@ from app.schemas.sessions.openings import (
     ProgramOpeningOut,
     SetOpeningsIn,
 )
+from app.services.org_access import (
+    can_read_cohort,
+    is_ops_or_admin,
+    require_cohort_delivery_manager_or_ops,
+    require_cohort_read_or_ops,
+    require_program_manager_or_ops,
+    require_program_read_or_ops,
+    require_session_delivery_manager_or_ops,
+)
 from app.services.sessions import openings as svc
 from app.services.sessions.delivery import _get_deliverable_session
+from app.models.sessions.cohort import Cohort
+from app.models.sessions.session import Session
 
 router = APIRouter(prefix="/sessions", tags=["sessions-openings"])
+
+
+def _is_partner_caller(user: User) -> bool:
+    return "organization" in user.role_values and not is_ops_or_admin(user)
+
+
+def _redact_role_out(role: DeliveryRole, partner: bool) -> DeliveryRoleOut:
+    out = DeliveryRoleOut.model_validate(role)
+    if partner:
+        out.default_rate_aed = None
+    return out
+
+
+def _redact_session_opening(row: dict, partner: bool) -> OpeningOut:
+    out = OpeningOut(**row)
+    if partner:
+        out.amount_aed = None
+        out.rate_source = None
+    return out
+
+
+def _redact_cohort_opening(row: dict, partner: bool) -> CohortOpeningOut:
+    out = CohortOpeningOut(**row)
+    if partner:
+        out.amount_aed = None
+        out.role_default_rate_aed = None
+    return out
+
+
+def _redact_program_opening(row: dict, partner: bool) -> ProgramOpeningOut:
+    out = ProgramOpeningOut(**row)
+    if partner:
+        out.amount_aed = None
+        out.role_default_rate_aed = None
+    return out
 
 
 # ── delivery roles ──────────────────────────────────────────────────────────
@@ -54,9 +100,11 @@ async def list_delivery_roles(
     db: AsyncSession = Depends(get_db),
     # Readable by anyone who delivers: an instructor's own session shows the
     # role they hold, and the invite names the role being offered.
-    _: User = Depends(require_session_delivery),
+    current_user: User = Depends(require_session_delivery),
 ):
-    return await svc.list_roles(db, include_inactive=include_inactive)
+    roles = await svc.list_roles(db, include_inactive=include_inactive)
+    partner = _is_partner_caller(current_user)
+    return [_redact_role_out(r, partner) for r in roles]
 
 
 @router.post("/delivery-roles", response_model=DeliveryRoleOut, status_code=status.HTTP_201_CREATED)
@@ -105,14 +153,17 @@ async def get_openings(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_session_delivery),
 ):
-    """Slots, offer and how many are left. Visible to instructors — it is what
-    the invite is made of. Ops sees every opening, including roles closed to
-    the current call (B2) — they're the one who'd reopen it. Instructors only
-    ever see the ones actually on offer."""
-    await _get_deliverable_session(db, session_id, current_user)
-    is_ops = {"operations", "admin"} & set(current_user.role_values)
-    rows = await svc.openings_for_session(db, session_id, open_only=not is_ops)
-    return [OpeningOut(**row) for row in rows]
+    """Slots, offer and how many are left. Visible to instructors, org managers/observers, and Ops."""
+    session = await _get_deliverable_session(db, session_id, current_user, read_only=True)
+    is_ops = is_ops_or_admin(current_user)
+    is_org_reader = False
+    if not is_ops and "organization" in current_user.role_values:
+        cohort = await db.get(Cohort, session.cohort_id)
+        if cohort is not None:
+            is_org_reader = await can_read_cohort(db, cohort, current_user)
+    rows = await svc.openings_for_session(db, session_id, open_only=not (is_ops or is_org_reader))
+    partner = _is_partner_caller(current_user)
+    return [_redact_session_opening(row, partner) for row in rows]
 
 
 @router.put("/{session_id}/openings", response_model=list[OpeningOut])
@@ -120,16 +171,24 @@ async def set_openings(
     session_id: uuid.UUID,
     body: SetOpeningsIn,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_operations),
+    current_user: User = Depends(require_session_delivery),
 ):
+    await require_session_delivery_manager_or_ops(db, session_id, current_user)
+    partner = _is_partner_caller(current_user)
+    lines = []
+    for line in body.openings:
+        d = line.model_dump()
+        if partner:
+            d["amount_aed"] = None
+        lines.append(d)
     await svc.set_openings(
         db,
         session_id=session_id,
-        lines=[line.model_dump() for line in body.openings],
+        lines=lines,
         actor_user_id=current_user.id,
     )
     await db.commit()
-    return [OpeningOut(**row) for row in await svc.openings_for_session(db, session_id)]
+    return [_redact_session_opening(row, partner) for row in await svc.openings_for_session(db, session_id)]
 
 
 # ── cohort-level opening defaults (2026-08-01) ─────────────────────────────
@@ -138,11 +197,13 @@ async def set_openings(
 async def get_cohort_openings(
     cohort_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(require_operations),
+    current_user: User = Depends(require_session_delivery),
 ):
     """The template new sessions in this cohort inherit until they're
     individually customized — see openings_for_session's fallback."""
-    return [CohortOpeningOut(**row) for row in await svc.cohort_openings(db, cohort_id)]
+    await require_cohort_read_or_ops(db, cohort_id, current_user)
+    partner = _is_partner_caller(current_user)
+    return [_redact_cohort_opening(row, partner) for row in await svc.cohort_openings(db, cohort_id)]
 
 
 @router.put("/cohorts/{cohort_id}/openings-defaults", response_model=list[CohortOpeningOut])
@@ -150,15 +211,23 @@ async def set_cohort_openings(
     cohort_id: uuid.UUID,
     body: SetOpeningsIn,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_operations),
+    current_user: User = Depends(require_session_delivery),
 ):
+    await require_cohort_delivery_manager_or_ops(db, cohort_id, current_user)
+    partner = _is_partner_caller(current_user)
+    lines = []
+    for line in body.openings:
+        d = line.model_dump()
+        if partner:
+            d["amount_aed"] = None
+        lines.append(d)
     await svc.set_cohort_openings(
         db, cohort_id=cohort_id,
-        lines=[line.model_dump() for line in body.openings],
+        lines=lines,
         actor_user_id=current_user.id,
     )
     await db.commit()
-    return [CohortOpeningOut(**row) for row in await svc.cohort_openings(db, cohort_id)]
+    return [_redact_cohort_opening(row, partner) for row in await svc.cohort_openings(db, cohort_id)]
 
 
 # ── program-level role template (2026-09) ──────────────────────────────────
@@ -168,11 +237,13 @@ async def get_program_openings(
     program_id: uuid.UUID,
     variation_id: uuid.UUID | None = None,
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(require_operations),
+    current_user: User = Depends(require_session_delivery),
 ):
     """The template new cohorts of this program/variation are seeded from at creation."""
+    await require_program_read_or_ops(db, program_id, current_user)
+    partner = _is_partner_caller(current_user)
     return [
-        ProgramOpeningOut(**row)
+        _redact_program_opening(row, partner)
         for row in await svc.program_openings(db, program_id, variation_id=variation_id)
     ]
 
@@ -183,17 +254,25 @@ async def set_program_openings(
     body: SetOpeningsIn,
     variation_id: uuid.UUID | None = None,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_operations),
+    current_user: User = Depends(require_session_delivery),
 ):
+    await require_program_manager_or_ops(db, program_id, current_user)
+    partner = _is_partner_caller(current_user)
+    lines = []
+    for line in body.openings:
+        d = line.model_dump()
+        if partner:
+            d["amount_aed"] = None
+        lines.append(d)
     await svc.set_program_openings(
         db, program_id=program_id,
         variation_id=variation_id,
-        lines=[line.model_dump() for line in body.openings],
+        lines=lines,
         actor_user_id=current_user.id,
     )
     await db.commit()
     return [
-        ProgramOpeningOut(**row)
+        _redact_program_opening(row, partner)
         for row in await svc.program_openings(db, program_id, variation_id=variation_id)
     ]
 

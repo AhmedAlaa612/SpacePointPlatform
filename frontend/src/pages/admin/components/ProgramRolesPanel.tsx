@@ -66,12 +66,14 @@ function ProgramChecklistList({
   availableMaterials = [],
   owner,
   onMaterialUploaded,
+  readOnly = false,
 }: {
   rows: ChecklistDraftLine[]
   onChange: (updated: ChecklistDraftLine[]) => void
   availableMaterials?: Material[]
   owner?: MaterialOwner
   onMaterialUploaded?: (mat: Material) => void
+  readOnly?: boolean
 }) {
   const toast = useToast()
   const [dragKey, setDragKey] = useState<string | null>(null)
@@ -158,7 +160,9 @@ function ProgramChecklistList({
   if (rows.length === 0) {
     return (
       <div className="py-7 text-center text-xs text-muted-foreground border border-dashed border-border rounded-xl">
-        No checklist items yet for this template day. Click &ldquo;Add item&rdquo; below.
+        {readOnly
+          ? "No checklist items defined for this template day."
+          : <>No checklist items yet for this template day. Click &ldquo;Add item&rdquo; below.</>}
       </div>
     )
   }
@@ -168,10 +172,11 @@ function ProgramChecklistList({
       {rows.map((line, i) => (
         <div
           key={line.key}
-          draggable
-          onDragStart={() => setDragKey(line.key)}
-          onDragOver={(e) => e.preventDefault()}
+          draggable={!readOnly}
+          onDragStart={() => !readOnly && setDragKey(line.key)}
+          onDragOver={(e) => !readOnly && e.preventDefault()}
           onDrop={(e) => {
+            if (readOnly) return
             e.preventDefault()
             dropOnto(line.key)
           }}
@@ -183,57 +188,68 @@ function ProgramChecklistList({
         >
           {/* Top bar on mobile / Reorder controls on desktop */}
           <div className="flex items-center justify-between sm:justify-start gap-1.5 shrink-0 sm:pt-1 flex-wrap">
-            <div className="flex items-center gap-1 shrink-0 text-muted-foreground" title="Drag to reorder">
-              <GripVertical
-                size={15}
-                className="cursor-grab active:cursor-grabbing hover:text-foreground shrink-0"
-              />
-              <OrderNumberInput
-                value={i + 1}
-                totalCount={rows.length}
-                onCommit={(pos) => moveToPosition(line.key, pos)}
-              />
-            </div>
+            {readOnly ? (
+              <span className="text-xs font-semibold text-muted-foreground w-6 text-center tabular-nums">
+                {i + 1}.
+              </span>
+            ) : (
+              <>
+                <div className="flex items-center gap-1 shrink-0 text-muted-foreground" title="Drag to reorder">
+                  <GripVertical
+                    size={15}
+                    className="cursor-grab active:cursor-grabbing hover:text-foreground shrink-0"
+                  />
+                  <OrderNumberInput
+                    value={i + 1}
+                    totalCount={rows.length}
+                    onCommit={(pos) => moveToPosition(line.key, pos)}
+                  />
+                </div>
 
-            <div className="flex items-center gap-0.5 shrink-0">
-              <button
-                type="button"
-                onClick={() => moveUp(i)}
-                disabled={i === 0}
-                title="Move up"
-                className="p-1 text-muted-foreground hover:text-foreground disabled:opacity-20 transition-colors cursor-pointer"
-              >
-                <ChevronUp size={13} />
-              </button>
-              <button
-                type="button"
-                onClick={() => moveDown(i)}
-                disabled={i === rows.length - 1}
-                title="Move down"
-                className="p-1 text-muted-foreground hover:text-foreground disabled:opacity-20 transition-colors cursor-pointer"
-              >
-                <ChevronDown size={13} />
-              </button>
-            </div>
+                <div className="flex items-center gap-0.5 shrink-0">
+                  <button
+                    type="button"
+                    onClick={() => moveUp(i)}
+                    disabled={i === 0}
+                    title="Move up"
+                    className="p-1 text-muted-foreground hover:text-foreground disabled:opacity-20 transition-colors cursor-pointer"
+                  >
+                    <ChevronUp size={13} />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => moveDown(i)}
+                    disabled={i === rows.length - 1}
+                    title="Move down"
+                    className="p-1 text-muted-foreground hover:text-foreground disabled:opacity-20 transition-colors cursor-pointer"
+                  >
+                    <ChevronDown size={13} />
+                  </button>
+                </div>
+              </>
+            )}
 
             {/* Mobile-only action buttons in top row */}
             <div className="flex items-center gap-1 sm:hidden flex-wrap">
-              <button
-                type="button"
-                onClick={() => toggleExpanded(line.key, (line.sub_items?.length || 0) > 0, i)}
-                className={cn(
-                  "h-6 px-1.5 rounded text-[11px] font-medium border flex items-center gap-0.5 shrink-0 cursor-pointer",
-                  (line.sub_items?.length || 0) > 0
-                    ? "border-primary/40 text-primary bg-primary/10"
-                    : "border-border text-muted-foreground"
-                )}
-                title={(line.sub_items?.length || 0) > 0 ? "Edit sub-topics" : "Add sub-topics"}
-              >
-                <span>{(line.sub_items?.length || 0) > 0 ? `Subs (${line.sub_items!.length})` : "+ Subs"}</span>
-              </button>
+              {(!readOnly || (line.sub_items?.length || 0) > 0) && (
+                <button
+                  type="button"
+                  onClick={() => toggleExpanded(line.key, (line.sub_items?.length || 0) > 0, i)}
+                  className={cn(
+                    "h-6 px-1.5 rounded text-[11px] font-medium border flex items-center gap-0.5 shrink-0 cursor-pointer",
+                    (line.sub_items?.length || 0) > 0
+                      ? "border-primary/40 text-primary bg-primary/10"
+                      : "border-border text-muted-foreground"
+                  )}
+                  title={(line.sub_items?.length || 0) > 0 ? "View sub-topics" : "Add sub-topics"}
+                >
+                  <span>{(line.sub_items?.length || 0) > 0 ? `Subs (${line.sub_items!.length})` : "+ Subs"}</span>
+                </button>
+              )}
               <label className="flex items-center gap-1 text-[11px] text-muted-foreground cursor-pointer select-none px-1.5 py-0.5 rounded-md hover:bg-muted/50">
                 <input
                   type="checkbox"
+                  disabled={readOnly}
                   checked={line.is_required}
                   onChange={(e) =>
                     onChange(rows.map((r, j) => (j === i ? { ...r, is_required: e.target.checked } : r)))
@@ -245,6 +261,7 @@ function ProgramChecklistList({
               <label className="flex items-center gap-1 text-[11px] text-muted-foreground cursor-pointer select-none px-1.5 py-0.5 rounded-md hover:bg-muted/50">
                 <input
                   type="checkbox"
+                  disabled={readOnly}
                   checked={line.requires_proof}
                   onChange={(e) =>
                     onChange(rows.map((r, j) => (j === i ? { ...r, requires_proof: e.target.checked } : r)))
@@ -253,26 +270,29 @@ function ProgramChecklistList({
                 />
                 <span>Photo</span>
               </label>
-              <button
-                type="button"
-                onClick={() => onChange(rows.filter((_, j) => j !== i))}
-                className="p-1 text-muted-foreground hover:text-red-500 hover:bg-red-500/10 rounded transition-colors shrink-0 cursor-pointer"
-                aria-label="Remove item"
-              >
-                <Trash2 size={13} />
-              </button>
+              {!readOnly && (
+                <button
+                  type="button"
+                  onClick={() => onChange(rows.filter((_, j) => j !== i))}
+                  className="p-1 text-muted-foreground hover:text-red-500 hover:bg-red-500/10 rounded transition-colors shrink-0 cursor-pointer"
+                  aria-label="Remove item"
+                >
+                  <Trash2 size={13} />
+                </button>
+              )}
             </div>
           </div>
 
           {/* Description input + Attached References tags + Picker + Sub-topics */}
           <div className="flex flex-col gap-1.5 flex-1 min-w-0 w-full">
             <input
+              disabled={readOnly}
               value={line.title}
               placeholder="Checklist item description… (supports [Links](url))"
               onChange={(e) =>
                 onChange(rows.map((r, j) => (j === i ? { ...r, title: e.target.value } : r)))
               }
-              className="w-full h-8 px-2.5 border border-border bg-background text-foreground rounded-lg text-xs sm:text-sm focus:outline-none focus:border-primary transition-colors"
+              className="w-full h-8 px-2.5 border border-border bg-background text-foreground rounded-lg text-xs sm:text-sm focus:outline-none focus:border-primary transition-colors disabled:opacity-75"
             />
 
             {/* Attached References Pills + Attach button */}
@@ -349,30 +369,34 @@ function ProgramChecklistList({
                     </button>
 
                     {/* Remove Reference */}
-                    <button
-                      type="button"
-                      onClick={() => {
-                        const nextAtts = (line.attachments ?? []).filter((_, idx) => idx !== attIdx)
-                        onChange(rows.map((r, j) => (j === i ? { ...r, attachments: nextAtts } : r)))
-                      }}
-                      className="ml-0.5 text-muted-foreground hover:text-red-500 cursor-pointer p-0.5"
-                      title="Remove reference"
-                    >
-                      <X size={11} />
-                    </button>
+                    {!readOnly && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const nextAtts = (line.attachments ?? []).filter((_, idx) => idx !== attIdx)
+                          onChange(rows.map((r, j) => (j === i ? { ...r, attachments: nextAtts } : r)))
+                        }}
+                        className="ml-0.5 text-muted-foreground hover:text-red-500 cursor-pointer p-0.5"
+                        title="Remove reference"
+                      >
+                        <X size={11} />
+                      </button>
+                    )}
                   </div>
                 )
               })}
 
-              <ChecklistAttachmentPicker
-                availableMaterials={availableMaterials}
-                owner={owner}
-                onMaterialUploaded={onMaterialUploaded}
-                onAdd={(newAtt) => {
-                  const nextAtts = [...(line.attachments ?? []), newAtt]
-                  onChange(rows.map((r, j) => (j === i ? { ...r, attachments: nextAtts } : r)))
-                }}
-              />
+              {!readOnly && (
+                <ChecklistAttachmentPicker
+                  availableMaterials={availableMaterials}
+                  owner={owner}
+                  onMaterialUploaded={onMaterialUploaded}
+                  onAdd={(newAtt) => {
+                    const nextAtts = [...(line.attachments ?? []), newAtt]
+                    onChange(rows.map((r, j) => (j === i ? { ...r, attachments: nextAtts } : r)))
+                  }}
+                />
+              )}
             </div>
 
             {/* Sub-topics list (indented, matching Judging Criteria style) */}
@@ -393,6 +417,7 @@ function ProgramChecklistList({
                   <div key={sub.id || subIdx} className="flex items-center gap-2 pl-1">
                     <span className="text-muted-foreground text-xs w-3 shrink-0">↳</span>
                     <input
+                      disabled={readOnly}
                       value={sub.title}
                       placeholder="Sub-topic description…"
                       onChange={(e) => {
@@ -401,11 +426,12 @@ function ProgramChecklistList({
                         )
                         onChange(rows.map((r, j) => (j === i ? { ...r, sub_items: nextSubs } : r)))
                       }}
-                      className="flex-1 min-w-0 h-7 px-2.5 border border-border bg-background text-foreground rounded-lg text-xs focus:outline-none focus:border-primary transition-colors"
+                      className="flex-1 min-w-0 h-7 px-2.5 border border-border bg-background text-foreground rounded-lg text-xs focus:outline-none focus:border-primary transition-colors disabled:opacity-75"
                     />
                     <label className="flex items-center gap-1 text-[11px] text-muted-foreground cursor-pointer select-none px-1.5 py-0.5 rounded hover:bg-muted/50 shrink-0">
                       <input
                         type="checkbox"
+                        disabled={readOnly}
                         checked={sub.is_required !== false}
                         onChange={(e) => {
                           const nextSubs = (line.sub_items ?? []).map((s, idx) =>
@@ -421,6 +447,7 @@ function ProgramChecklistList({
                     <label className="flex items-center gap-1 text-[11px] text-muted-foreground cursor-pointer select-none px-1.5 py-0.5 rounded hover:bg-muted/50 shrink-0">
                       <input
                         type="checkbox"
+                        disabled={readOnly}
                         checked={Boolean(sub.requires_proof)}
                         onChange={(e) => {
                           const nextSubs = (line.sub_items ?? []).map((s, idx) =>
@@ -433,38 +460,42 @@ function ProgramChecklistList({
                       <ImageIcon size={11} />
                       <span>Photo</span>
                     </label>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        const nextSubs = (line.sub_items ?? []).filter((_, idx) => idx !== subIdx)
-                        onChange(rows.map((r, j) => (j === i ? { ...r, sub_items: nextSubs } : r)))
-                      }}
-                      className="p-1 text-muted-foreground hover:text-red-500 hover:bg-red-500/10 rounded transition-colors shrink-0 cursor-pointer"
-                      title="Remove sub-topic"
-                    >
-                      <Trash2 size={12} />
-                    </button>
+                    {!readOnly && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const nextSubs = (line.sub_items ?? []).filter((_, idx) => idx !== subIdx)
+                          onChange(rows.map((r, j) => (j === i ? { ...r, sub_items: nextSubs } : r)))
+                        }}
+                        className="p-1 text-muted-foreground hover:text-red-500 hover:bg-red-500/10 rounded transition-colors shrink-0 cursor-pointer"
+                        title="Remove sub-topic"
+                      >
+                        <Trash2 size={12} />
+                      </button>
+                    )}
                   </div>
                 ))}
 
-                <button
-                  type="button"
-                  onClick={() => {
-                    const nextSubs = [
-                      ...(line.sub_items ?? []),
-                      {
-                        id: `sub-${Date.now()}-${(line.sub_items ?? []).length}`,
-                        title: "",
-                        is_required: true,
-                        requires_proof: false,
-                      },
-                    ]
-                    onChange(rows.map((r, j) => (j === i ? { ...r, sub_items: nextSubs } : r)))
-                  }}
-                  className="self-start flex items-center gap-1 text-xs font-medium text-primary hover:opacity-80 pl-4 py-0.5 cursor-pointer"
-                >
-                  <Plus size={12} /> Add sub-topic
-                </button>
+                {!readOnly && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const nextSubs = [
+                        ...(line.sub_items ?? []),
+                        {
+                          id: `sub-${Date.now()}-${(line.sub_items ?? []).length}`,
+                          title: "",
+                          is_required: true,
+                          requires_proof: false,
+                        },
+                      ]
+                      onChange(rows.map((r, j) => (j === i ? { ...r, sub_items: nextSubs } : r)))
+                    }}
+                    className="self-start flex items-center gap-1 text-xs font-medium text-primary hover:opacity-80 pl-4 py-0.5 cursor-pointer"
+                  >
+                    <Plus size={12} /> Add sub-topic
+                  </button>
+                )}
               </div>
             )}
           </div>
@@ -543,6 +574,7 @@ function ProgramDayChecklistEditor({
   roleName,
   dayTitle,
   targetAudience = "instructor",
+  readOnly = false,
   onDirtyChange,
 }: {
   scope: ChecklistScope
@@ -552,6 +584,7 @@ function ProgramDayChecklistEditor({
   roleName: string
   dayTitle: string
   targetAudience?: "instructor" | "internal"
+  readOnly?: boolean
   onDirtyChange?: (saveFn: (() => Promise<void>) | null, isPending: boolean) => void
 }) {
   const qc = useQueryClient()
@@ -645,44 +678,46 @@ function ProgramDayChecklistEditor({
           </span>
         </div>
 
-        <div className="flex items-center gap-1.5 flex-wrap">
-          <button
-            type="button"
-            onClick={() => setShowImportModal(true)}
-            className="flex items-center gap-1 h-8 px-2.5 border border-border bg-card rounded-lg text-xs font-semibold text-foreground hover:border-primary/50 hover:bg-primary/5 transition-colors cursor-pointer shadow-sm"
-            title="Import items from another program template or cohort"
-          >
-            <Copy size={13} className="text-primary" /> Import Items
-          </button>
+        {!readOnly && (
+          <div className="flex items-center gap-1.5 flex-wrap">
+            <button
+              type="button"
+              onClick={() => setShowImportModal(true)}
+              className="flex items-center gap-1 h-8 px-2.5 border border-border bg-card rounded-lg text-xs font-semibold text-foreground hover:border-primary/50 hover:bg-primary/5 transition-colors cursor-pointer shadow-sm"
+              title="Import items from another program template or cohort"
+            >
+              <Copy size={13} className="text-primary" /> Import Items
+            </button>
 
-          <button
-            type="button"
-            onClick={() => {
-              setDraft([
-                ...rows,
-                {
-                  key: `new-${Date.now()}-${rows.length}`,
-                  title: "",
-                  requires_proof: false,
-                  is_required: true,
-                },
-              ])
-              setIsDirty(true)
-            }}
-            className="flex items-center gap-1 h-8 px-2.5 border border-dashed border-border rounded-lg text-xs font-medium text-foreground hover:border-primary/50 hover:bg-primary/5 transition-colors cursor-pointer"
-          >
-            <Plus size={13} /> Add item
-          </button>
+            <button
+              type="button"
+              onClick={() => {
+                setDraft([
+                  ...rows,
+                  {
+                    key: `new-${Date.now()}-${rows.length}`,
+                    title: "",
+                    requires_proof: false,
+                    is_required: true,
+                  },
+                ])
+                setIsDirty(true)
+              }}
+              className="flex items-center gap-1 h-8 px-2.5 border border-dashed border-border rounded-lg text-xs font-medium text-foreground hover:border-primary/50 hover:bg-primary/5 transition-colors cursor-pointer"
+            >
+              <Plus size={13} /> Add item
+            </button>
 
-          <button
-            type="button"
-            onClick={() => saveMutation.mutate()}
-            disabled={saveMutation.isPending || isLoading}
-            className="flex items-center gap-1 h-8 px-3.5 bg-primary text-primary-foreground rounded-lg text-xs font-semibold hover:opacity-90 disabled:opacity-50 transition-opacity cursor-pointer shadow-sm"
-          >
-            {saveMutation.isPending ? "Saving…" : "Save checklist"}
-          </button>
-        </div>
+            <button
+              type="button"
+              onClick={() => saveMutation.mutate()}
+              disabled={saveMutation.isPending || isLoading}
+              className="flex items-center gap-1 h-8 px-3.5 bg-primary text-primary-foreground rounded-lg text-xs font-semibold hover:opacity-90 disabled:opacity-50 transition-opacity cursor-pointer shadow-sm"
+            >
+              {saveMutation.isPending ? "Saving…" : "Save checklist"}
+            </button>
+          </div>
+        )}
       </div>
 
       {error && <p className="text-xs text-red-500 bg-red-500/10 p-2 rounded-lg">{error}</p>}
@@ -692,6 +727,7 @@ function ProgramDayChecklistEditor({
       ) : (
         <ProgramChecklistList
           rows={rows}
+          readOnly={readOnly}
           onChange={(nextRows) => {
             setDraft(nextRows)
             setIsDirty(true)
@@ -726,10 +762,14 @@ function ProgramDayChecklistEditor({
 export function ProgramRolesPanel({
   program,
   variationId,
+  readOnly = false,
+  hideFinancials = false,
   onFormChange,
 }: {
   program: Program
   variationId?: string | null
+  readOnly?: boolean
+  hideFinancials?: boolean
   onFormChange?: (form: { ensure: () => Promise<void>; isPending: boolean }) => void
 }) {
   const qc = useQueryClient()
@@ -871,7 +911,7 @@ export function ProgramRolesPanel({
           .filter(
             (d) =>
               d.existing ||
-              d.amount_aed !== "" ||
+              (!hideFinancials && d.amount_aed !== "") ||
               d.notes ||
               d.responsibilities_override ||
               d.slots !== 1,
@@ -879,7 +919,7 @@ export function ProgramRolesPanel({
           .map((d) => ({
             role_id: d.role_id,
             slots: d.slots,
-            amount_aed: d.amount_aed === "" ? null : Number(d.amount_aed),
+            amount_aed: hideFinancials ? null : d.amount_aed === "" ? null : Number(d.amount_aed),
             notes: d.notes || null,
             responsibilities_override: d.responsibilities_override || null,
           })),
@@ -895,6 +935,7 @@ export function ProgramRolesPanel({
 
   const flushUnsavedRef = useRef<() => Promise<void>>(async () => { })
   flushUnsavedRef.current = async () => {
+    if (readOnly) return
     if (checklistSaveRef.current) {
       await checklistSaveRef.current()
       checklistSaveRef.current = null
@@ -959,7 +1000,7 @@ export function ProgramRolesPanel({
               : "text-muted-foreground hover:text-foreground hover:bg-muted",
           )}
         >
-          Role Rates &amp; Slots
+          {hideFinancials ? "Role Slots" : "Role Rates & Slots"}
         </button>
       </div>
 
@@ -1051,16 +1092,18 @@ export function ProgramRolesPanel({
               })}
 
               {/* + Add Day Button Card */}
-              <button
-                type="button"
-                onClick={() => addDayMutation.mutate()}
-                disabled={addDayMutation.isPending}
-                className="flex flex-col items-center justify-center min-w-[100px] p-2.5 rounded-xl border border-dashed border-border hover:border-primary/60 hover:bg-primary/5 text-muted-foreground hover:text-foreground transition-all shrink-0 cursor-pointer"
-                title="Add a default day to this program template"
-              >
-                <Plus size={16} className="mb-1 text-primary" />
-                <span className="text-xs font-medium">Add Day</span>
-              </button>
+              {!readOnly && (
+                <button
+                  type="button"
+                  onClick={() => addDayMutation.mutate()}
+                  disabled={addDayMutation.isPending}
+                  className="flex flex-col items-center justify-center min-w-[100px] p-2.5 rounded-xl border border-dashed border-border hover:border-primary/60 hover:bg-primary/5 text-muted-foreground hover:text-foreground transition-all shrink-0 cursor-pointer"
+                  title="Add a default day to this program template"
+                >
+                  <Plus size={16} className="mb-1 text-primary" />
+                  <span className="text-xs font-medium">Add Day</span>
+                </button>
+              )}
             </div>
           </div>
 
@@ -1073,16 +1116,18 @@ export function ProgramRolesPanel({
                 </label>
                 <input
                   type="text"
+                  disabled={readOnly}
                   value={dayTitleInput}
                   onChange={(e) => setDayTitleInput(e.target.value)}
                   onBlur={() => {
+                    if (readOnly) return
                     const trimmed = dayTitleInput.trim()
                     if (trimmed && trimmed !== selectedSession.title) {
                       updateDayMutation.mutate({ title: trimmed })
                     }
                   }}
                   placeholder="e.g. SatKit Assembly & Sensors"
-                  className="w-full h-8 px-2.5 bg-background border border-border rounded-lg text-xs font-medium text-foreground focus:outline-none focus:border-primary transition-colors"
+                  className="w-full h-8 px-2.5 bg-background border border-border rounded-lg text-xs font-medium text-foreground focus:outline-none focus:border-primary transition-colors disabled:opacity-60"
                 />
               </div>
 
@@ -1093,36 +1138,40 @@ export function ProgramRolesPanel({
                   </label>
                   <input
                     type="number"
+                    disabled={readOnly}
                     step="0.5"
                     min="0.5"
                     value={dayDurationInput}
                     onChange={(e) => setDayDurationInput(e.target.value)}
                     onBlur={() => {
+                      if (readOnly) return
                       const parsed = parseFloat(dayDurationInput)
                       if (parsed > 0 && parsed !== selectedSession.duration_hours) {
                         updateDayMutation.mutate({ duration_hours: parsed })
                       }
                     }}
-                    className="w-full h-8 px-2 bg-background border border-border rounded-lg text-xs font-medium text-foreground focus:outline-none focus:border-primary transition-colors"
+                    className="w-full h-8 px-2 bg-background border border-border rounded-lg text-xs font-medium text-foreground focus:outline-none focus:border-primary transition-colors disabled:opacity-60"
                   />
                 </div>
 
-                <div className="flex items-end self-end">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      if (confirm(`Delete "${selectedSession.title || `Day ${selectedDayIndex + 1}`}" from this program template?`)) {
-                        deleteDayMutation.mutate(selectedSession.id)
-                      }
-                    }}
-                    disabled={deleteDayMutation.isPending}
-                    className="h-8 px-2.5 text-xs text-muted-foreground hover:text-red-500 hover:bg-red-500/10 border border-border rounded-lg transition-colors disabled:opacity-30 cursor-pointer flex items-center gap-1"
-                    title="Delete this day"
-                  >
-                    <Trash2 size={13} />
-                    <span>Delete Day</span>
-                  </button>
-                </div>
+                {!readOnly && (
+                  <div className="flex items-end self-end">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (confirm(`Delete "${selectedSession.title || `Day ${selectedDayIndex + 1}`}" from this program template?`)) {
+                          deleteDayMutation.mutate(selectedSession.id)
+                        }
+                      }}
+                      disabled={deleteDayMutation.isPending}
+                      className="h-8 px-2.5 text-xs text-muted-foreground hover:text-red-500 hover:bg-red-500/10 border border-border rounded-lg transition-colors disabled:opacity-30 cursor-pointer flex items-center gap-1"
+                      title="Delete this day"
+                    >
+                      <Trash2 size={13} />
+                      <span>Delete Day</span>
+                    </button>
+                  </div>
+                )}
               </div>
             </div>
           )}
@@ -1217,6 +1266,7 @@ export function ProgramRolesPanel({
               roleName={activeRoleName}
               dayTitle={activeDayTitle}
               targetAudience={isInternalChecklist ? "internal" : "instructor"}
+              readOnly={readOnly}
               onDirtyChange={handleChecklistDirtyChange}
             />
           </div>
@@ -1226,19 +1276,23 @@ export function ProgramRolesPanel({
         <div className="flex flex-col gap-4">
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-sm font-semibold text-foreground">Program Default Rates &amp; Openings</p>
+              <p className="text-sm font-semibold text-foreground">
+                {hideFinancials ? "Program Default Role Openings" : "Program Default Rates & Openings"}
+              </p>
               <p className="text-xs text-muted-foreground">
                 Copied into every new cohort created from this program template.
               </p>
             </div>
-            <button
-              type="button"
-              onClick={() => saveRatesMutation.mutate()}
-              disabled={saveRatesMutation.isPending}
-              className="h-8 px-4 bg-primary text-primary-foreground text-xs font-semibold rounded-lg hover:opacity-90 disabled:opacity-40 transition-colors shadow-sm cursor-pointer"
-            >
-              {saveRatesMutation.isPending ? "Saving…" : "Save roles"}
-            </button>
+            {!readOnly && (
+              <button
+                type="button"
+                onClick={() => saveRatesMutation.mutate()}
+                disabled={saveRatesMutation.isPending}
+                className="h-8 px-4 bg-primary text-primary-foreground text-xs font-semibold rounded-lg hover:opacity-90 disabled:opacity-40 transition-colors shadow-sm cursor-pointer"
+              >
+                {saveRatesMutation.isPending ? "Saving…" : "Save roles"}
+              </button>
+            )}
           </div>
 
           {ratesError && <p className="text-xs text-red-500 bg-red-500/10 p-2 rounded-lg">{ratesError}</p>}
@@ -1252,32 +1306,37 @@ export function ProgramRolesPanel({
                 <div key={d.role_id} className="border border-border rounded-xl p-3 bg-card flex flex-col gap-2.5">
                   <div className="flex items-center justify-between">
                     <span className="text-sm font-semibold text-foreground">{role.name}</span>
-                    <span className="text-xs text-muted-foreground">
-                      Platform Default: {role.default_rate_aed != null ? `${role.default_rate_aed} AED` : "None"}
-                    </span>
+                    {!hideFinancials && (
+                      <span className="text-xs text-muted-foreground">
+                        Platform Default: {role.default_rate_aed != null ? `${role.default_rate_aed} AED` : "None"}
+                      </span>
+                    )}
                   </div>
 
-                  <div className="grid grid-cols-2 gap-2">
-                    <label className="flex flex-col gap-1">
-                      <span className="text-[10px] font-semibold uppercase text-muted-foreground">
-                        Rate (AED)
-                      </span>
-                      <input
-                        type="number"
-                        min={0}
-                        placeholder={role.default_rate_aed != null ? String(role.default_rate_aed) : "0"}
-                        value={d.amount_aed}
-                        onChange={(e) => {
-                          setRatesDirty(true)
-                          setRatesDraft(
-                            (ratesDraft ?? []).map((x, j) =>
-                              j === i ? { ...x, amount_aed: e.target.value } : x,
-                            ),
-                          )
-                        }}
-                        className="h-8 px-2 border border-border bg-background text-foreground rounded-lg text-xs tabular-nums focus:outline-none focus:border-primary transition-colors"
-                      />
-                    </label>
+                  <div className={cn("grid gap-2", hideFinancials ? "grid-cols-1" : "grid-cols-2")}>
+                    {!hideFinancials && (
+                      <label className="flex flex-col gap-1">
+                        <span className="text-[10px] font-semibold uppercase text-muted-foreground">
+                          Rate (AED)
+                        </span>
+                        <input
+                          type="number"
+                          min={0}
+                          disabled={readOnly}
+                          placeholder={role.default_rate_aed != null ? String(role.default_rate_aed) : "0"}
+                          value={d.amount_aed}
+                          onChange={(e) => {
+                            setRatesDirty(true)
+                            setRatesDraft(
+                              (ratesDraft ?? []).map((x, j) =>
+                                j === i ? { ...x, amount_aed: e.target.value } : x,
+                              ),
+                            )
+                          }}
+                          className="h-8 px-2 border border-border bg-background text-foreground rounded-lg text-xs tabular-nums focus:outline-none focus:border-primary transition-colors disabled:opacity-60"
+                        />
+                      </label>
+                    )}
                     <label className="flex flex-col gap-1">
                       <span className="text-[10px] font-semibold uppercase text-muted-foreground">
                         Slots
@@ -1285,6 +1344,7 @@ export function ProgramRolesPanel({
                       <input
                         type="number"
                         min={1}
+                        disabled={readOnly}
                         value={d.slots}
                         onChange={(e) => {
                           setRatesDirty(true)
@@ -1294,7 +1354,7 @@ export function ProgramRolesPanel({
                             ),
                           )
                         }}
-                        className="h-8 px-2 border border-border bg-background text-foreground rounded-lg text-xs tabular-nums focus:outline-none focus:border-primary transition-colors"
+                        className="h-8 px-2 border border-border bg-background text-foreground rounded-lg text-xs tabular-nums focus:outline-none focus:border-primary transition-colors disabled:opacity-60"
                       />
                     </label>
                   </div>
@@ -1305,6 +1365,7 @@ export function ProgramRolesPanel({
                     </span>
                     <textarea
                       rows={2}
+                      disabled={readOnly}
                       placeholder={role.description || "Role description…"}
                       value={d.responsibilities_override}
                       onChange={(e) => {
@@ -1315,7 +1376,7 @@ export function ProgramRolesPanel({
                           ),
                         )
                       }}
-                      className="px-2 py-1.5 border border-border bg-background text-foreground rounded-lg text-xs resize-y focus:outline-none focus:border-primary transition-colors"
+                      className="px-2 py-1.5 border border-border bg-background text-foreground rounded-lg text-xs resize-y focus:outline-none focus:border-primary transition-colors disabled:opacity-60"
                     />
                   </label>
                 </div>

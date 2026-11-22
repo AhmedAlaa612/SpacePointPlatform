@@ -42,6 +42,7 @@ from app.models.spine.contact import Contact
 from app.services.missions.cohort_access import is_cohort_lms_editor
 from app.services.missions.authorization import is_staff
 from app.services.lms.author_access import is_course_author_or_staff
+from app.services.org_access import can_org_read_program_template, is_program_org_manager
 from app.models.spine.organization import Organization
 from app.models.user import User
 from app.models.team import Team, TeamMember
@@ -2179,6 +2180,54 @@ async def _items_for_owner(db: AsyncSession, *, owner_type: str, owner_id: uuid.
     return items
 
 
+async def _assert_lms_program_access(
+    db: AsyncSession,
+    program_id: uuid.UUID | None,
+    user: User,
+    *,
+    read_only: bool = False,
+) -> None:
+    if is_staff(user):
+        return
+    if program_id is None:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, detail="Operation not permitted")
+    if read_only:
+        if await can_org_read_program_template(db, program_id, user):
+            return
+    elif await is_program_org_manager(db, program_id, user):
+        return
+    raise HTTPException(status.HTTP_403_FORBIDDEN, detail="Operation not permitted")
+
+
+async def _assert_lms_program_item_access(
+    db: AsyncSession,
+    item: LmsProgramItem,
+    user: User,
+    *,
+    read_only: bool = False,
+) -> None:
+    if is_staff(user):
+        return
+    if item.owner_type == "cohort_override":
+        ov = await db.get(LmsProgramCohortOverride, item.owner_id)
+        if ov is not None:
+            await _enforce_cohort_lms_access(db, ov.cohort_id, user, read_only=read_only)
+            return
+    elif item.owner_type == "program":
+        lp = await db.get(LmsProgram, item.owner_id)
+        if lp is not None:
+            await _assert_lms_program_access(db, lp.program_id, user, read_only=read_only)
+            return
+    elif item.owner_type == "variation":
+        from app.models.sessions.program_variation import ProgramVariation
+
+        var = await db.get(ProgramVariation, item.owner_id)
+        if var is not None:
+            await _assert_lms_program_access(db, var.program_id, user, read_only=read_only)
+            return
+    raise HTTPException(status.HTTP_403_FORBIDDEN, detail="Operation not permitted")
+
+
 async def program_out(
     db: AsyncSession, program: LmsProgram, *, variation_id: uuid.UUID | None = None
 ) -> LmsProgramOut:
@@ -2204,23 +2253,31 @@ async def program_out(
 async def list_lms_programs(
     program_id: uuid.UUID | None = None,
     variation_id: uuid.UUID | None = None,
-    db: AsyncSession = Depends(get_db), _: User = Depends(require_lms_content),
+    db: AsyncSession = Depends(get_db), current: User = Depends(require_lms_content),
 ):
     """`?program_id=` is how the authoring UI finds "does this Sessions
     Program already have a checklist" without a dedicated lookup endpoint —
     there's no `UNIQUE(program_id)` violation to catch client-side since a
     fresh page load has no id to retry with."""
+    if not is_staff(current) and program_id is not None:
+        await _assert_lms_program_access(db, program_id, current, read_only=True)
     query = select(LmsProgram)
     if program_id is not None:
         query = query.where(LmsProgram.program_id == program_id)
     programs = (await db.execute(query.order_by(LmsProgram.name))).scalars().all()
+    if not is_staff(current):
+        programs = [
+            p for p in programs
+            if p.program_id is not None and await can_org_read_program_template(db, p.program_id, current)
+        ]
     return [await program_out(db, p, variation_id=variation_id) for p in programs]
 
 
 @router.post("/programs", response_model=LmsProgramOut, status_code=status.HTTP_201_CREATED)
 async def create_lms_program(
-    body: LmsProgramCreate, db: AsyncSession = Depends(get_db), _: User = Depends(require_lms_content),
+    body: LmsProgramCreate, db: AsyncSession = Depends(get_db), current: User = Depends(require_lms_content),
 ):
+    await _assert_lms_program_access(db, body.program_id, current, read_only=False)
     if body.program_id is not None:
         program = await db.get(Program, body.program_id)
         if program is None:
@@ -2248,22 +2305,24 @@ async def get_lms_program(
     lms_program_id: uuid.UUID,
     variation_id: uuid.UUID | None = None,
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(require_lms_content),
+    current: User = Depends(require_lms_content),
 ):
     entry = await db.get(LmsProgram, lms_program_id)
     if entry is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="LMS Program not found")
+    await _assert_lms_program_access(db, entry.program_id, current, read_only=True)
     return await program_out(db, entry, variation_id=variation_id)
 
 
 @router.patch("/programs/{lms_program_id}", response_model=LmsProgramOut)
 async def update_lms_program(
     lms_program_id: uuid.UUID, body: LmsProgramUpdate,
-    db: AsyncSession = Depends(get_db), _: User = Depends(require_lms_content),
+    db: AsyncSession = Depends(get_db), current: User = Depends(require_lms_content),
 ):
     entry = await db.get(LmsProgram, lms_program_id)
     if entry is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="LMS Program not found")
+    await _assert_lms_program_access(db, entry.program_id, current, read_only=False)
     for field, value in body.model_dump(exclude_unset=True).items():
         setattr(entry, field, value)
     if "poster_template_url" in body.model_dump(exclude_unset=True) and entry.program_id is not None:
@@ -2277,11 +2336,12 @@ async def update_lms_program(
 
 @router.delete("/programs/{lms_program_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_lms_program(
-    lms_program_id: uuid.UUID, db: AsyncSession = Depends(get_db), _: User = Depends(require_lms_content),
+    lms_program_id: uuid.UUID, db: AsyncSession = Depends(get_db), current: User = Depends(require_lms_content),
 ):
     entry = await db.get(LmsProgram, lms_program_id)
     if entry is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="LMS Program not found")
+    await _assert_lms_program_access(db, entry.program_id, current, read_only=False)
     await db.delete(entry)
     await db.commit()
 
@@ -2291,11 +2351,12 @@ async def upload_lms_program_image(
     lms_program_id: uuid.UUID,
     file: UploadFile,
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(require_lms_content),
+    current: User = Depends(require_lms_content),
 ):
     program = await db.get(LmsProgram, lms_program_id)
     if program is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="LMS Program not found")
+    await _assert_lms_program_access(db, program.program_id, current, read_only=False)
 
     data = await file.read()
     if not data:
@@ -2322,11 +2383,12 @@ def _lms_item_owner(lms_program_id: uuid.UUID, variation_id: uuid.UUID | None) -
 async def add_lms_program_item(
     lms_program_id: uuid.UUID, body: LmsProgramItemIn,
     variation_id: uuid.UUID | None = None,
-    db: AsyncSession = Depends(get_db), _: User = Depends(require_lms_content),
+    db: AsyncSession = Depends(get_db), current: User = Depends(require_lms_content),
 ):
     program = await db.get(LmsProgram, lms_program_id)
     if program is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="LMS Program not found")
+    await _assert_lms_program_access(db, program.program_id, current, read_only=False)
     owner_type, owner_id = _lms_item_owner(program.id, variation_id)
     validate_item_payload(body)
     await validate_item_refs(db, body)
@@ -2350,7 +2412,7 @@ async def fork_lms_program_to_variation(
     lms_program_id: uuid.UUID,
     variation_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(require_lms_content),
+    current: User = Depends(require_lms_content),
 ):
     """Clone program-level LMS checklist items into a variation's own item list (no-op if already customized)."""
     from app.models.sessions.program_variation import ProgramVariation
@@ -2359,6 +2421,7 @@ async def fork_lms_program_to_variation(
     lms_prog = await db.get(LmsProgram, lms_program_id)
     if lms_prog is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="LMS Program not found")
+    await _assert_lms_program_access(db, lms_prog.program_id, current, read_only=False)
     var = await db.get(ProgramVariation, variation_id)
     if var is None or (lms_prog.program_id is not None and var.program_id != lms_prog.program_id):
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Program variation not found")
@@ -2376,8 +2439,12 @@ async def fork_lms_program_to_variation(
 async def update_lms_program_item(
     lms_program_id: uuid.UUID, item_id: uuid.UUID, body: LmsProgramItemIn,
     variation_id: uuid.UUID | None = None,
-    db: AsyncSession = Depends(get_db), _: User = Depends(require_lms_content),
+    db: AsyncSession = Depends(get_db), current: User = Depends(require_lms_content),
 ):
+    lms_prog = await db.get(LmsProgram, lms_program_id)
+    if lms_prog is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="LMS Program not found")
+    await _assert_lms_program_access(db, lms_prog.program_id, current, read_only=False)
     owner_type, owner_id = _lms_item_owner(lms_program_id, variation_id)
     item = (await db.execute(
         select(LmsProgramItem).where(
@@ -2404,8 +2471,12 @@ async def update_lms_program_item(
 async def delete_lms_program_item(
     lms_program_id: uuid.UUID, item_id: uuid.UUID,
     variation_id: uuid.UUID | None = None,
-    db: AsyncSession = Depends(get_db), _: User = Depends(require_lms_content),
+    db: AsyncSession = Depends(get_db), current: User = Depends(require_lms_content),
 ):
+    lms_prog = await db.get(LmsProgram, lms_program_id)
+    if lms_prog is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="LMS Program not found")
+    await _assert_lms_program_access(db, lms_prog.program_id, current, read_only=False)
     owner_type, owner_id = _lms_item_owner(lms_program_id, variation_id)
     item = (await db.execute(
         select(LmsProgramItem).where(
@@ -2432,7 +2503,7 @@ async def delete_lms_program_item(
 @router.post("/items/{item_id}/pdf", response_model=LmsProgramItemOut)
 async def upload_program_item_pdf(
     item_id: uuid.UUID, file: UploadFile,
-    db: AsyncSession = Depends(get_db), _: User = Depends(require_lms_content),
+    db: AsyncSession = Depends(get_db), current: User = Depends(require_lms_content),
 ):
     # A pdf-type item's own content is a PDF; any other item type can
     # instead carry a `pdf` guideline (the Roadmap board's "view the
@@ -2440,6 +2511,7 @@ async def upload_program_item_pdf(
     item = await db.get(LmsProgramItem, item_id)
     if item is None or (item.item_type != "pdf" and item.guideline_kind != "pdf"):
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="PDF item not found")
+    await _assert_lms_program_item_access(db, item, current, read_only=False)
 
     if file.content_type != "application/pdf":
         raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="Only PDF files are supported")
@@ -2463,11 +2535,12 @@ async def upload_program_item_pdf(
 
 @router.delete("/items/{item_id}/pdf", response_model=LmsProgramItemOut)
 async def delete_program_item_pdf(
-    item_id: uuid.UUID, db: AsyncSession = Depends(get_db), _: User = Depends(require_lms_content),
+    item_id: uuid.UUID, db: AsyncSession = Depends(get_db), current: User = Depends(require_lms_content),
 ):
     item = await db.get(LmsProgramItem, item_id)
     if item is None or (item.item_type != "pdf" and item.guideline_kind != "pdf"):
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="PDF item not found")
+    await _assert_lms_program_item_access(db, item, current, read_only=False)
     if item.pdf_path:
         await storage.delete_file(PROGRAM_ITEM_PDF_BUCKET, item.pdf_path)
         item.pdf_path = None
@@ -2504,11 +2577,12 @@ class GuidelineVideoEmbedIn(BaseModel):
 @router.post("/items/{item_id}/guideline/video/embed", response_model=LmsProgramItemOut)
 async def attach_program_item_guideline_video_embed(
     item_id: uuid.UUID, body: GuidelineVideoEmbedIn,
-    db: AsyncSession = Depends(get_db), _: User = Depends(require_lms_content),
+    db: AsyncSession = Depends(get_db), current: User = Depends(require_lms_content),
 ):
     item = await db.get(LmsProgramItem, item_id)
     if item is None or item.guideline_kind != "video":
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Video guideline item not found")
+    await _assert_lms_program_item_access(db, item, current, read_only=False)
     try:
         await attach_embed_link(db, owner_type="program_item_guideline", owner_id=item_id, url=body.url)
     except ValueError as exc:
@@ -2529,6 +2603,7 @@ async def upload_program_item_guideline_video(
     item = await db.get(LmsProgramItem, item_id)
     if item is None or item.guideline_kind != "video":
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Video guideline item not found")
+    await _assert_lms_program_item_access(db, item, current, read_only=False)
 
     data = await file.read()
     if not data:
@@ -2552,11 +2627,12 @@ async def upload_program_item_guideline_video(
 
 @router.delete("/items/{item_id}/guideline/video", response_model=LmsProgramItemOut)
 async def delete_program_item_guideline_video(
-    item_id: uuid.UUID, db: AsyncSession = Depends(get_db), _: User = Depends(require_lms_content),
+    item_id: uuid.UUID, db: AsyncSession = Depends(get_db), current: User = Depends(require_lms_content),
 ):
     item = await db.get(LmsProgramItem, item_id)
     if item is None or item.guideline_kind != "video":
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Video guideline item not found")
+    await _assert_lms_program_item_access(db, item, current, read_only=False)
     video = await get_video_for_owner(db, owner_type="program_item_guideline", owner_id=item_id)
     if video is not None:
         await delete_video(db, video)
@@ -2589,11 +2665,12 @@ async def get_program_item_guideline_video_url(
 async def reorder_lms_program_items(
     lms_program_id: uuid.UUID, body: LmsProgramItemReorderIn,
     variation_id: uuid.UUID | None = None,
-    db: AsyncSession = Depends(get_db), _: User = Depends(require_lms_content),
+    db: AsyncSession = Depends(get_db), current: User = Depends(require_lms_content),
 ):
     program = await db.get(LmsProgram, lms_program_id)
     if program is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="LMS Program not found")
+    await _assert_lms_program_access(db, program.program_id, current, read_only=False)
     owner_type, owner_id = _lms_item_owner(program.id, variation_id)
     reordered = await reorder_program_items(db, owner_type=owner_type, owner_id=owner_id, item_ids=body.item_ids)
     if reordered is None:
@@ -2612,7 +2689,7 @@ async def get_cohort_program_override(
     editable starting point (`is_inherited`). Only 404s when there's
     nothing at all to fork from (cohort missing, or its program has no
     checklist)."""
-    await _enforce_cohort_lms_access(db, cohort_id, current)
+    await _enforce_cohort_lms_access(db, cohort_id, current, read_only=True)
     resolved = await effective_cohort_program_items(db, cohort_id)
     if resolved is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="This cohort's program has no LMS checklist yet")
@@ -2841,25 +2918,33 @@ async def try_as_observer(
     unassigned accounts 403 — external testers use an observer invite
     code via `/learn/signup` instead."""
     from app.models.lms.program import LmsProgramAssignment
-
-    roles = set(current.role_values)
-    staff = (
-        "admin" in roles
-        or bool({"operations", "facilitator", "lms_author", "organization"} & roles)
+    from app.services.org_access import (
+        can_read_cohort,
+        cohort_organization_id,
+        is_ops_or_admin,
+        is_partner_managed,
     )
-    if not staff:
-        if "instructor" not in roles:
-            raise HTTPException(status.HTTP_403_FORBIDDEN, detail="Operation not permitted")
-        from app.services.missions.cohort_access import require_cohort_access
-        await require_cohort_access(db, cohort_id=cohort_id, user=current)
 
     cohort = await db.get(Cohort, cohort_id)
     if cohort is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Cohort not found")
 
-    if cohort.organization_id:
+    roles = set(current.role_values)
+    is_sp_staff = "admin" in roles or bool({"operations", "facilitator", "lms_author"} & roles)
+    if not is_sp_staff:
+        if "organization" in roles:
+            if not await can_read_cohort(db, cohort, current):
+                raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Cohort not found")
+        elif "instructor" in roles:
+            from app.services.missions.cohort_access import require_cohort_access
+            await require_cohort_access(db, cohort_id=cohort_id, user=current)
+        else:
+            raise HTTPException(status.HTTP_403_FORBIDDEN, detail="Operation not permitted")
+
+    org_id = await cohort_organization_id(db, cohort)
+    if org_id is not None and not is_ops_or_admin(current) and is_partner_managed(cohort):
         from app.models.spine.organization import Organization
-        org = await db.get(Organization, cohort.organization_id)
+        org = await db.get(Organization, org_id)
         if org and org.max_observers_per_cohort is not None:
             obs_count = await db.scalar(
                 select(func.count(LmsProgramAssignment.id)).where(
@@ -3288,11 +3373,12 @@ async def get_lms_program_components(
     lms_program_id: uuid.UUID,
     variation_id: uuid.UUID | None = None,
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(require_lms_content),
+    current: User = Depends(require_lms_content),
 ):
     program = await db.get(LmsProgram, lms_program_id)
     if program is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="LMS Program not found")
+    await _assert_lms_program_access(db, program.program_id, current, read_only=True)
     if variation_id is not None:
         return await component_config_service.build_component_config_out(
             db, owner_type="variation", owner_id=variation_id, lms_program_id=lms_program_id
@@ -3311,6 +3397,7 @@ async def update_lms_program_components(
     program = await db.get(LmsProgram, lms_program_id)
     if program is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="LMS Program not found")
+    await _assert_lms_program_access(db, program.program_id, current, read_only=False)
     owner_type = "variation" if variation_id is not None else "program"
     owner_id = variation_id if variation_id is not None else lms_program_id
     await component_config_service.save_component_config(
@@ -3333,11 +3420,12 @@ async def reset_lms_program_components(
     lms_program_id: uuid.UUID,
     variation_id: uuid.UUID | None = None,
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(require_lms_content),
+    current: User = Depends(require_lms_content),
 ):
     program = await db.get(LmsProgram, lms_program_id)
     if program is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="LMS Program not found")
+    await _assert_lms_program_access(db, program.program_id, current, read_only=False)
     owner_type = "variation" if variation_id is not None else "program"
     owner_id = variation_id if variation_id is not None else lms_program_id
     await component_config_service.reset_component_config(db, owner_type=owner_type, owner_id=owner_id)
@@ -3347,9 +3435,17 @@ async def reset_lms_program_components(
     )
 
 
-async def _enforce_cohort_lms_access(db: AsyncSession, cohort_id: uuid.UUID, user: User) -> None:
+async def _enforce_cohort_lms_access(
+    db: AsyncSession, cohort_id: uuid.UUID, user: User, *, read_only: bool = False
+) -> None:
     if is_staff(user):
         return
+    if read_only:
+        from app.services.org_access import can_read_cohort
+
+        cohort = await db.get(Cohort, cohort_id)
+        if cohort is not None and await can_read_cohort(db, cohort, user):
+            return
     if not await is_cohort_lms_editor(db, cohort_id=cohort_id, user=user):
         raise HTTPException(status.HTTP_403_FORBIDDEN, detail="Forbidden")
 
@@ -3363,7 +3459,7 @@ async def get_cohort_components(
     cohort = await db.get(Cohort, cohort_id)
     if cohort is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Cohort not found")
-    await _enforce_cohort_lms_access(db, cohort_id, current)
+    await _enforce_cohort_lms_access(db, cohort_id, current, read_only=True)
     return await component_config_service.build_component_config_out(db, owner_type="cohort", owner_id=cohort_id)
 
 
@@ -3421,7 +3517,7 @@ async def cohort_quiz_analysis(
     cohort = await db.get(Cohort, cohort_id)
     if cohort is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Cohort not found")
-    await _enforce_cohort_lms_access(db, cohort_id, current)
+    await _enforce_cohort_lms_access(db, cohort_id, current, read_only=True)
     effective_mode = "all" if include_observers else mode
     return await cohort_quiz_service.get_cohort_quiz_analysis(
         db, cohort_id=cohort_id, mode=effective_mode,
@@ -3441,7 +3537,7 @@ async def cohort_quiz_answers_export(
     cohort = await db.get(Cohort, cohort_id)
     if cohort is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Cohort not found")
-    await _enforce_cohort_lms_access(db, cohort_id, current)
+    await _enforce_cohort_lms_access(db, cohort_id, current, read_only=True)
     xlsx_bytes = await cohort_quiz_export_service.export_cohort_quiz_answers_workbook(
         db, cohort_id=cohort_id, mode=mode,
     )

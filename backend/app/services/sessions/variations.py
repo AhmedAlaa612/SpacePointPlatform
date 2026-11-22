@@ -455,6 +455,7 @@ async def copy_variation_contents(
     target: ProgramVariation,
     carry: set[str],
     actor_user_id: UUID,
+    include_rates: bool = True,
 ) -> None:
     """Copy chosen configuration buckets from one ProgramVariation to another."""
     if "scalars" in carry:
@@ -547,7 +548,7 @@ async def copy_variation_contents(
                 variation_id=target.id,
                 role_id=op.role_id,
                 slots=op.slots,
-                amount_aed=op.amount_aed,
+                amount_aed=(op.amount_aed if include_rates else None),
                 notes=op.notes,
                 responsibilities_override=op.responsibilities_override,
                 created_by=actor_user_id,
@@ -618,6 +619,7 @@ async def _populate_variation_from_cohort(
     target: ProgramVariation,
     carry: set[str],
     actor_user_id: UUID,
+    include_rates: bool = True,
 ) -> None:
     """Import configuration buckets into a new ProgramVariation from ANY cohort of ANY program."""
     src_prog = await db.get(Program, source_cohort.program_id)
@@ -769,7 +771,7 @@ async def _populate_variation_from_cohort(
                     variation_id=target.id,
                     role_id=op.role_id,
                     slots=op.slots,
-                    amount_aed=op.amount_aed,
+                    amount_aed=(op.amount_aed if include_rates else None),
                     notes=op.notes,
                     responsibilities_override=op.responsibilities_override,
                     created_by=actor_user_id,
@@ -784,7 +786,7 @@ async def _populate_variation_from_cohort(
                     variation_id=target.id,
                     role_id=op.role_id,
                     slots=op.slots,
-                    amount_aed=op.amount_aed,
+                    amount_aed=(op.amount_aed if include_rates else None),
                     notes=op.notes,
                     responsibilities_override=op.responsibilities_override,
                     created_by=actor_user_id,
@@ -799,7 +801,7 @@ async def _populate_variation_from_cohort(
                     variation_id=target.id,
                     role_id=op.role_id,
                     slots=op.slots,
-                    amount_aed=op.amount_aed,
+                    amount_aed=(op.amount_aed if include_rates else None),
                     notes=op.notes,
                     responsibilities_override=op.responsibilities_override,
                     created_by=actor_user_id,
@@ -937,6 +939,7 @@ async def create_variation(
     program_id: UUID,
     payload: dict[str, Any],
     actor_user_id: UUID,
+    include_rates: bool = True,
 ) -> dict[str, Any]:
     program = await db.get(Program, program_id)
     if program is None:
@@ -983,7 +986,7 @@ async def create_variation(
         if src_var is None:
             raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Source variation not found")
         await copy_variation_contents(
-            db, source=src_var, target=variation, carry=carry, actor_user_id=actor_user_id,
+            db, source=src_var, target=variation, carry=carry, actor_user_id=actor_user_id, include_rates=include_rates,
         )
     elif mode == "from_cohort":
         src_cohort_id = payload.get("source_cohort_id")
@@ -993,7 +996,7 @@ async def create_variation(
         if src_cohort is None:
             raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Source cohort not found")
         await _populate_variation_from_cohort(
-            db, source_cohort=src_cohort, target=variation, carry=carry, actor_user_id=actor_user_id,
+            db, source_cohort=src_cohort, target=variation, carry=carry, actor_user_id=actor_user_id, include_rates=include_rates,
         )
 
     await db.flush()

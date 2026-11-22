@@ -19,9 +19,13 @@ import { PreSessionQuizAssignmentBar } from "./PreSessionQuizAssignmentBar"
 export function SessionPreQuizOpsPanel({
   sessionId,
   cohortId,
+  readOnly = false,
+  isPartnerContext = false,
 }: {
   sessionId?: string
   cohortId?: string
+  readOnly?: boolean
+  isPartnerContext?: boolean
 }) {
   const { data: status, isLoading } = useQuery({
     queryKey: ["pre-quiz-ops-status", sessionId, cohortId],
@@ -54,9 +58,19 @@ export function SessionPreQuizOpsPanel({
       </div>
 
       {sessionId ? (
-        <PreSessionQuizAssignmentBar scope="sessions" ownerId={sessionId} />
+        <PreSessionQuizAssignmentBar
+          scope="sessions"
+          ownerId={sessionId}
+          readOnly={readOnly}
+          isPartnerContext={isPartnerContext}
+        />
       ) : cohortId ? (
-        <PreSessionQuizAssignmentBar scope="cohorts" ownerId={cohortId} />
+        <PreSessionQuizAssignmentBar
+          scope="cohorts"
+          ownerId={cohortId}
+          readOnly={readOnly}
+          isPartnerContext={isPartnerContext}
+        />
       ) : null}
 
       {isLoading ? (
@@ -77,6 +91,7 @@ export function SessionPreQuizOpsPanel({
               attempt={attempt}
               questions={preset.questions || []}
               trials={status?.trials ? status.trials.filter((t) => t.attempt_id === attempt.id) : []}
+              readOnly={readOnly}
             />
           ))}
         </div>
@@ -89,10 +104,12 @@ function AttemptReviewCard({
   attempt,
   questions,
   trials,
+  readOnly = false,
 }: {
   attempt: PreSessionQuizAttempt
   questions: PreSessionQuizQuestion[]
   trials: PhaseTrial[]
+  readOnly?: boolean
 }) {
   const qc = useQueryClient()
   const toast = useToast()
@@ -195,7 +212,7 @@ function AttemptReviewCard({
 
         {/* Action Controls */}
         <div className="flex items-center gap-2 flex-wrap w-full sm:w-auto justify-start sm:justify-end">
-          {isLocked && (
+          {!readOnly && isLocked && (
             <Button
               size="sm"
               variant="outline"
@@ -363,6 +380,7 @@ function AttemptReviewCard({
                         </div>
                       )}
 
+                      {!readOnly && (
                       <div className="pt-1 flex flex-col sm:flex-row sm:items-center gap-2">
                         <input
                           type="text"
@@ -405,6 +423,7 @@ function AttemptReviewCard({
                           </Button>
                         </div>
                       </div>
+                      )}
                     </div>
                   )}
 
@@ -425,6 +444,7 @@ function AttemptReviewCard({
                         </div>
                       )}
 
+                      {!readOnly && (
                       <div className="pt-1 flex flex-col sm:flex-row sm:items-center gap-2">
                         <input
                           type="text"
@@ -467,6 +487,7 @@ function AttemptReviewCard({
                           </Button>
                         </div>
                       </div>
+                      )}
                     </div>
                   )}
 

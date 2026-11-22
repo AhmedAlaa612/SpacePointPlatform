@@ -966,11 +966,35 @@ const organizationRoutes = [
     },
   }),
   createRoute({ getParentRoute: porg, path: "/programs", component: OrganizationPrograms }),
+  createRoute({
+    getParentRoute: porg,
+    path: "/programs/manage/$programId",
+    beforeLoad: () => {
+      const role = localStorage.getItem("active_role");
+      const orgRole = localStorage.getItem("active_org_role");
+      if (role === "organization" && (orgRole === "instructor" || orgRole === "judge")) {
+        throw redirect({ to: "/organization/programs" });
+      }
+    },
+    component: AdminProgramDetail,
+  }),
   createRoute({ getParentRoute: porg, path: "/programs/$cohortId", component: AdminCohortDetail }),
   createRoute({ getParentRoute: porg, path: "/programs/$cohortId/sessions/$sessionId", component: AdminSessionDetail }),
   createRoute({ getParentRoute: porg, path: "/programs/$cohortId/judging", component: CompetitionJudging }),
   createRoute({ getParentRoute: porg, path: "/game-assignments/$assignmentId", component: SessionGameAssignmentDetail }),
   createRoute({ getParentRoute: porg, path: "/my-sessions", component: InstructorMySessions }),
+  createRoute({
+    getParentRoute: porg,
+    path: "/checkin",
+    beforeLoad: () => {
+      const role = localStorage.getItem("active_role");
+      const orgRole = localStorage.getItem("active_org_role");
+      if (role === "organization" && (orgRole === "observer" || orgRole === "judge")) {
+        throw redirect({ to: "/organization/programs" });
+      }
+    },
+    component: AdminCheckIn,
+  }),
   createRoute({ getParentRoute: porg, path: "/sessions/$sessionId", component: InstructorSessionDetail }),
   createRoute({ getParentRoute: porg, path: "/cohorts/$cohortId/readiness-quiz", component: CohortReadinessQuiz }),
   createRoute({ getParentRoute: porg, path: "/game-runs/$runId", component: GameLiveConsole }),

@@ -17,9 +17,10 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.dependencies import require_operations
+from app.core.dependencies import get_current_active_user, require_operations
 from app.db.session import get_db
 from app.models.sessions.cohort import Cohort
+from app.models.sessions.program import Program
 from app.models.sessions.registration import Registration
 from app.models.spine.contact import Contact, ContactRelationship
 from app.models.spine.contact_role_event import ContactRoleEvent
@@ -191,18 +192,60 @@ async def get_contact(
     return await _build_contact_detail(db, contact)
 
 
+_ORG_EDITABLE_CONTACT_FIELDS = {
+    "full_name",
+    "primary_phone_e164",
+    "whatsapp_e164",
+    "secondary_phones",
+    "email",
+    "preferred_language",
+    "country",
+    "city",
+    "date_of_birth",
+    "grade",
+    "gender",
+    "nationality",
+    "notes",
+}
+
+
 @router.patch("/contacts/{contact_id}", response_model=ContactDetail)
 async def update_contact(
     contact_id: uuid.UUID,
     body: ContactUpdate,
     db: AsyncSession = Depends(get_db),
-    actor: User = Depends(require_operations),
+    actor: User = Depends(get_current_active_user),
 ):
+    from app.services.org_access import is_ops_or_admin, is_org_manager
+    from app.services.website_events import resolve_user_organization
+
+    updates = body.model_dump(exclude_unset=True)
+    is_ops = is_ops_or_admin(actor)
+    if not is_ops:
+        if "organization" not in actor.role_values or not is_org_manager(actor):
+            raise HTTPException(status.HTTP_403_FORBIDDEN, detail="Operation not permitted")
+        if not set(updates.keys()).issubset(_ORG_EDITABLE_CONTACT_FIELDS):
+            raise HTTPException(status.HTTP_403_FORBIDDEN, detail="Operation not permitted")
+        org = await resolve_user_organization(db, actor)
+        if org is None:
+            raise HTTPException(status.HTTP_403_FORBIDDEN, detail="No organization context")
+        in_org_cohort = await db.scalar(
+            select(Registration.id)
+            .join(Cohort, Cohort.id == Registration.cohort_id)
+            .join(Program, Program.id == Cohort.program_id)
+            .where(
+                Registration.contact_id == contact_id,
+                (Cohort.organization_id == org.id) | (Program.organization_id == org.id),
+            )
+            .limit(1)
+        )
+        if in_org_cohort is None:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Contact not found")
+
     contact = await db.get(Contact, contact_id)
     if contact is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Contact not found")
 
-    updates = body.model_dump(exclude_unset=True)
     roles_before = list(contact.contact_roles or []) if "contact_roles" in updates else None
 
     if "primary_phone_e164" in updates and updates["primary_phone_e164"]:

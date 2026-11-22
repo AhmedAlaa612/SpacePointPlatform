@@ -227,6 +227,7 @@ export interface OrganizationAccountSummary {
   authored_courses_count?: number
   pending_review_courses_count?: number
   shared_courses_count?: number
+  shared_programs_count?: number
   invite_batches_active_count?: number
   invite_used_count?: number
   invite_max_count?: number
@@ -242,6 +243,8 @@ export interface OrganizationAccountSummary {
   allowed_quiz_template_ids?: string[]
   readiness_scope?: string
   allowed_readiness_preset_ids?: string[]
+  program_scope?: string
+  allowed_program_ids?: string[]
   max_events?: number | null
   max_programs?: number | null
   max_cohorts?: number | null
@@ -260,8 +263,11 @@ export interface OrgProgramChecklistItem {
 
 export interface OrgProgramDetail {
   id: string
+  code?: string
   name: string
   program_type: string
+  description?: string | null
+  is_org_owned?: boolean
   active: boolean
   lms_program_id: string | null
   checklist_name: string | null
@@ -270,12 +276,23 @@ export interface OrgProgramDetail {
   checklist_items: OrgProgramChecklistItem[]
 }
 
+export interface OrgSharedProgram {
+  id: string
+  code: string
+  name: string
+  program_type: string
+  active: boolean
+}
+
 export interface OrgCohortDetail {
   id: string
   program_id: string
   program_name: string
   name: string
   status: string
+  management_mode?: "spacepoint" | "partner"
+  location_id?: string | null
+  location_name?: string | null
   starts_on: string | null
   ends_on: string | null
   enrolled_count: number
@@ -375,6 +392,7 @@ export interface OrganizationDetail {
   students: OrgStudentDetail[]
   authored_courses: OrgAuthoredCourse[]
   shared_courses: OrgSharedCourse[]
+  shared_programs?: OrgSharedProgram[]
   quiz_templates: OrgQuizTemplate[]
   landing_pages: OrgLandingPage[]
   team: OrgTeamMemberDetail[]
@@ -400,6 +418,8 @@ export interface OrganizationAccountCreatePayload {
   allowed_quiz_template_ids?: string[]
   readiness_scope?: string
   allowed_readiness_preset_ids?: string[]
+  program_scope?: string
+  allowed_program_ids?: string[]
   max_events?: number | null
   max_programs?: number | null
   max_cohorts?: number | null
@@ -427,6 +447,8 @@ export interface OrganizationAccountUpdatePayload {
   allowed_quiz_template_ids?: string[]
   readiness_scope?: string
   allowed_readiness_preset_ids?: string[]
+  program_scope?: string
+  allowed_program_ids?: string[]
   max_events?: number | null
   max_programs?: number | null
   max_cohorts?: number | null

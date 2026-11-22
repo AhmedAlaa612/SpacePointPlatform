@@ -50,7 +50,13 @@ from app.services.competitions import progression as progression_service
 from app.services.competitions import registration_import as import_service
 from app.services.competitions import team_management as team_service
 from app.services.lms import students as student_search_service
-from app.services.org_access import cohort_organization_id, require_org_manager
+from app.services.org_access import (
+    can_org_read_program_template,
+    can_read_cohort,
+    cohort_organization_id,
+    effective_org_roles,
+    require_org_manager,
+)
 from app.services.website_events import resolve_user_organization
 from app.workers.settings import get_arq_redis, safe_enqueue
 
@@ -62,11 +68,16 @@ async def _require_competitions_admin_access(
 ) -> User:
     if any(r in current_user.role_values for r in ("admin", "operations", "facilitator", "lms_author")):
         return current_user
-    # Organization sandbox: only owner/coordinator, and only for their org's cohorts/programs.
-    require_org_manager(current_user)
+    is_read = request.method in ("GET", "HEAD", "OPTIONS")
+    if not is_read:
+        require_org_manager(current_user)
     org = await resolve_user_organization(db, current_user)
     if org is None:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="No organization context")
+    if is_read:
+        roles = effective_org_roles(current_user, is_owner=(org.owner_user_id == current_user.id))
+        if not any(r in ("owner", "coordinator", "observer") for r in roles):
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Operation not permitted")
 
     params = request.path_params
     cohort_id_raw = params.get("cohort_id")
@@ -83,13 +94,19 @@ async def _require_competitions_admin_access(
         cohort = await db.get(Cohort, uuid.UUID(str(cohort_id_raw)))
         if cohort is None:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Cohort not found")
-        program = await db.get(Program, cohort.program_id)
-        if cohort.organization_id != org.id and (program is None or program.organization_id != org.id):
+        if is_read:
+            if not await can_read_cohort(db, cohort, current_user):
+                raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Cohort not found")
+        elif await cohort_organization_id(db, cohort) != org.id:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Cohort not found")
     elif program_id_raw:
-        program = await db.get(Program, uuid.UUID(str(program_id_raw)))
-        if program is None or program.organization_id != org.id:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Program not found")
+        if is_read:
+            if not await can_org_read_program_template(db, uuid.UUID(str(program_id_raw)), current_user):
+                raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Program not found")
+        else:
+            program = await db.get(Program, uuid.UUID(str(program_id_raw)))
+            if program is None or program.organization_id != org.id:
+                raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Program not found")
 
     return current_user
 
@@ -111,6 +128,10 @@ async def _org_scope_id(db: AsyncSession, current_user: User) -> uuid.UUID | Non
     org = await resolve_user_organization(db, current_user)
     if org is None:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="No organization context")
+    if is_read:
+        roles = effective_org_roles(current_user, is_owner=(org.owner_user_id == current_user.id))
+        if not any(r in ("owner", "coordinator", "observer") for r in roles):
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Operation not permitted")
     return org.id
 
 

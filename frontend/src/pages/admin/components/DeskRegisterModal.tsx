@@ -7,9 +7,10 @@ import { listOrganizationsApi } from "@/api/spine/contacts"
 import { deskRegisterApi } from "@/api/sessions/cohorts"
 import type { Cohort, Session } from "@/types/sessions"
 
-export function DeskRegisterModal({ cohort, sessions, onClose, onSuccess, isOrgScope = false }: {
-  cohort: Cohort; sessions: Session[]; onClose: () => void; onSuccess: () => void; isOrgScope?: boolean
+export function DeskRegisterModal({ cohort, sessions, onClose, onSuccess, isOrgScope = false, isPartnerContext = false }: {
+  cohort: Cohort; sessions: Session[]; onClose: () => void; onSuccess: () => void; isOrgScope?: boolean; isPartnerContext?: boolean
 }) {
+  const effectiveOrgScope = isOrgScope || isPartnerContext
   const toast = useToast()
   const [studentName, setStudentName] = useState("")
   const [email, setEmail] = useState("")
@@ -33,7 +34,7 @@ export function DeskRegisterModal({ cohort, sessions, onClose, onSuccess, isOrgS
   const { data: organizations = [] } = useQuery({
     queryKey: ["spine-organizations", "picker"],
     queryFn: () => listOrganizationsApi(),
-    enabled: !isOrgScope,
+    enabled: !effectiveOrgScope,
   })
 
   const mutation = useMutation({

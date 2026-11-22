@@ -323,10 +323,19 @@ async def _sync_preset_to_assessment_config(db: AsyncSession, preset: PreSession
     await db.flush()
 
 
-async def list_presets(db: AsyncSession, *, active_only: bool = True) -> list[dict]:
+async def list_presets(
+    db: AsyncSession,
+    *,
+    active_only: bool = True,
+    allowed_preset_ids: set[UUID] | None = None,
+) -> list[dict]:
+    if allowed_preset_ids is not None and not allowed_preset_ids:
+        return []
     q = select(PreSessionQuizPreset)
     if active_only:
         q = q.where(PreSessionQuizPreset.is_active.is_(True))
+    if allowed_preset_ids is not None:
+        q = q.where(PreSessionQuizPreset.id.in_(allowed_preset_ids))
     q = q.order_by(PreSessionQuizPreset.created_at.asc())
     rows = list((await db.execute(q)).scalars().all())
     return await _hydrate_presets(db, rows)
@@ -990,9 +999,15 @@ async def get_cohort_pre_quiz_status(
 
     my_attempt = await _serialize_attempt(db, attempt_row, user.full_name or user.email) if attempt_row else None
 
-    is_ops = any(r in user.role_values for r in ("operations", "admin", "facilitator"))
+    show_all_attempts = any(r in user.role_values for r in ("operations", "admin", "facilitator"))
+    if not show_all_attempts and "organization" in user.role_values:
+        from app.services.org_access import can_read_cohort
+
+        cohort_row = await db.get(Cohort, cohort_id)
+        if cohort_row is not None:
+            show_all_attempts = await can_read_cohort(db, cohort_row, user)
     all_attempts = []
-    if is_ops:
+    if show_all_attempts:
         rows = (
             await db.execute(
                 select(PreSessionQuizAttempt)

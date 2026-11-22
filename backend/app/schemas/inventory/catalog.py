@@ -23,6 +23,7 @@ class LocationCreate(BaseModel):
     address: str | None = None
     maps_url: str | None = None
     city_id: uuid.UUID
+    organization_id: uuid.UUID | None = None
 
 
 class LocationUpdate(BaseModel):
@@ -49,6 +50,7 @@ class LocationOut(BaseModel):
     maps_url: str | None = None
     city_id: uuid.UUID | None = None
     city_name: str | None = None
+    organization_id: uuid.UUID | None = None
     created_at: datetime | None
 
 

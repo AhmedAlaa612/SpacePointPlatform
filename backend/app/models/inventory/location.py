@@ -46,4 +46,5 @@ class Location(Base):
     # independently hand-typed strings. Nullable/unset on existing rows;
     # ops fills it in going forward, never guessed from `name`.
     city_id = Column(UUID(as_uuid=True), ForeignKey("cities.id", ondelete="SET NULL"), nullable=True, index=True)
+    organization_id = Column(UUID(as_uuid=True), ForeignKey("organizations.id", ondelete="SET NULL"), nullable=True, index=True)
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))

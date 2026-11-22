@@ -828,11 +828,13 @@ async def list_eligible_instructors(
     superset."""
     session = await _get_session(db, session_id)  # 404 if the session doesn't exist
     session_city_id = await _resolve_session_city_id(db, session)
+    from app.services.org_access import is_partner_managed
+
     cohort = await db.get(Cohort, session.cohort_id)
     program = await db.get(Program, cohort.program_id) if cohort else None
     org_id = (cohort.organization_id if cohort else None) or (program.organization_id if program else None)
 
-    if org_id is not None:
+    if cohort is not None and is_partner_managed(cohort) and org_id is not None:
         from app.models.spine.organization import Organization
         from app.services.org_access import has_org_role
 

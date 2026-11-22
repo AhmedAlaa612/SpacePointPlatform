@@ -41,10 +41,13 @@ from app.services.sessions import journey as svc
 from app.services.sessions import materials as mat
 from app.services.sessions.delivery import _get_deliverable_session
 from app.services.org_access import (
+    can_org_read_program_template,
     is_ops_or_admin,
     is_program_org_manager,
     require_cohort_manager_or_ops,
+    require_cohort_read_or_ops,
     require_session_manager_or_ops,
+    require_session_read_or_ops,
 )
 
 router = APIRouter(prefix="/sessions", tags=["sessions-journey"])
@@ -58,20 +61,28 @@ async def _assert_materials_scope(
     variation_id: uuid.UUID | None = None,
     cohort_id: uuid.UUID | None = None,
     session_id: uuid.UUID | None = None,
+    read_only: bool = False,
 ) -> None:
     if is_ops_or_admin(user) or "facilitator" in user.role_values:
         return
     if session_id is not None:
-        await require_session_manager_or_ops(db, session_id, user)
+        if read_only:
+            await require_session_read_or_ops(db, session_id, user)
+        else:
+            await require_session_manager_or_ops(db, session_id, user)
         return
     if cohort_id is not None:
-        await require_cohort_manager_or_ops(db, cohort_id, user)
+        if read_only:
+            await require_cohort_read_or_ops(db, cohort_id, user)
+        else:
+            await require_cohort_manager_or_ops(db, cohort_id, user)
         return
+    prog_check = can_org_read_program_template if read_only else is_program_org_manager
     if variation_id is not None:
         var = await db.get(ProgramVariation, variation_id)
-        if var and await is_program_org_manager(db, var.program_id, user):
+        if var and await prog_check(db, var.program_id, user):
             return
-    if program_id is not None and await is_program_org_manager(db, program_id, user):
+    if program_id is not None and await prog_check(db, program_id, user):
         return
     raise HTTPException(status.HTTP_403_FORBIDDEN, detail="Operation not permitted")
 
@@ -104,7 +115,13 @@ async def list_materials(
     """Rows attached at exactly one level, with no inheritance applied — the
     management view. Ops editing a program must see the program's own rows."""
     await _assert_materials_scope(
-        db, current_user, program_id=program_id, variation_id=variation_id, cohort_id=cohort_id, session_id=session_id
+        db,
+        current_user,
+        program_id=program_id,
+        variation_id=variation_id,
+        cohort_id=cohort_id,
+        session_id=session_id,
+        read_only=True,
     )
     rows = await mat.list_materials(
         db, program_id=program_id, variation_id=variation_id, cohort_id=cohort_id, session_id=session_id
@@ -123,7 +140,12 @@ async def add_material_link(
     current_user: User = Depends(require_session_delivery),
 ):
     await _assert_materials_scope(
-        db, current_user, program_id=program_id, variation_id=variation_id, cohort_id=cohort_id, session_id=session_id
+        db,
+        current_user,
+        program_id=program_id,
+        variation_id=variation_id,
+        cohort_id=cohort_id,
+        session_id=session_id,
     )
     material = await mat.add_material(
         db, user=current_user, title=body.title, url=body.url, notes=body.notes,
@@ -149,7 +171,12 @@ async def add_material_file(
     current_user: User = Depends(require_session_delivery),
 ):
     await _assert_materials_scope(
-        db, current_user, program_id=program_id, variation_id=variation_id, cohort_id=cohort_id, session_id=session_id
+        db,
+        current_user,
+        program_id=program_id,
+        variation_id=variation_id,
+        cohort_id=cohort_id,
+        session_id=session_id,
     )
     material = await mat.add_material(
         db, user=current_user, title=title, notes=notes,

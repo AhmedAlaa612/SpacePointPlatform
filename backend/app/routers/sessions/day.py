@@ -56,10 +56,15 @@ from app.schemas.sessions.day import (
 from app.services.games import runs as games_runs_svc
 from app.services.notification import create_notification
 from app.services.org_access import (
+    can_org_read_program_template,
+    can_read_cohort,
     is_ops_or_admin,
     is_program_org_manager,
     require_cohort_manager_or_ops,
+    require_cohort_read_or_ops,
+    require_session_delivery_manager_or_ops,
     require_session_manager_or_ops,
+    require_session_read_or_ops,
 )
 from app.services.sessions import day as svc
 
@@ -67,7 +72,12 @@ router = APIRouter(prefix="/sessions", tags=["sessions-day"])
 
 
 async def _assert_checklist_scope_access(
-    db: AsyncSession, scope: str, owner_id: uuid.UUID, user: User
+    db: AsyncSession,
+    scope: str,
+    owner_id: uuid.UUID,
+    user: User,
+    *,
+    read_only: bool = False,
 ) -> None:
     if scope not in _SCOPES:
         raise HTTPException(
@@ -77,22 +87,29 @@ async def _assert_checklist_scope_access(
     if is_ops_or_admin(user):
         return
     if scope == "sessions":
-        await require_session_manager_or_ops(db, owner_id, user)
+        if read_only:
+            await require_session_read_or_ops(db, owner_id, user)
+        else:
+            await require_session_manager_or_ops(db, owner_id, user)
         return
     if scope == "cohorts":
-        await require_cohort_manager_or_ops(db, owner_id, user)
+        if read_only:
+            await require_cohort_read_or_ops(db, owner_id, user)
+        else:
+            await require_cohort_manager_or_ops(db, owner_id, user)
         return
-    if scope == "programs" and await is_program_org_manager(db, owner_id, user):
+    prog_check = can_org_read_program_template if read_only else is_program_org_manager
+    if scope == "programs" and await prog_check(db, owner_id, user):
         return
     if scope == "variations":
         var = await db.get(ProgramVariation, owner_id)
-        if var and await is_program_org_manager(db, var.program_id, user):
+        if var and await prog_check(db, var.program_id, user):
             return
     if scope == "variation_days":
         v_day = await db.get(ProgramVariationDay, owner_id)
         if v_day:
             var = await db.get(ProgramVariation, v_day.variation_id)
-            if var and await is_program_org_manager(db, var.program_id, user):
+            if var and await prog_check(db, var.program_id, user):
                 return
     raise HTTPException(status.HTTP_403_FORBIDDEN, detail="Operation not permitted")
 
@@ -106,7 +123,7 @@ async def get_cohort_checklists_summary(
     current_user: User = Depends(require_session_delivery),
 ):
     """Per-day checklist counts, inheritance flags, and recorded-progress status for a cohort."""
-    await require_cohort_manager_or_ops(db, cohort_id, current_user)
+    await require_cohort_read_or_ops(db, cohort_id, current_user)
     return await svc.get_cohort_checklists_summary(db, cohort_id)
 
 
@@ -235,7 +252,7 @@ async def list_checklist_items(
     Omit `role_id` for the general bucket; pass a role to edit that role's own
     list. Use the instructor's day endpoint to see what actually resolves."""
     scope, owner_id = await _normalize_checklist_scope(db, scope, owner_id)
-    await _assert_checklist_scope_access(db, scope, owner_id, current_user)
+    await _assert_checklist_scope_access(db, scope, owner_id, current_user, read_only=True)
     items = await svc.list_checklist_items(
         db, role_id=role_id, target_audience=target_audience, **_scope_kwarg(scope, owner_id)
     )
@@ -283,7 +300,7 @@ async def import_checklist_items(
     scope, owner_id = await _normalize_checklist_scope(db, scope, owner_id)
     src_scope, src_owner_id = await _normalize_checklist_scope(db, body.source_scope, body.source_owner_id)
     await _assert_checklist_scope_access(db, scope, owner_id, current_user)
-    await _assert_checklist_scope_access(db, src_scope, src_owner_id, current_user)
+    await _assert_checklist_scope_access(db, src_scope, src_owner_id, current_user, read_only=True)
     effective_role_id = body.role_id if body.role_id is not None else role_id
     effective_target_audience = body.target_audience or target_audience
     items = await svc.import_checklist_items(
@@ -311,7 +328,7 @@ async def get_internal_checklist(
     current_user: User = Depends(require_session_delivery),
 ):
     """Internal / operational checklist for a session, resolved with inheritance."""
-    await require_session_manager_or_ops(db, session_id, current_user)
+    await require_session_read_or_ops(db, session_id, current_user)
     return await svc.get_internal_checklist_for_session(db, session_id)
 
 
@@ -352,8 +369,14 @@ async def get_day(
     they may see.
     """
     is_ops = "operations" in current_user.role_values or "admin" in current_user.role_values
+    allow_for_user = is_ops
+    if not allow_for_user and for_user_id is not None:
+        session_row = await db.get(Session, session_id)
+        cohort_row = await db.get(Cohort, session_row.cohort_id) if session_row else None
+        if cohort_row is not None and await can_read_cohort(db, cohort_row, current_user):
+            allow_for_user = True
     return await svc.get_day_detail(
-        db, session_id, current_user, for_user_id=for_user_id if is_ops else None
+        db, session_id, current_user, for_user_id=for_user_id if allow_for_user else None
     )
 
 
@@ -450,9 +473,9 @@ async def list_day_reviews(
     every assigned instructor's report whatever state it's in."""
     if not is_ops_or_admin(current_user):
         if session_id is not None:
-            await require_session_manager_or_ops(db, session_id, current_user)
+            await require_session_read_or_ops(db, session_id, current_user)
         elif cohort_id is not None:
-            await require_cohort_manager_or_ops(db, cohort_id, current_user)
+            await require_cohort_read_or_ops(db, cohort_id, current_user)
         else:
             raise HTTPException(status.HTTP_403_FORBIDDEN, detail="Operation not permitted")
     return await svc.list_day_reviews(
@@ -479,7 +502,7 @@ async def approve_day(
         existing_day = await db.get(InstructorSessionDay, day_id)
         if existing_day is None:
             raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Day submission not found")
-        await require_session_manager_or_ops(db, existing_day.session_id, current_user)
+        await require_session_delivery_manager_or_ops(db, existing_day.session_id, current_user)
     day = await svc.approve_day(db, day_id, current_user.id)
     session = await db.get(Session, day.session_id)
     completed = False
@@ -509,7 +532,7 @@ async def return_day(
         existing_day = await db.get(InstructorSessionDay, day_id)
         if existing_day is None:
             raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Day submission not found")
-        await require_session_manager_or_ops(db, existing_day.session_id, current_user)
+        await require_session_delivery_manager_or_ops(db, existing_day.session_id, current_user)
     day = await svc.return_day(db, day_id, current_user.id, comment=body.comment)
     session = await db.get(Session, day.session_id)
     await create_notification(
@@ -548,5 +571,5 @@ async def list_session_game_runs(
 ):
     """Live-quiz runs on this session, most recent first — part of the
     Report tab's "warehouse & session activity" strip."""
-    await require_session_manager_or_ops(db, session_id, current_user)
+    await require_session_read_or_ops(db, session_id, current_user)
     return await games_runs_svc.list_session_runs(db, session_id=session_id)

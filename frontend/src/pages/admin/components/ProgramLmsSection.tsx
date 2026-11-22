@@ -28,9 +28,13 @@ const SUBTAB_LABEL: Record<SubTab, string> = {
 export function ProgramLmsSection({
   program,
   variationId,
+  readOnly = false,
+  isPartnerUser = false,
 }: {
   program: Program
   variationId?: string | null
+  readOnly?: boolean
+  isPartnerUser?: boolean
 }) {
   const queryClient = useQueryClient()
   const [subtab, setSubtab] = useState<SubTab>("checklist")
@@ -75,6 +79,13 @@ export function ProgramLmsSection({
   if (isLoading) return <Spinner />
 
   if (!effective) {
+    if (readOnly) {
+      return (
+        <div className="p-8 text-center rounded-xl border border-dashed border-border text-sm text-muted-foreground">
+          No LMS checklist configured for this program yet.
+        </div>
+      )
+    }
     return (
       <CreateChecklistPrompt
         onCreate={(name) => createMutation.mutate(name)}
@@ -91,11 +102,10 @@ export function ProgramLmsSection({
             key={t}
             type="button"
             onClick={() => setSubtab(t)}
-            className={`px-3 py-2 text-sm font-medium border-b-2 -mb-px transition-colors cursor-pointer shrink-0 whitespace-nowrap ${
-              subtab === t
+            className={`px-3 py-2 text-sm font-medium border-b-2 -mb-px transition-colors cursor-pointer shrink-0 whitespace-nowrap ${subtab === t
                 ? "border-primary text-primary"
                 : "border-transparent text-muted-foreground hover:text-foreground"
-            }`}
+              }`}
           >
             {SUBTAB_LABEL[t]}
           </button>
@@ -104,7 +114,7 @@ export function ProgramLmsSection({
 
       {subtab === "checklist" && (
         <div className="flex flex-col gap-3">
-          {variationId && effective.items.length === 0 && (lmsPrograms[0]?.items?.length ?? 0) > 0 && (
+          {!readOnly && variationId && effective.items.length === 0 && (lmsPrograms[0]?.items?.length ?? 0) > 0 && (
             <div className="flex items-center justify-between gap-3 flex-wrap p-3 rounded-xl border border-amber-500/30 bg-amber-500/10 text-xs">
               <span className="text-foreground">
                 Currently inheriting <strong>Program Base</strong> ({lmsPrograms[0].items.length} items). Add items below or copy base items to customize this variation.
@@ -123,7 +133,7 @@ export function ProgramLmsSection({
             program={effective}
             variationId={variationId}
             onChanged={refresh}
-            readOnly={false}
+            readOnly={readOnly}
           />
         </div>
       )}
@@ -131,7 +141,7 @@ export function ProgramLmsSection({
         <ProgramMissionsPanel
           program={effective}
           onChanged={refresh}
-          readOnly={false}
+          readOnly={readOnly}
         />
       )}
       {subtab === "components" && (
@@ -139,13 +149,15 @@ export function ProgramLmsSection({
           ownerType={variationId ? "variation" : "program"}
           ownerId={effective.id}
           variationId={variationId}
-          isStaff
+          isStaff={!isPartnerUser}
+          readOnly={readOnly}
         />
       )}
       {subtab === "hints" && (
         <LmsHintStationAuthoring
           programId={program.id}
           scope={variationId ? { variationId } : "program"}
+          readOnly={readOnly}
         />
       )}
     </div>

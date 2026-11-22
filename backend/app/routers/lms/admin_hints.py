@@ -13,6 +13,7 @@ from app.models.competitions.hint_station import (
     CohortHintChallenge,
 )
 from app.models.sessions.cohort import Cohort
+from app.models.sessions.program_variation import ProgramVariation
 from app.models.user import User
 from app.schemas.hint_station import (
     CohortHintCardCreateIn,
@@ -30,6 +31,11 @@ from app.services.competitions.hint_station import (
     import_cohort_challenges,
 )
 from app.services.missions.cohort_access import is_cohort_lms_editor
+from app.services.org_access import (
+    can_org_read_program_template,
+    is_ops_or_admin,
+    is_program_org_manager,
+)
 
 router = APIRouter(prefix="/lms/admin/hints", tags=["lms-hints-admin"])
 
@@ -49,6 +55,37 @@ async def _require_cohort_hint_access(db: AsyncSession, cohort_id: uuid.UUID, us
     raise HTTPException(status.HTTP_403_FORBIDDEN, detail="Ops, admin, or cohort LMS editor privileges required")
 
 
+async def _require_program_hint_access(
+    db: AsyncSession, program_id: uuid.UUID, user: User, *, read_only: bool = False
+) -> None:
+    if is_ops_or_admin(user):
+        return
+    if read_only:
+        if await can_org_read_program_template(db, program_id, user):
+            return
+    elif await is_program_org_manager(db, program_id, user):
+        return
+    raise HTTPException(status.HTTP_403_FORBIDDEN, detail="Ops, admin, or org program manager privileges required")
+
+
+async def _require_hint_owner_access(
+    db: AsyncSession, owner_type: str, owner_id: uuid.UUID, user: User, *, read_only: bool = False
+) -> None:
+    if owner_type == "cohort":
+        await _require_cohort_hint_access(db, owner_id, user)
+        return
+    if owner_type == "program":
+        await _require_program_hint_access(db, owner_id, user, read_only=read_only)
+        return
+    if owner_type == "variation":
+        var = await db.get(ProgramVariation, owner_id)
+        if var is None:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Program variation not found")
+        await _require_program_hint_access(db, var.program_id, user, read_only=read_only)
+        return
+    _require_ops_or_admin(user)
+
+
 @router.get("/program/{program_id}", response_model=list[CohortHintChallengeOut])
 async def list_program_challenges_admin(
     program_id: uuid.UUID,
@@ -57,8 +94,7 @@ async def list_program_challenges_admin(
     current: User = Depends(get_current_active_user),
 ):
     """Lists authoring challenges on a program template (or variation)."""
-    # Includes full revealed_content of every hint — ops/admin only.
-    _require_ops_or_admin(current)
+    await _require_program_hint_access(db, program_id, current, read_only=True)
     return await get_program_challenges(db, program_id=program_id, variation_id=variation_id)
 
 
@@ -104,10 +140,7 @@ async def create_challenge(
     current: User = Depends(get_current_active_user),
 ):
     """Creates a new challenge under a program or cohort."""
-    if body.owner_type == "cohort":
-        await _require_cohort_hint_access(db, body.owner_id, current)
-    else:
-        _require_ops_or_admin(current)
+    await _require_hint_owner_access(db, body.owner_type, body.owner_id, current, read_only=False)
 
     # If authoring on a cohort that currently inherits, fork first so the cohort gets its own rows
     if body.owner_type == "cohort":
@@ -169,10 +202,7 @@ async def update_challenge(
     ch = await db.get(CohortHintChallenge, challenge_id)
     if ch is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Challenge not found")
-    if ch.owner_type == "cohort":
-        await _require_cohort_hint_access(db, ch.owner_id, current)
-    else:
-        _require_ops_or_admin(current)
+    await _require_hint_owner_access(db, ch.owner_type, ch.owner_id, current, read_only=False)
 
     if body.title is not None:
         ch.title = body.title
@@ -251,10 +281,7 @@ async def delete_challenge(
     ch = await db.get(CohortHintChallenge, challenge_id)
     if ch is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Challenge not found")
-    if ch.owner_type == "cohort":
-        await _require_cohort_hint_access(db, ch.owner_id, current)
-    else:
-        _require_ops_or_admin(current)
+    await _require_hint_owner_access(db, ch.owner_type, ch.owner_id, current, read_only=False)
 
     await db.delete(ch)
     await db.commit()
@@ -272,10 +299,7 @@ async def create_hint_card(
     ch = await db.get(CohortHintChallenge, challenge_id)
     if ch is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Challenge not found")
-    if ch.owner_type == "cohort":
-        await _require_cohort_hint_access(db, ch.owner_id, current)
-    else:
-        _require_ops_or_admin(current)
+    await _require_hint_owner_access(db, ch.owner_type, ch.owner_id, current, read_only=False)
 
     card = CohortHintCard(
         id=uuid.uuid4(),
@@ -324,10 +348,9 @@ async def update_hint_card(
     if card is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Hint card not found")
     ch = await db.get(CohortHintChallenge, card.challenge_id)
-    if ch and ch.owner_type == "cohort":
-        await _require_cohort_hint_access(db, ch.owner_id, current)
-    else:
-        _require_ops_or_admin(current)
+    if ch is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Challenge not found")
+    await _require_hint_owner_access(db, ch.owner_type, ch.owner_id, current, read_only=False)
 
     if body.level is not None:
         card.level = body.level
@@ -380,10 +403,9 @@ async def delete_hint_card(
     if card is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Hint card not found")
     ch = await db.get(CohortHintChallenge, card.challenge_id)
-    if ch and ch.owner_type == "cohort":
-        await _require_cohort_hint_access(db, ch.owner_id, current)
-    else:
-        _require_ops_or_admin(current)
+    if ch is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Challenge not found")
+    await _require_hint_owner_access(db, ch.owner_type, ch.owner_id, current, read_only=False)
 
     await db.delete(card)
     await db.commit()
@@ -420,7 +442,7 @@ async def import_program_hints_admin(
     current: User = Depends(get_current_active_user),
 ):
     """Clones challenges and cards into a program (or variation) template."""
-    _require_ops_or_admin(current)
+    await _require_program_hint_access(db, program_id, current, read_only=False)
     cloned = await import_cohort_challenges(
         db,
         target_owner_type="variation" if variation_id is not None else "program",

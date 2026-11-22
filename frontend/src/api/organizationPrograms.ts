@@ -4,16 +4,29 @@ export interface OrgCohortSummary {
   id: string
   name: string
   code: string
+  starts_on?: string | null
+  ends_on?: string | null
   start_date: string
   end_date: string
   location: string | null
-  capacity: number
+  location_id?: string | null
+  location_name?: string | null
+  management_mode?: "spacepoint" | "partner"
+  status?: string
+  capacity: number | null
+  duration_hours?: number | null
+  visibility?: "public" | "private"
   active_students_count: number
   active_observers_count: number
+  spots_left?: number | null
+  sessions_count?: number
+  unstaffed_count?: number
   is_public: boolean
   program_id: string
   program_name: string
   program_type?: string
+  variation_id?: string | null
+  variation_name?: string | null
   checklist_title_override: string | null
   linked_event_id: string | null
   linked_event_slug: string | null
@@ -26,11 +39,16 @@ export interface OrgProgramSummary {
   program_type: string
   description: string | null
   default_capacity?: number | null
+  duration_hours?: number | null
   pricing_model?: string
   price?: number | null
   completion_rule_type?: string
   completion_rule_value?: number
   keep_course_access_after_completion?: boolean
+  is_org_owned?: boolean
+  is_shared_program?: boolean
+  can_create_cohort?: boolean
+  active?: boolean
   lms_program_id?: string | null
   default_certificate_template_id?: string | null
   cohorts_count: number
@@ -63,6 +81,8 @@ export interface OrgProgramsOverview {
     can_publish_courses: boolean
     course_scope_all: boolean
     allowed_course_ids: string[]
+    program_scope?: string
+    allowed_program_ids?: string[]
     max_events: number | null
     max_programs: number | null
     max_cohorts: number | null
@@ -74,6 +94,7 @@ export interface OrgProgramsOverview {
 }
 
 export interface OrgCohortDetail extends OrgCohortSummary {
+  can_manage_delivery?: boolean
   org_capacity_limit?: number | null
   org_observer_limit?: number | null
   sessions: OrgSessionItem[]
@@ -117,6 +138,7 @@ export interface CreateOrgProgramInput {
   program_type?: string
   description?: string
   default_capacity?: number | null
+  duration_hours?: number | null
   pricing_model?: "free" | "paid"
   price?: number | null
   completion_rule_type?: "percentage" | "session_count"
@@ -127,12 +149,19 @@ export interface CreateOrgProgramInput {
 export interface CreateOrgCohortInput {
   program_id: string
   name: string
-  code: string
-  start_date: string
-  end_date: string
+  code?: string
+  starts_on?: string | null
+  ends_on?: string | null
+  start_date?: string
+  end_date?: string
   location?: string | null
-  capacity?: number
+  location_id?: string | null
+  duration_hours?: number | null
+  capacity?: number | null
+  visibility?: "public" | "private"
   is_public?: boolean
+  status?: string
+  variation_id?: string | null
   checklist_title_override?: string | null
 }
 
@@ -178,8 +207,12 @@ export const getOrgProgramsOverviewApi = () =>
 export const getOrgCohortsApi = () =>
   getOrgProgramsOverviewApi().then((d) => d.programs.flatMap((p) => p.cohorts))
 
-export const createOrgProgramApi = (data: CreateOrgProgramInput) =>
-  api.post<OrgProgramSummary>("/organization/programs", data).then((r) => r.data)
+export const createOrgProgramApi = (data: CreateOrgProgramInput, organizationId?: string) =>
+  api
+    .post<OrgProgramSummary>("/organization/programs", data, {
+      params: organizationId ? { organization_id: organizationId } : undefined,
+    })
+    .then((r) => r.data)
 
 export const updateOrgProgramApi = (programId: string, data: Partial<CreateOrgProgramInput>) =>
   api.put<OrgProgramSummary>(`/organization/programs/${programId}`, data).then((r) => r.data)
@@ -190,8 +223,12 @@ export const deleteOrgProgramApi = (programId: string) =>
 export const getOrgCohortDetailApi = (cohortId: string) =>
   api.get<OrgCohortDetail>(`/organization/cohorts/${cohortId}`).then((r) => r.data)
 
-export const createOrgCohortApi = (data: CreateOrgCohortInput) =>
-  api.post<OrgCohortDetail>("/organization/cohorts", data).then((r) => r.data)
+export const createOrgCohortApi = (data: CreateOrgCohortInput, organizationId?: string) =>
+  api
+    .post<OrgCohortDetail>("/organization/cohorts", data, {
+      params: organizationId ? { organization_id: organizationId } : undefined,
+    })
+    .then((r) => r.data)
 
 export const updateOrgCohortApi = (cohortId: string, data: Partial<CreateOrgCohortInput>) =>
   api.put<OrgCohortDetail>(`/organization/cohorts/${cohortId}`, data).then((r) => r.data)

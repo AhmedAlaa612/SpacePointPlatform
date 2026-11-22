@@ -13,9 +13,17 @@ import type {
   MediaConsentManualOverrideRequest,
 } from "@/types/sessions"
 
-export const getCohortsApi = (programId?: string) =>
-  api.get<Cohort[]>("/sessions/cohorts", { params: programId ? { program_id: programId } : undefined })
-    .then((r) => r.data)
+export const getCohortsApi = (
+  programIdOrParams?:
+    | string
+    | { program_id?: string; management_mode?: "spacepoint" | "partner" | "all"; organization_id?: string },
+) => {
+  const params =
+    typeof programIdOrParams === "string"
+      ? { program_id: programIdOrParams }
+      : programIdOrParams
+  return api.get<Cohort[]>("/sessions/cohorts", { params }).then((r) => r.data)
+}
 
 export const getCohortApi = (id: string) =>
   api.get<Cohort>(`/sessions/cohorts/${id}`).then((r) => r.data)
@@ -30,6 +38,8 @@ export const createCohortApi = (data: {
   warehouse_id?: string | null
   capacity?: number
   duration_hours?: number | null
+  organization_id?: string | null
+  management_mode?: "spacepoint" | "partner"
   status?: CohortStatus
   visibility?: CohortVisibility
   notes?: string
