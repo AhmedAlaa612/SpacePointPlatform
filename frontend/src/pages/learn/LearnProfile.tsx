@@ -19,6 +19,7 @@ import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "
 import { StatTile } from "@/components/ProfileStatsCards";
 import { EmptyState } from "@/components/ui/primitives";
 import { ImageCropModal } from "@/components/ui/ImageCropModal";
+import { isStudentOnlyAccount } from "@/lib/roleHome";
 import { cn } from "@/lib/utils";
 import { CourseProgress } from "./CourseProgress";
 import { RedeemInviteModal } from "./components/RedeemInviteModal";
@@ -58,15 +59,16 @@ export default function LearnProfile() {
   const [rerollError, setRerollError] = useState<string | null>(null);
 
   const { data: me } = useQuery({ queryKey: ["me"], queryFn: fetchMe, initialData: currentUser ?? undefined });
+  const canApplyAsStudent = isStudentOnlyAccount(me?.roles);
   const { data: eligibility } = useQuery({
     queryKey: ["instructor-intake-eligibility"],
     queryFn: getIntakeEligibilityApi,
-    enabled: !!me && !me.roles?.includes("instructor") && !me.roles?.includes("applicant"),
+    enabled: !!me && canApplyAsStudent && !me.roles?.includes("applicant"),
   });
   const { data: internEligibility } = useQuery({
     queryKey: ["internship-intake-eligibility"],
     queryFn: getInternshipIntakeEligibilityApi,
-    enabled: !!me && !me.roles?.includes("intern"),
+    enabled: !!me && canApplyAsStudent,
   });
   const { data: dashboard } = useQuery({ queryKey: ["lms-my-courses"], queryFn: fetchMyCourses });
   const { data: activity } = useQuery({ queryKey: ["lms-my-activity"], queryFn: fetchMyActivity });
@@ -135,7 +137,7 @@ export default function LearnProfile() {
           </div>
         </div>
         <div className="flex items-center gap-2.5 flex-wrap w-full sm:w-auto shrink-0">
-          {eligibility?.eligible && (
+          {canApplyAsStudent && eligibility?.eligible && (
             <Button
               onClick={() => setApplyModalOpen(true)}
               className="gap-1.5 shrink-0 flex-1 sm:flex-initial"
@@ -143,7 +145,7 @@ export default function LearnProfile() {
               <GraduationCap className="size-3.5" /> Apply as instructor
             </Button>
           )}
-          {internEligibility?.eligible && (
+          {canApplyAsStudent && internEligibility?.eligible && (
             <Button
               variant="outline"
               onClick={() => setInternModalOpen(true)}
@@ -152,7 +154,7 @@ export default function LearnProfile() {
               <Briefcase className="size-3.5" /> Apply for internship
             </Button>
           )}
-          {internEligibility?.has_pending_request && (
+          {canApplyAsStudent && !internEligibility?.eligible && internEligibility?.has_pending_request && (
             <span className="text-xs text-muted-foreground border border-border px-3 py-1.5 rounded-xl bg-muted/40 font-medium inline-flex items-center gap-1.5 shrink-0">
               <Briefcase className="size-3.5 text-muted-foreground" /> Internship pending review
             </span>
@@ -381,13 +383,17 @@ export default function LearnProfile() {
 
       <EditProfileDialog open={editOpen} onOpenChange={setEditOpen} />
       <ChangePasswordDialog open={pwOpen} onOpenChange={setPwOpen} />
-      <ApplyAsInstructorModal open={applyModalOpen} onOpenChange={setApplyModalOpen} />
-      <ApplyAsInternModal
-        open={internModalOpen}
-        onOpenChange={setInternModalOpen}
-        initialUniversity={me.organization_name || ""}
-        initialStudentId={me.student_id || ""}
-      />
+      {canApplyAsStudent && !me.roles?.includes("applicant") && (
+        <ApplyAsInstructorModal open={applyModalOpen} onOpenChange={setApplyModalOpen} />
+      )}
+      {canApplyAsStudent && (
+        <ApplyAsInternModal
+          open={internModalOpen}
+          onOpenChange={setInternModalOpen}
+          initialUniversity={me.organization_name || ""}
+          initialStudentId={me.student_id || ""}
+        />
+      )}
       <RedeemInviteModal
         open={redeemOpen}
         onOpenChange={setRedeemOpen}

@@ -1,15 +1,19 @@
 import { useEffect, useRef, useState } from "react";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { ArrowLeftRight, Bell, LogOut, User } from "lucide-react";
+import { ArrowLeftRight, Bell, Briefcase, GraduationCap, LogOut, User } from "lucide-react";
 import {
-  DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger,
+  DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { TutorialLauncherMenu } from "@/components/ui/SpacePointTourCard";
 import { useAuth } from "@/context/AuthContext";
+import { getIntakeEligibilityApi } from "@/api/instructors/applicant";
+import { getInternshipIntakeEligibilityApi } from "@/api/internship";
 import { getNotificationsApi, markAllReadApi } from "@/api/notifications";
 import { cn } from "@/lib/utils";
-import { roleHomePath } from "@/lib/roleHome";
+import { isStudentOnlyAccount, roleHomePath } from "@/lib/roleHome";
+import { ApplyAsInstructorModal } from "../components/ApplyAsInstructorModal";
+import { ApplyAsInternModal } from "../components/ApplyAsInternModal";
 
 /** Shared between LearnSidebar (desktop) and LearnMobileTabBar — split out
  * of the old LearnNav.tsx (2026-09, Roadmap board redesign: navbar → fixed
@@ -159,6 +163,24 @@ export function LearnNotificationsBell({
 export function LearnProfileMenu() {
   const { currentUser, roles, setActiveRole, logout } = useAuth();
   const navigate = useNavigate();
+  const [instructorModalOpen, setInstructorModalOpen] = useState(false);
+  const [internModalOpen, setInternModalOpen] = useState(false);
+
+  const isApplicant = roles.includes("applicant");
+  const canApplyAsStudent = isStudentOnlyAccount(roles);
+
+  const { data: instructorEligibility } = useQuery({
+    queryKey: ["instructor-intake-eligibility"],
+    queryFn: getIntakeEligibilityApi,
+    enabled: !!currentUser && canApplyAsStudent && !isApplicant,
+  });
+
+  const { data: internEligibility } = useQuery({
+    queryKey: ["internship-intake-eligibility"],
+    queryFn: getInternshipIntakeEligibilityApi,
+    enabled: !!currentUser && canApplyAsStudent,
+  });
+
   const initials = currentUser?.full_name
     ? currentUser.full_name.split(" ").map((w) => w[0]).join("").slice(0, 2).toUpperCase()
     : "?";
@@ -169,36 +191,66 @@ export function LearnProfileMenu() {
   };
 
   return (
-    <DropdownMenu>
-      <DropdownMenuTrigger asChild>
-        <button className="flex items-center gap-2.5 rounded-xl p-1 pr-2.5 hover:bg-foreground/5 transition-colors cursor-pointer">
-          <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-primary/30 bg-primary/10 font-display text-xs font-bold text-primary">
-            {initials}
-          </span>
-          <span className="hidden lg:block text-left">
-            <span className="block text-sm font-medium text-foreground leading-tight">{currentUser?.full_name}</span>
-            <span className="block text-[11px] text-muted-foreground leading-tight">Explorer</span>
-          </span>
-        </button>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent>
-        <DropdownMenuItem onClick={() => void navigate({ to: "/learn/profile" })}>
-          <User className="size-3.5" /> Profile
-        </DropdownMenuItem>
-        {roles.includes("applicant") && (
-          <DropdownMenuItem
-            onClick={() => {
-              setActiveRole("applicant");
-              void navigate({ to: "/instructors/status" });
-            }}
-          >
-            <ArrowLeftRight className="size-3.5" /> Instructor Application
+    <>
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <button className="flex items-center gap-2.5 rounded-xl p-1 pr-2.5 hover:bg-foreground/5 transition-colors cursor-pointer">
+            <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-primary/30 bg-primary/10 font-display text-xs font-bold text-primary">
+              {initials}
+            </span>
+            <span className="hidden lg:block text-left">
+              <span className="block text-sm font-medium text-foreground leading-tight">{currentUser?.full_name}</span>
+              <span className="block text-[11px] text-muted-foreground leading-tight">Explorer</span>
+            </span>
+          </button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent>
+          <DropdownMenuItem onClick={() => void navigate({ to: "/learn/profile" })}>
+            <User className="size-3.5" /> Profile
           </DropdownMenuItem>
-        )}
-        <DropdownMenuItem onClick={() => void handleLogout()} variant="destructive">
-          <LogOut className="size-3.5" /> Sign out
-        </DropdownMenuItem>
-      </DropdownMenuContent>
-    </DropdownMenu>
+          {isApplicant && (
+            <DropdownMenuItem
+              onClick={() => {
+                setActiveRole("applicant");
+                void navigate({ to: "/instructors/status" });
+              }}
+            >
+              <ArrowLeftRight className="size-3.5" /> Go to instructor application
+            </DropdownMenuItem>
+          )}
+          {canApplyAsStudent && internEligibility?.eligible && (
+            <DropdownMenuItem onClick={() => setInternModalOpen(true)}>
+              <Briefcase className="size-3.5" /> Apply for internship
+            </DropdownMenuItem>
+          )}
+          {canApplyAsStudent && !internEligibility?.eligible && internEligibility?.has_pending_request && (
+            <DropdownMenuItem disabled>
+              <Briefcase className="size-3.5" /> Internship pending review
+            </DropdownMenuItem>
+          )}
+          {canApplyAsStudent && !isApplicant && instructorEligibility?.eligible && (
+            <DropdownMenuItem onClick={() => setInstructorModalOpen(true)}>
+              <GraduationCap className="size-3.5" /> Apply as instructor
+            </DropdownMenuItem>
+          )}
+          <DropdownMenuSeparator />
+          <DropdownMenuItem onClick={() => void handleLogout()} variant="destructive">
+            <LogOut className="size-3.5" /> Sign out
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
+
+      {canApplyAsStudent && !isApplicant && (
+        <ApplyAsInstructorModal open={instructorModalOpen} onOpenChange={setInstructorModalOpen} />
+      )}
+      {canApplyAsStudent && (
+        <ApplyAsInternModal
+          open={internModalOpen}
+          onOpenChange={setInternModalOpen}
+          initialUniversity={currentUser?.organization_name || ""}
+          initialStudentId={currentUser?.student_id || ""}
+        />
+      )}
+    </>
   );
 }

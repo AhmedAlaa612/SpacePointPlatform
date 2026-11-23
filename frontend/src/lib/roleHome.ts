@@ -47,3 +47,17 @@ export function roleHomePath(role: Role | null, orgRole: OrgSandboxRole | null =
     default: return "/interns";
   }
 }
+
+const STUDENT_ONLY_ROLES: ReadonlySet<Role> = new Set(["student", "observer", "applicant"]);
+
+/**
+ * True when the user is a student (or observer/student-applicant) with no
+ * instructor, intern, or staff/portal roles — used to gate student-only
+ * internship and instructor intake actions.
+ */
+export function isStudentOnlyAccount(roles?: readonly Role[] | null): boolean {
+  if (!roles || roles.length === 0) return false;
+  const hasStudentSurface = roles.some((r) => r === "student" || r === "observer");
+  if (!hasStudentSurface) return false;
+  return roles.every((r) => STUDENT_ONLY_ROLES.has(r));
+}
