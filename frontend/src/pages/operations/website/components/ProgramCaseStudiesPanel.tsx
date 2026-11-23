@@ -1725,41 +1725,52 @@ export function CaseStudySplitEditor({
                   className="w-full h-8 rounded-[10px] border border-border bg-card px-2.5 text-xs"
                 />
 
-                <div className="flex gap-1.5 items-center">
-                  <input
-                    type="text"
-                    value={sec.image_url || ""}
-                    onChange={(e) =>
-                      setStructureSections((p) =>
-                        p.map((x, idx) => (idx === i ? { ...x, image_url: e.target.value } : x)),
-                      )
-                    }
-                    placeholder="Side Image URL (optional)"
-                    className="flex-1 h-8 rounded-[10px] border border-border bg-card px-2.5 text-xs"
-                  />
-                  <label className="inline-flex items-center gap-1 h-8 px-2.5 rounded-[10px] border border-border bg-card text-xs font-semibold hover:bg-muted cursor-pointer shrink-0">
-                    <Upload size={11} />
-                    <span>Upload</span>
+                <div className="space-y-1.5">
+                  <div className="flex gap-1.5 items-center">
                     <input
-                      type="file"
-                      accept="image/*"
-                      className="hidden"
-                      onChange={async (e) => {
-                        const f = e.target.files?.[0]
-                        if (!f) return
-                        e.target.value = ""
-                        try {
-                          const res = await uploadWebsiteAsset(f)
-                          setStructureSections((p) =>
-                            p.map((x, idx) => (idx === i ? { ...x, image_url: res.url } : x)),
-                          )
-                          toast.success("Stage image uploaded")
-                        } catch (err) {
-                          toast.error(getErrorMessage(err, "Upload failed"))
-                        }
-                      }}
+                      type="text"
+                      value={sec.image_url || ""}
+                      onChange={(e) =>
+                        setStructureSections((p) =>
+                          p.map((x, idx) => (idx === i ? { ...x, image_url: e.target.value } : x)),
+                        )
+                      }
+                      placeholder="Side Image URL (optional)"
+                      className="flex-1 h-8 rounded-[10px] border border-border bg-card px-2.5 text-xs"
                     />
-                  </label>
+                    <label className="inline-flex items-center gap-1 h-8 px-2.5 rounded-[10px] border border-border bg-card text-xs font-semibold hover:bg-muted cursor-pointer shrink-0">
+                      <Upload size={11} />
+                      <span>Upload</span>
+                      <input
+                        type="file"
+                        accept="image/*"
+                        className="hidden"
+                        onChange={async (e) => {
+                          const f = e.target.files?.[0]
+                          if (!f) return
+                          e.target.value = ""
+                          try {
+                            const res = await uploadWebsiteAsset(f)
+                            setStructureSections((p) =>
+                              p.map((x, idx) => (idx === i ? { ...x, image_url: res.url } : x)),
+                            )
+                            toast.success("Stage image uploaded")
+                          } catch (err) {
+                            toast.error(getErrorMessage(err, "Upload failed"))
+                          }
+                        }}
+                      />
+                    </label>
+                  </div>
+                  {sec.image_url && (
+                    <div className="relative h-20 rounded-[10px] overflow-hidden border border-border bg-black/40">
+                      <img
+                        src={resolveWebsiteAsset(sec.image_url)}
+                        alt=""
+                        className="w-full h-full object-cover"
+                      />
+                    </div>
+                  )}
                 </div>
 
                 {/* Items & Descriptions inside this Stage */}
