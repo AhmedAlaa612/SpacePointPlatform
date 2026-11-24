@@ -103,7 +103,7 @@ class LmsProgramItem(Base):
     owner_type = Column(String(16), nullable=False)
     owner_id = Column(UUID(as_uuid=True), nullable=False)
     position = Column(Integer, nullable=False)
-    # course|mission_run|external_link|submission|pdf|manual|session|quiz|team_setup|checkpoint|arcade_game
+    # course|mission_run|external_link|submission|pdf|manual|session|quiz|team_setup|checkpoint|arcade_game|book
     item_type = Column(String(16), nullable=False)
     title = Column(String(255), nullable=False)
     description = Column(Text, nullable=True)
@@ -243,6 +243,14 @@ class LmsProgramItem(Base):
         UUID(as_uuid=True), ForeignKey("arcade_games.id", ondelete="RESTRICT"), nullable=True,
     )
     arcade_game_mode = Column(String(16), nullable=True, default="explorer", server_default="explorer")
+
+    # A `book` item's target interactive book and optional edition/chapter pin.
+    book_id = Column(
+        UUID(as_uuid=True), ForeignKey("lms_books.id", ondelete="RESTRICT"), nullable=True,
+    )
+    book_profile = Column(String(32), nullable=True)
+    book_chapter = Column(String(64), nullable=True)
+    book_min_completion_pct = Column(Integer, nullable=True)
 
 
 class LmsProgramAssignment(Base):

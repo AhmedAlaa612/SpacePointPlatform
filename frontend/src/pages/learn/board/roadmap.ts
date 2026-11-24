@@ -104,7 +104,7 @@ export const STEP_ICON: Record<MissionStepKey, LucideIcon> = {
 const ITEM_TYPE_ICON: Record<LmsProgramChecklistItem["item_type"], LucideIcon> = {
   course: BookOpen, mission_run: Rocket, external_link: Link2, submission: Upload,
   pdf: FileText, manual: ClipboardCheck, session: Calendar, quiz: HelpCircle, team_setup: Users,
-  checkpoint: Flag, arcade_game: Gamepad2,
+  checkpoint: Flag, arcade_game: Gamepad2, book: BookOpen,
 };
 
 /** Locked tiles always render `lock` regardless of type (README: "locked
@@ -284,6 +284,7 @@ export function checkpointSectionItems(
 
 export type NavTarget =
   | { kind: "course"; courseId: string }
+  | { kind: "book"; bookId: string; profile?: string; chapter?: string; itemId: string }
   | { kind: "design"; attemptId: string; phase?: string }
   | { kind: "operate"; attemptId: string }
   | { kind: "mission"; missionId: string }
@@ -301,6 +302,15 @@ export function navTargetFor(item: LmsProgramChecklistItem): NavTarget {
     return { kind: "drawer" };
   }
   if (item.item_type === "course" && item.course_id) return { kind: "course", courseId: item.course_id };
+  if (item.item_type === "book" && item.book_id) {
+    return {
+      kind: "book",
+      bookId: item.book_id,
+      profile: item.book_profile ?? undefined,
+      chapter: item.book_chapter ?? undefined,
+      itemId: item.id,
+    };
+  }
   if (item.item_type === "arcade_game" && item.arcade_game_key) {
     return {
       kind: "arcade_game",

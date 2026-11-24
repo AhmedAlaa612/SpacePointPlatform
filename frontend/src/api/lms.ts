@@ -490,6 +490,7 @@ export interface CheckoutFulfillResult {
   status: "pending" | "paid" | "refunded" | "disputed" | "failed";
   course_id: string | null;
   learning_path_id: string | null;
+  book_id: string | null;
 }
 
 export async function fulfillCheckoutSession(sessionId: string): Promise<CheckoutFulfillResult> {
@@ -617,7 +618,7 @@ export async function submitCheckpointAnswer(
 // /learn/checklists to keep well clear of that existing route.
 
 export type LmsProgramItemType =
-  | "course" | "mission_run" | "external_link" | "submission" | "pdf" | "manual" | "session" | "quiz" | "team_setup" | "checkpoint" | "arcade_game";
+  | "course" | "mission_run" | "external_link" | "submission" | "pdf" | "manual" | "session" | "quiz" | "team_setup" | "checkpoint" | "arcade_game" | "book";
 export type LmsProgramItemStatus = "pending" | "done" | "awaiting_confirmation";
 
 export type LmsProgramItemScope = "individual" | "team";
@@ -677,6 +678,11 @@ export interface LmsProgramChecklistItem {
   arcade_game_key?: string | null;
   arcade_game_title?: string | null;
   arcade_game_mode?: "explorer" | "engineer" | "either" | null;
+  book_id?: string | null;
+  book_title?: string | null;
+  book_profile?: string | null;
+  book_chapter?: string | null;
+  book_min_completion_pct?: number | null;
   submission_prompt: string | null;
   /** True once a `pdf` item has a file uploaded — fetch the actual URL
    * on demand via `getChecklistItemPdfUrlApi`, never baked in here. */

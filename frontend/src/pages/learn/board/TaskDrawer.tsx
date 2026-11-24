@@ -1465,6 +1465,16 @@ export function TaskDrawer({
         to: `/learn/arcade/${target.gameKey}`,
         search: { mode: target.mode, program: assignmentId, itemId: target.itemId } as never,
       });
+    } else if (target.kind === "book") {
+      void navigate({
+        to: `/learn/books/${target.bookId}/read`,
+        search: {
+          ...(target.profile ? { profile: target.profile } : {}),
+          ...(target.chapter ? { chapter: target.chapter } : {}),
+          program: assignmentId,
+          itemId: target.itemId,
+        } as never,
+      });
     } else if (target.kind === "external") {
       if (target.url.startsWith("/learn/rocket-lab") || target.url.includes("rocket-lab")) {
         void navigate({
@@ -1489,7 +1499,7 @@ export function TaskDrawer({
   const submissionReference = item.item_type === "submission" && item.external_url ? item.external_url : null;
 
   const hasGuideline = !!effectiveGuidelineKind;
-  const isAutoTracked = (item.item_type === "course" || item.item_type === "mission_run" || item.item_type === "quiz" || item.item_type === "arcade_game") && !isPoster;
+  const isAutoTracked = (item.item_type === "course" || item.item_type === "mission_run" || item.item_type === "quiz" || item.item_type === "arcade_game" || item.item_type === "book") && !isPoster;
   const isSubmission = item.item_type === "submission" || isPoster;
   const isMultiLink = item.item_type === "submission" && item.submission_multi_link;
   const isTeamSetup = item.item_type === "team_setup";
@@ -1519,6 +1529,7 @@ export function TaskDrawer({
     target.kind === "mission" ? (isViewOnly ? "View Mission" : "Open the mission") :
     target.kind === "quiz" ? (done ? "View results" : "Start the quiz") :
     target.kind === "arcade_game" ? (done ? "Replay game" : "Play game") :
+    target.kind === "book" ? (done ? "Review book" : "Open book") :
     target.kind === "external" && (target.url.startsWith("/learn/rocket-lab") || target.url.includes("rocket-lab")) ? "Launch RocketLab" :
     target.kind === "external" ? "Open the link" : "Open";
 

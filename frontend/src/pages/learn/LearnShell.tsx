@@ -72,6 +72,7 @@ export function LearnShell() {
 
   const active: LearnNavActive =
     pathname.startsWith("/learn/catalog") ? "catalog"
+    : pathname.startsWith("/learn/books") ? "books"
     : pathname.startsWith("/learn/missions") ? "missions"
     : pathname.startsWith("/learn/paths") ? "paths"
     : pathname.startsWith("/learn/checklists") ? "checklists"
@@ -82,6 +83,19 @@ export function LearnShell() {
     : pathname.startsWith("/learn/leaderboard") ? "leaderboard"
     : pathname.startsWith("/learn/profile") ? "profile"
     : "home";
+
+  const isFullscreenBookReader = /^\/learn\/books\/[^/]+\/read\/?$/.test(pathname);
+
+  if (isFullscreenBookReader) {
+    return (
+      <TourProvider surface="learn">
+        <div className="min-h-screen bg-background text-foreground sp-legacy-lms">
+          <Outlet />
+          <CompleteProfileModal />
+        </div>
+      </TourProvider>
+    );
+  }
 
   return (
     <TourProvider surface="learn">

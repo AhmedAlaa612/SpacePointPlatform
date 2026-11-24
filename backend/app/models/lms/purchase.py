@@ -9,9 +9,9 @@ registration purchase reuse this table instead of a rebuild. `course_id` is
 never renamed for that reuse; a sibling nullable FK (e.g. `program_id`) gets
 added alongside it instead.
 
-`product_type` is "lms_course" or "learning_path" (2026-08-21, path-bundle
-pricing) — `learning_path_id` is the sibling nullable FK the docstring above
-predicted. A bundle purchase still isn't a line-item cart: it grants every
+`product_type` is "lms_course", "learning_path" (2026-08-21, path-bundle
+pricing), or "lms_book" — `learning_path_id` / `book_id` are sibling nullable
+FKs. A bundle purchase still isn't a line-item cart: it grants every
 step's course in one `fulfill()` pass, and which enrollments it actually
 created (as opposed to ones the student already had independently) is
 tracked on `Enrollment.purchase_id`, not here — `enrollment_id` below stays
@@ -55,17 +55,25 @@ class Purchase(Base):
             "user_id", "learning_path_id",
             unique=True, postgresql_where=text("status = 'pending'"),
         ),
+        Index(
+            "uq_purchases_pending_per_book",
+            "user_id", "book_id",
+            unique=True, postgresql_where=text("status = 'pending'"),
+        ),
     )
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
 
-    product_type = Column(String(32), nullable=False)  # "lms_course" | "learning_path"
+    product_type = Column(String(32), nullable=False)  # "lms_course" | "learning_path" | "lms_book"
     # Phase 2 adds program_id/registration_id as sibling nullable FKs
     # matching product_type — never rename this one.
     course_id = Column(UUID(as_uuid=True), ForeignKey("courses.id", ondelete="CASCADE"), nullable=True)
     learning_path_id = Column(
         UUID(as_uuid=True), ForeignKey("learning_paths.id", ondelete="CASCADE"), nullable=True
+    )
+    book_id = Column(
+        UUID(as_uuid=True), ForeignKey("lms_books.id", ondelete="CASCADE"), nullable=True
     )
 
     enrollment_id = Column(UUID(as_uuid=True), ForeignKey("enrollments.id", ondelete="SET NULL"), nullable=True)

@@ -35,6 +35,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.certificate import Certificate
 from app.models.lms.arcade_game import ArcadeGame, ArcadeGameAttempt
+from app.models.lms.book import LmsBook, LmsBookExerciseResponse, LmsBookProgress
 from app.models.lms.cohort_quiz import CohortQuizAttempt, CohortQuizTemplate
 from app.models.lms.course import Course
 from app.models.lms.program import (
@@ -52,6 +53,7 @@ from app.models.videos import Video
 from app.schemas.lms_admin import LmsProgramItemIn, LmsProgramItemOut
 from app.services import storage
 from app.services.lms import cohort_quiz as cohort_quiz_service
+from app.services.lms.books import enroll_book
 from app.services.lms.enrollment import enroll
 from app.services.lms.progress import course_completion
 from app.services.missions import assign_mission_run
@@ -63,7 +65,7 @@ from app.services.video_service import get_video_for_owner
 # no reason for a second bucket.
 PROGRAM_ITEM_PDF_BUCKET = "lms-attachments"
 
-AUTO_TRACKED_TYPES = {"course", "mission_run", "quiz", "arcade_game"}
+AUTO_TRACKED_TYPES = {"course", "mission_run", "quiz", "arcade_game", "book"}
 
 # Roadmap board (2026-09) — the vocabulary a `mission_run` item's
 # `mission_step_key` can name. Eight of these mirror
@@ -109,6 +111,10 @@ async def item_out(db: AsyncSession, item: LmsProgramItem) -> LmsProgramItemOut:
         if ag is not None:
             out.arcade_game_key = ag.game_key
             out.arcade_game_title = ag.title
+    if item.book_id is not None:
+        book = await db.get(LmsBook, item.book_id)
+        if book is not None:
+            out.book_title = book.title
     if item.cohort_quiz_template_id is not None:
         # Active questions only — matches what `cohort_quiz.start_attempt`
         # will actually draw, so this badge never overstates a quiz that's
@@ -138,6 +144,11 @@ async def items_out(db: AsyncSession, items: list[LmsProgramItem]) -> list[LmsPr
     if arcade_game_ids:
         ag_rows = (await db.execute(select(ArcadeGame).where(ArcadeGame.id.in_(arcade_game_ids)))).scalars().all()
         arcade_games_by_id = {g.id: g for g in ag_rows}
+    book_ids = {i.book_id for i in items if i.book_id is not None}
+    books_by_id: dict[uuid.UUID, LmsBook] = {}
+    if book_ids:
+        b_rows = (await db.execute(select(LmsBook).where(LmsBook.id.in_(book_ids)))).scalars().all()
+        books_by_id = {b.id: b for b in b_rows}
     quiz_template_ids = {i.cohort_quiz_template_id for i in items if i.cohort_quiz_template_id is not None}
     quiz_counts = await cohort_quiz_service.question_counts_for_templates(db, list(quiz_template_ids))
     video_item_ids = [i.id for i in items if i.guideline_kind == "video"]
@@ -157,6 +168,8 @@ async def items_out(db: AsyncSession, items: list[LmsProgramItem]) -> list[LmsPr
             ag = arcade_games_by_id[item.arcade_game_id]
             o.arcade_game_key = ag.game_key
             o.arcade_game_title = ag.title
+        if item.book_id is not None and item.book_id in books_by_id:
+            o.book_title = books_by_id[item.book_id].title
         if item.cohort_quiz_template_id is not None:
             o.cohort_quiz_question_count = quiz_counts.get(item.cohort_quiz_template_id, 0)
         _apply_guideline_video(o, videos_by_owner.get(item.id))
@@ -185,6 +198,7 @@ def validate_item_payload(body: LmsProgramItemIn) -> None:
         "session": True,
         "quiz": body.cohort_quiz_template_id is not None,
         "arcade_game": body.arcade_game_id is not None,
+        "book": body.book_id is not None,
         # No required field at creation — same reasoning as manual/pdf.
         # Always team-scoped (checked below), so there's no individual
         # variant to require anything of either.
@@ -265,6 +279,7 @@ def validate_item_payload(body: LmsProgramItemIn) -> None:
             or body.submission_link_labels is not None or getattr(body, "submission_table_config", None) is not None
             or body.cohort_quiz_template_id is not None
             or body.mission_step_key is not None
+            or body.book_id is not None
         ):
             raise HTTPException(
                 status.HTTP_400_BAD_REQUEST,
@@ -381,6 +396,10 @@ async def validate_item_refs(db: AsyncSession, body: LmsProgramItemIn, *, requir
         ag = await db.get(ArcadeGame, body.arcade_game_id)
         if ag is None:
             raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Arcade game not found")
+    if body.book_id is not None:
+        bk = await db.get(LmsBook, body.book_id)
+        if bk is None:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Book not found")
     if body.mission_id is not None:
         mission = await db.get(Mission, body.mission_id)
         if mission is None:
@@ -818,6 +837,10 @@ async def fork_cohort_override(
             cohort_quiz_template_id=item.cohort_quiz_template_id,
             arcade_game_id=item.arcade_game_id,
             arcade_game_mode=item.arcade_game_mode,
+            book_id=item.book_id,
+            book_profile=item.book_profile,
+            book_chapter=item.book_chapter,
+            book_min_completion_pct=item.book_min_completion_pct,
         )
         db.add(copy)
         id_map[item.id] = copy.id
@@ -960,6 +983,10 @@ async def assign_lms_program(
                         program_id=cohort.program_id if cohort else None, registration_id=registration_id,
                         expires_at=expires_at,
                     )
+                elif item.item_type == "book" and item.book_id:
+                    await enroll_book(
+                        db, user_id=user_id, book_id=item.book_id, source="program", expires_at=expires_at,
+                    )
         return existing
 
     cohort = await db.get(Cohort, cohort_id)
@@ -977,6 +1004,10 @@ async def assign_lms_program(
                 db, user_id=user_id, course_id=item.course_id, source="registration",
                 program_id=cohort.program_id if cohort else None, registration_id=registration_id,
                 expires_at=expires_at,
+            )
+        elif item.item_type == "book" and item.book_id:
+            await enroll_book(
+                db, user_id=user_id, book_id=item.book_id, source="program", expires_at=expires_at,
             )
         elif item.item_type == "mission_run" and item.mission_id:
             if item.scope == "team":
@@ -1160,6 +1191,10 @@ async def sync_assignment_items(db: AsyncSession, *, assignment: LmsProgramAssig
             await enroll(
                 db, user_id=assignment.user_id, course_id=item.course_id, source="registration",
                 program_id=cohort.program_id if cohort else None, registration_id=assignment.registration_id,
+            )
+        elif item.item_type == "book" and item.book_id:
+            await enroll_book(
+                db, user_id=assignment.user_id, book_id=item.book_id, source="program",
             )
         # A team-scoped mission_run gets only its placeholder row here —
         # the team pass below owns its attempt, for every such item rather
@@ -1375,6 +1410,57 @@ async def _arcade_game_item_done(
     return bool(await db.scalar(stmt.limit(1)))
 
 
+async def _book_item_done(
+    db: AsyncSession,
+    *,
+    user_id: uuid.UUID,
+    book_id: uuid.UUID | None,
+    book_chapter: str | None,
+    book_min_completion_pct: int | None,
+) -> bool:
+    """Auto-track completion for a `book` checklist step."""
+    if book_id is None:
+        return False
+
+    prog = (
+        await db.execute(
+            select(LmsBookProgress).where(
+                LmsBookProgress.user_id == user_id,
+                LmsBookProgress.book_id == book_id,
+            )
+        )
+    ).scalars().first()
+
+    if book_chapter:
+        has_resp = await db.scalar(
+            select(LmsBookExerciseResponse.id).where(
+                LmsBookExerciseResponse.user_id == user_id,
+                LmsBookExerciseResponse.book_id == book_id,
+                LmsBookExerciseResponse.chapter_key == book_chapter,
+            ).limit(1)
+        )
+        if has_resp is not None:
+            return True
+        if prog is None:
+            return False
+        book = await db.get(LmsBook, book_id)
+        chapter_spreads: list[str] = []
+        if book and isinstance(book.outline, list):
+            for ch in book.outline:
+                if str(ch.get("key") or "") == book_chapter:
+                    chapter_spreads = [str(ls.get("spread")) for ls in (ch.get("lessons") or []) if ls.get("spread")]
+                    break
+        if chapter_spreads:
+            visited = set(prog.visited_spreads or [])
+            return all(sp in visited for sp in chapter_spreads)
+        return prog.current_chapter == book_chapter
+
+    if prog is None:
+        return False
+    threshold = int(book_min_completion_pct) if book_min_completion_pct is not None else 80
+    return int(prog.completion_pct or 0) >= threshold
+
+
 async def refresh_item_progress(
     db: AsyncSession, *, progress: LmsProgramItemProgress | LmsProgramTeamItemProgress, item: LmsProgramItem,
     user_id: uuid.UUID, dashboard_cache: dict[uuid.UUID, dict | None] | None = None,
@@ -1415,6 +1501,11 @@ async def refresh_item_progress(
     elif item.item_type == "arcade_game":
         done = await _arcade_game_item_done(
             db, arcade_game_id=item.arcade_game_id, arcade_game_mode=item.arcade_game_mode, user_id=user_id,
+        )
+    elif item.item_type == "book":
+        done = await _book_item_done(
+            db, user_id=user_id, book_id=item.book_id, book_chapter=item.book_chapter,
+            book_min_completion_pct=item.book_min_completion_pct,
         )
     else:  # "quiz"
         done = await _cohort_quiz_item_done(db, program_item_id=item.id, user_id=user_id)
@@ -2050,6 +2141,11 @@ async def get_student_checklist(db: AsyncSession, *, assignment_id: uuid.UUID, u
     if arcade_game_ids:
         ag_rows = (await db.execute(select(ArcadeGame).where(ArcadeGame.id.in_(arcade_game_ids)))).scalars().all()
         arcade_games = {g.id: g for g in ag_rows}
+    book_ids = {item.book_id for item, _ in pairs if item.book_id}
+    books_map: dict[uuid.UUID, LmsBook] = {}
+    if book_ids:
+        bk_rows = (await db.execute(select(LmsBook).where(LmsBook.id.in_(book_ids)))).scalars().all()
+        books_map = {b.id: b for b in bk_rows}
     video_item_ids = [item.id for item, _ in pairs if item.guideline_kind == "video"]
     guideline_videos: dict[uuid.UUID, Video] = {}
     if video_item_ids:
@@ -2152,6 +2248,11 @@ async def get_student_checklist(db: AsyncSession, *, assignment_id: uuid.UUID, u
             "arcade_game_key": arcade_games[item.arcade_game_id].game_key if item.arcade_game_id and item.arcade_game_id in arcade_games else None,
             "arcade_game_title": arcade_games[item.arcade_game_id].title if item.arcade_game_id and item.arcade_game_id in arcade_games else None,
             "arcade_game_mode": item.arcade_game_mode,
+            "book_id": item.book_id,
+            "book_title": books_map[item.book_id].title if item.book_id and item.book_id in books_map else None,
+            "book_profile": item.book_profile,
+            "book_chapter": item.book_chapter,
+            "book_min_completion_pct": item.book_min_completion_pct,
             "has_pdf": item.pdf_path is not None,
             "submitted_url": submitted_url,
             "submission_field_type": item.submission_field_type,
@@ -2679,6 +2780,11 @@ async def assignment_item_detail(db: AsyncSession, *, assignment_id: uuid.UUID) 
             .group_by(ArcadeGameAttempt.game_id)
         )).all()
         best_scores = {r[0]: int(r[1] or 0) for r in score_rows}
+    detail_book_ids = {item.book_id for item, _ in pairs if item.book_id}
+    detail_books_map: dict[uuid.UUID, LmsBook] = {}
+    if detail_book_ids:
+        detail_bk_rows = (await db.execute(select(LmsBook).where(LmsBook.id.in_(detail_book_ids)))).scalars().all()
+        detail_books_map = {b.id: b for b in detail_bk_rows}
 
     out = []
     dashboard_cache: dict[uuid.UUID, dict | None] = {}
@@ -2722,6 +2828,11 @@ async def assignment_item_detail(db: AsyncSession, *, assignment_id: uuid.UUID) 
             "arcade_game_key": arcade_games[item.arcade_game_id].game_key if item.arcade_game_id and item.arcade_game_id in arcade_games else None,
             "arcade_game_mode": item.arcade_game_mode,
             "arcade_best_score": best_scores.get(item.arcade_game_id) if item.arcade_game_id else None,
+            "book_id": item.book_id,
+            "book_title": detail_books_map[item.book_id].title if item.book_id and item.book_id in detail_books_map else None,
+            "book_profile": item.book_profile,
+            "book_chapter": item.book_chapter,
+            "book_min_completion_pct": item.book_min_completion_pct,
             "scope": item.scope,
             "updated_at": target.updated_at,
             "updated_by_name": updater_names.get(team_progress.updated_by_user_id) if (item.scope == "team" and team_progress and team_progress.updated_by_user_id) else None,

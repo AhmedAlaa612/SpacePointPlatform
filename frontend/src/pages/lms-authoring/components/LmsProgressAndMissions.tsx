@@ -540,6 +540,7 @@ function describeExportItemBadge(item: LmsProgramItem): string {
   if (item.item_type === "mission_run") return item.mission_step_key ? `Step: ${item.mission_step_key}` : "Mission"
   if (item.item_type === "quiz") return "Quiz"
   if (item.item_type === "arcade_game") return "Game"
+  if (item.item_type === "book") return "Book"
   if (item.item_type === "course") return "Course"
   if (item.item_type === "session") return "Session"
   return item.item_type

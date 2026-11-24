@@ -15,6 +15,7 @@ import { listMissionsAdminFullApi } from "@/api/missions_admin"
 import { instructorStepSelectionApi } from "@/api/missionsInstructor"
 import { listCohortQuizTemplatesApi } from "@/api/cohort_quiz"
 import { fetchArcadeGamesApi } from "@/api/arcade"
+import { adminListBooksApi } from "@/api/lms_books"
 import type { LmsTableColumn } from "@/api/lms"
 import { MediaPreviewModal } from "@/components/media/MediaPreviewModal"
 import {
@@ -1091,6 +1092,12 @@ export function ItemForm({
   const [arcadeGameMode, setArcadeGameMode] = useState<"explorer" | "engineer" | "either">(
     (initial?.arcade_game_mode as "explorer" | "engineer" | "either") ?? "explorer"
   )
+  const [bookId, setBookId] = useState(initial?.book_id ?? "")
+  const [bookProfile, setBookProfile] = useState(initial?.book_profile ?? "all")
+  const [bookChapter, setBookChapter] = useState(initial?.book_chapter ?? "")
+  const [bookMinCompletionPct, setBookMinCompletionPct] = useState(
+    initial?.book_min_completion_pct != null ? String(initial.book_min_completion_pct) : "100",
+  )
   const [maxTeamSize, setMaxTeamSize] = useState(initial?.max_team_size != null ? String(initial.max_team_size) : "")
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState("")
@@ -1106,6 +1113,12 @@ export function ItemForm({
     queryFn: fetchArcadeGamesApi,
     enabled: itemType === "arcade_game",
   })
+  const { data: books = [] } = useQuery({
+    queryKey: ["lms-admin-books"],
+    queryFn: adminListBooksApi,
+    enabled: itemType === "book",
+  })
+  const selectedBook = books.find((b) => b.id === bookId)
   const { data: quizTemplates = [] } = useQuery({
     queryKey: ["cohort-quiz-templates"], queryFn: listCohortQuizTemplatesApi, enabled: itemType === "quiz",
   })
@@ -1179,6 +1192,12 @@ export function ItemForm({
     }
     if (itemType === "quiz" && !cohortQuizTemplateId) { setError("Pick a quiz template"); return }
     if (itemType === "arcade_game" && !arcadeGameId) { setError("Pick an arcade game"); return }
+    if (itemType === "book" && !bookId) { setError("Pick a book"); return }
+    const parsedBookPct = bookMinCompletionPct.trim() ? Number(bookMinCompletionPct.trim()) : 100
+    if (itemType === "book" && (!Number.isInteger(parsedBookPct) || parsedBookPct < 1 || parsedBookPct > 100)) {
+      setError("Completion % must be between 1 and 100")
+      return
+    }
     if (guidelineKind === "link" && !guidelineUrl.trim()) { setError("A link guideline needs a URL"); return }
     if (guidelineKind === "video" && videoMode === "embed" && !guidelineUrl.trim()) {
       setError("Add an embed link, or switch to Upload"); return
@@ -1202,6 +1221,10 @@ export function ItemForm({
         variant_id: itemType === "mission_run" ? (variantId || null) : null,
         arcade_game_id: itemType === "arcade_game" ? (arcadeGameId || null) : null,
         arcade_game_mode: itemType === "arcade_game" ? arcadeGameMode : null,
+        book_id: itemType === "book" ? (bookId || null) : null,
+        book_profile: itemType === "book" ? (bookProfile || "all") : null,
+        book_chapter: itemType === "book" ? (bookChapter || null) : null,
+        book_min_completion_pct: itemType === "book" ? parsedBookPct : null,
         external_url: (itemType === "external_link" || itemType === "submission") ? (externalUrl.trim() || null) : null,
         submission_prompt: itemType === "submission" ? (submissionPrompt.trim() || null) : null,
         submission_field_type: itemType === "submission" ? submissionFieldType : "link",
@@ -1317,6 +1340,75 @@ export function ItemForm({
             </select>
           </div>
         </>
+      )}
+
+      {itemType === "book" && (
+        <div className="flex flex-col gap-2">
+          <select
+            value={bookId}
+            onChange={(e) => {
+              const id = e.target.value
+              setBookId(id)
+              const chosen = books.find((b) => b.id === id)
+              if (chosen) {
+                if (!title.trim()) setTitle(chosen.title)
+                setBookProfile(chosen.default_profile || "all")
+                setBookChapter("")
+              }
+            }}
+            className={`${inputCls} cursor-pointer`}
+          >
+            <option value="">Select a book…</option>
+            {books.map((b) => (
+              <option key={b.id} value={b.id}>
+                {b.title}{b.is_published ? "" : " (Draft)"}
+              </option>
+            ))}
+          </select>
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+            <div className="flex flex-col gap-1">
+              <label className="text-[11px] font-medium text-muted-foreground">Edition / Track</label>
+              <select
+                value={bookProfile}
+                onChange={(e) => setBookProfile(e.target.value)}
+                className={`${inputCls} cursor-pointer`}
+              >
+                {(selectedBook?.profiles?.length ? selectedBook.profiles : [{ key: "all", label_en: "Full Book" }]).map((p) => (
+                  <option key={p.key} value={p.key}>
+                    {p.label_en}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="flex flex-col gap-1">
+              <label className="text-[11px] font-medium text-muted-foreground">Target Chapter</label>
+              <select
+                value={bookChapter}
+                onChange={(e) => setBookChapter(e.target.value)}
+                className={`${inputCls} cursor-pointer`}
+              >
+                <option value="">Entire book</option>
+                {(selectedBook?.outline ?? []).map((ch) => (
+                  <option key={ch.key} value={ch.key}>
+                    {ch.code ? `${ch.code} - ${ch.title_en}` : ch.title_en}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="flex flex-col gap-1">
+              <label className="text-[11px] font-medium text-muted-foreground">Min Completion %</label>
+              <input
+                type="number"
+                min={1}
+                max={100}
+                value={bookMinCompletionPct}
+                onChange={(e) => setBookMinCompletionPct(e.target.value)}
+                className={inputCls}
+                placeholder="100"
+              />
+            </div>
+          </div>
+        </div>
       )}
 
       {itemType === "mission_run" && (

@@ -451,7 +451,7 @@ export const deleteCheckpointApi = (id: string) => api.delete<void>(`/lms/admin/
 // see backend/app/models/lms/program.py's module docstring for the full shape.
 
 export type LmsProgramItemType =
-  | "course" | "mission_run" | "external_link" | "submission" | "pdf" | "manual" | "session" | "quiz" | "team_setup" | "checkpoint" | "arcade_game";
+  | "course" | "mission_run" | "external_link" | "submission" | "pdf" | "manual" | "session" | "quiz" | "team_setup" | "checkpoint" | "arcade_game" | "book";
 /** individual (default): per-student progress. team: the whole Team shares
  * one progress row — only valid for submission/external_link/manual/
  * mission_run/team_setup items (enforced server-side in
@@ -490,6 +490,11 @@ export interface LmsProgramItem {
   arcade_game_key?: string | null;
   arcade_game_title?: string | null;
   arcade_game_mode?: "explorer" | "engineer" | "either" | null;
+  book_id?: string | null;
+  book_title?: string | null;
+  book_profile?: string | null;
+  book_chapter?: string | null;
+  book_min_completion_pct?: number | null;
   submission_prompt: string | null;
   /** The plain (non-multi) submission's own type — link (default) or text.
    * Only meaningful when submission_multi_link is false. */
@@ -581,6 +586,10 @@ export interface LmsProgramItemInput {
   cohort_quiz_template_id?: string | null;
   arcade_game_id?: string | null;
   arcade_game_mode?: "explorer" | "engineer" | "either" | null;
+  book_id?: string | null;
+  book_profile?: string | null;
+  book_chapter?: string | null;
+  book_min_completion_pct?: number | null;
   position?: number | null;
   mission_step_key?: string | null;
   gated?: boolean;
@@ -1097,7 +1106,7 @@ export const getObserverTeamsApi = (cohortId: string) =>
 
 export interface InviteCodeGrant {
   id: string;
-  product_type: "course" | "learning_path" | "lms_program";
+  product_type: "course" | "learning_path" | "lms_program" | "book";
   course_id: string | null;
   course_title: string | null;
   learning_path_id: string | null;
@@ -1105,6 +1114,8 @@ export interface InviteCodeGrant {
   cohort_id: string | null;
   cohort_name: string | null;
   lms_program_name: string | null;
+  book_id: string | null;
+  book_title: string | null;
   created_at: string | null;
 }
 
@@ -1112,7 +1123,7 @@ export const listInviteCodeGrantsApi = (codeId: string) =>
   api.get<InviteCodeGrant[]>(`/lms/admin/invite-codes/${codeId}/grants`).then((r) => r.data);
 
 export const createInviteCodeGrantApi = (
-  codeId: string, data: { course_id?: string; learning_path_id?: string; cohort_id?: string },
+  codeId: string, data: { course_id?: string; learning_path_id?: string; cohort_id?: string; book_id?: string },
 ) => api.post<{ grant: InviteCodeGrant; accounts_enrolled: number }>(
   `/lms/admin/invite-codes/${codeId}/grants`, data,
 ).then((r) => r.data);

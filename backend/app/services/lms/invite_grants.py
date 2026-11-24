@@ -18,6 +18,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.enums import UserRole
 from app.models.instructors.invitation_code import InvitationCode
+from app.models.lms.book import LmsBookEnrollment
 from app.models.lms.enrollment import Enrollment
 from app.models.lms.invite_grant import InvitationCodeGrant, UserInvitationCode
 from app.models.lms.learning_path import LearningPathStep
@@ -25,6 +26,7 @@ from app.models.lms.program import LmsProgramAssignment
 from app.models.sessions.cohort import Cohort
 from app.models.user import User
 from app.services.invitations import resolve_invite_code
+from app.services.lms.books import enroll_book
 from app.services.lms.enrollment import enroll
 from app.services.lms.ops_integration import sync_registration_lms
 from app.services.sessions.registration import register
@@ -35,9 +37,11 @@ logger = logging.getLogger(__name__)
 async def _grant_course_ids(db: AsyncSession, grant: InvitationCodeGrant) -> list[uuid.UUID]:
     if grant.product_type == "course":
         return [grant.course_id]
-    return list((await db.execute(
-        select(LearningPathStep.course_id).where(LearningPathStep.learning_path_id == grant.learning_path_id)
-    )).scalars().all())
+    if grant.product_type == "learning_path":
+        return list((await db.execute(
+            select(LearningPathStep.course_id).where(LearningPathStep.learning_path_id == grant.learning_path_id)
+        )).scalars().all())
+    return []
 
 
 async def _register_into_cohort(
@@ -92,6 +96,9 @@ async def _apply_grant(
         user = await db.get(User, user_id)
         if user is not None:
             await _register_into_cohort(db, user=user, cohort_id=grant.cohort_id, expires_at=expires_at)
+        return
+    if grant.product_type == "book" and grant.book_id is not None:
+        await enroll_book(db, user_id=user_id, book_id=grant.book_id, source="invite_code", expires_at=expires_at)
         return
     for course_id in await _grant_course_ids(db, grant):
         await enroll(db, user_id=user_id, course_id=course_id, source="invite_code", expires_at=expires_at)
@@ -194,7 +201,7 @@ async def redeem_invite_code(
 async def grant_invite_code_access(
     db: AsyncSession, *, invitation_code: InvitationCode,
     course_id: uuid.UUID | None = None, learning_path_id: uuid.UUID | None = None,
-    cohort_id: uuid.UUID | None = None,
+    cohort_id: uuid.UUID | None = None, book_id: uuid.UUID | None = None,
 ) -> tuple[InvitationCodeGrant, int]:
     """Creates the standing grant row, then immediately applies it to every
     account that has ever used this code (`users.invitation_code_used`, the
@@ -202,12 +209,17 @@ async def grant_invite_code_access(
     students by). Returns (grant, accounts_touched) — `enroll()` is
     idempotent and `register()` reinstates rather than duplicates, so this
     counts users touched, not new rows created. Caller (the router)
-    already enforces exactly one of course_id/learning_path_id/cohort_id."""
-    product_type = "course" if course_id is not None else "learning_path" if learning_path_id is not None else "lms_program"
+    already enforces exactly one of course_id/learning_path_id/cohort_id/book_id."""
+    product_type = (
+        "course" if course_id is not None
+        else "learning_path" if learning_path_id is not None
+        else "book" if book_id is not None
+        else "lms_program"
+    )
     grant = InvitationCodeGrant(
         id=uuid.uuid4(), invitation_code_id=invitation_code.id,
         product_type=product_type,
-        course_id=course_id, learning_path_id=learning_path_id, cohort_id=cohort_id,
+        course_id=course_id, learning_path_id=learning_path_id, cohort_id=cohort_id, book_id=book_id,
         created_at=datetime.now(timezone.utc),
     )
     db.add(grant)
@@ -278,30 +290,45 @@ async def sync_invite_code_enrollments_expiry(
         return 0
 
     all_course_ids: set[uuid.UUID] = set()
+    all_book_ids: set[uuid.UUID] = set()
     for grant in grants:
         if grant.product_type == "lms_program" and grant.cohort_id:
             cohort_courses = await resolve_cohort_program_course_ids(db, grant.cohort_id)
             all_course_ids.update(cohort_courses)
+        elif grant.product_type == "book" and grant.book_id:
+            all_book_ids.add(grant.book_id)
         else:
             courses = await _grant_course_ids(db, grant)
             all_course_ids.update(courses)
 
-    if not all_course_ids:
-        return 0
-
-    # 3. Find enrollments for these users and courses that were granted (not independent purchases)
-    enrollments = (await db.execute(
-        select(Enrollment).where(
-            Enrollment.user_id.in_(user_ids),
-            Enrollment.course_id.in_(all_course_ids),
-            Enrollment.source != "purchase",
-        )
-    )).scalars().all()
-
     updated = 0
-    for row in enrollments:
-        row.expires_at = invitation_code.expires_at
-        updated += 1
+    if all_course_ids:
+        # 3. Find enrollments for these users and courses that were granted (not independent purchases)
+        enrollments = (await db.execute(
+            select(Enrollment).where(
+                Enrollment.user_id.in_(user_ids),
+                Enrollment.course_id.in_(all_course_ids),
+                Enrollment.source != "purchase",
+            )
+        )).scalars().all()
+        for row in enrollments:
+            row.expires_at = invitation_code.expires_at
+            updated += 1
+
+    if all_book_ids:
+        book_enrollments = (await db.execute(
+            select(LmsBookEnrollment).where(
+                LmsBookEnrollment.user_id.in_(user_ids),
+                LmsBookEnrollment.book_id.in_(all_book_ids),
+                LmsBookEnrollment.source != "purchase",
+            )
+        )).scalars().all()
+        for brow in book_enrollments:
+            brow.expires_at = invitation_code.expires_at
+            updated += 1
+
+    if not updated:
+        return 0
 
     await db.flush()
     return updated

@@ -19,6 +19,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import settings
 from app.models.lms.learning_path import LearningPathStep
 from app.models.lms.purchase import Purchase
+from app.services.lms.books import enroll_book
 from app.services.lms.enrollment import enroll
 
 logger = logging.getLogger(__name__)
@@ -38,6 +39,15 @@ async def get_pending_path_purchase(db: AsyncSession, *, user_id: UUID, learning
     return (await db.execute(
         select(Purchase).where(
             Purchase.user_id == user_id, Purchase.learning_path_id == learning_path_id,
+            Purchase.status == "pending",
+        )
+    )).scalars().first()
+
+
+async def get_pending_book_purchase(db: AsyncSession, *, user_id: UUID, book_id: UUID) -> Purchase | None:
+    return (await db.execute(
+        select(Purchase).where(
+            Purchase.user_id == user_id, Purchase.book_id == book_id,
             Purchase.status == "pending",
         )
     )).scalars().first()
@@ -86,6 +96,11 @@ async def fulfill(db: AsyncSession, session) -> Purchase:
             )
         # No single enrollment to point at for a bundle — enrollment_id stays
         # null; Enrollment.purchase_id is the real join for this purchase.
+    elif purchase.product_type == "lms_book":
+        if purchase.book_id is not None:
+            await enroll_book(
+                db, user_id=purchase.user_id, book_id=purchase.book_id, source="purchase", purchase_id=purchase.id,
+            )
     else:
         enrollment = await enroll(
             db, user_id=purchase.user_id, course_id=purchase.course_id, source="purchase", purchase_id=purchase.id,

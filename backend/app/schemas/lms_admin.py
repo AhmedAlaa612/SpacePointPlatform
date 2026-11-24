@@ -103,18 +103,19 @@ class InviteCodeGrantCreate(BaseModel):
     # assigns; see InvitationCodeGrant's own docstring for why this holds
     # a cohort rather than an lms_program_id.
     cohort_id: UUID | None = None
+    book_id: UUID | None = None
 
     @model_validator(mode="after")
     def _exactly_one(self) -> "InviteCodeGrantCreate":
-        provided = [v is not None for v in (self.course_id, self.learning_path_id, self.cohort_id)]
+        provided = [v is not None for v in (self.course_id, self.learning_path_id, self.cohort_id, self.book_id)]
         if sum(provided) != 1:
-            raise ValueError("Provide exactly one of course_id, learning_path_id, or cohort_id")
+            raise ValueError("Provide exactly one of course_id, learning_path_id, cohort_id, or book_id")
         return self
 
 
 class InviteCodeGrantOut(BaseModel):
     id: UUID
-    product_type: Literal["course", "learning_path", "lms_program"]
+    product_type: Literal["course", "learning_path", "lms_program", "book"]
     course_id: UUID | None = None
     course_title: str | None = None
     learning_path_id: UUID | None = None
@@ -125,6 +126,8 @@ class InviteCodeGrantOut(BaseModel):
     # Batch's program" rather than a bare cohort id.
     cohort_name: str | None = None
     lms_program_name: str | None = None
+    book_id: UUID | None = None
+    book_title: str | None = None
     created_at: datetime | None = None
 
 
@@ -579,7 +582,7 @@ class ItemReorderIn(BaseModel):
 
 LmsProgramItemType = Literal[
     "course", "mission_run", "external_link", "submission", "pdf", "manual", "session", "quiz", "team_setup",
-    "checkpoint", "arcade_game",
+    "checkpoint", "arcade_game", "book",
 ]
 # individual (default) tracks per-student, exactly as every item did before
 # this existed. team means the whole `Team` shares one progress row — a
@@ -630,6 +633,10 @@ class LmsProgramItemIn(BaseModel):
     cohort_quiz_template_id: UUID | None = None
     arcade_game_id: UUID | None = None
     arcade_game_mode: Literal["explorer", "engineer", "either"] | None = "explorer"
+    book_id: UUID | None = None
+    book_profile: str | None = Field(default=None, max_length=32)
+    book_chapter: str | None = Field(default=None, max_length=64)
+    book_min_completion_pct: int | None = Field(default=None, ge=1, le=100)
     position: int | None = None
     # ── Roadmap board (2026-09) — see LmsProgramItem's own field comments.
     mission_step_key: str | None = None
@@ -681,6 +688,11 @@ class LmsProgramItemOut(BaseModel):
     arcade_game_key: str | None = None
     arcade_game_title: str | None = None
     arcade_game_mode: str | None = None
+    book_id: UUID | None = None
+    book_title: str | None = None
+    book_profile: str | None = None
+    book_chapter: str | None = None
+    book_min_completion_pct: int | None = None
     # Populated only for a `quiz` item — the authoring UI's "N questions"
     # badge. None for every other item type.
     cohort_quiz_question_count: int | None = None

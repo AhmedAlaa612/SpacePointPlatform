@@ -45,6 +45,7 @@ import type { Cohort, Program } from "@/types/sessions"
 
 const TYPE_ICONS: Record<LmsProgramItemType, typeof BookOpen> = {
   course: BookOpen,
+  book: BookOpen,
   mission_run: Rocket,
   arcade_game: Gamepad2,
   external_link: Link2,
@@ -59,6 +60,7 @@ const TYPE_ICONS: Record<LmsProgramItemType, typeof BookOpen> = {
 
 const TYPE_LABELS: Record<LmsProgramItemType, string> = {
   course: "Course",
+  book: "Book",
   mission_run: "Mission Run",
   arcade_game: "Arcade Game",
   external_link: "Link",

@@ -32,6 +32,7 @@ Nothing here references `contacts`; everything keys on `users`, so
 
 from app.models.lms.arcade_game import ArcadeGame, ArcadeGameAttempt
 from app.models.lms.author_profile import LmsAuthorProfile
+from app.models.lms.book import LmsBook, LmsBookEnrollment, LmsBookExerciseResponse, LmsBookProgress
 from app.models.lms.cohort_quiz import (
     CohortQuizAnswer, CohortQuizAttempt, CohortQuizQuestion, CohortQuizTemplate, CohortQuizTemplateQuestion,
 )
@@ -51,6 +52,10 @@ __all__ = [
     "ArcadeGame",
     "ArcadeGameAttempt",
     "LmsAuthorProfile",
+    "LmsBook",
+    "LmsBookEnrollment",
+    "LmsBookProgress",
+    "LmsBookExerciseResponse",
     "CohortQuizQuestion",
     "CohortQuizTemplate",
     "CohortQuizTemplateQuestion",

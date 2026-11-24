@@ -81,6 +81,35 @@ def decode_video_token(token: str) -> tuple[str, str]:
     return payload["sub"], payload["video_id"]
 
 
+def create_book_token(
+    user_id: Any,
+    book_id: Any,
+    version: int,
+    can_teacher: bool,
+    expires_delta: timedelta | None = None,
+) -> str:
+    """Short-lived token scoping one user to one LmsBook bundle version."""
+    payload = {
+        "sub": str(user_id),
+        "book_id": str(book_id),
+        "version": int(version),
+        "can_teacher": bool(can_teacher),
+        "exp": datetime.now(timezone.utc) + (expires_delta or timedelta(hours=6)),
+        "type": "book_reader",
+    }
+    return jwt.encode(payload, settings.SECRET_KEY, algorithm=settings.ALGORITHM)
+
+
+def decode_book_token(token: str) -> dict[str, Any]:
+    """Validates and decodes a book reader bundle token."""
+    payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
+    if payload.get("type") != "book_reader":
+        raise JWTError("Not a book reader token")
+    if "sub" not in payload or "book_id" not in payload or "version" not in payload:
+        raise JWTError("Malformed book reader token")
+    return payload
+
+
 def create_password_set_token(user_id: Any, expires_delta: timedelta | None = None) -> str:
     """LM1-7 / §8 Q5: the "invite sent" email link for ops-created LMS
     accounts (must_change_password=True). Defaults to 24h — long enough for

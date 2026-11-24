@@ -41,11 +41,16 @@ export function itemToInput(item: LmsProgramItem): LmsProgramItemInput {
     guideline_url: item.guideline_url, checkpoint_label: item.checkpoint_label,
     max_team_size: item.max_team_size,
     arcade_game_id: item.arcade_game_id, arcade_game_mode: item.arcade_game_mode,
+    book_id: item.book_id ?? null,
+    book_profile: item.book_profile ?? null,
+    book_chapter: item.book_chapter ?? null,
+    book_min_completion_pct: item.book_min_completion_pct ?? null,
   }
 }
 
 export const ITEM_TYPES: { value: LmsProgramItemType; label: string; icon: typeof BookOpen }[] = [
   { value: "course", label: "Course", icon: BookOpen },
+  { value: "book", label: "Book", icon: BookOpen },
   { value: "mission_run", label: "Mission run", icon: Rocket },
   { value: "arcade_game", label: "Arcade game", icon: Gamepad2 },
   { value: "external_link", label: "Link", icon: Link2 },

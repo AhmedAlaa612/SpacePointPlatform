@@ -42,10 +42,10 @@ from app.db.base import Base
 
 
 class InvitationCodeGrant(Base):
-    """`product_type` is "course" | "learning_path" | "lms_program" — same
+    """`product_type` is "course" | "learning_path" | "lms_program" | "book" — same
     flat-string discriminator idiom as `Purchase.product_type`, not a
     DB-enforced polymorphic FK. Duplicate grants (same code + same
-    course/path/cohort) are rejected at the service layer with a 409, not
+    course/path/cohort/book) are rejected at the service layer with a 409, not
     a DB constraint — same posture as `LmsProgramItem`'s conflict checks."""
 
     __tablename__ = "invitation_code_grants"
@@ -54,7 +54,7 @@ class InvitationCodeGrant(Base):
     invitation_code_id = Column(
         UUID(as_uuid=True), ForeignKey("invitation_codes.id", ondelete="CASCADE"), nullable=False, index=True,
     )
-    product_type = Column(String(16), nullable=False)  # "course" | "learning_path" | "lms_program"
+    product_type = Column(String(16), nullable=False)  # "course" | "learning_path" | "lms_program" | "book"
     course_id = Column(UUID(as_uuid=True), ForeignKey("courses.id", ondelete="CASCADE"), nullable=True)
     learning_path_id = Column(
         UUID(as_uuid=True), ForeignKey("learning_paths.id", ondelete="CASCADE"), nullable=True
@@ -63,6 +63,7 @@ class InvitationCodeGrant(Base):
     # grant assigns. See the class docstring above for why this holds a
     # cohort, not an lms_program_id.
     cohort_id = Column(UUID(as_uuid=True), ForeignKey("cohorts.id", ondelete="CASCADE"), nullable=True)
+    book_id = Column(UUID(as_uuid=True), ForeignKey("lms_books.id", ondelete="CASCADE"), nullable=True)
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
 
 

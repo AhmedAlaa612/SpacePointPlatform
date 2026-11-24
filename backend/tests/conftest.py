@@ -154,6 +154,13 @@ async def _engine():
         ))
         await conn.execute(text("ALTER TABLE competition_rubrics ADD COLUMN IF NOT EXISTS variation_id UUID REFERENCES program_variations(id) ON DELETE CASCADE;"))
         await conn.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS uq_competition_rubrics_variation_id ON competition_rubrics (variation_id) WHERE variation_id IS NOT NULL;"))
+        await conn.execute(text("ALTER TABLE purchases ADD COLUMN IF NOT EXISTS book_id UUID REFERENCES lms_books(id) ON DELETE CASCADE;"))
+        await conn.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS uq_purchases_pending_per_book ON purchases (user_id, book_id) WHERE status = 'pending';"))
+        await conn.execute(text("ALTER TABLE invitation_code_grants ADD COLUMN IF NOT EXISTS book_id UUID REFERENCES lms_books(id) ON DELETE CASCADE;"))
+        await conn.execute(text("ALTER TABLE lms_program_items ADD COLUMN IF NOT EXISTS book_id UUID REFERENCES lms_books(id) ON DELETE RESTRICT;"))
+        await conn.execute(text("ALTER TABLE lms_program_items ADD COLUMN IF NOT EXISTS book_profile VARCHAR(32);"))
+        await conn.execute(text("ALTER TABLE lms_program_items ADD COLUMN IF NOT EXISTS book_chapter VARCHAR(64);"))
+        await conn.execute(text("ALTER TABLE lms_program_items ADD COLUMN IF NOT EXISTS book_min_completion_pct INTEGER;"))
     yield engine
     await engine.dispose()
 

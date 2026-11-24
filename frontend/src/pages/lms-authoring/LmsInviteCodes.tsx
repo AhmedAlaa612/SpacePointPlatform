@@ -11,6 +11,7 @@ import {
   listCoursesApi, listLearningPathsApi,
   type InviteCode,
 } from "@/api/lms_admin"
+import { adminListBooksApi } from "@/api/lms_books"
 import { getCohortsApi } from "@/api/sessions/cohorts"
 import { getOrgCohortsApi } from "@/api/organizationPrograms"
 import { useAuth } from "@/context/AuthContext"
@@ -235,7 +236,7 @@ function GrantsPanel({ code }: { code: InviteCode }) {
   const { currentUser } = useAuth()
   const isOrg = currentUser?.role === "organization"
   const queryClient = useQueryClient()
-  const [pickerType, setPickerType] = useState<"course" | "path" | "program">("course")
+  const [pickerType, setPickerType] = useState<"course" | "path" | "program" | "book">("course")
   const [pickerId, setPickerId] = useState("")
   const [error, setError] = useState("")
 
@@ -245,6 +246,7 @@ function GrantsPanel({ code }: { code: InviteCode }) {
   })
   const { data: courses = [] } = useQuery({ queryKey: ["lms-admin-courses"], queryFn: listCoursesApi })
   const { data: paths = [] } = useQuery({ queryKey: ["lms-admin-learning-paths"], queryFn: listLearningPathsApi })
+  const { data: books = [] } = useQuery({ queryKey: ["lms-admin-books"], queryFn: adminListBooksApi })
   // "program" grants store a cohort_id (see InviteCodeGrant's own comment
   // — an LmsProgram is never assigned on its own, only resolved from a
   // cohort), so the picker offers cohorts, not programs.
@@ -257,16 +259,19 @@ function GrantsPanel({ code }: { code: InviteCode }) {
   const grantedCourseIds = new Set(grants.filter((g) => g.course_id).map((g) => g.course_id))
   const grantedPathIds = new Set(grants.filter((g) => g.learning_path_id).map((g) => g.learning_path_id))
   const grantedCohortIds = new Set(grants.filter((g) => g.cohort_id).map((g) => g.cohort_id))
+  const grantedBookIds = new Set(grants.filter((g) => g.book_id).map((g) => g.book_id))
   const availableCourses = courses.filter((c) => !grantedCourseIds.has(c.id))
   const availablePaths = paths.filter((p) => !grantedPathIds.has(p.id))
   const availableCohorts = cohorts.filter((c) => !grantedCohortIds.has(c.id))
+  const availableBooks = books.filter((b) => !grantedBookIds.has(b.id))
 
   const addMutation = useMutation({
     mutationFn: () => createInviteCodeGrantApi(
       code.id,
       pickerType === "course" ? { course_id: pickerId }
         : pickerType === "path" ? { learning_path_id: pickerId }
-          : { cohort_id: pickerId },
+          : pickerType === "book" ? { book_id: pickerId }
+            : { cohort_id: pickerId },
     ),
     onSuccess: () => { setError(""); setPickerId(""); invalidate() },
     onError: (e) => setError(isAxiosError(e) && typeof e.response?.data?.detail === "string" ? e.response.data.detail : "Couldn't add that grant"),
@@ -285,7 +290,7 @@ function GrantsPanel({ code }: { code: InviteCode }) {
       {isLoading ? (
         <p className="text-xs text-muted-foreground">Loading grants…</p>
       ) : grants.length === 0 ? (
-        <p className="text-xs text-muted-foreground">No free courses, paths, or programs attached yet.</p>
+        <p className="text-xs text-muted-foreground">No free courses, paths, books, or programs attached yet.</p>
       ) : (
         <div className="flex flex-col gap-1">
           {grants.map((g) => (
@@ -293,9 +298,10 @@ function GrantsPanel({ code }: { code: InviteCode }) {
               <span className="truncate">
                 {g.product_type === "course" ? g.course_title
                   : g.product_type === "learning_path" ? g.learning_path_title
-                    : g.lms_program_name ? `${g.lms_program_name} (${g.cohort_name})` : g.cohort_name}
+                    : g.product_type === "book" ? g.book_title
+                      : g.lms_program_name ? `${g.lms_program_name} (${g.cohort_name})` : g.cohort_name}
                 <span className="ml-2 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
-                  {g.product_type === "course" ? "Course" : g.product_type === "learning_path" ? "Path" : "Program"}
+                  {g.product_type === "course" ? "Course" : g.product_type === "learning_path" ? "Path" : g.product_type === "book" ? "Book" : "Program"}
                 </span>
               </span>
               <button
@@ -314,11 +320,12 @@ function GrantsPanel({ code }: { code: InviteCode }) {
       <div className="flex gap-2">
         <select
           value={pickerType}
-          onChange={(e) => { setPickerType(e.target.value as "course" | "path" | "program"); setPickerId("") }}
+          onChange={(e) => { setPickerType(e.target.value as "course" | "path" | "program" | "book"); setPickerId("") }}
           className="w-auto shrink-0 h-9 px-2 border border-border bg-card text-foreground rounded-lg text-xs focus:outline-none focus:border-primary transition-colors cursor-pointer"
         >
           <option value="course">Course</option>
           <option value="path">Path</option>
+          <option value="book">Book</option>
           <option value="program">Program</option>
         </select>
         <select
@@ -327,12 +334,15 @@ function GrantsPanel({ code }: { code: InviteCode }) {
           className="flex-1 h-9 px-2 border border-border bg-card text-foreground rounded-lg text-xs focus:outline-none focus:border-primary transition-colors cursor-pointer"
         >
           <option value="">
-            {pickerType === "course" ? "Add a course…" : pickerType === "path" ? "Add a path…" : "Add a cohort's program…"}
+            {pickerType === "course" ? "Add a course…" : pickerType === "path" ? "Add a path…" : pickerType === "book" ? "Add a book…" : "Add a cohort's program…"}
           </option>
           {pickerType === "course" && availableCourses.map((item) => (
             <option key={item.id} value={item.id}>{item.title}</option>
           ))}
           {pickerType === "path" && availablePaths.map((item) => (
+            <option key={item.id} value={item.id}>{item.title}</option>
+          ))}
+          {pickerType === "book" && availableBooks.map((item) => (
             <option key={item.id} value={item.id}>{item.title}</option>
           ))}
           {pickerType === "program" && availableCohorts.map((c) => (

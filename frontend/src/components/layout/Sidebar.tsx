@@ -168,6 +168,7 @@ const ICONS: Record<string, LucideIcon> = {
   Interns: Users,
   Ambassadors: Share2,
   Courses: BookOpen,
+  Books: BookOpen,
   "Learning Paths": GitMerge,
   "Live Quiz": PlayCircle,
   "Quiz Bank": ListChecks,
@@ -187,6 +188,7 @@ const mkGroup = (label: string, to: string | undefined, children: NavItem[]): Na
 
 const LMS_GROUP = mkGroup("LMS", undefined, [
   mk("Courses", "/lms-authoring/courses"),
+  mk("Books", "/lms-authoring/books"),
   mk("Learning Paths", "/lms-authoring/learning-paths"),
   mk("Programs", "/lms-authoring/curriculum"),
   mk("Live Quiz", "/lms-authoring/games"),
@@ -349,6 +351,7 @@ function getNavItems(
   if (activeRole === "lms_author") {
     return [
       mk("Courses", "/lms-authoring/courses"),
+      mk("Books", "/lms-authoring/books"),
       mk("Learning Paths", "/lms-authoring/learning-paths"),
       mk("Invite Codes", "/lms-authoring/invite-codes"),
       mk("Learn", "/learn"),

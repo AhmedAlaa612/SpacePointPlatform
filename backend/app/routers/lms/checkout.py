@@ -24,6 +24,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import settings
 from app.core.dependencies import get_current_active_user
 from app.db.session import get_db
+from app.models.lms.book import LmsBook, LmsBookEnrollment
 from app.models.lms.course import Course
 from app.models.lms.enrollment import Enrollment
 from app.models.lms.learning_path import LearningPath, LearningPathStep
@@ -31,8 +32,9 @@ from app.models.lms.purchase import Purchase
 from app.models.user import User
 from app.schemas.lms import CheckoutFulfillOut, CheckoutSessionOut
 from app.services.lms import enrollment_is_active
+from app.services.lms.books import book_enrollment_is_active
 from app.services.lms.checkout import (
-    find_purchase_for_dispute, fulfill, get_pending_path_purchase, get_pending_purchase,
+    find_purchase_for_dispute, fulfill, get_pending_book_purchase, get_pending_path_purchase, get_pending_purchase,
 )
 
 logger = logging.getLogger(__name__)
@@ -66,6 +68,11 @@ async def _revoke_purchase_enrollments(db: AsyncSession, purchase: Purchase) -> 
     )).scalars().all()
     for enrollment in rows:
         enrollment.status = "inactive"
+    book_rows = (await db.execute(
+        select(LmsBookEnrollment).where(LmsBookEnrollment.purchase_id == purchase.id)
+    )).scalars().all()
+    for book_enr in book_rows:
+        book_enr.status = "inactive"
 
 
 @router.post("/courses/{course_id}/checkout", response_model=CheckoutSessionOut)
@@ -238,6 +245,77 @@ async def start_path_checkout(
     return CheckoutSessionOut(checkout_url=session.url)
 
 
+@router.post("/books/{book_id}/checkout", response_model=CheckoutSessionOut)
+async def start_book_checkout(
+    book_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    current: User = Depends(get_current_active_user),
+):
+    book = await db.get(LmsBook, book_id)
+    if book is None or not book.is_published:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Book not found")
+    if book.access_mode != "paid" or not book.price_cents or book.price_cents <= 0:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="This book isn't set up for purchase")
+
+    active = (await db.execute(
+        select(LmsBookEnrollment).where(
+            LmsBookEnrollment.user_id == current.id,
+            LmsBookEnrollment.book_id == book.id,
+            *book_enrollment_is_active(),
+        )
+    )).scalars().first()
+    if active is not None:
+        return CheckoutSessionOut(checkout_url=f"{settings.FRONTEND_URL}/learn/books/{book.id}")
+
+    existing = await get_pending_book_purchase(db, user_id=current.id, book_id=book.id)
+    if existing is not None:
+        if existing.stripe_session_id:
+            session = await stripe.checkout.Session.retrieve_async(existing.stripe_session_id)
+            if session.status == "open":
+                return CheckoutSessionOut(checkout_url=session.url)
+        existing.status = "failed"
+        await db.flush()
+
+    try:
+        purchase = Purchase(
+            id=uuid.uuid4(), user_id=current.id, product_type="lms_book", book_id=book.id,
+            amount_cents=book.price_cents, currency=book.currency,
+        )
+        db.add(purchase)
+        await db.commit()
+    except IntegrityError:
+        await db.rollback()
+        winner = await get_pending_book_purchase(db, user_id=current.id, book_id=book.id)
+        if winner is not None and winner.stripe_session_id:
+            session = await stripe.checkout.Session.retrieve_async(winner.stripe_session_id)
+            if session.status == "open":
+                return CheckoutSessionOut(checkout_url=session.url)
+        raise HTTPException(status.HTTP_409_CONFLICT, detail="Checkout already starting — try again in a moment")
+
+    session = await stripe.checkout.Session.create_async(
+        mode="payment",
+        allow_promotion_codes=True,
+        automatic_tax={"enabled": True},
+        line_items=[{
+            "price_data": {
+                "currency": book.currency,
+                "unit_amount": book.price_cents,
+                "product_data": {"name": book.title},
+            },
+            "quantity": 1,
+        }],
+        success_url=f"{settings.FRONTEND_URL}/learn/checkout/success?session_id={{CHECKOUT_SESSION_ID}}",
+        cancel_url=f"{settings.FRONTEND_URL}/learn/books/{book.id}",
+        customer_email=current.email,
+        client_reference_id=str(current.id),
+        metadata={"purchase_id": str(purchase.id)},
+        idempotency_key=str(purchase.id),
+    )
+    purchase.stripe_session_id = session.id
+    await db.commit()
+    return CheckoutSessionOut(checkout_url=session.url)
+
+
 @router.post("/webhooks/stripe", include_in_schema=False)
 async def stripe_webhook(request: Request, db: AsyncSession = Depends(get_db)):
     payload = await request.body()
@@ -323,4 +401,5 @@ async def fulfill_checkout_session(
     await db.commit()
     return CheckoutFulfillOut(
         status=purchase.status, course_id=purchase.course_id, learning_path_id=purchase.learning_path_id,
+        book_id=purchase.book_id,
     )

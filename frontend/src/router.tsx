@@ -186,11 +186,16 @@ import GroundStationAttemptPage from "@/pages/learn/GroundStationAttemptPage";
 import LearnArcade from "@/pages/learn/LearnArcade";
 import LearnArcadeGame from "@/pages/learn/LearnArcadeGame";
 import LearnRocketLab from "@/pages/learn/LearnRocketLab";
+import LearnBooks from "@/pages/learn/LearnBooks";
+import LearnBookDetail from "@/pages/learn/LearnBookDetail";
+import LearnBookReader from "@/pages/learn/LearnBookReader";
 
 // LMS authoring surface (LM1-13) — shared by operations + facilitator
 // (backend's require_lms_content), own top-level path so one URL space works
 // for both roles rather than duplicating pages under /operations and /instructors.
 import LmsCourses from "@/pages/lms-authoring/LmsCourses";
+import LmsBooks from "@/pages/lms-authoring/LmsBooks";
+import LmsBookDetail from "@/pages/lms-authoring/LmsBookDetail";
 import LmsCourseDetail from "@/pages/lms-authoring/LmsCourseDetail";
 import LmsModuleDetail from "@/pages/lms-authoring/LmsModuleDetail";
 import LmsProgramAdmin from "@/pages/lms-authoring/LmsProgramAdmin";
@@ -1056,6 +1061,8 @@ const lmsAuthoringLayoutRoute = createRoute({
 const pla = () => lmsAuthoringLayoutRoute;
 const lmsAuthoringRoutes = [
   createRoute({ getParentRoute: pla, path: "/courses", component: LmsCourses }),
+  createRoute({ getParentRoute: pla, path: "/books", component: LmsBooks }),
+  createRoute({ getParentRoute: pla, path: "/books/$bookId", component: LmsBookDetail }),
   createRoute({ getParentRoute: pla, path: "/courses/$courseId", component: LmsCourseDetail }),
   createRoute({ getParentRoute: pla, path: "/modules/$moduleId", component: LmsModuleDetail }),
   createRoute({
@@ -1500,6 +1507,33 @@ const learnArcadeGameRoute = createRoute({
   }),
 });
 
+const learnBooksRoute = createRoute({
+  getParentRoute: () => learnLayoutRoute,
+  path: "/books",
+  component: LearnBooks,
+});
+
+const learnBookDetailRoute = createRoute({
+  getParentRoute: () => learnLayoutRoute,
+  path: "/books/$bookId",
+  component: LearnBookDetail,
+});
+
+const learnBookReaderRoute = createRoute({
+  getParentRoute: () => learnLayoutRoute,
+  path: "/books/$bookId/read",
+  component: LearnBookReader,
+  validateSearch: (
+    search: Record<string, unknown>,
+  ): { profile?: string; chapter?: string; spread?: string; program?: string; itemId?: string } => ({
+    profile: typeof search.profile === "string" ? search.profile : undefined,
+    chapter: typeof search.chapter === "string" ? search.chapter : undefined,
+    spread: typeof search.spread === "string" ? search.spread : undefined,
+    program: typeof search.program === "string" ? search.program : undefined,
+    itemId: typeof search.itemId === "string" ? search.itemId : undefined,
+  }),
+});
+
 const learnRocketLabRoute = createRoute({
   getParentRoute: () => learnLayoutRoute,
   path: "/rocket-lab",
@@ -1532,6 +1566,7 @@ const routeTree = rootRoute.addChildren([
     learnGamesRoute, learnGamePlayRoute,
     learnArcadeRoute, learnArcadeGameRoute,
     learnRocketLabRoute,
+    learnBooksRoute, learnBookDetailRoute, learnBookReaderRoute,
     learnMissionsRoute, learnDesignBriefingRoute, learnDesignMissionRoute, learnOperateBriefingRoute,
     learnOperateMissionRoute, learnMissionRoute, learnGroundStationAttemptRoute,
   ]),

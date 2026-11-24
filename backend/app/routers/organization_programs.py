@@ -1277,6 +1277,10 @@ async def duplicate_organization_cohort(
                     cohort_quiz_template_id=item.cohort_quiz_template_id,
                     arcade_game_id=item.arcade_game_id,
                     arcade_game_mode=item.arcade_game_mode,
+                    book_id=item.book_id,
+                    book_profile=item.book_profile,
+                    book_chapter=item.book_chapter,
+                    book_min_completion_pct=item.book_min_completion_pct,
                 )
                 db.add(cloned_item)
 

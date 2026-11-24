@@ -69,11 +69,19 @@ export default function LearnCheckoutSuccess() {
           <>
             <CheckCircle2 className="size-10 text-emerald-500" />
             <p className="text-sm font-medium">
-              {result.learning_path_id ? "You're in! Every course in the path is ready." : "You're in! Your course is ready."}
+              {result.learning_path_id
+                ? "You're in! Every course in the path is ready."
+                : result.book_id
+                  ? "You're in! Your book is ready."
+                  : "You're in! Your course is ready."}
             </p>
             {result.learning_path_id ? (
               <Link to="/learn/paths/$pathId" params={{ pathId: result.learning_path_id }}>
                 <Button>Start the path</Button>
+              </Link>
+            ) : result.book_id ? (
+              <Link to="/learn/books/$bookId" params={{ bookId: result.book_id }}>
+                <Button>Open book</Button>
               </Link>
             ) : (
               <Link to="/learn/courses/$courseId" params={{ courseId: result.course_id! }}>
@@ -92,6 +100,10 @@ export default function LearnCheckoutSuccess() {
             {result.learning_path_id ? (
               <Link to="/learn/paths/$pathId" params={{ pathId: result.learning_path_id }}>
                 <Button variant="outline">Back to the path</Button>
+              </Link>
+            ) : result.book_id ? (
+              <Link to="/learn/books/$bookId" params={{ bookId: result.book_id }}>
+                <Button variant="outline">Back to the book</Button>
               </Link>
             ) : (
               <Link to="/learn/courses/$courseId" params={{ courseId: result.course_id! }}>

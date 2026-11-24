@@ -26,6 +26,7 @@ from app.core.dependencies import get_current_active_user, require_lms_content
 from app.db.session import get_db
 from app.models.enums import UserRole
 from app.models.lms import Course, CourseModule, CourseRating, Enrollment, ModuleItem, VideoCheckpoint
+from app.models.lms.book import LmsBook
 from app.models.videos import Video
 from app.models.lms.invite_grant import InvitationCodeGrant, UserInvitationCode
 from app.models.lms.program import CohortLmsEditor, LmsProgram, LmsProgramCohortOverride, LmsProgramItem
@@ -560,12 +561,16 @@ async def _invite_code_grant_out(db: AsyncSession, grant: InvitationCodeGrant) -
     learning_path_title = None
     cohort_name = None
     lms_program_name = None
+    book_title = None
     if grant.course_id is not None:
         course = await db.get(Course, grant.course_id)
         course_title = course.title if course else None
     if grant.learning_path_id is not None:
         path = await db.get(LearningPath, grant.learning_path_id)
         learning_path_title = path.title if path else None
+    if grant.book_id is not None:
+        book = await db.get(LmsBook, grant.book_id)
+        book_title = book.title if book else None
     if grant.cohort_id is not None:
         cohort = await db.get(Cohort, grant.cohort_id)
         cohort_name = cohort.name if cohort else None
@@ -578,6 +583,7 @@ async def _invite_code_grant_out(db: AsyncSession, grant: InvitationCodeGrant) -
         course_id=grant.course_id, course_title=course_title,
         learning_path_id=grant.learning_path_id, learning_path_title=learning_path_title,
         cohort_id=grant.cohort_id, cohort_name=cohort_name, lms_program_name=lms_program_name,
+        book_id=grant.book_id, book_title=book_title,
         created_at=grant.created_at,
     )
 
@@ -664,6 +670,15 @@ async def create_invite_code_grant(
                 InvitationCodeGrant.learning_path_id == body.learning_path_id,
             )
         )).first()
+    elif body.book_id is not None:
+        if await db.get(LmsBook, body.book_id) is None:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Book not found")
+        clash = (await db.execute(
+            select(InvitationCodeGrant.id).where(
+                InvitationCodeGrant.invitation_code_id == code_id,
+                InvitationCodeGrant.book_id == body.book_id,
+            )
+        )).first()
     else:
         if await db.get(Cohort, body.cohort_id) is None:
             raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Cohort not found")
@@ -677,7 +692,7 @@ async def create_invite_code_grant(
 
     grant, accounts_enrolled = await grant_invite_code_access(
         db, invitation_code=code, course_id=body.course_id, learning_path_id=body.learning_path_id,
-        cohort_id=body.cohort_id,
+        cohort_id=body.cohort_id, book_id=body.book_id,
     )
     await db.commit()
     return InviteCodeGrantCreateOut(
@@ -3355,6 +3370,10 @@ async def import_cohort_override_items(
             cohort_quiz_template_id=src.cohort_quiz_template_id,
             arcade_game_id=src.arcade_game_id,
             arcade_game_mode=src.arcade_game_mode,
+            book_id=src.book_id,
+            book_profile=src.book_profile,
+            book_chapter=src.book_chapter,
+            book_min_completion_pct=src.book_min_completion_pct,
         )
         db.add(new_item)
 

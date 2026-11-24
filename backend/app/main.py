@@ -107,6 +107,7 @@ async def lifespan(app: FastAPI):
         from app.models.website_case_studies_header import WebsiteCaseStudiesHeader
         from app.models.website_policy import WebsitePolicy
         from app.models.competitions.hint_station import CohortHintChallenge, CohortHintCard, CohortTeamHintReveal
+        from app.models.lms.book import LmsBook, LmsBookEnrollment, LmsBookProgress, LmsBookExerciseResponse
         from app.services.website_events import ensure_default_events_seeded
         from app.services.website_case_studies import get_or_seed_case_studies_header, seed_default_case_studies
         from app.services.website_policies import seed_default_policies
@@ -137,6 +138,10 @@ async def lifespan(app: FastAPI):
             await conn.run_sync(
                 lambda sync_conn: CohortTeamHintReveal.__table__.create(sync_conn, checkfirst=True)
             )
+            for _tbl in (LmsBook, LmsBookEnrollment, LmsBookProgress, LmsBookExerciseResponse):
+                await conn.run_sync(
+                    lambda sync_conn, t=_tbl: t.__table__.create(sync_conn, checkfirst=True)
+                )
         async with AsyncSessionLocal() as db:
             await db.execute(text("ALTER TABLE cohorts ADD COLUMN IF NOT EXISTS checklist_title_override VARCHAR(255);"))
             await db.execute(text("ALTER TABLE cohorts ADD COLUMN IF NOT EXISTS submission_windows JSONB DEFAULT '[]'::jsonb;"))
@@ -209,6 +214,13 @@ async def lifespan(app: FastAPI):
                 "AND cardinality(u.org_roles) = 0;"
             ))
             await db.execute(text("UPDATE cohorts SET checklist_title_override = 'testcohortname', name = 'Cohort Test' WHERE name = 'testcohortname';"))
+            await db.execute(text("ALTER TABLE purchases ADD COLUMN IF NOT EXISTS book_id UUID REFERENCES lms_books(id) ON DELETE CASCADE;"))
+            await db.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS uq_purchases_pending_per_book ON purchases (user_id, book_id) WHERE status = 'pending';"))
+            await db.execute(text("ALTER TABLE invitation_code_grants ADD COLUMN IF NOT EXISTS book_id UUID REFERENCES lms_books(id) ON DELETE CASCADE;"))
+            await db.execute(text("ALTER TABLE lms_program_items ADD COLUMN IF NOT EXISTS book_id UUID REFERENCES lms_books(id) ON DELETE RESTRICT;"))
+            await db.execute(text("ALTER TABLE lms_program_items ADD COLUMN IF NOT EXISTS book_profile VARCHAR(32);"))
+            await db.execute(text("ALTER TABLE lms_program_items ADD COLUMN IF NOT EXISTS book_chapter VARCHAR(64);"))
+            await db.execute(text("ALTER TABLE lms_program_items ADD COLUMN IF NOT EXISTS book_min_completion_pct INTEGER;"))
             await db.commit()
             await ensure_default_events_seeded(db)
             await seed_default_case_studies(db)

@@ -298,6 +298,7 @@ class CheckoutFulfillOut(BaseModel):
     status: str  # pending | paid | refunded | disputed | failed
     course_id: UUID | None = None
     learning_path_id: UUID | None = None
+    book_id: UUID | None = None
 
 
 # ── module read (enrolled student only) ─────────────────────────────────────
@@ -556,6 +557,11 @@ class LmsProgramChecklistItemOut(BaseModel):
     arcade_game_key: str | None = None
     arcade_game_title: str | None = None
     arcade_game_mode: str | None = None
+    book_id: UUID | None = None
+    book_title: str | None = None
+    book_profile: str | None = None
+    book_chapter: str | None = None
+    book_min_completion_pct: int | None = None
     submission_prompt: str | None = None
     # True once a `pdf` item has a file uploaded — the student calls the
     # separate resolve-url endpoint to actually view it (never baked in

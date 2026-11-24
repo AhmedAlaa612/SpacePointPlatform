@@ -70,6 +70,7 @@ class Settings(BaseSettings):
     R2_ACCESS_KEY_ID: str = ""
     R2_SECRET_ACCESS_KEY: str = ""
     R2_BUCKET: str = ""
+    R2_BOOKS_BUCKET: str = ""
     R2_BOOTH_BUCKET: str = "spacepoint-videos"
     # Defaults to https://{R2_ACCOUNT_ID}.r2.cloudflarestorage.com when blank —
     # set explicitly only to pin a jurisdiction-specific endpoint.
@@ -88,6 +89,7 @@ class Settings(BaseSettings):
     # backends, flipping this back to "" re-serves the pre-existing local HLS
     # tree from the same DB rows, with no migration to unwind.
     VIDEO_STORAGE_BACKEND: str = ""
+    BOOKS_STORAGE_BACKEND: str = ""
 
     # SMTP
     SMTP_HOST: str = "smtp.gmail.com"

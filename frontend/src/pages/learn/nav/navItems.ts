@@ -1,4 +1,4 @@
-import { Home, GraduationCap, Trophy, ClipboardCheck, Gamepad2 } from "lucide-react";
+import { Home, GraduationCap, Trophy, ClipboardCheck, Gamepad2, BookOpen } from "lucide-react";
 
 /** `catalog`, `paths` and `profile` are still reachable pages — they just
  * aren't nav entries any more (2026-08-12): discovery moved onto the landing
@@ -8,11 +8,12 @@ import { Home, GraduationCap, Trophy, ClipboardCheck, Gamepad2 } from "lucide-re
  * Roadmap board redesign: the old navbar dropped it in favor of the logo
  * link, but a fixed sidebar has no logo-as-home affordance, so the sidebar
  * shows all six the same as the mobile tab bar always has. */
-export type LearnNavActive = "home" | "catalog" | "missions" | "paths" | "checklists" | "my-courses" | "games" | "arcade" | "rocket-lab" | "leaderboard" | "profile";
+export type LearnNavActive = "home" | "catalog" | "books" | "missions" | "paths" | "checklists" | "my-courses" | "games" | "arcade" | "rocket-lab" | "leaderboard" | "profile";
 
 export const NAV_ITEMS: { key: LearnNavActive; label: string; to: string; icon: typeof Home }[] = [
   { key: "home", label: "Home", to: "/learn/home", icon: Home },
   { key: "my-courses", label: "My Learning", to: "/learn/my-courses", icon: GraduationCap },
+  { key: "books", label: "Books", to: "/learn/books", icon: BookOpen },
   { key: "checklists", label: "Programs", to: "/learn/checklists", icon: ClipboardCheck },
   // Missions tab hidden temporarily per management request; re-enable by uncommenting.
   // { key: "missions", label: "Missions", to: "/learn/missions", icon: Rocket },
@@ -29,4 +30,4 @@ export const NAV_ITEMS: { key: LearnNavActive; label: string; to: string; icon: 
 // Missions tab hidden temporarily per management request; re-enable by uncommenting NAV_ITEMS
 // above and restoring "missions" here in its original slot: ["my-courses", "checklists", "missions", "games", "leaderboard"].
 // Also restore "games" and "arcade" here to match the NAV_ITEMS entries above.
-export const MOBILE_TAB_ITEMS: LearnNavActive[] = ["my-courses", "checklists", "games", "leaderboard"];
+export const MOBILE_TAB_ITEMS: LearnNavActive[] = ["my-courses", "books", "checklists", "games", "leaderboard"];
