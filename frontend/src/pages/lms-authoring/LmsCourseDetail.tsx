@@ -405,6 +405,7 @@ export default function LmsCourseDetail() {
 
       {canManageAssignedAccess && course.can_edit !== false && (
         <AssignPanel
+          includeStudents
           roster={roster
             .filter((e) => e.source === "ops")
             .map((e) => ({

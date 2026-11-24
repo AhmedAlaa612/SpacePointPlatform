@@ -4,9 +4,8 @@ import { Search, UserPlus, Users, X } from "lucide-react"
 import { ROLE_LABEL, type Role } from "@/types/shared"
 import { searchStaffApi, type StaffOption } from "@/api/lms_admin"
 
-/** Every role except `student` — staff assignment is deliberately not the
- * self-enrol/self-registration surface (that's /learn's own flow). */
-const ASSIGNABLE_ROLES = (Object.keys(ROLE_LABEL) as Role[]).filter((r) => r !== "student")
+const ALL_ROLES = Object.keys(ROLE_LABEL) as Role[]
+const STAFF_ROLES = ALL_ROLES.filter((r) => r !== "student")
 
 /** Minimal shape shared by course enrollments and mission assignments — the
  * two backends return differently-named fields (`student_name` vs
@@ -30,12 +29,8 @@ interface BulkResult {
 }
 
 /**
- * Staff course/mission assignment panel (2026-08-12) — the frontend for the
- * `grant_enrollment`/`bulk_grant_enrollment` backend that already existed
- * but had never been wired to any UI. Presentation-only: the host page
- * (`LmsCourseDetail.tsx`, `LmsMissionDetail.tsx`) owns the
- * roster query and grant/bulk-grant/revoke mutations and passes them in, so
- * this one component works for both courses and missions.
+ * Course/mission/path/book assignment panel — presentation-only: the host page
+ * owns the roster query and grant/bulk-grant/revoke mutations and passes them in.
  */
 export function AssignPanel({
   roster,
@@ -47,6 +42,8 @@ export function AssignPanel({
   bulkPending,
   revokePending,
   bulkResult,
+  includeStudents = false,
+  hideRoster = false,
 }: {
   roster: AssignRow[]
   isLoading: boolean
@@ -57,16 +54,23 @@ export function AssignPanel({
   bulkPending: boolean
   revokePending: boolean
   bulkResult?: BulkResult | null
+  includeStudents?: boolean
+  hideRoster?: boolean
 }) {
   const [query, setQuery] = useState("")
   const [bulkRole, setBulkRole] = useState<Role | "">("")
+  const assignableRoles = includeStudents ? ALL_ROLES : STAFF_ROLES
 
   // Runs with an empty query too — the panel should show who's assignable
   // the moment it opens, not sit blank until you guess a name. The backend
   // caps at 25 rows, so an unfiltered list is a picker, not a dump.
   const { data: options = [], isFetching } = useQuery({
-    queryKey: ["lms-admin-staff-search", query],
-    queryFn: () => searchStaffApi({ q: query || undefined }),
+    queryKey: ["lms-admin-staff-search", query, includeStudents],
+    queryFn: () =>
+      searchStaffApi({
+        q: query || undefined,
+        include_students: includeStudents || undefined,
+      }),
   })
 
   // Don't offer people who already have access — the roster below is where
@@ -81,7 +85,7 @@ export function AssignPanel({
   const active = roster.filter((r) => r.status === "active")
 
   return (
-    <div className="flex flex-col gap-4 p-4 bg-card border border-border rounded-2xl">
+    <div className="flex flex-col gap-4 p-4 bg-card border border-border rounded-[10px]">
       <div className="flex items-center gap-2">
         <Users size={16} className="text-muted-foreground" />
         <h3 className="text-sm font-medium text-foreground">Assigned access</h3>
@@ -94,32 +98,49 @@ export function AssignPanel({
         <input
           value={query}
           onChange={(e) => setQuery(e.target.value)}
-          placeholder="Search staff by name or email..."
-          className="w-full h-9 pl-8 pr-3 border border-border bg-background text-foreground rounded-xl text-sm focus:outline-none focus:border-primary transition-colors"
+          placeholder={includeStudents ? "Search learners or staff by name or email..." : "Search staff by name or email..."}
+          className="w-full h-9 pl-8 pr-3 border border-border bg-background text-foreground rounded-[10px] text-sm focus:outline-none focus:border-primary transition-colors"
         />
       </div>
       <div className="flex flex-col gap-1 max-h-48 overflow-y-auto">
         {isFetching && assignable.length === 0 && (
-          <p className="text-xs text-muted-foreground px-1">Loading staff…</p>
+          <p className="text-xs text-muted-foreground px-1">
+            {includeStudents ? "Loading users…" : "Loading staff…"}
+          </p>
         )}
         {!isFetching && assignable.length === 0 && (
           <p className="text-xs text-muted-foreground px-1">
             {query.trim()
-              ? "No matching staff accounts."
+              ? includeStudents
+                ? "No matching users."
+                : "No matching staff accounts."
               : options.length > 0
                 ? "Everyone found already has access."
-                : "No staff accounts found."}
+                : includeStudents
+                  ? "No users found."
+                  : "No staff accounts found."}
           </p>
         )}
         {assignable.map((opt: StaffOption) => (
           <button
             key={opt.id}
+            type="button"
             onClick={() => { onGrant(opt.id); setQuery("") }}
             disabled={grantPending}
-            className="flex items-center justify-between gap-2 h-9 px-3 rounded-lg text-sm text-left hover:bg-muted transition-colors disabled:opacity-50"
+            className="flex items-center justify-between gap-2 min-h-9 px-3 py-1.5 rounded-[10px] text-sm text-left hover:bg-muted transition-colors cursor-pointer disabled:opacity-50"
           >
-            <span className="truncate">
-              {opt.full_name} <span className="text-xs text-muted-foreground">{opt.email}</span>
+            <span className="flex items-center gap-2 min-w-0">
+              <span className="truncate">
+                {opt.full_name} <span className="text-xs text-muted-foreground">{opt.email}</span>
+              </span>
+              {opt.roles.slice(0, 2).map((r) => (
+                <span
+                  key={r}
+                  className="shrink-0 px-1.5 py-0.5 rounded-[10px] text-[10px] font-medium border border-border bg-muted text-muted-foreground"
+                >
+                  {ROLE_LABEL[r as Role] ?? r}
+                </span>
+              ))}
             </span>
             <UserPlus size={14} className="text-muted-foreground shrink-0" />
           </button>
@@ -131,17 +152,18 @@ export function AssignPanel({
         <select
           value={bulkRole}
           onChange={(e) => setBulkRole(e.target.value as Role | "")}
-          className="flex-1 h-9 px-3 border border-border bg-background text-foreground rounded-xl text-sm focus:outline-none focus:border-primary transition-colors cursor-pointer"
+          className="flex-1 h-9 px-3 border border-border bg-background text-foreground rounded-[10px] text-sm focus:outline-none focus:border-primary transition-colors cursor-pointer"
         >
           <option value="">Assign to everyone with role...</option>
-          {ASSIGNABLE_ROLES.map((r) => (
+          {assignableRoles.map((r) => (
             <option key={r} value={r}>{ROLE_LABEL[r]}</option>
           ))}
         </select>
         <button
+          type="button"
           onClick={() => bulkRole && onBulkGrant(bulkRole)}
           disabled={!bulkRole || bulkPending}
-          className="h-9 px-4 bg-primary text-primary-foreground text-sm font-medium rounded-xl hover:opacity-90 transition-colors disabled:opacity-50"
+          className="h-9 px-4 bg-primary text-primary-foreground text-sm font-medium rounded-[10px] hover:opacity-90 transition-colors cursor-pointer disabled:opacity-50"
         >
           Assign
         </button>
@@ -154,27 +176,32 @@ export function AssignPanel({
       )}
 
       {/* roster */}
-      <div className="flex flex-col gap-1 pt-1 border-t border-border">
-        {isLoading && <p className="text-xs text-muted-foreground px-1">Loading roster...</p>}
-        {!isLoading && active.length === 0 && (
-          <p className="text-xs text-muted-foreground px-1">No staff assigned yet.</p>
-        )}
-        {active.map((e) => (
-          <div key={e.id} className="flex items-center justify-between gap-2 h-9 px-1 text-sm">
-            <span className="truncate">
-              {e.name} <span className="text-xs text-muted-foreground">{e.email}</span>
-            </span>
-            <button
-              onClick={() => onRevoke(e.id)}
-              disabled={revokePending}
-              className="shrink-0 text-muted-foreground hover:text-red-600 transition-colors disabled:opacity-50"
-              title="Remove access"
-            >
-              <X size={14} />
-            </button>
-          </div>
-        ))}
-      </div>
+      {!hideRoster && (
+        <div className="flex flex-col gap-1 pt-1 border-t border-border">
+          {isLoading && <p className="text-xs text-muted-foreground px-1">Loading roster...</p>}
+          {!isLoading && active.length === 0 && (
+            <p className="text-xs text-muted-foreground px-1">
+              {includeStudents ? "No users assigned yet." : "No staff assigned yet."}
+            </p>
+          )}
+          {active.map((e) => (
+            <div key={e.id} className="flex items-center justify-between gap-2 h-9 px-1 text-sm">
+              <span className="truncate">
+                {e.name} <span className="text-xs text-muted-foreground">{e.email}</span>
+              </span>
+              <button
+                type="button"
+                onClick={() => onRevoke(e.id)}
+                disabled={revokePending}
+                className="shrink-0 text-muted-foreground hover:text-red-600 transition-colors cursor-pointer disabled:opacity-50"
+                title="Remove access"
+              >
+                <X size={14} />
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   )
 }

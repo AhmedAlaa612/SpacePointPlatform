@@ -335,6 +335,17 @@ export async function adminGrantBookEnrollmentApi(bookId: string, payload: { ema
   return data;
 }
 
+export async function adminBulkGrantBookEnrollmentApi(
+  bookId: string,
+  role: string,
+): Promise<{ granted: number; already_enrolled: number }> {
+  const { data } = await api.post<{ granted: number; already_enrolled: number }>(
+    `/lms/admin/books/${bookId}/enrollments/bulk`,
+    { role },
+  );
+  return data;
+}
+
 export async function adminRevokeBookEnrollmentApi(bookId: string, userId: string): Promise<void> {
   await api.delete(`/lms/admin/books/${bookId}/enrollments/${userId}`);
 }

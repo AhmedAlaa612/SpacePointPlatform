@@ -35,6 +35,8 @@ from app.models.user import User
 from app.schemas.lms_books import (
     BookAdminOut,
     BookAnalyticsOut,
+    BookBulkGrantIn,
+    BookBulkGrantOut,
     BookBundleUploadOut,
     BookCatalogOut,
     BookCreateIn,
@@ -59,6 +61,8 @@ from app.services.lms.books import (
     get_book_cover_page_html,
     has_book_access,
     inject_runtime_into_html,
+    instructor_program_book_ids,
+    is_book_staff_preview,
     slugify_book,
     sync_book_progress,
     unpack_and_upload_book_zip,
@@ -200,7 +204,8 @@ async def list_student_books(
     db: AsyncSession = Depends(get_db),
     current: User = Depends(get_current_active_user),
 ):
-    is_staff_user = can_user_teacher_mode(current)
+    is_staff_user = is_book_staff_preview(current)
+    teaching_book_ids = await instructor_program_book_ids(db, user=current)
     stmt = select(LmsBook)
     if not is_staff_user:
         stmt = stmt.where(LmsBook.is_published.is_(True))
@@ -227,12 +232,13 @@ async def list_student_books(
     out = []
     for b in books:
         enrolled = b.id in enrolled_ids
-        if not is_staff_user and b.access_mode == "invite" and not enrolled:
+        in_teaching_cohort = b.id in teaching_book_ids
+        if not is_staff_user and b.access_mode == "invite" and not enrolled and not in_teaching_cohort:
             continue
         out.append(
             await _book_catalog_out(
                 b,
-                enrolled=enrolled,
+                enrolled=enrolled or in_teaching_cohort,
                 is_preview=is_staff_user and not enrolled,
                 progress=prog_by_book.get(b.id),
             )
@@ -250,7 +256,7 @@ async def get_book_detail(
     if book is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Book not found")
 
-    is_staff_user = can_user_teacher_mode(current)
+    is_staff_user = is_book_staff_preview(current)
     enrolled = bool(
         await db.scalar(
             select(LmsBookEnrollment.id).where(
@@ -260,10 +266,14 @@ async def get_book_detail(
             )
         )
     )
+    in_teaching_cohort = False
+    if not is_staff_user and not enrolled:
+        in_teaching_cohort = book.id in await instructor_program_book_ids(db, user=current)
+
     if not is_staff_user:
         if not book.is_published:
             raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Book not found")
-        if book.access_mode == "invite" and not enrolled:
+        if book.access_mode == "invite" and not enrolled and not in_teaching_cohort:
             raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Book not found")
 
     prog = (
@@ -276,7 +286,7 @@ async def get_book_detail(
     ).scalars().first()
     return await _book_detail_out(
         book,
-        enrolled=enrolled,
+        enrolled=enrolled or in_teaching_cohort,
         is_preview=is_staff_user and not enrolled,
         progress=prog,
     )
@@ -848,6 +858,43 @@ async def admin_grant_book_enrollment(
         last_read_at=prog.last_read_at if prog else None,
         created_at=enr.created_at,
     )
+
+
+@router.post("/lms/admin/books/{book_id}/enrollments/bulk", response_model=BookBulkGrantOut)
+async def admin_bulk_grant_book_enrollment(
+    book_id: uuid.UUID,
+    body: BookBulkGrantIn,
+    db: AsyncSession = Depends(get_db),
+    current: User = Depends(require_lms_content),
+):
+    book = await db.get(LmsBook, book_id)
+    if book is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Book not found")
+
+    user_ids = list(
+        (await db.execute(select(User.id).where(User.roles.any(body.role)))).scalars().all()
+    )
+    now = datetime.now(timezone.utc)
+    granted = already_enrolled = 0
+    for uid in user_ids:
+        existing = (
+            await db.execute(
+                select(LmsBookEnrollment.id).where(
+                    LmsBookEnrollment.book_id == book.id,
+                    LmsBookEnrollment.user_id == uid,
+                    LmsBookEnrollment.status == "active",
+                    or_(LmsBookEnrollment.expires_at.is_(None), LmsBookEnrollment.expires_at > now),
+                )
+            )
+        ).first()
+        if existing is not None:
+            already_enrolled += 1
+            continue
+        await enroll_book(db, user_id=uid, book_id=book.id, source="ops", granted_by=current.id)
+        granted += 1
+
+    await db.commit()
+    return BookBulkGrantOut(granted=granted, already_enrolled=already_enrolled)
 
 
 @router.delete("/lms/admin/books/{book_id}/enrollments/{user_id}", status_code=status.HTTP_204_NO_CONTENT)

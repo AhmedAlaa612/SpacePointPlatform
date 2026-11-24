@@ -322,6 +322,7 @@ export default function LmsLearningPathDetail() {
       {canManageAssignedAccess && (
         <>
           <AssignPanel
+            includeStudents
             // A path grant is N course Enrollment rows, not one row of its own
             // (see LearningPathRosterRow's own docstring) — `id` is the user_id
             // itself, not a synthetic per-grant id like the course/mission

@@ -226,6 +226,15 @@ class BookEnrollmentGrantIn(BaseModel):
     email: str | None = None
 
 
+class BookBulkGrantIn(BaseModel):
+    role: str = Field(min_length=1, max_length=64)
+
+
+class BookBulkGrantOut(BaseModel):
+    granted: int
+    already_enrolled: int
+
+
 class BookLearnerAnalyticsOut(BaseModel):
     user_id: UUID
     full_name: str

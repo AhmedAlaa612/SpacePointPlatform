@@ -205,7 +205,7 @@ export default function LmsBooks() {
                 <Link
                   to="/lms-authoring/books/$bookId"
                   params={{ bookId: book.id }}
-                  className="shrink-0 aspect-[3/4] w-14 rounded-[10px] overflow-hidden border border-border bg-muted block"
+                  className="shrink-0 aspect-[3/4] w-14 h-[75px] rounded-[10px] overflow-hidden border border-border bg-muted block"
                 >
                   <BookCover
                     title={book.title}

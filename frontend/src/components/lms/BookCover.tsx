@@ -33,8 +33,14 @@ export function BookCover({
   const hostRef = useRef<HTMLDivElement | null>(null);
   const [width, setWidth] = useState(0);
   const [iframeLoaded, setIframeLoaded] = useState(false);
+  const [imgError, setImgError] = useState(false);
 
-  const pageSrc = !coverUrl ? resolveCoverPageSrc(coverPageUrl) : null;
+  const effectiveCoverUrl = coverUrl && !imgError ? coverUrl : null;
+  const pageSrc = !effectiveCoverUrl ? resolveCoverPageSrc(coverPageUrl) : null;
+
+  useEffect(() => {
+    setImgError(false);
+  }, [coverUrl]);
 
   useEffect(() => {
     setIframeLoaded(false);
@@ -57,10 +63,15 @@ export function BookCover({
     return () => ro.disconnect();
   }, [pageSrc]);
 
-  if (coverUrl) {
+  if (effectiveCoverUrl) {
     return (
       <div className={cn("relative w-full h-full overflow-hidden bg-muted", className)}>
-        <img src={coverUrl} alt={title} className="w-full h-full object-cover" />
+        <img
+          src={effectiveCoverUrl}
+          alt={title}
+          onError={() => setImgError(true)}
+          className="w-full h-full object-cover"
+        />
       </div>
     );
   }

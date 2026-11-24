@@ -986,7 +986,7 @@ export interface LearningPathStepEntry {
 
 // ── staff assignment (2026-08-12) ───────────────────────────────────────────
 
-export const searchStaffApi = (params: { role?: string; q?: string } = {}) =>
+export const searchStaffApi = (params: { role?: string; q?: string; include_students?: boolean } = {}) =>
   api.get<StaffOption[]>("/lms/admin/users", { params }).then((r) => r.data);
 
 export const listCourseRosterApi = (courseId: string) =>

@@ -42,6 +42,7 @@ STATIC_BOOKS_DIR = Path(__file__).resolve().parents[2] / "static" / "books"
 
 MAX_ZIP_BYTES = 150 * 1024 * 1024
 MAX_ZIP_FILES = 1000
+_STAFF_PREVIEW_ROLES = {"admin", "operations", "facilitator", "lms_author"}
 _STAFF_TEACHER_ROLES = {"admin", "operations", "facilitator", "lms_author", "instructor"}
 
 _SLUG_RE = re.compile(r"[^a-z0-9]+")
@@ -52,9 +53,38 @@ def slugify_book(title: str) -> str:
     return base[:96] or f"book-{uuid.uuid4().hex[:8]}"
 
 
+def is_book_staff_preview(user: User) -> bool:
+    """True for ops/authors/admins who can preview all books (including drafts/invite-only)."""
+    roles = set(user.role_values or [])
+    return bool(roles & _STAFF_PREVIEW_ROLES)
+
+
 def can_user_teacher_mode(user: User) -> bool:
+    """True for staff and instructors who can toggle Teacher notes inside books they can access."""
     roles = set(user.role_values or [])
     return bool(roles & _STAFF_TEACHER_ROLES)
+
+
+async def instructor_program_book_ids(db: AsyncSession, *, user: User) -> set[uuid.UUID]:
+    """Return book_ids included in the effective LMS Program of any cohort this instructor teaches."""
+    if is_book_staff_preview(user) or "instructor" not in set(user.role_values or []):
+        return set()
+    from app.services.lms.program import effective_cohort_program_items
+    from app.services.missions.cohort_access import instructor_cohort_ids
+
+    cohort_ids = await instructor_cohort_ids(db, user=user)
+    if not cohort_ids:
+        return set()
+    book_ids: set[uuid.UUID] = set()
+    for cid in cohort_ids:
+        resolved = await effective_cohort_program_items(db, cohort_id=cid)
+        if not resolved:
+            continue
+        _program, items, _inherited = resolved
+        for it in items:
+            if it.item_type == "book" and it.book_id is not None:
+                book_ids.add(it.book_id)
+    return book_ids
 
 
 def book_enrollment_is_active() -> tuple:
@@ -130,8 +160,8 @@ async def enroll_book(
 
 
 async def has_book_access(db: AsyncSession, *, user: User, book: LmsBook) -> bool:
-    """Staff/instructors can always preview; learners need an active enrollment."""
-    if can_user_teacher_mode(user):
+    """Ops/authors/admins can always preview; learners & instructors need open/enrollment/teaching-cohort access."""
+    if is_book_staff_preview(user):
         return True
     if not book.is_published:
         return False
@@ -142,7 +172,11 @@ async def has_book_access(db: AsyncSession, *, user: User, book: LmsBook) -> boo
             *book_enrollment_is_active(),
         )
     )
-    return row is not None
+    if row is not None:
+        return True
+    if "instructor" in set(user.role_values or []):
+        return book.id in await instructor_program_book_ids(db, user=user)
+    return False
 
 
 async def unpack_and_upload_book_zip(

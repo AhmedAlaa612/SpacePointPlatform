@@ -301,18 +301,22 @@ async def list_instructor_options(
 async def search_staff(
     role: str | None = None,
     q: str | None = None,
+    include_students: bool = False,
     db: AsyncSession = Depends(get_db),
     current: User = Depends(require_lms_content),
 ):
-    """Named-individual search for the course/mission assignment picker —
-    any staff account (`student` excluded; that role self-enrols or is
-    bulk-granted by cohort, never picked by name here). `role` narrows to one
-    held role, `q` is a case-insensitive substring match on name or email.
-    Capped at 25 rows — a picker, not a roster export."""
+    """Named-individual search for the course/mission/path/book assignment picker.
+
+    Excludes student-only accounts unless `include_students=True`. `role` narrows
+    to one held role, `q` is a case-insensitive substring match on name or email.
+    Capped at 25 rows — a picker, not a roster export.
+    """
     _, scope_all = await get_author_permissions(db, current)
     if not scope_all:
         return []
-    stmt = select(User).where(~User.roles.contains(["student"]))
+    stmt = select(User)
+    if not include_students:
+        stmt = stmt.where(~User.roles.contains(["student"]))
     if role is not None:
         stmt = stmt.where(User.roles.any(role))
     if q:

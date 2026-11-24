@@ -5,6 +5,7 @@ analytics & CSV export, invite-code grants, Stripe fulfillment/refunds, and LMS 
 
 from __future__ import annotations
 
+from datetime import date
 import io
 import json
 import types
@@ -29,6 +30,8 @@ from app.models.lms.program import LmsProgram, LmsProgramItem
 from app.models.lms.purchase import Purchase
 from app.models.sessions.cohort import Cohort
 from app.models.sessions.program import Program
+from app.models.sessions.delivery_role import DeliveryRole
+from app.models.sessions.session import Session, SessionInstructor
 from app.models.user import User
 from app.services.lms.checkout import fulfill
 from app.services.lms.program import assign_lms_program
@@ -720,3 +723,193 @@ async def test_lms_program_book_item_auto_enroll_and_completion(db: AsyncSession
     ch_3 = next(i for i in checklist_3["items"] if i["id"] == str(item_ch.id))
     assert pct_3["status"] == "done"
     assert ch_3["status"] == "done"
+
+
+@pytest.mark.asyncio
+async def test_instructor_access_open_paid_grant_and_teaching_cohort(db: AsyncSession, client: AsyncClient):
+    ops = await _make_user(db, "operations")
+    instructor = await _make_user(db, "instructor")
+
+    open_book = LmsBook(
+        id=uuid.uuid4(),
+        slug=f"inst-open-{uuid.uuid4().hex[:6]}",
+        title="Open Instructor Book",
+        access_mode="open",
+        is_published=True,
+        bundle_version=1,
+        created_by=ops.id,
+    )
+    paid_book = LmsBook(
+        id=uuid.uuid4(),
+        slug=f"inst-paid-{uuid.uuid4().hex[:6]}",
+        title="Paid Instructor Book",
+        access_mode="paid",
+        price_cents=5000,
+        currency="aed",
+        is_published=True,
+        bundle_version=1,
+        created_by=ops.id,
+    )
+    invite_book = LmsBook(
+        id=uuid.uuid4(),
+        slug=f"inst-inv-{uuid.uuid4().hex[:6]}",
+        title="Invite Instructor Book",
+        access_mode="invite",
+        is_published=True,
+        bundle_version=1,
+        created_by=ops.id,
+    )
+    cohort_book = LmsBook(
+        id=uuid.uuid4(),
+        slug=f"inst-coh-{uuid.uuid4().hex[:6]}",
+        title="Cohort Teaching Book",
+        access_mode="invite",
+        is_published=True,
+        bundle_version=1,
+        created_by=ops.id,
+    )
+    db.add_all([open_book, paid_book, invite_book, cohort_book])
+    await db.flush()
+
+    # Attach cohort_book to an LMS program on a cohort this instructor teaches via SessionInstructor
+    program = Program(
+        id=uuid.uuid4(),
+        code=f"IC-{uuid.uuid4().hex[:6]}",
+        name="Instructor Cohort Program",
+        program_type="workshop",
+        pricing_model="free",
+        active=True,
+    )
+    db.add(program)
+    await db.flush()
+    cohort = Cohort(id=uuid.uuid4(), program_id=program.id, name="Teaching Cohort", status="running")
+    db.add(cohort)
+    await db.flush()
+    session = Session(id=uuid.uuid4(), cohort_id=cohort.id, meeting_date=date.today(), title="Session 1")
+    db.add(session)
+    await db.flush()
+    role = DeliveryRole(
+        id=uuid.uuid4(),
+        name=f"Lead Instructor {uuid.uuid4().hex[:6]}",
+    )
+    db.add(role)
+    await db.flush()
+    db.add(SessionInstructor(id=uuid.uuid4(), session_id=session.id, user_id=instructor.id, role_id=role.id))
+    lms_prog = LmsProgram(id=uuid.uuid4(), program_id=program.id, name="Teaching Checklist")
+    db.add(lms_prog)
+    await db.flush()
+    db.add(
+        LmsProgramItem(
+            id=uuid.uuid4(),
+            owner_type="program",
+            owner_id=lms_prog.id,
+            position=1,
+            item_type="book",
+            title="Cohort Book Item",
+            book_id=cohort_book.id,
+        )
+    )
+    await db.commit()
+
+    # Catalog visibility: open, paid, and teaching-cohort books visible; ungranted invite book hidden
+    cat = (await client.get("/lms/books", headers=_headers(instructor))).json()
+    cat_ids = {b["id"] for b in cat}
+    assert str(open_book.id) in cat_ids
+    assert str(paid_book.id) in cat_ids
+    assert str(cohort_book.id) in cat_ids
+    assert str(invite_book.id) not in cat_ids
+
+    # 1) Open book: allowed + can_teacher=True
+    open_sess = await client.post(f"/lms/books/{open_book.id}/reader-session", headers=_headers(instructor))
+    assert open_sess.status_code == 200
+    assert open_sess.json()["can_teacher"] is True
+
+    # 2) Paid book (ungranted): blocked (must pay)
+    assert (await client.post(f"/lms/books/{paid_book.id}/reader-session", headers=_headers(instructor))).status_code == 403
+
+    # 3) Teaching-cohort invite book: allowed + can_teacher=True
+    coh_sess = await client.post(f"/lms/books/{cohort_book.id}/reader-session", headers=_headers(instructor))
+    assert coh_sess.status_code == 200
+    assert coh_sess.json()["can_teacher"] is True
+
+    # 4) Other invite book: 404 detail & 403 reader until admin grants access
+    assert (await client.get(f"/lms/books/{invite_book.id}", headers=_headers(instructor))).status_code == 404
+    assert (await client.post(f"/lms/books/{invite_book.id}/reader-session", headers=_headers(instructor))).status_code == 403
+
+    grant_res = await client.post(
+        f"/lms/admin/books/{invite_book.id}/enrollments",
+        headers=_headers(ops),
+        json={"email": instructor.email},
+    )
+    assert grant_res.status_code == 201
+    granted_sess = await client.post(f"/lms/books/{invite_book.id}/reader-session", headers=_headers(instructor))
+    assert granted_sess.status_code == 200
+    assert granted_sess.json()["can_teacher"] is True
+
+
+@pytest.mark.asyncio
+async def test_admin_user_search_include_students(db: AsyncSession, client: AsyncClient):
+    ops = await _make_user(db, "operations")
+    tag = uuid.uuid4().hex[:6]
+    student = await _make_user(db, "student")
+    student.full_name = f"PickStudent {tag}"
+    instructor = await _make_user(db, "instructor")
+    instructor.full_name = f"PickStaff {tag}"
+    await db.commit()
+
+    staff_only = (
+        await client.get("/lms/admin/users", params={"q": tag}, headers=_headers(ops))
+    ).json()
+    staff_ids = {u["id"] for u in staff_only}
+    assert str(instructor.id) in staff_ids
+    assert str(student.id) not in staff_ids
+
+    with_students = (
+        await client.get(
+            "/lms/admin/users",
+            params={"q": tag, "include_students": "true"},
+            headers=_headers(ops),
+        )
+    ).json()
+    all_ids = {u["id"] for u in with_students}
+    assert str(instructor.id) in all_ids
+    assert str(student.id) in all_ids
+
+
+@pytest.mark.asyncio
+async def test_book_bulk_grant_by_role(db: AsyncSession, client: AsyncClient):
+    ops = await _make_user(db, "operations")
+    student = await _make_user(db, "student")
+    await db.commit()
+
+    book = (
+        await client.post(
+            "/lms/admin/books",
+            headers=_headers(ops),
+            json={"title": "Bulk Grant Book", "access_mode": "invite"},
+        )
+    ).json()
+    book_id = book["id"]
+
+    res1 = await client.post(
+        f"/lms/admin/books/{book_id}/enrollments/bulk",
+        headers=_headers(ops),
+        json={"role": "student"},
+    )
+    assert res1.status_code == 200, res1.text
+    assert res1.json()["granted"] >= 1
+    assert res1.json()["already_enrolled"] == 0
+
+    res2 = await client.post(
+        f"/lms/admin/books/{book_id}/enrollments/bulk",
+        headers=_headers(ops),
+        json={"role": "student"},
+    )
+    assert res2.status_code == 200
+    assert res2.json()["granted"] == 0
+    assert res2.json()["already_enrolled"] >= 1
+
+    enr_rows = (
+        await client.get(f"/lms/admin/books/{book_id}/enrollments", headers=_headers(ops))
+    ).json()
+    assert any(r["user_id"] == str(student.id) and r["status"] == "active" for r in enr_rows)

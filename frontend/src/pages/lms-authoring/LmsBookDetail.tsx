@@ -12,14 +12,15 @@ import {
   FileArchive,
   ImagePlus,
   Trash2,
-  UserPlus,
 } from "lucide-react";
 import { EmptyState, Spinner } from "@/components/ui/primitives";
 import { ConfirmDialog, Field } from "@/pages/admin/components/common";
 import { useToast } from "@/components/ui/toast";
 import { getCohortsApi } from "@/api/sessions/cohorts";
 import { BookCover } from "@/components/lms/BookCover";
+import { AssignPanel } from "./components/AssignPanel";
 import {
+  adminBulkGrantBookEnrollmentApi,
   adminExportBookCsvApi,
   adminGetBookAnalyticsApi,
   adminGetBookApi,
@@ -75,7 +76,7 @@ export default function LmsBookDetail() {
   const [tab, setTab] = useState<BookTab>("details");
   const [expandedChapters, setExpandedChapters] = useState<Record<string, boolean>>({});
   const [cohortId, setCohortId] = useState("");
-  const [grantEmail, setGrantEmail] = useState("");
+  const [bulkResult, setBulkResult] = useState<{ granted: number; already_enrolled: number } | null>(null);
   const [revokeTarget, setRevokeTarget] = useState<BookEnrollmentRow | null>(null);
   const [revokeError, setRevokeError] = useState("");
   const [exporting, setExporting] = useState(false);
@@ -226,14 +227,24 @@ export default function LmsBookDetail() {
   });
 
   const grantMutation = useMutation({
-    mutationFn: () => adminGrantBookEnrollmentApi(bookId, { email: grantEmail.trim() }),
+    mutationFn: (userId: string) => adminGrantBookEnrollmentApi(bookId, { user_id: userId }),
     onSuccess: () => {
-      setGrantEmail("");
       invalidateBook();
       void queryClient.invalidateQueries({ queryKey: ["lms-admin-book-enrollments", bookId] });
       toast.success("Access granted");
     },
     onError: (err) => toast.error(errorDetail(err, "Failed to grant access")),
+  });
+
+  const bulkGrantMutation = useMutation({
+    mutationFn: (role: string) => adminBulkGrantBookEnrollmentApi(bookId, role),
+    onSuccess: (res) => {
+      setBulkResult(res);
+      invalidateBook();
+      void queryClient.invalidateQueries({ queryKey: ["lms-admin-book-enrollments", bookId] });
+      toast.success(`Assigned ${res.granted} user${res.granted === 1 ? "" : "s"}`);
+    },
+    onError: (err) => toast.error(errorDetail(err, "Failed to bulk grant access")),
   });
 
   const revokeMutation = useMutation({
@@ -724,23 +735,29 @@ export default function LmsBookDetail() {
       {/* Tab 3: Access & Enrollments */}
       {tab === "enrollments" && (
         <div className="flex flex-col gap-5">
-          <div className="flex flex-col sm:flex-row gap-2 max-w-lg">
-            <input
-              type="email"
-              value={grantEmail}
-              onChange={(e) => setGrantEmail(e.target.value)}
-              placeholder="Learner email address"
-              className={`${inputCls} bg-card flex-1`}
+          <div className="max-w-2xl">
+            <AssignPanel
+              includeStudents
+              hideRoster
+              roster={enrollments.map((e) => ({
+                id: e.id,
+                userId: e.user_id,
+                name: e.full_name,
+                email: e.email,
+                status: e.status,
+              }))}
+              isLoading={enrollmentsLoading}
+              onGrant={(userId) => grantMutation.mutate(userId)}
+              onBulkGrant={(role) => bulkGrantMutation.mutate(role)}
+              onRevoke={(enrollmentId) => {
+                const target = enrollments.find((e) => e.id === enrollmentId);
+                if (target) revokeMutation.mutate(target.user_id);
+              }}
+              grantPending={grantMutation.isPending}
+              bulkPending={bulkGrantMutation.isPending}
+              revokePending={revokeMutation.isPending}
+              bulkResult={bulkResult}
             />
-            <button
-              type="button"
-              disabled={!grantEmail.trim() || grantMutation.isPending}
-              onClick={() => grantMutation.mutate()}
-              className="inline-flex items-center justify-center gap-2 h-10 px-4 rounded-[10px] bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 transition-colors cursor-pointer disabled:opacity-50"
-            >
-              <UserPlus size={15} />
-              Grant access
-            </button>
           </div>
 
           <div className="border border-border rounded-[10px] bg-card overflow-hidden">
@@ -816,11 +833,11 @@ export default function LmsBookDetail() {
       {/* Tab 4: Analytics & Responses */}
       {tab === "analytics" && (
         <div className="flex flex-col gap-6">
-          <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="flex flex-wrap items-center gap-3">
             <select
               value={cohortId}
               onChange={(e) => setCohortId(e.target.value)}
-              className="h-10 px-3 rounded-[10px] border border-border bg-card text-sm text-foreground cursor-pointer focus:outline-none focus:border-primary"
+              className="w-auto min-w-[220px] max-w-xs h-10 px-3 rounded-[10px] border border-border bg-card text-sm text-foreground cursor-pointer focus:outline-none focus:border-primary"
             >
               <option value="">All learners</option>
               {cohorts.map((c) => (
