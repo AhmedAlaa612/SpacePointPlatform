@@ -19,6 +19,7 @@ import {
   Save,
   Trash2,
   Upload,
+  X,
 } from "lucide-react"
 import { uploadWebsiteAsset } from "@/api/websiteConfig"
 import { createWebsiteCaseStudy, pullCaseStudySnapshot } from "@/api/websiteCaseStudies"
@@ -59,6 +60,232 @@ const PARTNER_ROLE_PRESETS = [
   "Academic Host",
   "Strategic Partner",
 ]
+
+export interface NormalizedStageItem {
+  title: string
+  description?: string
+  milestones?: string[]
+}
+
+export interface NormalizedStructureSection {
+  id?: string | null
+  badge?: string | null
+  title: string
+  subtitle?: string | null
+  image_url?: string | null
+  images?: string[]
+  items?: NormalizedStageItem[]
+  days?: { day_title: string; description?: string; milestones: string[] }[]
+}
+
+const DAY_NUM_RE = /^day\s*(\d+)\b/i
+const DAY_ONLY_RE = /^day\s*(\d+)\s*$/i
+
+function normalizeStructureSection(raw: any): NormalizedStructureSection {
+  const cleanImgs: string[] = []
+  if (Array.isArray(raw?.images)) {
+    for (const u of raw.images) {
+      const s = typeof u === "string" ? u.trim() : ""
+      if (s && !cleanImgs.includes(s)) cleanImgs.push(s)
+    }
+  }
+  const primary = typeof raw?.image_url === "string" ? raw.image_url.trim() : ""
+  if (primary && !cleanImgs.includes(primary)) {
+    cleanImgs.unshift(primary)
+  }
+
+  const mergedItems: NormalizedStageItem[] = []
+  if (Array.isArray(raw?.items)) {
+    for (const it of raw.items) {
+      if (!it || typeof it !== "object") continue
+      const title = String(it.title ?? it.day_title ?? "").trim()
+      const description = String(it.description ?? "")
+      const rawChips = Array.isArray(it.milestones)
+        ? it.milestones
+        : Array.isArray(it.chips)
+          ? it.chips
+          : []
+      const milestones = rawChips.map((m: any) => String(m ?? "").trim()).filter(Boolean)
+      mergedItems.push({ title, description, milestones })
+    }
+  }
+
+  if (Array.isArray(raw?.days) && raw.days.length > 0) {
+    const matched = new Set<number>()
+    for (const d of raw.days) {
+      if (!d || typeof d !== "object") continue
+      const dt = String(d.day_title ?? d.title ?? "").trim()
+      const dDesc = String(d.description ?? "").trim()
+      const dMiles = Array.isArray(d.milestones)
+        ? d.milestones.map((m: any) => String(m ?? "").trim()).filter(Boolean)
+        : []
+      if (!dt && !dDesc && dMiles.length === 0) continue
+
+      let matchIdx: number | null = null
+      for (let idx = 0; idx < mergedItems.length; idx++) {
+        if (matched.has(idx)) continue
+        const curT = mergedItems[idx].title.trim()
+        if (dt && curT.toLowerCase() === dt.toLowerCase()) {
+          matchIdx = idx
+          break
+        }
+        const mDtOnly = dt.match(DAY_ONLY_RE)
+        const mCurDay = curT.match(DAY_NUM_RE)
+        if (mDtOnly && mCurDay && Number(mDtOnly[1]) === Number(mCurDay[1])) {
+          matchIdx = idx
+          break
+        }
+        const mCurOnly = curT.match(DAY_ONLY_RE)
+        const mDtDay = dt.match(DAY_NUM_RE)
+        if (mCurOnly && mDtDay && Number(mCurOnly[1]) === Number(mDtDay[1])) {
+          mergedItems[idx].title = dt
+          matchIdx = idx
+          break
+        }
+      }
+
+      if (matchIdx !== null) {
+        matched.add(matchIdx)
+        const existing = mergedItems[matchIdx].milestones || []
+        for (const m of dMiles) {
+          if (!existing.includes(m)) existing.push(m)
+        }
+        mergedItems[matchIdx].milestones = existing
+        if (dDesc && !(mergedItems[matchIdx].description || "").trim()) {
+          mergedItems[matchIdx].description = dDesc
+        }
+      } else {
+        mergedItems.push({ title: dt, description: dDesc, milestones: dMiles })
+      }
+    }
+  }
+
+  return {
+    id: raw?.id ?? undefined,
+    badge: raw?.badge ?? "",
+    title: raw?.title ?? "",
+    subtitle: raw?.subtitle ?? null,
+    image_url: cleanImgs[0] || null,
+    images: cleanImgs,
+    items: mergedItems,
+    days: [],
+  }
+}
+
+function serializeStructureSection(sec: NormalizedStructureSection): NormalizedStructureSection {
+  const cleanImgs = (sec.images || []).map((u) => u.trim()).filter(Boolean)
+  const cleanItems = (sec.items || [])
+    .map((it) => ({
+      title: (it.title || "").trim(),
+      description: (it.description || "").trim(),
+      milestones: (it.milestones || []).map((m) => m.trim()).filter(Boolean),
+    }))
+    .filter((it) => it.title || it.description || it.milestones.length > 0)
+
+  return {
+    id: sec.id || null,
+    badge: (sec.badge || "").trim() || null,
+    title: sec.title.trim(),
+    subtitle: (sec.subtitle || "").trim() || null,
+    image_url: cleanImgs[0] || null,
+    images: cleanImgs,
+    items: cleanItems,
+    days: [],
+  }
+}
+
+function StageItemChipsInput({
+  chips,
+  onChange,
+}: {
+  chips: string[]
+  onChange: (next: string[]) => void
+}) {
+  const [draft, setDraft] = useState("")
+
+  const commit = (raw: string) => {
+    const parts = raw
+      .split(/[,\r\n]+/)
+      .map((s) => s.trim())
+      .filter(Boolean)
+    if (parts.length === 0) {
+      setDraft("")
+      return
+    }
+    const next = [...chips]
+    for (const p of parts) {
+      if (!next.includes(p)) next.push(p)
+    }
+    onChange(next)
+    setDraft("")
+  }
+
+  return (
+    <div className="rounded-[10px] border border-border bg-background p-1.5 space-y-1.5">
+      {chips.length > 0 && (
+        <div className="flex flex-wrap gap-1">
+          {chips.map((chip, cIdx) => (
+            <span
+              key={`${chip}-${cIdx}`}
+              className="inline-flex items-center gap-1 rounded-md border border-primary/30 bg-primary/10 px-2 py-0.5 text-[11px] font-medium text-foreground"
+            >
+              <span>{chip}</span>
+              <button
+                type="button"
+                onClick={() => onChange(chips.filter((_, idx) => idx !== cIdx))}
+                className="text-muted-foreground hover:text-rose-500 cursor-pointer"
+                title="Remove chip"
+              >
+                <X size={11} />
+              </button>
+            </span>
+          ))}
+        </div>
+      )}
+      <div className="flex items-center gap-1.5">
+        <input
+          type="text"
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" || e.key === ",") {
+              e.preventDefault()
+              commit(draft)
+            } else if (e.key === "Backspace" && !draft && chips.length > 0) {
+              onChange(chips.slice(0, -1))
+            }
+          }}
+          onPaste={(e) => {
+            const text = e.clipboardData.getData("text")
+            if (text.includes(",") || text.includes("\n")) {
+              e.preventDefault()
+              commit(text)
+            }
+          }}
+          onBlur={() => {
+            if (draft.trim()) commit(draft)
+          }}
+          placeholder={
+            chips.length > 0
+              ? "Add chip (Enter or comma)…"
+              : "Chips / topics (Enter or comma-separated, e.g. Electrical Integration, Programming)"
+          }
+          className="flex-1 h-7 rounded-[8px] bg-transparent px-1.5 text-xs focus:outline-none"
+        />
+        {draft.trim() && (
+          <button
+            type="button"
+            onMouseDown={(e) => e.preventDefault()}
+            onClick={() => commit(draft)}
+            className="h-6 px-2 rounded-[8px] bg-primary/15 text-primary text-[11px] font-semibold hover:bg-primary/25 cursor-pointer shrink-0"
+          >
+            + Add
+          </button>
+        )}
+      </div>
+    </div>
+  )
+}
 
 function CaseStudySection({
   title,
@@ -540,17 +767,8 @@ export function CaseStudySplitEditor({
 
   // 6. Structure & Formats
   const [structureTitle, setStructureTitle] = useState("Program Structure & Formats")
-  const [structureSections, setStructureSections] = useState<
-    {
-      id?: string
-      badge?: string
-      title: string
-      subtitle?: string | null
-      image_url?: string | null
-      items?: { title: string; description?: string }[]
-      days?: { day_title: string; milestones: string[] }[]
-    }[]
-  >([])
+  const [structureSections, setStructureSections] = useState<NormalizedStructureSection[]>([])
+  const [uploadingStageIdx, setUploadingStageIdx] = useState<number | null>(null)
 
   // 7. Visibility & Spotlights
   const [visibilityStats, setVisibilityStats] = useState<{ value: string; label: string; icon?: string }[]>([])
@@ -611,7 +829,9 @@ export function CaseStudySplitEditor({
     )
     setStructureTitle(cs.structure_title || "Program Structure & Formats")
     setStructureSections(
-      Array.isArray(cs.structure_sections) ? cs.structure_sections.map((s) => ({ ...s })) : [],
+      Array.isArray(cs.structure_sections)
+        ? cs.structure_sections.map((s) => normalizeStructureSection(s))
+        : [],
     )
     setVisibilityStats(Array.isArray(cs.visibility_stats) ? cs.visibility_stats.map((v) => ({ ...v })) : [])
     setSpotlights(Array.isArray(cs.spotlights) ? cs.spotlights.map((sp) => ({ ...sp })) : [])
@@ -652,7 +872,7 @@ export function CaseStudySplitEditor({
       structure_title: structureTitle || null,
       structure_sections: hid.has("structure")
         ? []
-        : structureSections.filter((s) => s.title.trim()),
+        : structureSections.filter((s) => s.title.trim()).map(serializeStructureSection),
       visibility_stats: visibilityStats.filter((v) => v.value.trim() || v.label.trim()),
       spotlights: spotlights.filter((sp) => (sp.title || "").trim() || (sp.content || "").trim()),
       testimonials: hid.has("testimonials")
@@ -746,19 +966,7 @@ export function CaseStudySplitEditor({
         )
       }
       if (Array.isArray(snap.structure_sections) && snap.structure_sections.length) {
-        setStructureSections(
-          snap.structure_sections.map((s) => ({
-            id: s.id ?? undefined,
-            badge: s.badge ?? undefined,
-            title: s.title,
-            subtitle: s.subtitle ?? null,
-            image_url: s.image_url ?? null,
-            items: Array.isArray(s.items)
-              ? s.items.map((it) => ({ title: it.title, description: it.description ?? undefined }))
-              : undefined,
-            days: Array.isArray(s.days) ? s.days.map((d) => ({ ...d })) : undefined,
-          })),
-        )
+        setStructureSections(snap.structure_sections.map((s) => normalizeStructureSection(s)))
       }
       toast.success("Portal snapshot pulled")
     } catch (err) {
@@ -774,7 +982,9 @@ export function CaseStudySplitEditor({
       const cleanMetrics = metrics.filter((m) => m.value.trim() || m.label.trim())
       const cleanPartners = partners.filter((p) => p.name.trim())
       const cleanChapters = curriculumChapters.filter((ch) => ch.title.trim())
-      const cleanStructure = structureSections.filter((s) => s.title.trim())
+      const cleanStructure = structureSections
+        .filter((s) => s.title.trim())
+        .map(serializeStructureSection)
       const commonPayload = {
         slug: slug.trim() || undefined,
         title: title.trim() || cs?.title || "",
@@ -1662,7 +1872,10 @@ export function CaseStudySplitEditor({
                       badge: `Stage ${String(p.length + 1).padStart(2, "0")}`,
                       title: "",
                       subtitle: "",
+                      image_url: null,
+                      images: [],
                       items: [],
+                      days: [],
                     },
                   ])
                 }
@@ -1680,125 +1893,308 @@ export function CaseStudySplitEditor({
                 className="h-9 rounded-[10px] border border-border bg-background px-3 text-xs"
               />
             </label>
-            {structureSections.map((sec, i) => (
-              <div key={sec.id || i} className="rounded-[10px] border border-border bg-background p-3 space-y-2">
-                <div className="flex items-center gap-2">
-                  <input
-                    type="text"
-                    value={sec.badge || ""}
-                    onChange={(e) =>
-                      setStructureSections((p) =>
-                        p.map((x, idx) => (idx === i ? { ...x, badge: e.target.value } : x)),
-                      )
-                    }
-                    placeholder="Stage 01"
-                    className="w-24 h-8 rounded-[10px] border border-border bg-card px-2 text-xs font-bold text-primary text-center"
-                  />
-                  <input
-                    type="text"
-                    value={sec.title}
-                    onChange={(e) =>
-                      setStructureSections((p) =>
-                        p.map((x, idx) => (idx === i ? { ...x, title: e.target.value } : x)),
-                      )
-                    }
-                    placeholder="Title"
-                    className="flex-1 h-8 rounded-[10px] border border-border bg-card px-2.5 text-xs font-bold"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setStructureSections((p) => p.filter((_, idx) => idx !== i))}
-                    className="p-1 text-muted-foreground hover:text-rose-500 cursor-pointer"
-                  >
-                    <Trash2 size={13} />
-                  </button>
-                </div>
-                <input
-                  type="text"
-                  value={sec.subtitle || ""}
-                  onChange={(e) =>
-                    setStructureSections((p) =>
-                      p.map((x, idx) => (idx === i ? { ...x, subtitle: e.target.value } : x)),
-                    )
-                  }
-                  placeholder="Subtitle (dates, location)"
-                  className="w-full h-8 rounded-[10px] border border-border bg-card px-2.5 text-xs"
-                />
+            {structureSections.map((sec, i) => {
+              const stageImages = sec.images || []
+              const updateStageImages = (nextImgs: string[]) => {
+                const firstNonEmpty = nextImgs.map((u) => u.trim()).find(Boolean) || null
+                setStructureSections((p) =>
+                  p.map((x, idx) =>
+                    idx === i ? { ...x, images: nextImgs, image_url: firstNonEmpty } : x,
+                  ),
+                )
+              }
 
-                <div className="space-y-1.5">
-                  <div className="flex gap-1.5 items-center">
+              return (
+                <div key={sec.id || i} className="rounded-[10px] border border-border bg-background p-3 space-y-2.5">
+                  <div className="flex items-center gap-2">
                     <input
                       type="text"
-                      value={sec.image_url || ""}
+                      value={sec.badge || ""}
                       onChange={(e) =>
                         setStructureSections((p) =>
-                          p.map((x, idx) => (idx === i ? { ...x, image_url: e.target.value } : x)),
+                          p.map((x, idx) => (idx === i ? { ...x, badge: e.target.value } : x)),
                         )
                       }
-                      placeholder="Side Image URL (optional)"
-                      className="flex-1 h-8 rounded-[10px] border border-border bg-card px-2.5 text-xs"
+                      placeholder="Stage 01"
+                      className="w-24 h-8 rounded-[10px] border border-border bg-card px-2 text-xs font-bold text-primary text-center"
                     />
-                    <label className="inline-flex items-center gap-1 h-8 px-2.5 rounded-[10px] border border-border bg-card text-xs font-semibold hover:bg-muted cursor-pointer shrink-0">
-                      <Upload size={11} />
-                      <span>Upload</span>
-                      <input
-                        type="file"
-                        accept="image/*"
-                        className="hidden"
-                        onChange={async (e) => {
-                          const f = e.target.files?.[0]
-                          if (!f) return
-                          e.target.value = ""
-                          try {
-                            const res = await uploadWebsiteAsset(f)
-                            setStructureSections((p) =>
-                              p.map((x, idx) => (idx === i ? { ...x, image_url: res.url } : x)),
-                            )
-                            toast.success("Stage image uploaded")
-                          } catch (err) {
-                            toast.error(getErrorMessage(err, "Upload failed"))
-                          }
-                        }}
-                      />
-                    </label>
-                  </div>
-                  {sec.image_url && (
-                    <div className="relative h-20 rounded-[10px] overflow-hidden border border-border bg-black/40">
-                      <img
-                        src={resolveWebsiteAsset(sec.image_url)}
-                        alt=""
-                        className="w-full h-full object-cover"
-                      />
-                    </div>
-                  )}
-                </div>
-
-                {/* Items & Descriptions inside this Stage */}
-                <div className="space-y-1.5 pt-2 border-t border-border/50">
-                  <div className="flex items-center justify-between">
-                    <span className="text-[11px] font-bold text-muted-foreground">Items &amp; Descriptions</span>
+                    <input
+                      type="text"
+                      value={sec.title}
+                      onChange={(e) =>
+                        setStructureSections((p) =>
+                          p.map((x, idx) => (idx === i ? { ...x, title: e.target.value } : x)),
+                        )
+                      }
+                      placeholder="Title"
+                      className="flex-1 h-8 rounded-[10px] border border-border bg-card px-2.5 text-xs font-bold"
+                    />
                     <button
                       type="button"
-                      onClick={() =>
-                        setStructureSections((p) =>
-                          p.map((x, idx) =>
-                            idx === i
-                              ? { ...x, items: [...(x.items || []), { title: "", description: "" }] }
-                              : x,
-                          ),
-                        )
-                      }
-                      className="inline-flex items-center gap-1 text-[11px] font-semibold text-primary hover:underline cursor-pointer"
+                      onClick={() => setStructureSections((p) => p.filter((_, idx) => idx !== i))}
+                      className="p-1 text-muted-foreground hover:text-rose-500 cursor-pointer"
                     >
-                      <Plus size={11} /> Add Item
+                      <Trash2 size={13} />
                     </button>
                   </div>
-                  {(sec.items || []).map((it, itIdx) => (
-                    <div key={itIdx} className="rounded-[10px] border border-border/70 bg-card p-2 space-y-1.5">
+                  <input
+                    type="text"
+                    value={sec.subtitle || ""}
+                    onChange={(e) =>
+                      setStructureSections((p) =>
+                        p.map((x, idx) => (idx === i ? { ...x, subtitle: e.target.value } : x)),
+                      )
+                    }
+                    placeholder="Subtitle (dates, location)"
+                    className="w-full h-8 rounded-[10px] border border-border bg-card px-2.5 text-xs"
+                  />
+
+                  {/* Multi-Image Stage Gallery */}
+                  <div className="space-y-1.5 pt-2 border-t border-border/50">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-[11px] font-bold text-muted-foreground">
+                        Stage Images ({stageImages.filter((u) => u.trim()).length})
+                      </span>
                       <div className="flex items-center gap-1.5">
-                        <input
-                          type="text"
-                          value={it.title || ""}
+                        <label className="inline-flex items-center gap-1 h-7 px-2.5 rounded-[10px] bg-primary/15 text-primary text-[11px] font-semibold hover:bg-primary/25 cursor-pointer shrink-0">
+                          <Upload size={11} />
+                          <span>{uploadingStageIdx === i ? "Uploading…" : "Upload Photos"}</span>
+                          <input
+                            type="file"
+                            accept="image/*"
+                            multiple
+                            className="hidden"
+                            disabled={uploadingStageIdx === i}
+                            onChange={async (e) => {
+                              const files = Array.from(e.target.files || [])
+                              if (files.length === 0) return
+                              e.target.value = ""
+                              setUploadingStageIdx(i)
+                              try {
+                                const uploaded: string[] = []
+                                for (const f of files) {
+                                  const res = await uploadWebsiteAsset(f)
+                                  uploaded.push(res.url)
+                                }
+                                setStructureSections((p) =>
+                                  p.map((x, idx) => {
+                                    if (idx !== i) return x
+                                    const nextImgs = [...(x.images || []), ...uploaded]
+                                    const first = nextImgs.map((u) => u.trim()).find(Boolean) || null
+                                    return { ...x, images: nextImgs, image_url: first }
+                                  }),
+                                )
+                                toast.success(
+                                  uploaded.length > 1
+                                    ? `${uploaded.length} stage photos uploaded`
+                                    : "Stage photo uploaded",
+                                )
+                              } catch (err) {
+                                toast.error(getErrorMessage(err, "Upload failed"))
+                              } finally {
+                                setUploadingStageIdx(null)
+                              }
+                            }}
+                          />
+                        </label>
+                        <button
+                          type="button"
+                          onClick={() => updateStageImages([...stageImages, ""])}
+                          className="inline-flex items-center gap-1 h-7 px-2.5 rounded-[10px] border border-border bg-card text-[11px] font-semibold hover:bg-muted cursor-pointer"
+                        >
+                          <Plus size={11} /> Add URL
+                        </button>
+                      </div>
+                    </div>
+
+                    {stageImages.length > 0 && (
+                      <div className="space-y-1.5">
+                        {stageImages.map((imgUrl, imgIdx) => (
+                          <div key={imgIdx} className="flex items-center gap-1.5">
+                            {imgUrl.trim() ? (
+                              <img
+                                src={resolveWebsiteAsset(imgUrl)}
+                                alt=""
+                                className="w-9 h-9 rounded-[8px] object-cover border border-border shrink-0"
+                              />
+                            ) : (
+                              <div className="w-9 h-9 rounded-[8px] bg-muted border border-border shrink-0" />
+                            )}
+                            <input
+                              type="text"
+                              value={imgUrl}
+                              onChange={(e) =>
+                                updateStageImages(
+                                  stageImages.map((cur, j) => (j === imgIdx ? e.target.value : cur)),
+                                )
+                              }
+                              placeholder="/assets/img/..."
+                              className="flex-1 h-8 rounded-[10px] border border-border bg-card px-2.5 text-xs"
+                            />
+                            {stageImages.length > 1 && (
+                              <>
+                                <button
+                                  type="button"
+                                  disabled={imgIdx === 0}
+                                  onClick={() => {
+                                    const next = [...stageImages]
+                                    const [moved] = next.splice(imgIdx, 1)
+                                    next.splice(imgIdx - 1, 0, moved)
+                                    updateStageImages(next)
+                                  }}
+                                  className="p-1 text-muted-foreground hover:text-foreground disabled:opacity-30 cursor-pointer"
+                                  title="Move image up"
+                                >
+                                  <ArrowUp size={12} />
+                                </button>
+                                <button
+                                  type="button"
+                                  disabled={imgIdx === stageImages.length - 1}
+                                  onClick={() => {
+                                    const next = [...stageImages]
+                                    const [moved] = next.splice(imgIdx, 1)
+                                    next.splice(imgIdx + 1, 0, moved)
+                                    updateStageImages(next)
+                                  }}
+                                  className="p-1 text-muted-foreground hover:text-foreground disabled:opacity-30 cursor-pointer"
+                                  title="Move image down"
+                                >
+                                  <ArrowDown size={12} />
+                                </button>
+                              </>
+                            )}
+                            <button
+                              type="button"
+                              onClick={() =>
+                                updateStageImages(stageImages.filter((_, j) => j !== imgIdx))
+                              }
+                              className="p-1 text-muted-foreground hover:text-rose-500 cursor-pointer"
+                              title="Remove image"
+                            >
+                              <Trash2 size={12} />
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Unified Schedule Days & Items */}
+                  <div className="space-y-1.5 pt-2 border-t border-border/50">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[11px] font-bold text-muted-foreground">
+                        Schedule Days &amp; Items
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setStructureSections((p) =>
+                            p.map((x, idx) =>
+                              idx === i
+                                ? {
+                                    ...x,
+                                    items: [
+                                      ...(x.items || []),
+                                      { title: "", description: "", milestones: [] },
+                                    ],
+                                  }
+                                : x,
+                            ),
+                          )
+                        }
+                        className="inline-flex items-center gap-1 text-[11px] font-semibold text-primary hover:underline cursor-pointer"
+                      >
+                        <Plus size={11} /> Add Day / Item
+                      </button>
+                    </div>
+                    {(sec.items || []).map((it, itIdx) => (
+                      <div
+                        key={itIdx}
+                        className="rounded-[10px] border border-border/70 bg-card p-2.5 space-y-1.5"
+                      >
+                        <div className="flex items-center gap-1.5">
+                          <input
+                            type="text"
+                            value={it.title || ""}
+                            onChange={(e) =>
+                              setStructureSections((p) =>
+                                p.map((x, idx) =>
+                                  idx === i
+                                    ? {
+                                        ...x,
+                                        items: (x.items || []).map((cur, j) =>
+                                          j === itIdx ? { ...cur, title: e.target.value } : cur,
+                                        ),
+                                      }
+                                    : x,
+                                ),
+                              )
+                            }
+                            placeholder="e.g. Day 1 - Satellite Development & Integration"
+                            className="flex-1 h-8 rounded-[10px] border border-border bg-background px-2.5 text-xs font-semibold"
+                          />
+                          {(sec.items || []).length > 1 && (
+                            <>
+                              <button
+                                type="button"
+                                disabled={itIdx === 0}
+                                onClick={() =>
+                                  setStructureSections((p) =>
+                                    p.map((x, idx) => {
+                                      if (idx !== i) return x
+                                      const next = [...(x.items || [])]
+                                      const [moved] = next.splice(itIdx, 1)
+                                      next.splice(itIdx - 1, 0, moved)
+                                      return { ...x, items: next }
+                                    }),
+                                  )
+                                }
+                                className="p-1 text-muted-foreground hover:text-foreground disabled:opacity-30 cursor-pointer"
+                                title="Move up"
+                              >
+                                <ArrowUp size={12} />
+                              </button>
+                              <button
+                                type="button"
+                                disabled={itIdx === (sec.items || []).length - 1}
+                                onClick={() =>
+                                  setStructureSections((p) =>
+                                    p.map((x, idx) => {
+                                      if (idx !== i) return x
+                                      const next = [...(x.items || [])]
+                                      const [moved] = next.splice(itIdx, 1)
+                                      next.splice(itIdx + 1, 0, moved)
+                                      return { ...x, items: next }
+                                    }),
+                                  )
+                                }
+                                className="p-1 text-muted-foreground hover:text-foreground disabled:opacity-30 cursor-pointer"
+                                title="Move down"
+                              >
+                                <ArrowDown size={12} />
+                              </button>
+                            </>
+                          )}
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setStructureSections((p) =>
+                                p.map((x, idx) =>
+                                  idx === i
+                                    ? { ...x, items: (x.items || []).filter((_, j) => j !== itIdx) }
+                                    : x,
+                                ),
+                              )
+                            }
+                            className="p-1 text-muted-foreground hover:text-rose-500 cursor-pointer"
+                            title="Delete item"
+                          >
+                            <Trash2 size={12} />
+                          </button>
+                        </div>
+                        <textarea
+                          rows={2}
+                          value={it.description || ""}
                           onChange={(e) =>
                             setStructureSections((p) =>
                               p.map((x, idx) =>
@@ -1806,154 +2202,39 @@ export function CaseStudySplitEditor({
                                   ? {
                                       ...x,
                                       items: (x.items || []).map((cur, j) =>
-                                        j === itIdx ? { ...cur, title: e.target.value } : cur,
+                                        j === itIdx ? { ...cur, description: e.target.value } : cur,
                                       ),
                                     }
                                   : x,
                               ),
                             )
                           }
-                          placeholder="Item title"
-                          className="flex-1 h-7 rounded-[10px] border border-border bg-background px-2 text-xs font-semibold"
+                          placeholder="Description (optional)..."
+                          className="w-full rounded-[10px] border border-border bg-background p-2 text-xs resize-none"
                         />
-                        <button
-                          type="button"
-                          onClick={() =>
-                            setStructureSections((p) =>
-                              p.map((x, idx) =>
-                                idx === i
-                                  ? { ...x, items: (x.items || []).filter((_, j) => j !== itIdx) }
-                                  : x,
-                              ),
-                            )
-                          }
-                          className="p-1 text-muted-foreground hover:text-rose-500 cursor-pointer"
-                        >
-                          <Trash2 size={12} />
-                        </button>
-                      </div>
-                      <textarea
-                        rows={2}
-                        value={it.description || ""}
-                        onChange={(e) =>
-                          setStructureSections((p) =>
-                            p.map((x, idx) =>
-                              idx === i
-                                ? {
-                                    ...x,
-                                    items: (x.items || []).map((cur, j) =>
-                                      j === itIdx ? { ...cur, description: e.target.value } : cur,
-                                    ),
-                                  }
-                                : x,
-                            ),
-                          )
-                        }
-                        placeholder="Description..."
-                        className="w-full rounded-[10px] border border-border bg-background p-2 text-xs resize-none"
-                      />
-                    </div>
-                  ))}
-                </div>
-
-                {/* Days / Milestones */}
-                <div className="space-y-1.5 pt-2 border-t border-border/50">
-                  <div className="flex items-center justify-between">
-                    <span className="text-[11px] font-bold text-muted-foreground">Schedule Days</span>
-                    <button
-                      type="button"
-                      onClick={() =>
-                        setStructureSections((p) =>
-                          p.map((x, idx) =>
-                            idx === i
-                              ? {
-                                  ...x,
-                                  days: [
-                                    ...(x.days || []),
-                                    { day_title: `Day ${(x.days || []).length + 1}`, milestones: [] },
-                                  ],
-                                }
-                              : x,
-                          ),
-                        )
-                      }
-                      className="inline-flex items-center gap-1 text-[11px] font-semibold text-primary hover:underline cursor-pointer"
-                    >
-                      <Plus size={11} /> Add Day
-                    </button>
-                  </div>
-                  {(sec.days || []).map((d, dIdx) => (
-                    <div key={dIdx} className="rounded-[10px] border border-border/70 bg-card p-2 space-y-1.5">
-                      <div className="flex items-center gap-1.5">
-                        <input
-                          type="text"
-                          value={d.day_title || ""}
-                          onChange={(e) =>
+                        <StageItemChipsInput
+                          chips={it.milestones || []}
+                          onChange={(nextChips) =>
                             setStructureSections((p) =>
                               p.map((x, idx) =>
                                 idx === i
                                   ? {
                                       ...x,
-                                      days: (x.days || []).map((cur, j) =>
-                                        j === dIdx ? { ...cur, day_title: e.target.value } : cur,
+                                      items: (x.items || []).map((cur, j) =>
+                                        j === itIdx ? { ...cur, milestones: nextChips } : cur,
                                       ),
                                     }
                                   : x,
                               ),
                             )
                           }
-                          placeholder="Day 1"
-                          className="flex-1 h-7 rounded-[10px] border border-border bg-background px-2 text-xs font-semibold"
                         />
-                        <button
-                          type="button"
-                          onClick={() =>
-                            setStructureSections((p) =>
-                              p.map((x, idx) =>
-                                idx === i
-                                  ? { ...x, days: (x.days || []).filter((_, j) => j !== dIdx) }
-                                  : x,
-                              ),
-                            )
-                          }
-                          className="p-1 text-muted-foreground hover:text-rose-500 cursor-pointer"
-                        >
-                          <Trash2 size={12} />
-                        </button>
                       </div>
-                      <input
-                        type="text"
-                        value={(d.milestones || []).join(", ")}
-                        onChange={(e) =>
-                          setStructureSections((p) =>
-                            p.map((x, idx) =>
-                              idx === i
-                                ? {
-                                    ...x,
-                                    days: (x.days || []).map((cur, j) =>
-                                      j === dIdx
-                                        ? {
-                                            ...cur,
-                                            milestones: e.target.value
-                                              .split(",")
-                                              .map((s) => s.trim())
-                                              .filter(Boolean),
-                                          }
-                                        : cur,
-                                    ),
-                                  }
-                                : x,
-                            ),
-                          )
-                        }
-                        placeholder="Milestones (comma-separated)"
-                        className="w-full h-7 rounded-[10px] border border-border bg-background px-2 text-xs"
-                      />
-                    </div>
-                  ))}
+                    ))}
+                  </div>
                 </div>
-              </div>
-            ))}
+              )
+            })}
           </CaseStudySection>
 
           {/* 7. Visibility & Spotlights */}

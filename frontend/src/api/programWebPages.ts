@@ -78,13 +78,14 @@ export interface HybridCaseStudy {
   curriculum_chapters: { chapter_num: string; title: string; icon?: string }[]
   structure_title?: string | null
   structure_sections: {
-    id?: string
-    badge?: string
+    id?: string | null
+    badge?: string | null
     title: string
     subtitle?: string | null
     image_url?: string | null
-    items?: { title: string; description?: string }[]
-    days?: { day_title: string; milestones: string[] }[]
+    images?: string[]
+    items?: { title: string; description?: string; milestones?: string[] }[]
+    days?: { day_title: string; description?: string; milestones: string[] }[]
   }[]
   visibility_stats: { value: string; label: string; icon?: string }[]
   spotlights: any[]

@@ -378,3 +378,44 @@ async def test_multi_case_study_per_program_ordered_cohorts_and_live_metrics(
     pub_get = await client.get(f"/public/website/case-studies/{cs1['slug']}")
     assert pub_get.status_code == 200
     assert len(pub_get.json()["structure_sections"]) == 2
+
+    # Update stage with combined items + legacy days + multiple stage images
+    upd = await client.put(
+        f"/admin/website/case-studies/{cs1['id']}",
+        headers=ops_h,
+        json={
+            "structure_sections": [
+                {
+                    "id": "stage-1",
+                    "badge": "Stage 01",
+                    "title": "Satty v1 - Stage 1",
+                    "images": ["/assets/img/stage1-a.jpg", "/assets/img/stage1-b.jpg"],
+                    "items": [
+                        {
+                            "title": "Day 1 - Satellite Development & Integration",
+                            "description": "Finalist teams began working on their satellite prototypes.",
+                        }
+                    ],
+                    "days": [
+                        {
+                            "day_title": "Day 1",
+                            "milestones": ["Electrical Integration", "Hardware Assembly", "Programming"],
+                        }
+                    ],
+                }
+            ]
+        },
+    )
+    assert upd.status_code == 200, upd.text
+    sec0 = upd.json()["structure_sections"][0]
+    assert sec0["images"] == ["/assets/img/stage1-a.jpg", "/assets/img/stage1-b.jpg"]
+    assert sec0["image_url"] == "/assets/img/stage1-a.jpg"
+    assert sec0["days"] == []
+    assert len(sec0["items"]) == 1
+    assert sec0["items"][0]["title"] == "Day 1 - Satellite Development & Integration"
+    assert sec0["items"][0]["description"] == "Finalist teams began working on their satellite prototypes."
+    assert sec0["items"][0]["milestones"] == [
+        "Electrical Integration",
+        "Hardware Assembly",
+        "Programming",
+    ]

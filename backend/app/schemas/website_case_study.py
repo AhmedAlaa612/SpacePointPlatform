@@ -1,7 +1,11 @@
 from datetime import datetime
+import re
 from typing import Any
 from uuid import UUID
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
+
+_DAY_NUM_RE = re.compile(r"^day\s*(\d+)\b", re.IGNORECASE)
+_DAY_ONLY_RE = re.compile(r"^day\s*(\d+)\s*$", re.IGNORECASE)
 
 
 class CaseStudyPartnerItem(BaseModel):
@@ -35,8 +39,87 @@ class CaseStudyStructureSection(BaseModel):
     subtitle: str | None = None
     description: str | None = None
     image_url: str | None = None
+    images: list[str] = Field(default_factory=list)
     items: list[dict] = Field(default_factory=list)
     days: list[dict] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def _normalize_stage(self) -> "CaseStudyStructureSection":
+        clean_imgs: list[str] = []
+        for u in self.images or []:
+            if isinstance(u, str) and u.strip() and u.strip() not in clean_imgs:
+                clean_imgs.append(u.strip())
+        primary = (self.image_url or "").strip()
+        if primary and primary not in clean_imgs:
+            clean_imgs.insert(0, primary)
+        self.images = clean_imgs
+        self.image_url = clean_imgs[0] if clean_imgs else None
+
+        merged_items: list[dict] = []
+        for it in self.items or []:
+            if not isinstance(it, dict):
+                continue
+            t = str(it.get("title") or it.get("day_title") or "").strip()
+            desc = str(it.get("description") or "").strip()
+            raw_chips = it.get("milestones") if it.get("milestones") is not None else it.get("chips")
+            miles = (
+                [str(m).strip() for m in raw_chips if str(m).strip()]
+                if isinstance(raw_chips, list)
+                else []
+            )
+            merged_items.append({"title": t, "description": desc, "milestones": miles})
+
+        if self.days:
+            matched: set[int] = set()
+            for d in self.days:
+                if not isinstance(d, dict):
+                    continue
+                dt = str(d.get("day_title") or d.get("title") or "").strip()
+                d_desc = str(d.get("description") or "").strip()
+                raw_m = d.get("milestones")
+                d_miles = (
+                    [str(m).strip() for m in raw_m if str(m).strip()]
+                    if isinstance(raw_m, list)
+                    else []
+                )
+                if not dt and not d_desc and not d_miles:
+                    continue
+
+                match_idx: int | None = None
+                for idx, cur in enumerate(merged_items):
+                    if idx in matched:
+                        continue
+                    cur_t = cur["title"]
+                    if dt and cur_t.lower() == dt.lower():
+                        match_idx = idx
+                        break
+                    m_dt_only = _DAY_ONLY_RE.match(dt)
+                    m_cur_day = _DAY_NUM_RE.match(cur_t)
+                    if m_dt_only and m_cur_day and int(m_dt_only.group(1)) == int(m_cur_day.group(1)):
+                        match_idx = idx
+                        break
+                    m_cur_only = _DAY_ONLY_RE.match(cur_t)
+                    m_dt_day = _DAY_NUM_RE.match(dt)
+                    if m_cur_only and m_dt_day and int(m_cur_only.group(1)) == int(m_dt_day.group(1)):
+                        cur["title"] = dt
+                        match_idx = idx
+                        break
+
+                if match_idx is not None:
+                    matched.add(match_idx)
+                    existing_m = merged_items[match_idx]["milestones"]
+                    for m in d_miles:
+                        if m not in existing_m:
+                            existing_m.append(m)
+                    if d_desc and not merged_items[match_idx]["description"]:
+                        merged_items[match_idx]["description"] = d_desc
+                else:
+                    merged_items.append({"title": dt, "description": d_desc, "milestones": d_miles})
+
+            self.days = []
+
+        self.items = merged_items
+        return self
 
 
 class CaseStudyVisibilityStat(BaseModel):

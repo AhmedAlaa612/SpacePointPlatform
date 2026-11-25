@@ -24,6 +24,12 @@ export interface CaseStudyCurriculumChapter {
   icon?: string | null
 }
 
+export interface CaseStudyStructureItem {
+  title: string
+  description?: string | null
+  milestones?: string[]
+}
+
 export interface CaseStudyStructureSection {
   id?: string | null
   badge?: string | null
@@ -31,8 +37,9 @@ export interface CaseStudyStructureSection {
   subtitle?: string | null
   description?: string | null
   image_url?: string | null
-  items?: Array<{ title: string; description?: string | null }>
-  days?: Array<{ day_title: string; milestones: string[] }>
+  images?: string[]
+  items?: CaseStudyStructureItem[]
+  days?: Array<{ day_title: string; description?: string | null; milestones: string[] }>
 }
 
 export interface CaseStudyVisibilityStat {

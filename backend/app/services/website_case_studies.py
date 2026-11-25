@@ -349,12 +349,13 @@ async def pull_case_study_snapshot(
             )
         ).scalars().all()
         if c_sessions:
-            day_items = []
+            stage_items = []
             for idx, s in enumerate(c_sessions):
                 title_str = s.title or f"Day {idx + 1}"
-                day_items.append({
-                    "day_title": f"Day {idx + 1} - {title_str}",
-                    "milestones": [f"Meeting Date: {s.meeting_date}"] + ([s.title] if s.title else [])
+                stage_items.append({
+                    "title": f"Day {idx + 1} - {title_str}",
+                    "description": "",
+                    "milestones": [f"Meeting Date: {s.meeting_date}"] + ([s.title] if s.title else []),
                 })
             structure_sections.append(
                 CaseStudyStructureSection(
@@ -362,7 +363,7 @@ async def pull_case_study_snapshot(
                     badge="Timeline",
                     title="Program Delivery Schedule",
                     subtitle=f"{len(c_sessions)} interactive sessions delivered",
-                    days=day_items,
+                    items=stage_items,
                 )
             )
 
@@ -439,9 +440,10 @@ async def seed_default_case_studies(db: AsyncSession):
                     "title": "Week 1 - Online",
                     "subtitle": "Foundational Skills & CAD Modeling Preparation",
                     "image_url": "/assets/img/Case studies/PLANETX/PlanetX 2.jpg",
+                    "images": ["/assets/img/Case studies/PLANETX/PlanetX 2.jpg"],
                     "items": [
-                        {"title": "CAD Modeling Masterclass", "description": "Deep-dive masterclass to master mechanical and structural 3D design for space systems."},
-                        {"title": "Engineering Tasks & Mentorship", "description": "Hands-on independent tasks guided by remote aerospace mentors to validate design concepts."}
+                        {"title": "CAD Modeling Masterclass", "description": "Deep-dive masterclass to master mechanical and structural 3D design for space systems.", "milestones": []},
+                        {"title": "Engineering Tasks & Mentorship", "description": "Hands-on independent tasks guided by remote aerospace mentors to validate design concepts.", "milestones": []}
                     ]
                 },
                 {
@@ -450,11 +452,12 @@ async def seed_default_case_studies(db: AsyncSession):
                     "title": "Week 2 - OnSite",
                     "subtitle": "Practical Lander Integration, Testing & Final Presentations",
                     "image_url": "/assets/img/Case studies/PLANETX/PlanetX 3.jpg",
-                    "days": [
-                        {"day_title": "Day 1 - Launch & Foundation", "milestones": ["SatKit Shallow Flight Workshop", "EMA Mission Overview", "Lander Constraints & ConOps", "Sessions by NASA Astronauts"]},
-                        {"day_title": "Day 2 - Advanced Integration", "milestones": ["Advanced Space Applications", "Lander Integration"]},
-                        {"day_title": "Day 3 - Validation & Testing", "milestones": ["Lander Testing", "Jury Presentations"]},
-                        {"day_title": "Day 4 - Showcase & Awards", "milestones": ["Poster Exhibition", "VIP & Space Agency Visits", "Awards Ceremony"]}
+                    "images": ["/assets/img/Case studies/PLANETX/PlanetX 3.jpg"],
+                    "items": [
+                        {"title": "Day 1 - Launch & Foundation", "description": "", "milestones": ["SatKit Shallow Flight Workshop", "EMA Mission Overview", "Lander Constraints & ConOps", "Sessions by NASA Astronauts"]},
+                        {"title": "Day 2 - Advanced Integration", "description": "", "milestones": ["Advanced Space Applications", "Lander Integration"]},
+                        {"title": "Day 3 - Validation & Testing", "description": "", "milestones": ["Lander Testing", "Jury Presentations"]},
+                        {"title": "Day 4 - Showcase & Awards", "description": "", "milestones": ["Poster Exhibition", "VIP & Space Agency Visits", "Awards Ceremony"]}
                     ]
                 }
             ],
@@ -514,11 +517,11 @@ async def seed_default_case_studies(db: AsyncSession):
                     "badge": "01",
                     "title": "Winter & Summer Breaks (Intensive)",
                     "subtitle": "4 Days | 6h Total (~1.5h - 2h per day)",
-                    "days": [
-                        {"day_title": "Day 1", "milestones": ["Intro to Satellite & CDHS"]},
-                        {"day_title": "Day 2", "milestones": ["EPS & ADCS"]},
-                        {"day_title": "Day 3", "milestones": ["Mechanical Assembly"]},
-                        {"day_title": "Day 4", "milestones": ["Demo Day & Poster Presentations"]}
+                    "items": [
+                        {"title": "Day 1", "description": "", "milestones": ["Intro to Satellite & CDHS"]},
+                        {"title": "Day 2", "description": "", "milestones": ["EPS & ADCS"]},
+                        {"title": "Day 3", "description": "", "milestones": ["Mechanical Assembly"]},
+                        {"title": "Day 4", "description": "", "milestones": ["Demo Day & Poster Presentations"]}
                     ]
                 },
                 {
@@ -527,7 +530,7 @@ async def seed_default_case_studies(db: AsyncSession):
                     "title": "During Semester Program (Extended)",
                     "subtitle": "6 Weeks | 1 session/week (50-60 min)",
                     "items": [
-                        {"title": "Integrated Academic Schedule", "description": "Designed for ongoing learning integrated with academic schedules, offering a weekly session format."}
+                        {"title": "Integrated Academic Schedule", "description": "Designed for ongoing learning integrated with academic schedules, offering a weekly session format.", "milestones": []}
                     ]
                 }
             ],

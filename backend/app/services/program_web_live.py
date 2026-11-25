@@ -610,11 +610,11 @@ async def resolve_case_study_live(
             venue, city = loc_map.get(c.location_id, (c.location, None)) if c.location_id else (c.location, None)
             span = _format_date_span(c.starts_on, c.ends_on)
             subtitle_parts = [p for p in [span, city or venue] if p]
-            day_rows = []
+            stage_items = []
             for d_idx, s in enumerate(sess_list):
                 day_title = f"Day {d_idx + 1} - {s.title}" if s.title else f"Day {d_idx + 1}"
                 milestones = [s.meeting_date.strftime("%b %d, %Y")] if s.meeting_date else []
-                day_rows.append({"day_title": day_title, "milestones": milestones})
+                stage_items.append({"title": day_title, "description": "", "milestones": milestones})
             structure_sections.append(
                 {
                     "id": f"stage-{idx + 1}",
@@ -622,8 +622,9 @@ async def resolve_case_study_live(
                     "title": c.name,
                     "subtitle": " · ".join(subtitle_parts) if subtitle_parts else None,
                     "image_url": None,
-                    "items": [],
-                    "days": day_rows,
+                    "images": [],
+                    "items": stage_items,
+                    "days": [],
                 }
             )
 
