@@ -4,6 +4,8 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { isAxiosError } from "axios";
 import {
   ArrowLeft,
+  ArrowUp,
+  ArrowDown,
   BookOpen,
   ChevronDown,
   ChevronRight,
@@ -11,31 +13,40 @@ import {
   Eye,
   FileArchive,
   ImagePlus,
+  Pencil,
+  Plus,
   Trash2,
 } from "lucide-react";
 import { EmptyState, Spinner } from "@/components/ui/primitives";
 import { ConfirmDialog, Field } from "@/pages/admin/components/common";
 import { useToast } from "@/components/ui/toast";
+import { useAuth } from "@/context/AuthContext";
 import { getCohortsApi } from "@/api/sessions/cohorts";
+import { getOrgCohortsApi } from "@/api/organizationPrograms";
 import { BookCover } from "@/components/lms/BookCover";
 import { AssignPanel } from "./components/AssignPanel";
 import {
   adminBulkGrantBookEnrollmentApi,
+  adminCreateBookEditionApi,
+  adminDeleteBookEditionApi,
   adminExportBookCsvApi,
   adminGetBookAnalyticsApi,
   adminGetBookApi,
   adminGrantBookEnrollmentApi,
+  adminListBookEditionsApi,
   adminListBookEnrollmentsApi,
   adminPublishBookApi,
   adminRevokeBookEnrollmentApi,
   adminUnpublishBookApi,
   adminUpdateBookApi,
+  adminUpdateBookEditionApi,
   adminUploadBookBundleApi,
   adminUploadBookCoverApi,
+  type BookEdition,
   type BookEnrollmentRow,
 } from "@/api/lms_books";
 
-type BookTab = "details" | "bundle" | "enrollments" | "analytics";
+type BookTab = "details" | "editions" | "bundle" | "enrollments" | "analytics";
 
 function errorDetail(err: unknown, fallback: string): string {
   if (isAxiosError(err) && typeof err.response?.data?.detail === "string") {
@@ -69,17 +80,30 @@ export default function LmsBookDetail() {
   const { bookId } = useParams({ strict: false }) as { bookId: string };
   const queryClient = useQueryClient();
   const toast = useToast();
+  const { activeRole } = useAuth();
+  const isOrgContext = activeRole === "organization";
 
   const coverInputRef = useRef<HTMLInputElement>(null);
   const bundleInputRef = useRef<HTMLInputElement>(null);
 
-  const [tab, setTab] = useState<BookTab>("details");
+  const [tab, setTab] = useState<BookTab>(isOrgContext ? "editions" : "details");
   const [expandedChapters, setExpandedChapters] = useState<Record<string, boolean>>({});
   const [cohortId, setCohortId] = useState("");
+  const [editionAnalyticsId, setEditionAnalyticsId] = useState("");
   const [bulkResult, setBulkResult] = useState<{ granted: number; already_enrolled: number } | null>(null);
   const [revokeTarget, setRevokeTarget] = useState<BookEnrollmentRow | null>(null);
   const [revokeError, setRevokeError] = useState("");
   const [exporting, setExporting] = useState(false);
+
+  // Edition editor state
+  const [editionFormOpen, setEditionFormOpen] = useState(false);
+  const [editingEdition, setEditingEdition] = useState<BookEdition | null>(null);
+  const [edTitle, setEdTitle] = useState("");
+  const [edTitleAr, setEdTitleAr] = useState("");
+  const [edDescription, setEdDescription] = useState("");
+  const [edChapters, setEdChapters] = useState<string[]>([]);
+  const [edError, setEdError] = useState("");
+  const [deleteEditionTarget, setDeleteEditionTarget] = useState<BookEdition | null>(null);
 
   // Details form state
   const [title, setTitle] = useState("");
@@ -115,30 +139,100 @@ export default function LmsBookDetail() {
     setPriceMajor(book.price_cents != null ? (book.price_cents / 100).toFixed(2) : "");
     setCurrency(book.currency || "AED");
     setAccessDays(book.access_days != null ? String(book.access_days) : "");
-  }, [book]);
+    if ((book.can_manage_master === false || isOrgContext) && (tab === "details" || tab === "bundle" || tab === "enrollments")) {
+      setTab("editions");
+    }
+  }, [book, isOrgContext, tab]);
+
+  const canManageMaster = Boolean(book && book.can_manage_master !== false && !isOrgContext);
+
+  const { data: editions = [] } = useQuery({
+    queryKey: ["lms-admin-book-editions", bookId],
+    queryFn: () => adminListBookEditionsApi(bookId),
+    enabled: tab === "editions" || tab === "analytics",
+  });
 
   const { data: enrollments = [], isLoading: enrollmentsLoading } = useQuery({
     queryKey: ["lms-admin-book-enrollments", bookId],
     queryFn: () => adminListBookEnrollmentsApi(bookId),
-    enabled: tab === "enrollments",
+    enabled: canManageMaster && tab === "enrollments",
   });
 
-  const { data: cohorts = [] } = useQuery({
-    queryKey: ["sessions-cohorts-all"],
-    queryFn: () => getCohortsApi(),
+  const { data: cohorts = [] } = useQuery<Array<{ id: string; name: string }>>({
+    queryKey: [isOrgContext ? "org-cohorts-all" : "sessions-cohorts-all"],
+    queryFn: async () => (isOrgContext ? getOrgCohortsApi() : getCohortsApi()),
     enabled: tab === "analytics",
   });
+
+  useEffect(() => {
+    if (isOrgContext && cohorts.length > 0 && !cohortId) {
+      setCohortId(cohorts[0].id);
+    }
+  }, [isOrgContext, cohorts, cohortId]);
 
   const { data: analytics, isLoading: analyticsLoading } = useQuery({
-    queryKey: ["lms-admin-book-analytics", bookId, cohortId],
-    queryFn: () => adminGetBookAnalyticsApi(bookId, cohortId || undefined),
-    enabled: tab === "analytics",
+    queryKey: ["lms-admin-book-analytics", bookId, cohortId, editionAnalyticsId],
+    queryFn: () => adminGetBookAnalyticsApi(bookId, cohortId || undefined, editionAnalyticsId || undefined),
+    enabled: tab === "analytics" && (!isOrgContext || Boolean(cohortId)),
   });
 
   const invalidateBook = () => {
     void queryClient.invalidateQueries({ queryKey: ["lms-admin-book", bookId] });
+    void queryClient.invalidateQueries({ queryKey: ["lms-admin-book-editions", bookId] });
     void queryClient.invalidateQueries({ queryKey: ["lms-admin-books"] });
   };
+
+  const openNewEditionForm = () => {
+    setEditingEdition(null);
+    setEdTitle("");
+    setEdTitleAr("");
+    setEdDescription("");
+    setEdChapters(book?.outline.map((c) => c.key) ?? []);
+    setEdError("");
+    setEditionFormOpen(true);
+  };
+
+  const openEditEditionForm = (ed: BookEdition) => {
+    setEditingEdition(ed);
+    setEdTitle(ed.title);
+    setEdTitleAr(ed.title_ar ?? "");
+    setEdDescription(ed.description ?? "");
+    setEdChapters(ed.chapter_keys ?? []);
+    setEdError("");
+    setEditionFormOpen(true);
+  };
+
+  const saveEditionMutation = useMutation({
+    mutationFn: () => {
+      const payload = {
+        title: edTitle.trim(),
+        title_ar: edTitleAr.trim() || null,
+        description: edDescription.trim() || null,
+        chapter_keys: edChapters,
+      };
+      return editingEdition
+        ? adminUpdateBookEditionApi(bookId, editingEdition.id, payload)
+        : adminCreateBookEditionApi(bookId, payload);
+    },
+    onSuccess: () => {
+      setEditionFormOpen(false);
+      setEditingEdition(null);
+      setEdError("");
+      invalidateBook();
+      toast.success(editingEdition ? "Edition updated" : "Edition created");
+    },
+    onError: (err) => setEdError(errorDetail(err, "Failed to save edition")),
+  });
+
+  const deleteEditionMutation = useMutation({
+    mutationFn: (editionId: string) => adminDeleteBookEditionApi(bookId, editionId),
+    onSuccess: () => {
+      setDeleteEditionTarget(null);
+      invalidateBook();
+      toast.success("Edition deleted");
+    },
+    onError: (err) => toast.error(errorDetail(err, "Failed to delete edition")),
+  });
 
   const updateMutation = useMutation({
     mutationFn: () => {
@@ -259,26 +353,6 @@ export default function LmsBookDetail() {
     onError: (err) => setRevokeError(errorDetail(err, "Failed to revoke access")),
   });
 
-  const handleExportCsv = async () => {
-    if (!book || exporting) return;
-    setExporting(true);
-    try {
-      const blob = await adminExportBookCsvApi(bookId, cohortId || undefined);
-      const url = window.URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = `${book.slug || "book"}-responses.csv`;
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      window.URL.revokeObjectURL(url);
-    } catch (err) {
-      toast.error(errorDetail(err, "Failed to export CSV"));
-    } finally {
-      setExporting(false);
-    }
-  };
-
   if (isLoading) {
     return (
       <div className="max-w-6xl mx-auto px-4 sm:px-6 py-8">
@@ -295,12 +369,18 @@ export default function LmsBookDetail() {
     );
   }
 
-  const tabs: { id: BookTab; label: string }[] = [
-    { id: "details", label: "Details & Access" },
-    { id: "bundle", label: "Bundle & Outline" },
-    { id: "enrollments", label: "Access & Enrollments" },
-    { id: "analytics", label: "Analytics & Responses" },
-  ];
+  const tabs: { id: BookTab; label: string }[] = canManageMaster
+    ? [
+        { id: "details", label: "Details & Access" },
+        { id: "editions", label: `Editions (${editions.length || book.editions?.length || 0})` },
+        { id: "bundle", label: "Bundle & Outline" },
+        { id: "enrollments", label: "Access & Enrollments" },
+        { id: "analytics", label: "Analytics & Responses" },
+      ]
+    : [
+        { id: "editions", label: `Custom Editions (${editions.length || book.editions?.length || 0})` },
+        { id: "analytics", label: "Class Analytics" },
+      ];
 
   const profileOptions = book.profiles.length > 0
     ? book.profiles
@@ -360,20 +440,22 @@ export default function LmsBookDetail() {
               Preview Reader
             </button>
           )}
-          <button
-            type="button"
-            disabled={
-              togglePublishMutation.isPending || (!book.is_published && book.bundle_version === 0)
-            }
-            onClick={() => togglePublishMutation.mutate()}
-            className={`h-10 px-4 rounded-[10px] text-sm font-medium border transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed ${
-              book.is_published
-                ? "border-border bg-card text-foreground hover:bg-muted"
-                : "border-primary bg-primary text-primary-foreground hover:bg-primary/90"
-            }`}
-          >
-            {book.is_published ? "Unpublish" : "Publish"}
-          </button>
+          {canManageMaster && (
+            <button
+              type="button"
+              disabled={
+                togglePublishMutation.isPending || (!book.is_published && book.bundle_version === 0)
+              }
+              onClick={() => togglePublishMutation.mutate()}
+              className={`h-10 px-4 rounded-[10px] text-sm font-medium border transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed ${
+                book.is_published
+                  ? "border-border bg-card text-foreground hover:bg-muted"
+                  : "border-primary bg-primary text-primary-foreground hover:bg-primary/90"
+              }`}
+            >
+              {book.is_published ? "Unpublish" : "Publish"}
+            </button>
+          )}
         </div>
       </div>
 
@@ -396,7 +478,7 @@ export default function LmsBookDetail() {
       </div>
 
       {/* Tab 1: Details & Access */}
-      {tab === "details" && (
+      {canManageMaster && tab === "details" && (
         <div className="grid grid-cols-1 lg:grid-cols-[1fr_240px] gap-8 items-start">
           <div className="flex flex-col gap-4">
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -583,8 +665,259 @@ export default function LmsBookDetail() {
         </div>
       )}
 
+      {/* Tab: Editions (Chapter Slicing) */}
+      {tab === "editions" && (
+        <div className="flex flex-col gap-5">
+          <div className="border border-border rounded-[10px] bg-card p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+            <div>
+              <h2 className="text-base font-semibold text-foreground">Custom Chapter Editions</h2>
+              <p className="text-xs text-muted-foreground mt-0.5">
+                Pick and order a subset of chapters into a named edition without duplicating the book bundle. Attach editions in cohort checklists or invite codes — students only see their assigned chapters.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={openNewEditionForm}
+              className="inline-flex items-center gap-2 h-10 px-4 rounded-[10px] bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 transition-colors cursor-pointer shrink-0"
+            >
+              <Plus size={15} />
+              New Edition
+            </button>
+          </div>
+
+          {editionFormOpen && (
+            <div className="border border-primary/40 rounded-[10px] bg-card p-5 flex flex-col gap-4">
+              <div className="flex items-center justify-between">
+                <h3 className="text-sm font-semibold text-foreground">
+                  {editingEdition ? `Edit "${editingEdition.title}"` : "Create New Edition"}
+                </h3>
+                <button
+                  type="button"
+                  onClick={() => setEditionFormOpen(false)}
+                  className="text-xs text-muted-foreground hover:text-foreground cursor-pointer"
+                >
+                  Cancel
+                </button>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <Field label="Edition Name">
+                  <input
+                    type="text"
+                    value={edTitle}
+                    onChange={(e) => setEdTitle(e.target.value)}
+                    placeholder="e.g. Grade 9 Foundations / Term 1 Pack"
+                    className={inputCls}
+                  />
+                </Field>
+                <Field label="Arabic Edition Name (optional)">
+                  <input
+                    type="text"
+                    dir="rtl"
+                    value={edTitleAr}
+                    onChange={(e) => setEdTitleAr(e.target.value)}
+                    placeholder="الإصدار الأول"
+                    className={inputCls}
+                  />
+                </Field>
+              </div>
+              <Field label="Notes (optional)">
+                <input
+                  type="text"
+                  value={edDescription}
+                  onChange={(e) => setEdDescription(e.target.value)}
+                  placeholder="Short description for teachers and students"
+                  className={inputCls}
+                />
+              </Field>
+              <div className="flex flex-col gap-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-semibold text-foreground">
+                    Chapters ({edChapters.length} / {book.outline.length} selected)
+                  </span>
+                  <div className="flex gap-3 text-xs">
+                    <button
+                      type="button"
+                      onClick={() => setEdChapters(book.outline.map((c) => c.key))}
+                      className="text-primary hover:underline cursor-pointer"
+                    >
+                      Select All
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setEdChapters([])}
+                      className="text-muted-foreground hover:text-foreground cursor-pointer"
+                    >
+                      Clear
+                    </button>
+                  </div>
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                  {book.outline.map((ch) => {
+                    const idx = edChapters.indexOf(ch.key);
+                    const checked = idx !== -1;
+                    return (
+                      <div
+                        key={ch.key}
+                        className={`flex items-center justify-between gap-2 px-3 py-2 rounded-[10px] border text-sm ${
+                          checked ? "border-primary/40 bg-primary/5" : "border-border bg-background"
+                        }`}
+                      >
+                        <label className="flex items-center gap-2.5 min-w-0 flex-1 cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={checked}
+                            onChange={() =>
+                              setEdChapters((prev) =>
+                                prev.includes(ch.key) ? prev.filter((k) => k !== ch.key) : [...prev, ch.key],
+                              )
+                            }
+                            className="h-4 w-4 rounded text-primary"
+                          />
+                          <span className="truncate text-foreground">
+                            {ch.code ? <span className="font-mono text-xs text-primary mr-1.5">{ch.code}</span> : null}
+                            {ch.title_en}
+                          </span>
+                        </label>
+                        {checked && (
+                          <div className="flex items-center gap-1 shrink-0">
+                            <span className="text-[11px] font-mono text-muted-foreground mr-1">#{idx + 1}</span>
+                            <button
+                              type="button"
+                              disabled={idx === 0}
+                              onClick={() =>
+                                setEdChapters((prev) => {
+                                  const next = [...prev];
+                                  [next[idx - 1], next[idx]] = [next[idx], next[idx - 1]];
+                                  return next;
+                                })
+                              }
+                              className="p-1 rounded border border-border disabled:opacity-30 cursor-pointer"
+                              title="Move chapter up"
+                            >
+                              <ArrowUp size={12} />
+                            </button>
+                            <button
+                              type="button"
+                              disabled={idx === edChapters.length - 1}
+                              onClick={() =>
+                                setEdChapters((prev) => {
+                                  const next = [...prev];
+                                  [next[idx + 1], next[idx]] = [next[idx], next[idx + 1]];
+                                  return next;
+                                })
+                              }
+                              className="p-1 rounded border border-border disabled:opacity-30 cursor-pointer"
+                              title="Move chapter down"
+                            >
+                              <ArrowDown size={12} />
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+              {edError && <p className="text-xs text-rose-600">{edError}</p>}
+              <div className="flex justify-end gap-2">
+                <button
+                  type="button"
+                  disabled={saveEditionMutation.isPending || !edTitle.trim() || edChapters.length === 0}
+                  onClick={() => {
+                    if (!edTitle.trim()) { setEdError("Edition title is required"); return; }
+                    if (edChapters.length === 0) { setEdError("Select at least one chapter"); return; }
+                    saveEditionMutation.mutate();
+                  }}
+                  className="h-9 px-4 rounded-[10px] bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 disabled:opacity-50 cursor-pointer"
+                >
+                  {saveEditionMutation.isPending ? "Saving…" : editingEdition ? "Save Edition" : "Create Edition"}
+                </button>
+              </div>
+            </div>
+          )}
+
+          {editions.length === 0 ? (
+            <div className="border border-border rounded-[10px] bg-card p-8 text-center text-sm text-muted-foreground">
+              No custom editions created for this book yet. Click <strong>New Edition</strong> to create your first chapter subset.
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {editions.map((ed) => (
+                <div key={ed.id} className="border border-border rounded-[10px] bg-card p-4 flex flex-col gap-3 justify-between">
+                  <div className="space-y-2">
+                    <div className="flex items-start justify-between gap-2">
+                      <div>
+                        <h3 className="font-semibold text-base text-foreground">{ed.title}</h3>
+                        {ed.title_ar && <p dir="rtl" className="text-xs text-muted-foreground">{ed.title_ar}</p>}
+                      </div>
+                      <span className="text-[11px] font-medium px-2 py-0.5 rounded-[10px] border border-border bg-background text-muted-foreground shrink-0">
+                        {ed.organization_id ? (ed.creator_name || "Organization") : "SpacePoint"}
+                      </span>
+                    </div>
+                    {ed.description && <p className="text-xs text-muted-foreground">{ed.description}</p>}
+                    <div className="flex flex-wrap gap-1.5">
+                      {ed.chapter_keys.map((k) => {
+                        const ch = book.outline.find((o) => o.key === k);
+                        return (
+                          <span
+                            key={k}
+                            className="text-[11px] font-mono px-2 py-0.5 rounded-[8px] bg-primary/10 text-primary border border-primary/20"
+                          >
+                            {ch?.code || k}
+                          </span>
+                        );
+                      })}
+                    </div>
+                  </div>
+                  <div className="flex items-center justify-between gap-2 pt-2 border-t border-border/60">
+                    <Link
+                      to="/learn/books/$bookId/read"
+                      params={{ bookId: book.id }}
+                      search={{ editionId: ed.id } as never}
+                      className="inline-flex items-center gap-1.5 text-xs font-medium text-primary hover:underline"
+                    >
+                      <Eye size={13} /> Preview Edition
+                    </Link>
+                    {ed.can_edit && (
+                      <div className="flex items-center gap-1.5">
+                        <button
+                          type="button"
+                          onClick={() => openEditEditionForm(ed)}
+                          className="inline-flex items-center gap-1 h-8 px-2.5 rounded-[8px] border border-border text-xs font-medium hover:bg-muted cursor-pointer"
+                        >
+                          <Pencil size={12} /> Edit
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setDeleteEditionTarget(ed)}
+                          className="inline-flex items-center gap-1 h-8 px-2.5 rounded-[8px] border border-border text-xs font-medium text-muted-foreground hover:text-rose-600 cursor-pointer"
+                        >
+                          <Trash2 size={12} /> Delete
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {deleteEditionTarget && (
+            <ConfirmDialog
+              title="Delete book edition?"
+              description={`Delete "${deleteEditionTarget.title}"? Editions referenced by checklist items or invite codes must be detached first.`}
+              confirmLabel="Delete"
+              destructive
+              pending={deleteEditionMutation.isPending}
+              onConfirm={() => deleteEditionMutation.mutate(deleteEditionTarget.id)}
+              onCancel={() => setDeleteEditionTarget(null)}
+            />
+          )}
+        </div>
+      )}
+
       {/* Tab 2: Bundle & Outline */}
-      {tab === "bundle" && (
+      {canManageMaster && tab === "bundle" && (
         <div className="flex flex-col gap-6">
           <div className="border border-border rounded-[10px] bg-card p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
             <div className="flex flex-col gap-1">
@@ -733,7 +1066,7 @@ export default function LmsBookDetail() {
       )}
 
       {/* Tab 3: Access & Enrollments */}
-      {tab === "enrollments" && (
+      {canManageMaster && tab === "enrollments" && (
         <div className="flex flex-col gap-5">
           <div className="max-w-2xl">
             <AssignPanel
@@ -839,7 +1172,8 @@ export default function LmsBookDetail() {
               onChange={(e) => setCohortId(e.target.value)}
               className="w-auto min-w-[220px] max-w-xs h-10 px-3 rounded-[10px] border border-border bg-card text-sm text-foreground cursor-pointer focus:outline-none focus:border-primary"
             >
-              <option value="">All learners</option>
+              {!isOrgContext && <option value="">All learners</option>}
+              {isOrgContext && cohorts.length === 0 && <option value="">No accessible cohorts</option>}
               {cohorts.map((c) => (
                 <option key={c.id} value={c.id}>
                   {c.name}
@@ -847,10 +1181,43 @@ export default function LmsBookDetail() {
               ))}
             </select>
 
+            {editions.length > 0 && (
+              <select
+                value={editionAnalyticsId}
+                onChange={(e) => setEditionAnalyticsId(e.target.value)}
+                className="w-auto min-w-[200px] max-w-xs h-10 px-3 rounded-[10px] border border-border bg-card text-sm text-foreground cursor-pointer focus:outline-none focus:border-primary"
+              >
+                <option value="">Cohort assigned scope (auto)</option>
+                {editions.map((ed) => (
+                  <option key={ed.id} value={ed.id}>
+                    {ed.title} ({ed.chapter_keys.length} ch)
+                  </option>
+                ))}
+              </select>
+            )}
+
             <button
               type="button"
-              disabled={exporting}
-              onClick={() => void handleExportCsv()}
+              disabled={exporting || (isOrgContext && !cohortId)}
+              onClick={async () => {
+                if (!book || exporting) return;
+                setExporting(true);
+                try {
+                  const blob = await adminExportBookCsvApi(bookId, cohortId || undefined, editionAnalyticsId || undefined);
+                  const url = window.URL.createObjectURL(blob);
+                  const a = document.createElement("a");
+                  a.href = url;
+                  a.download = `${book.slug || "book"}-responses.csv`;
+                  document.body.appendChild(a);
+                  a.click();
+                  a.remove();
+                  window.URL.revokeObjectURL(url);
+                } catch (err) {
+                  toast.error(errorDetail(err, "Failed to export CSV"));
+                } finally {
+                  setExporting(false);
+                }
+              }}
               className="inline-flex items-center gap-2 h-10 px-4 rounded-[10px] border border-border bg-card text-sm font-medium text-foreground hover:bg-muted transition-colors cursor-pointer disabled:opacity-50"
             >
               <Download size={15} />

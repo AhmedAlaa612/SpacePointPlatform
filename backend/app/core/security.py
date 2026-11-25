@@ -87,9 +87,11 @@ def create_book_token(
     version: int,
     can_teacher: bool,
     expires_delta: timedelta | None = None,
+    edition_id: Any | None = None,
+    allowed_chapters: list[str] | None = None,
 ) -> str:
-    """Short-lived token scoping one user to one LmsBook bundle version."""
-    payload = {
+    """Short-lived token scoping one user to one LmsBook bundle version (and optional chapter slice)."""
+    payload: dict[str, Any] = {
         "sub": str(user_id),
         "book_id": str(book_id),
         "version": int(version),
@@ -97,6 +99,10 @@ def create_book_token(
         "exp": datetime.now(timezone.utc) + (expires_delta or timedelta(hours=6)),
         "type": "book_reader",
     }
+    if edition_id is not None:
+        payload["edition_id"] = str(edition_id)
+    if allowed_chapters is not None:
+        payload["allowed_chapters"] = [str(c) for c in allowed_chapters]
     return jwt.encode(payload, settings.SECRET_KEY, algorithm=settings.ALGORITHM)
 
 

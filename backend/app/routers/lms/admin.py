@@ -19,14 +19,15 @@ from arq.connections import ArqRedis
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, UploadFile, status
 from fastapi.responses import Response
 from pydantic import BaseModel, ValidationError
-from sqlalchemy import func, or_, select
+from sqlalchemy import exists, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.dependencies import get_current_active_user, require_lms_content
 from app.db.session import get_db
 from app.models.enums import UserRole
 from app.models.lms import Course, CourseModule, CourseRating, Enrollment, ModuleItem, VideoCheckpoint
-from app.models.lms.book import LmsBook
+from app.models.lms.book import LmsBook, LmsBookEdition
+from app.services.lms.books import can_manage_master_books, is_book_allowed_for_org, resolve_book_user_org
 from app.models.videos import Video
 from app.models.lms.invite_grant import InvitationCodeGrant, UserInvitationCode
 from app.models.lms.program import CohortLmsEditor, LmsProgram, LmsProgramCohortOverride, LmsProgramItem
@@ -349,6 +350,19 @@ async def _lms_org_scope(
     return False, None
 
 
+async def _lms_org_cohort_scope(
+    db: AsyncSession, current_user: User, org_id: uuid.UUID | None
+) -> set[uuid.UUID] | None:
+    if org_id is None:
+        return None
+    from app.services.org_access import accessible_org_cohort_ids
+
+    org = await db.get(Organization, org_id)
+    if org is None:
+        return set()
+    return await accessible_org_cohort_ids(db, org, current_user)
+
+
 async def _assert_lms_student_in_org_scope(
     db: AsyncSession,
     current_user: User,
@@ -357,7 +371,10 @@ async def _assert_lms_student_in_org_scope(
 ) -> uuid.UUID | None:
     scoped, org_id = await _lms_org_scope(db, current_user, x_active_role)
     if scoped:
-        if not org_id or not await student_search_service.user_belongs_to_organization(db, user_id, org_id):
+        allowed_cohort_ids = await _lms_org_cohort_scope(db, current_user, org_id)
+        if not org_id or not await student_search_service.user_belongs_to_organization(
+            db, user_id, org_id, allowed_cohort_ids=allowed_cohort_ids, actor_user_id=current_user.id,
+        ):
             raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Student not found")
     return org_id
 
@@ -393,9 +410,17 @@ async def search_students(
     scoped, org_id = await _lms_org_scope(db, current_user, x_active_role)
     if scoped and org_id is None:
         return []
+    allowed_cohort_ids = await _lms_org_cohort_scope(db, current_user, org_id) if scoped else None
 
     return await student_search_service.search_students(
-        db, q=q, invite_code=invite_code, login_status=login_status, mode=mode, org_id=org_id,
+        db,
+        q=q,
+        invite_code=invite_code,
+        login_status=login_status,
+        mode=mode,
+        org_id=org_id,
+        allowed_cohort_ids=allowed_cohort_ids,
+        actor_user_id=current_user.id,
     )
 
 
@@ -434,13 +459,34 @@ async def list_invite_codes(
         if cohort is not None:
             target_org_id = await cohort_organization_id(db, cohort)
     if target_org_id is not None:
-        stmt = stmt.where(student_search_service.org_invite_code_filter(target_org_id))
+        if cohort_id is not None and not is_staff(current_user):
+            from app.services.org_access import require_cohort_read_or_ops
+
+            await require_cohort_read_or_ops(db, cohort_id, current_user)
+        scoped, org_id = await _lms_org_scope(db, current_user, x_active_role)
+        allowed_cohort_ids = (
+            await _lms_org_cohort_scope(db, current_user, target_org_id)
+            if (scoped or not is_staff(current_user))
+            else None
+        )
+        stmt = stmt.where(
+            student_search_service.org_invite_code_filter(
+                target_org_id,
+                allowed_cohort_ids=allowed_cohort_ids,
+                actor_user_id=current_user.id,
+            )
+        )
     else:
         scoped, org_id = await _lms_org_scope(db, current_user, x_active_role)
         if scoped:
             if org_id is None:
                 return []
-            stmt = stmt.where(student_search_service.org_invite_code_filter(org_id))
+            allowed_cohort_ids = await _lms_org_cohort_scope(db, current_user, org_id)
+            stmt = stmt.where(
+                student_search_service.org_invite_code_filter(
+                    org_id, allowed_cohort_ids=allowed_cohort_ids, actor_user_id=current_user.id,
+                )
+            )
         else:
             _, scope_all = await get_author_permissions(db, current_user)
             if not scope_all:
@@ -566,6 +612,7 @@ async def _invite_code_grant_out(db: AsyncSession, grant: InvitationCodeGrant) -
     cohort_name = None
     lms_program_name = None
     book_title = None
+    book_edition_title = None
     if grant.course_id is not None:
         course = await db.get(Course, grant.course_id)
         course_title = course.title if course else None
@@ -575,6 +622,9 @@ async def _invite_code_grant_out(db: AsyncSession, grant: InvitationCodeGrant) -
     if grant.book_id is not None:
         book = await db.get(LmsBook, grant.book_id)
         book_title = book.title if book else None
+    if getattr(grant, "book_edition_id", None) is not None:
+        ed = await db.get(LmsBookEdition, grant.book_edition_id)
+        book_edition_title = ed.title if ed else None
     if grant.cohort_id is not None:
         cohort = await db.get(Cohort, grant.cohort_id)
         cohort_name = cohort.name if cohort else None
@@ -588,6 +638,8 @@ async def _invite_code_grant_out(db: AsyncSession, grant: InvitationCodeGrant) -
         learning_path_id=grant.learning_path_id, learning_path_title=learning_path_title,
         cohort_id=grant.cohort_id, cohort_name=cohort_name, lms_program_name=lms_program_name,
         book_id=grant.book_id, book_title=book_title,
+        book_edition_id=getattr(grant, "book_edition_id", None),
+        book_edition_title=book_edition_title,
         created_at=grant.created_at,
     )
 
@@ -656,6 +708,13 @@ async def create_invite_code_grant(
             await check_learning_path_access(db, current, lp)
         elif body.cohort_id is not None:
             await _check_cohort_grant_access(db, current, body.cohort_id)
+        elif body.book_id is not None:
+            bk = await db.get(LmsBook, body.book_id)
+            if bk is None:
+                raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Book not found")
+            org = await resolve_book_user_org(db, current)
+            if org is None or not await is_book_allowed_for_org(db, org, bk):
+                raise HTTPException(status.HTTP_403_FORBIDDEN, detail="Book access is not enabled for your organization")
 
     if body.course_id is not None:
         if await db.get(Course, body.course_id) is None:
@@ -677,6 +736,10 @@ async def create_invite_code_grant(
     elif body.book_id is not None:
         if await db.get(LmsBook, body.book_id) is None:
             raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Book not found")
+        if body.book_edition_id is not None:
+            ed = await db.get(LmsBookEdition, body.book_edition_id)
+            if ed is None or ed.book_id != body.book_id:
+                raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="Book edition does not belong to the selected book")
         clash = (await db.execute(
             select(InvitationCodeGrant.id).where(
                 InvitationCodeGrant.invitation_code_id == code_id,
@@ -696,7 +759,7 @@ async def create_invite_code_grant(
 
     grant, accounts_enrolled = await grant_invite_code_access(
         db, invitation_code=code, course_id=body.course_id, learning_path_id=body.learning_path_id,
-        cohort_id=body.cohort_id, book_id=body.book_id,
+        cohort_id=body.cohort_id, book_id=body.book_id, book_edition_id=body.book_edition_id,
     )
     await db.commit()
     return InviteCodeGrantCreateOut(
@@ -2394,6 +2457,17 @@ async def upload_lms_program_image(
     return await program_out(db, program)
 
 
+async def _assert_item_book_access(db: AsyncSession, current: User, body: LmsProgramItemIn) -> None:
+    if body.book_id is None or can_manage_master_books(current):
+        return
+    bk = await db.get(LmsBook, body.book_id)
+    if bk is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Book not found")
+    org = await resolve_book_user_org(db, current)
+    if org is None or not await is_book_allowed_for_org(db, org, bk):
+        raise HTTPException(status.HTTP_403_FORBIDDEN, detail="Book access is not enabled for your organization")
+
+
 def _lms_item_owner(lms_program_id: uuid.UUID, variation_id: uuid.UUID | None) -> tuple[str, uuid.UUID]:
     return ("variation", variation_id) if variation_id is not None else ("program", lms_program_id)
 
@@ -2411,6 +2485,7 @@ async def add_lms_program_item(
     owner_type, owner_id = _lms_item_owner(program.id, variation_id)
     validate_item_payload(body)
     await validate_item_refs(db, body)
+    await _assert_item_book_access(db, current, body)
     await check_item_conflicts(db, owner_type=owner_type, owner_id=owner_id, body=body)
     position = body.position or await next_position(db, owner_type=owner_type, owner_id=owner_id)
     item = LmsProgramItem(
@@ -2475,6 +2550,7 @@ async def update_lms_program_item(
     guard_locked_submission_scope(item, body)
     validate_item_payload(body)
     await validate_item_refs(db, body, require_active_quiz=False)
+    await _assert_item_book_access(db, current, body)
     await check_item_conflicts(db, owner_type=owner_type, owner_id=owner_id, body=body, exclude_item_id=item.id)
     for field, value in body.model_dump(exclude={"position"}).items():
         setattr(item, field, value)
@@ -3065,12 +3141,13 @@ async def list_cohort_observer_teams(
 )
 async def add_cohort_override_item(
     cohort_id: uuid.UUID, body: LmsProgramItemIn,
-    db: AsyncSession = Depends(get_db), _: User = Depends(require_lms_content),
+    db: AsyncSession = Depends(get_db), current: User = Depends(require_lms_content),
 ):
     """Forks the cohort's override off its program's current checklist on
     the first write (`fork_cohort_override`) — so adding one new item
     never means losing the rest of what the program already lists — then
     adds this item on top of the (now-populated) override."""
+    await _enforce_cohort_lms_access(db, cohort_id, current, read_only=False)
     forked = await fork_cohort_override(db, cohort_id=cohort_id)
     if forked is None:
         raise HTTPException(
@@ -3081,6 +3158,7 @@ async def add_cohort_override_item(
 
     validate_item_payload(body)
     await validate_item_refs(db, body)
+    await _assert_item_book_access(db, current, body)
     await check_item_conflicts(db, owner_type="cohort_override", owner_id=override.id, body=body)
     position = body.position or await next_position(db, owner_type="cohort_override", owner_id=override.id)
     item = LmsProgramItem(
@@ -3099,13 +3177,14 @@ async def add_cohort_override_item(
 @router.patch("/cohorts/{cohort_id}/program-override/items/{item_id}", response_model=LmsProgramItemOut)
 async def update_cohort_override_item(
     cohort_id: uuid.UUID, item_id: uuid.UUID, body: LmsProgramItemIn,
-    db: AsyncSession = Depends(get_db), _: User = Depends(require_lms_content),
+    db: AsyncSession = Depends(get_db), current: User = Depends(require_lms_content),
 ):
     """`item_id` may be a not-yet-forked program item's id (the "inherited"
     list the GET above serves) — `fork_cohort_override`'s id map translates
     it to the override's own freshly-copied item on exactly the call that
     triggers the fork; every edit after that is against a real override
     item id once the frontend refetches."""
+    await _enforce_cohort_lms_access(db, cohort_id, current, read_only=False)
     forked = await fork_cohort_override(db, cohort_id=cohort_id)
     if forked is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="This cohort has no checklist to override")
@@ -3123,6 +3202,7 @@ async def update_cohort_override_item(
     guard_locked_submission_scope(item, body)
     validate_item_payload(body)
     await validate_item_refs(db, body, require_active_quiz=False)
+    await _assert_item_book_access(db, current, body)
     await check_item_conflicts(db, owner_type="cohort_override", owner_id=override.id, body=body, exclude_item_id=item.id)
     for field, value in body.model_dump(exclude={"position"}).items():
         setattr(item, field, value)
@@ -3137,12 +3217,13 @@ async def update_cohort_override_item(
 @router.delete("/cohorts/{cohort_id}/program-override/items/{item_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_cohort_override_item(
     cohort_id: uuid.UUID, item_id: uuid.UUID,
-    db: AsyncSession = Depends(get_db), _: User = Depends(require_lms_content),
+    db: AsyncSession = Depends(get_db), current: User = Depends(require_lms_content),
 ):
     """Same fork-then-translate as the update route above — "removing" an
     inherited item forks everything else in, then deletes just this one
     copy, which is exactly what "start from the program's list and edit
     it down" means for a delete."""
+    await _enforce_cohort_lms_access(db, cohort_id, current, read_only=False)
     forked = await fork_cohort_override(db, cohort_id=cohort_id)
     if forked is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="This cohort has no checklist to override")
@@ -3168,11 +3249,12 @@ async def delete_cohort_override_item(
 @router.post("/cohorts/{cohort_id}/program-override/items/reorder", response_model=list[LmsProgramItemOut])
 async def reorder_cohort_override_items(
     cohort_id: uuid.UUID, body: LmsProgramItemReorderIn,
-    db: AsyncSession = Depends(get_db), _: User = Depends(require_lms_content),
+    db: AsyncSession = Depends(get_db), current: User = Depends(require_lms_content),
 ):
     """Same fork-then-translate as edit/delete above — dragging an
     "inherited" list forks it first, translating every dragged id through
     the fresh id map before handing the (now real) ids to `reorder_program_items`."""
+    await _enforce_cohort_lms_access(db, cohort_id, current, read_only=False)
     forked = await fork_cohort_override(db, cohort_id=cohort_id)
     if forked is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="This cohort has no checklist to override")
@@ -3375,8 +3457,10 @@ async def import_cohort_override_items(
             arcade_game_id=src.arcade_game_id,
             arcade_game_mode=src.arcade_game_mode,
             book_id=src.book_id,
+            book_edition_id=getattr(src, "book_edition_id", None),
             book_profile=src.book_profile,
             book_chapter=src.book_chapter,
+            book_chapters=getattr(src, "book_chapters", None),
             book_min_completion_pct=src.book_min_completion_pct,
         )
         db.add(new_item)

@@ -3,7 +3,8 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { MapPin, Plus, X } from "lucide-react"
 
 import { getLocationsApi } from "@/api/inventory"
-import { createOrgCohortApi, updateOrgCohortApi } from "@/api/organizationPrograms"
+import { createOrgCohortApi, getOrgCoordinatorsApi, updateOrgCohortApi } from "@/api/organizationPrograms"
+import { useAuth } from "@/context/AuthContext"
 import { listProgramVariationsApi } from "@/api/sessions/programs"
 import { Button } from "@/components/ui/button"
 import { useToast } from "@/components/ui/toast"
@@ -40,6 +41,8 @@ export interface OrgCohortModalEditable {
   status?: string
   variation_id?: string | null
   checklist_title_override?: string | null
+  coordinator_access_mode?: "general" | "assigned"
+  coordinators?: { id: string; full_name: string; email: string }[]
 }
 
 interface Props {
@@ -61,6 +64,8 @@ export function OrgCohortModal({
   maxStudentsPerCohort,
   onSuccess,
 }: Props) {
+  const { user, activeOrgRole } = useAuth()
+  const isNonOwnerCoordinator = activeOrgRole === "coordinator"
   const qc = useQueryClient()
   const toast = useToast()
   const isEdit = Boolean(cohort)
@@ -84,7 +89,15 @@ export function OrgCohortModal({
   const [durationHours, setDurationHours] = useState("")
   const [visibility, setVisibility] = useState<"public" | "private">("private")
   const [status, setStatus] = useState("registration_open")
+  const [coordinatorAccessMode, setCoordinatorAccessMode] = useState<"general" | "assigned">("general")
+  const [coordinatorUserIds, setCoordinatorUserIds] = useState<string[]>([])
   const [createLocOpen, setCreateLocOpen] = useState(false)
+
+  const { data: orgCoordinators = [] } = useQuery({
+    queryKey: ["org-coordinators"],
+    queryFn: getOrgCoordinatorsApi,
+    enabled: open,
+  })
 
   useEffect(() => {
     if (!open) return
@@ -102,6 +115,8 @@ export function OrgCohortModal({
         cohort.visibility ?? (cohort.is_public === false ? "private" : "public"),
       )
       setStatus(cohort.status ?? "registration_open")
+      setCoordinatorAccessMode(cohort.coordinator_access_mode ?? "general")
+      setCoordinatorUserIds((cohort.coordinators ?? []).map((c) => c.id))
     } else {
       const initProg = defaultProgramId || eligiblePrograms[0]?.id || ""
       setProgramId(initProg)
@@ -115,8 +130,10 @@ export function OrgCohortModal({
       setDurationHours("")
       setVisibility("private")
       setStatus("registration_open")
+      setCoordinatorAccessMode(isNonOwnerCoordinator ? "assigned" : "general")
+      setCoordinatorUserIds(isNonOwnerCoordinator && user?.id ? [user.id] : [])
     }
-  }, [open, cohort, defaultProgramId, eligiblePrograms])
+  }, [open, cohort, defaultProgramId, eligiblePrograms, isNonOwnerCoordinator, user?.id])
 
   const { data: variations = [] } = useQuery<ProgramVariation[]>({
     queryKey: ["program-variations", programId],
@@ -172,6 +189,8 @@ export function OrgCohortModal({
           is_public: visibility === "public",
           ...(cohort.status !== "completed" ? { status } : {}),
           variation_id: variationId || null,
+          coordinator_access_mode: coordinatorAccessMode,
+          coordinator_user_ids: coordinatorAccessMode === "assigned" ? coordinatorUserIds : [],
         })
       }
       return createOrgCohortApi({
@@ -189,6 +208,8 @@ export function OrgCohortModal({
         is_public: visibility === "public",
         status,
         variation_id: variationId || null,
+        coordinator_access_mode: coordinatorAccessMode,
+        coordinator_user_ids: coordinatorAccessMode === "assigned" ? coordinatorUserIds : [],
       })
     },
     onSuccess: () => {
@@ -443,6 +464,96 @@ export function OrgCohortModal({
                   </select>
                 )}
               </label>
+            </div>
+
+            <div className="rounded-xl border border-border bg-card/60 p-3.5 flex flex-col gap-3">
+              <div className="flex flex-col gap-1">
+                <span className="text-xs font-semibold text-foreground">Coordinator Access</span>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  {[
+                    {
+                      id: "assigned" as const,
+                      label: "Assigned coordinators only",
+                      desc: "Visible to the organization owner plus the coordinators selected below.",
+                    },
+                    {
+                      id: "general" as const,
+                      label: "General (all coordinators)",
+                      desc: "Visible to every coordinator across your organization.",
+                    },
+                  ].map((opt) => (
+                    <label
+                      key={opt.id}
+                      className={`flex flex-col p-2.5 rounded-lg border text-xs cursor-pointer transition ${
+                        coordinatorAccessMode === opt.id
+                          ? "border-primary bg-primary/10 text-primary font-medium"
+                          : "border-border bg-background text-foreground hover:border-primary/40"
+                      }`}
+                    >
+                      <div className="flex items-center gap-2 mb-0.5">
+                        <input
+                          type="radio"
+                          name="coordinator_access_mode"
+                          checked={coordinatorAccessMode === opt.id}
+                          onChange={() => setCoordinatorAccessMode(opt.id)}
+                          className="h-3.5 w-3.5 text-primary"
+                        />
+                        <span className="font-semibold">{opt.label}</span>
+                      </div>
+                      <span className="text-[11px] text-muted-foreground">{opt.desc}</span>
+                    </label>
+                  ))}
+                </div>
+              </div>
+
+              {coordinatorAccessMode === "assigned" && (
+                <div className="flex flex-col gap-1.5">
+                  <span className="text-[11px] font-semibold text-muted-foreground">
+                    Included Coordinators ({coordinatorUserIds.length})
+                  </span>
+                  {orgCoordinators.length === 0 ? (
+                    <p className="text-xs text-muted-foreground">No coordinators found in this organization.</p>
+                  ) : (
+                    <div className="max-h-36 overflow-y-auto grid grid-cols-1 sm:grid-cols-2 gap-1.5">
+                      {orgCoordinators.map((coord) => {
+                        const isSelfLocked = isNonOwnerCoordinator && coord.id === user?.id
+                        const checked = coordinatorUserIds.includes(coord.id) || isSelfLocked
+                        return (
+                          <label
+                            key={coord.id}
+                            className={`flex items-center gap-2 px-2.5 py-1.5 rounded-lg border text-xs ${
+                              isSelfLocked ? "cursor-default opacity-80" : "cursor-pointer"
+                            } ${
+                              checked
+                                ? "border-primary/40 bg-primary/10 text-foreground"
+                                : "border-border bg-background text-muted-foreground hover:text-foreground"
+                            }`}
+                          >
+                            <input
+                              type="checkbox"
+                              checked={checked}
+                              disabled={isSelfLocked}
+                              onChange={() => {
+                                if (isSelfLocked) return
+                                setCoordinatorUserIds((prev) =>
+                                  prev.includes(coord.id)
+                                    ? prev.filter((id) => id !== coord.id)
+                                    : [...prev, coord.id],
+                                )
+                              }}
+                              className="h-3.5 w-3.5 rounded text-primary"
+                            />
+                            <span className="truncate font-medium">
+                              {coord.full_name}
+                              {coord.is_owner ? " (Owner)" : ""}
+                            </span>
+                          </label>
+                        )
+                      })}
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
 
             <div className="flex items-center justify-end gap-2 pt-3 border-t border-border">

@@ -49,6 +49,7 @@ export default function LearnBookReader() {
     spread?: string;
     program?: string;
     itemId?: string;
+    editionId?: string;
   };
 
   const queryClient = useQueryClient();
@@ -66,13 +67,23 @@ export default function LearnBookReader() {
   );
 
   const { data: session, isLoading, error } = useQuery({
-    queryKey: ["lms-book-reader-session", bookId, search.profile ?? "", search.chapter ?? "", search.spread ?? ""],
+    queryKey: [
+      "lms-book-reader-session",
+      bookId,
+      search.profile ?? "",
+      search.chapter ?? "",
+      search.spread ?? "",
+      search.editionId ?? "",
+      search.itemId ?? "",
+    ],
     queryFn: () =>
       createBookReaderSession(bookId, {
         profile: search.profile,
         chapter: search.chapter,
         spread: search.spread,
         theme: initialTheme,
+        edition_id: search.editionId,
+        item_id: search.itemId,
       }),
     staleTime: 1000 * 60 * 30,
   });
@@ -240,7 +251,7 @@ export default function LearnBookReader() {
         </div>
 
         <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
-          {session.profiles.length > 1 && !search.profile && (
+          {!session.locked_scope && session.profiles.length > 1 && !search.profile && (
             <select
               aria-label="Edition"
               value={selectedProfile}

@@ -492,8 +492,11 @@ export interface LmsProgramItem {
   arcade_game_mode?: "explorer" | "engineer" | "either" | null;
   book_id?: string | null;
   book_title?: string | null;
+  book_edition_id?: string | null;
+  book_edition_title?: string | null;
   book_profile?: string | null;
   book_chapter?: string | null;
+  book_chapters?: string[] | null;
   book_min_completion_pct?: number | null;
   submission_prompt: string | null;
   /** The plain (non-multi) submission's own type — link (default) or text.
@@ -587,8 +590,10 @@ export interface LmsProgramItemInput {
   arcade_game_id?: string | null;
   arcade_game_mode?: "explorer" | "engineer" | "either" | null;
   book_id?: string | null;
+  book_edition_id?: string | null;
   book_profile?: string | null;
   book_chapter?: string | null;
+  book_chapters?: string[] | null;
   book_min_completion_pct?: number | null;
   position?: number | null;
   mission_step_key?: string | null;
@@ -1116,6 +1121,8 @@ export interface InviteCodeGrant {
   lms_program_name: string | null;
   book_id: string | null;
   book_title: string | null;
+  book_edition_id?: string | null;
+  book_edition_title?: string | null;
   created_at: string | null;
 }
 
@@ -1123,7 +1130,7 @@ export const listInviteCodeGrantsApi = (codeId: string) =>
   api.get<InviteCodeGrant[]>(`/lms/admin/invite-codes/${codeId}/grants`).then((r) => r.data);
 
 export const createInviteCodeGrantApi = (
-  codeId: string, data: { course_id?: string; learning_path_id?: string; cohort_id?: string; book_id?: string },
+  codeId: string, data: { course_id?: string; learning_path_id?: string; cohort_id?: string; book_id?: string; book_edition_id?: string },
 ) => api.post<{ grant: InviteCodeGrant; accounts_enrolled: number }>(
   `/lms/admin/invite-codes/${codeId}/grants`, data,
 ).then((r) => r.data);

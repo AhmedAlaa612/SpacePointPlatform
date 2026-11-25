@@ -26,6 +26,32 @@ export interface BookProfile {
   groups: string[];
 }
 
+export interface BookEdition {
+  id: string;
+  book_id: string;
+  organization_id: string | null;
+  created_by: string | null;
+  creator_name: string | null;
+  title: string;
+  title_ar: string | null;
+  description: string | null;
+  chapter_keys: string[];
+  default_lang: string | null;
+  can_edit: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface AdminBookEditionCreatePayload {
+  title: string;
+  title_ar?: string | null;
+  description?: string | null;
+  chapter_keys: string[];
+  default_lang?: string | null;
+}
+
+export type AdminBookEditionUpdatePayload = Partial<AdminBookEditionCreatePayload>;
+
 export interface BookProgress {
   current_spread: string | null;
   current_chapter: string | null;
@@ -57,6 +83,11 @@ export interface BookCatalogItem {
   stars_earned: number;
   stars_possible: number;
   chapter_count: number;
+  edition_id?: string | null;
+  item_id?: string | null;
+  edition_title?: string | null;
+  allowed_chapters?: string[] | null;
+  locked_scope?: boolean;
 }
 
 export interface BookDetail extends BookCatalogItem {
@@ -67,6 +98,7 @@ export interface BookDetail extends BookCatalogItem {
   default_profile: string;
   outline: BookChapter[];
   profiles: BookProfile[];
+  editions?: BookEdition[];
   progress: BookProgress | null;
 }
 
@@ -80,6 +112,11 @@ export interface BookReaderSession {
   can_teacher: boolean;
   default_profile: string;
   languages: string[];
+  edition_id?: string | null;
+  item_id?: string | null;
+  edition_title?: string | null;
+  allowed_chapters?: string[] | null;
+  locked_scope?: boolean;
   outline: BookChapter[];
   profiles: BookProfile[];
   progress: BookProgress | null;
@@ -131,6 +168,8 @@ export interface AdminBook {
   price_cents: number | null;
   currency: string;
   is_published: boolean;
+  can_manage_master?: boolean;
+  editions?: BookEdition[];
   enrollments_count: number;
   active_readers_count: number;
   avg_completion_pct: number;
@@ -185,6 +224,8 @@ export interface BookEnrollmentRow {
 
 export interface BookAnalytics {
   book_id: string;
+  chapter_keys?: string[] | null;
+  edition_title?: string | null;
   total_enrolled: number;
   active_readers: number;
   avg_completion_pct: number;
@@ -243,8 +284,11 @@ export async function fetchBooks(q?: string): Promise<BookCatalogItem[]> {
   return data;
 }
 
-export async function fetchBookDetail(bookId: string): Promise<BookDetail> {
-  const { data } = await api.get<BookDetail>(`/lms/books/${bookId}`);
+export async function fetchBookDetail(
+  bookId: string,
+  params?: { edition_id?: string; item_id?: string },
+): Promise<BookDetail> {
+  const { data } = await api.get<BookDetail>(`/lms/books/${bookId}`, { params });
   return data;
 }
 
@@ -260,7 +304,15 @@ export async function startBookCheckout(bookId: string): Promise<{ checkout_url:
 
 export async function createBookReaderSession(
   bookId: string,
-  params?: { profile?: string; chapter?: string; spread?: string; theme?: "light" | "dark"; lang?: "en" | "ar" },
+  params?: {
+    profile?: string;
+    chapter?: string;
+    spread?: string;
+    theme?: "light" | "dark";
+    lang?: "en" | "ar";
+    edition_id?: string;
+    item_id?: string;
+  },
 ): Promise<BookReaderSession> {
   const { data } = await api.post<BookReaderSession>(`/lms/books/${bookId}/reader-session`, {}, { params });
   return data;
@@ -350,16 +402,52 @@ export async function adminRevokeBookEnrollmentApi(bookId: string, userId: strin
   await api.delete(`/lms/admin/books/${bookId}/enrollments/${userId}`);
 }
 
-export async function adminGetBookAnalyticsApi(bookId: string, cohortId?: string): Promise<BookAnalytics> {
+export async function adminListBookEditionsApi(bookId: string): Promise<BookEdition[]> {
+  const { data } = await api.get<BookEdition[]>(`/lms/admin/books/${bookId}/editions`);
+  return data;
+}
+
+export async function adminCreateBookEditionApi(
+  bookId: string,
+  payload: AdminBookEditionCreatePayload,
+): Promise<BookEdition> {
+  const { data } = await api.post<BookEdition>(`/lms/admin/books/${bookId}/editions`, payload);
+  return data;
+}
+
+export async function adminUpdateBookEditionApi(
+  bookId: string,
+  editionId: string,
+  payload: AdminBookEditionUpdatePayload,
+): Promise<BookEdition> {
+  const { data } = await api.patch<BookEdition>(`/lms/admin/books/${bookId}/editions/${editionId}`, payload);
+  return data;
+}
+
+export async function adminDeleteBookEditionApi(bookId: string, editionId: string): Promise<void> {
+  await api.delete(`/lms/admin/books/${bookId}/editions/${editionId}`);
+}
+
+export async function adminGetBookAnalyticsApi(
+  bookId: string,
+  cohortId?: string,
+  editionId?: string,
+): Promise<BookAnalytics> {
+  const params: Record<string, string> = {};
+  if (cohortId) params.cohort_id = cohortId;
+  if (editionId) params.edition_id = editionId;
   const { data } = await api.get<BookAnalytics>(`/lms/admin/books/${bookId}/analytics`, {
-    params: cohortId ? { cohort_id: cohortId } : undefined,
+    params: Object.keys(params).length ? params : undefined,
   });
   return data;
 }
 
-export async function adminExportBookCsvApi(bookId: string, cohortId?: string): Promise<Blob> {
+export async function adminExportBookCsvApi(bookId: string, cohortId?: string, editionId?: string): Promise<Blob> {
+  const params: Record<string, string> = {};
+  if (cohortId) params.cohort_id = cohortId;
+  if (editionId) params.edition_id = editionId;
   const { data } = await api.get<Blob>(`/lms/admin/books/${bookId}/analytics/export.csv`, {
-    params: cohortId ? { cohort_id: cohortId } : undefined,
+    params: Object.keys(params).length ? params : undefined,
     responseType: "blob",
   });
   return data;

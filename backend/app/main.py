@@ -107,7 +107,8 @@ async def lifespan(app: FastAPI):
         from app.models.website_case_studies_header import WebsiteCaseStudiesHeader
         from app.models.website_policy import WebsitePolicy
         from app.models.competitions.hint_station import CohortHintChallenge, CohortHintCard, CohortTeamHintReveal
-        from app.models.lms.book import LmsBook, LmsBookEnrollment, LmsBookProgress, LmsBookExerciseResponse
+        from app.models.lms.book import LmsBook, LmsBookEdition, LmsBookEnrollment, LmsBookExerciseResponse, LmsBookProgress
+        from app.models.sessions.cohort import CohortCoordinator
         from app.services.website_events import ensure_default_events_seeded
         from app.services.website_case_studies import get_or_seed_case_studies_header, seed_default_case_studies
         from app.services.website_policies import seed_default_policies
@@ -138,7 +139,7 @@ async def lifespan(app: FastAPI):
             await conn.run_sync(
                 lambda sync_conn: CohortTeamHintReveal.__table__.create(sync_conn, checkfirst=True)
             )
-            for _tbl in (LmsBook, LmsBookEnrollment, LmsBookProgress, LmsBookExerciseResponse):
+            for _tbl in (LmsBook, LmsBookEdition, LmsBookEnrollment, LmsBookProgress, LmsBookExerciseResponse, CohortCoordinator):
                 await conn.run_sync(
                     lambda sync_conn, t=_tbl: t.__table__.create(sync_conn, checkfirst=True)
                 )
@@ -221,6 +222,13 @@ async def lifespan(app: FastAPI):
             await db.execute(text("ALTER TABLE lms_program_items ADD COLUMN IF NOT EXISTS book_profile VARCHAR(32);"))
             await db.execute(text("ALTER TABLE lms_program_items ADD COLUMN IF NOT EXISTS book_chapter VARCHAR(64);"))
             await db.execute(text("ALTER TABLE lms_program_items ADD COLUMN IF NOT EXISTS book_min_completion_pct INTEGER;"))
+            await db.execute(text("ALTER TABLE organizations ADD COLUMN IF NOT EXISTS book_scope VARCHAR(20) NOT NULL DEFAULT 'none';"))
+            await db.execute(text("ALTER TABLE organizations ADD COLUMN IF NOT EXISTS allowed_book_ids JSONB NOT NULL DEFAULT '[]'::jsonb;"))
+            await db.execute(text("ALTER TABLE cohorts ADD COLUMN IF NOT EXISTS coordinator_access_mode VARCHAR(16) NOT NULL DEFAULT 'general';"))
+            await db.execute(text("ALTER TABLE lms_book_enrollments ADD COLUMN IF NOT EXISTS book_edition_id UUID REFERENCES lms_book_editions(id) ON DELETE SET NULL;"))
+            await db.execute(text("ALTER TABLE lms_program_items ADD COLUMN IF NOT EXISTS book_edition_id UUID REFERENCES lms_book_editions(id) ON DELETE SET NULL;"))
+            await db.execute(text("ALTER TABLE lms_program_items ADD COLUMN IF NOT EXISTS book_chapters JSONB;"))
+            await db.execute(text("ALTER TABLE invitation_code_grants ADD COLUMN IF NOT EXISTS book_edition_id UUID REFERENCES lms_book_editions(id) ON DELETE SET NULL;"))
             await db.commit()
             await ensure_default_events_seeded(db)
             await seed_default_case_studies(db)

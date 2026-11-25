@@ -38,8 +38,36 @@
   var START_PROFILE = CFG_META.startProfile || "";
   var START_THEME = CFG_META.startTheme || "";
   var START_LANG = CFG_META.startLang || "";
+  var ALLOWED_CHAPTERS = Array.isArray(CFG_META.allowedChapters) && CFG_META.allowedChapters.length
+    ? CFG_META.allowedChapters.map(function (c) { return String(c); })
+    : null;
+  var LOCKED_SCOPE = Boolean(CFG_META.lockedScope);
+  var EDITION_ID = CFG_META.editionId || "";
 
-  var OWNER_KEY = USER_ID + ":" + BOOK_ID;
+  function normalizeChKey(ch) {
+    var s = String(ch || "").trim();
+    if (/^[0-9]+$/.test(s)) return "m" + s;
+    return s;
+  }
+
+  function isChapterAllowed(ch) {
+    if (!ALLOWED_CHAPTERS) return true;
+    var norm = normalizeChKey(ch);
+    if (!norm) return true; // Front / back matter without data-ch
+    return ALLOWED_CHAPTERS.indexOf(norm) !== -1 || ALLOWED_CHAPTERS.indexOf(String(ch)) !== -1;
+  }
+
+  function buildScopedSatkitCfg(chapters) {
+    return {
+      p: "custom",
+      g: chapters.map(function (k) { return [k, "design"]; }),
+      x: [],
+      l: "",
+      n: "",
+    };
+  }
+
+  var OWNER_KEY = USER_ID + ":" + BOOK_ID + (EDITION_ID ? (":" + EDITION_ID) : (ALLOWED_CHAPTERS ? (":" + ALLOWED_CHAPTERS.join(",")) : ""));
   var LS_PREFIX = "satkit-book:";
 
   // 1. Isolate shared devices and hydrate Postgres state BEFORE book JS reads localStorage
@@ -58,11 +86,17 @@
     // Apply initial state from Postgres if present
     Object.keys(INITIAL_STATE).forEach(function (k) {
       if (k === "teacher" && !CAN_TEACHER) return;
+      if (k === "cfg" && ALLOWED_CHAPTERS) return;
+      if (k === "spread" && ALLOWED_CHAPTERS) return;
       var val = INITIAL_STATE[k];
       if (val !== undefined) {
         localStorage.setItem(LS_PREFIX + k, typeof val === "string" ? val : JSON.stringify(val));
       }
     });
+
+    if (ALLOWED_CHAPTERS) {
+      localStorage.setItem(LS_PREFIX + "cfg", JSON.stringify(buildScopedSatkitCfg(ALLOWED_CHAPTERS)));
+    }
 
     if (!CAN_TEACHER) {
       localStorage.setItem(LS_PREFIX + "teacher", JSON.stringify("0"));
@@ -371,6 +405,11 @@
 
   function gotoSpreadByName(name) {
     if (!name || name === "key") return false;
+    var el = document.querySelector('.spread[data-name="' + CSS.escape(name) + '"]');
+    if (el && ALLOWED_CHAPTERS) {
+      var ch = el.getAttribute("data-ch");
+      if (ch && !isChapterAllowed(ch)) return false;
+    }
     if (typeof window.viewOfSpread === "function" && typeof window.go === "function") {
       var targetIdx = window.viewOfSpread(name);
       window.go(targetIdx);
@@ -387,6 +426,7 @@
 
   function gotoChapterByKey(chKey) {
     if (!chKey) return false;
+    if (ALLOWED_CHAPTERS && !isChapterAllowed(chKey)) return false;
     var norm = chKey.replace(/^m([0-9]+)$/, "$1");
     var el = document.querySelector('.spread[data-ch="' + CSS.escape(norm) + '"]') ||
       document.querySelector('.spread[data-ch="' + CSS.escape(chKey) + '"]');
@@ -399,6 +439,27 @@
 
   document.addEventListener("DOMContentLoaded", function () {
     cleanupBrandingAndChips();
+
+    if (ALLOWED_CHAPTERS) {
+      if (typeof window.applyCfg === "function") {
+        try {
+          window.applyCfg(buildScopedSatkitCfg(ALLOWED_CHAPTERS));
+          cleanupBrandingAndChips();
+        } catch (_e) {}
+      } else {
+        document.querySelectorAll(".spread[data-ch]").forEach(function (spEl) {
+          var chAttr = spEl.getAttribute("data-ch");
+          if (chAttr && !isChapterAllowed(chAttr)) {
+            spEl.remove();
+          }
+        });
+      }
+      if (LOCKED_SCOPE) {
+        document.querySelectorAll("[data-prof], #go-prof").forEach(function (el) {
+          el.style.display = "none";
+        });
+      }
+    }
 
     // Wrap window.go to automatically skip the removed Colour Key ('key') spread & scroll top on mobile
     if (typeof window.go === "function") {
@@ -434,8 +495,8 @@
       window.go(3);
     }
 
-    // Apply requested initial profile if provided
-    if (START_PROFILE && typeof window.presetCfg === "function" && typeof window.applyCfg === "function") {
+    // Apply requested initial profile if provided (unless edition scope is active)
+    if (!ALLOWED_CHAPTERS && START_PROFILE && typeof window.presetCfg === "function" && typeof window.applyCfg === "function") {
       try {
         window.applyCfg(window.presetCfg(START_PROFILE));
         cleanupBrandingAndChips();
@@ -443,10 +504,12 @@
     }
 
     // Navigate to requested chapter or spread if specified
-    if (START_SPREAD) {
-      gotoSpreadByName(START_SPREAD);
-    } else if (START_CHAPTER) {
-      gotoChapterByKey(START_CHAPTER);
+    if (START_SPREAD && gotoSpreadByName(START_SPREAD)) {
+      // navigated to allowed spread
+    } else if (START_CHAPTER && gotoChapterByKey(START_CHAPTER)) {
+      // navigated to allowed chapter
+    } else if (ALLOWED_CHAPTERS && ALLOWED_CHAPTERS.length && !START_SPREAD) {
+      gotoChapterByKey(ALLOWED_CHAPTERS[0]);
     }
 
     // Capture Notebook textareas ([data-nb])
@@ -593,6 +656,7 @@
       if (tBtn) tBtn.click();
       html.dataset.teacher = want;
     } else if (cmd === "setProfile" && typeof val === "string") {
+      if (LOCKED_SCOPE) return;
       if (typeof window.presetCfg === "function" && typeof window.applyCfg === "function") {
         window.applyCfg(window.presetCfg(val));
         cleanupBrandingAndChips();

@@ -47,6 +47,11 @@ import {
   OrgEditCohortModal,
 } from "@/pages/admin/components/OrgCohortHelpers"
 import { updateContactApi } from "@/api/spine/contacts"
+import {
+  listCohortInviteCodesApi,
+  createInviteCodeApi,
+  createInviteCodeGrantApi,
+} from "@/api/lms_admin"
 import { CohortModal, COHORT_STATUS_LABEL, COHORT_STATUS_COLOR, statusOptionsFor } from "@/pages/admin/Cohorts"
 import { ContactDetailModal } from "@/pages/admin/Contacts"
 import { useAuth } from "@/context/AuthContext"
@@ -87,6 +92,106 @@ const TABS: { key: CohortTab; label: string }[] = [
 type InstructorSubTab = "staffing" | "roles" | "assessment" | "prequiz" | "reviews"
 type ParticipantSubTab = "students" | "observers" | "assign" | "teams"
 type JudgingSubTab = "rubric" | "judges" | "results"
+
+function CohortInviteCodeBanner({
+  cohortId,
+  cohortName,
+  canManage,
+}: {
+  cohortId: string
+  cohortName: string
+  canManage: boolean
+}) {
+  const qc = useQueryClient()
+  const toast = useToast()
+
+  const { data: codes = [] } = useQuery({
+    queryKey: ["cohort-invite-codes", cohortId],
+    queryFn: () => listCohortInviteCodesApi(cohortId),
+    enabled: Boolean(cohortId),
+  })
+
+  const activeStudentCodes = codes.filter((c) => c.kind === "student" && c.is_active)
+
+  const createMut = useMutation({
+    mutationFn: async () => {
+      const prefix =
+        cohortName
+          .replace(/[^a-zA-Z0-9]+/g, "")
+          .toUpperCase()
+          .slice(0, 6) || "CLASS"
+      const rand = Math.random().toString(36).slice(2, 6).toUpperCase()
+      const code = await createInviteCodeApi({
+        code: `${prefix}-${rand}`,
+        label: `${cohortName} Student Invite`,
+        kind: "student",
+        max_uses: 100,
+        is_active: true,
+      })
+      await createInviteCodeGrantApi(code.id, { cohort_id: cohortId })
+      return code
+    },
+    onSuccess: (created) => {
+      toast.success(`Created invite code ${created.code}`)
+      void qc.invalidateQueries({ queryKey: ["cohort-invite-codes", cohortId] })
+    },
+    onError: (err) => toast.error(getErrorMessage(err, "Failed to create invite code")),
+  })
+
+  const copyLink = (code: string) => {
+    const link = `${window.location.origin}/learn/signup?code=${encodeURIComponent(code)}`
+    void navigator.clipboard.writeText(link)
+    toast.success("Copied student signup link")
+  }
+
+  return (
+    <div className="rounded-xl border border-border bg-muted/20 p-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+      <div className="min-w-0">
+        <div className="flex items-center gap-2 text-xs font-semibold text-foreground">
+          <Key className="w-3.5 h-3.5 text-primary shrink-0" />
+          <span>Class Invite Link</span>
+        </div>
+        <p className="text-[11px] text-muted-foreground mt-0.5">
+          Students who sign up with this code automatically join this class and its assigned content.
+        </p>
+        {activeStudentCodes.length > 0 && (
+          <div className="flex flex-wrap items-center gap-2 mt-2">
+            {activeStudentCodes.map((c) => (
+              <div
+                key={c.id}
+                className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-background border border-border text-xs"
+              >
+                <code className="font-mono font-semibold text-foreground">{c.code}</code>
+                <span className="text-[10px] text-muted-foreground">
+                  ({c.used_count}/{c.max_uses})
+                </span>
+                <button
+                  type="button"
+                  onClick={() => copyLink(c.code)}
+                  className="ml-1 inline-flex items-center gap-1 text-[11px] font-medium text-primary hover:underline cursor-pointer"
+                  title="Copy signup link"
+                >
+                  <Copy className="w-3 h-3" /> Copy link
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+      {canManage && (
+        <button
+          type="button"
+          onClick={() => createMut.mutate()}
+          disabled={createMut.isPending}
+          className="shrink-0 inline-flex items-center gap-1.5 h-8 px-3 rounded-[9px] border border-primary/40 bg-primary/10 text-primary text-xs font-medium hover:bg-primary/20 transition cursor-pointer disabled:opacity-50"
+        >
+          <Key className="w-3.5 h-3.5" />
+          {createMut.isPending ? "Creating..." : "Generate Class Code"}
+        </button>
+      )}
+    </div>
+  )
+}
 
 const WIRE_CARD = "bg-[#231134] text-white border-0 shadow-none rounded-[10px]"
 const WIRE_BTN = "bg-transparent border-[2px] border-[#D7D2CB] rounded-[10px] text-foreground hover:bg-muted/30 transition-colors cursor-pointer"
@@ -805,6 +910,11 @@ function CohortDetailView({ cohort }: { cohort: Cohort }) {
           {participantsSub === "teams" && <TeamsTab cohortId={cohort.id} cohortName={cohort.name} />}
           {participantsSub === "students" && (
             <div className="space-y-6">
+              <CohortInviteCodeBanner
+                cohortId={cohort.id}
+                cohortName={cohort.name}
+                canManage={canEditCohort}
+              />
               <div>
                 <div className="flex items-center justify-between gap-2 mb-2 flex-wrap">
                   <p className="text-sm font-semibold text-foreground">

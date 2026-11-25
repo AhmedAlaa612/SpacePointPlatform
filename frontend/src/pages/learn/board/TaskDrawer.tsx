@@ -1469,6 +1469,7 @@ export function TaskDrawer({
       void navigate({
         to: `/learn/books/${target.bookId}/read`,
         search: {
+          ...(target.editionId ? { editionId: target.editionId } : {}),
           ...(target.profile ? { profile: target.profile } : {}),
           ...(target.chapter ? { chapter: target.chapter } : {}),
           program: assignmentId,

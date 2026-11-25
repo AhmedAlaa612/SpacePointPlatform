@@ -265,6 +265,8 @@ class OrganizationAccountCreateIn(BaseModel):
     allowed_readiness_preset_ids: list[str] = Field(default_factory=list)
     program_scope: str = "own"
     allowed_program_ids: list[str] = Field(default_factory=list)
+    book_scope: str = "none"
+    allowed_book_ids: list[str] = Field(default_factory=list)
     program_page_access: str = "disabled"
     max_events: int | None = None
     max_programs: int | None = None
@@ -297,6 +299,8 @@ class OrganizationAccountUpdateIn(BaseModel):
     allowed_readiness_preset_ids: list[str] | None = None
     program_scope: str | None = None
     allowed_program_ids: list[str] | None = None
+    book_scope: str | None = None
+    allowed_book_ids: list[str] | None = None
     program_page_access: str | None = None
     max_events: int | None = None
     max_programs: int | None = None
@@ -353,6 +357,8 @@ class OrganizationSummaryOut(BaseModel):
     allowed_readiness_preset_ids: list[str] = Field(default_factory=list)
     program_scope: str = "own"
     allowed_program_ids: list[str] = Field(default_factory=list)
+    book_scope: str = "none"
+    allowed_book_ids: list[str] = Field(default_factory=list)
     program_page_access: str = "disabled"
     max_events: int | None = None
     max_programs: int | None = None

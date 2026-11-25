@@ -6,6 +6,7 @@ import { BookOpen, Eye, Plus, Search, Trash2 } from "lucide-react";
 import { PageHeader, EmptyState, Spinner } from "@/components/ui/primitives";
 import { Modal, Field, ModalActions, ConfirmDialog } from "@/pages/admin/components/common";
 import { useToast } from "@/components/ui/toast";
+import { useAuth } from "@/context/AuthContext";
 import { BookCover } from "@/components/lms/BookCover";
 import {
   adminCreateBookApi,
@@ -37,6 +38,8 @@ export default function LmsBooks() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const toast = useToast();
+  const { activeRole } = useAuth();
+  const isOrgContext = activeRole === "organization";
 
   const [query, setQuery] = useState("");
   const [createOpen, setCreateOpen] = useState(false);
@@ -157,19 +160,25 @@ export default function LmsBooks() {
     <div className="max-w-6xl mx-auto px-4 sm:px-6 py-6">
       <PageHeader
         title="Books"
-        subtitle="Manage interactive books, bundles, access modes, and learner analytics."
+        subtitle={
+          isOrgContext
+            ? "Browse SpacePoint books shared with your organization and manage custom chapter editions for your classes."
+            : "Manage interactive books, bundles, access modes, and learner analytics."
+        }
         action={
-          <button
-            type="button"
-            onClick={() => {
-              setCreateError("");
-              setCreateOpen(true);
-            }}
-            className="inline-flex items-center gap-2 h-10 px-4 rounded-[10px] bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 transition-colors cursor-pointer"
-          >
-            <Plus size={16} />
-            New book
-          </button>
+          !isOrgContext ? (
+            <button
+              type="button"
+              onClick={() => {
+                setCreateError("");
+                setCreateOpen(true);
+              }}
+              className="inline-flex items-center gap-2 h-10 px-4 rounded-[10px] bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 transition-colors cursor-pointer"
+            >
+              <Plus size={16} />
+              New book
+            </button>
+          ) : undefined
         }
       />
 
@@ -256,20 +265,33 @@ export default function LmsBooks() {
               </div>
 
               <div className="flex flex-wrap items-center justify-between lg:justify-end gap-6">
-                <div className="flex items-center gap-5 text-sm">
-                  <div>
-                    <p className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">Enrolled</p>
-                    <p className="font-semibold text-foreground">{book.enrollments_count}</p>
+                {book.can_manage_master !== false && !isOrgContext ? (
+                  <div className="flex items-center gap-5 text-sm">
+                    <div>
+                      <p className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">Enrolled</p>
+                      <p className="font-semibold text-foreground">{book.enrollments_count}</p>
+                    </div>
+                    <div>
+                      <p className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">Readers</p>
+                      <p className="font-semibold text-foreground">{book.active_readers_count}</p>
+                    </div>
+                    <div>
+                      <p className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">Avg Progress</p>
+                      <p className="font-semibold text-foreground">{book.avg_completion_pct}%</p>
+                    </div>
                   </div>
-                  <div>
-                    <p className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">Readers</p>
-                    <p className="font-semibold text-foreground">{book.active_readers_count}</p>
+                ) : (
+                  <div className="flex items-center gap-5 text-sm">
+                    <div>
+                      <p className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">Chapters</p>
+                      <p className="font-semibold text-foreground">{book.outline.length}</p>
+                    </div>
+                    <div>
+                      <p className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">Editions</p>
+                      <p className="font-semibold text-foreground">{book.editions?.length ?? 0}</p>
+                    </div>
                   </div>
-                  <div>
-                    <p className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">Avg Progress</p>
-                    <p className="font-semibold text-foreground">{book.avg_completion_pct}%</p>
-                  </div>
-                </div>
+                )}
 
                 <div className="flex flex-wrap items-center gap-2">
                   <Link
@@ -277,7 +299,7 @@ export default function LmsBooks() {
                     params={{ bookId: book.id }}
                     className="inline-flex items-center justify-center h-9 px-3 rounded-[10px] border border-border bg-background text-xs font-medium text-foreground hover:bg-muted transition-colors"
                   >
-                    Open
+                    {book.can_manage_master === false || isOrgContext ? "Editions & Analytics" : "Open"}
                   </Link>
 
                   {book.bundle_version > 0 ? (
@@ -300,32 +322,36 @@ export default function LmsBooks() {
                     </button>
                   )}
 
-                  <button
-                    type="button"
-                    disabled={
-                      togglePublishMutation.isPending || (!book.is_published && book.bundle_version === 0)
-                    }
-                    onClick={() => togglePublishMutation.mutate(book)}
-                    className={`h-9 px-3 rounded-[10px] text-xs font-medium border transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed ${
-                      book.is_published
-                        ? "border-border bg-background text-foreground hover:bg-muted"
-                        : "border-primary bg-primary text-primary-foreground hover:bg-primary/90"
-                    }`}
-                  >
-                    {book.is_published ? "Unpublish" : "Publish"}
-                  </button>
+                  {book.can_manage_master !== false && !isOrgContext && (
+                    <>
+                      <button
+                        type="button"
+                        disabled={
+                          togglePublishMutation.isPending || (!book.is_published && book.bundle_version === 0)
+                        }
+                        onClick={() => togglePublishMutation.mutate(book)}
+                        className={`h-9 px-3 rounded-[10px] text-xs font-medium border transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed ${
+                          book.is_published
+                            ? "border-border bg-background text-foreground hover:bg-muted"
+                            : "border-primary bg-primary text-primary-foreground hover:bg-primary/90"
+                        }`}
+                      >
+                        {book.is_published ? "Unpublish" : "Publish"}
+                      </button>
 
-                  <button
-                    type="button"
-                    aria-label={`Delete ${book.title}`}
-                    onClick={() => {
-                      setDeleteError("");
-                      setDeleteTarget(book);
-                    }}
-                    className="inline-flex items-center justify-center w-9 h-9 rounded-[10px] border border-border bg-background text-muted-foreground hover:text-rose-600 hover:border-rose-500/40 transition-colors cursor-pointer"
-                  >
-                    <Trash2 size={14} />
-                  </button>
+                      <button
+                        type="button"
+                        aria-label={`Delete ${book.title}`}
+                        onClick={() => {
+                          setDeleteError("");
+                          setDeleteTarget(book);
+                        }}
+                        className="inline-flex items-center justify-center w-9 h-9 rounded-[10px] border border-border bg-background text-muted-foreground hover:text-rose-600 hover:border-rose-500/40 transition-colors cursor-pointer"
+                      >
+                        <Trash2 size={14} />
+                      </button>
+                    </>
+                  )}
                 </div>
               </div>
             </div>

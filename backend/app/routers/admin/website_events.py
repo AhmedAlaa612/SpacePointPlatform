@@ -604,6 +604,8 @@ async def _serialize_org_summaries(db: AsyncSession, orgs: list[Organization]) -
                 "allowed_readiness_preset_ids": allowed_readiness,
                 "program_scope": prog_scope,
                 "allowed_program_ids": allowed_programs,
+                "book_scope": (getattr(o, "book_scope", None) or "none").strip().lower(),
+                "allowed_book_ids": [str(b) for b in (getattr(o, "allowed_book_ids", None) or [])],
                 "program_page_access": (getattr(o, "program_page_access", None) or "disabled").strip().lower(),
                 "max_events": o.max_events,
                 "max_programs": o.max_programs,
@@ -1363,6 +1365,9 @@ async def admin_create_organization_account(
     prog_scope = (body.program_scope or "own").strip().lower()
     if prog_scope not in ("own", "selected", "all"):
         raise HTTPException(status_code=422, detail="Invalid program_scope; must be own, selected, or all")
+    bk_scope = (body.book_scope or "none").strip().lower()
+    if bk_scope not in ("none", "selected", "all"):
+        raise HTTPException(status_code=422, detail="Invalid book_scope; must be none, selected, or all")
     prog_page_access = (body.program_page_access or "disabled").strip().lower()
     if prog_page_access not in ("disabled", "review", "direct"):
         raise HTTPException(status_code=422, detail="Invalid program_page_access; must be disabled, review, or direct")
@@ -1387,6 +1392,8 @@ async def admin_create_organization_account(
         allowed_readiness_preset_ids=body.allowed_readiness_preset_ids,
         program_scope=prog_scope,
         allowed_program_ids=list(body.allowed_program_ids or []),
+        book_scope=bk_scope,
+        allowed_book_ids=list(body.allowed_book_ids or []),
         program_page_access=prog_page_access,
         max_events=body.max_events,
         max_programs=body.max_programs,
@@ -1472,6 +1479,13 @@ async def admin_update_organization_account(
         org.program_scope = prog_scope
     if payload.allowed_program_ids is not None:
         org.allowed_program_ids = payload.allowed_program_ids
+    if payload.book_scope is not None and payload.book_scope.strip():
+        bk_scope = payload.book_scope.strip().lower()
+        if bk_scope not in ("none", "selected", "all"):
+            raise HTTPException(status_code=422, detail="Invalid book_scope; must be none, selected, or all")
+        org.book_scope = bk_scope
+    if payload.allowed_book_ids is not None:
+        org.allowed_book_ids = payload.allowed_book_ids
     if payload.program_page_access is not None and payload.program_page_access.strip():
         ppa = payload.program_page_access.strip().lower()
         if ppa not in ("disabled", "review", "direct"):

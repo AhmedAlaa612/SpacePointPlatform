@@ -30,6 +30,7 @@ from app.services.lms.books import enroll_book
 from app.services.lms.enrollment import enroll
 from app.services.lms.ops_integration import sync_registration_lms
 from app.services.sessions.registration import register
+from app.services.spine.identity import resolve_or_create_contact
 
 logger = logging.getLogger(__name__)
 
@@ -70,8 +71,18 @@ async def _register_into_cohort(
     into the same cohort but with a `mode="observer"` assignment —
     identical engine, partitioned from official data."""
     if user.contact_id is None:
-        logger.warning("invite-code program grant: user %s has no linked contact, skipping", user.id)
-        return
+        contact, _ = await resolve_or_create_contact(
+            db,
+            full_name=user.full_name or user.email.split("@")[0],
+            email=user.email,
+            phone=user.phone,
+            country=user.country or "uae",
+            city=user.city_other,
+            contact_roles=["student"],
+            role_event_source="invite_code_cohort",
+        )
+        user.contact_id = contact.id
+        await db.flush()
     cohort = await db.get(Cohort, cohort_id)
     if cohort is None:
         return
@@ -98,7 +109,14 @@ async def _apply_grant(
             await _register_into_cohort(db, user=user, cohort_id=grant.cohort_id, expires_at=expires_at)
         return
     if grant.product_type == "book" and grant.book_id is not None:
-        await enroll_book(db, user_id=user_id, book_id=grant.book_id, source="invite_code", expires_at=expires_at)
+        await enroll_book(
+            db,
+            user_id=user_id,
+            book_id=grant.book_id,
+            source="invite_code",
+            expires_at=expires_at,
+            book_edition_id=getattr(grant, "book_edition_id", None),
+        )
         return
     for course_id in await _grant_course_ids(db, grant):
         await enroll(db, user_id=user_id, course_id=course_id, source="invite_code", expires_at=expires_at)
@@ -202,6 +220,7 @@ async def grant_invite_code_access(
     db: AsyncSession, *, invitation_code: InvitationCode,
     course_id: uuid.UUID | None = None, learning_path_id: uuid.UUID | None = None,
     cohort_id: uuid.UUID | None = None, book_id: uuid.UUID | None = None,
+    book_edition_id: uuid.UUID | None = None,
 ) -> tuple[InvitationCodeGrant, int]:
     """Creates the standing grant row, then immediately applies it to every
     account that has ever used this code (`users.invitation_code_used`, the
@@ -220,6 +239,7 @@ async def grant_invite_code_access(
         id=uuid.uuid4(), invitation_code_id=invitation_code.id,
         product_type=product_type,
         course_id=course_id, learning_path_id=learning_path_id, cohort_id=cohort_id, book_id=book_id,
+        book_edition_id=book_edition_id,
         created_at=datetime.now(timezone.utc),
     )
     db.add(grant)

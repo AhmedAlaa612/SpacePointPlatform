@@ -104,6 +104,7 @@ class InviteCodeGrantCreate(BaseModel):
     # a cohort rather than an lms_program_id.
     cohort_id: UUID | None = None
     book_id: UUID | None = None
+    book_edition_id: UUID | None = None
 
     @model_validator(mode="after")
     def _exactly_one(self) -> "InviteCodeGrantCreate":
@@ -128,6 +129,8 @@ class InviteCodeGrantOut(BaseModel):
     lms_program_name: str | None = None
     book_id: UUID | None = None
     book_title: str | None = None
+    book_edition_id: UUID | None = None
+    book_edition_title: str | None = None
     created_at: datetime | None = None
 
 
@@ -634,8 +637,10 @@ class LmsProgramItemIn(BaseModel):
     arcade_game_id: UUID | None = None
     arcade_game_mode: Literal["explorer", "engineer", "either"] | None = "explorer"
     book_id: UUID | None = None
+    book_edition_id: UUID | None = None
     book_profile: str | None = Field(default=None, max_length=32)
     book_chapter: str | None = Field(default=None, max_length=64)
+    book_chapters: list[str] | None = None
     book_min_completion_pct: int | None = Field(default=None, ge=1, le=100)
     position: int | None = None
     # ── Roadmap board (2026-09) — see LmsProgramItem's own field comments.
@@ -690,8 +695,11 @@ class LmsProgramItemOut(BaseModel):
     arcade_game_mode: str | None = None
     book_id: UUID | None = None
     book_title: str | None = None
+    book_edition_id: UUID | None = None
+    book_edition_title: str | None = None
     book_profile: str | None = None
     book_chapter: str | None = None
+    book_chapters: list[str] | None = None
     book_min_completion_pct: int | None = None
     # Populated only for a `quiz` item — the authoring UI's "N questions"
     # badge. None for every other item type.

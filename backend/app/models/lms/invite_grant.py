@@ -64,6 +64,9 @@ class InvitationCodeGrant(Base):
     # cohort, not an lms_program_id.
     cohort_id = Column(UUID(as_uuid=True), ForeignKey("cohorts.id", ondelete="CASCADE"), nullable=True)
     book_id = Column(UUID(as_uuid=True), ForeignKey("lms_books.id", ondelete="CASCADE"), nullable=True)
+    book_edition_id = Column(
+        UUID(as_uuid=True), ForeignKey("lms_book_editions.id", ondelete="SET NULL"), nullable=True,
+    )
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
 
 

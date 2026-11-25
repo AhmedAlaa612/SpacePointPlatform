@@ -30,6 +30,8 @@ export interface OrgCohortSummary {
   checklist_title_override: string | null
   linked_event_id: string | null
   linked_event_slug: string | null
+  coordinator_access_mode?: "general" | "assigned"
+  coordinators?: { id: string; full_name: string; email: string }[]
 }
 
 export interface OrgProgramSummary {
@@ -83,6 +85,8 @@ export interface OrgProgramsOverview {
     allowed_course_ids: string[]
     program_scope?: string
     allowed_program_ids?: string[]
+    book_scope?: string
+    allowed_book_ids?: string[]
     program_page_access?: "disabled" | "review" | "direct" | string
     max_events: number | null
     max_programs: number | null
@@ -164,6 +168,8 @@ export interface CreateOrgCohortInput {
   status?: string
   variation_id?: string | null
   checklist_title_override?: string | null
+  coordinator_access_mode?: "general" | "assigned"
+  coordinator_user_ids?: string[]
 }
 
 export interface DuplicateOrgCohortInput {
@@ -279,6 +285,17 @@ export const getOrgCohortObserversApi = (cohortId: string) =>
 
 export const addOrgCohortObserverApi = (cohortId: string, userId: string) =>
   api.post<OrgCohortObserver>(`/organization/cohorts/${cohortId}/observers`, { user_id: userId }).then((r) => r.data)
+
+export interface OrgCoordinatorOption {
+  id: string
+  full_name: string
+  email: string
+  is_owner: boolean
+  org_roles: string[]
+}
+
+export const getOrgCoordinatorsApi = () =>
+  api.get<OrgCoordinatorOption[]>("/organization/coordinators").then((r) => r.data)
 
 export const removeOrgCohortObserverApi = (cohortId: string, userId: string) =>
   api.delete(`/organization/cohorts/${cohortId}/observers/${userId}`)

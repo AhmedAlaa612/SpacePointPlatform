@@ -42,8 +42,10 @@ export function itemToInput(item: LmsProgramItem): LmsProgramItemInput {
     max_team_size: item.max_team_size,
     arcade_game_id: item.arcade_game_id, arcade_game_mode: item.arcade_game_mode,
     book_id: item.book_id ?? null,
+    book_edition_id: item.book_edition_id ?? null,
     book_profile: item.book_profile ?? null,
     book_chapter: item.book_chapter ?? null,
+    book_chapters: item.book_chapters ?? null,
     book_min_completion_pct: item.book_min_completion_pct ?? null,
   }
 }

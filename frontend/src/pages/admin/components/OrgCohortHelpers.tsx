@@ -37,6 +37,7 @@ import {
   type OrgCohortObserver,
 } from "@/api/organizationPrograms"
 import { Button } from "@/components/ui/button"
+import { useAuth } from "@/context/AuthContext"
 import { useToast } from "@/components/ui/toast"
 import { getErrorMessage } from "@/lib/utils"
 
@@ -77,6 +78,8 @@ export function OrgCohortStaffingSection({
 }) {
   const qc = useQueryClient()
   const toast = useToast()
+  const { activeOrgRole } = useAuth()
+  const isCoordinatorOnly = activeOrgRole === "coordinator"
   const [instructorId, setInstructorId] = useState("")
   const [roleId, setRoleId] = useState("")
   const canEditStaffing = !readOnly && !isSpacePointManaged
@@ -84,7 +87,7 @@ export function OrgCohortStaffingSection({
   const { data: team = [] } = useQuery<OrgTeamMember[]>({
     queryKey: ["org-team-members", cohortId],
     queryFn: () => getOrganizationTeamApi({ cohort_id: cohortId }),
-    enabled: Boolean(cohortId) && canEditStaffing,
+    enabled: Boolean(cohortId) && canEditStaffing && !isCoordinatorOnly,
   })
 
   const { data: deliveryRoles = [] } = useQuery<DeliveryRole[]>({
@@ -209,10 +212,11 @@ export function OrgCohortStaffingSection({
       {canEditStaffing && candidates.length === 0 && instructors.length === 0 && (
         <p className="text-xs text-muted-foreground mb-3">
           No team members have the Instructor role yet.{" "}
-          <Link to="/organization/team" className="font-semibold text-primary hover:underline">
-            Add an instructor on the Team page
-          </Link>
-          .
+          {!isCoordinatorOnly && (
+            <Link to="/organization/team" className="font-semibold text-primary hover:underline">
+              Add an instructor on the Team page
+            </Link>
+          )}
         </p>
       )}
 

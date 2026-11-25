@@ -284,7 +284,7 @@ export function checkpointSectionItems(
 
 export type NavTarget =
   | { kind: "course"; courseId: string }
-  | { kind: "book"; bookId: string; profile?: string; chapter?: string; itemId: string }
+  | { kind: "book"; bookId: string; editionId?: string; profile?: string; chapter?: string; itemId: string }
   | { kind: "design"; attemptId: string; phase?: string }
   | { kind: "operate"; attemptId: string }
   | { kind: "mission"; missionId: string }
@@ -306,8 +306,9 @@ export function navTargetFor(item: LmsProgramChecklistItem): NavTarget {
     return {
       kind: "book",
       bookId: item.book_id,
+      editionId: item.book_edition_id ?? undefined,
       profile: item.book_profile ?? undefined,
-      chapter: item.book_chapter ?? undefined,
+      chapter: (item.book_chapter || item.book_chapters?.[0]) ?? undefined,
       itemId: item.id,
     };
   }

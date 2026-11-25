@@ -24,7 +24,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.enums import UserRole
-from app.models.sessions.cohort import Cohort
+from app.models.sessions.cohort import Cohort, CohortCoordinator
 from app.models.sessions.program import Program
 from app.models.sessions.registration import Registration
 from app.models.sessions.session import Session
@@ -170,6 +170,22 @@ def require_org_manager(user: User) -> None:
         )
 
 
+def is_org_owner(user: User, org) -> bool:
+    if is_ops_or_admin(user):
+        return True
+    if org is not None and getattr(org, "owner_user_id", None) == user.id:
+        return True
+    return False
+
+
+def require_org_owner(user: User, org) -> None:
+    if not is_org_owner(user, org):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only the organization owner can manage team members",
+        )
+
+
 def global_roles_for_org_roles(org_roles: Sequence[str]) -> list[UserRole]:
     """Global roles an org team member receives.
 
@@ -197,8 +213,66 @@ async def cohort_organization_id(db: AsyncSession, cohort: Cohort) -> uuid.UUID 
     return program.organization_id if program else None
 
 
+async def is_cohort_assigned_to_coordinator(db: AsyncSession, cohort: Cohort, user: User) -> bool:
+    """True if `cohort` is in `'general'` mode or `user` is listed in `cohort_coordinators`."""
+    if (getattr(cohort, "coordinator_access_mode", None) or "general") != "assigned":
+        return True
+    row = await db.scalar(
+        select(CohortCoordinator.id).where(
+            CohortCoordinator.cohort_id == cohort.id,
+            CohortCoordinator.user_id == user.id,
+        )
+    )
+    return row is not None
+
+
+async def accessible_org_cohort_ids(db: AsyncSession, org, user: User) -> set[uuid.UUID] | None:
+    """Return cohort_ids in `org` that `user` may manage/view, or None for unrestricted access.
+
+    Ops/Admin and the organization owner see every cohort in the org (`None`).
+    A coordinator (without owner or observer privilege) sees ONLY `'general'`
+    cohorts plus `'assigned'` cohorts where they appear in `cohort_coordinators`.
+    """
+    if is_ops_or_admin(user) or (org is not None and org.owner_user_id == user.id):
+        return None
+    if org is None:
+        return set()
+    roles = effective_org_roles(user, is_owner=False)
+    if "observer" in roles and "coordinator" not in roles:
+        return None
+    if "coordinator" not in roles:
+        return set()
+
+    from sqlalchemy import or_
+
+    all_org_cohorts = (
+        await db.execute(
+            select(Cohort.id, Cohort.coordinator_access_mode)
+            .outerjoin(Program, Program.id == Cohort.program_id)
+            .where(or_(Cohort.organization_id == org.id, Program.organization_id == org.id))
+        )
+    ).all()
+    if not all_org_cohorts:
+        return set()
+    assigned_ids = set(
+        (
+            await db.execute(
+                select(CohortCoordinator.cohort_id).where(
+                    CohortCoordinator.user_id == user.id,
+                    CohortCoordinator.cohort_id.in_([cid for cid, _ in all_org_cohorts]),
+                )
+            )
+        ).scalars().all()
+    )
+    return {
+        cid
+        for cid, mode in all_org_cohorts
+        if (mode or "general") != "assigned" or cid in assigned_ids
+    }
+
+
 async def is_cohort_org_manager(db: AsyncSession, cohort: Cohort, user: User) -> bool:
-    """True when `user` is an organization owner/coordinator for `cohort`'s organization."""
+    """True when `user` is an organization owner/coordinator permitted on `cohort`."""
     if "organization" not in user.role_values or not is_org_manager(user):
         return False
     from app.services.website_events import resolve_user_organization
@@ -207,7 +281,11 @@ async def is_cohort_org_manager(db: AsyncSession, cohort: Cohort, user: User) ->
     if org is None:
         return False
     org_id = await cohort_organization_id(db, cohort)
-    return org_id is not None and org_id == org.id
+    if org_id is None or org_id != org.id:
+        return False
+    if org.owner_user_id == user.id:
+        return True
+    return await is_cohort_assigned_to_coordinator(db, cohort, user)
 
 
 async def is_program_org_manager(db: AsyncSession, program_id: uuid.UUID, user: User) -> bool:
@@ -319,7 +397,11 @@ async def can_read_cohort(db: AsyncSession, cohort: Cohort, user: User) -> bool:
     if org_id is None or org_id != org.id:
         return False
     roles = effective_org_roles(user, is_owner=(org.owner_user_id == user.id))
-    return any(r in ("owner", "coordinator", "observer") for r in roles)
+    if "owner" in roles or "observer" in roles:
+        return True
+    if "coordinator" in roles:
+        return await is_cohort_assigned_to_coordinator(db, cohort, user)
+    return False
 
 
 async def can_write_cohort(db: AsyncSession, cohort: Cohort, user: User) -> bool:

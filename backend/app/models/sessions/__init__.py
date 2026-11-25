@@ -2,7 +2,7 @@ from app.models.sessions.program import Program
 from app.models.sessions.program_variation import ProgramVariation, ProgramVariationDay
 from app.models.sessions.program_certificate_template import ProgramCertificateTemplate
 from app.models.sessions.certificate_email_template import CertificateEmailTemplate
-from app.models.sessions.cohort import Cohort
+from app.models.sessions.cohort import Cohort, CohortCoordinator
 from app.models.sessions.cohort_interest import CohortInterest
 from app.models.sessions.session import Session, SessionInstructor
 from app.models.sessions.delivery_role import DeliveryRole
@@ -43,6 +43,7 @@ __all__ = [
     "ProgramCertificateTemplate",
     "CertificateEmailTemplate",
     "Cohort",
+    "CohortCoordinator",
     "CohortInterest",
     "Session",
     "SessionInstructor",

@@ -12,7 +12,7 @@ from app.db.session import get_db
 from app.models.competitions.judging import CompetitionJudge
 from app.models.enums import UserRole
 from app.models.lms.program import CohortLmsEditor, LmsProgramAssignment
-from app.models.sessions.cohort import Cohort
+from app.models.sessions.cohort import Cohort, CohortCoordinator
 from app.models.sessions.program import Program
 from app.models.sessions.session import Session, SessionInstructor
 from app.models.spine.organization import Organization
@@ -36,8 +36,10 @@ from app.services.org_access import (
     effective_org_roles,
     global_roles_for_org_roles,
     is_org_manager,
+    is_org_owner,
     normalize_org_roles,
     require_org_manager,
+    require_org_owner,
     set_user_org_roles,
 )
 from app.services.website_events import (
@@ -88,6 +90,8 @@ async def get_my_organization_context(
             "can_publish_courses": org.can_publish_courses,
             "course_scope_all": org.course_scope_all,
             "allowed_course_ids": [str(c) for c in (org.allowed_course_ids or [])],
+            "book_scope": (getattr(org, "book_scope", None) or "none").strip().lower(),
+            "allowed_book_ids": [str(b) for b in (getattr(org, "allowed_book_ids", None) or [])],
             "max_events": org.max_events,
             "max_programs": org.max_programs,
             "max_cohorts": org.max_cohorts,
@@ -99,6 +103,7 @@ async def get_my_organization_context(
         "mega_events": await serialize_mega_events(db, megas, published_only_counts=True),
         "org_role": my_org_roles[0] if my_org_roles else None,
         "org_roles": my_org_roles,
+        "is_owner": is_owner,
         "can_manage": is_org_manager(current_user),
     }
 
@@ -269,9 +274,9 @@ async def list_my_organization_team(
         org = await resolve_user_organization(db, current_user)
     if org is None:
         return []
-    # Sandbox instructors/judges don't manage the team (and shouldn't see the
-    # owner's contact details or mint password links).
-    require_org_manager(current_user)
+    # Team management is owner + SpacePoint ops/admin only; coordinators use
+    # GET /organization/coordinators when assigning cohort co-coordinators.
+    require_org_owner(current_user, org)
     conds = [User.organization_id == org.id]
     if org.owner_user_id:
         conds.append(User.id == org.owner_user_id)
@@ -315,6 +320,38 @@ async def list_my_organization_team(
     return out
 
 
+@router.get("/coordinators")
+async def list_organization_coordinators(
+    current_user: User = Depends(require_organization_account),
+    db: AsyncSession = Depends(get_db),
+):
+    """Lightweight read-only list of org owners & coordinators for cohort assignment pickers."""
+    org = await resolve_user_organization(db, current_user)
+    if org is None:
+        return []
+    require_org_manager(current_user)
+    conds = [User.organization_id == org.id]
+    if org.owner_user_id:
+        conds.append(User.id == org.owner_user_id)
+    users = (
+        await db.execute(select(User).where(or_(*conds)).order_by(User.full_name.asc()))
+    ).scalars().all()
+    out = []
+    for u in users:
+        is_owner_user = u.id == org.owner_user_id
+        roles = effective_org_roles(u, is_owner=is_owner_user)
+        if not any(r in ("owner", "coordinator") for r in roles):
+            continue
+        out.append({
+            "id": str(u.id),
+            "full_name": u.full_name,
+            "email": u.email,
+            "is_owner": is_owner_user,
+            "org_roles": roles,
+        })
+    return out
+
+
 @router.post("/team", response_model=OrgTeamMemberOut, status_code=status.HTTP_201_CREATED)
 async def add_organization_team_member(
     body: OrgTeamMemberCreateIn,
@@ -324,7 +361,7 @@ async def add_organization_team_member(
     org = await resolve_user_organization(db, current_user)
     if org is None:
         raise HTTPException(status_code=400, detail="No organization context found")
-    require_org_manager(current_user)
+    require_org_owner(current_user, org)
 
     user, created = await build_organization_team_member(
         db,
@@ -380,7 +417,7 @@ async def update_organization_team_member(
     org = await resolve_user_organization(db, current_user)
     if org is None:
         raise HTTPException(status_code=400, detail="No organization context found")
-    require_org_manager(current_user)
+    require_org_owner(current_user, org)
 
     if body.org_roles is None and body.org_role is None:
         raise HTTPException(
@@ -438,7 +475,7 @@ async def remove_organization_team_member(
     org = await resolve_user_organization(db, current_user)
     if org is None:
         raise HTTPException(status_code=400, detail="No organization context found")
-    require_org_manager(current_user)
+    require_org_owner(current_user, org)
 
     if user_id == org.owner_user_id:
         raise HTTPException(status_code=400, detail="Cannot remove the organization primary owner")
@@ -471,6 +508,12 @@ async def remove_organization_team_member(
         delete(CohortLmsEditor).where(
             CohortLmsEditor.user_id == user.id,
             CohortLmsEditor.cohort_id.in_(org_cohort_ids),
+        )
+    )
+    await db.execute(
+        delete(CohortCoordinator).where(
+            CohortCoordinator.user_id == user.id,
+            CohortCoordinator.cohort_id.in_(org_cohort_ids),
         )
     )
     await db.execute(
@@ -532,7 +575,7 @@ async def organization_team_member_reset_link(
     org = await resolve_user_organization(db, current_user)
     if org is None:
         raise HTTPException(status_code=400, detail="No organization context found")
-    require_org_manager(current_user)
+    require_org_owner(current_user, org)
 
     user = await db.get(User, user_id)
     is_member = user is not None and (user.id == org.owner_user_id or user.organization_id == org.id)

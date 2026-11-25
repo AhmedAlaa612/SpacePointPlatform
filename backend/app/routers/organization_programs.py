@@ -18,7 +18,7 @@ from app.models.enums import UserRole
 from app.models.inventory.location import Location
 from app.models.lms.program import LmsProgram, LmsProgramAssignment, LmsProgramCohortOverride, LmsProgramItem
 from app.models.sessions.attendance import AttendanceRecord
-from app.models.sessions.cohort import Cohort
+from app.models.sessions.cohort import Cohort, CohortCoordinator
 from app.models.sessions.delivery_role import DeliveryRole
 from app.models.sessions.pre_session_quiz import (
     PreSessionQuizAssignment,
@@ -37,9 +37,11 @@ from app.models.website_event import WebsiteEvent
 from app.services.lms.ops_integration import deactivate_registration_enrollments, sync_registration_lms
 from app.services.lms.program import team_for_cohort_member
 from app.services.org_access import (
+    accessible_org_cohort_ids,
     can_manage_cohort_delivery,
     can_org_use_shared_program,
     can_read_cohort,
+    can_write_cohort,
     cohort_organization_id,
     effective_org_role,
     effective_org_roles,
@@ -125,7 +127,83 @@ async def _resolve_cohort_and_org(
         raise HTTPException(status_code=404, detail=not_found_detail)
     if read_only and not await can_read_cohort(db, cohort, current_user):
         raise HTTPException(status_code=403, detail="Operation not permitted")
+    if not read_only and not await can_write_cohort(db, cohort, current_user):
+        raise HTTPException(status_code=403, detail="Operation not permitted")
     return cohort, org
+
+
+async def _coordinators_by_cohort_id(
+    db: AsyncSession, cohort_ids: list[uuid.UUID]
+) -> dict[uuid.UUID, list[dict[str, Any]]]:
+    if not cohort_ids:
+        return {}
+    rows = (
+        await db.execute(
+            select(CohortCoordinator.cohort_id, User.id, User.full_name, User.email)
+            .join(User, User.id == CohortCoordinator.user_id)
+            .where(CohortCoordinator.cohort_id.in_(cohort_ids))
+            .order_by(User.full_name.asc())
+        )
+    ).all()
+    out: dict[uuid.UUID, list[dict[str, Any]]] = {}
+    for cid, uid, full_name, email in rows:
+        out.setdefault(cid, []).append({"id": str(uid), "full_name": full_name, "email": email})
+    return out
+
+
+async def _sync_cohort_coordinators(
+    db: AsyncSession,
+    *,
+    cohort: Cohort,
+    org: Organization,
+    current_user: User,
+    mode: str | None,
+    coordinator_user_ids: list[uuid.UUID] | None,
+) -> None:
+    if mode is not None:
+        clean_mode = mode.strip().lower()
+        if clean_mode not in ("general", "assigned"):
+            raise HTTPException(status_code=422, detail="coordinator_access_mode must be 'general' or 'assigned'")
+        cohort.coordinator_access_mode = clean_mode
+    effective_mode = getattr(cohort, "coordinator_access_mode", None) or "general"
+
+    if effective_mode == "assigned":
+        if coordinator_user_ids is None and mode is None:
+            return
+        ids: list[uuid.UUID] = list(dict.fromkeys(coordinator_user_ids or []))
+        if not _is_admin_or_ops(current_user) and org.owner_user_id != current_user.id:
+            if current_user.id not in ids:
+                ids.append(current_user.id)
+        if ids:
+            candidate_users = (
+                await db.execute(select(User).where(User.id.in_(ids)))
+            ).scalars().all()
+            valid_ids: set[uuid.UUID] = set()
+            for u in candidate_users:
+                is_owner = u.id == org.owner_user_id
+                if u.organization_id != org.id and not is_owner:
+                    continue
+                roles = effective_org_roles(u, is_owner=is_owner)
+                if any(r in ("owner", "coordinator") for r in roles):
+                    valid_ids.add(u.id)
+            invalid = [str(uid) for uid in ids if uid not in valid_ids]
+            if invalid:
+                raise HTTPException(
+                    status_code=400,
+                    detail="All assigned coordinators must be owner or coordinator members of this organization",
+                )
+        await db.execute(sa_delete(CohortCoordinator).where(CohortCoordinator.cohort_id == cohort.id))
+        for uid in ids:
+            db.add(
+                CohortCoordinator(
+                    id=uuid.uuid4(),
+                    cohort_id=cohort.id,
+                    user_id=uid,
+                    added_by_user_id=current_user.id,
+                )
+            )
+    elif coordinator_user_ids is not None:
+        await db.execute(sa_delete(CohortCoordinator).where(CohortCoordinator.cohort_id == cohort.id))
 
 
 def _preset_question_count(p: dict[str, Any]) -> int:
@@ -199,6 +277,8 @@ class OrganizationCohortSummary(BaseModel):
     checklist_title_override: str | None = None
     linked_event_id: uuid.UUID | None = None
     linked_event_slug: str | None = None
+    coordinator_access_mode: str = "general"
+    coordinators: list[dict[str, Any]] = []
 
 
 class OrganizationProgramOut(BaseModel):
@@ -242,6 +322,8 @@ class OrganizationCohortCreate(BaseModel):
     variation_id: uuid.UUID | None = None
     poster_template_url: str | None = None
     checklist_title_override: str | None = None
+    coordinator_access_mode: str | None = None
+    coordinator_user_ids: list[uuid.UUID] | None = None
 
 
 class OrganizationCohortUpdate(BaseModel):
@@ -260,6 +342,8 @@ class OrganizationCohortUpdate(BaseModel):
     poster_template_url: str | None = None
     checklist_title_override: str | None = None
     status: str | None = None
+    coordinator_access_mode: str | None = None
+    coordinator_user_ids: list[uuid.UUID] | None = None
 
 
 class OrganizationCohortOut(BaseModel):
@@ -269,6 +353,8 @@ class OrganizationCohortOut(BaseModel):
     program_type: str
     management_mode: str = "spacepoint"
     can_manage_delivery: bool = True
+    coordinator_access_mode: str = "general"
+    coordinators: list[dict[str, Any]] = []
     name: str
     code: str = ""
     starts_on: date | None = None
@@ -427,6 +513,9 @@ async def get_organization_programs_overview(
             .order_by(Cohort.created_at.desc())
         )
     ).scalars().all()
+    allowed_cohorts = await accessible_org_cohort_ids(db, org, current_user)
+    if allowed_cohorts is not None:
+        direct_org_cohorts = [c for c in direct_org_cohorts if c.id in allowed_cohorts]
     extra_program_ids = {c.program_id for c in direct_org_cohorts}
 
     scope = (getattr(org, "program_scope", None) or "own").strip().lower()
@@ -483,9 +572,12 @@ async def get_organization_programs_overview(
             )
         ).scalars().all()
         for c in c_rows:
+            if allowed_cohorts is not None and c.id not in allowed_cohorts:
+                continue
             cohorts_by_program.setdefault(c.program_id, []).append(c)
 
     all_cohort_ids = [c.id for plist in cohorts_by_program.values() for c in plist]
+    coordinators_map = await _coordinators_by_cohort_id(db, all_cohort_ids)
 
     reg_counts: dict[uuid.UUID, int] = {}
     obs_counts: dict[uuid.UUID, int] = {}
@@ -618,6 +710,8 @@ async def get_organization_programs_overview(
                     checklist_title_override=c.checklist_title_override,
                     linked_event_id=linked_ev.id if linked_ev else None,
                     linked_event_slug=linked_ev.slug if linked_ev else None,
+                    coordinator_access_mode=getattr(c, "coordinator_access_mode", "general") or "general",
+                    coordinators=coordinators_map.get(c.id, []),
                 )
             )
         is_org_owned = (p.organization_id == org.id)
@@ -664,6 +758,8 @@ async def get_organization_programs_overview(
             "allowed_course_ids": org.allowed_course_ids or [],
             "program_scope": scope,
             "allowed_program_ids": [str(pid) for pid in (org.allowed_program_ids or [])],
+            "book_scope": (getattr(org, "book_scope", None) or "none").strip().lower(),
+            "allowed_book_ids": [str(b) for b in (getattr(org, "allowed_book_ids", None) or [])],
             "program_page_access": (getattr(org, "program_page_access", None) or "disabled").strip().lower(),
             "max_events": org.max_events,
             "max_programs": org.max_programs,
@@ -941,6 +1037,12 @@ async def create_organization_cohort(
     duration_hours = body.duration_hours if body.duration_hours is not None else eff_scalars.get("duration_hours")
     poster_url = body.poster_template_url if body.poster_template_url is not None else eff_scalars.get("poster_template_url")
 
+    default_coord_mode = (
+        body.coordinator_access_mode
+        if body.coordinator_access_mode in ("general", "assigned")
+        else ("assigned" if (not _is_admin_or_ops(current_user) and org.owner_user_id != current_user.id) else "general")
+    )
+
     cohort = Cohort(
         id=uuid.uuid4(),
         program_id=program.id,
@@ -956,6 +1058,7 @@ async def create_organization_cohort(
         status=cohort_status,
         organization_id=org.id,
         management_mode="partner",
+        coordinator_access_mode=default_coord_mode,
         inherit_default_checklists=True,
         poster_template_url=poster_url,
         checklist_title_override=body.checklist_title_override,
@@ -965,6 +1068,15 @@ async def create_organization_cohort(
     )
     db.add(cohort)
     await db.flush()
+
+    await _sync_cohort_coordinators(
+        db,
+        cohort=cohort,
+        org=org,
+        current_user=current_user,
+        mode=default_coord_mode,
+        coordinator_user_ids=body.coordinator_user_ids if body.coordinator_user_ids is not None else [],
+    )
 
     await seed_cohort_from_program(
         db,
@@ -1054,6 +1166,8 @@ async def get_organization_cohort_detail(
         loc_obj = await db.get(Location, cohort.location_id)
         location_name = loc_obj.name if loc_obj else None
 
+    coordinators_map = await _coordinators_by_cohort_id(db, [cohort.id])
+
     return OrganizationCohortOut(
         id=cohort.id,
         program_id=program.id,
@@ -1061,6 +1175,8 @@ async def get_organization_cohort_detail(
         program_type=program.program_type,
         management_mode=getattr(cohort, "management_mode", "spacepoint") or "spacepoint",
         can_manage_delivery=await can_manage_cohort_delivery(db, cohort, current_user),
+        coordinator_access_mode=getattr(cohort, "coordinator_access_mode", "general") or "general",
+        coordinators=coordinators_map.get(cohort.id, []),
         name=cohort.name,
         code=cohort.name,
         starts_on=cohort.starts_on,
@@ -1162,9 +1278,20 @@ async def update_organization_cohort(
             cohort.visibility = "public" if is_pub else "private"
     if "code" in updates:
         updates.pop("code")  # Cohort model does not have a code column
+    coord_mode = updates.pop("coordinator_access_mode", None)
+    coord_ids = updates.pop("coordinator_user_ids", None)
     for k, v in updates.items():
         if hasattr(cohort, k):
             setattr(cohort, k, v)
+    if coord_mode is not None or coord_ids is not None:
+        await _sync_cohort_coordinators(
+            db,
+            cohort=cohort,
+            org=org,
+            current_user=current_user,
+            mode=coord_mode,
+            coordinator_user_ids=coord_ids,
+        )
 
     await db.commit()
     await db.refresh(cohort)
@@ -1210,11 +1337,25 @@ async def duplicate_organization_cohort(
         status="registration_open",
         organization_id=org.id,
         management_mode="partner",
+        coordinator_access_mode=getattr(source, "coordinator_access_mode", "general") or "general",
         poster_template_url=source.poster_template_url,
         checklist_title_override=source.checklist_title_override,
     )
     db.add(new_cohort)
     await db.flush()
+
+    if new_cohort.coordinator_access_mode == "assigned":
+        src_coords = (
+            await db.execute(select(CohortCoordinator.user_id).where(CohortCoordinator.cohort_id == source.id))
+        ).scalars().all()
+        await _sync_cohort_coordinators(
+            db,
+            cohort=new_cohort,
+            org=org,
+            current_user=current_user,
+            mode="assigned",
+            coordinator_user_ids=list(src_coords),
+        )
 
     source_override = (
         await db.execute(
@@ -1278,8 +1419,10 @@ async def duplicate_organization_cohort(
                     arcade_game_id=item.arcade_game_id,
                     arcade_game_mode=item.arcade_game_mode,
                     book_id=item.book_id,
+                    book_edition_id=getattr(item, "book_edition_id", None),
                     book_profile=item.book_profile,
                     book_chapter=item.book_chapter,
+                    book_chapters=getattr(item, "book_chapters", None),
                     book_min_completion_pct=item.book_min_completion_pct,
                 )
                 db.add(cloned_item)

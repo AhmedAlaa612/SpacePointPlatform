@@ -680,8 +680,11 @@ export interface LmsProgramChecklistItem {
   arcade_game_mode?: "explorer" | "engineer" | "either" | null;
   book_id?: string | null;
   book_title?: string | null;
+  book_edition_id?: string | null;
+  book_edition_title?: string | null;
   book_profile?: string | null;
   book_chapter?: string | null;
+  book_chapters?: string[] | null;
   book_min_completion_pct?: number | null;
   submission_prompt: string | null;
   /** True once a `pdf` item has a file uploaded — fetch the actual URL

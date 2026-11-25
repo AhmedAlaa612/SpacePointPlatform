@@ -252,6 +252,8 @@ export interface OrganizationAccountSummary {
   allowed_readiness_preset_ids?: string[]
   program_scope?: string
   allowed_program_ids?: string[]
+  book_scope?: string
+  allowed_book_ids?: string[]
   program_page_access?: "disabled" | "review" | "direct" | string
   max_events?: number | null
   max_programs?: number | null
@@ -428,6 +430,8 @@ export interface OrganizationAccountCreatePayload {
   allowed_readiness_preset_ids?: string[]
   program_scope?: string
   allowed_program_ids?: string[]
+  book_scope?: string
+  allowed_book_ids?: string[]
   program_page_access?: "disabled" | "review" | "direct" | string
   max_events?: number | null
   max_programs?: number | null
@@ -458,6 +462,8 @@ export interface OrganizationAccountUpdatePayload {
   allowed_readiness_preset_ids?: string[]
   program_scope?: string
   allowed_program_ids?: string[]
+  book_scope?: string
+  allowed_book_ids?: string[]
   program_page_access?: "disabled" | "review" | "direct" | string
   max_events?: number | null
   max_programs?: number | null
@@ -628,6 +634,8 @@ export interface MyOrganizationContext {
     can_publish_courses: boolean
     course_scope_all: boolean
     allowed_course_ids: string[]
+    book_scope?: string
+    allowed_book_ids?: string[]
     max_events?: number | null
     max_programs?: number | null
     max_cohorts?: number | null
@@ -637,6 +645,7 @@ export interface MyOrganizationContext {
   mega_events: MegaEvent[]
   org_role?: OrgSandboxRole | null
   org_roles?: OrgSandboxRole[]
+  is_owner?: boolean
   can_manage?: boolean
 }
 

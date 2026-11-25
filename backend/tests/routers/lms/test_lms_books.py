@@ -23,9 +23,11 @@ from app.core.security import create_access_token
 from app.models.instructors.invitation_code import InvitationCode
 from app.models.lms.book import (
     LmsBook,
+    LmsBookEdition,
     LmsBookEnrollment,
     LmsBookProgress,
 )
+from app.models.spine.organization import Organization
 from app.models.lms.program import LmsProgram, LmsProgramItem
 from app.models.lms.purchase import Purchase
 from app.models.sessions.cohort import Cohort
@@ -913,3 +915,433 @@ async def test_book_bulk_grant_by_role(db: AsyncSession, client: AsyncClient):
         await client.get(f"/lms/admin/books/{book_id}/enrollments", headers=_headers(ops))
     ).json()
     assert any(r["user_id"] == str(student.id) and r["status"] == "active" for r in enr_rows)
+
+
+def _build_multichapter_book_zip() -> bytes:
+    """Build a minimal multi-chapter interactive book bundle (u1, u2, m1)."""
+    buf = io.BytesIO()
+    manifest = {
+        "schema_version": 1,
+        "slug": "multi-satkit",
+        "title": "Multi Chapter SatKit",
+        "title_ar": "كتاب متعدد الفصول",
+        "entry": "index.html",
+        "languages": ["en", "ar"],
+        "default_profile": "all",
+        "profiles": [
+            {"key": "all", "label_en": "Full Book", "groups": []},
+            {"key": "stem", "label_en": "STEM", "groups": ["u1", "u2"]},
+        ],
+        "outline": [
+            {
+                "key": "u1",
+                "code": "U1",
+                "part": "Physics Units",
+                "title_en": "Orbits",
+                "lessons": [{"spread": "sp-u1-1", "title_en": "Gravity", "game_keys": ["orbit"]}],
+            },
+            {
+                "key": "u2",
+                "code": "U2",
+                "part": "Physics Units",
+                "title_en": "Propulsion",
+                "lessons": [{"spread": "sp-u2-1", "title_en": "Thrust", "game_keys": []}],
+            },
+            {
+                "key": "m1",
+                "code": "M1",
+                "part": "Mission Labs",
+                "title_en": "Telemetry",
+                "lessons": [{"spread": "sp-m1-1", "title_en": "Packets", "game_keys": []}],
+            },
+        ],
+    }
+    with zipfile.ZipFile(buf, "w", compression=zipfile.ZIP_DEFLATED) as zf:
+        zf.writestr("book.json", json.dumps(manifest))
+        zf.writestr(
+            "index.html",
+            "<!DOCTYPE html><html><head><title>Multi</title></head><body><div class='spread' data-ch='u1'>U1</div></body></html>",
+        )
+    return buf.getvalue()
+
+
+async def _make_org_with_members(db: AsyncSession, *, book_scope: str = "none", allowed_book_ids: list[str] | None = None):
+    owner = await _make_user(db, "organization")
+    org = Organization(
+        id=uuid.uuid4(),
+        name_latin=f"Space School {uuid.uuid4().hex[:5]}",
+        org_type="school",
+        country="uae",
+        owner_user_id=owner.id,
+        is_approved=True,
+        book_scope=book_scope,
+        allowed_book_ids=allowed_book_ids or [],
+    )
+    db.add(org)
+    await db.flush()
+    owner.organization_id = org.id
+    owner.org_role = "owner"
+    owner.org_roles = ["owner"]
+
+    coord_a = await _make_user(db, "organization")
+    coord_a.organization_id = org.id
+    coord_a.org_role = "coordinator"
+    coord_a.org_roles = ["coordinator"]
+
+    coord_b = await _make_user(db, "organization")
+    coord_b.organization_id = org.id
+    coord_b.org_role = "coordinator"
+    coord_b.org_roles = ["coordinator"]
+
+    await db.flush()
+    return org, owner, coord_a, coord_b
+
+
+@pytest.mark.asyncio
+async def test_org_book_grants_and_master_write_blocked(db: AsyncSession, client: AsyncClient):
+    ops = await _make_user(db, "operations")
+    org, owner, coord_a, _ = await _make_org_with_members(db, book_scope="none")
+    b1 = LmsBook(
+        id=uuid.uuid4(),
+        slug=f"grant-b1-{uuid.uuid4().hex[:6]}",
+        title="Granted SatKit Book",
+        access_mode="invite",
+        is_published=True,
+        bundle_version=1,
+        created_by=ops.id,
+    )
+    b2 = LmsBook(
+        id=uuid.uuid4(),
+        slug=f"grant-b2-{uuid.uuid4().hex[:6]}",
+        title="Restricted Other Book",
+        access_mode="invite",
+        is_published=True,
+        bundle_version=1,
+        created_by=ops.id,
+    )
+    db.add_all([b1, b2])
+    await db.commit()
+
+    # book_scope='none' -> org sees empty admin list
+    none_list = await client.get("/lms/admin/books", headers=_headers(coord_a))
+    assert none_list.status_code == 200
+    assert none_list.json() == []
+
+    # Ops grants book_scope='selected' with [b1.id]
+    upd = await client.put(
+        f"/admin/website/organizations/{org.id}",
+        headers=_headers(ops),
+        json={"book_scope": "selected", "allowed_book_ids": [str(b1.id)]},
+    )
+    assert upd.status_code == 200, upd.text
+    assert upd.json()["book_scope"] == "selected"
+    assert upd.json()["allowed_book_ids"] == [str(b1.id)]
+
+    # Coordinator sees only b1
+    sel_list = (await client.get("/lms/admin/books", headers=_headers(coord_a))).json()
+    assert [b["id"] for b in sel_list] == [str(b1.id)]
+    assert sel_list[0]["can_manage_master"] is False
+
+    # Detail/editions for b2 are blocked (403)
+    assert (await client.get(f"/lms/admin/books/{b2.id}", headers=_headers(coord_a))).status_code == 403
+    assert (await client.get(f"/lms/admin/books/{b2.id}/editions", headers=_headers(coord_a))).status_code == 403
+
+    # Master write operations remain strictly SpacePoint-only (403 for org owner & coordinator)
+    for actor in (owner, coord_a):
+        assert (
+            await client.post("/lms/admin/books", headers=_headers(actor), json={"title": "Org Master"})
+        ).status_code == 403
+        assert (
+            await client.patch(f"/lms/admin/books/{b1.id}", headers=_headers(actor), json={"title": "Hacked"})
+        ).status_code == 403
+        assert (
+            await client.post(
+                f"/lms/admin/books/{b1.id}/bundle",
+                headers=_headers(actor),
+                files={"file": ("b.zip", _build_multichapter_book_zip(), "application/zip")},
+            )
+        ).status_code == 403
+        assert (await client.delete(f"/lms/admin/books/{b1.id}", headers=_headers(actor))).status_code == 403
+        assert (
+            await client.post(
+                f"/lms/admin/books/{b1.id}/enrollments",
+                headers=_headers(actor),
+                json={"email": actor.email},
+            )
+        ).status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_book_editions_crud_permissions_and_in_use_guard(db: AsyncSession, client: AsyncClient):
+    ops = await _make_user(db, "operations")
+    b = (
+        await client.post(
+            "/lms/admin/books",
+            headers=_headers(ops),
+            json={"title": "Edition Master", "access_mode": "invite"},
+        )
+    ).json()
+    book_id = b["id"]
+    await _upload_bundle(client, ops, book_id, zip_bytes=_build_multichapter_book_zip())
+    await client.post(f"/lms/admin/books/{book_id}/publish", headers=_headers(ops))
+
+    org, owner, coord_a, coord_b = await _make_org_with_members(
+        db, book_scope="selected", allowed_book_ids=[book_id]
+    )
+    program = Program(
+        id=uuid.uuid4(),
+        code=f"ED-{uuid.uuid4().hex[:6]}",
+        name="Org Program",
+        program_type="workshop",
+        pricing_model="free",
+        organization_id=org.id,
+        active=True,
+    )
+    db.add(program)
+    await db.flush()
+    lms_prog = LmsProgram(id=uuid.uuid4(), program_id=program.id, name="Checklist")
+    db.add(lms_prog)
+    await db.commit()
+
+    # Invalid chapter key rejected (400)
+    bad_ed = await client.post(
+        f"/lms/admin/books/{book_id}/editions",
+        headers=_headers(coord_a),
+        json={"title": "Bad", "chapter_keys": ["nonexistent"]},
+    )
+    assert bad_ed.status_code == 400
+
+    # Coordinator A creates custom edition (visible to all coordinators in org)
+    create_res = await client.post(
+        f"/lms/admin/books/{book_id}/editions",
+        headers=_headers(coord_a),
+        json={"title": "Grade 10 Physics", "chapter_keys": ["u1", "u2"]},
+    )
+    assert create_res.status_code == 201, create_res.text
+    ed_id = create_res.json()["id"]
+    assert create_res.json()["can_edit"] is True
+
+    # Coordinator B sees it on GET editions, with can_edit=False, and cannot edit/delete it
+    list_b = (await client.get(f"/lms/admin/books/{book_id}/editions", headers=_headers(coord_b))).json()
+    ed_for_b = next(e for e in list_b if e["id"] == ed_id)
+    assert ed_for_b["can_edit"] is False
+    assert (
+        await client.patch(
+            f"/lms/admin/books/{book_id}/editions/{ed_id}",
+            headers=_headers(coord_b),
+            json={"title": "Stolen"},
+        )
+    ).status_code == 403
+    assert (
+        await client.delete(f"/lms/admin/books/{book_id}/editions/{ed_id}", headers=_headers(coord_b))
+    ).status_code == 403
+
+    # Coordinator A and Org owner CAN update it
+    patch_a = await client.patch(
+        f"/lms/admin/books/{book_id}/editions/{ed_id}",
+        headers=_headers(coord_a),
+        json={"chapter_keys": ["u1", "m1"]},
+    )
+    assert patch_a.status_code == 200
+    assert patch_a.json()["chapter_keys"] == ["u1", "m1"]
+
+    patch_owner = await client.patch(
+        f"/lms/admin/books/{book_id}/editions/{ed_id}",
+        headers=_headers(owner),
+        json={"title": "School Standard Edition"},
+    )
+    assert patch_owner.status_code == 200
+    assert patch_owner.json()["title"] == "School Standard Edition"
+
+    # Link edition to a checklist item -> delete blocked (400), unlink -> delete succeeds (204)
+    item = LmsProgramItem(
+        id=uuid.uuid4(),
+        owner_type="program",
+        owner_id=lms_prog.id,
+        position=1,
+        item_type="book",
+        title="Custom Edition Reading",
+        book_id=uuid.UUID(book_id),
+        book_edition_id=uuid.UUID(ed_id),
+    )
+    db.add(item)
+    await db.commit()
+
+    assert (
+        await client.delete(f"/lms/admin/books/{book_id}/editions/{ed_id}", headers=_headers(coord_a))
+    ).status_code == 400
+
+    await db.delete(item)
+    await db.commit()
+    assert (
+        await client.delete(f"/lms/admin/books/{book_id}/editions/{ed_id}", headers=_headers(coord_a))
+    ).status_code == 204
+
+
+@pytest.mark.asyncio
+async def test_scoped_book_slice_catalog_reader_completion_and_analytics(db: AsyncSession, client: AsyncClient):
+    ops = await _make_user(db, "operations")
+    student = await _make_user(db, "student")
+    book_res = await client.post(
+        "/lms/admin/books",
+        headers=_headers(ops),
+        json={"title": "Strict Slice Book", "access_mode": "invite"},
+    )
+    book_id = book_res.json()["id"]
+    await _upload_bundle(client, ops, book_id, zip_bytes=_build_multichapter_book_zip())
+    await client.post(f"/lms/admin/books/{book_id}/publish", headers=_headers(ops))
+
+    org, _, coord_a, _ = await _make_org_with_members(
+        db, book_scope="selected", allowed_book_ids=[book_id]
+    )
+    ed_res = await client.post(
+        f"/lms/admin/books/{book_id}/editions",
+        headers=_headers(coord_a),
+        json={"title": "Unit 1 Only", "chapter_keys": ["u1"]},
+    )
+    assert ed_res.status_code == 201
+    ed_id = ed_res.json()["id"]
+
+    program = Program(
+        id=uuid.uuid4(),
+        code=f"SL-{uuid.uuid4().hex[:6]}",
+        name="Scoped Cohort Prog",
+        program_type="workshop",
+        pricing_model="free",
+        organization_id=org.id,
+        active=True,
+    )
+    db.add(program)
+    await db.flush()
+    cohort = Cohort(
+        id=uuid.uuid4(),
+        program_id=program.id,
+        name="Grade 10 Section A",
+        status="running",
+        organization_id=org.id,
+        coordinator_access_mode="general",
+    )
+    db.add(cohort)
+    await db.flush()
+    lms_prog = LmsProgram(id=uuid.uuid4(), program_id=program.id, name="Section A Checklist")
+    db.add(lms_prog)
+    await db.flush()
+    db.add(
+        LmsProgramItem(
+            id=uuid.uuid4(),
+            owner_type="program",
+            owner_id=lms_prog.id,
+            position=1,
+            item_type="book",
+            title="Read Unit 1 Edition",
+            book_id=uuid.UUID(book_id),
+            book_edition_id=uuid.UUID(ed_id),
+        )
+    )
+    await db.commit()
+
+    assignment = await assign_lms_program(db, user_id=student.id, cohort_id=cohort.id)
+    await db.commit()
+    assert assignment is not None
+
+    # Student catalog + detail + reader-session are strictly scoped to chapter ["u1"]
+    cat = (await client.get("/lms/books", headers=_headers(student))).json()
+    book_row = next(b for b in cat if b["id"] == book_id)
+    assert book_row["chapter_count"] == 1
+    assert book_row["locked_scope"] is True
+    assert book_row["allowed_chapters"] == ["u1"]
+
+    detail = (await client.get(f"/lms/books/{book_id}", headers=_headers(student))).json()
+    assert [c["key"] for c in detail["outline"]] == ["u1"]
+    assert detail["profiles"] == []
+    assert detail["locked_scope"] is True
+
+    rs = await client.post(f"/lms/books/{book_id}/reader-session", headers=_headers(student))
+    assert rs.status_code == 200, rs.text
+    rs_body = rs.json()
+    assert rs_body["locked_scope"] is True
+    assert rs_body["allowed_chapters"] == ["u1"]
+    assert rs_body["edition_id"] == ed_id
+
+    # Injected HTML bundle carries sp-book-config meta with allowedChapters=["u1"] and lockedScope=true
+    import html as _html
+    html_res = await client.get(rs_body["bundle_url"])
+    assert html_res.status_code == 200
+    assert "sp-book-config" in html_res.text
+    unescaped_html = _html.unescape(html_res.text)
+    assert '"allowedChapters": ["u1"]' in unescaped_html or '"allowedChapters":["u1"]' in unescaped_html
+    assert '"lockedScope": true' in unescaped_html or '"lockedScope":true' in unescaped_html
+
+    # Visiting an excluded chapter spread ("sp-m1-1") does NOT complete the Unit 1 slice item
+    await client.put(
+        f"/lms/books/{book_id}/progress",
+        headers=_headers(student),
+        json={"current_spread": "sp-m1-1", "visited_spreads": ["sp-m1-1"], "completion_pct": 33},
+    )
+    cl_before = (await client.get(f"/lms/programs/{assignment.id}", headers=_headers(student))).json()
+    assert cl_before["items"][0]["status"] == "pending"
+
+    # Visiting "sp-u1-1" completes the Unit 1 slice item (100% of slice!)
+    await client.put(
+        f"/lms/books/{book_id}/progress",
+        headers=_headers(student),
+        json={"current_spread": "sp-u1-1", "visited_spreads": ["sp-m1-1", "sp-u1-1"], "completion_pct": 66},
+    )
+    cl_after = (await client.get(f"/lms/programs/{assignment.id}", headers=_headers(student))).json()
+    assert cl_after["items"][0]["status"] == "done"
+
+    # Org coordinator MUST pass accessible cohort_id for analytics/export
+    assert (await client.get(f"/lms/admin/books/{book_id}/analytics", headers=_headers(coord_a))).status_code == 403
+    ana_res = await client.get(
+        f"/lms/admin/books/{book_id}/analytics",
+        params={"cohort_id": str(cohort.id)},
+        headers=_headers(coord_a),
+    )
+    assert ana_res.status_code == 200, ana_res.text
+    ana = ana_res.json()
+    assert ana["total_enrolled"] == 1
+    assert ana["learners"][0]["completion_pct"] == 100
+
+    csv_res = await client.get(
+        f"/lms/admin/books/{book_id}/analytics/export.csv",
+        params={"cohort_id": str(cohort.id)},
+        headers=_headers(coord_a),
+    )
+    assert csv_res.status_code == 200
+    assert student.email in csv_res.text
+
+
+@pytest.mark.asyncio
+async def test_org_coordinator_teacher_mode_on_allowed_book(db: AsyncSession, client: AsyncClient):
+    ops = await _make_user(db, "operations")
+    allowed = LmsBook(
+        id=uuid.uuid4(),
+        slug=f"teach-ok-{uuid.uuid4().hex[:6]}",
+        title="Allowed Org Book",
+        access_mode="invite",
+        is_published=True,
+        bundle_version=1,
+        created_by=ops.id,
+    )
+    denied = LmsBook(
+        id=uuid.uuid4(),
+        slug=f"teach-no-{uuid.uuid4().hex[:6]}",
+        title="Denied Org Book",
+        access_mode="invite",
+        is_published=True,
+        bundle_version=1,
+        created_by=ops.id,
+    )
+    db.add_all([allowed, denied])
+    await db.flush()
+    _, _, coord_a, _ = await _make_org_with_members(
+        db, book_scope="selected", allowed_book_ids=[str(allowed.id)]
+    )
+    await db.commit()
+
+    ok_rs = await client.post(f"/lms/books/{allowed.id}/reader-session", headers=_headers(coord_a))
+    assert ok_rs.status_code == 200, ok_rs.text
+    assert ok_rs.json()["can_teacher"] is True
+
+    no_rs = await client.post(f"/lms/books/{denied.id}/reader-session", headers=_headers(coord_a))
+    assert no_rs.status_code == 403

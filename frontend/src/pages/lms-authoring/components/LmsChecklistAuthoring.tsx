@@ -15,7 +15,7 @@ import { listMissionsAdminFullApi } from "@/api/missions_admin"
 import { instructorStepSelectionApi } from "@/api/missionsInstructor"
 import { listCohortQuizTemplatesApi } from "@/api/cohort_quiz"
 import { fetchArcadeGamesApi } from "@/api/arcade"
-import { adminListBooksApi } from "@/api/lms_books"
+import { adminCreateBookEditionApi, adminListBooksApi } from "@/api/lms_books"
 import type { LmsTableColumn } from "@/api/lms"
 import { MediaPreviewModal } from "@/components/media/MediaPreviewModal"
 import {
@@ -1093,8 +1093,25 @@ export function ItemForm({
     (initial?.arcade_game_mode as "explorer" | "engineer" | "either") ?? "explorer"
   )
   const [bookId, setBookId] = useState(initial?.book_id ?? "")
+  const [bookEditionId, setBookEditionId] = useState(initial?.book_edition_id ?? "")
+  const [bookChapters, setBookChapters] = useState<string[]>(
+    initial?.book_chapters?.length
+      ? initial.book_chapters
+      : initial?.book_chapter
+        ? [initial.book_chapter]
+        : [],
+  )
+  const [bookScopeMode, setBookScopeMode] = useState<"full" | "edition" | "chapters">(
+    initial?.book_edition_id
+      ? "edition"
+      : (initial?.book_chapters?.length || initial?.book_chapter)
+        ? "chapters"
+        : "full",
+  )
+  const [newEditionTitle, setNewEditionTitle] = useState("")
+  const [savingEdition, setSavingEdition] = useState(false)
+  const queryClient = useQueryClient()
   const [bookProfile, setBookProfile] = useState(initial?.book_profile ?? "all")
-  const [bookChapter, setBookChapter] = useState(initial?.book_chapter ?? "")
   const [bookMinCompletionPct, setBookMinCompletionPct] = useState(
     initial?.book_min_completion_pct != null ? String(initial.book_min_completion_pct) : "100",
   )
@@ -1193,6 +1210,12 @@ export function ItemForm({
     if (itemType === "quiz" && !cohortQuizTemplateId) { setError("Pick a quiz template"); return }
     if (itemType === "arcade_game" && !arcadeGameId) { setError("Pick an arcade game"); return }
     if (itemType === "book" && !bookId) { setError("Pick a book"); return }
+    if (itemType === "book" && bookScopeMode === "edition" && !bookEditionId) {
+      setError("Pick a book edition"); return
+    }
+    if (itemType === "book" && bookScopeMode === "chapters" && bookChapters.length === 0) {
+      setError("Select at least one chapter"); return
+    }
     const parsedBookPct = bookMinCompletionPct.trim() ? Number(bookMinCompletionPct.trim()) : 100
     if (itemType === "book" && (!Number.isInteger(parsedBookPct) || parsedBookPct < 1 || parsedBookPct > 100)) {
       setError("Completion % must be between 1 and 100")
@@ -1222,8 +1245,13 @@ export function ItemForm({
         arcade_game_id: itemType === "arcade_game" ? (arcadeGameId || null) : null,
         arcade_game_mode: itemType === "arcade_game" ? arcadeGameMode : null,
         book_id: itemType === "book" ? (bookId || null) : null,
-        book_profile: itemType === "book" ? (bookProfile || "all") : null,
-        book_chapter: itemType === "book" ? (bookChapter || null) : null,
+        book_edition_id: itemType === "book" && bookScopeMode === "edition" ? (bookEditionId || null) : null,
+        book_profile: itemType === "book" && bookScopeMode === "full" ? (bookProfile || "all") : null,
+        book_chapter:
+          itemType === "book" && bookScopeMode === "chapters" && bookChapters.length === 1
+            ? bookChapters[0]
+            : null,
+        book_chapters: itemType === "book" && bookScopeMode === "chapters" ? bookChapters : null,
         book_min_completion_pct: itemType === "book" ? parsedBookPct : null,
         external_url: (itemType === "external_link" || itemType === "submission") ? (externalUrl.trim() || null) : null,
         submission_prompt: itemType === "submission" ? (submissionPrompt.trim() || null) : null,
@@ -1343,7 +1371,7 @@ export function ItemForm({
       )}
 
       {itemType === "book" && (
-        <div className="flex flex-col gap-2">
+        <div className="flex flex-col gap-2.5">
           <select
             value={bookId}
             onChange={(e) => {
@@ -1353,7 +1381,8 @@ export function ItemForm({
               if (chosen) {
                 if (!title.trim()) setTitle(chosen.title)
                 setBookProfile(chosen.default_profile || "all")
-                setBookChapter("")
+                setBookEditionId("")
+                setBookChapters([])
               }
             }}
             className={`${inputCls} cursor-pointer`}
@@ -1365,49 +1394,180 @@ export function ItemForm({
               </option>
             ))}
           </select>
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-            <div className="flex flex-col gap-1">
-              <label className="text-[11px] font-medium text-muted-foreground">Edition / Track</label>
-              <select
-                value={bookProfile}
-                onChange={(e) => setBookProfile(e.target.value)}
-                className={`${inputCls} cursor-pointer`}
-              >
-                {(selectedBook?.profiles?.length ? selectedBook.profiles : [{ key: "all", label_en: "Full Book" }]).map((p) => (
-                  <option key={p.key} value={p.key}>
-                    {p.label_en}
-                  </option>
+
+          {selectedBook && (
+            <>
+              <div className="flex flex-wrap gap-1.5">
+                {(
+                  [
+                    { id: "full", label: "Full Book" },
+                    { id: "edition", label: `Saved Edition (${selectedBook.editions?.length ?? 0})` },
+                    { id: "chapters", label: "Select Chapters" },
+                  ] as const
+                ).map((m) => (
+                  <button
+                    key={m.id}
+                    type="button"
+                    onClick={() => setBookScopeMode(m.id)}
+                    className={`px-2.5 py-1 rounded-lg text-xs font-semibold border transition-colors cursor-pointer ${
+                      bookScopeMode === m.id
+                        ? "bg-primary text-primary-foreground border-primary"
+                        : "bg-card text-muted-foreground border-border hover:text-foreground"
+                    }`}
+                  >
+                    {m.label}
+                  </button>
                 ))}
-              </select>
-            </div>
-            <div className="flex flex-col gap-1">
-              <label className="text-[11px] font-medium text-muted-foreground">Target Chapter</label>
-              <select
-                value={bookChapter}
-                onChange={(e) => setBookChapter(e.target.value)}
-                className={`${inputCls} cursor-pointer`}
-              >
-                <option value="">Entire book</option>
-                {(selectedBook?.outline ?? []).map((ch) => (
-                  <option key={ch.key} value={ch.key}>
-                    {ch.code ? `${ch.code} - ${ch.title_en}` : ch.title_en}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div className="flex flex-col gap-1">
-              <label className="text-[11px] font-medium text-muted-foreground">Min Completion %</label>
-              <input
-                type="number"
-                min={1}
-                max={100}
-                value={bookMinCompletionPct}
-                onChange={(e) => setBookMinCompletionPct(e.target.value)}
-                className={inputCls}
-                placeholder="100"
-              />
-            </div>
-          </div>
+              </div>
+
+              {bookScopeMode === "edition" && (
+                <div className="flex flex-col gap-1">
+                  <label className="text-[11px] font-medium text-muted-foreground">Book Edition</label>
+                  <select
+                    value={bookEditionId}
+                    onChange={(e) => {
+                      const nextId = e.target.value
+                      setBookEditionId(nextId)
+                      const ed = (selectedBook.editions ?? []).find((x) => x.id === nextId)
+                      if (ed && !initial) setTitle(`${selectedBook.title} — ${ed.title}`)
+                    }}
+                    className={`${inputCls} cursor-pointer`}
+                  >
+                    <option value="">Choose an edition…</option>
+                    {(selectedBook.editions ?? []).map((ed) => (
+                      <option key={ed.id} value={ed.id}>
+                        {ed.title} ({ed.chapter_keys.length} ch){ed.organization_id ? "" : " · SpacePoint"}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
+
+              {bookScopeMode === "chapters" && (
+                <div className="flex flex-col gap-2 p-2.5 rounded-lg border border-border bg-muted/30">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-[11px] font-medium text-muted-foreground">
+                      Included chapters ({bookChapters.length} / {selectedBook.outline.length})
+                    </span>
+                    <div className="flex gap-2 text-[11px]">
+                      <button
+                        type="button"
+                        onClick={() => setBookChapters(selectedBook.outline.map((c) => c.key))}
+                        className="text-primary hover:underline cursor-pointer"
+                      >
+                        All
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setBookChapters([])}
+                        className="text-muted-foreground hover:text-foreground cursor-pointer"
+                      >
+                        Clear
+                      </button>
+                    </div>
+                  </div>
+                  <div className="max-h-40 overflow-y-auto grid grid-cols-1 sm:grid-cols-2 gap-1.5">
+                    {selectedBook.outline.map((ch) => {
+                      const checked = bookChapters.includes(ch.key)
+                      return (
+                        <label
+                          key={ch.key}
+                          className={`flex items-center gap-2 px-2 py-1.5 rounded-lg border text-xs cursor-pointer transition-colors ${
+                            checked
+                              ? "border-primary/40 bg-primary/10 text-foreground"
+                              : "border-border bg-card text-muted-foreground hover:text-foreground"
+                          }`}
+                        >
+                          <input
+                            type="checkbox"
+                            checked={checked}
+                            onChange={() =>
+                              setBookChapters((prev) =>
+                                prev.includes(ch.key)
+                                  ? prev.filter((k) => k !== ch.key)
+                                  : [...prev, ch.key],
+                              )
+                            }
+                            className="h-3.5 w-3.5 rounded text-primary"
+                          />
+                          <span className="truncate">
+                            {ch.code ? `${ch.code} · ` : ""}{ch.title_en}
+                          </span>
+                        </label>
+                      )
+                    })}
+                  </div>
+                  {bookChapters.length > 0 && (
+                    <div className="flex items-center gap-2 pt-1 border-t border-border/60">
+                      <input
+                        type="text"
+                        value={newEditionTitle}
+                        onChange={(e) => setNewEditionTitle(e.target.value)}
+                        placeholder="Save selection as reusable edition name…"
+                        className={`${inputCls} h-8 text-xs flex-1`}
+                      />
+                      <button
+                        type="button"
+                        disabled={savingEdition || !newEditionTitle.trim()}
+                        onClick={async () => {
+                          if (!selectedBook || !newEditionTitle.trim() || bookChapters.length === 0) return
+                          setSavingEdition(true)
+                          try {
+                            const created = await adminCreateBookEditionApi(selectedBook.id, {
+                              title: newEditionTitle.trim(),
+                              chapter_keys: bookChapters,
+                            })
+                            setNewEditionTitle("")
+                            setBookEditionId(created.id)
+                            setBookScopeMode("edition")
+                            await queryClient.invalidateQueries({ queryKey: ["lms-admin-books"] })
+                          } catch (err) {
+                            setError(errorDetail(err, "Could not save edition"))
+                          } finally {
+                            setSavingEdition(false)
+                          }
+                        }}
+                        className="h-8 px-2.5 rounded-lg border border-primary/40 bg-primary/10 text-primary text-xs font-semibold hover:bg-primary/20 disabled:opacity-50 cursor-pointer shrink-0"
+                      >
+                        {savingEdition ? "Saving…" : "Save Edition"}
+                      </button>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                {bookScopeMode === "full" && (
+                  <div className="flex flex-col gap-1">
+                    <label className="text-[11px] font-medium text-muted-foreground">Default Track</label>
+                    <select
+                      value={bookProfile}
+                      onChange={(e) => setBookProfile(e.target.value)}
+                      className={`${inputCls} cursor-pointer`}
+                    >
+                      {(selectedBook.profiles?.length ? selectedBook.profiles : [{ key: "all", label_en: "Full Book" }]).map((p) => (
+                        <option key={p.key} value={p.key}>
+                          {p.label_en}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                )}
+                <div className="flex flex-col gap-1">
+                  <label className="text-[11px] font-medium text-muted-foreground">Min Completion %</label>
+                  <input
+                    type="number"
+                    min={1}
+                    max={100}
+                    value={bookMinCompletionPct}
+                    onChange={(e) => setBookMinCompletionPct(e.target.value)}
+                    className={inputCls}
+                    placeholder="100"
+                  />
+                </div>
+              </div>
+            </>
+          )}
         </div>
       )}
 

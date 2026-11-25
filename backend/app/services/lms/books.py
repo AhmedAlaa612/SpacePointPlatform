@@ -24,11 +24,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.lms.book import (
     LmsBook,
+    LmsBookEdition,
     LmsBookEnrollment,
     LmsBookExerciseResponse,
     LmsBookProgress,
 )
-from app.models.lms.program import LmsProgramAssignment
+from app.models.lms.program import LmsProgramAssignment, LmsProgramCohortOverride, LmsProgramItem
+from app.models.sessions.cohort import Cohort
+from app.models.spine.organization import Organization
 from app.models.user import User
 from app.schemas.lms_books import BookExerciseIn, BookProgressSyncIn
 from app.services.lms import books_storage
@@ -59,10 +62,249 @@ def is_book_staff_preview(user: User) -> bool:
     return bool(roles & _STAFF_PREVIEW_ROLES)
 
 
+def can_manage_master_books(user: User) -> bool:
+    """True only for SpacePoint staff/authors permitted to create/upload/publish/delete master books."""
+    roles = set(user.role_values or [])
+    return bool(roles & _STAFF_PREVIEW_ROLES)
+
+
 def can_user_teacher_mode(user: User) -> bool:
     """True for staff and instructors who can toggle Teacher notes inside books they can access."""
     roles = set(user.role_values or [])
     return bool(roles & _STAFF_TEACHER_ROLES)
+
+
+async def resolve_book_user_org(db: AsyncSession, user: User) -> Organization | None:
+    """Return the user's sandbox Organization if they hold an organization role."""
+    if "organization" not in set(user.role_values or []):
+        return None
+    from app.services.website_events import resolve_user_organization
+
+    return await resolve_user_organization(db, user)
+
+
+async def org_cohort_used_book_ids(db: AsyncSession, org_id: uuid.UUID) -> set[uuid.UUID]:
+    """Return book IDs already attached to any cohort's LMS checklist in this organization."""
+    from app.services.lms.program import effective_cohort_program_items
+
+    cids = (
+        await db.execute(select(Cohort.id).where(Cohort.organization_id == org_id))
+    ).scalars().all()
+    used: set[uuid.UUID] = set()
+    for cid in cids:
+        resolved = await effective_cohort_program_items(db, cohort_id=cid)
+        if not resolved:
+            continue
+        _prog, items, _inherited = resolved
+        for it in items:
+            if it.item_type == "book" and it.book_id is not None:
+                used.add(it.book_id)
+    return used
+
+
+async def is_book_allowed_for_org(db: AsyncSession, org: Organization, book: LmsBook) -> bool:
+    """Whether an organization owner/coordinator can read/use this published SpacePoint book."""
+    if not book.is_published:
+        return False
+    scope = (getattr(org, "book_scope", None) or "none").strip().lower()
+    if scope == "all":
+        return True
+    if scope == "selected":
+        allowed = {str(x) for x in (getattr(org, "allowed_book_ids", None) or [])}
+        if str(book.id) in allowed:
+            return True
+    return book.id in await org_cohort_used_book_ids(db, org.id)
+
+
+async def accessible_org_book_ids(db: AsyncSession, org: Organization) -> set[uuid.UUID] | None:
+    """Return allowed published book_ids for `org`, or None when `book_scope == 'all'`."""
+    scope = (getattr(org, "book_scope", None) or "none").strip().lower()
+    if scope == "all":
+        return None
+    ids = await org_cohort_used_book_ids(db, org.id)
+    if scope == "selected":
+        for raw in (getattr(org, "allowed_book_ids", None) or []):
+            try:
+                ids.add(uuid.UUID(str(raw)))
+            except (ValueError, TypeError):
+                continue
+    return ids
+
+
+async def user_has_teacher_mode(db: AsyncSession, *, user: User, book: LmsBook) -> bool:
+    """True if staff/instructor or an organization owner/coordinator with access to `book`."""
+    if can_user_teacher_mode(user):
+        return True
+    org = await resolve_book_user_org(db, user)
+    if org is not None:
+        return await is_book_allowed_for_org(db, org, book)
+    return False
+
+
+def can_user_edit_edition(
+    user: User,
+    edition: LmsBookEdition,
+    org: Organization | None,
+) -> bool:
+    """Staff edit any edition; org owners edit any edition in their org; coordinators edit their own."""
+    if can_manage_master_books(user):
+        return True
+    if org is not None and edition.organization_id == org.id:
+        if org.owner_user_id == user.id:
+            return True
+        if edition.created_by == user.id:
+            return True
+    return False
+
+
+def serialize_book_edition(
+    edition: LmsBookEdition,
+    *,
+    current_user: User,
+    org: Organization | None,
+    creator_name: str | None = None,
+) -> dict[str, Any]:
+    return {
+        "id": edition.id,
+        "book_id": edition.book_id,
+        "organization_id": edition.organization_id,
+        "created_by": edition.created_by,
+        "creator_name": creator_name,
+        "title": edition.title,
+        "title_ar": edition.title_ar,
+        "description": edition.description,
+        "chapter_keys": list(edition.chapter_keys or []),
+        "default_lang": edition.default_lang,
+        "can_edit": can_user_edit_edition(current_user, edition, org),
+        "created_at": edition.created_at,
+        "updated_at": edition.updated_at,
+    }
+
+
+async def visible_editions_for_book(
+    db: AsyncSession,
+    *,
+    book_id: uuid.UUID,
+    current_user: User,
+    org: Organization | None = None,
+) -> list[dict[str, Any]]:
+    """Return global SpacePoint editions plus editions belonging to the user's org."""
+    stmt = select(LmsBookEdition).where(LmsBookEdition.book_id == book_id)
+    if not can_manage_master_books(current_user):
+        if org is not None:
+            stmt = stmt.where(
+                or_(
+                    LmsBookEdition.organization_id.is_(None),
+                    LmsBookEdition.organization_id == org.id,
+                )
+            )
+        else:
+            stmt = stmt.where(LmsBookEdition.organization_id.is_(None))
+    rows = (await db.execute(stmt.order_by(LmsBookEdition.created_at.asc()))).scalars().all()
+    creator_ids = {r.created_by for r in rows if r.created_by is not None}
+    creators: dict[uuid.UUID, str] = {}
+    if creator_ids:
+        u_rows = (await db.execute(select(User.id, User.full_name).where(User.id.in_(creator_ids)))).all()
+        creators = {uid: fname for uid, fname in u_rows}
+    return [
+        serialize_book_edition(
+            r,
+            current_user=current_user,
+            org=org,
+            creator_name=creators.get(r.created_by) if r.created_by else None,
+        )
+        for r in rows
+    ]
+
+
+def validate_chapter_keys_for_book(book: LmsBook, chapter_keys: list[str]) -> list[str]:
+    """Normalize ordered chapter keys and reject unknown keys when the book has a parsed outline."""
+    cleaned: list[str] = []
+    seen: set[str] = set()
+    for raw in chapter_keys or []:
+        k = str(raw or "").strip()
+        if k and k not in seen:
+            seen.add(k)
+            cleaned.append(k)
+    if not cleaned:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="Select at least one chapter")
+    outline_keys = {str(ch.get("key") or "") for ch in (book.outline or []) if ch.get("key")}
+    if outline_keys:
+        unknown = [k for k in cleaned if k not in outline_keys]
+        if unknown:
+            raise HTTPException(
+                status.HTTP_400_BAD_REQUEST,
+                detail=f"Unknown chapter key(s) for book '{book.title}': {', '.join(unknown)}",
+            )
+    return cleaned
+
+
+def filter_outline_by_chapters(outline: list[dict[str, Any]] | None, chapter_keys: list[str] | None) -> list[dict[str, Any]]:
+    """Return outline chapters filtered and ordered by `chapter_keys` (or full outline when None)."""
+    raw = list(outline or [])
+    if not chapter_keys:
+        return raw
+    by_key = {str(ch.get("key") or ""): ch for ch in raw if ch.get("key")}
+    ordered = [by_key[k] for k in chapter_keys if k in by_key]
+    return ordered if ordered else [ch for ch in raw if str(ch.get("key") or "") in set(chapter_keys)]
+
+
+async def resolve_item_chapters(
+    db: AsyncSession,
+    book: LmsBook,
+    *,
+    book_chapters: list[str] | None = None,
+    book_edition_id: uuid.UUID | None = None,
+    book_chapter: str | None = None,
+    book_profile: str | None = None,
+) -> tuple[list[str] | None, LmsBookEdition | None]:
+    """Resolve explicit chapter keys + optional edition object for a book item."""
+    if book_edition_id is not None:
+        edition = await db.get(LmsBookEdition, book_edition_id)
+        if edition is not None and edition.book_id == book.id:
+            keys = [str(k) for k in (edition.chapter_keys or []) if str(k).strip()]
+            return (keys or None), edition
+    if book_chapters:
+        keys = [str(k).strip() for k in book_chapters if str(k or "").strip()]
+        if keys:
+            return list(dict.fromkeys(keys)), None
+    if book_chapter:
+        return [book_chapter], None
+    if book_profile:
+        for prof in book.profiles or []:
+            if str(prof.get("key") or "") == book_profile:
+                groups = [str(g).strip() for g in (prof.get("groups") or []) if str(g or "").strip()]
+                if groups:
+                    return list(dict.fromkeys(groups)), None
+    return None, None
+
+
+def compute_book_slice_completion(
+    book: LmsBook,
+    progress: LmsBookProgress | None,
+    chapter_keys: list[str] | None,
+) -> int:
+    """Compute completion percentage strictly across `chapter_keys` (or whole book when None)."""
+    if progress is None:
+        return 0
+    if not chapter_keys:
+        return int(progress.completion_pct or 0)
+    target_set = {str(k) for k in chapter_keys if str(k).strip()}
+    if not target_set:
+        return int(progress.completion_pct or 0)
+    target_spreads: list[str] = []
+    for ch in book.outline or []:
+        if str(ch.get("key") or "") not in target_set:
+            continue
+        for lesson in ch.get("lessons") or []:
+            sp = str(lesson.get("spread") or "").strip()
+            if sp and sp not in target_spreads:
+                target_spreads.append(sp)
+    if target_spreads:
+        visited = {str(s) for s in (progress.visited_spreads or [])}
+        matched = sum(1 for sp in target_spreads if sp in visited)
+        return round(100 * matched / len(target_spreads))
+    return 100 if progress.current_chapter in target_set else 0
 
 
 async def instructor_program_book_ids(db: AsyncSession, *, user: User) -> set[uuid.UUID]:
@@ -109,6 +351,7 @@ async def enroll_book(
     granted_by: uuid.UUID | None = None,
     purchase_id: uuid.UUID | None = None,
     expires_at: datetime | None = None,
+    book_edition_id: uuid.UUID | None = None,
 ) -> LmsBookEnrollment:
     """Grant (or reactivate) a student's access to an LMS Book (idempotent)."""
     book = await db.get(LmsBook, book_id)
@@ -133,6 +376,7 @@ async def enroll_book(
     now = datetime.now(timezone.utc)
     if existing is not None:
         expired = existing.expires_at is not None and existing.expires_at <= now
+        changed = False
         if existing.status != "active" or expired:
             existing.status = "active"
             existing.expires_at = effective_expiry
@@ -140,6 +384,20 @@ async def enroll_book(
                 existing.purchase_id = purchase_id
             if granted_by is not None:
                 existing.granted_by = granted_by
+            changed = True
+        # Upgrade a scoped enrollment if full access is now granted via purchase/self/ops or unscoped invite
+        if source in ("self", "ops", "purchase") and existing.source in ("program", "invite_code"):
+            existing.source = source
+            existing.book_edition_id = None
+            changed = True
+        elif source == "invite_code" and book_edition_id is None and existing.book_edition_id is not None:
+            existing.book_edition_id = None
+            changed = True
+        elif source == "invite_code" and book_edition_id is not None and existing.source == "program":
+            existing.source = "invite_code"
+            existing.book_edition_id = book_edition_id
+            changed = True
+        if changed:
             await db.flush()
         return existing
 
@@ -147,6 +405,7 @@ async def enroll_book(
         id=uuid.uuid4(),
         user_id=user_id,
         book_id=book_id,
+        book_edition_id=book_edition_id,
         source=source,
         status="active",
         granted_by=granted_by,
@@ -159,24 +418,115 @@ async def enroll_book(
     return row
 
 
-async def has_book_access(db: AsyncSession, *, user: User, book: LmsBook) -> bool:
-    """Ops/authors/admins can always preview; learners & instructors need open/enrollment/teaching-cohort access."""
+async def resolve_user_book_access(
+    db: AsyncSession,
+    *,
+    user: User,
+    book: LmsBook,
+) -> tuple[bool, list[dict[str, Any]]]:
+    """Resolve what scope a user has for `book`.
+
+    Returns `(has_full, scoped_slices)`:
+    - `has_full=True` means the full book (all chapters & edition switching) is allowed.
+    - When `has_full=False`, `scoped_slices` lists dicts `{edition_id, title, title_ar, chapter_keys}`
+      from the student's active program/cohort items or edition-scoped invite code enrollment.
+    """
     if is_book_staff_preview(user):
-        return True
+        return True, []
     if not book.is_published:
-        return False
-    row = await db.scalar(
-        select(LmsBookEnrollment.id).where(
-            LmsBookEnrollment.user_id == user.id,
-            LmsBookEnrollment.book_id == book.id,
-            *book_enrollment_is_active(),
-        )
-    )
-    if row is not None:
-        return True
+        return False, []
+    org = await resolve_book_user_org(db, user)
+    if org is not None and await is_book_allowed_for_org(db, org, book):
+        return True, []
     if "instructor" in set(user.role_values or []):
-        return book.id in await instructor_program_book_ids(db, user=user)
-    return False
+        if book.id in await instructor_program_book_ids(db, user=user):
+            return True, []
+
+    enrollment = (
+        await db.execute(
+            select(LmsBookEnrollment).where(
+                LmsBookEnrollment.user_id == user.id,
+                LmsBookEnrollment.book_id == book.id,
+                *book_enrollment_is_active(),
+            )
+        )
+    ).scalars().first()
+    if enrollment is None:
+        return False, []
+
+    if enrollment.source in ("self", "ops", "purchase"):
+        return True, []
+    if enrollment.source == "invite_code" and enrollment.book_edition_id is None:
+        return True, []
+
+    slices: list[dict[str, Any]] = []
+    seen_keys: set[tuple[str | None, tuple[str, ...]]] = set()
+
+    if enrollment.source == "invite_code" and enrollment.book_edition_id is not None:
+        ed = await db.get(LmsBookEdition, enrollment.book_edition_id)
+        if ed is not None and ed.book_id == book.id and (ed.chapter_keys or []):
+            ch_keys = [str(k) for k in ed.chapter_keys]
+            sig = (str(ed.id), tuple(ch_keys))
+            seen_keys.add(sig)
+            slices.append({
+                "edition_id": ed.id,
+                "title": ed.title,
+                "title_ar": ed.title_ar,
+                "chapter_keys": ch_keys,
+            })
+
+    # Inspect active program assignments across cohorts for this user.
+    from app.services.lms.program import effective_cohort_program_items
+
+    cohort_ids = (
+        await db.execute(
+            select(LmsProgramAssignment.cohort_id).where(LmsProgramAssignment.user_id == user.id)
+        )
+    ).scalars().all()
+    for cid in cohort_ids:
+        if cid is None:
+            continue
+        resolved = await effective_cohort_program_items(db, cohort_id=cid)
+        if not resolved:
+            continue
+        _prog, items, _inherited = resolved
+        for it in items:
+            if it.item_type != "book" or it.book_id != book.id:
+                continue
+            ch_keys, edition = await resolve_item_chapters(
+                db,
+                book,
+                book_chapters=getattr(it, "book_chapters", None),
+                book_edition_id=getattr(it, "book_edition_id", None),
+                book_chapter=it.book_chapter,
+                book_profile=it.book_profile,
+            )
+            if not ch_keys:
+                return True, []
+            ed_id = edition.id if edition else None
+            sig = (str(ed_id) if ed_id else None, tuple(ch_keys))
+            if sig in seen_keys:
+                continue
+            seen_keys.add(sig)
+            slices.append({
+                "edition_id": ed_id,
+                "item_id": it.id,
+                "title": edition.title if edition else (it.title or book.title),
+                "title_ar": edition.title_ar if edition else book.title_ar,
+                "chapter_keys": ch_keys,
+            })
+
+    # If enrolled via `program` yet no matching cohort checklist item specifies a slice
+    # (e.g. legacy program-level full book), do not strand the student — treat as full only if no slices found and source != invite_code.
+    if not slices and enrollment.source == "program":
+        return True, []
+    return False, slices
+
+
+async def has_book_access(db: AsyncSession, *, user: User, book: LmsBook) -> bool:
+    """True if the user has either full access or at least one scoped slice of `book`."""
+    has_full, slices = await resolve_user_book_access(db, user=user, book=book)
+    return has_full or bool(slices)
 
 
 async def unpack_and_upload_book_zip(
@@ -307,6 +657,10 @@ def inject_runtime_into_html(
     start_profile: str | None = None,
     start_theme: str | None = None,
     start_lang: str | None = None,
+    allowed_chapters: list[str] | None = None,
+    locked_scope: bool = False,
+    edition_id: str | None = None,
+    edition_title: str | None = None,
 ) -> bytes:
     """Inject SpacePoint Reader CSS, config meta tag, and LMS Bridge JS into an HTML entry document."""
     text = html_bytes.decode("utf-8", errors="replace")
@@ -324,6 +678,10 @@ def inject_runtime_into_html(
         "startProfile": start_profile or "",
         "startTheme": start_theme or "",
         "startLang": start_lang or "",
+        "allowedChapters": [str(c) for c in allowed_chapters] if allowed_chapters else None,
+        "lockedScope": bool(locked_scope),
+        "editionId": edition_id or "",
+        "editionTitle": edition_title or "",
     }
     escaped_cfg = html.escape(json.dumps(cfg_payload, ensure_ascii=False), quote=True)
 
@@ -799,12 +1157,60 @@ async def upsert_book_exercise_response(
     return row
 
 
+async def _cohort_book_slice(
+    db: AsyncSession,
+    *,
+    book: LmsBook,
+    cohort_id: uuid.UUID,
+) -> tuple[list[str] | None, str | None]:
+    """Return merged assigned chapters + optional edition title for `book` in `cohort_id`."""
+    from app.services.lms.program import effective_cohort_program_items
+
+    resolved = await effective_cohort_program_items(db, cohort_id=cohort_id)
+    if not resolved:
+        return None, None
+    _prog, items, _inherited = resolved
+    chapters: list[str] = []
+    titles: list[str] = []
+    for it in items:
+        if it.item_type != "book" or it.book_id != book.id:
+            continue
+        ch_keys, edition = await resolve_item_chapters(
+            db,
+            book,
+            book_chapters=getattr(it, "book_chapters", None),
+            book_edition_id=getattr(it, "book_edition_id", None),
+            book_chapter=it.book_chapter,
+            book_profile=it.book_profile,
+        )
+        if not ch_keys:
+            return None, None
+        for k in ch_keys:
+            if k not in chapters:
+                chapters.append(k)
+        if edition and edition.title not in titles:
+            titles.append(edition.title)
+    return (chapters or None), (", ".join(titles) if titles else None)
+
+
 async def book_analytics(
     db: AsyncSession,
     *,
     book_id: uuid.UUID,
     cohort_id: uuid.UUID | None = None,
+    edition_id: uuid.UUID | None = None,
 ) -> dict[str, Any]:
+    book = await db.get(LmsBook, book_id)
+    slice_chapters: list[str] | None = None
+    edition_title: str | None = None
+    if book is not None and edition_id is not None:
+        ed = await db.get(LmsBookEdition, edition_id)
+        if ed is not None and ed.book_id == book.id and ed.chapter_keys:
+            slice_chapters = [str(k) for k in ed.chapter_keys]
+            edition_title = ed.title
+    elif book is not None and cohort_id is not None:
+        slice_chapters, edition_title = await _cohort_book_slice(db, book=book, cohort_id=cohort_id)
+
     cohort_user_ids: set[uuid.UUID] | None = None
     if cohort_id is not None:
         cohort_user_ids = set(
@@ -832,6 +1238,13 @@ async def book_analytics(
     resp_q = select(LmsBookExerciseResponse).where(LmsBookExerciseResponse.book_id == book_id)
     if cohort_user_ids is not None:
         resp_q = resp_q.where(LmsBookExerciseResponse.user_id.in_(cohort_user_ids or [uuid.UUID(int=0)]))
+    if slice_chapters:
+        resp_q = resp_q.where(
+            or_(
+                LmsBookExerciseResponse.chapter_key.in_(slice_chapters),
+                LmsBookExerciseResponse.chapter_key.is_(None),
+            )
+        )
     responses = (await db.execute(resp_q.order_by(LmsBookExerciseResponse.updated_at.desc()))).scalars().all()
 
     user_ids = {e.user_id for e in enrollments} | {p.user_id for p in progress_rows} | {r.user_id for r in responses}
@@ -850,6 +1263,11 @@ async def book_analytics(
         if u is None:
             continue
         p = progress_by_user.get(uid)
+        comp_pct = (
+            compute_book_slice_completion(book, p, slice_chapters)
+            if book is not None and slice_chapters
+            else (int(p.completion_pct or 0) if p else 0)
+        )
         u_resps = resp_by_user.get(uid, [])
         gradable = [r for r in u_resps if r.exercise_type in ("quiz", "your_turn", "game") and r.is_correct is not None]
         learners.append(
@@ -857,7 +1275,7 @@ async def book_analytics(
                 "user_id": uid,
                 "full_name": u.full_name,
                 "email": u.email,
-                "completion_pct": int(p.completion_pct or 0) if p else 0,
+                "completion_pct": comp_pct,
                 "stars_earned": int(p.stars_earned or 0) if p else 0,
                 "stars_possible": int(p.stars_possible or 0) if p else 0,
                 "current_chapter": p.current_chapter if p else None,
@@ -928,13 +1346,15 @@ async def book_analytics(
 
     all_graded = [r for r in responses if r.exercise_type in ("quiz", "your_turn", "game") and r.is_correct is not None]
     overall_acc = round(100 * sum(1 for r in all_graded if r.is_correct) / len(all_graded)) if all_graded else None
-    active_readers = [p for p in progress_rows if (p.completion_pct or 0) > 0 or p.last_read_at is not None]
-    avg_comp = round(sum(int(p.completion_pct or 0) for p in active_readers) / len(active_readers)) if active_readers else 0
+    active_learners = [l for l in learners if l["completion_pct"] > 0 or l["last_read_at"] is not None]
+    avg_comp = round(sum(l["completion_pct"] for l in active_learners) / len(active_learners)) if active_learners else 0
 
     return {
         "book_id": book_id,
+        "chapter_keys": slice_chapters,
+        "edition_title": edition_title,
         "total_enrolled": len(enrollments),
-        "active_readers": len(active_readers),
+        "active_readers": len(active_learners),
         "avg_completion_pct": avg_comp,
         "total_responses": len(responses),
         "exercise_accuracy_pct": overall_acc,
@@ -949,8 +1369,9 @@ async def export_book_responses_csv(
     *,
     book_id: uuid.UUID,
     cohort_id: uuid.UUID | None = None,
+    edition_id: uuid.UUID | None = None,
 ) -> str:
-    data = await book_analytics(db, book_id=book_id, cohort_id=cohort_id)
+    data = await book_analytics(db, book_id=book_id, cohort_id=cohort_id, edition_id=edition_id)
     buf = io.StringIO()
     writer = csv.writer(buf)
     writer.writerow(["Section", "Student Name", "Email", "Chapter", "Exercise Key", "Type", "Prompt / Metric", "Answer / Value", "Correct", "Stars", "Updated At"])
@@ -976,6 +1397,13 @@ async def export_book_responses_csv(
             (await db.execute(select(LmsProgramAssignment.user_id).where(LmsProgramAssignment.cohort_id == cohort_id))).scalars().all()
         )
         resp_q = resp_q.where(LmsBookExerciseResponse.user_id.in_(cohort_uids or [uuid.UUID(int=0)]))
+    if data.get("chapter_keys"):
+        resp_q = resp_q.where(
+            or_(
+                LmsBookExerciseResponse.chapter_key.in_(data["chapter_keys"]),
+                LmsBookExerciseResponse.chapter_key.is_(None),
+            )
+        )
     rows = (await db.execute(resp_q.order_by(LmsBookExerciseResponse.updated_at.desc()))).scalars().all()
     uids = {r.user_id for r in rows}
     users = {u.id: u for u in (await db.execute(select(User).where(User.id.in_(uids)))).scalars().all()} if uids else {}

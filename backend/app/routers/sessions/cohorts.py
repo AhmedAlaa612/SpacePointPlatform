@@ -428,7 +428,7 @@ async def get_cohort(
             pass
         elif await is_cohort_lms_editor(db, cohort_id=cohort_id, user=current_user):
             pass
-        elif current_user.role == "instructor" or "organization" in current_user.role_values:
+        elif "instructor" in current_user.role_values or "organization" in current_user.role_values:
             cohort_ids = await instructor_cohort_ids(db, user=current_user)
             if cohort_ids and cohort_id in cohort_ids:
                 pass

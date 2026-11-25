@@ -288,6 +288,8 @@ export default function OrganizationPrograms() {
       status: c.status,
       variation_id: c.variation_id ?? null,
       checklist_title_override: c.checklist_title_override ?? null,
+      coordinator_access_mode: c.coordinator_access_mode ?? "general",
+      coordinators: c.coordinators ?? [],
     })
     setCohortDefaultProgramId(c.program_id)
     setCohortModalOpen(true)
@@ -576,7 +578,14 @@ export default function OrganizationPrograms() {
                           )}
                         </td>
                         <td className="py-3 px-4">
-                          <CohortStatusBadge status={cohort.status} />
+                          <div className="flex flex-col items-start gap-1">
+                            <CohortStatusBadge status={cohort.status} />
+                            {cohort.coordinator_access_mode === "assigned" && (
+                              <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border border-indigo-500/20">
+                                Assigned ({cohort.coordinators?.length ?? 0})
+                              </span>
+                            )}
+                          </div>
                         </td>
                         <td className="py-3 px-4 text-muted-foreground">
                           <div className="flex items-center gap-1">
@@ -1005,6 +1014,11 @@ function OrgCohortCard({
           {cohort.is_public && (
             <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 inline-flex items-center gap-1">
               <Globe className="w-2.5 h-2.5" /> Public
+            </span>
+          )}
+          {cohort.coordinator_access_mode === "assigned" && (
+            <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border border-indigo-500/20">
+              Assigned ({cohort.coordinators?.length ?? 0})
             </span>
           )}
           {unstaffed > 0 && (

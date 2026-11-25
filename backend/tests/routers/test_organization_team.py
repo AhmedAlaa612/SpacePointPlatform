@@ -1281,9 +1281,16 @@ async def test_multi_role_org_member_create_patch_staffing_and_delete(db, client
     assert "instructor" not in member.role_values
     assert "judge" not in member.role_values
 
-    # Holding coordinator + instructor + judge allows team management,
-    # instructor session staffing, and cohort judge assignment simultaneously.
-    team_resp = await client.get("/organization/team", headers=_headers(member))
+    # Team management is owner-only (coordinators are blocked from /organization/team
+    # so they cannot change other members' roles), while /organization/coordinators is
+    # readable, and instructor session staffing + cohort judge assignment still work.
+    coord_team_resp = await client.get("/organization/team", headers=_headers(member))
+    assert coord_team_resp.status_code == 403
+    coords_resp = await client.get("/organization/coordinators", headers=_headers(member))
+    assert coords_resp.status_code == 200, coords_resp.text
+    assert any(r["id"] == str(member_id) for r in coords_resp.json())
+
+    team_resp = await client.get("/organization/team", headers=_headers(owner))
     assert team_resp.status_code == 200, team_resp.text
     member_row = next(r for r in team_resp.json() if r["id"] == str(member_id))
     assert member_row["org_roles"] == ["coordinator", "instructor", "judge"]
@@ -1545,4 +1552,278 @@ async def test_auth_me_assign_tab_search_and_lms_editors_with_multi_role(db, cli
     assert ij_id in eligible_ids
     assert str(dual_id) in eligible_ids
     assert str(owner.id) in eligible_ids
+
+
+async def test_team_tab_restricted_to_owner_and_coordinators_roster_open(db, client):
+    owner, org = await _seed_org(db)
+    coord = await _make_user(db, roles=["organization"])
+    coord.full_name = "Teacher Coordinator"
+    coord.organization_id = org.id
+    coord.org_role = "coordinator"
+    coord.org_roles = ["coordinator"]
+    inst = await _make_user(db, roles=["organization"])
+    inst.full_name = "Class Instructor"
+    inst.organization_id = org.id
+    inst.org_role = "instructor"
+    inst.org_roles = ["instructor"]
+    await db.commit()
+
+    # /organization/me reflects owner vs non-owner coordinator
+    owner_me = await client.get("/organization/me", headers=_headers(owner))
+    coord_me = await client.get("/organization/me", headers=_headers(coord))
+    assert owner_me.status_code == 200 and owner_me.json()["is_owner"] is True
+    assert coord_me.status_code == 200 and coord_me.json()["is_owner"] is False
+
+    # Owner accesses /organization/team normally
+    assert (await client.get("/organization/team", headers=_headers(owner))).status_code == 200
+
+    # Coordinator is blocked from all /organization/team* routes (Decision #4)
+    assert (await client.get("/organization/team", headers=_headers(coord))).status_code == 403
+    assert (
+        await client.post(
+            "/organization/team",
+            headers=_headers(coord),
+            json={"full_name": "Unauthorized", "email": f"u-{uuid.uuid4().hex[:6]}@example.com"},
+        )
+    ).status_code == 403
+    assert (
+        await client.patch(
+            f"/organization/team/{inst.id}",
+            headers=_headers(coord),
+            json={"org_roles": ["coordinator"]},
+        )
+    ).status_code == 403
+    assert (
+        await client.post(f"/organization/team/{inst.id}/reset-link", headers=_headers(coord))
+    ).status_code == 403
+    assert (await client.delete(f"/organization/team/{inst.id}", headers=_headers(coord))).status_code == 403
+
+    # Read-only /organization/coordinators is accessible to coordinators and lists coordinators + owner
+    roster_resp = await client.get("/organization/coordinators", headers=_headers(coord))
+    assert roster_resp.status_code == 200, roster_resp.text
+    ids = {r["id"] for r in roster_resp.json()}
+    assert str(owner.id) in ids
+    assert str(coord.id) in ids
+    assert str(inst.id) not in ids
+
+
+async def test_cohort_coordinator_scoping_assigned_vs_general(db, client):
+    from sqlalchemy import select
+    from app.models.instructors.invitation_code import InvitationCode
+    from app.models.lms.book import LmsBook, LmsBookEdition, LmsBookEnrollment
+    from app.models.lms.invite_grant import InvitationCodeGrant
+    from app.models.lms.program import LmsProgram
+    from app.models.sessions.program import Program
+    from app.models.sessions.registration import Registration
+    from app.services.lms.invite_grants import apply_invite_code_grants_to_new_user
+
+    owner, org = await _seed_org(db)
+    org.is_approved = True
+    org.book_scope = "all"
+
+    coord_a = await _make_user(db, roles=["organization"])
+    coord_b = await _make_user(db, roles=["organization"])
+    coord_c = await _make_user(db, roles=["organization"])
+    for idx, c in enumerate((coord_a, coord_b, coord_c), start=1):
+        c.full_name = f"Teacher {idx}"
+        c.organization_id = org.id
+        c.org_role = "coordinator"
+        c.org_roles = ["coordinator"]
+
+    program = Program(
+        id=uuid.uuid4(),
+        code=f"SC-{uuid.uuid4().hex[:6]}",
+        name="School Science Track",
+        program_type="workshop",
+        pricing_model="free",
+        organization_id=org.id,
+        active=True,
+    )
+    book = LmsBook(
+        id=uuid.uuid4(),
+        slug=f"org-sc-book-{uuid.uuid4().hex[:6]}",
+        title="School Lab Book",
+        access_mode="invite",
+        is_published=True,
+        bundle_version=1,
+        outline=[{"key": "u1", "code": "U1", "title_en": "Intro", "lessons": []}],
+        created_by=owner.id,
+    )
+    db.add_all([program, book])
+    await db.flush()
+    edition = LmsBookEdition(
+        id=uuid.uuid4(),
+        book_id=book.id,
+        organization_id=org.id,
+        created_by=coord_a.id,
+        title="Teacher 1 U1 Slice",
+        chapter_keys=["u1"],
+    )
+    lms_prog = LmsProgram(id=uuid.uuid4(), program_id=program.id, name="School Checklist")
+    db.add_all([edition, lms_prog])
+    await db.commit()
+
+    # Owner creates a "general" cohort visible to all coordinators
+    gen_res = await client.post(
+        "/organization/cohorts",
+        headers=_headers(owner),
+        json={
+            "program_id": str(program.id),
+            "name": "All Teachers General Cohort",
+            "coordinator_access_mode": "general",
+        },
+    )
+    assert gen_res.status_code == 201, gen_res.text
+    gen_id = gen_res.json()["id"]
+
+    # Coordinator A creates an "assigned" cohort sharing with B only (C excluded; A auto-included)
+    asg_res = await client.post(
+        "/organization/cohorts",
+        headers=_headers(coord_a),
+        json={
+            "program_id": str(program.id),
+            "name": "Teacher A + B Private Class",
+            "coordinator_access_mode": "assigned",
+            "coordinator_user_ids": [str(coord_b.id)],
+        },
+    )
+    assert asg_res.status_code == 201, asg_res.text
+    asg_id = asg_res.json()["id"]
+    asg_coord_ids = {c["id"] for c in asg_res.json()["coordinators"]}
+    assert asg_coord_ids == {str(coord_a.id), str(coord_b.id)}
+
+    # Check programs-overview visibility per actor
+    for actor, expected in [
+        (owner, {gen_id, asg_id}),
+        (coord_a, {gen_id, asg_id}),
+        (coord_b, {gen_id, asg_id}),
+        (coord_c, {gen_id}),
+    ]:
+        ov = await client.get("/organization/programs-overview", headers=_headers(actor))
+        assert ov.status_code == 200, ov.text
+        seen = {c["id"] for p in ov.json()["programs"] for c in p["cohorts"]}
+        assert seen == expected
+
+    # Coordinator B can read/update cohort & override LMS checklist; Coordinator C gets 403
+    assert (await client.get(f"/sessions/cohorts/{asg_id}", headers=_headers(coord_b))).status_code == 200
+    assert (await client.get(f"/sessions/cohorts/{asg_id}", headers=_headers(coord_c))).status_code == 403
+    assert (
+        await client.patch(
+            f"/organization/cohorts/{asg_id}",
+            headers=_headers(coord_c),
+            json={"name": "Hijacked"},
+        )
+    ).status_code == 403
+
+    ov_payload = {
+        "item_type": "book",
+        "title": "Class Edition Reading",
+        "book_id": str(book.id),
+        "book_edition_id": str(edition.id),
+    }
+    ov_res = await client.post(
+        f"/lms/admin/cohorts/{asg_id}/program-override/items",
+        headers=_headers(coord_b),
+        json=ov_payload,
+    )
+    assert ov_res.status_code == 201, ov_res.text
+    assert ov_res.json()["book_edition_id"] == str(edition.id)
+    assert (
+        await client.post(
+            f"/lms/admin/cohorts/{asg_id}/program-override/items",
+            headers=_headers(coord_c),
+            json=ov_payload,
+        )
+    ).status_code == 403
+
+    # Create invite code granting BOTH the assigned cohort AND the book edition
+    code = InvitationCode(
+        id=uuid.uuid4(),
+        code=f"CLASS-{uuid.uuid4().hex[:6].upper()}",
+        kind="student",
+        is_active=True,
+        max_uses=30,
+        used_count=0,
+    )
+    db.add(code)
+    await db.flush()
+    db.add_all([
+        InvitationCodeGrant(
+            id=uuid.uuid4(),
+            invitation_code_id=code.id,
+            product_type="lms_program",
+            cohort_id=uuid.UUID(asg_id),
+        ),
+        InvitationCodeGrant(
+            id=uuid.uuid4(),
+            invitation_code_id=code.id,
+            product_type="book",
+            book_id=book.id,
+            book_edition_id=edition.id,
+        ),
+    ])
+    student = await _make_user(db, roles=["student"])
+    assert student.contact_id is None
+    student.invitation_code_used = code.code
+    await db.flush()
+
+    # Redemption works with student.contact_id == None (auto resolves/creates Contact) & sets book_edition_id
+    await apply_invite_code_grants_to_new_user(db, user_id=student.id, invitation_code_id=code.id)
+    await db.commit()
+    await db.refresh(student)
+    assert student.contact_id is not None
+
+    reg = (
+        await db.execute(
+            select(Registration).where(
+                Registration.cohort_id == uuid.UUID(asg_id),
+                Registration.contact_id == student.contact_id,
+            )
+        )
+    ).scalars().first()
+    assert reg is not None
+
+    benr = (
+        await db.execute(
+            select(LmsBookEnrollment).where(
+                LmsBookEnrollment.user_id == student.id,
+                LmsBookEnrollment.book_id == book.id,
+            )
+        )
+    ).scalars().first()
+    assert benr is not None and benr.book_edition_id == edition.id
+
+    # Invite codes & students scoping: Coordinator A sees code+student, Coordinator C is blocked on cohort_id
+    codes_a = await client.get(
+        "/lms/admin/invite-codes",
+        params={"cohort_id": asg_id},
+        headers=_headers(coord_a),
+    )
+    assert codes_a.status_code == 200
+    assert any(c["id"] == str(code.id) for c in codes_a.json())
+
+    codes_c = await client.get(
+        "/lms/admin/invite-codes",
+        params={"cohort_id": asg_id},
+        headers=_headers(coord_c),
+    )
+    assert codes_c.status_code in (403, 404)
+
+    studs_a = (
+        await client.get("/lms/admin/students", params={"q": student.email}, headers=_headers(coord_a))
+    ).json()
+    studs_c = (
+        await client.get("/lms/admin/students", params={"q": student.email}, headers=_headers(coord_c))
+    ).json()
+    assert any(s["id"] == str(student.id) for s in studs_a)
+    assert not any(s["id"] == str(student.id) for s in studs_c)
+
+    # Coordinator A shares the cohort with Coordinator C -> C immediately gains access
+    share_res = await client.patch(
+        f"/organization/cohorts/{asg_id}",
+        headers=_headers(coord_a),
+        json={"coordinator_user_ids": [str(coord_b.id), str(coord_c.id)]},
+    )
+    assert share_res.status_code == 200
+    assert (await client.get(f"/sessions/cohorts/{asg_id}", headers=_headers(coord_c))).status_code == 200
 

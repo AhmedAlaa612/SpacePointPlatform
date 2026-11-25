@@ -54,6 +54,31 @@ class LmsBook(Base):
     )
 
 
+class LmsBookEdition(Base):
+    """Named chapter-subset edition of an `LmsBook`, created by SpacePoint staff or an organization."""
+
+    __tablename__ = "lms_book_editions"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    book_id = Column(UUID(as_uuid=True), ForeignKey("lms_books.id", ondelete="CASCADE"), nullable=False, index=True)
+    organization_id = Column(
+        UUID(as_uuid=True), ForeignKey("organizations.id", ondelete="CASCADE"), nullable=True, index=True,
+    )
+    created_by = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    title = Column(String(200), nullable=False)
+    title_ar = Column(String(200), nullable=True)
+    description = Column(Text, nullable=True)
+    chapter_keys = Column(JSONB, nullable=False, default=list, server_default="[]")
+    default_lang = Column(String(8), nullable=True)
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False)
+    updated_at = Column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(timezone.utc),
+        nullable=False,
+    )
+
+
 class LmsBookEnrollment(Base):
     """Per-user access gate for a book (granted via self-enroll, purchase, invite code, program, or ops)."""
 
@@ -65,6 +90,9 @@ class LmsBookEnrollment(Base):
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
     book_id = Column(UUID(as_uuid=True), ForeignKey("lms_books.id", ondelete="CASCADE"), nullable=False, index=True)
+    book_edition_id = Column(
+        UUID(as_uuid=True), ForeignKey("lms_book_editions.id", ondelete="SET NULL"), nullable=True,
+    )
     # self | ops | program | purchase | invite_code
     source = Column(String(16), nullable=False, default="self", server_default="self")
     # active | inactive

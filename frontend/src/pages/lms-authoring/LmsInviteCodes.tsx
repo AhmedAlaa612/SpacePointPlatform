@@ -238,6 +238,7 @@ function GrantsPanel({ code }: { code: InviteCode }) {
   const queryClient = useQueryClient()
   const [pickerType, setPickerType] = useState<"course" | "path" | "program" | "book">("course")
   const [pickerId, setPickerId] = useState("")
+  const [pickerEditionId, setPickerEditionId] = useState("")
   const [error, setError] = useState("")
 
   const { data: grants = [], isLoading } = useQuery({
@@ -265,15 +266,17 @@ function GrantsPanel({ code }: { code: InviteCode }) {
   const availableCohorts = cohorts.filter((c) => !grantedCohortIds.has(c.id))
   const availableBooks = books.filter((b) => !grantedBookIds.has(b.id))
 
+  const selectedBookForGrant = pickerType === "book" ? books.find((b) => b.id === pickerId) : undefined
+
   const addMutation = useMutation({
     mutationFn: () => createInviteCodeGrantApi(
       code.id,
       pickerType === "course" ? { course_id: pickerId }
         : pickerType === "path" ? { learning_path_id: pickerId }
-          : pickerType === "book" ? { book_id: pickerId }
+          : pickerType === "book" ? { book_id: pickerId, ...(pickerEditionId ? { book_edition_id: pickerEditionId } : {}) }
             : { cohort_id: pickerId },
     ),
-    onSuccess: () => { setError(""); setPickerId(""); invalidate() },
+    onSuccess: () => { setError(""); setPickerId(""); setPickerEditionId(""); invalidate() },
     onError: (e) => setError(isAxiosError(e) && typeof e.response?.data?.detail === "string" ? e.response.data.detail : "Couldn't add that grant"),
   })
   const removeMutation = useMutation({
@@ -298,7 +301,8 @@ function GrantsPanel({ code }: { code: InviteCode }) {
               <span className="truncate">
                 {g.product_type === "course" ? g.course_title
                   : g.product_type === "learning_path" ? g.learning_path_title
-                    : g.product_type === "book" ? g.book_title
+                    : g.product_type === "book"
+                      ? (g.book_edition_title ? `${g.book_title} (${g.book_edition_title})` : g.book_title)
                       : g.lms_program_name ? `${g.lms_program_name} (${g.cohort_name})` : g.cohort_name}
                 <span className="ml-2 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
                   {g.product_type === "course" ? "Course" : g.product_type === "learning_path" ? "Path" : g.product_type === "book" ? "Book" : "Program"}
@@ -317,10 +321,14 @@ function GrantsPanel({ code }: { code: InviteCode }) {
         </div>
       )}
 
-      <div className="flex gap-2">
+      <div className="flex flex-wrap gap-2">
         <select
           value={pickerType}
-          onChange={(e) => { setPickerType(e.target.value as "course" | "path" | "program" | "book"); setPickerId("") }}
+          onChange={(e) => {
+            setPickerType(e.target.value as "course" | "path" | "program" | "book")
+            setPickerId("")
+            setPickerEditionId("")
+          }}
           className="w-auto shrink-0 h-9 px-2 border border-border bg-card text-foreground rounded-lg text-xs focus:outline-none focus:border-primary transition-colors cursor-pointer"
         >
           <option value="course">Course</option>
@@ -330,8 +338,11 @@ function GrantsPanel({ code }: { code: InviteCode }) {
         </select>
         <select
           value={pickerId}
-          onChange={(e) => setPickerId(e.target.value)}
-          className="flex-1 h-9 px-2 border border-border bg-card text-foreground rounded-lg text-xs focus:outline-none focus:border-primary transition-colors cursor-pointer"
+          onChange={(e) => {
+            setPickerId(e.target.value)
+            setPickerEditionId("")
+          }}
+          className="flex-1 min-w-[160px] h-9 px-2 border border-border bg-card text-foreground rounded-lg text-xs focus:outline-none focus:border-primary transition-colors cursor-pointer"
         >
           <option value="">
             {pickerType === "course" ? "Add a course…" : pickerType === "path" ? "Add a path…" : pickerType === "book" ? "Add a book…" : "Add a cohort's program…"}
@@ -349,6 +360,18 @@ function GrantsPanel({ code }: { code: InviteCode }) {
             <option key={c.id} value={c.id}>{c.name}</option>
           ))}
         </select>
+        {pickerType === "book" && selectedBookForGrant && (selectedBookForGrant.editions?.length ?? 0) > 0 && (
+          <select
+            value={pickerEditionId}
+            onChange={(e) => setPickerEditionId(e.target.value)}
+            className="w-auto shrink-0 h-9 px-2 border border-border bg-card text-foreground rounded-lg text-xs focus:outline-none focus:border-primary transition-colors cursor-pointer"
+          >
+            <option value="">Full book</option>
+            {(selectedBookForGrant.editions ?? []).map((ed) => (
+              <option key={ed.id} value={ed.id}>{ed.title} ({ed.chapter_keys.length} ch)</option>
+            ))}
+          </select>
+        )}
         <button
           onClick={() => pickerId && addMutation.mutate()}
           disabled={!pickerId || addMutation.isPending}

@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime, timezone
 
-from sqlalchemy import Boolean, Column, Date, DateTime, ForeignKey, Integer, Numeric, String, Text
+from sqlalchemy import Boolean, Column, Date, DateTime, ForeignKey, Integer, Numeric, String, Text, UniqueConstraint
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 
 from app.db.base import Base
@@ -99,4 +99,24 @@ class Cohort(Base):
         UUID(as_uuid=True), ForeignKey("program_certificate_templates.id", ondelete="SET NULL"), nullable=True,
     )
 
+    # Cohort coordinator visibility mode:
+    # 'general' = all coordinators in the org can access/manage;
+    # 'assigned' = only org owner + coordinators explicitly listed in cohort_coordinators
+    coordinator_access_mode = Column(String(16), nullable=False, default="general", server_default="general")
+
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+
+
+class CohortCoordinator(Base):
+    """Explicit coordinator assignment linking an org coordinator User to a Cohort."""
+
+    __tablename__ = "cohort_coordinators"
+    __table_args__ = (
+        UniqueConstraint("cohort_id", "user_id", name="uq_cohort_coordinators_cohort_user"),
+    )
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    cohort_id = Column(UUID(as_uuid=True), ForeignKey("cohorts.id", ondelete="CASCADE"), nullable=False, index=True)
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    added_by_user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False)

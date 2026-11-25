@@ -54,6 +54,10 @@ class Organization(Base):
     program_scope = Column(String(20), nullable=False, default="own", server_default="own")
     allowed_program_ids = Column(JSONB, nullable=False, default=list, server_default="[]")
 
+    # SpacePoint interactive book access scope ('none' | 'selected' | 'all')
+    book_scope = Column(String(20), nullable=False, default="none", server_default="none")
+    allowed_book_ids = Column(JSONB, nullable=False, default=list, server_default="[]")
+
     # Partner program landing page publishing access ('disabled' | 'review' | 'direct')
     program_page_access = Column(String(20), nullable=False, default="disabled", server_default="disabled")
 

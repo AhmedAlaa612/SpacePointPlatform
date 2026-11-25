@@ -71,10 +71,18 @@ export default function LearnBooks() {
         <div className="grid sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
           {books.map((book) => {
             const isPaid = book.access_mode === "paid" && book.price_cents != null && book.price_cents > 0;
+            const cardKey = `${book.id}:${book.edition_id ?? book.item_id ?? (book.allowed_chapters?.join(",") || "full")}`;
+            const detailSearch =
+              book.edition_id || book.item_id
+                ? {
+                    ...(book.edition_id ? { editionId: book.edition_id } : {}),
+                    ...(book.item_id ? { itemId: book.item_id } : {}),
+                  }
+                : undefined;
             return (
               <Card
-                key={book.id}
-                onClick={() => void navigate({ to: `/learn/books/${book.id}` })}
+                key={cardKey}
+                onClick={() => void navigate({ to: `/learn/books/${book.id}`, search: detailSearch as never })}
                 className="group cursor-pointer rounded-[10px] border border-border bg-card overflow-hidden flex flex-col hover:border-primary transition-colors p-0"
               >
                 <div className="aspect-[3/4] w-full bg-muted overflow-hidden border-b border-border">
@@ -157,7 +165,10 @@ export default function LearnBooks() {
                       className="w-full rounded-[10px]"
                       onClick={(e) => {
                         e.stopPropagation();
-                        void navigate({ to: `/learn/books/${book.id}` });
+                        void navigate({
+                          to: `/learn/books/${book.id}`,
+                          search: detailSearch as never,
+                        });
                       }}
                     >
                       {book.enrolled && book.completion_pct > 0 ? "Continue reading" : "More info"}

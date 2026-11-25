@@ -158,26 +158,33 @@ def _is_not_platform_staff(user_model=User):
     )
 
 
-def org_cohort_ids_subquery(org_id: uuid.UUID):
-    return select(Cohort.id).outerjoin(Program, Cohort.program_id == Program.id).where(
+def org_cohort_ids_subquery(org_id: uuid.UUID, allowed_cohort_ids: set[uuid.UUID] | None = None):
+    q = select(Cohort.id).outerjoin(Program, Cohort.program_id == Program.id).where(
         or_(Cohort.organization_id == org_id, Program.organization_id == org_id)
     )
+    if allowed_cohort_ids is not None:
+        q = q.where(Cohort.id.in_(allowed_cohort_ids or [uuid.UUID(int=0)]))
+    return q
 
 
-def org_invite_code_filter(org_id: uuid.UUID):
+def org_invite_code_filter(
+    org_id: uuid.UUID,
+    allowed_cohort_ids: set[uuid.UUID] | None = None,
+    actor_user_id: uuid.UUID | None = None,
+):
     """Invitation codes belonging to `org_id`: either created by a non-platform
-    member of that org, or granting access to one of that org's cohorts."""
-    org_cohort_subq = org_cohort_ids_subquery(org_id)
+    member of that org (scoped to `actor_user_id` when coordinator cohort-scoping is active),
+    or granting access to one of the accessible cohorts."""
+    org_cohort_subq = org_cohort_ids_subquery(org_id, allowed_cohort_ids=allowed_cohort_ids)
     creator = aliased(User)
-    created_by_org_member = exists(
-        select(1)
-        .select_from(creator)
-        .where(
-            creator.id == InvitationCode.created_by,
-            _org_member_filter(org_id, creator),
-            _is_not_platform_staff(creator),
-        )
-    )
+    creator_conds = [
+        creator.id == InvitationCode.created_by,
+        _org_member_filter(org_id, creator),
+        _is_not_platform_staff(creator),
+    ]
+    if allowed_cohort_ids is not None and actor_user_id is not None:
+        creator_conds.append(InvitationCode.created_by == actor_user_id)
+    created_by_org_member = exists(select(1).select_from(creator).where(*creator_conds))
     granted_to_org_cohort = exists(
         select(1).where(
             InvitationCodeGrant.invitation_code_id == InvitationCode.id,
@@ -187,18 +194,22 @@ def org_invite_code_filter(org_id: uuid.UUID):
     return or_(created_by_org_member, granted_to_org_cohort)
 
 
-def org_student_filter(org_id: uuid.UUID):
-    org_cohort_subq = org_cohort_ids_subquery(org_id)
+def org_student_filter(
+    org_id: uuid.UUID,
+    allowed_cohort_ids: set[uuid.UUID] | None = None,
+    actor_user_id: uuid.UUID | None = None,
+):
+    org_cohort_subq = org_cohort_ids_subquery(org_id, allowed_cohort_ids=allowed_cohort_ids)
     org_lms_prog_subq = select(LmsProgram.id).join(Program, LmsProgram.program_id == Program.id).where(
         Program.organization_id == org_id
     )
+    assign_cond = LmsProgramAssignment.cohort_id.in_(org_cohort_subq)
+    if allowed_cohort_ids is None:
+        assign_cond = or_(assign_cond, LmsProgramAssignment.lms_program_id.in_(org_lms_prog_subq))
     has_org_assignment = exists(
         select(1).where(
             LmsProgramAssignment.user_id == User.id,
-            or_(
-                LmsProgramAssignment.cohort_id.in_(org_cohort_subq),
-                LmsProgramAssignment.lms_program_id.in_(org_lms_prog_subq),
-            ),
+            assign_cond,
         )
     )
     reg_contact = aliased(Contact)
@@ -215,8 +226,9 @@ def org_student_filter(org_id: uuid.UUID):
             ),
         )
     )
-    org_codes_subq = select(InvitationCode.id).where(org_invite_code_filter(org_id))
-    org_code_strings_subq = select(InvitationCode.code).where(org_invite_code_filter(org_id))
+    inv_filter = org_invite_code_filter(org_id, allowed_cohort_ids=allowed_cohort_ids, actor_user_id=actor_user_id)
+    org_codes_subq = select(InvitationCode.id).where(inv_filter)
+    org_code_strings_subq = select(InvitationCode.code).where(inv_filter)
     used_org_invite_code = or_(
         User.invitation_code_used.in_(org_code_strings_subq),
         exists(
@@ -226,14 +238,23 @@ def org_student_filter(org_id: uuid.UUID):
             )
         ),
     )
+    if allowed_cohort_ids is not None:
+        return or_(has_org_assignment, has_org_registration, used_org_invite_code)
     is_org_member = _org_member_filter(org_id)
     return or_(is_org_member, has_org_assignment, has_org_registration, used_org_invite_code)
 
 
-async def user_belongs_to_organization(db: AsyncSession, user_id: uuid.UUID, org_id: uuid.UUID) -> bool:
+async def user_belongs_to_organization(
+    db: AsyncSession,
+    user_id: uuid.UUID,
+    org_id: uuid.UUID,
+    *,
+    allowed_cohort_ids: set[uuid.UUID] | None = None,
+    actor_user_id: uuid.UUID | None = None,
+) -> bool:
     stmt = select(1).select_from(User).where(
         User.id == user_id,
-        org_student_filter(org_id),
+        org_student_filter(org_id, allowed_cohort_ids=allowed_cohort_ids, actor_user_id=actor_user_id),
     )
     return (await db.scalar(stmt)) is not None
 
@@ -244,6 +265,8 @@ async def search_students(
     mode: Literal["student", "observer", "all"] = "student",
     limit: int = 50,
     org_id: uuid.UUID | None = None,
+    allowed_cohort_ids: set[uuid.UUID] | None = None,
+    actor_user_id: uuid.UUID | None = None,
 ) -> list[StudentSummaryOut]:
     """Name/email substring search over student accounts, capped at `limit` rows.
 
@@ -272,7 +295,7 @@ async def search_students(
     stmt = select(User).where(role_filter)
     if org_id is not None:
         stmt = stmt.where(
-            org_student_filter(org_id),
+            org_student_filter(org_id, allowed_cohort_ids=allowed_cohort_ids, actor_user_id=actor_user_id),
             or_(_org_member_filter(org_id), _is_not_platform_staff()),
         )
     if q:

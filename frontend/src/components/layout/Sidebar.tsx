@@ -339,10 +339,11 @@ function getNavItems(
       mk("Students", "/lms-authoring/students"),
       mk("Invite Codes", "/lms-authoring/invite-codes"),
       mk("Courses", "/lms-authoring/courses"),
+      mk("Books", "/lms-authoring/books"),
       mk("Quiz Bank", "/lms-authoring/quiz-bank"),
       mk("Learn", "/learn"),
       mk("Landing Pages", "/organization/events"),
-      mk("Team", "/organization/team"),
+      ...(orgRole === "coordinator" ? [] : [mk("Team", "/organization/team")]),
       mk("Mentors", "/mentors"),
       mk("Profile & Settings", "/organization/profile"),
     ];

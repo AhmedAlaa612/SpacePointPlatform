@@ -35,6 +35,38 @@ class BookProfileOut(BaseModel):
     groups: list[str] = []
 
 
+class BookEditionOut(BaseModel):
+    id: UUID
+    book_id: UUID
+    organization_id: UUID | None = None
+    created_by: UUID | None = None
+    creator_name: str | None = None
+    title: str
+    title_ar: str | None = None
+    description: str | None = None
+    chapter_keys: list[str] = []
+    default_lang: str | None = None
+    can_edit: bool = False
+    created_at: datetime
+    updated_at: datetime
+
+
+class BookEditionCreateIn(BaseModel):
+    title: str = Field(min_length=1, max_length=200)
+    title_ar: str | None = Field(default=None, max_length=200)
+    description: str | None = None
+    chapter_keys: list[str] = Field(min_length=1)
+    default_lang: str | None = Field(default=None, max_length=8)
+
+
+class BookEditionUpdateIn(BaseModel):
+    title: str | None = Field(default=None, min_length=1, max_length=200)
+    title_ar: str | None = Field(default=None, max_length=200)
+    description: str | None = None
+    chapter_keys: list[str] | None = Field(default=None, min_length=1)
+    default_lang: str | None = Field(default=None, max_length=8)
+
+
 class BookProgressOut(BaseModel):
     current_spread: str | None = None
     current_chapter: str | None = None
@@ -66,6 +98,11 @@ class BookCatalogOut(BaseModel):
     stars_earned: int = 0
     stars_possible: int = 0
     chapter_count: int = 0
+    edition_id: UUID | None = None
+    item_id: UUID | None = None
+    edition_title: str | None = None
+    allowed_chapters: list[str] | None = None
+    locked_scope: bool = False
 
 
 class BookDetailOut(BookCatalogOut):
@@ -76,6 +113,7 @@ class BookDetailOut(BookCatalogOut):
     default_profile: str = "all"
     outline: list[BookChapterOut] = []
     profiles: list[BookProfileOut] = []
+    editions: list[BookEditionOut] = []
     progress: BookProgressOut | None = None
 
 
@@ -89,6 +127,10 @@ class BookReaderSessionOut(BaseModel):
     can_teacher: bool
     default_profile: str
     languages: list[str]
+    edition_id: UUID | None = None
+    edition_title: str | None = None
+    allowed_chapters: list[str] | None = None
+    locked_scope: bool = False
     outline: list[BookChapterOut] = []
     profiles: list[BookProfileOut] = []
     progress: BookProgressOut | None = None
@@ -157,6 +199,8 @@ class BookAdminOut(BaseModel):
     price_cents: int | None = None
     currency: str = "usd"
     is_published: bool = False
+    can_manage_master: bool = True
+    editions: list[BookEditionOut] = []
     enrollments_count: int = 0
     active_readers_count: int = 0
     avg_completion_pct: int = 0
@@ -274,6 +318,8 @@ class BookNotebookEntryOut(BaseModel):
 
 class BookAnalyticsOut(BaseModel):
     book_id: UUID
+    chapter_keys: list[str] | None = None
+    edition_title: str | None = None
     total_enrolled: int
     active_readers: int
     avg_completion_pct: int

@@ -1006,7 +1006,18 @@ const organizationRoutes = [
   createRoute({ getParentRoute: porg, path: "/judging", component: JudgeTeams }),
   createRoute({ getParentRoute: porg, path: "/judging/teams/$teamId", component: JudgeTeamDetail }),
   createRoute({ getParentRoute: porg, path: "/events", component: OrganizationEvents }),
-  createRoute({ getParentRoute: porg, path: "/team", component: OrganizationTeam }),
+  createRoute({
+    getParentRoute: porg,
+    path: "/team",
+    beforeLoad: () => {
+      const role = localStorage.getItem("active_role");
+      const orgRole = localStorage.getItem("active_org_role");
+      if (role === "organization" && orgRole === "coordinator") {
+        throw redirect({ to: "/organization/programs" });
+      }
+    },
+    component: OrganizationTeam,
+  }),
   createRoute({ getParentRoute: porg, path: "/mentors", component: PublicDirectory }),
   createRoute({ getParentRoute: porg, path: "/mentors/$slug", component: PublicProfile }),
   createRoute({ getParentRoute: porg, path: "/profile", component: SharedProfile }),

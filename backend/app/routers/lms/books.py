@@ -26,11 +26,14 @@ from app.core.security import create_book_token, decode_book_token
 from app.db.session import get_db
 from app.models.lms.book import (
     LmsBook,
+    LmsBookEdition,
     LmsBookEnrollment,
     LmsBookExerciseResponse,
     LmsBookProgress,
 )
+from app.models.lms.invite_grant import InvitationCodeGrant
 from app.models.lms.program import LmsProgramItem
+from app.models.spine.organization import Organization
 from app.models.user import User
 from app.schemas.lms_books import (
     BookAdminOut,
@@ -41,6 +44,9 @@ from app.schemas.lms_books import (
     BookCatalogOut,
     BookCreateIn,
     BookDetailOut,
+    BookEditionCreateIn,
+    BookEditionOut,
+    BookEditionUpdateIn,
     BookEnrollmentGrantIn,
     BookEnrollmentOut,
     BookExerciseIn,
@@ -53,20 +59,32 @@ from app.schemas.lms_books import (
 from app.services.lms import books_storage
 from app.services.lms.books import (
     STATIC_BOOKS_DIR,
+    accessible_org_book_ids,
     book_analytics,
     book_enrollment_is_active,
-    can_user_teacher_mode,
+    can_manage_master_books,
+    can_user_edit_edition,
+    compute_book_slice_completion,
     enroll_book,
     export_book_responses_csv,
+    filter_outline_by_chapters,
     get_book_cover_page_html,
     has_book_access,
     inject_runtime_into_html,
     instructor_program_book_ids,
+    is_book_allowed_for_org,
     is_book_staff_preview,
+    resolve_book_user_org,
+    resolve_item_chapters,
+    resolve_user_book_access,
+    serialize_book_edition,
     slugify_book,
     sync_book_progress,
     unpack_and_upload_book_zip,
     upsert_book_exercise_response,
+    user_has_teacher_mode,
+    validate_chapter_keys_for_book,
+    visible_editions_for_book,
 )
 from app.services.lms.books_storage import BOOK_BUNDLE_PREFIX, BOOK_COVER_PREFIX, sanitize_relative_path
 
@@ -105,12 +123,29 @@ async def _book_catalog_out(
     enrolled: bool,
     is_preview: bool,
     progress: LmsBookProgress | None,
+    edition_id: uuid.UUID | None = None,
+    item_id: uuid.UUID | None = None,
+    edition_title: str | None = None,
+    title_ar_override: str | None = None,
+    allowed_chapters: list[str] | None = None,
+    locked_scope: bool = False,
 ) -> BookCatalogOut:
+    display_title = (
+        f"{book.title} — {edition_title}"
+        if locked_scope and edition_title and edition_title != book.title
+        else book.title
+    )
+    filtered_outline = filter_outline_by_chapters(book.outline, allowed_chapters)
+    comp_pct = (
+        compute_book_slice_completion(book, progress, allowed_chapters)
+        if allowed_chapters
+        else (int(progress.completion_pct or 0) if progress else 0)
+    )
     return BookCatalogOut(
         id=book.id,
         slug=book.slug,
-        title=book.title,
-        title_ar=book.title_ar,
+        title=display_title,
+        title_ar=title_ar_override or book.title_ar,
         subtitle=book.subtitle,
         author_name=book.author_name,
         cover_url=await books_storage.resolve_book_cover_url(book.cover_bucket, book.cover_path),
@@ -121,10 +156,15 @@ async def _book_catalog_out(
         currency=book.currency,
         enrolled=enrolled,
         is_preview=is_preview,
-        completion_pct=int(progress.completion_pct or 0) if progress else 0,
+        completion_pct=comp_pct,
         stars_earned=int(progress.stars_earned or 0) if progress else 0,
         stars_possible=int(progress.stars_possible or 0) if progress else 0,
-        chapter_count=len(book.outline or []),
+        chapter_count=len(filtered_outline),
+        edition_id=edition_id,
+        item_id=item_id,
+        edition_title=edition_title,
+        allowed_chapters=allowed_chapters,
+        locked_scope=locked_scope,
     )
 
 
@@ -134,8 +174,28 @@ async def _book_detail_out(
     enrolled: bool,
     is_preview: bool,
     progress: LmsBookProgress | None,
+    edition_id: uuid.UUID | None = None,
+    edition_title: str | None = None,
+    title_ar_override: str | None = None,
+    allowed_chapters: list[str] | None = None,
+    locked_scope: bool = False,
+    editions: list[dict[str, Any]] | None = None,
 ) -> BookDetailOut:
-    cat = await _book_catalog_out(book, enrolled=enrolled, is_preview=is_preview, progress=progress)
+    cat = await _book_catalog_out(
+        book,
+        enrolled=enrolled,
+        is_preview=is_preview,
+        progress=progress,
+        edition_id=edition_id,
+        edition_title=edition_title,
+        title_ar_override=title_ar_override,
+        allowed_chapters=allowed_chapters,
+        locked_scope=locked_scope,
+    )
+    filtered_outline = filter_outline_by_chapters(book.outline, allowed_chapters)
+    prog_out = _progress_out(progress)
+    if prog_out is not None and allowed_chapters:
+        prog_out.completion_pct = cat.completion_pct
     return BookDetailOut(
         **cat.model_dump(),
         description=book.description,
@@ -143,9 +203,10 @@ async def _book_detail_out(
         bundle_version=int(book.bundle_version or 0),
         is_published=book.is_published,
         default_profile=book.default_profile or "all",
-        outline=book.outline or [],
-        profiles=book.profiles or [],
-        progress=_progress_out(progress),
+        outline=filtered_outline,
+        profiles=[] if locked_scope else (book.profiles or []),
+        editions=[] if locked_scope else (editions or []),
+        progress=prog_out,
     )
 
 
@@ -198,6 +259,87 @@ async def get_book_cover_page(
     )
 
 
+async def _resolve_slice_selection(
+    db: AsyncSession,
+    *,
+    book: LmsBook,
+    current: User,
+    has_full: bool,
+    slices: list[dict[str, Any]],
+    edition_id: uuid.UUID | None,
+    item_id: uuid.UUID | None,
+) -> tuple[list[str] | None, uuid.UUID | None, str | None, str | None, bool]:
+    """Resolve `(allowed_chapters, edition_id, edition_title, title_ar, locked_scope)`."""
+    if not has_full:
+        if not slices:
+            return None, None, None, None, False
+        chosen = None
+        if edition_id is not None:
+            chosen = next((s for s in slices if s.get("edition_id") == edition_id), None)
+            if chosen is None:
+                raise HTTPException(status.HTTP_403_FORBIDDEN, detail="You do not have access to this book edition")
+        elif item_id is not None:
+            item = await db.get(LmsProgramItem, item_id)
+            if item is not None and item.book_id == book.id:
+                ch_keys, ed = await resolve_item_chapters(
+                    db,
+                    book,
+                    book_chapters=getattr(item, "book_chapters", None),
+                    book_edition_id=getattr(item, "book_edition_id", None),
+                    book_chapter=item.book_chapter,
+                    book_profile=item.book_profile,
+                )
+                ed_id = ed.id if ed else None
+                chosen = next(
+                    (s for s in slices if s.get("edition_id") == ed_id and s.get("chapter_keys") == (ch_keys or [])),
+                    None,
+                )
+        if chosen is None:
+            chosen = slices[0]
+        return (
+            chosen["chapter_keys"],
+            chosen.get("edition_id"),
+            chosen.get("title"),
+            chosen.get("title_ar"),
+            True,
+        )
+
+    # User has full book access — apply explicit preview edition / item filter if provided
+    if edition_id is not None:
+        ed = await db.get(LmsBookEdition, edition_id)
+        if ed is None or ed.book_id != book.id:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Book edition not found")
+        if ed.organization_id is not None and not can_manage_master_books(current):
+            org = await resolve_book_user_org(db, current)
+            if org is None or ed.organization_id != org.id:
+                raise HTTPException(status.HTTP_403_FORBIDDEN, detail="You do not have access to this book edition")
+        return list(ed.chapter_keys or []), ed.id, ed.title, ed.title_ar, True
+    if item_id is not None:
+        item = await db.get(LmsProgramItem, item_id)
+        if item is not None and item.book_id == book.id:
+            ch_keys, ed = await resolve_item_chapters(
+                db,
+                book,
+                book_chapters=getattr(item, "book_chapters", None),
+                book_edition_id=getattr(item, "book_edition_id", None),
+                book_chapter=item.book_chapter,
+                book_profile=item.book_profile,
+            )
+            if ed is not None and ed.organization_id is not None and not can_manage_master_books(current):
+                org = await resolve_book_user_org(db, current)
+                if org is None or ed.organization_id != org.id:
+                    raise HTTPException(status.HTTP_403_FORBIDDEN, detail="You do not have access to this book edition")
+            if ch_keys:
+                return (
+                    ch_keys,
+                    ed.id if ed else None,
+                    ed.title if ed else item.title,
+                    ed.title_ar if ed else None,
+                    True,
+                )
+    return None, None, None, None, False
+
+
 @router.get("/lms/books", response_model=list[BookCatalogOut])
 async def list_student_books(
     q: str | None = None,
@@ -205,7 +347,7 @@ async def list_student_books(
     current: User = Depends(get_current_active_user),
 ):
     is_staff_user = is_book_staff_preview(current)
-    teaching_book_ids = await instructor_program_book_ids(db, user=current)
+    org = await resolve_book_user_org(db, current)
     stmt = select(LmsBook)
     if not is_staff_user:
         stmt = stmt.where(LmsBook.is_published.is_(True))
@@ -213,6 +355,11 @@ async def list_student_books(
         pat = f"%{q.strip()}%"
         stmt = stmt.where(or_(LmsBook.title.ilike(pat), LmsBook.subtitle.ilike(pat), LmsBook.description.ilike(pat)))
     books = (await db.execute(stmt.order_by(LmsBook.created_at.desc()))).scalars().all()
+
+    prog_rows = (
+        await db.execute(select(LmsBookProgress).where(LmsBookProgress.user_id == current.id))
+    ).scalars().all()
+    prog_by_book = {p.book_id: p for p in prog_rows}
 
     enrolled_ids = set(
         (
@@ -224,23 +371,44 @@ async def list_student_books(
             )
         ).scalars().all()
     )
-    prog_rows = (
-        await db.execute(select(LmsBookProgress).where(LmsBookProgress.user_id == current.id))
-    ).scalars().all()
-    prog_by_book = {p.book_id: p for p in prog_rows}
 
-    out = []
+    out: list[BookCatalogOut] = []
     for b in books:
-        enrolled = b.id in enrolled_ids
-        in_teaching_cohort = b.id in teaching_book_ids
-        if not is_staff_user and b.access_mode == "invite" and not enrolled and not in_teaching_cohort:
+        has_full, slices = await resolve_user_book_access(db, user=current, book=b)
+        prog = prog_by_book.get(b.id)
+        if slices and not has_full:
+            for s in slices:
+                out.append(
+                    await _book_catalog_out(
+                        b,
+                        enrolled=True,
+                        is_preview=False,
+                        progress=prog,
+                        edition_id=s.get("edition_id"),
+                        item_id=s.get("item_id"),
+                        edition_title=s.get("title"),
+                        title_ar_override=s.get("title_ar"),
+                        allowed_chapters=s["chapter_keys"],
+                        locked_scope=True,
+                    )
+                )
             continue
+        if not has_full and b.access_mode == "invite":
+            continue
+        if not has_full and org is not None:
+            # Org accounts only see books explicitly permitted in their catalog or open marketplace
+            if not await is_book_allowed_for_org(db, org, b) and b.access_mode == "invite":
+                continue
+        enrolled = b.id in enrolled_ids or (
+            has_full and not is_staff_user and org is None
+        )
         out.append(
             await _book_catalog_out(
                 b,
-                enrolled=enrolled or in_teaching_cohort,
-                is_preview=is_staff_user and not enrolled,
-                progress=prog_by_book.get(b.id),
+                enrolled=enrolled,
+                is_preview=(is_staff_user or (org is not None and await is_book_allowed_for_org(db, org, b)))
+                and b.id not in enrolled_ids,
+                progress=prog,
             )
         )
     return out
@@ -249,6 +417,8 @@ async def list_student_books(
 @router.get("/lms/books/{book_id}", response_model=BookDetailOut)
 async def get_book_detail(
     book_id: uuid.UUID,
+    edition_id: uuid.UUID | None = Query(default=None),
+    item_id: uuid.UUID | None = Query(default=None),
     db: AsyncSession = Depends(get_db),
     current: User = Depends(get_current_active_user),
 ):
@@ -257,24 +427,23 @@ async def get_book_detail(
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Book not found")
 
     is_staff_user = is_book_staff_preview(current)
-    enrolled = bool(
-        await db.scalar(
-            select(LmsBookEnrollment.id).where(
-                LmsBookEnrollment.user_id == current.id,
-                LmsBookEnrollment.book_id == book.id,
-                *book_enrollment_is_active(),
-            )
-        )
-    )
-    in_teaching_cohort = False
-    if not is_staff_user and not enrolled:
-        in_teaching_cohort = book.id in await instructor_program_book_ids(db, user=current)
+    has_full, slices = await resolve_user_book_access(db, user=current, book=book)
 
     if not is_staff_user:
         if not book.is_published:
             raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Book not found")
-        if book.access_mode == "invite" and not enrolled and not in_teaching_cohort:
+        if book.access_mode == "invite" and not has_full and not slices:
             raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Book not found")
+
+    allowed_chapters, resolved_ed_id, resolved_ed_title, resolved_ar, locked_scope = await _resolve_slice_selection(
+        db,
+        book=book,
+        current=current,
+        has_full=has_full,
+        slices=slices,
+        edition_id=edition_id,
+        item_id=item_id,
+    )
 
     prog = (
         await db.execute(
@@ -284,11 +453,31 @@ async def get_book_detail(
             )
         )
     ).scalars().first()
+
+    org = await resolve_book_user_org(db, current)
+    editions = (
+        await visible_editions_for_book(db, book_id=book.id, current_user=current, org=org)
+        if has_full
+        else []
+    )
+    enrolled_row = await db.scalar(
+        select(LmsBookEnrollment.id).where(
+            LmsBookEnrollment.user_id == current.id,
+            LmsBookEnrollment.book_id == book.id,
+            *book_enrollment_is_active(),
+        )
+    )
     return await _book_detail_out(
         book,
-        enrolled=enrolled or in_teaching_cohort,
-        is_preview=is_staff_user and not enrolled,
+        enrolled=bool(enrolled_row) or (has_full and not is_staff_user and org is None) or bool(slices),
+        is_preview=(is_staff_user or org is not None) and not enrolled_row,
         progress=prog,
+        edition_id=resolved_ed_id,
+        edition_title=resolved_ed_title,
+        title_ar_override=resolved_ar,
+        allowed_chapters=allowed_chapters,
+        locked_scope=locked_scope,
+        editions=editions,
     )
 
 
@@ -325,6 +514,8 @@ async def create_reader_session(
     spread: str | None = Query(default=None),
     theme: str | None = Query(default=None),
     lang: str | None = Query(default=None),
+    edition_id: uuid.UUID | None = Query(default=None),
+    item_id: uuid.UUID | None = Query(default=None),
     db: AsyncSession = Depends(get_db),
     current: User = Depends(get_current_active_user),
 ):
@@ -334,20 +525,36 @@ async def create_reader_session(
     if book.bundle_version <= 0:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="Book bundle has not been uploaded yet")
 
-    if not await has_book_access(db, user=current, book=book):
+    has_full, slices = await resolve_user_book_access(db, user=current, book=book)
+    if not has_full and not slices:
         # Auto-enroll if open and published so opening "Read" on a free book feels effortless
         if book.is_published and book.access_mode == "open":
             await enroll_book(db, user_id=current.id, book_id=book.id, source="self")
             await db.commit()
+            has_full = True
         else:
             raise HTTPException(status.HTTP_403_FORBIDDEN, detail="Enroll or purchase this book to read it")
 
-    can_teacher = can_user_teacher_mode(current)
+    allowed_chapters, resolved_ed_id, resolved_ed_title, resolved_ar, locked_scope = await _resolve_slice_selection(
+        db,
+        book=book,
+        current=current,
+        has_full=has_full,
+        slices=slices,
+        edition_id=edition_id,
+        item_id=item_id,
+    )
+    if allowed_chapters and chapter and chapter not in allowed_chapters:
+        chapter = allowed_chapters[0]
+
+    can_teacher = await user_has_teacher_mode(db, user=current, book=book)
     token = create_book_token(
         user_id=current.id,
         book_id=book.id,
         version=book.bundle_version,
         can_teacher=can_teacher,
+        edition_id=resolved_ed_id,
+        allowed_chapters=allowed_chapters,
     )
     prog = (
         await db.execute(
@@ -359,11 +566,13 @@ async def create_reader_session(
     ).scalars().first()
 
     qs_dict: dict[str, str] = {}
-    if profile:
+    if profile and not locked_scope:
         qs_dict["profile"] = profile
     if chapter:
         qs_dict["chapter"] = chapter
-    if spread:
+    elif allowed_chapters:
+        qs_dict["chapter"] = allowed_chapters[0]
+    if spread and not locked_scope:
         qs_dict["spread"] = spread
     if theme in ("light", "dark"):
         qs_dict["theme"] = theme
@@ -372,20 +581,28 @@ async def create_reader_session(
     qs = f"?{urlencode(qs_dict)}" if qs_dict else ""
 
     bundle_url = f"/lms/books/read-bundle/{token}/{book.bundle_entry}{qs}"
+    filtered_outline = filter_outline_by_chapters(book.outline, allowed_chapters)
+    prog_out = _progress_out(prog)
+    if prog_out is not None and allowed_chapters:
+        prog_out.completion_pct = compute_book_slice_completion(book, prog, allowed_chapters)
 
     return BookReaderSessionOut(
         book_id=book.id,
-        title=book.title,
-        title_ar=book.title_ar,
+        title=f"{book.title} — {resolved_ed_title}" if resolved_ed_title and resolved_ed_title != book.title else book.title,
+        title_ar=resolved_ar or book.title_ar,
         bundle_version=book.bundle_version,
         token=token,
         bundle_url=bundle_url,
         can_teacher=can_teacher,
         default_profile=book.default_profile or "all",
         languages=list(book.languages or ["en"]),
-        outline=book.outline or [],
-        profiles=book.profiles or [],
-        progress=_progress_out(prog),
+        edition_id=resolved_ed_id,
+        edition_title=resolved_ed_title,
+        allowed_chapters=allowed_chapters,
+        locked_scope=locked_scope,
+        outline=filtered_outline,
+        profiles=[] if locked_scope else (book.profiles or []),
+        progress=prog_out,
     )
 
 
@@ -458,6 +675,16 @@ async def serve_book_bundle_asset(
                 )
             )
         ).scalars().first()
+        allowed_chapters = claims.get("allowed_chapters")
+        edition_id = claims.get("edition_id")
+        edition_title = None
+        if edition_id:
+            try:
+                ed = await db.get(LmsBookEdition, uuid.UUID(str(edition_id)))
+                if ed is not None:
+                    edition_title = ed.title
+            except (ValueError, TypeError):
+                pass
         initial_state = dict(prog.raw_state or {}) if prog else {}
         visited_spreads = list(prog.visited_spreads or []) if prog else []
         injected = inject_runtime_into_html(
@@ -473,6 +700,10 @@ async def serve_book_bundle_asset(
             start_profile=profile,
             start_theme=theme,
             start_lang=lang,
+            allowed_chapters=allowed_chapters,
+            locked_scope=bool(allowed_chapters),
+            edition_id=edition_id,
+            edition_title=edition_title,
         )
         return Response(
             content=injected,
@@ -544,21 +775,71 @@ async def post_book_exercise(
 
 # ── Admin / Ops Book Authoring & Analytics ───────────────────────────────────
 
-async def _book_admin_out(db: AsyncSession, book: LmsBook) -> BookAdminOut:
-    enrollments_count = int(
-        await db.scalar(
-            select(func.count(LmsBookEnrollment.id)).where(
-                LmsBookEnrollment.book_id == book.id,
-                LmsBookEnrollment.status == "active",
-            )
+def _require_master_book_writer(current: User) -> None:
+    if not can_manage_master_books(current):
+        raise HTTPException(
+            status.HTTP_403_FORBIDDEN,
+            detail="Master book authoring is restricted to SpacePoint staff",
         )
-        or 0
+
+
+async def _assert_admin_book_read(db: AsyncSession, current: User, book: LmsBook) -> Organization | None:
+    if can_manage_master_books(current):
+        return None
+    org = await resolve_book_user_org(db, current)
+    if org is None or not await is_book_allowed_for_org(db, org, book):
+        raise HTTPException(status.HTTP_403_FORBIDDEN, detail="Book access is not enabled for your organization")
+    return org
+
+
+async def _assert_analytics_scope(
+    db: AsyncSession,
+    current: User,
+    book: LmsBook,
+    cohort_id: uuid.UUID | None,
+) -> None:
+    if can_manage_master_books(current):
+        return
+    await _assert_admin_book_read(db, current, book)
+    if cohort_id is None:
+        raise HTTPException(
+            status.HTTP_403_FORBIDDEN,
+            detail="Select one of your accessible cohorts to view book analytics",
+        )
+    from app.services.org_access import require_cohort_read_or_ops
+
+    await require_cohort_read_or_ops(db, cohort_id, current)
+
+
+async def _book_admin_out(
+    db: AsyncSession,
+    book: LmsBook,
+    *,
+    current_user: User,
+    org: Organization | None = None,
+) -> BookAdminOut:
+    is_master = can_manage_master_books(current_user)
+    enrollments_count = (
+        int(
+            await db.scalar(
+                select(func.count(LmsBookEnrollment.id)).where(
+                    LmsBookEnrollment.book_id == book.id,
+                    LmsBookEnrollment.status == "active",
+                )
+            )
+            or 0
+        )
+        if is_master
+        else 0
     )
     prog_rows = (
-        await db.execute(select(LmsBookProgress).where(LmsBookProgress.book_id == book.id))
-    ).scalars().all()
+        (await db.execute(select(LmsBookProgress).where(LmsBookProgress.book_id == book.id))).scalars().all()
+        if is_master
+        else []
+    )
     active_readers = [p for p in prog_rows if (p.completion_pct or 0) > 0 or p.last_read_at is not None]
     avg_comp = round(sum(int(p.completion_pct or 0) for p in active_readers) / len(active_readers)) if active_readers else 0
+    editions = await visible_editions_for_book(db, book_id=book.id, current_user=current_user, org=org)
     return BookAdminOut(
         id=book.id,
         slug=book.slug,
@@ -582,6 +863,8 @@ async def _book_admin_out(db: AsyncSession, book: LmsBook) -> BookAdminOut:
         price_cents=book.price_cents,
         currency=book.currency,
         is_published=book.is_published,
+        can_manage_master=is_master,
+        editions=editions,
         enrollments_count=enrollments_count,
         active_readers_count=len(active_readers),
         avg_completion_pct=avg_comp,
@@ -595,8 +878,21 @@ async def admin_list_books(
     db: AsyncSession = Depends(get_db),
     current: User = Depends(require_lms_content),
 ):
-    rows = (await db.execute(select(LmsBook).order_by(LmsBook.created_at.desc()))).scalars().all()
-    return [await _book_admin_out(db, b) for b in rows]
+    if can_manage_master_books(current):
+        rows = (await db.execute(select(LmsBook).order_by(LmsBook.created_at.desc()))).scalars().all()
+        return [await _book_admin_out(db, b, current_user=current) for b in rows]
+
+    org = await resolve_book_user_org(db, current)
+    if org is None:
+        return []
+    allowed_ids = await accessible_org_book_ids(db, org)
+    stmt = select(LmsBook).where(LmsBook.is_published.is_(True))
+    if allowed_ids is not None:
+        if not allowed_ids:
+            return []
+        stmt = stmt.where(LmsBook.id.in_(allowed_ids))
+    rows = (await db.execute(stmt.order_by(LmsBook.created_at.desc()))).scalars().all()
+    return [await _book_admin_out(db, b, current_user=current, org=org) for b in rows]
 
 
 @router.post("/lms/admin/books", response_model=BookAdminOut, status_code=status.HTTP_201_CREATED)
@@ -605,6 +901,7 @@ async def admin_create_book(
     db: AsyncSession = Depends(get_db),
     current: User = Depends(require_lms_content),
 ):
+    _require_master_book_writer(current)
     slug = slugify_book(body.slug or body.title)
     existing = await db.scalar(select(LmsBook.id).where(LmsBook.slug == slug))
     if existing is not None:
@@ -635,7 +932,7 @@ async def admin_create_book(
     )
     db.add(book)
     await db.commit()
-    return await _book_admin_out(db, book)
+    return await _book_admin_out(db, book, current_user=current)
 
 
 @router.get("/lms/admin/books/{book_id}", response_model=BookAdminOut)
@@ -647,7 +944,8 @@ async def admin_get_book(
     book = await db.get(LmsBook, book_id)
     if book is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Book not found")
-    return await _book_admin_out(db, book)
+    org = await _assert_admin_book_read(db, current, book)
+    return await _book_admin_out(db, book, current_user=current, org=org)
 
 
 @router.patch("/lms/admin/books/{book_id}", response_model=BookAdminOut)
@@ -657,6 +955,7 @@ async def admin_update_book(
     db: AsyncSession = Depends(get_db),
     current: User = Depends(require_lms_content),
 ):
+    _require_master_book_writer(current)
     book = await db.get(LmsBook, book_id)
     if book is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Book not found")
@@ -680,7 +979,7 @@ async def admin_update_book(
         setattr(book, k, v)
     book.updated_at = datetime.now(timezone.utc)
     await db.commit()
-    return await _book_admin_out(db, book)
+    return await _book_admin_out(db, book, current_user=current)
 
 
 @router.post("/lms/admin/books/{book_id}/publish", response_model=BookAdminOut)
@@ -689,6 +988,7 @@ async def admin_publish_book(
     db: AsyncSession = Depends(get_db),
     current: User = Depends(require_lms_content),
 ):
+    _require_master_book_writer(current)
     book = await db.get(LmsBook, book_id)
     if book is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Book not found")
@@ -697,7 +997,7 @@ async def admin_publish_book(
     book.is_published = True
     book.updated_at = datetime.now(timezone.utc)
     await db.commit()
-    return await _book_admin_out(db, book)
+    return await _book_admin_out(db, book, current_user=current)
 
 
 @router.post("/lms/admin/books/{book_id}/unpublish", response_model=BookAdminOut)
@@ -706,13 +1006,14 @@ async def admin_unpublish_book(
     db: AsyncSession = Depends(get_db),
     current: User = Depends(require_lms_content),
 ):
+    _require_master_book_writer(current)
     book = await db.get(LmsBook, book_id)
     if book is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Book not found")
     book.is_published = False
     book.updated_at = datetime.now(timezone.utc)
     await db.commit()
-    return await _book_admin_out(db, book)
+    return await _book_admin_out(db, book, current_user=current)
 
 
 @router.delete("/lms/admin/books/{book_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -721,6 +1022,7 @@ async def admin_delete_book(
     db: AsyncSession = Depends(get_db),
     current: User = Depends(require_lms_content),
 ):
+    _require_master_book_writer(current)
     book = await db.get(LmsBook, book_id)
     if book is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Book not found")
@@ -738,6 +1040,7 @@ async def admin_upload_book_cover(
     db: AsyncSession = Depends(get_db),
     current: User = Depends(require_lms_content),
 ):
+    _require_master_book_writer(current)
     book = await db.get(LmsBook, book_id)
     if book is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Book not found")
@@ -755,7 +1058,7 @@ async def admin_upload_book_cover(
     book.cover_path = rel_path
     book.updated_at = datetime.now(timezone.utc)
     await db.commit()
-    return await _book_admin_out(db, book)
+    return await _book_admin_out(db, book, current_user=current)
 
 
 @router.post("/lms/admin/books/{book_id}/bundle", response_model=BookBundleUploadOut)
@@ -765,6 +1068,7 @@ async def admin_upload_book_bundle(
     db: AsyncSession = Depends(get_db),
     current: User = Depends(require_lms_content),
 ):
+    _require_master_book_writer(current)
     book = await db.get(LmsBook, book_id)
     if book is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Book not found")
@@ -777,12 +1081,138 @@ async def admin_upload_book_bundle(
     return BookBundleUploadOut(**result)
 
 
+# ── Book Custom Editions CRUD (SpacePoint Staff & Allowed Organizations) ─────
+
+@router.get("/lms/admin/books/{book_id}/editions", response_model=list[BookEditionOut])
+async def list_book_editions(
+    book_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    current: User = Depends(require_lms_content),
+):
+    book = await db.get(LmsBook, book_id)
+    if book is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Book not found")
+    org = await _assert_admin_book_read(db, current, book)
+    return await visible_editions_for_book(db, book_id=book.id, current_user=current, org=org)
+
+
+@router.post("/lms/admin/books/{book_id}/editions", response_model=BookEditionOut, status_code=status.HTTP_201_CREATED)
+async def create_book_edition(
+    book_id: uuid.UUID,
+    body: BookEditionCreateIn,
+    db: AsyncSession = Depends(get_db),
+    current: User = Depends(require_lms_content),
+):
+    book = await db.get(LmsBook, book_id)
+    if book is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Book not found")
+    org = await _assert_admin_book_read(db, current, book)
+    chapter_keys = validate_chapter_keys_for_book(book, body.chapter_keys)
+    now = datetime.now(timezone.utc)
+    edition = LmsBookEdition(
+        id=uuid.uuid4(),
+        book_id=book.id,
+        organization_id=None if can_manage_master_books(current) else (org.id if org else None),
+        created_by=current.id,
+        title=body.title.strip(),
+        title_ar=body.title_ar.strip() if body.title_ar else None,
+        description=body.description.strip() if body.description else None,
+        chapter_keys=chapter_keys,
+        default_lang=body.default_lang.strip().lower() if body.default_lang else None,
+        created_at=now,
+        updated_at=now,
+    )
+    db.add(edition)
+    await db.commit()
+    await db.refresh(edition)
+    return serialize_book_edition(edition, current_user=current, org=org, creator_name=current.full_name)
+
+
+@router.patch("/lms/admin/books/{book_id}/editions/{edition_id}", response_model=BookEditionOut)
+async def update_book_edition(
+    book_id: uuid.UUID,
+    edition_id: uuid.UUID,
+    body: BookEditionUpdateIn,
+    db: AsyncSession = Depends(get_db),
+    current: User = Depends(require_lms_content),
+):
+    book = await db.get(LmsBook, book_id)
+    if book is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Book not found")
+    org = await _assert_admin_book_read(db, current, book)
+    edition = await db.get(LmsBookEdition, edition_id)
+    if edition is None or edition.book_id != book.id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Book edition not found")
+    if not can_user_edit_edition(current, edition, org):
+        raise HTTPException(status.HTTP_403_FORBIDDEN, detail="You do not have permission to edit this book edition")
+
+    data = body.model_dump(exclude_unset=True)
+    if "title" in data and data["title"] is not None:
+        edition.title = data["title"].strip()
+    if "title_ar" in data:
+        edition.title_ar = data["title_ar"].strip() if data["title_ar"] else None
+    if "description" in data:
+        edition.description = data["description"].strip() if data["description"] else None
+    if "chapter_keys" in data and data["chapter_keys"] is not None:
+        edition.chapter_keys = validate_chapter_keys_for_book(book, data["chapter_keys"])
+    if "default_lang" in data:
+        edition.default_lang = data["default_lang"].strip().lower() if data["default_lang"] else None
+    edition.updated_at = datetime.now(timezone.utc)
+    await db.commit()
+    await db.refresh(edition)
+    creator = await db.get(User, edition.created_by) if edition.created_by else None
+    return serialize_book_edition(
+        edition,
+        current_user=current,
+        org=org,
+        creator_name=creator.full_name if creator else None,
+    )
+
+
+@router.delete("/lms/admin/books/{book_id}/editions/{edition_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_book_edition(
+    book_id: uuid.UUID,
+    edition_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    current: User = Depends(require_lms_content),
+):
+    book = await db.get(LmsBook, book_id)
+    if book is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Book not found")
+    org = await _assert_admin_book_read(db, current, book)
+    edition = await db.get(LmsBookEdition, edition_id)
+    if edition is None or edition.book_id != book.id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Book edition not found")
+    if not can_user_edit_edition(current, edition, org):
+        raise HTTPException(status.HTTP_403_FORBIDDEN, detail="You do not have permission to delete this book edition")
+
+    used_in_item = await db.scalar(
+        select(LmsProgramItem.id).where(LmsProgramItem.book_edition_id == edition.id).limit(1)
+    )
+    if used_in_item is not None:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            detail="Remove this edition from LMS program checklists before deleting it",
+        )
+    used_in_grant = await db.scalar(
+        select(InvitationCodeGrant.id).where(InvitationCodeGrant.book_edition_id == edition.id).limit(1)
+    )
+    if used_in_grant is not None:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            detail="Remove this edition from invite code grants before deleting it",
+        )
+    await db.delete(edition)
+    await db.commit()
+
+
 @router.get("/lms/admin/books/{book_id}/enrollments", response_model=list[BookEnrollmentOut])
 async def admin_list_book_enrollments(
     book_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
     current: User = Depends(require_lms_content),
 ):
+    _require_master_book_writer(current)
     book = await db.get(LmsBook, book_id)
     if book is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Book not found")
@@ -824,6 +1254,7 @@ async def admin_grant_book_enrollment(
     db: AsyncSession = Depends(get_db),
     current: User = Depends(require_lms_content),
 ):
+    _require_master_book_writer(current)
     book = await db.get(LmsBook, book_id)
     if book is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Book not found")
@@ -867,6 +1298,7 @@ async def admin_bulk_grant_book_enrollment(
     db: AsyncSession = Depends(get_db),
     current: User = Depends(require_lms_content),
 ):
+    _require_master_book_writer(current)
     book = await db.get(LmsBook, book_id)
     if book is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Book not found")
@@ -904,6 +1336,7 @@ async def admin_revoke_book_enrollment(
     db: AsyncSession = Depends(get_db),
     current: User = Depends(require_lms_content),
 ):
+    _require_master_book_writer(current)
     enr = (
         await db.execute(
             select(LmsBookEnrollment).where(
@@ -922,13 +1355,15 @@ async def admin_revoke_book_enrollment(
 async def admin_get_book_analytics(
     book_id: uuid.UUID,
     cohort_id: uuid.UUID | None = Query(default=None),
+    edition_id: uuid.UUID | None = Query(default=None),
     db: AsyncSession = Depends(get_db),
     current: User = Depends(require_lms_content),
 ):
     book = await db.get(LmsBook, book_id)
     if book is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Book not found")
-    data = await book_analytics(db, book_id=book_id, cohort_id=cohort_id)
+    await _assert_analytics_scope(db, current, book, cohort_id)
+    data = await book_analytics(db, book_id=book_id, cohort_id=cohort_id, edition_id=edition_id)
     return BookAnalyticsOut(**data)
 
 
@@ -936,13 +1371,15 @@ async def admin_get_book_analytics(
 async def admin_export_book_analytics_csv(
     book_id: uuid.UUID,
     cohort_id: uuid.UUID | None = Query(default=None),
+    edition_id: uuid.UUID | None = Query(default=None),
     db: AsyncSession = Depends(get_db),
     current: User = Depends(require_lms_content),
 ):
     book = await db.get(LmsBook, book_id)
     if book is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Book not found")
-    csv_text = await export_book_responses_csv(db, book_id=book_id, cohort_id=cohort_id)
+    await _assert_analytics_scope(db, current, book, cohort_id)
+    csv_text = await export_book_responses_csv(db, book_id=book_id, cohort_id=cohort_id, edition_id=edition_id)
     return Response(
         content=csv_text,
         media_type="text/csv; charset=utf-8",

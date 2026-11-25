@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { Link, useNavigate, useParams } from "@tanstack/react-router";
+import { Link, useNavigate, useParams, useSearch } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { isAxiosError } from "axios";
 import {
@@ -42,6 +42,7 @@ function errorDetail(err: unknown, fallback: string): string {
 
 export default function LearnBookDetail() {
   const { bookId } = useParams({ strict: false }) as { bookId: string };
+  const search = useSearch({ strict: false }) as { editionId?: string; itemId?: string };
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const { user } = useAuth();
@@ -53,8 +54,11 @@ export default function LearnBookDetail() {
   const [actionError, setActionError] = useState("");
 
   const { data: book, isLoading, error } = useQuery({
-    queryKey: [isAuthed ? "lms-book-detail" : "lms-public-book-detail", bookId],
-    queryFn: () => (isAuthed ? fetchBookDetail(bookId) : fetchPublicBookDetail(bookId)),
+    queryKey: [isAuthed ? "lms-book-detail" : "lms-public-book-detail", bookId, search.editionId ?? "", search.itemId ?? ""],
+    queryFn: () =>
+      isAuthed
+        ? fetchBookDetail(bookId, { edition_id: search.editionId, item_id: search.itemId })
+        : fetchPublicBookDetail(bookId),
   });
 
   const activeProfile = selectedProfile || book?.progress?.active_profile || book?.default_profile || "all";
@@ -87,10 +91,13 @@ export default function LearnBookDetail() {
 
   const openReader = (opts?: { chapter?: string; spread?: string }) => {
     if (!book) return;
+    const effEditionId = book.edition_id || search.editionId;
     void navigate({
       to: `/learn/books/${book.id}/read`,
       search: {
-        profile: activeProfile,
+        ...(!book.locked_scope ? { profile: activeProfile } : {}),
+        ...(effEditionId ? { editionId: effEditionId } : {}),
+        ...(search.itemId ? { itemId: search.itemId } : {}),
         ...(opts?.chapter ? { chapter: opts.chapter } : {}),
         ...(opts?.spread ? { spread: opts.spread } : {}),
       } as never,
@@ -201,7 +208,7 @@ export default function LearnBookDetail() {
           </div>
 
           {/* Edition / Track selector */}
-          {book.profiles.length > 1 && (
+          {!book.locked_scope && book.profiles.length > 1 && (
             <div className="flex flex-col gap-2">
               <label className="text-sm font-semibold text-foreground">Edition</label>
               <div className="flex flex-wrap gap-2">

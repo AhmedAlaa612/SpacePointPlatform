@@ -102,8 +102,11 @@ class LmsAssignmentItemDetailOut(BaseModel):
     arcade_best_score: int | None = None
     book_id: UUID | None = None
     book_title: str | None = None
+    book_edition_id: UUID | None = None
+    book_edition_title: str | None = None
     book_profile: str | None = None
     book_chapter: str | None = None
+    book_chapters: list[str] | None = None
     book_min_completion_pct: int | None = None
 
 
