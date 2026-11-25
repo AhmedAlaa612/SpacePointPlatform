@@ -1827,3 +1827,76 @@ async def test_cohort_coordinator_scoping_assigned_vs_general(db, client):
     assert share_res.status_code == 200
     assert (await client.get(f"/sessions/cohorts/{asg_id}", headers=_headers(coord_c))).status_code == 200
 
+
+async def test_ops_can_view_and_set_org_cohort_coordinators(db, client):
+    from app.models.sessions.program import Program
+
+    owner, org = await _seed_org(db)
+    ops = await _make_user(db, roles=["operations"])
+    coord_a = await _make_user(db, roles=["organization"])
+    coord_b = await _make_user(db, roles=["organization"])
+    for idx, c in enumerate((coord_a, coord_b), start=1):
+        c.full_name = f"Ops Coord {idx}"
+        c.organization_id = org.id
+        c.org_role = "coordinator"
+        c.org_roles = ["coordinator"]
+
+    program = Program(
+        id=uuid.uuid4(),
+        code=f"OPS-{uuid.uuid4().hex[:6]}",
+        name="Ops Managed Org Track",
+        program_type="workshop",
+        pricing_model="free",
+        organization_id=org.id,
+        active=True,
+    )
+    db.add(program)
+    await db.commit()
+
+    # Ops can list coordinators for a specific org
+    roster = await client.get(
+        "/organization/coordinators",
+        params={"organization_id": str(org.id)},
+        headers=_headers(ops),
+    )
+    assert roster.status_code == 200, roster.text
+    roster_ids = {r["id"] for r in roster.json()}
+    assert {str(owner.id), str(coord_a.id), str(coord_b.id)}.issubset(roster_ids)
+
+    # Ops creates an assigned cohort via /sessions/cohorts
+    create_res = await client.post(
+        "/sessions/cohorts",
+        headers=_headers(ops),
+        json={
+            "program_id": str(program.id),
+            "organization_id": str(org.id),
+            "name": "Ops Assigned Cohort",
+            "management_mode": "partner",
+            "coordinator_access_mode": "assigned",
+            "coordinator_user_ids": [str(coord_a.id)],
+        },
+    )
+    assert create_res.status_code == 201, create_res.text
+    cid = create_res.json()["id"]
+    assert create_res.json()["coordinator_access_mode"] == "assigned"
+    assert [c["id"] for c in create_res.json()["coordinators"]] == [str(coord_a.id)]
+
+    # Coordinator A can access, Coordinator B cannot
+    assert (await client.get(f"/sessions/cohorts/{cid}", headers=_headers(coord_a))).status_code == 200
+    assert (await client.get(f"/sessions/cohorts/{cid}", headers=_headers(coord_b))).status_code == 403
+
+    # Ops updates cohort to reassign to Coordinator B
+    patch_res = await client.patch(
+        f"/sessions/cohorts/{cid}",
+        headers=_headers(ops),
+        json={
+            "coordinator_access_mode": "assigned",
+            "coordinator_user_ids": [str(coord_b.id)],
+        },
+    )
+    assert patch_res.status_code == 200, patch_res.text
+    assert [c["id"] for c in patch_res.json()["coordinators"]] == [str(coord_b.id)]
+    assert (await client.get(f"/sessions/cohorts/{cid}", headers=_headers(coord_b))).status_code == 200
+    assert (await client.get(f"/sessions/cohorts/{cid}", headers=_headers(coord_a))).status_code == 403
+
+

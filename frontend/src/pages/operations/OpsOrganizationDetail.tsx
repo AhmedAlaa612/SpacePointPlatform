@@ -38,6 +38,7 @@ import { createCohortApi } from "@/api/sessions/cohorts"
 import { getFilteredProgramsApi, listProgramVariationsApi } from "@/api/sessions/programs"
 import { getLocationsApi, getWarehousesApi } from "@/api/inventory"
 import { QuickCreateLocationModal } from "@/pages/admin/components/QuickCreateLocationModal"
+import { CoordinatorAccessPicker } from "@/components/organization/CoordinatorAccessPicker"
 import type { Location } from "@/types/inventory"
 import type { Program, ProgramVariation } from "@/types/sessions"
 import {
@@ -2275,6 +2276,8 @@ function OpsCreateOrgCohortModal({
   const [capacity, setCapacity] = useState("")
   const [durationHours, setDurationHours] = useState("")
   const [visibility, setVisibility] = useState<"public" | "private">("private")
+  const [coordinatorAccessMode, setCoordinatorAccessMode] = useState<"general" | "assigned">("general")
+  const [coordinatorUserIds, setCoordinatorUserIds] = useState<string[]>([])
   const [createLocOpen, setCreateLocOpen] = useState(false)
 
   const effectiveProgramId = programId || ownPrograms[0]?.id || spPrograms[0]?.id || ""
@@ -2311,6 +2314,8 @@ function OpsCreateOrgCohortModal({
         visibility,
         organization_id: orgId,
         management_mode: managementMode,
+        coordinator_access_mode: coordinatorAccessMode,
+        coordinator_user_ids: coordinatorAccessMode === "assigned" ? coordinatorUserIds : [],
       }),
     onSuccess: (created) => {
       toast.success(`Cohort "${created.name}" created for ${orgName}`)
@@ -2544,6 +2549,14 @@ function OpsCreateOrgCohortModal({
                 </select>
               </label>
             </div>
+
+            <CoordinatorAccessPicker
+              organizationId={orgId}
+              mode={coordinatorAccessMode}
+              onModeChange={setCoordinatorAccessMode}
+              selectedUserIds={coordinatorUserIds}
+              onSelectedUserIdsChange={setCoordinatorUserIds}
+            />
           </div>
 
           <div className="flex items-center justify-end gap-2 pt-2 border-t border-border">

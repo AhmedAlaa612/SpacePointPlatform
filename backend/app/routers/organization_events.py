@@ -322,14 +322,20 @@ async def list_my_organization_team(
 
 @router.get("/coordinators")
 async def list_organization_coordinators(
+    organization_id: UUID | None = Query(None),
     current_user: User = Depends(require_organization_account),
     db: AsyncSession = Depends(get_db),
 ):
     """Lightweight read-only list of org owners & coordinators for cohort assignment pickers."""
-    org = await resolve_user_organization(db, current_user)
+    is_ops = any(r in current_user.role_values for r in ("admin", "operations"))
+    if is_ops and organization_id is not None:
+        org = await db.get(Organization, organization_id)
+    else:
+        org = await resolve_user_organization(db, current_user)
     if org is None:
         return []
-    require_org_manager(current_user)
+    if not is_ops:
+        require_org_manager(current_user)
     conds = [User.organization_id == org.id]
     if org.owner_user_id:
         conds.append(User.id == org.owner_user_id)

@@ -51,6 +51,7 @@ from app.services.games.runs import close_open_runs_for_session
 from app.services.sessions.openings import fully_staffed, lead_role_id
 from app.services.sessions.staffing import resolve_session_location_display
 from app.services.sessions import variations as var_svc
+from app.services.org_access import cohort_coordinators_map, sync_cohort_coordinators
 from app.models.inventory.location import Location
 from app.models.inventory.warehouse import Warehouse
 from app.models.sessions.attendance import AttendanceRecord
@@ -81,6 +82,7 @@ from app.schemas.sessions.cohorts import (
     BulkAssignInstructorRequest,
     BulkOpenCallRequest,
     CohortCloneRequest,
+    CohortCoordinatorOut,
     CohortCreate,
     CohortOut,
     CohortUpdate,
@@ -180,6 +182,7 @@ async def _cohort_out(
     location: Location | None = None, counts: tuple[int, int, int, date | None] | None = None,
     program_is_competition: bool = False, variation_name: str | None = None,
     organization_name: str | None = None,
+    coordinators: list[dict[str, str]] | None = None,
 ) -> CohortOut:
     # 2026-09-30: one bad row (e.g. a hand-inserted status outside the
     # CohortStatus literal) used to 500 the entire cohorts list, since a
@@ -219,6 +222,12 @@ async def _cohort_out(
     if warehouse is not None:
         out.effective_warehouse_id = warehouse.id
         out.effective_warehouse_name = warehouse.name
+    out.coordinator_access_mode = getattr(cohort, "coordinator_access_mode", None) or "general"
+    raw_coords = coordinators
+    if raw_coords is None and cohort.organization_id is not None:
+        cmap = await cohort_coordinators_map(db, [cohort.id])
+        raw_coords = cmap.get(cohort.id, [])
+    out.coordinators = [CohortCoordinatorOut(**c) for c in (raw_coords or [])]
     return out
 
 
@@ -313,12 +322,15 @@ async def list_cohorts(
     stmt = stmt.order_by(Cohort.created_at.desc())
 
     rows = (await db.execute(stmt)).all()
+    org_cohort_ids = [cohort.id for cohort, *_ in rows if cohort.organization_id is not None]
+    coords_map = await cohort_coordinators_map(db, org_cohort_ids)
     results = [
         await _cohort_out(
             db, cohort, program_name, program_code, location, (sessions, regs, unstaffed, next_date),
             program_is_competition=(program_type == "competition"),
             variation_name=variation_name,
             organization_name=org_name,
+            coordinators=coords_map.get(cohort.id, []),
         )
         for cohort, program_name, program_code, location, sessions, regs, unstaffed, next_date, program_type, variation_name, org_name in rows
     ]
@@ -359,6 +371,9 @@ async def create_cohort(
     import_default_checklists = data.pop("import_default_checklists", True)
     checklist_source_program_id = data.pop("checklist_source_program_id", None)
     checklist_source_variation_id = data.pop("checklist_source_variation_id", None)
+    coordinator_user_ids = data.pop("coordinator_user_ids", [])
+    if data.get("organization_id") is None:
+        data["coordinator_access_mode"] = "general"
     if import_default_checklists and checklist_source_program_id is not None and checklist_source_program_id != program.id:
         if await db.get(Program, checklist_source_program_id) is None:
             raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Checklist source program not found")
@@ -392,6 +407,20 @@ async def create_cohort(
     cohort = Cohort(id=uuid.uuid4(), **data)
     db.add(cohort)
     await db.flush()
+
+    if cohort.organization_id is not None and (
+        cohort.coordinator_access_mode == "assigned" or coordinator_user_ids
+    ):
+        org_obj = await db.get(Organization, cohort.organization_id)
+        if org_obj is not None:
+            await sync_cohort_coordinators(
+                db,
+                cohort=cohort,
+                org=org_obj,
+                current_user=current_user,
+                mode=cohort.coordinator_access_mode,
+                coordinator_user_ids=coordinator_user_ids,
+            )
 
     await seed_cohort_from_program(
         db,
@@ -485,6 +514,7 @@ async def update_cohort(
                 "name", "starts_on", "ends_on", "location", "location_id", "capacity", "notes",
                 "visibility", "poster_template_url", "checklist_title_override",
                 "keep_course_access_after_completion", "status",
+                "coordinator_access_mode", "coordinator_user_ids",
             }
             if is_partner_managed(cohort):
                 allowed_org_fields.add("duration_hours")
@@ -529,10 +559,26 @@ async def update_cohort(
 
     was_planned = cohort.status == "planned"
     old_keep_access = cohort.keep_course_access_after_completion
+    coord_mode = changes.pop("coordinator_access_mode", None)
+    coord_ids = changes.pop("coordinator_user_ids", None)
     for field, value in changes.items():
         if field == "keep_course_access_after_completion" and value is None:
             continue
         setattr(cohort, field, value)
+
+    if coord_mode is not None or coord_ids is not None:
+        eff_org_id = await cohort_organization_id(db, cohort)
+        if eff_org_id is not None:
+            org_obj = await db.get(Organization, eff_org_id)
+            if org_obj is not None:
+                await sync_cohort_coordinators(
+                    db,
+                    cohort=cohort,
+                    org=org_obj,
+                    current_user=current_user,
+                    mode=coord_mode,
+                    coordinator_user_ids=coord_ids,
+                )
 
     if (
         cohort.status == "completed"

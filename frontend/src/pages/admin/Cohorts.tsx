@@ -9,6 +9,7 @@ import {
   getCohortsApi, createCohortApi, updateCohortApi, deleteCohortApi,
 } from "@/api/sessions/cohorts"
 import { Modal, Field, ModalActions, ConfirmDialog, Spinner, PageHeader, EmptyState } from "@/pages/admin/components/common"
+import { CoordinatorAccessPicker } from "@/components/organization/CoordinatorAccessPicker"
 import { useToast } from "@/components/ui/toast"
 import { useAuth } from "@/context/AuthContext"
 import { getErrorMessage } from "@/lib/utils"
@@ -413,9 +414,16 @@ export function CohortModal({ programs, cohort, onClose, onSuccess, initialProgr
     cohort?.keep_course_access_after_completion ?? true,
   )
   const [variationChoice, setVariationChoice] = useState<string>(cohort?.variation_id ?? "")
+  const [coordinatorAccessMode, setCoordinatorAccessMode] = useState<"general" | "assigned">(
+    cohort?.coordinator_access_mode ?? "general",
+  )
+  const [coordinatorUserIds, setCoordinatorUserIds] = useState<string[]>(
+    (cohort?.coordinators ?? []).map((c) => c.id),
+  )
   const [error, setError] = useState("")
 
   const selectedProgram = programs.find((p) => p.id === programId)
+  const effectiveOrgId = organizationId || cohort?.organization_id || selectedProgram?.organization_id || null
   const { data: variations = [] } = useQuery<ProgramVariation[]>({
     queryKey: ["program-variations-modal", programId, isEdit],
     queryFn: () => listProgramVariationsApi(programId, !isEdit),
@@ -505,6 +513,12 @@ export function CohortModal({ programs, cohort, onClose, onSuccess, initialProgr
           poster_template_url: posterTemplateUrl.trim() || null,
           keep_course_access_after_completion: keepCourseAccessAfterCompletion,
           variation_id: effectiveVariationId && !isBlankChoice ? effectiveVariationId : null,
+          ...(effectiveOrgId
+            ? {
+                coordinator_access_mode: coordinatorAccessMode,
+                coordinator_user_ids: coordinatorAccessMode === "assigned" ? coordinatorUserIds : [],
+              }
+            : {}),
         })
       }
       return createCohortApi({
@@ -524,6 +538,12 @@ export function CohortModal({ programs, cohort, onClose, onSuccess, initialProgr
         keep_course_access_after_completion: keepCourseAccessAfterCompletion,
         variation_id: !isBlankChoice && selectedVariation ? selectedVariation.id : null,
         import_default_checklists: !isBlankChoice,
+        ...(effectiveOrgId
+          ? {
+              coordinator_access_mode: coordinatorAccessMode,
+              coordinator_user_ids: coordinatorAccessMode === "assigned" ? coordinatorUserIds : [],
+            }
+          : {}),
       })
     },
     onSuccess: () => { toast.success(isEdit ? "Cohort updated" : "Cohort created"); onSuccess() },
@@ -748,6 +768,15 @@ export function CohortModal({ programs, cohort, onClose, onSuccess, initialProgr
           />
           Keep course access after completion
         </label>
+        {effectiveOrgId && (
+          <CoordinatorAccessPicker
+            organizationId={effectiveOrgId}
+            mode={coordinatorAccessMode}
+            onModeChange={setCoordinatorAccessMode}
+            selectedUserIds={coordinatorUserIds}
+            onSelectedUserIdsChange={setCoordinatorUserIds}
+          />
+        )}
         {error && <p className="text-xs text-red-500">{error}</p>}
         <ModalActions
           onCancel={onClose} onConfirm={() => mutation.mutate()}

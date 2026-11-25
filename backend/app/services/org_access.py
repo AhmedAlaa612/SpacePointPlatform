@@ -631,3 +631,83 @@ async def assert_user_eligible_for_cohort_staffing(
             status.HTTP_400_BAD_REQUEST,
             detail="Organization cohorts can only be staffed with instructors from the same organization.",
         )
+
+
+async def cohort_coordinators_map(
+    db: AsyncSession, cohort_ids: Sequence[uuid.UUID]
+) -> dict[uuid.UUID, list[dict[str, str]]]:
+    """Return `{cohort_id: [{id, full_name, email}, ...]}` for the given cohorts."""
+    if not cohort_ids:
+        return {}
+    rows = (
+        await db.execute(
+            select(CohortCoordinator.cohort_id, User.id, User.full_name, User.email)
+            .join(User, User.id == CohortCoordinator.user_id)
+            .where(CohortCoordinator.cohort_id.in_(list(cohort_ids)))
+            .order_by(User.full_name.asc())
+        )
+    ).all()
+    out: dict[uuid.UUID, list[dict[str, str]]] = {}
+    for cid, uid, full_name, email in rows:
+        out.setdefault(cid, []).append(
+            {"id": str(uid), "full_name": full_name or "", "email": email or ""}
+        )
+    return out
+
+
+async def sync_cohort_coordinators(
+    db: AsyncSession,
+    *,
+    cohort: Cohort,
+    org,
+    current_user: User,
+    mode: str | None,
+    coordinator_user_ids: Sequence[uuid.UUID] | None,
+) -> None:
+    """Validate and persist `coordinator_access_mode` and `cohort_coordinators` rows."""
+    from sqlalchemy import delete as sa_delete
+
+    if mode is not None:
+        clean_mode = mode.strip().lower()
+        if clean_mode not in ("general", "assigned"):
+            raise HTTPException(status_code=422, detail="coordinator_access_mode must be 'general' or 'assigned'")
+        cohort.coordinator_access_mode = clean_mode
+    effective_mode = getattr(cohort, "coordinator_access_mode", None) or "general"
+
+    if effective_mode == "assigned":
+        if coordinator_user_ids is None and mode is None:
+            return
+        ids: list[uuid.UUID] = list(dict.fromkeys(coordinator_user_ids or []))
+        if not is_ops_or_admin(current_user) and org.owner_user_id != current_user.id:
+            if current_user.id not in ids:
+                ids.append(current_user.id)
+        if ids:
+            candidate_users = (
+                await db.execute(select(User).where(User.id.in_(ids)))
+            ).scalars().all()
+            valid_ids: set[uuid.UUID] = set()
+            for u in candidate_users:
+                is_owner = u.id == org.owner_user_id
+                if u.organization_id != org.id and not is_owner:
+                    continue
+                roles = effective_org_roles(u, is_owner=is_owner)
+                if any(r in ("owner", "coordinator") for r in roles):
+                    valid_ids.add(u.id)
+            invalid = [str(uid) for uid in ids if uid not in valid_ids]
+            if invalid:
+                raise HTTPException(
+                    status_code=400,
+                    detail="All assigned coordinators must be owner or coordinator members of this organization",
+                )
+        await db.execute(sa_delete(CohortCoordinator).where(CohortCoordinator.cohort_id == cohort.id))
+        for uid in ids:
+            db.add(
+                CohortCoordinator(
+                    id=uuid.uuid4(),
+                    cohort_id=cohort.id,
+                    user_id=uid,
+                    added_by_user_id=current_user.id,
+                )
+            )
+    elif coordinator_user_ids is not None or mode is not None:
+        await db.execute(sa_delete(CohortCoordinator).where(CohortCoordinator.cohort_id == cohort.id))

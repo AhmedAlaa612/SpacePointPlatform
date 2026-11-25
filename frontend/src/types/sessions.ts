@@ -208,6 +208,8 @@ export interface Cohort {
   variation_id?: string | null;
   variation_name?: string | null;
   pricing_model?: string | null;
+  coordinator_access_mode?: "general" | "assigned";
+  coordinators?: { id: string; full_name: string; email: string }[];
   price?: number | null;
   completion_rule_type?: string | null;
   completion_rule_value?: number | null;

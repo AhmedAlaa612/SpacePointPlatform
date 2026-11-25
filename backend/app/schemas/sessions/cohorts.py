@@ -60,6 +60,12 @@ class CohortBase(BaseModel):
     default_team_certificate_template_id: UUID | None = None
 
 
+class CohortCoordinatorOut(BaseModel):
+    id: UUID
+    full_name: str
+    email: str
+
+
 class CohortCreate(CohortBase):
     program_id: UUID
     status: CohortStatus = "planned"
@@ -68,6 +74,8 @@ class CohortCreate(CohortBase):
     import_default_checklists: bool = True
     checklist_source_program_id: UUID | None = None
     checklist_source_variation_id: UUID | None = None
+    coordinator_access_mode: Literal["general", "assigned"] = "general"
+    coordinator_user_ids: list[UUID] = []
 
 
 class CohortUpdate(BaseModel):
@@ -96,6 +104,8 @@ class CohortUpdate(BaseModel):
     completion_rule_value: Decimal | None = None
     default_certificate_template_id: UUID | None = None
     default_team_certificate_template_id: UUID | None = None
+    coordinator_access_mode: Literal["general", "assigned"] | None = None
+    coordinator_user_ids: list[UUID] | None = None
 
 
 class CohortOut(CohortBase):
@@ -134,6 +144,8 @@ class CohortOut(CohortBase):
     inherit_default_checklists: bool = True
     variation_name: str | None = None
     is_template_legacy: bool = False
+    coordinator_access_mode: str = "general"
+    coordinators: list[CohortCoordinatorOut] = []
 
     class Config:
         from_attributes = True

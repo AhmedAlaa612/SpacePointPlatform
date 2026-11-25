@@ -95,7 +95,7 @@ export function OrgCohortModal({
 
   const { data: orgCoordinators = [] } = useQuery({
     queryKey: ["org-coordinators"],
-    queryFn: getOrgCoordinatorsApi,
+    queryFn: () => getOrgCoordinatorsApi(),
     enabled: open,
   })
 

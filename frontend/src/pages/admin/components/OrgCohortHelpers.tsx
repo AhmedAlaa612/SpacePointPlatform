@@ -37,6 +37,7 @@ import {
   type OrgCohortObserver,
 } from "@/api/organizationPrograms"
 import { Button } from "@/components/ui/button"
+import { CoordinatorAccessPicker } from "@/components/organization/CoordinatorAccessPicker"
 import { useAuth } from "@/context/AuthContext"
 import { useToast } from "@/components/ui/toast"
 import { getErrorMessage } from "@/lib/utils"
@@ -967,6 +968,12 @@ export function OrgEditCohortModal({
   const [capacity, setCapacity] = useState(cohort.capacity != null ? String(cohort.capacity) : "")
   const [checklistTitleOverride, setChecklistTitleOverride] = useState(cohort.checklist_title_override || "")
   const [isPublic, setIsPublic] = useState(cohort.visibility === "public")
+  const [coordinatorAccessMode, setCoordinatorAccessMode] = useState<"general" | "assigned">(
+    cohort.coordinator_access_mode ?? "general",
+  )
+  const [coordinatorUserIds, setCoordinatorUserIds] = useState<string[]>(
+    (cohort.coordinators ?? []).map((c) => c.id),
+  )
 
   const { data: locations = [] } = useQuery<Location[]>({
     queryKey: ["locations", false],
@@ -993,6 +1000,12 @@ export function OrgEditCohortModal({
         capacity: numericCap,
         checklist_title_override: checklistTitleOverride.trim() || null,
         visibility: isPublic ? "public" : "private",
+        ...(cohort.organization_id
+          ? {
+              coordinator_access_mode: coordinatorAccessMode,
+              coordinator_user_ids: coordinatorAccessMode === "assigned" ? coordinatorUserIds : [],
+            }
+          : {}),
       })
     },
     onSuccess: () => {
@@ -1167,6 +1180,16 @@ export function OrgEditCohortModal({
               </span>
             </div>
           </label>
+
+          {cohort.organization_id && (
+            <CoordinatorAccessPicker
+              organizationId={cohort.organization_id}
+              mode={coordinatorAccessMode}
+              onModeChange={setCoordinatorAccessMode}
+              selectedUserIds={coordinatorUserIds}
+              onSelectedUserIdsChange={setCoordinatorUserIds}
+            />
+          )}
         </div>
 
         <div className="flex items-center justify-end gap-2 pt-3 border-t border-border">

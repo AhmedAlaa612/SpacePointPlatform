@@ -49,6 +49,8 @@ export const createCohortApi = (data: {
   checklist_source_program_id?: string | null
   variation_id?: string | null
   checklist_source_variation_id?: string | null
+  coordinator_access_mode?: "general" | "assigned"
+  coordinator_user_ids?: string[]
 }) => api.post<Cohort>("/sessions/cohorts", data).then((r) => r.data)
 
 export const updateCohortApi = (
@@ -72,6 +74,8 @@ export const updateCohortApi = (
     checklist_title_override: string | null
     keep_course_access_after_completion: boolean
     variation_id: string | null
+    coordinator_access_mode: "general" | "assigned"
+    coordinator_user_ids: string[]
   }>
 ) => api.patch<Cohort>(`/sessions/cohorts/${id}`, data).then((r) => r.data)
 

@@ -294,8 +294,12 @@ export interface OrgCoordinatorOption {
   org_roles: string[]
 }
 
-export const getOrgCoordinatorsApi = () =>
-  api.get<OrgCoordinatorOption[]>("/organization/coordinators").then((r) => r.data)
+export const getOrgCoordinatorsApi = (organizationId?: string) =>
+  api
+    .get<OrgCoordinatorOption[]>("/organization/coordinators", {
+      params: organizationId ? { organization_id: organizationId } : undefined,
+    })
+    .then((r) => r.data)
 
 export const removeOrgCohortObserverApi = (cohortId: string, userId: string) =>
   api.delete(`/organization/cohorts/${cohortId}/observers/${userId}`)
