@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Link, useParams, useSearch } from "@tanstack/react-router";
+import { Link, useNavigate, useParams, useSearch } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   ArrowLeft,
@@ -52,13 +52,13 @@ export default function LearnBookReader() {
     editionId?: string;
   };
 
+  const navigate = useNavigate();
   const queryClient = useQueryClient();
   const iframeRef = useRef<HTMLIFrameElement | null>(null);
 
   const [tocOpen, setTocOpen] = useState(false);
   const [liveState, setLiveState] = useState<BookBridgeState>({});
   const [selectedLang, setSelectedLang] = useState<"en" | "ar">("en");
-  const [selectedProfile, setSelectedProfile] = useState<string>(search.profile || "");
   const [teacherMode, setTeacherMode] = useState<boolean>(false);
 
   const initialTheme = useMemo<"light" | "dark">(
@@ -90,7 +90,6 @@ export default function LearnBookReader() {
 
   useEffect(() => {
     if (!session) return;
-    setSelectedProfile(search.profile || session.progress?.active_profile || session.default_profile || "all");
     if (session.progress) {
       setLiveState({
         currentSpread: session.progress.current_spread ?? undefined,
@@ -103,7 +102,7 @@ export default function LearnBookReader() {
         completionPct: session.progress.completion_pct,
       });
     }
-  }, [session, search.profile]);
+  }, [session]);
 
   const sendCmd = useCallback((cmd: string, value?: unknown) => {
     const win = iframeRef.current?.contentWindow;
@@ -143,7 +142,6 @@ export default function LearnBookReader() {
         const snap = (msg.payload || {}) as BookBridgeState;
         setLiveState((prev) => ({ ...prev, ...snap }));
         if (snap.lang === "en" || snap.lang === "ar") setSelectedLang(snap.lang);
-        if (snap.activeProfile) setSelectedProfile(snap.activeProfile);
         if (typeof snap.teacher === "boolean") setTeacherMode(snap.teacher);
       } else if (msg.type === "SP_BOOK_STATE_SYNC") {
         const snap = (msg.payload || {}) as BookBridgeState;
@@ -188,13 +186,7 @@ export default function LearnBookReader() {
 
   const visitedSet = useMemo(() => new Set(liveState.visitedSpreads ?? []), [liveState.visitedSpreads]);
 
-  const filteredChapters = useMemo(() => {
-    if (!session) return [];
-    const activeProfObj = session.profiles.find((p) => p.key === selectedProfile);
-    if (!activeProfObj || !activeProfObj.groups?.length) return session.outline;
-    const allowed = new Set(activeProfObj.groups);
-    return session.outline.filter((ch) => allowed.has(ch.key));
-  }, [session, selectedProfile]);
+  const filteredChapters = useMemo(() => session?.outline ?? [], [session]);
 
   if (isLoading) {
     return (
@@ -251,20 +243,27 @@ export default function LearnBookReader() {
         </div>
 
         <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
-          {!session.locked_scope && session.profiles.length > 1 && !search.profile && (
+          {!session.locked_scope && (session.editions?.length ?? 0) > 0 && (
             <select
               aria-label="Edition"
-              value={selectedProfile}
+              value={search.editionId ?? session.edition_id ?? ""}
               onChange={(e) => {
-                const next = e.target.value;
-                setSelectedProfile(next);
-                sendCmd("setProfile", next);
+                const nextId = e.target.value;
+                void navigate({
+                  to: `/learn/books/${bookId}/read`,
+                  search: {
+                    ...(search.program ? { program: search.program } : {}),
+                    ...(nextId ? { editionId: nextId } : {}),
+                  } as never,
+                  replace: true,
+                });
               }}
               className="hidden lg:block h-8 px-2.5 text-xs font-medium rounded-[10px] border border-border bg-background text-foreground focus:outline-none focus:border-primary"
             >
-              {session.profiles.map((p) => (
-                <option key={p.key} value={p.key}>
-                  {selectedLang === "ar" && p.label_ar ? p.label_ar : p.label_en}
+              <option value="">Full Book</option>
+              {(session.editions ?? []).map((ed) => (
+                <option key={ed.id} value={ed.id}>
+                  {selectedLang === "ar" && ed.title_ar ? ed.title_ar : ed.title}
                 </option>
               ))}
             </select>

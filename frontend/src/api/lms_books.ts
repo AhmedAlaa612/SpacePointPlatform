@@ -119,6 +119,7 @@ export interface BookReaderSession {
   locked_scope?: boolean;
   outline: BookChapter[];
   profiles: BookProfile[];
+  editions?: BookEdition[];
   progress: BookProgress | null;
 }
 

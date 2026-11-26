@@ -1345,3 +1345,47 @@ async def test_org_coordinator_teacher_mode_on_allowed_book(db: AsyncSession, cl
 
     no_rs = await client.post(f"/lms/books/{denied.id}/reader-session", headers=_headers(coord_a))
     assert no_rs.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_bundle_upload_auto_imports_manifest_profiles_as_editions(db: AsyncSession, client: AsyncClient):
+    ops = await _make_user(db, "operations")
+    await db.commit()
+
+    book_res = await client.post(
+        "/lms/admin/books",
+        headers=_headers(ops),
+        json={"title": "Auto Edition Import Book", "access_mode": "open"},
+    )
+    assert book_res.status_code == 201
+    book_id = book_res.json()["id"]
+
+    # _build_book_zip has profiles: "all" (groups=[]) and "uae10" ("UAE Grade 10", groups=["u1"])
+    up1 = await _upload_bundle(client, ops, book_id)
+    assert up1.status_code == 200, up1.text
+
+    eds1 = (await client.get(f"/lms/admin/books/{book_id}/editions", headers=_headers(ops))).json()
+    assert len(eds1) == 1
+    assert eds1[0]["title"] == "UAE Grade 10"
+    assert eds1[0]["chapter_keys"] == ["u1"]
+    assert eds1[0]["organization_id"] is None
+
+    # Re-uploading same bundle is idempotent (no duplicate editions)
+    up2 = await _upload_bundle(client, ops, book_id)
+    assert up2.status_code == 200
+    eds2 = (await client.get(f"/lms/admin/books/{book_id}/editions", headers=_headers(ops))).json()
+    assert len(eds2) == 1
+
+    # Reader session exposes editions for full-access readers and keeps locked_scope=False when previewing
+    await client.post(f"/lms/admin/books/{book_id}/publish", headers=_headers(ops))
+    student = await _make_user(db, "student")
+    await db.commit()
+    rs = await client.post(
+        f"/lms/books/{book_id}/reader-session",
+        params={"edition_id": eds1[0]["id"]},
+        headers=_headers(student),
+    )
+    assert rs.status_code == 200, rs.text
+    assert rs.json()["locked_scope"] is False
+    assert rs.json()["allowed_chapters"] == ["u1"]
+    assert len(rs.json()["editions"]) == 1

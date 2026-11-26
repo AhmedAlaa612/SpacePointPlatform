@@ -1134,6 +1134,7 @@ export function ItemForm({
     queryKey: ["lms-admin-books"],
     queryFn: adminListBooksApi,
     enabled: itemType === "book",
+    refetchOnMount: "always",
   })
   const selectedBook = books.find((b) => b.id === bookId)
   const { data: quizTemplates = [] } = useQuery({
@@ -1537,22 +1538,6 @@ export function ItemForm({
               )}
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                {bookScopeMode === "full" && (
-                  <div className="flex flex-col gap-1">
-                    <label className="text-[11px] font-medium text-muted-foreground">Default Track</label>
-                    <select
-                      value={bookProfile}
-                      onChange={(e) => setBookProfile(e.target.value)}
-                      className={`${inputCls} cursor-pointer`}
-                    >
-                      {(selectedBook.profiles?.length ? selectedBook.profiles : [{ key: "all", label_en: "Full Book" }]).map((p) => (
-                        <option key={p.key} value={p.key}>
-                          {p.label_en}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                )}
                 <div className="flex flex-col gap-1">
                   <label className="text-[11px] font-medium text-muted-foreground">Min Completion %</label>
                   <input

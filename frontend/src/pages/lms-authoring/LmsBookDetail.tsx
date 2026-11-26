@@ -382,10 +382,6 @@ export default function LmsBookDetail() {
         { id: "analytics", label: "Class Analytics" },
       ];
 
-  const profileOptions = book.profiles.length > 0
-    ? book.profiles
-    : [{ key: "all", label_en: "Full Book", label_ar: null, subtitle_en: null, subtitle_ar: null, default_lang: null, groups: [] }];
-
   return (
     <div className="max-w-6xl mx-auto px-4 sm:px-6 py-6">
       <div className="mb-4">
@@ -547,19 +543,6 @@ export default function LmsBookDetail() {
                   className={inputCls}
                 />
               </Field>
-              <Field label="Default Edition / Track">
-                <select
-                  value={defaultProfile}
-                  onChange={(e) => setDefaultProfile(e.target.value)}
-                  className={`${inputCls} cursor-pointer`}
-                >
-                  {profileOptions.map((p) => (
-                    <option key={p.key} value={p.key}>
-                      {p.label_en}
-                    </option>
-                  ))}
-                </select>
-              </Field>
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
@@ -671,9 +654,6 @@ export default function LmsBookDetail() {
           <div className="border border-border rounded-[10px] bg-card p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
             <div>
               <h2 className="text-base font-semibold text-foreground">Custom Chapter Editions</h2>
-              <p className="text-xs text-muted-foreground mt-0.5">
-                Pick and order a subset of chapters into a named edition without duplicating the book bundle. Attach editions in cohort checklists or invite codes — students only see their assigned chapters.
-              </p>
             </div>
             <button
               type="button"
@@ -958,42 +938,6 @@ export default function LmsBookDetail() {
                 {bundleMutation.isPending ? "Uploading zip..." : "Upload .zip bundle"}
               </button>
             </div>
-          </div>
-
-          {/* Editions / Profiles */}
-          <div className="border border-border rounded-[10px] bg-card overflow-hidden">
-            <div className="px-4 py-3 border-b border-border flex items-center justify-between">
-              <h3 className="text-sm font-semibold text-foreground">Editions & Tracks</h3>
-              <span className="text-xs text-muted-foreground">{book.profiles.length}</span>
-            </div>
-            {book.profiles.length === 0 ? (
-              <div className="p-6 text-sm text-muted-foreground">No editions parsed from bundle manifest yet.</div>
-            ) : (
-              <div className="overflow-x-auto">
-                <table className="w-full text-left text-sm">
-                  <thead className="border-b border-border text-xs uppercase text-muted-foreground bg-muted/40">
-                    <tr>
-                      <th className="px-4 py-2.5 font-medium">Key</th>
-                      <th className="px-4 py-2.5 font-medium">Label (EN)</th>
-                      <th className="px-4 py-2.5 font-medium">Label (AR)</th>
-                      <th className="px-4 py-2.5 font-medium">Default Lang</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-border">
-                    {book.profiles.map((p) => (
-                      <tr key={p.key}>
-                        <td className="px-4 py-2.5 font-mono text-xs">{p.key}</td>
-                        <td className="px-4 py-2.5">{p.label_en}</td>
-                        <td className="px-4 py-2.5" dir="rtl">{p.label_ar || "-"}</td>
-                        <td className="px-4 py-2.5 uppercase text-xs text-muted-foreground">
-                          {p.default_lang || "en"}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
           </div>
 
           {/* Outline */}

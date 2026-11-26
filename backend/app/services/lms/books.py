@@ -249,6 +249,62 @@ def filter_outline_by_chapters(outline: list[dict[str, Any]] | None, chapter_key
     return ordered if ordered else [ch for ch in raw if str(ch.get("key") or "") in set(chapter_keys)]
 
 
+async def sync_manifest_profiles_to_editions(
+    db: AsyncSession,
+    book: LmsBook,
+    *,
+    actor_user_id: uuid.UUID | None = None,
+) -> list[LmsBookEdition]:
+    """Ensure non-empty tracks in `book.profiles` exist as SpacePoint `LmsBookEdition` rows."""
+    profiles = [p for p in (book.profiles or []) if isinstance(p, dict) and (p.get("groups") or [])]
+    if not profiles:
+        return []
+    existing = (
+        await db.execute(
+            select(LmsBookEdition).where(
+                LmsBookEdition.book_id == book.id,
+                LmsBookEdition.organization_id.is_(None),
+            )
+        )
+    ).scalars().all()
+    existing_titles = {e.title.strip().lower() for e in existing if e.title}
+    existing_slices = {tuple(str(k) for k in (e.chapter_keys or [])) for e in existing}
+
+    created: list[LmsBookEdition] = []
+    now = datetime.now(timezone.utc)
+    for prof in profiles:
+        groups = [str(k).strip() for k in (prof.get("groups") or []) if str(k or "").strip()]
+        if not groups:
+            continue
+        title = str(prof.get("label_en") or prof.get("key") or "Edition").strip()[:200]
+        if not title:
+            continue
+        if title.lower() in existing_titles or tuple(groups) in existing_slices:
+            continue
+        title_ar = str(prof.get("label_ar")).strip()[:200] if prof.get("label_ar") else None
+        default_lang = str(prof.get("default_lang")).strip()[:8] if prof.get("default_lang") else None
+        ed = LmsBookEdition(
+            id=uuid.uuid4(),
+            book_id=book.id,
+            organization_id=None,
+            created_by=actor_user_id or book.created_by,
+            title=title,
+            title_ar=title_ar,
+            description=str(prof.get("subtitle_en")).strip() if prof.get("subtitle_en") else None,
+            chapter_keys=groups,
+            default_lang=default_lang,
+            created_at=now,
+            updated_at=now,
+        )
+        db.add(ed)
+        created.append(ed)
+        existing_titles.add(title.lower())
+        existing_slices.add(tuple(groups))
+    if created:
+        await db.flush()
+    return created
+
+
 async def resolve_item_chapters(
     db: AsyncSession,
     book: LmsBook,
@@ -621,6 +677,7 @@ async def unpack_and_upload_book_zip(
         book.outline = manifest_data["outline"]
     if isinstance(manifest_data.get("profiles"), list):
         book.profiles = manifest_data["profiles"]
+        await sync_manifest_profiles_to_editions(db, book, actor_user_id=book.created_by)
     if isinstance(manifest_data.get("default_profile"), str) and manifest_data["default_profile"].strip():
         book.default_profile = manifest_data["default_profile"].strip()[:32]
     if isinstance(manifest_data.get("languages"), list) and manifest_data["languages"]:

@@ -305,6 +305,7 @@ async def _resolve_slice_selection(
         )
 
     # User has full book access — apply explicit preview edition / item filter if provided
+    # (`locked_scope=False` so full-access readers can still switch between editions/Full Book).
     if edition_id is not None:
         ed = await db.get(LmsBookEdition, edition_id)
         if ed is None or ed.book_id != book.id:
@@ -313,7 +314,7 @@ async def _resolve_slice_selection(
             org = await resolve_book_user_org(db, current)
             if org is None or ed.organization_id != org.id:
                 raise HTTPException(status.HTTP_403_FORBIDDEN, detail="You do not have access to this book edition")
-        return list(ed.chapter_keys or []), ed.id, ed.title, ed.title_ar, True
+        return list(ed.chapter_keys or []), ed.id, ed.title, ed.title_ar, False
     if item_id is not None:
         item = await db.get(LmsProgramItem, item_id)
         if item is not None and item.book_id == book.id:
@@ -335,7 +336,7 @@ async def _resolve_slice_selection(
                     ed.id if ed else None,
                     ed.title if ed else item.title,
                     ed.title_ar if ed else None,
-                    True,
+                    False,
                 )
     return None, None, None, None, False
 
@@ -586,6 +587,9 @@ async def create_reader_session(
     if prog_out is not None and allowed_chapters:
         prog_out.completion_pct = compute_book_slice_completion(book, prog, allowed_chapters)
 
+    org = None if can_manage_master_books(current) else await resolve_book_user_org(db, current)
+    editions = [] if locked_scope else await visible_editions_for_book(db, book_id=book.id, current_user=current, org=org)
+
     return BookReaderSessionOut(
         book_id=book.id,
         title=f"{book.title} — {resolved_ed_title}" if resolved_ed_title and resolved_ed_title != book.title else book.title,
@@ -602,6 +606,7 @@ async def create_reader_session(
         locked_scope=locked_scope,
         outline=filtered_outline,
         profiles=[] if locked_scope else (book.profiles or []),
+        editions=editions,
         progress=prog_out,
     )
 

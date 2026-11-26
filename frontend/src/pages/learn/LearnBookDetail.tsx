@@ -48,7 +48,7 @@ export default function LearnBookDetail() {
   const { user } = useAuth();
   const isAuthed = !!user;
 
-  const [selectedProfile, setSelectedProfile] = useState<string>("");
+  const [selectedEditionId, setSelectedEditionId] = useState<string>(search.editionId ?? "");
   const [expandedKeys, setExpandedKeys] = useState<Record<string, boolean>>({});
   const [actionPending, setActionPending] = useState(false);
   const [actionError, setActionError] = useState("");
@@ -61,13 +61,17 @@ export default function LearnBookDetail() {
         : fetchPublicBookDetail(bookId),
   });
 
-  const activeProfile = selectedProfile || book?.progress?.active_profile || book?.default_profile || "all";
+  const activeEditionId = book?.locked_scope
+    ? (book.edition_id ?? "")
+    : (selectedEditionId || search.editionId || "");
   const visitedSet = useMemo(() => new Set(book?.progress?.visited_spreads ?? []), [book]);
 
   const groupedOutline = useMemo(() => {
     if (!book?.outline) return [];
-    const activeProfObj = book.profiles.find((p) => p.key === activeProfile);
-    const allowedGroups = activeProfObj?.groups?.length ? new Set(activeProfObj.groups) : null;
+    const activeEdObj = !book.locked_scope && activeEditionId
+      ? (book.editions ?? []).find((e) => e.id === activeEditionId)
+      : undefined;
+    const allowedGroups = activeEdObj?.chapter_keys?.length ? new Set(activeEdObj.chapter_keys) : null;
     const filtered = allowedGroups
       ? book.outline.filter((ch) => allowedGroups.has(ch.key))
       : book.outline;
@@ -83,7 +87,7 @@ export default function LearnBookDetail() {
       bucket.chapters.push(ch);
     }
     return groups;
-  }, [book, activeProfile]);
+  }, [book, activeEditionId]);
 
   const toggleChapter = (key: string) => {
     setExpandedKeys((prev) => ({ ...prev, [key]: !prev[key] }));
@@ -91,11 +95,12 @@ export default function LearnBookDetail() {
 
   const openReader = (opts?: { chapter?: string; spread?: string }) => {
     if (!book) return;
-    const effEditionId = book.edition_id || search.editionId;
+    const effEditionId = book.locked_scope
+      ? (book.edition_id || search.editionId)
+      : (activeEditionId || undefined);
     void navigate({
       to: `/learn/books/${book.id}/read`,
       search: {
-        ...(!book.locked_scope ? { profile: activeProfile } : {}),
         ...(effEditionId ? { editionId: effEditionId } : {}),
         ...(search.itemId ? { itemId: search.itemId } : {}),
         ...(opts?.chapter ? { chapter: opts.chapter } : {}),
@@ -207,25 +212,36 @@ export default function LearnBookDetail() {
             </div>
           </div>
 
-          {/* Edition / Track selector */}
-          {!book.locked_scope && book.profiles.length > 1 && (
+          {/* Edition selector (only for full-access readers; strictly scoped students see only their assigned slice) */}
+          {!book.locked_scope && (book.editions?.length ?? 0) > 0 && (
             <div className="flex flex-col gap-2">
               <label className="text-sm font-semibold text-foreground">Edition</label>
               <div className="flex flex-wrap gap-2">
-                {book.profiles.map((prof) => {
-                  const active = prof.key === activeProfile;
+                <button
+                  type="button"
+                  onClick={() => setSelectedEditionId("")}
+                  className={`px-3.5 py-2 text-sm font-medium rounded-[10px] border transition-colors cursor-pointer ${
+                    !activeEditionId
+                      ? "border-primary bg-primary/10 text-primary font-semibold"
+                      : "border-border bg-card text-foreground hover:bg-muted"
+                  }`}
+                >
+                  Full Book
+                </button>
+                {(book.editions ?? []).map((ed) => {
+                  const active = ed.id === activeEditionId;
                   return (
                     <button
-                      key={prof.key}
+                      key={ed.id}
                       type="button"
-                      onClick={() => setSelectedProfile(prof.key)}
+                      onClick={() => setSelectedEditionId(ed.id)}
                       className={`px-3.5 py-2 text-sm font-medium rounded-[10px] border transition-colors cursor-pointer ${
                         active
                           ? "border-primary bg-primary/10 text-primary font-semibold"
                           : "border-border bg-card text-foreground hover:bg-muted"
                       }`}
                     >
-                      {prof.label_en}
+                      {ed.title}
                     </button>
                   );
                 })}

@@ -133,6 +133,7 @@ class BookReaderSessionOut(BaseModel):
     locked_scope: bool = False
     outline: list[BookChapterOut] = []
     profiles: list[BookProfileOut] = []
+    editions: list[BookEditionOut] = []
     progress: BookProgressOut | None = None
 
 
