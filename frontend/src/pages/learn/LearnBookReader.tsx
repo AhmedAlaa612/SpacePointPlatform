@@ -65,6 +65,33 @@ export default function LearnBookReader() {
   const lastSyncedSigRef = useRef<string>("");
   const inFlightSyncRef = useRef<Promise<unknown> | null>(null);
 
+  const initialTheme = useMemo<"light" | "dark">(
+    () => (document.documentElement.classList.contains("dark") ? "dark" : "light"),
+    [],
+  );
+
+  const { data: session, isLoading, error } = useQuery({
+    queryKey: [
+      "lms-book-reader-session",
+      bookId,
+      search.profile ?? "",
+      search.chapter ?? "",
+      search.spread ?? "",
+      search.editionId ?? "",
+      search.itemId ?? "",
+    ],
+    queryFn: () =>
+      createBookReaderSession(bookId, {
+        profile: search.profile,
+        chapter: search.chapter,
+        spread: search.spread,
+        theme: initialTheme,
+        edition_id: search.editionId,
+        item_id: search.itemId,
+      }),
+    staleTime: 1000 * 60 * 30,
+  });
+
   const buildSyncPayload = useCallback((snap: BookBridgeState): BookProgressSyncPayload => ({
     current_spread: snap.currentSpread ?? null,
     current_chapter: snap.currentChapter ?? null,
@@ -99,33 +126,6 @@ export default function LearnBookReader() {
     },
     [buildSyncPayload, queryClient, search.program, session],
   );
-
-  const initialTheme = useMemo<"light" | "dark">(
-    () => (document.documentElement.classList.contains("dark") ? "dark" : "light"),
-    [],
-  );
-
-  const { data: session, isLoading, error } = useQuery({
-    queryKey: [
-      "lms-book-reader-session",
-      bookId,
-      search.profile ?? "",
-      search.chapter ?? "",
-      search.spread ?? "",
-      search.editionId ?? "",
-      search.itemId ?? "",
-    ],
-    queryFn: () =>
-      createBookReaderSession(bookId, {
-        profile: search.profile,
-        chapter: search.chapter,
-        spread: search.spread,
-        theme: initialTheme,
-        edition_id: search.editionId,
-        item_id: search.itemId,
-      }),
-    staleTime: 1000 * 60 * 30,
-  });
 
   useEffect(() => {
     if (!session) return;
