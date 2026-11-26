@@ -1389,3 +1389,55 @@ async def test_bundle_upload_auto_imports_manifest_profiles_as_editions(db: Asyn
     assert rs.json()["locked_scope"] is False
     assert rs.json()["allowed_chapters"] == ["u1"]
     assert len(rs.json()["editions"]) == 1
+
+
+def test_legacy_sandbox_spread_normalization_and_runtime_hotfix():
+    from scripts.package_satkit_book import parse_satkit_manifest
+    from app.models.lms.book import LmsBook, LmsBookProgress
+    from app.services.lms.books import (
+        compute_book_slice_completion,
+        filter_outline_by_chapters,
+        inject_runtime_into_html,
+    )
+
+    legacy_outline = [
+        {
+            "key": "u10",
+            "title_en": "Electric circuits",
+            "lessons": [
+                {"spread": "u10", "title_en": "Power on"},
+                {"spread": "pbench", "title_en": "SatKit Power Bench"},
+                {"spread": "cbuild", "title_en": "Build Your Own Circuit"},
+            ],
+        }
+    ]
+    normalized = filter_outline_by_chapters(legacy_outline, ["u10"])
+    assert [l["spread"] for l in normalized[0]["lessons"]] == ["u10", "u10box", "u10box2"]
+
+    book = LmsBook(title="Test", slug="test", outline=legacy_outline)
+    prog = LmsBookProgress(visited_spreads=["u10", "u10box", "u10box2"], completion_pct=0)
+    assert compute_book_slice_completion(book, prog, ["u10"]) == 100
+
+    html = (
+        "<html><head><title>X</title></head><body>"
+        "<script>function ok(){}</script>"
+        "</body></html>"
+    ).encode("utf-8")
+    injected = inject_runtime_into_html(
+        html,
+        book_id="b1",
+        user_id="u1",
+        version=1,
+        can_teacher=False,
+    ).decode("utf-8")
+    assert "bridge.js?v=" in injected
+    assert "reader.css?v=" in injected
+
+    sample_src = (
+        "const UNITS = [[10,'Electric circuits','الدوائر','Circuits','الدوائر','3']];"
+        "const CHN = {};\nUNITS.forEach(u => {});\nObject.assign(CHN, {});"
+        "SB_ADD('u10', 'u10ps', SBOX('u10box2', 'u10', 'cbuild', `Build Your Own Circuit`, `ابنِ دارتك`, '', ''));"
+        "const PROFILES = {\n all: { en: 'All', groups: ['u10'] }\n};"
+    )
+    manifest = parse_satkit_manifest(sample_src)
+    assert manifest["outline"][0]["lessons"][0]["spread"] == "u10box2"

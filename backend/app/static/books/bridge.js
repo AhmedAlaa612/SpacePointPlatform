@@ -30,6 +30,7 @@
   var BOOK_ID = CFG_META.bookId || "default";
   var USER_ID = CFG_META.userId || "anon";
   var CAN_TEACHER = Boolean(CFG_META.canTeacher);
+  html.dataset.canTeacher = CAN_TEACHER ? "1" : "0";
   var RUNTIME_BASE = (CFG_META.runtimeBase || "__sp_runtime__").replace(/\/$/, "");
   var INITIAL_STATE = CFG_META.initialState && typeof CFG_META.initialState === "object" ? CFG_META.initialState : {};
   var INITIAL_VISITED = Array.isArray(CFG_META.visitedSpreads) ? CFG_META.visitedSpreads : [];
@@ -59,7 +60,8 @@
 
   function buildScopedSatkitCfg(chapters) {
     return {
-      p: "custom",
+      // Must reference a real PROFILES key ("all") so mfHtml/buildToc never read undefined PROFILES[c.p]
+      p: "all",
       g: chapters.map(function (k) { return [k, "design"]; }),
       x: [],
       l: "",
@@ -90,12 +92,26 @@
       if (k === "spread" && ALLOWED_CHAPTERS) return;
       var val = INITIAL_STATE[k];
       if (val !== undefined) {
+        if (k === "cfg" && val && typeof val === "object" && val.p === "custom") {
+          val = Object.assign({}, val, { p: "all" });
+        }
         localStorage.setItem(LS_PREFIX + k, typeof val === "string" ? val : JSON.stringify(val));
       }
     });
 
     if (ALLOWED_CHAPTERS) {
       localStorage.setItem(LS_PREFIX + "cfg", JSON.stringify(buildScopedSatkitCfg(ALLOWED_CHAPTERS)));
+    } else {
+      try {
+        var curCfgRaw = localStorage.getItem(LS_PREFIX + "cfg");
+        if (curCfgRaw) {
+          var curCfg = JSON.parse(curCfgRaw);
+          if (curCfg && curCfg.p === "custom") {
+            curCfg.p = "all";
+            localStorage.setItem(LS_PREFIX + "cfg", JSON.stringify(curCfg));
+          }
+        }
+      } catch (_eCfg) {}
     }
 
     if (!CAN_TEACHER) {
@@ -283,7 +299,7 @@
     }
     syncTimer = setTimeout(function () {
       postToParent("SP_BOOK_STATE_SYNC", getBookStatusSnapshot());
-    }, 1200);
+    }, 320);
   }
 
   function emitExercise(payload) {
@@ -406,6 +422,18 @@
   function gotoSpreadByName(name) {
     if (!name || name === "key") return false;
     var el = document.querySelector('.spread[data-name="' + CSS.escape(name) + '"]');
+    // Fallback for legacy sandbox game keys (e.g. "cbuild" -> ".spread[data-name='u10box2']" hosting "#g-cbuild")
+    if (!el) {
+      var gameEl = document.getElementById("g-" + name);
+      if (gameEl && gameEl.closest) {
+        var hostSp = gameEl.closest(".spread[data-name]");
+        if (hostSp) {
+          el = hostSp;
+          name = hostSp.getAttribute("data-name") || name;
+        }
+      }
+    }
+    if (!CAN_TEACHER && name === "appendix") return false;
     if (el && ALLOWED_CHAPTERS) {
       var ch = el.getAttribute("data-ch");
       if (ch && !isChapterAllowed(ch)) return false;
@@ -440,6 +468,25 @@
   document.addEventListener("DOMContentLoaded", function () {
     cleanupBrandingAndChips();
 
+    // Hide Teacher Appendix spread when user does not have teacher mode access
+    if (!CAN_TEACHER && typeof window.orderedSpreads === "function") {
+      var origOrderedSpreads = window.orderedSpreads;
+      window.orderedSpreads = function () {
+        return origOrderedSpreads().filter(function (s) {
+          return s && s.name !== "appendix";
+        });
+      };
+      if (typeof window.buildViews === "function" && typeof window.render === "function") {
+        try {
+          window.buildViews();
+          if (typeof window.numberPages === "function") window.numberPages();
+          var appxShown = document.querySelector('.spread[data-name="appendix"] .page.show');
+          if (appxShown && typeof window.go === "function") window.go(0);
+          else window.render();
+        } catch (_eAppx) {}
+      }
+    }
+
     if (ALLOWED_CHAPTERS) {
       if (typeof window.applyCfg === "function") {
         try {
@@ -459,6 +506,141 @@
           el.style.display = "none";
         });
       }
+    }
+
+    // Build interactive direct page-jump menu anchored to #pn ("12 / 12")
+    var pagerEl = document.querySelector(".pager");
+    var pnEl = document.getElementById("pn");
+    if (pagerEl && pnEl && !document.getElementById("sp-page-jump")) {
+      pnEl.classList.add("sp-pn-btn");
+      pnEl.setAttribute("role", "button");
+      pnEl.setAttribute("tabindex", "0");
+      pnEl.setAttribute("aria-haspopup", "true");
+      pnEl.setAttribute("aria-expanded", "false");
+      pnEl.title = "Jump to page";
+
+      var jumpPop = document.createElement("div");
+      jumpPop.id = "sp-page-jump";
+      jumpPop.className = "sp-page-jump";
+      jumpPop.hidden = true;
+      pagerEl.appendChild(jumpPop);
+
+      var getJumpEntries = function () {
+        var lang = html.dataset.lang === "ar" ? "ar" : "en";
+        var spreads = typeof window.orderedSpreads === "function"
+          ? window.orderedSpreads().filter(function (s) { return s && s.name !== "key"; })
+          : getActiveSpreads().map(function (el) {
+              return { name: el.getAttribute("data-name"), ch: el.getAttribute("data-ch"), el: el };
+            });
+        var curEl = getCurrentSpreadEl();
+        var curName = curEl ? curEl.getAttribute("data-name") : "";
+        return spreads.map(function (s, idx) {
+          var el = s.el || document.querySelector('.spread[data-name="' + CSS.escape(s.name) + '"]');
+          var t = el ? el.getAttribute(lang === "ar" ? "data-tar" : "data-ten") : "";
+          if (!t && el) {
+            var h = el.querySelector(".page h2, .page h1");
+            if (h) {
+              var span = h.querySelector("." + lang);
+              t = (span ? span.textContent : h.textContent) || "";
+            }
+          }
+          if (!t) {
+            if (s.name === "cover") t = lang === "ar" ? "الغلاف" : "Cover";
+            else if (s.name === "welcome") t = lang === "ar" ? "مرحبًا بك" : "Welcome";
+            else if (s.name === "appendix") t = lang === "ar" ? "ملحق المعلم" : "Teacher Appendix";
+            else t = s.name;
+          }
+          var vIdx = typeof window.viewOfSpread === "function" ? window.viewOfSpread(s.name) : idx;
+          var chRaw = (s.ch || (el && el.getAttribute("data-ch")) || "").trim();
+          var code = chRaw ? (/^[0-9]+$/.test(chRaw) ? "M" + chRaw : chRaw.toUpperCase()) : "";
+          return { name: s.name, title: String(t).trim(), code: code, viewIdx: vIdx, active: s.name === curName };
+        });
+      };
+
+      var closeJump = function () {
+        jumpPop.hidden = true;
+        pnEl.setAttribute("aria-expanded", "false");
+      };
+
+      var renderJumpPop = function () {
+        var entries = getJumpEntries();
+        var pnText = (pnEl.textContent || "").match(/(\d+)\s*\/\s*(\d+)/);
+        var curNum = pnText ? Number(pnText[1]) : 1;
+        var maxNum = pnText ? Number(pnText[2]) : Math.max(1, entries.length);
+        var isAr = html.dataset.lang === "ar";
+        jumpPop.innerHTML =
+          '<form class="sp-jump-form">' +
+            '<label class="sp-jump-lbl" for="sp-jump-num">' + (isAr ? "صفحة" : "Page") + "</label>" +
+            '<input id="sp-jump-num" class="sp-jump-input" type="number" min="1" max="' + maxNum + '" value="' + curNum + '" />' +
+            '<button class="sp-jump-go" type="submit">' + (isAr ? "انتقال" : "Go") + "</button>" +
+          "</form>" +
+          '<div class="sp-jump-list" role="menu"></div>';
+
+        var listEl = jumpPop.querySelector(".sp-jump-list");
+        entries.forEach(function (entry, idx) {
+          var btn = document.createElement("button");
+          btn.type = "button";
+          btn.className = "sp-jump-item" + (entry.active ? " active" : "");
+          btn.innerHTML =
+            '<span class="sp-jump-idx">' + (idx + 1) + "</span>" +
+            '<span class="sp-jump-title"></span>' +
+            (entry.code ? '<span class="sp-jump-code"></span>' : "");
+          btn.querySelector(".sp-jump-title").textContent = entry.title;
+          if (entry.code) btn.querySelector(".sp-jump-code").textContent = entry.code;
+          btn.addEventListener("click", function () {
+            closeJump();
+            if (typeof window.go === "function") window.go(entry.viewIdx);
+          });
+          listEl.appendChild(btn);
+        });
+
+        var form = jumpPop.querySelector(".sp-jump-form");
+        var numInput = jumpPop.querySelector("#sp-jump-num");
+        if (form && numInput) {
+          form.addEventListener("submit", function (ev) {
+            ev.preventDefault();
+            var raw = Number(numInput.value);
+            if (!Number.isFinite(raw)) return;
+            var clamped = Math.max(1, Math.min(maxNum, Math.round(raw)));
+            closeJump();
+            if (typeof window.go === "function") window.go(clamped - 1);
+          });
+          setTimeout(function () {
+            try { numInput.focus(); numInput.select(); } catch (_ef) {}
+          }, 10);
+        }
+        var activeBtn = listEl.querySelector(".sp-jump-item.active");
+        if (activeBtn && activeBtn.scrollIntoView) {
+          try { activeBtn.scrollIntoView({ block: "nearest" }); } catch (_es) {}
+        }
+      };
+
+      var toggleJump = function (ev) {
+        ev.stopPropagation();
+        if (jumpPop.hidden) {
+          renderJumpPop();
+          jumpPop.hidden = false;
+          pnEl.setAttribute("aria-expanded", "true");
+        } else {
+          closeJump();
+        }
+      };
+
+      pnEl.addEventListener("click", toggleJump);
+      pnEl.addEventListener("keydown", function (ev) {
+        if (ev.key === "Enter" || ev.key === " ") {
+          ev.preventDefault();
+          toggleJump(ev);
+        }
+      });
+      document.addEventListener("click", function (ev) {
+        if (!jumpPop.hidden && !jumpPop.contains(ev.target) && ev.target !== pnEl) {
+          closeJump();
+        }
+      });
+      document.addEventListener("keydown", function (ev) {
+        if (ev.key === "Escape" && !jumpPop.hidden) closeJump();
+      });
     }
 
     // Wrap window.go to automatically skip the removed Colour Key ('key') spread & scroll top on mobile
@@ -482,6 +664,7 @@
           window.scrollTo({ top: 0, behavior: "instant" });
         }
         postToParent("SP_BOOK_NAVIGATED", getBookStatusSnapshot());
+        scheduleSync(false);
         setTimeout(function () {
           postToParent("SP_BOOK_NAVIGATED", getBookStatusSnapshot());
           scheduleSync(false);
@@ -675,7 +858,26 @@
       if (fxBtn) fxBtn.click();
     } else if (cmd === "openMissionFile") {
       if (typeof window.openDlg === "function" && typeof window.mfView === "function") {
-        window.openDlg(window.mfView);
+        try {
+          window.openDlg(window.mfView);
+        } catch (_eMf) {
+          // Recover cleanly if stored cfg referenced an unknown profile key
+          try {
+            var savedCfg = JSON.parse(localStorage.getItem(LS_PREFIX + "cfg") || "null");
+            if (savedCfg && savedCfg.p && savedCfg.p !== "all") {
+              savedCfg.p = "all";
+              localStorage.setItem(LS_PREFIX + "cfg", JSON.stringify(savedCfg));
+              if (typeof window.applyCfg === "function") window.applyCfg(savedCfg);
+              window.openDlg(window.mfView);
+            }
+          } catch (_eMf2) {}
+        }
+      }
+    } else if (cmd === "flushSync") {
+      flushSync();
+    } else if (cmd === "gotoView") {
+      if (typeof window.go === "function") {
+        window.go(Number(val) || 0);
       }
     } else if (cmd === "prev") {
       var prevBtn = document.getElementById("prev");

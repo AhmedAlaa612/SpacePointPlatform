@@ -121,14 +121,14 @@ def parse_satkit_manifest(index_html: str) -> dict[str, Any]:
         ar = _pick_str(g[9:12])
         add_lesson(ch, name, en, ar)
 
-    # SBOX(id, ch, name, titleEn, titleAr, ...)
+    # SBOX(spread_name, ch, game_key, titleEn, titleAr, ...)
     for sbm in re.finditer(
         r"SBOX\(\s*" + _QSTR + r"\s*,\s*" + _QSTR + r"\s*,\s*" + _QSTR + r"\s*,\s*" + _QSTR + r"\s*,\s*" + _QSTR,
         index_html,
     ):
         g = sbm.groups()
+        name = _pick_str(g[0:3])
         ch = _pick_str(g[3:6])
-        name = _pick_str(g[6:9])
         en = _pick_str(g[9:12])
         ar = _pick_str(g[12:15])
         add_lesson(ch, name, en, ar)

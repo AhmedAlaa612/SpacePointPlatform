@@ -239,9 +239,66 @@ def validate_chapter_keys_for_book(book: LmsBook, chapter_keys: list[str]) -> li
     return cleaned
 
 
+# Earlier SatKit packaging mapped SBOX `key` (`pbench`, `cbuild`, ...) instead of the DOM spread `name` (`u10box`, `u10box2`, ...).
+_LEGACY_SANDBOX_KEY_TO_SPREAD: dict[str, str] = {
+    "thrbox": "u2box",
+    "colbox": "u3box",
+    "trkbox": "u4box",
+    "orbbox": "u5box",
+    "spinbox": "u6box",
+    "oscbox": "u7box",
+    "wtank": "u8box",
+    "thbox": "u9box",
+    "pbench": "u10box",
+    "cbuild": "u10box2",
+    "magbox": "u11box",
+    "sigbox": "u12box",
+    "decbox": "u13box",
+    "gasbox": "u14box",
+}
+_SPREAD_TO_LEGACY_SANDBOX_KEY: dict[str, str] = {v: k for k, v in _LEGACY_SANDBOX_KEY_TO_SPREAD.items()}
+
+
+def normalize_visited_spreads(spreads: list[str] | None) -> list[str]:
+    """Map any legacy sandbox keys in `visited_spreads` to their canonical DOM spread names."""
+    seen: set[str] = set()
+    out: list[str] = []
+    for raw in spreads or []:
+        s = _LEGACY_SANDBOX_KEY_TO_SPREAD.get(str(raw), str(raw))
+        if s and s not in seen:
+            seen.add(s)
+            out.append(s)
+    return out
+
+
+def normalize_outline_spreads(outline: list[dict[str, Any]] | None) -> list[dict[str, Any]]:
+    """Return outline chapters with any legacy sandbox keys normalized to DOM spread names."""
+    out: list[dict[str, Any]] = []
+    for ch in outline or []:
+        if not isinstance(ch, dict):
+            continue
+        lessons = ch.get("lessons")
+        if isinstance(lessons, list):
+            fixed_lessons: list[dict[str, Any]] = []
+            changed = False
+            for les in lessons:
+                if isinstance(les, dict):
+                    sp = str(les.get("spread") or "")
+                    mapped = _LEGACY_SANDBOX_KEY_TO_SPREAD.get(sp)
+                    if mapped:
+                        fixed_lessons.append({**les, "spread": mapped})
+                        changed = True
+                        continue
+                fixed_lessons.append(les)
+            out.append({**ch, "lessons": fixed_lessons} if changed else ch)
+        else:
+            out.append(ch)
+    return out
+
+
 def filter_outline_by_chapters(outline: list[dict[str, Any]] | None, chapter_keys: list[str] | None) -> list[dict[str, Any]]:
     """Return outline chapters filtered and ordered by `chapter_keys` (or full outline when None)."""
-    raw = list(outline or [])
+    raw = normalize_outline_spreads(outline)
     if not chapter_keys:
         return raw
     by_key = {str(ch.get("key") or ""): ch for ch in raw if ch.get("key")}
@@ -358,7 +415,18 @@ def compute_book_slice_completion(
                 target_spreads.append(sp)
     if target_spreads:
         visited = {str(s) for s in (progress.visited_spreads or [])}
-        matched = sum(1 for sp in target_spreads if sp in visited)
+        # Accept either DOM spread name (e.g. u10box2) or legacy sandbox key (e.g. cbuild)
+        expanded_visited = set(visited)
+        for v in visited:
+            if v in _LEGACY_SANDBOX_KEY_TO_SPREAD:
+                expanded_visited.add(_LEGACY_SANDBOX_KEY_TO_SPREAD[v])
+            if v in _SPREAD_TO_LEGACY_SANDBOX_KEY:
+                expanded_visited.add(_SPREAD_TO_LEGACY_SANDBOX_KEY[v])
+        matched = 0
+        for sp in target_spreads:
+            canonical = _LEGACY_SANDBOX_KEY_TO_SPREAD.get(sp, sp)
+            if sp in expanded_visited or canonical in expanded_visited:
+                matched += 1
         return round(100 * matched / len(target_spreads))
     return 100 if progress.current_chapter in target_set else 0
 
@@ -700,6 +768,18 @@ async def unpack_and_upload_book_zip(
     }
 
 
+def _runtime_asset_version() -> str:
+    """Short mtime-based version stamp so browsers refresh bridge.js / reader.css immediately."""
+    stamps: list[int] = []
+    for name in ("bridge.js", "reader.css"):
+        p = STATIC_BOOKS_DIR / name
+        try:
+            stamps.append(int(p.stat().st_mtime))
+        except OSError:
+            pass
+    return str(max(stamps)) if stamps else "1"
+
+
 def inject_runtime_into_html(
     html_bytes: bytes,
     *,
@@ -741,11 +821,12 @@ def inject_runtime_into_html(
         "editionTitle": edition_title or "",
     }
     escaped_cfg = html.escape(json.dumps(cfg_payload, ensure_ascii=False), quote=True)
+    rt_v = _runtime_asset_version()
 
     head_injection = (
         f'<meta name="sp-book-config" content="{escaped_cfg}">\n'
-        '<script src="__sp_runtime__/bridge.js"></script>\n'
-        '<link rel="stylesheet" href="__sp_runtime__/reader.css">\n'
+        f'<script src="__sp_runtime__/bridge.js?v={rt_v}"></script>\n'
+        f'<link rel="stylesheet" href="__sp_runtime__/reader.css?v={rt_v}">\n'
     )
 
     # Inject early in <head> (so bridge.js runs before inline book scripts) and append reader.css last in head if </head> exists
@@ -755,9 +836,9 @@ def inject_runtime_into_html(
     if head_open and head_close:
         early_part = (
             f'<meta name="sp-book-config" content="{escaped_cfg}">\n'
-            '<script src="__sp_runtime__/bridge.js"></script>\n'
+            f'<script src="__sp_runtime__/bridge.js?v={rt_v}"></script>\n'
         )
-        css_part = '<link rel="stylesheet" href="__sp_runtime__/reader.css">\n'
+        css_part = f'<link rel="stylesheet" href="__sp_runtime__/reader.css?v={rt_v}">\n'
         idx_open = head_open.end()
         text = text[:idx_open] + "\n" + early_part + text[idx_open:]
         head_close2 = re.search(r"</head>", text, re.IGNORECASE)

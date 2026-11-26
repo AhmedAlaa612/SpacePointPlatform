@@ -60,6 +60,45 @@ export default function LearnBookReader() {
   const [liveState, setLiveState] = useState<BookBridgeState>({});
   const [selectedLang, setSelectedLang] = useState<"en" | "ar">("en");
   const [teacherMode, setTeacherMode] = useState<boolean>(false);
+  const [leaving, setLeaving] = useState<boolean>(false);
+  const latestStateRef = useRef<BookBridgeState>({});
+  const lastSyncedSigRef = useRef<string>("");
+  const inFlightSyncRef = useRef<Promise<unknown> | null>(null);
+
+  const buildSyncPayload = useCallback((snap: BookBridgeState): BookProgressSyncPayload => ({
+    current_spread: snap.currentSpread ?? null,
+    current_chapter: snap.currentChapter ?? null,
+    active_profile: snap.activeProfile ?? null,
+    visited_spreads: snap.visitedSpreads,
+    stars: snap.stars,
+    stars_earned: snap.starsEarned,
+    stars_possible: snap.starsPossible,
+    completion_pct: snap.completionPct,
+    raw_state: snap.rawState,
+  }), []);
+
+  const persistSnapshot = useCallback(
+    (snap: BookBridgeState) => {
+      if (!session) return Promise.resolve();
+      const body = buildSyncPayload(snap);
+      const sig = JSON.stringify([body.current_spread, body.visited_spreads, body.stars_earned, body.completion_pct]);
+      lastSyncedSigRef.current = sig;
+      const p = syncBookProgress(session.book_id, body)
+        .then(() => {
+          if (search.program) {
+            void queryClient.invalidateQueries({ queryKey: ["lms-checklist", search.program] });
+          }
+          void queryClient.invalidateQueries({ queryKey: ["lms-book-detail", session.book_id] });
+        })
+        .catch(() => {})
+        .finally(() => {
+          if (inFlightSyncRef.current === p) inFlightSyncRef.current = null;
+        });
+      inFlightSyncRef.current = p;
+      return p;
+    },
+    [buildSyncPayload, queryClient, search.program, session],
+  );
 
   const initialTheme = useMemo<"light" | "dark">(
     () => (document.documentElement.classList.contains("dark") ? "dark" : "light"),
@@ -91,7 +130,7 @@ export default function LearnBookReader() {
   useEffect(() => {
     if (!session) return;
     if (session.progress) {
-      setLiveState({
+      const initSnap: BookBridgeState = {
         currentSpread: session.progress.current_spread ?? undefined,
         currentChapter: session.progress.current_chapter ?? undefined,
         activeProfile: session.progress.active_profile ?? undefined,
@@ -100,7 +139,9 @@ export default function LearnBookReader() {
         starsEarned: session.progress.stars_earned,
         starsPossible: session.progress.stars_possible,
         completionPct: session.progress.completion_pct,
-      });
+      };
+      setLiveState(initSnap);
+      latestStateRef.current = initSnap;
     }
   }, [session]);
 
@@ -140,29 +181,17 @@ export default function LearnBookReader() {
 
       if (msg.type === "SP_BOOK_READY" || msg.type === "SP_BOOK_NAVIGATED") {
         const snap = (msg.payload || {}) as BookBridgeState;
-        setLiveState((prev) => ({ ...prev, ...snap }));
+        const merged = { ...latestStateRef.current, ...snap };
+        latestStateRef.current = merged;
+        setLiveState(merged);
         if (snap.lang === "en" || snap.lang === "ar") setSelectedLang(snap.lang);
         if (typeof snap.teacher === "boolean") setTeacherMode(snap.teacher);
       } else if (msg.type === "SP_BOOK_STATE_SYNC") {
         const snap = (msg.payload || {}) as BookBridgeState;
-        setLiveState((prev) => ({ ...prev, ...snap }));
-        const syncBody: BookProgressSyncPayload = {
-          current_spread: snap.currentSpread ?? null,
-          current_chapter: snap.currentChapter ?? null,
-          active_profile: snap.activeProfile ?? null,
-          visited_spreads: snap.visitedSpreads,
-          stars: snap.stars,
-          stars_earned: snap.starsEarned,
-          stars_possible: snap.starsPossible,
-          completion_pct: snap.completionPct,
-          raw_state: snap.rawState,
-        };
-        void syncBookProgress(session.book_id, syncBody).then(() => {
-          if (search.program) {
-            void queryClient.invalidateQueries({ queryKey: ["lms-checklist", search.program] });
-          }
-          void queryClient.invalidateQueries({ queryKey: ["lms-book-detail", session.book_id] });
-        });
+        const merged = { ...latestStateRef.current, ...snap };
+        latestStateRef.current = merged;
+        setLiveState(merged);
+        void persistSnapshot(merged);
       } else if (msg.type === "SP_BOOK_EXERCISE_RESPONSE") {
         const ex = msg.payload as BookExercisePayload;
         if (!ex || !ex.exercise_key) return;
@@ -176,7 +205,7 @@ export default function LearnBookReader() {
 
     window.addEventListener("message", onMessage);
     return () => window.removeEventListener("message", onMessage);
-  }, [session, allowedOrigin, queryClient, search.program]);
+  }, [session, allowedOrigin, persistSnapshot, queryClient, search.program]);
 
   const iframeSrc = useMemo(() => {
     if (!session) return "";
@@ -187,6 +216,35 @@ export default function LearnBookReader() {
   const visitedSet = useMemo(() => new Set(liveState.visitedSpreads ?? []), [liveState.visitedSpreads]);
 
   const filteredChapters = useMemo(() => session?.outline ?? [], [session]);
+
+  const handleLeave = useCallback(async () => {
+    if (leaving) return;
+    setLeaving(true);
+    try {
+      sendCmd("flushSync");
+      const snap = latestStateRef.current;
+      const body = buildSyncPayload(snap);
+      const sig = JSON.stringify([body.current_spread, body.visited_spreads, body.stars_earned, body.completion_pct]);
+      const p = sig !== lastSyncedSigRef.current ? persistSnapshot(snap) : inFlightSyncRef.current;
+      if (p) {
+        await Promise.race([p, new Promise((r) => setTimeout(r, 1500))]);
+      }
+      if (session) {
+        if (search.program) {
+          await queryClient.invalidateQueries({ queryKey: ["lms-checklist", search.program] });
+        }
+        await queryClient.invalidateQueries({ queryKey: ["lms-book-detail", session.book_id] });
+        queryClient.removeQueries({ queryKey: ["lms-book-reader-session", bookId] });
+      }
+    } finally {
+      setLeaving(false);
+      if (search.program) {
+        void navigate({ to: "/learn/checklists/$assignmentId", params: { assignmentId: search.program } });
+      } else {
+        void navigate({ to: "/learn/books/$bookId", params: { bookId } });
+      }
+    }
+  }, [bookId, buildSyncPayload, leaving, navigate, persistSnapshot, queryClient, search.program, sendCmd, session]);
 
   if (isLoading) {
     return (
@@ -208,7 +266,12 @@ export default function LearnBookReader() {
   }
 
   const bilingual = session.languages.includes("ar") && session.languages.includes("en");
-  const pct = liveState.completionPct ?? 0;
+  // Match backend compute_book_slice_completion whenever outline lessons exist in this slice
+  const sliceLessons = filteredChapters.flatMap((ch) => ch.lessons.map((l) => l.spread)).filter(Boolean);
+  const uniqueSliceSpreads = Array.from(new Set(sliceLessons));
+  const pct = uniqueSliceSpreads.length > 0
+    ? Math.round((uniqueSliceSpreads.filter((sp) => visitedSet.has(sp)).length / uniqueSliceSpreads.length) * 100)
+    : (liveState.completionPct ?? 0);
   const starsEarned = liveState.starsEarned ?? 0;
 
   return (
@@ -216,25 +279,15 @@ export default function LearnBookReader() {
       {/* Unified Reader Top Bar */}
       <header className="h-14 shrink-0 border-b border-border bg-card px-3 sm:px-5 flex items-center justify-between gap-2 z-20">
         <div className="flex items-center gap-2.5 min-w-0">
-          {search.program ? (
-            <Link
-              to="/learn/checklists/$assignmentId"
-              params={{ assignmentId: search.program }}
-              className="inline-flex items-center gap-1.5 text-sm font-semibold text-primary hover:underline shrink-0"
-            >
-              <ArrowLeft className="size-4" />
-              <span className="hidden sm:inline">Program</span>
-            </Link>
-          ) : (
-            <Link
-              to="/learn/books/$bookId"
-              params={{ bookId }}
-              className="inline-flex items-center gap-1.5 text-sm font-semibold text-primary hover:underline shrink-0"
-            >
-              <ArrowLeft className="size-4" />
-              <span className="hidden sm:inline">Book</span>
-            </Link>
-          )}
+          <button
+            type="button"
+            disabled={leaving}
+            onClick={() => void handleLeave()}
+            className="inline-flex items-center gap-1.5 text-sm font-semibold text-primary hover:underline shrink-0 cursor-pointer disabled:opacity-60"
+          >
+            <ArrowLeft className="size-4" />
+            <span className="hidden sm:inline">{search.program ? "Program" : "Book"}</span>
+          </button>
 
           <div className="hidden md:flex items-center gap-2 text-sm text-foreground font-semibold">
             <BookOpen className="size-4 text-primary shrink-0" />

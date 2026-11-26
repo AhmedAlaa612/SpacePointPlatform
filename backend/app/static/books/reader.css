@@ -434,3 +434,159 @@ html[data-sp-embedded="1"] .bar {
 .toc .loc {
   border-radius: 10px !important;
 }
+
+/* Never expose Teacher Appendix spread to regular students */
+html[data-can-teacher="0"] .spread[data-name="appendix"] {
+  display: none !important;
+}
+
+/* Keep native dialogs (Notebook / Mission File, Formulas) centered and readable */
+dialog.dlg {
+  margin: auto !important;
+  z-index: 9999 !important;
+  border: 1px solid var(--rule) !important;
+  border-radius: 10px !important;
+}
+
+/* Interactive direct page jump inside .pager */
+.pager {
+  position: relative !important;
+}
+
+.pager .pn.sp-pn-btn {
+  cursor: pointer !important;
+  padding: 6px 12px !important;
+  border-radius: 10px !important;
+  border: 1px solid var(--rule) !important;
+  background: var(--paper-2) !important;
+  color: var(--ink) !important;
+  user-select: none !important;
+  transition: border-color 120ms ease, background 120ms ease !important;
+}
+
+.pager .pn.sp-pn-btn:hover,
+.pager .pn.sp-pn-btn[aria-expanded="true"] {
+  border-color: var(--accent) !important;
+  background: var(--accent-soft) !important;
+  color: var(--accent) !important;
+}
+
+.sp-page-jump {
+  position: absolute !important;
+  bottom: calc(100% + 8px) !important;
+  left: 50% !important;
+  transform: translateX(-50%) !important;
+  width: min(340px, calc(100vw - 24px)) !important;
+  max-height: min(380px, 60dvh) !important;
+  background: var(--paper) !important;
+  color: var(--ink) !important;
+  border: 1px solid var(--rule) !important;
+  border-radius: 10px !important;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.24) !important;
+  display: flex !important;
+  flex-direction: column !important;
+  overflow: hidden !important;
+  z-index: 60 !important;
+}
+
+.sp-page-jump[hidden] {
+  display: none !important;
+}
+
+.sp-jump-form {
+  display: flex !important;
+  align-items: center !important;
+  gap: 8px !important;
+  padding: 10px 12px !important;
+  border-bottom: 1px solid var(--rule) !important;
+  background: var(--paper-2) !important;
+}
+
+.sp-jump-lbl {
+  font-size: 12px !important;
+  font-weight: 600 !important;
+  color: var(--muted) !important;
+}
+
+.sp-jump-input {
+  width: 68px !important;
+  height: 32px !important;
+  padding: 0 8px !important;
+  border: 1px solid var(--rule) !important;
+  border-radius: 10px !important;
+  background: var(--paper) !important;
+  color: var(--ink) !important;
+  font: 600 13px var(--f-mono) !important;
+}
+
+.sp-jump-go {
+  margin-inline-start: auto !important;
+  height: 32px !important;
+  padding: 0 12px !important;
+  border: 0 !important;
+  border-radius: 10px !important;
+  background: var(--accent) !important;
+  color: var(--accent-ink) !important;
+  font-size: 12px !important;
+  font-weight: 600 !important;
+  cursor: pointer !important;
+}
+
+.sp-jump-list {
+  overflow-y: auto !important;
+  padding: 6px !important;
+  display: flex !important;
+  flex-direction: column !important;
+  gap: 2px !important;
+}
+
+.sp-jump-item {
+  width: 100% !important;
+  display: flex !important;
+  align-items: center !important;
+  gap: 8px !important;
+  padding: 7px 9px !important;
+  border: 0 !important;
+  border-radius: 10px !important;
+  background: transparent !important;
+  color: var(--ink) !important;
+  font-size: 13px !important;
+  text-align: start !important;
+  cursor: pointer !important;
+}
+
+.sp-jump-item:hover {
+  background: var(--paper-2) !important;
+}
+
+.sp-jump-item.active {
+  background: var(--accent-soft) !important;
+  color: var(--accent) !important;
+  font-weight: 600 !important;
+}
+
+.sp-jump-idx {
+  min-width: 24px !important;
+  font: 600 12px var(--f-mono) !important;
+  color: var(--muted) !important;
+}
+
+.sp-jump-item.active .sp-jump-idx {
+  color: var(--accent) !important;
+}
+
+.sp-jump-title {
+  flex: 1 1 auto !important;
+  overflow: hidden !important;
+  text-overflow: ellipsis !important;
+  white-space: nowrap !important;
+}
+
+.sp-jump-code {
+  font: 600 11px var(--f-mono) !important;
+  padding: 2px 6px !important;
+  border-radius: 8px !important;
+  background: var(--paper-2) !important;
+  color: var(--muted) !important;
+  flex-shrink: 0 !important;
+}
