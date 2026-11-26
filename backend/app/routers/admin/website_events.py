@@ -887,6 +887,9 @@ async def admin_get_organization_detail(
             for loc in (await db.execute(select(Location).where(Location.id.in_(cohort_loc_ids)))).scalars().all()
         }
 
+    from app.services.org_access import cohort_coordinators_map
+
+    coords_map = await cohort_coordinators_map(db, cohort_ids)
     cohorts_out = [
         {
             "id": c.id,
@@ -904,6 +907,8 @@ async def admin_get_organization_detail(
             "observers_count": obs_counts.get(c.id, 0),
             "sessions_count": sess_counts.get(c.id, 0),
             "completion_pct": cohort_avg_completion.get(c.id, 0),
+            "coordinator_access_mode": getattr(c, "coordinator_access_mode", None) or "general",
+            "coordinators": coords_map.get(c.id, []),
         }
         for c, p in owned_cohort_pairs
     ]

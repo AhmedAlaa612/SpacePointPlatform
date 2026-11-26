@@ -399,6 +399,12 @@ class OrgSharedProgramOut(BaseModel):
     active: bool = True
 
 
+class OrgCohortCoordinatorBriefOut(BaseModel):
+    id: UUID
+    full_name: str
+    email: str
+
+
 class OrgCohortDetailOut(BaseModel):
     id: UUID
     program_id: UUID
@@ -415,6 +421,8 @@ class OrgCohortDetailOut(BaseModel):
     observers_count: int = 0
     sessions_count: int = 0
     completion_pct: int = 0
+    coordinator_access_mode: str = "general"
+    coordinators: list[OrgCohortCoordinatorBriefOut] = Field(default_factory=list)
 
 
 class OrgInviteBatchOut(BaseModel):

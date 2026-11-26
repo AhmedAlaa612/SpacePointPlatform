@@ -34,7 +34,7 @@ import {
   X,
 } from "lucide-react"
 import { createOrgProgramApi } from "@/api/organizationPrograms"
-import { createCohortApi } from "@/api/sessions/cohorts"
+import { createCohortApi, updateCohortApi } from "@/api/sessions/cohorts"
 import { getFilteredProgramsApi, listProgramVariationsApi } from "@/api/sessions/programs"
 import { getLocationsApi, getWarehousesApi } from "@/api/inventory"
 import { QuickCreateLocationModal } from "@/pages/admin/components/QuickCreateLocationModal"
@@ -175,6 +175,8 @@ export default function OpsOrganizationDetail() {
       [programId]: !prev[programId],
     }))
   }
+
+  const [coordCohortTarget, setCoordCohortTarget] = useState<OrgCohortDetail | null>(null)
 
   const openLaunchCohort = (programId?: string, isOrgOwned?: boolean) => {
     setCohortDefaultProgramId(programId ?? "")
@@ -1102,7 +1104,12 @@ export default function OpsOrganizationDetail() {
                                 </div>
                                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
                                   {runningCohorts.map((c) => (
-                                    <OpsOrgCohortCard key={c.id} cohort={c} orgId={orgId} />
+                                    <OpsOrgCohortCard
+                                      key={c.id}
+                                      cohort={c}
+                                      orgId={orgId}
+                                      onAssignCoordinators={() => setCoordCohortTarget(c)}
+                                    />
                                   ))}
                                 </div>
                               </div>
@@ -1119,7 +1126,12 @@ export default function OpsOrganizationDetail() {
                                 </div>
                                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
                                   {openCohorts.map((c) => (
-                                    <OpsOrgCohortCard key={c.id} cohort={c} orgId={orgId} />
+                                    <OpsOrgCohortCard
+                                      key={c.id}
+                                      cohort={c}
+                                      orgId={orgId}
+                                      onAssignCoordinators={() => setCoordCohortTarget(c)}
+                                    />
                                   ))}
                                 </div>
                               </div>
@@ -1141,7 +1153,12 @@ export default function OpsOrganizationDetail() {
                                 {pastExpanded && (
                                   <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 mt-3">
                                     {pastCohorts.map((c) => (
-                                      <OpsOrgCohortCard key={c.id} cohort={c} orgId={orgId} />
+                                      <OpsOrgCohortCard
+                                        key={c.id}
+                                        cohort={c}
+                                        orgId={orgId}
+                                        onAssignCoordinators={() => setCoordCohortTarget(c)}
+                                      />
                                     ))}
                                   </div>
                                 )}
@@ -1231,6 +1248,17 @@ export default function OpsOrganizationDetail() {
                       </div>
 
                       <div className="md:col-span-2 flex items-center justify-end gap-1.5 pt-2 md:pt-0 border-t border-border/50 md:border-t-0">
+                        <button
+                          type="button"
+                          onClick={() => setCoordCohortTarget(c)}
+                          className="inline-flex items-center gap-1 h-8 px-2.5 rounded-[10px] border border-border bg-background text-xs font-semibold text-foreground hover:bg-muted transition-colors cursor-pointer"
+                          title="Assign coordinators"
+                        >
+                          <Users size={12} />
+                          {c.coordinator_access_mode === "assigned"
+                            ? `Assigned (${c.coordinators?.length ?? 0})`
+                            : "Coordinators"}
+                        </button>
                         <Link
                           to="/operations/cohorts/$cohortId"
                           params={{ cohortId: c.id }}
@@ -1936,6 +1964,18 @@ export default function OpsOrganizationDetail() {
           }}
         />
       )}
+
+      {coordCohortTarget && (
+        <OpsCohortCoordinatorsModal
+          orgId={orgId}
+          cohort={coordCohortTarget}
+          onClose={() => setCoordCohortTarget(null)}
+          onSuccess={() => {
+            setCoordCohortTarget(null)
+            invalidateOrgQueries()
+          }}
+        />
+      )}
     </div>
   )
 }
@@ -2591,9 +2631,11 @@ function OpsCreateOrgCohortModal({
 function OpsOrgCohortCard({
   cohort: c,
   orgId,
+  onAssignCoordinators,
 }: {
   cohort: OrgCohortDetail
   orgId: string
+  onAssignCoordinators: () => void
 }) {
   const registered = c.enrolled_count ?? 0
   const fillPct = c.capacity ? Math.min(100, Math.round((registered / c.capacity) * 100)) : null
@@ -2626,6 +2668,15 @@ function OpsOrgCohortCard({
           >
             {c.management_mode === "spacepoint" ? "Delivered by SpacePoint" : "Partner-run"}
           </span>
+          {c.coordinator_access_mode === "assigned" ? (
+            <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full border border-indigo-500/25 bg-indigo-500/10 text-indigo-600 dark:text-indigo-400">
+              Assigned ({c.coordinators?.length ?? 0})
+            </span>
+          ) : (
+            <span className="text-[11px] font-medium px-2 py-0.5 rounded-full border border-border bg-muted/40 text-muted-foreground">
+              All coordinators
+            </span>
+          )}
         </div>
 
         <div className="space-y-1.5 text-xs text-muted-foreground mt-2">
@@ -2665,7 +2716,14 @@ function OpsOrgCohortCard({
         )}
       </div>
 
-      <div className="pt-3 border-t border-border flex items-center justify-end gap-2">
+      <div className="pt-3 border-t border-border flex items-center justify-between gap-2">
+        <button
+          type="button"
+          onClick={onAssignCoordinators}
+          className="inline-flex items-center gap-1 text-xs font-semibold text-muted-foreground hover:text-foreground cursor-pointer"
+        >
+          <Users size={12} /> Coordinators
+        </button>
         <Link
           to="/operations/cohorts/$cohortId"
           params={{ cohortId: c.id }}
@@ -2674,6 +2732,77 @@ function OpsOrgCohortCard({
         >
           Manage <ArrowRight size={12} />
         </Link>
+      </div>
+    </div>
+  )
+}
+
+function OpsCohortCoordinatorsModal({
+  orgId,
+  cohort,
+  onClose,
+  onSuccess,
+}: {
+  orgId: string
+  cohort: OrgCohortDetail
+  onClose: () => void
+  onSuccess: () => void
+}) {
+  const toast = useToast()
+  const [mode, setMode] = useState<"general" | "assigned">(cohort.coordinator_access_mode ?? "general")
+  const [userIds, setUserIds] = useState<string[]>((cohort.coordinators ?? []).map((c) => c.id))
+
+  const mut = useMutation({
+    mutationFn: () =>
+      updateCohortApi(cohort.id, {
+        coordinator_access_mode: mode,
+        coordinator_user_ids: mode === "assigned" ? userIds : [],
+      }),
+    onSuccess: () => {
+      toast.success(`Updated coordinator access for "${cohort.name}"`)
+      onSuccess()
+    },
+    onError: (err) => toast.error(getErrorMessage(err, "Failed to update coordinators")),
+  })
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm">
+      <div className="w-full max-w-lg space-y-4 rounded-[12px] border border-border bg-card p-6 shadow-xl">
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <h2 className="text-base font-bold text-foreground">Assign Coordinators</h2>
+            <p className="mt-0.5 text-xs text-muted-foreground">{cohort.name}</p>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="p-1 rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted cursor-pointer"
+          >
+            <X size={16} />
+          </button>
+        </div>
+
+        <CoordinatorAccessPicker
+          organizationId={orgId}
+          mode={mode}
+          onModeChange={setMode}
+          selectedUserIds={userIds}
+          onSelectedUserIdsChange={setUserIds}
+        />
+
+        <div className="flex items-center justify-end gap-2 pt-2 border-t border-border">
+          <Button type="button" variant="outline" size="sm" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button
+            type="button"
+            size="sm"
+            disabled={mut.isPending}
+            onClick={() => mut.mutate()}
+          >
+            {mut.isPending ? "Saving..." : "Save Coordinators"}
+          </Button>
+        </div>
       </div>
     </div>
   )

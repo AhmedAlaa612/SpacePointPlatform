@@ -310,6 +310,8 @@ export interface OrgCohortDetail {
   observers_count: number
   sessions_count: number
   completion_pct: number
+  coordinator_access_mode?: "general" | "assigned"
+  coordinators?: { id: string; full_name: string; email: string }[]
 }
 
 export interface OrgInviteBatch {
