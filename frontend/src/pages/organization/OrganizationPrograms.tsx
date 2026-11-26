@@ -19,6 +19,7 @@ import {
   Search,
   SlidersHorizontal,
   Trash2,
+  UserCog,
   Users,
 } from "lucide-react"
 
@@ -27,11 +28,16 @@ import {
   deleteOrgProgramApi,
   duplicateOrgCohortApi,
   getOrgProgramsOverviewApi,
+  updateOrgCohortApi,
   updateOrgProgramApi,
   type OrgCohortSummary,
   type OrgProgramSummary,
   type OrgQuotas,
 } from "@/api/organizationPrograms"
+import {
+  CohortCoordinatorsModal,
+  CoordinatorAccessBadge,
+} from "@/components/organization/CoordinatorAccessPicker"
 import {
   OrgCohortModal,
   type OrgCohortModalEditable,
@@ -120,6 +126,7 @@ export default function OrganizationPrograms() {
   const [cohortModalOpen, setCohortModalOpen] = useState(false)
   const [cohortDefaultProgramId, setCohortDefaultProgramId] = useState<string | undefined>(undefined)
   const [editingCohort, setEditingCohort] = useState<OrgCohortModalEditable | null>(null)
+  const [coordTargetCohort, setCoordTargetCohort] = useState<OrgCohortSummary | null>(null)
   const [duplicateTargetCohort, setDuplicateTargetCohort] = useState<OrgCohortSummary | null>(null)
 
   const { data, isLoading, error } = useQuery({
@@ -580,11 +587,10 @@ export default function OrganizationPrograms() {
                         <td className="py-3 px-4">
                           <div className="flex flex-col items-start gap-1">
                             <CohortStatusBadge status={cohort.status} />
-                            {cohort.coordinator_access_mode === "assigned" && (
-                              <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border border-indigo-500/20">
-                                Assigned ({cohort.coordinators?.length ?? 0})
-                              </span>
-                            )}
+                            <CoordinatorAccessBadge
+                              mode={cohort.coordinator_access_mode}
+                              coordinators={cohort.coordinators}
+                            />
                           </div>
                         </td>
                         <td className="py-3 px-4 text-muted-foreground">
@@ -604,14 +610,24 @@ export default function OrganizationPrograms() {
                         <td className="py-3 px-4 text-right">
                           <div className="inline-flex items-center gap-1.5">
                             {!isObserver && (
-                              <button
-                                type="button"
-                                onClick={() => openEditCohort(cohort)}
-                                className="p-1.5 rounded-lg border border-border text-muted-foreground hover:text-foreground hover:bg-muted transition cursor-pointer"
-                                title="Edit cohort"
-                              >
-                                <Pencil className="w-3 h-3" />
-                              </button>
+                              <>
+                                <button
+                                  type="button"
+                                  onClick={() => setCoordTargetCohort(cohort)}
+                                  className="p-1.5 rounded-lg border border-border text-muted-foreground hover:text-foreground hover:bg-muted transition cursor-pointer"
+                                  title="Manage coordinator access"
+                                >
+                                  <UserCog className="w-3 h-3" />
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => openEditCohort(cohort)}
+                                  className="p-1.5 rounded-lg border border-border text-muted-foreground hover:text-foreground hover:bg-muted transition cursor-pointer"
+                                  title="Edit cohort"
+                                >
+                                  <Pencil className="w-3 h-3" />
+                                </button>
+                              </>
                             )}
                             <Link
                               to="/organization/programs/$cohortId"
@@ -832,6 +848,7 @@ export default function OrganizationPrograms() {
                                   isObserver={isObserver}
                                   isOrgOwnedProgram={isOrgOwnedProgram}
                                   onEdit={() => openEditCohort(cohort)}
+                                  onCoordinators={() => setCoordTargetCohort(cohort)}
                                   onDuplicate={() => setDuplicateTargetCohort(cohort)}
                                 />
                               ))}
@@ -856,6 +873,7 @@ export default function OrganizationPrograms() {
                                   isObserver={isObserver}
                                   isOrgOwnedProgram={isOrgOwnedProgram}
                                   onEdit={() => openEditCohort(cohort)}
+                                  onCoordinators={() => setCoordTargetCohort(cohort)}
                                   onDuplicate={() => setDuplicateTargetCohort(cohort)}
                                 />
                               ))}
@@ -894,6 +912,7 @@ export default function OrganizationPrograms() {
                                     isObserver={isObserver}
                                     isOrgOwnedProgram={isOrgOwnedProgram}
                                     onEdit={() => openEditCohort(cohort)}
+                                    onCoordinators={() => setCoordTargetCohort(cohort)}
                                     onDuplicate={() => setDuplicateTargetCohort(cohort)}
                                   />
                                 ))}
@@ -948,6 +967,17 @@ export default function OrganizationPrograms() {
         onSuccess={invalidate}
       />
 
+      {/* ── Coordinator Access Modal ────────────────────────────────────────── */}
+      {coordTargetCohort && (
+        <CohortCoordinatorsModal
+          cohort={coordTargetCohort}
+          organizationId={org.id || undefined}
+          onSave={(payload) => updateOrgCohortApi(coordTargetCohort.id, payload)}
+          onClose={() => setCoordTargetCohort(null)}
+          onSaved={invalidate}
+        />
+      )}
+
       {/* ── Duplicate Cohort Modal ──────────────────────────────────────────── */}
       {duplicateTargetCohort && (
         <DuplicateCohortModal
@@ -970,6 +1000,7 @@ function OrgCohortCard({
   isObserver,
   isOrgOwnedProgram,
   onEdit,
+  onCoordinators,
   onDuplicate,
 }: {
   cohort: OrgCohortSummary
@@ -977,6 +1008,7 @@ function OrgCohortCard({
   isObserver: boolean
   isOrgOwnedProgram: boolean
   onEdit: () => void
+  onCoordinators: () => void
   onDuplicate: () => void
 }) {
   const isModeB = cohort.management_mode === "spacepoint"
@@ -985,6 +1017,7 @@ function OrgCohortCard({
     cohort.capacity != null && cohort.capacity > 0
       ? Math.min(100, Math.round((cohort.active_students_count / cohort.capacity) * 100))
       : null
+  const assignedNames = (cohort.coordinators ?? []).map((c) => c.full_name).filter(Boolean)
 
   return (
     <div className="rounded-xl border border-border bg-background p-4 flex flex-col justify-between gap-3 hover:border-primary/40 transition group">
@@ -1016,11 +1049,10 @@ function OrgCohortCard({
               <Globe className="w-2.5 h-2.5" /> Public
             </span>
           )}
-          {cohort.coordinator_access_mode === "assigned" && (
-            <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border border-indigo-500/20">
-              Assigned ({cohort.coordinators?.length ?? 0})
-            </span>
-          )}
+          <CoordinatorAccessBadge
+            mode={cohort.coordinator_access_mode}
+            coordinators={cohort.coordinators}
+          />
           {unstaffed > 0 && (
             <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-rose-500 text-white">
               {unstaffed} unstaffed
@@ -1058,6 +1090,16 @@ function OrgCohortCard({
                 : ""}
             </span>
           </div>
+          <div className="flex items-center gap-1.5 truncate">
+            <UserCog className="w-3.5 h-3.5 shrink-0" />
+            <span className="truncate">
+              {cohort.coordinator_access_mode === "assigned"
+                ? assignedNames.length > 0
+                  ? `Coordinators: ${assignedNames.join(", ")}`
+                  : "Assigned coordinators (Owner only)"
+                : "Coordinators: All coordinators"}
+            </span>
+          </div>
         </div>
 
         {fillPct != null && (
@@ -1086,8 +1128,8 @@ function OrgCohortCard({
         )}
       </div>
 
-      <div className="flex items-center justify-between pt-2.5 border-t border-border gap-2">
-        <div className="flex items-center gap-1.5">
+      <div className="flex items-center justify-between pt-2.5 border-t border-border gap-1.5 flex-wrap">
+        <div className="flex items-center gap-1.5 flex-wrap">
           {!isObserver && (
             <button
               type="button"
@@ -1096,6 +1138,16 @@ function OrgCohortCard({
               className="inline-flex items-center gap-1 h-7 px-2 rounded-lg border border-border text-[11px] font-medium text-muted-foreground hover:text-foreground hover:bg-muted transition cursor-pointer"
             >
               <Pencil className="w-3 h-3" /> Edit
+            </button>
+          )}
+          {!isObserver && (
+            <button
+              type="button"
+              onClick={onCoordinators}
+              title="Assign or change coordinator access"
+              className="inline-flex items-center gap-1 h-7 px-2 rounded-lg border border-border text-[11px] font-medium text-muted-foreground hover:text-foreground hover:bg-muted transition cursor-pointer"
+            >
+              <UserCog className="w-3 h-3" /> Coordinators
             </button>
           )}
           {!isObserver && isOrgOwnedProgram && !isModeB && (

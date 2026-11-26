@@ -4,7 +4,7 @@ import { Link, useParams, useRouterState } from "@tanstack/react-router"
 import * as XLSX from "xlsx"
 import {
   ArrowLeft, CalendarPlus, UserPlus, Upload, Ticket, Mail, Wallet, Ban, FileText, Download, FileSpreadsheet, Copy,
-  CheckCircle2, Award, Trash2, Search, Pencil, MoreVertical, Camera, X, Key, ExternalLink,
+  CheckCircle2, Award, Trash2, Search, Pencil, MoreVertical, Camera, X, Key, ExternalLink, UserCog,
 } from "lucide-react"
 import type {
   Cohort, CohortStatus, Program, Session,
@@ -52,6 +52,10 @@ import {
   createInviteCodeApi,
   createInviteCodeGrantApi,
 } from "@/api/lms_admin"
+import {
+  CohortCoordinatorsModal,
+  CoordinatorAccessBadge,
+} from "@/components/organization/CoordinatorAccessPicker"
 import { CohortModal, COHORT_STATUS_LABEL, COHORT_STATUS_COLOR, statusOptionsFor } from "@/pages/admin/Cohorts"
 import { ContactDetailModal } from "@/pages/admin/Contacts"
 import { useAuth } from "@/context/AuthContext"
@@ -248,6 +252,7 @@ function CohortDetailView({ cohort }: { cohort: Cohort }) {
     : TABS
 
   const [editOpen, setEditOpen] = useState(false)
+  const [coordOpen, setCoordOpen] = useState(false)
   const [excuseModalOpen, setExcuseModalOpen] = useState(false)
   const [generateOpen, setGenerateOpen] = useState(false)
   const [addSessionOpen, setAddSessionOpen] = useState(false)
@@ -519,6 +524,12 @@ function CohortDetailView({ cohort }: { cohort: Cohort }) {
                 Public
               </span>
             )}
+            {hasOrgScope && (
+              <CoordinatorAccessBadge
+                mode={cohort.coordinator_access_mode}
+                coordinators={cohort.coordinators}
+              />
+            )}
           </>
         }
         programName={cohort.program_name ?? "—"}
@@ -532,13 +543,25 @@ function CohortDetailView({ cohort }: { cohort: Cohort }) {
         actions={
           <>
             {canEditCohort && (
-              <button
-                type="button"
-                onClick={() => setEditOpen(true)}
-                className="flex items-center justify-center gap-1.5 w-full h-9 px-4 rounded-[10px] bg-[#653F84] border-0 text-sm font-medium text-white hover:opacity-90 transition-opacity cursor-pointer"
-              >
-                <Pencil size={13} /> Edit
-              </button>
+              <div className="flex gap-2 w-full">
+                <button
+                  type="button"
+                  onClick={() => setEditOpen(true)}
+                  className="flex items-center justify-center gap-1.5 flex-1 h-9 px-4 rounded-[10px] bg-[#653F84] border-0 text-sm font-medium text-white hover:opacity-90 transition-opacity cursor-pointer"
+                >
+                  <Pencil size={13} /> Edit
+                </button>
+                {hasOrgScope && (
+                  <button
+                    type="button"
+                    onClick={() => setCoordOpen(true)}
+                    title="Assign or change coordinator access"
+                    className="flex items-center justify-center gap-1.5 h-9 px-3 bg-transparent border-2 border-solid border-[#D7D2CB] rounded-[10px] text-xs font-medium text-white hover:bg-white/10 transition-colors cursor-pointer"
+                  >
+                    <UserCog size={13} /> Coordinators
+                  </button>
+                )}
+              </div>
             )}
 
             <div className="grid grid-cols-2 gap-2">
@@ -1312,6 +1335,15 @@ function CohortDetailView({ cohort }: { cohort: Cohort }) {
         />
       )}
 
+      {coordOpen && (
+        <CohortCoordinatorsModal
+          cohort={cohort}
+          organizationId={cohort.organization_id}
+          onSave={(payload) => updateCohortApi(cohort.id, payload)}
+          onClose={() => setCoordOpen(false)}
+          onSaved={invalidateCohort}
+        />
+      )}
       {editOpen && (
         isPartnerUser ? (
           <OrgEditCohortModal
