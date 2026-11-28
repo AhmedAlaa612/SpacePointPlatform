@@ -46,6 +46,7 @@ import { useAuth } from "@/context/AuthContext"
 import { useToast } from "@/components/ui/toast"
 import { EmptyState, Modal } from "@/pages/admin/components/common"
 import { QuestionReviewList } from "@/components/AssessmentReview"
+import { InstructorPaymentHistoryPanel } from "@/components/InstructorPaymentHistoryPanel"
 import { DocsComplianceChip, OpsIdCardModal } from "@/pages/operations/OpsInstructors"
 import { cn } from "@/lib/utils"
 
@@ -444,6 +445,10 @@ export default function OpsInstructorProfile() {
           </div>
         )}
       </div>
+
+      {activeRole === "admin" && (
+        <InstructorPaymentHistoryPanel userId={userId} />
+      )}
 
       {idCardOpen && (
         <OpsIdCardModal

@@ -27,6 +27,9 @@ from app.schemas.instructors.payment import (
     BulkImportPreviewOut,
     CertificateCreate,
     CertificateOut,
+    CohortInstructorActionIn,
+    CompletedCohortPaymentOut,
+    InstructorPaymentHistoryOut,
     PaymentAddonCreate,
     PaymentBatchCreate,
     PaymentBatchOut,
@@ -36,8 +39,21 @@ from app.schemas.instructors.payment import (
     PaymentAddonUpdate,
     PaymentLetterUpdate,
     PaymentSessionUpdate,
+    PaymentsAnalyticsOut,
+    SettleCohortPaymentIn,
+    SettleCohortPaymentOut,
 )
 from app.schemas.sessions.journey import BillSessionsIn, PendingPaymentInstructorOut, UnbilledSessionOut
+from app.services.instructors.payment_cohorts import (
+    compute_paid_analytics,
+    get_instructor_payment_history,
+    ignore_cohort_payment,
+    list_completed_cohort_payments,
+    record_ignored_for_draft_letter,
+    record_ignored_for_removed_line,
+    restore_cohort_payment,
+    settle_cohort_payment,
+)
 from app.services.sessions.journey import find_or_create_draft_letter, pending_payment_instructors, unbilled_sessions
 from app.services import storage
 from app.services.spine.identity import normalize_user_email, user_email_matches
@@ -62,8 +78,14 @@ async def _letter_with_children(db: AsyncSession, letter: PaymentLetter) -> Paym
         select(PaymentAddon).where(PaymentAddon.payment_letter_id == letter.id).order_by(PaymentAddon.sort_order)
     )).scalars().all()
     instructor = (await db.execute(select(User.full_name).where(User.id == letter.instructor_user_id))).scalar_one_or_none()
+    batch_name = None
+    if letter.batch_id is not None:
+        batch_name = (await db.execute(
+            select(PaymentBatch.name).where(PaymentBatch.id == letter.batch_id)
+        )).scalar_one_or_none()
     out = PaymentLetterOut.model_validate(letter, from_attributes=True)
     out.instructor_name = instructor
+    out.batch_name = batch_name
     out.sessions = sessions
     out.addons = addons
     out.pdf_url = await storage.resolve_url("payment-letters", letter.pdf_path, letter.pdf_url)
@@ -280,9 +302,26 @@ async def delete_letter(
     letter = (await db.execute(select(PaymentLetter).where(PaymentLetter.id == letter_id))).scalars().first()
     if not letter:
         raise HTTPException(status_code=404, detail="Letter not found")
+    if letter.status == PaymentLetterStatus.draft:
+        await record_ignored_for_draft_letter(db, letter, current_user.id)
     await db.delete(letter)
     await db.commit()
     return {"status": "deleted"}
+
+
+@router.post("/letters/{letter_id}/ignore")
+async def ignore_draft_letter(
+    letter_id: uuid.UUID, db: AsyncSession = Depends(get_db), current_user: User = Depends(require_admin)
+):
+    letter = (await db.execute(select(PaymentLetter).where(PaymentLetter.id == letter_id))).scalars().first()
+    if not letter:
+        raise HTTPException(status_code=404, detail="Letter not found")
+    if letter.status != PaymentLetterStatus.draft:
+        raise HTTPException(status_code=409, detail="Only draft letters can be ignored")
+    await record_ignored_for_draft_letter(db, letter, current_user.id)
+    await db.delete(letter)
+    await db.commit()
+    return {"status": "ignored"}
 
 
 @router.post("/letters/{letter_id}/sessions", response_model=PaymentLetterOut, status_code=201)
@@ -322,10 +361,10 @@ def _refuse_if_signed(letter: PaymentLetter | None) -> None:
     and the workshop-delivery certificates are built from. Correcting a signed
     letter is a new letter, not an edit.
     """
-    if letter is not None and letter.status == PaymentLetterStatus.signed:
+    if letter is not None and letter.status in (PaymentLetterStatus.signed, PaymentLetterStatus.paid):
         raise HTTPException(
             status_code=409,
-            detail="This letter is signed — issue a corrected letter rather than editing it",
+            detail="This letter is signed/paid — issue a corrected letter rather than editing it",
         )
 
 
@@ -385,6 +424,8 @@ async def delete_session(
         select(PaymentLetter).where(PaymentLetter.id == session_row.payment_letter_id)
     )).scalars().first()
     _refuse_if_signed(letter)
+    if letter is not None and letter.status == PaymentLetterStatus.draft:
+        await record_ignored_for_removed_line(db, letter, session_row, current_user.id)
     await db.delete(session_row)
     _invalidate_pdf(letter)
     await db.commit()
@@ -496,8 +537,76 @@ async def mark_paid(
     if not letter:
         raise HTTPException(status_code=404, detail="Letter not found")
     letter.status = PaymentLetterStatus.paid
+    if letter.paid_at is None:
+        letter.paid_at = datetime.now(timezone.utc)
     await db.commit()
     return await _letter_with_children(db, letter)
+
+
+# ── Completed Cohorts Review & Settlement ──────────────────────
+
+@router.get("/cohorts", response_model=list[CompletedCohortPaymentOut])
+async def list_cohort_payments(
+    db: AsyncSession = Depends(get_db), current_user: User = Depends(require_admin)
+):
+    return await list_completed_cohort_payments(db)
+
+
+@router.post("/cohorts/{cohort_id}/settle", response_model=SettleCohortPaymentOut)
+async def settle_cohort(
+    cohort_id: uuid.UUID,
+    body: SettleCohortPaymentIn,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_admin),
+):
+    return await settle_cohort_payment(db, cohort_id, body, current_user.id)
+
+
+@router.post("/cohorts/{cohort_id}/ignore", response_model=CompletedCohortPaymentOut)
+async def ignore_cohort(
+    cohort_id: uuid.UUID,
+    body: CohortInstructorActionIn | None = None,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_admin),
+):
+    return await ignore_cohort_payment(
+        db,
+        cohort_id,
+        current_user.id,
+        instructor_user_id=body.instructor_user_id if body else None,
+    )
+
+
+@router.post("/cohorts/{cohort_id}/restore", response_model=CompletedCohortPaymentOut)
+async def restore_cohort(
+    cohort_id: uuid.UUID,
+    body: CohortInstructorActionIn | None = None,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_admin),
+):
+    return await restore_cohort_payment(
+        db,
+        cohort_id,
+        instructor_user_id=body.instructor_user_id if body else None,
+    )
+
+
+# ── Paid-Only Analytics & Per-Instructor History ───────────────
+
+@router.get("/analytics", response_model=PaymentsAnalyticsOut)
+async def get_payments_analytics(
+    db: AsyncSession = Depends(get_db), current_user: User = Depends(require_admin)
+):
+    return await compute_paid_analytics(db)
+
+
+@router.get("/instructors/{instructor_user_id}/history", response_model=InstructorPaymentHistoryOut)
+async def instructor_payment_history(
+    instructor_user_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_admin),
+):
+    return await get_instructor_payment_history(db, instructor_user_id)
 
 
 # ── Bulk import ────────────────────────────────────────────────

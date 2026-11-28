@@ -226,6 +226,7 @@ export interface PaymentLetter {
   instructor_user_id?: string | null
   instructor_name?: string | null
   batch_id?: string | null
+  batch_name?: string | null
   letter_date: string | null
   reference: string
   status: PaymentLetterStatus
@@ -234,6 +235,10 @@ export interface PaymentLetter {
   issue_certificates?: boolean
   pdf_url: string | null
   signed_pdf_url: string | null
+  signed_at?: string | null
+  paid_at?: string | null
+  created_at?: string | null
+  updated_at?: string | null
   admin_notes?: string | null
   sessions: PaymentSession[]
   addons: PaymentAddon[]

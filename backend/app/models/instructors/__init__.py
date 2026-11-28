@@ -11,6 +11,7 @@ from app.models.instructors.instructor_document import InstructorDocument
 from app.models.instructors.training import TrainingModule, TrainingVideo, UserTrainingProgress
 from app.models.instructors.library import LibraryModule, LibraryResource
 from app.models.instructors.payment import (
+    CohortPaymentDecision,
     PaymentBatch,
     PaymentLetter,
     PaymentSession,
@@ -38,6 +39,7 @@ __all__ = [
     "UserTrainingProgress",
     "LibraryModule",
     "LibraryResource",
+    "CohortPaymentDecision",
     "PaymentBatch",
     "PaymentLetter",
     "PaymentSession",

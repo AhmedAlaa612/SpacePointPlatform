@@ -14,6 +14,7 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
 import { useToast } from "@/components/ui/toast"
 import { ROLE_BADGE, AmbassadorCard, TeacherCard, InstructorCard, StudentCard } from "@/components/ProfileStatsCards"
+import { InstructorPaymentHistoryPanel } from "@/components/InstructorPaymentHistoryPanel"
 import { getCountries } from "@/lib/countries"
 
 const DELETABLE_CATEGORIES: Record<string, (id: string) => Promise<unknown>> = {
@@ -196,9 +197,10 @@ interface Props {
   onClose: () => void
   highlightCategory?: string
   focusDossier?: boolean
+  onOpenLetter?: (letterId: string) => void
 }
 
-export function UserProfileModal({ userId, onClose, highlightCategory, focusDossier }: Props) {
+export function UserProfileModal({ userId, onClose, highlightCategory, focusDossier, onOpenLetter }: Props) {
   const { activeRole } = useAuth()
   const navigate = useNavigate()
   const isOpsView = activeRole === "operations"
@@ -559,6 +561,21 @@ export function UserProfileModal({ userId, onClose, highlightCategory, focusDoss
                   </Card>
                 )}
                 {stats?.student && <StudentCard stats={stats.student} />}
+
+                {isInstructor && activeRole === "admin" && !isOpsView && (
+                  <InstructorPaymentHistoryPanel
+                    userId={userId}
+                    compact
+                    onOpenLetter={
+                      onOpenLetter
+                        ? (letterId) => {
+                            onClose()
+                            onOpenLetter(letterId)
+                          }
+                        : undefined
+                    }
+                  />
+                )}
 
                 {!isOpsView && (
                   <DossierSection

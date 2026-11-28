@@ -168,6 +168,7 @@ async def _engine():
         await conn.execute(text("ALTER TABLE lms_program_items ADD COLUMN IF NOT EXISTS book_profile VARCHAR(32);"))
         await conn.execute(text("ALTER TABLE lms_program_items ADD COLUMN IF NOT EXISTS book_chapter VARCHAR(64);"))
         await conn.execute(text("ALTER TABLE lms_program_items ADD COLUMN IF NOT EXISTS book_min_completion_pct INTEGER;"))
+        await conn.execute(text("ALTER TABLE payment_letters ADD COLUMN IF NOT EXISTS paid_at TIMESTAMPTZ;"))
     yield engine
     await engine.dispose()
 

@@ -1,4 +1,5 @@
-from typing import Optional
+from datetime import datetime
+from typing import Literal, Optional
 from uuid import UUID
 
 from pydantic import BaseModel
@@ -51,6 +52,7 @@ class PaymentLetterOut(BaseModel):
     instructor_user_id: Optional[UUID] = None
     instructor_name: Optional[str] = None
     batch_id: Optional[UUID] = None
+    batch_name: Optional[str] = None
     letter_date: Optional[str] = None
     reference: str
     status: PaymentLetterStatus
@@ -59,6 +61,10 @@ class PaymentLetterOut(BaseModel):
     issue_certificates: bool = True
     pdf_url: Optional[str] = None
     signed_pdf_url: Optional[str] = None
+    signed_at: Optional[datetime] = None
+    paid_at: Optional[datetime] = None
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
     admin_notes: Optional[str] = None
     sessions: list[PaymentSessionOut] = []
     addons: list[PaymentAddonOut] = []
@@ -180,3 +186,101 @@ class BulkImportPreviewOut(BaseModel):
     addon_count: int
     unmatched_emails: list[str]
     errors: list[str]
+
+
+class CohortInstructorPaymentOut(BaseModel):
+    instructor_user_id: UUID
+    full_name: str
+    email: str
+    role_name: str
+    sessions_count: int
+    assigned_sessions_count: int
+    hours: float
+    rate_aed: Optional[float] = None
+    rate_basis: str = "per_session"
+    total_aed: float = 0.0
+    attendance_status: str = "no_checkin"
+    attendance_tag: str = "No check-in"
+    outcome: Literal["pending", "added", "ignored"] = "pending"
+    has_active_draft: bool = False
+    active_draft_letter_id: Optional[UUID] = None
+    letter_id: Optional[UUID] = None
+    letter_reference: Optional[str] = None
+    letter_status: Optional[PaymentLetterStatus] = None
+    payment_session_id: Optional[UUID] = None
+    decided_at: Optional[datetime] = None
+
+
+class CompletedCohortPaymentOut(BaseModel):
+    cohort_id: UUID
+    name: str
+    program_name: str
+    date_range: str
+    completed_date: Optional[str] = None
+    location: Optional[str] = None
+    status: Literal["pending", "settled"]
+    settled_outcome: Optional[Literal["added", "ignored", "partial"]] = None
+    settled_at: Optional[datetime] = None
+    instructors: list[CohortInstructorPaymentOut] = []
+
+
+class SettleCohortInstructorIn(BaseModel):
+    instructor_user_id: UUID
+    action: Literal["add", "ignore"]
+    role: str
+    sessions_count: int = 1
+    hours: Optional[float] = None
+    rate_aed: Optional[float] = None
+    compensation_aed: float = 0.0
+
+
+class SettleCohortPaymentIn(BaseModel):
+    batch_id: Optional[UUID] = None
+    items: list[SettleCohortInstructorIn]
+
+
+class SettleCohortPaymentOut(BaseModel):
+    cohort: CompletedCohortPaymentOut
+    created_drafts: int = 0
+    appended_drafts: int = 0
+    ignored_count: int = 0
+    touched_letter_ids: list[UUID] = []
+
+
+class CohortInstructorActionIn(BaseModel):
+    instructor_user_id: Optional[UUID] = None
+
+
+class MonthlyPaidPointOut(BaseModel):
+    month_key: str
+    month_label: str
+    amount_aed: float
+    letters_count: int
+
+
+class PaymentsAnalyticsOut(BaseModel):
+    total_paid_aed: float
+    paid_letters_count: int
+    paid_sessions_count: int
+    paid_hours_count: float
+    paid_instructors_count: int
+    monthly_paid: list[MonthlyPaidPointOut] = []
+
+
+class InstructorPaymentHistoryOut(BaseModel):
+    instructor_user_id: UUID
+    full_name: str
+    email: str
+    bank_details_complete: bool
+    bank_name: Optional[str] = None
+    total_paid_aed: float
+    paid_letters_count: int
+    paid_sessions_count: int
+    paid_hours_count: float
+    avg_aed_per_session: float
+    monthly_paid: list[MonthlyPaidPointOut] = []
+    draft_letters_count: int
+    published_letters_count: int
+    signed_letters_count: int
+    pending_payout_aed: float
+    letters: list[PaymentLetterOut] = []

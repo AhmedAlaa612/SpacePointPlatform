@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime, timezone
 
-from sqlalchemy import Boolean, Column, DateTime, Float, ForeignKey, Integer, String, Text
+from sqlalchemy import Boolean, Column, DateTime, Float, ForeignKey, Integer, String, Text, UniqueConstraint
 from sqlalchemy.dialects.postgresql import ENUM, UUID
 
 from app.db.base import Base
@@ -40,6 +40,7 @@ class PaymentLetter(Base):
     signed_pdf_path = Column(String, nullable=True)
     instructor_signature_data = Column(Text, nullable=True)  # base64 PNG, re-embedded into the PDF on each sign
     signed_at = Column(DateTime(timezone=True), nullable=True)
+    paid_at = Column(DateTime(timezone=True), nullable=True)
     admin_notes = Column(Text, nullable=True)
     # I5-7. Certificates already generate on signing, one per payment session.
     # The CEO asked to make that optional — set at letter-prep, honoured at
@@ -164,4 +165,45 @@ class PortalSetting(Base):
         DateTime(timezone=True),
         default=lambda: datetime.now(timezone.utc),
         onupdate=lambda: datetime.now(timezone.utc),
+    )
+
+
+class CohortPaymentDecision(Base):
+    """Admin review decision for one instructor on a completed cohort.
+
+    Stores explicit settlement outcomes (`added` or `ignored`) so:
+    - Completed cohorts move cleanly from Pending Review to Settled.
+    - Ignored instructors or dropped draft lines never reappear as unbilled work.
+    - Settled cohorts keep an auditable snapshot and can restore ignored rows.
+    """
+
+    __tablename__ = "cohort_payment_decisions"
+    __table_args__ = (
+        UniqueConstraint("cohort_id", "instructor_user_id", name="uq_cohort_payment_decision"),
+    )
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    cohort_id = Column(
+        UUID(as_uuid=True), ForeignKey("cohorts.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    instructor_user_id = Column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    decision = Column(String(16), nullable=False)  # added|ignored
+    payment_letter_id = Column(
+        UUID(as_uuid=True), ForeignKey("payment_letters.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    payment_session_id = Column(
+        UUID(as_uuid=True), ForeignKey("payment_sessions.id", ondelete="SET NULL"), nullable=True
+    )
+    role_name = Column(String(64), nullable=True)
+    sessions_count = Column(Integer, nullable=True)
+    hours = Column(Float, nullable=True)
+    rate_aed = Column(Float, nullable=True)
+    total_aed = Column(Float, nullable=True)
+    decided_by_admin_id = Column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    decided_at = Column(
+        DateTime(timezone=True), nullable=False, default=lambda: datetime.now(timezone.utc)
     )

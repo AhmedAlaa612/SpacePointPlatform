@@ -195,3 +195,148 @@ export const billSessionsApi = ({ letterId, lineIds }: {
   lineIds: string[]
 }) => api.post<PaymentLetter>(`/instructors/admin/payments/letters/${letterId}/bill-sessions`,
   { line_ids: lineIds }).then((r) => r.data)
+
+export interface CohortInstructorPayment {
+  instructor_user_id: string
+  full_name: string
+  email: string
+  role_name: string
+  sessions_count: number
+  assigned_sessions_count: number
+  hours: number
+  rate_aed: number | null
+  rate_basis: string
+  total_aed: number
+  attendance_status: string
+  attendance_tag: string
+  outcome: "pending" | "added" | "ignored"
+  has_active_draft: boolean
+  active_draft_letter_id: string | null
+  letter_id: string | null
+  letter_reference: string | null
+  letter_status: PaymentLetter["status"] | null
+  payment_session_id: string | null
+  decided_at: string | null
+}
+
+export interface CompletedCohortPayment {
+  cohort_id: string
+  name: string
+  program_name: string
+  date_range: string
+  completed_date: string | null
+  location: string | null
+  status: "pending" | "settled"
+  settled_outcome: "added" | "ignored" | "partial" | null
+  settled_at: string | null
+  instructors: CohortInstructorPayment[]
+}
+
+export interface SettleCohortInstructorInput {
+  instructor_user_id: string
+  action: "add" | "ignore"
+  role: string
+  sessions_count: number
+  hours: number | null
+  rate_aed: number | null
+  compensation_aed: number
+}
+
+export interface SettleCohortPaymentResponse {
+  cohort: CompletedCohortPayment
+  created_drafts: number
+  appended_drafts: number
+  ignored_count: number
+  touched_letter_ids: string[]
+}
+
+export interface MonthlyPaidPoint {
+  month_key: string
+  month_label: string
+  amount_aed: number
+  letters_count: number
+}
+
+export interface PaymentsAnalytics {
+  total_paid_aed: number
+  paid_letters_count: number
+  paid_sessions_count: number
+  paid_hours_count: number
+  paid_instructors_count: number
+  monthly_paid: MonthlyPaidPoint[]
+}
+
+export interface InstructorPaymentHistory {
+  instructor_user_id: string
+  full_name: string
+  email: string
+  bank_details_complete: boolean
+  bank_name: string | null
+  total_paid_aed: number
+  paid_letters_count: number
+  paid_sessions_count: number
+  paid_hours_count: number
+  avg_aed_per_session: number
+  monthly_paid: MonthlyPaidPoint[]
+  draft_letters_count: number
+  published_letters_count: number
+  signed_letters_count: number
+  pending_payout_aed: number
+  letters: PaymentLetter[]
+}
+
+export const listPaymentCohortsApi = () =>
+  api.get<CompletedCohortPayment[]>("/instructors/admin/payments/cohorts").then((r) => r.data)
+
+export const settlePaymentCohortApi = ({
+  cohortId,
+  batchId,
+  items,
+}: {
+  cohortId: string
+  batchId?: string | null
+  items: SettleCohortInstructorInput[]
+}) =>
+  api
+    .post<SettleCohortPaymentResponse>(`/instructors/admin/payments/cohorts/${cohortId}/settle`, {
+      batch_id: batchId || null,
+      items,
+    })
+    .then((r) => r.data)
+
+export const ignorePaymentCohortApi = ({
+  cohortId,
+  instructorUserId,
+}: {
+  cohortId: string
+  instructorUserId?: string
+}) =>
+  api
+    .post<CompletedCohortPayment>(`/instructors/admin/payments/cohorts/${cohortId}/ignore`, {
+      instructor_user_id: instructorUserId ?? null,
+    })
+    .then((r) => r.data)
+
+export const restorePaymentCohortApi = ({
+  cohortId,
+  instructorUserId,
+}: {
+  cohortId: string
+  instructorUserId?: string
+}) =>
+  api
+    .post<CompletedCohortPayment>(`/instructors/admin/payments/cohorts/${cohortId}/restore`, {
+      instructor_user_id: instructorUserId ?? null,
+    })
+    .then((r) => r.data)
+
+export const ignoreDraftLetterApi = (letterId: string) =>
+  api.post<{ status: string }>(`/instructors/admin/payments/letters/${letterId}/ignore`).then((r) => r.data)
+
+export const getPaymentsAnalyticsApi = () =>
+  api.get<PaymentsAnalytics>("/instructors/admin/payments/analytics").then((r) => r.data)
+
+export const getInstructorPaymentHistoryApi = (instructorUserId: string) =>
+  api
+    .get<InstructorPaymentHistory>(`/instructors/admin/payments/instructors/${instructorUserId}/history`)
+    .then((r) => r.data)

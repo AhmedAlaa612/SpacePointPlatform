@@ -14,7 +14,7 @@ from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.enums import PaymentLetterStatus
-from app.models.instructors.payment import PaymentLetter, PaymentSession
+from app.models.instructors.payment import CohortPaymentDecision, PaymentLetter, PaymentSession
 from app.models.sessions.checklist import InstructorSessionDay
 from app.models.sessions.cohort import Cohort
 from app.models.sessions.cohort_assignment import CohortInstructorAssignment
@@ -178,7 +178,15 @@ async def _billed_session_ids(db: AsyncSession, instructor_user_id: uuid.UUID) -
         .join(PaymentLetter, PaymentLetter.id == PaymentSession.payment_letter_id)
         .where(PaymentLetter.instructor_user_id == instructor_user_id)
     )).scalars().all())
-    return direct | covered
+    ignored_sessions = set((await db.execute(
+        select(Session.id)
+        .join(CohortPaymentDecision, CohortPaymentDecision.cohort_id == Session.cohort_id)
+        .where(
+            CohortPaymentDecision.instructor_user_id == instructor_user_id,
+            CohortPaymentDecision.decision == "ignored",
+        )
+    )).scalars().all())
+    return direct | covered | ignored_sessions
 
 
 async def _paid_day_session_ids(

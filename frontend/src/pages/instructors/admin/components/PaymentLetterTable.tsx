@@ -1,113 +1,134 @@
 import { useState } from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { ArrowDown, ArrowUp, Plus, Trash2 } from "lucide-react"
+import { ArrowDown, ArrowUp, Ban, Plus, Trash2 } from "lucide-react"
 import {
   addAddonApi,
   addSessionApi,
   billSessionsApi,
-  getBillableSessionsApi,
-  listBatchesApi,
-  updateLetterApi,
   deleteAddonApi,
   deleteSessionApi,
+  getBillableSessionsApi,
+  listBatchesApi,
   updateAddonApi,
+  updateLetterApi,
   updateSessionApi,
 } from "@/api/instructors/payments_admin"
-import { Button } from "@/components/ui/button"
 import { getDeliveryRolesApi } from "@/api/sessions/openings"
+import { Button } from "@/components/ui/button"
+import { cn } from "@/lib/utils"
 import type { PaymentAddon, PaymentLetter, PaymentSession } from "@/types/instructors"
 
-/**
- * The payment letter's table, editable (I5-1).
- *
- * `PaymentSession` always carried every column the generated document prints.
- * The old UI exposed three of them on the *add* form — with the role
- * hardcoded to "Facilitator" — and rendered existing rows as a read-only
- * paragraph, so date, location and duration could never be set from the
- * portal at all. That is why the finished letter was being generated here and
- * then hand-fixed in Microsoft Word every time.
- *
- * No migration: this is the model catching up with itself.
- *
- * Cells save on blur rather than behind a Save button. The letter is built by
- * someone reading numbers off another screen, and a per-row save step is one
- * more thing to forget before generating the PDF.
- *
- * A **signed** letter is read-only. It is what the instructor put their name
- * to, and the stored signed PDF would otherwise start disagreeing with the
- * table the certificates are generated from.
- */
-
 const cell =
-  "w-full h-9 px-2 border border-border bg-background text-foreground rounded-lg text-sm"
+  "w-full h-9 px-2.5 rounded-[10px] text-xs sm:text-sm text-foreground"
 
-export function PaymentLetterTable({ letter }: { letter: PaymentLetter }) {
+export function PaymentLetterTable({
+  letter,
+  onIgnoreDraft,
+}: {
+  letter: PaymentLetter
+  onIgnoreDraft?: () => void
+}) {
   const qc = useQueryClient()
   const [error, setError] = useState("")
-  // I5-3: roles are configurable, so the options come from the API. The
-  // *stored* value stays the role's name — a signed letter has to keep saying
-  // what it said even if someone renames the role later.
   const { data: deliveryRoles = [] } = useQuery({
-    queryKey: ["delivery-roles"], queryFn: () => getDeliveryRolesApi(),
+    queryKey: ["delivery-roles"],
+    queryFn: () => getDeliveryRolesApi(),
   })
   const roleNames = deliveryRoles.map((r) => r.name)
   const locked = letter.status === "signed" || letter.status === "paid"
+  const isDraft = letter.status === "draft"
 
-  const refresh = () => qc.invalidateQueries({ queryKey: ["admin-payment-letters"] })
+  const refresh = () => {
+    qc.invalidateQueries({ queryKey: ["admin-payment-letters"] })
+    qc.invalidateQueries({ queryKey: ["admin-payment-cohorts"] })
+    qc.invalidateQueries({ queryKey: ["admin-payment-analytics"] })
+    qc.invalidateQueries({ queryKey: ["admin-payment-batches"] })
+    qc.invalidateQueries({ queryKey: ["admin-payment-todo"] })
+    qc.invalidateQueries({ queryKey: ["admin-overview"] })
+    qc.invalidateQueries({ queryKey: ["instructor-payment-history"] })
+  }
+
   const onError = (e: any) =>
     setError(e?.response?.data?.detail ?? "Could not save that change")
 
   const saveSession = useMutation({
     mutationFn: ({ id, ...data }: { id: string } & Parameters<typeof updateSessionApi>[1]) =>
       updateSessionApi(id, data),
-    onSuccess: () => { setError(""); refresh() },
+    onSuccess: () => {
+      setError("")
+      refresh()
+    },
     onError,
   })
+
   const saveAddon = useMutation({
     mutationFn: ({ id, ...data }: { id: string } & Parameters<typeof updateAddonApi>[1]) =>
       updateAddonApi(id, data),
-    onSuccess: () => { setError(""); refresh() },
+    onSuccess: () => {
+      setError("")
+      refresh()
+    },
     onError,
   })
+
   const removeSession = useMutation({
-    mutationFn: deleteSessionApi, onSuccess: refresh, onError,
-  })
-  const removeAddon = useMutation({
-    mutationFn: deleteAddonApi, onSuccess: refresh, onError,
-  })
-  const newSession = useMutation({
-    mutationFn: () => addSessionApi(letter.id, {
-      workshop_description: "", role: "Facilitator", compensation_aed: 0,
-      sort_order: (letter.sessions.at(-1)?.sort_order ?? 0) + 1,
-    } as any),
-    onSuccess: refresh, onError,
-  })
-  const newAddon = useMutation({
-    mutationFn: () => addAddonApi(letter.id, {
-      description: "", amount_aed: 0,
-      sort_order: (letter.addons.at(-1)?.sort_order ?? 0) + 1,
-    } as any),
-    onSuccess: refresh, onError,
+    mutationFn: deleteSessionApi,
+    onSuccess: () => {
+      setError("")
+      qc.invalidateQueries({ queryKey: ["billable", letter.id] })
+      refresh()
+    },
+    onError,
   })
 
-  /** Reorder by swapping the two rows' sort_order — the document reads that
-   *  column, so nothing else has to know about ordering. */
+  const removeAddon = useMutation({
+    mutationFn: deleteAddonApi,
+    onSuccess: () => {
+      setError("")
+      refresh()
+    },
+    onError,
+  })
+
+  const newSession = useMutation({
+    mutationFn: () =>
+      addSessionApi(letter.id, {
+        workshop_description: "",
+        role: "Facilitator",
+        compensation_aed: 0,
+        sort_order: (letter.sessions.at(-1)?.sort_order ?? 0) + 1,
+      } as any),
+    onSuccess: refresh,
+    onError,
+  })
+
+  const newAddon = useMutation({
+    mutationFn: () =>
+      addAddonApi(letter.id, {
+        description: "",
+        amount_aed: 0,
+        sort_order: (letter.addons.at(-1)?.sort_order ?? 0) + 1,
+      } as any),
+    onSuccess: refresh,
+    onError,
+  })
+
   const swapSessions = (a: PaymentSession, b: PaymentSession) => {
     saveSession.mutate({ id: a.id, sort_order: b.sort_order })
     saveSession.mutate({ id: b.id, sort_order: a.sort_order })
   }
+
   const swapAddons = (a: PaymentAddon, b: PaymentAddon) => {
     saveAddon.mutate({ id: a.id, sort_order: b.sort_order })
     saveAddon.mutate({ id: b.id, sort_order: a.sort_order })
   }
 
-  // Delivered work with no payment line yet. Normally one entry per cohort
-  // (2026-08-24), carrying its date range and "n x rate".
   const { data: billable = [] } = useQuery({
     queryKey: ["billable", letter.id],
     queryFn: () => getBillableSessionsApi(letter.id),
     enabled: !locked,
   })
+
   const bill = useMutation({
     mutationFn: (ids: string[]) => billSessionsApi({ letterId: letter.id, lineIds: ids }),
     onSuccess: () => {
@@ -116,6 +137,7 @@ export function PaymentLetterTable({ letter }: { letter: PaymentLetter }) {
     },
     onError,
   })
+
   const { data: batches = [] } = useQuery({
     queryKey: ["admin-payment-batches"],
     queryFn: listBatchesApi,
@@ -123,10 +145,7 @@ export function PaymentLetterTable({ letter }: { letter: PaymentLetter }) {
 
   const setBatch = useMutation({
     mutationFn: (batch_id: string | null) => updateLetterApi({ id: letter.id, batch_id }),
-    onSuccess: () => {
-      refresh()
-      qc.invalidateQueries({ queryKey: ["admin-payment-batches"] })
-    },
+    onSuccess: refresh,
     onError,
   })
 
@@ -136,219 +155,377 @@ export function PaymentLetterTable({ letter }: { letter: PaymentLetter }) {
     onError,
   })
 
+  const setAdminNotes = useMutation({
+    mutationFn: (admin_notes: string | null) =>
+      updateLetterApi({ id: letter.id, admin_notes }),
+    onSuccess: refresh,
+    onError,
+  })
+
   const total =
     letter.sessions.reduce((s, x) => s + (x.compensation_aed || 0), 0) +
     letter.addons.reduce((s, x) => s + (x.amount_aed || 0), 0)
 
-  return (
-    <div className="space-y-4">
-      {locked && (
-        <p className="text-xs text-muted-foreground">
-          This letter is {letter.status}. Its lines can&apos;t be changed — issue a corrected
-          letter instead.
-        </p>
-      )}
+  const handleSessionsBlur = (s: PaymentSession, raw: string) => {
+    const nextCount = raw === "" ? null : Math.max(0, Number(raw))
+    if (nextCount === (s.session_count ?? null)) return
+    if (nextCount !== null && s.rate_aed != null) {
+      saveSession.mutate({
+        id: s.id,
+        session_count: nextCount,
+        compensation_aed: Math.round(nextCount * s.rate_aed * 100) / 100,
+      })
+    } else {
+      saveSession.mutate({ id: s.id, session_count: nextCount })
+    }
+  }
 
-      {/* Batch Assignment Control */}
-      <div className="flex items-center justify-between gap-3 p-3 bg-muted/40 border border-border rounded-xl flex-wrap">
-        <div className="flex items-center gap-2 flex-wrap">
-          <span className="text-xs font-semibold text-foreground">Payment batch:</span>
+  const handleRateBlur = (s: PaymentSession, raw: string) => {
+    const nextRate = raw === "" ? null : Math.max(0, Number(raw))
+    if (nextRate === (s.rate_aed ?? null)) return
+    if (nextRate !== null && s.session_count != null) {
+      saveSession.mutate({
+        id: s.id,
+        rate_aed: nextRate,
+        compensation_aed: Math.round(s.session_count * nextRate * 100) / 100,
+      })
+    } else {
+      saveSession.mutate({ id: s.id, rate_aed: nextRate })
+    }
+  }
+
+  return (
+    <div className="space-y-5">
+      {/* Top Batch & Reference Row */}
+      <div className="flex items-center justify-between gap-3 pb-3 border-b border-border flex-wrap">
+        <div className="flex items-center gap-2.5 flex-wrap">
+          <span className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
+            Batch
+          </span>
           <select
-            className="h-8 px-2.5 border border-border bg-background text-foreground rounded-lg text-xs font-medium focus:outline-none focus:border-primary transition-colors cursor-pointer"
+            className="h-9 px-3 rounded-[10px] text-xs font-semibold text-foreground cursor-pointer"
             value={letter.batch_id ?? ""}
             disabled={locked || setBatch.isPending}
             onChange={(e) => setBatch.mutate(e.target.value || null)}
           >
-            <option value="">No batch</option>
+            <option value="" className="bg-popover text-popover-foreground">
+              No batch
+            </option>
             {batches.map((b) => (
-              <option key={b.id} value={b.id}>{b.name}</option>
+              <option key={b.id} value={b.id} className="bg-popover text-popover-foreground">
+                {b.name}
+              </option>
             ))}
           </select>
         </div>
-        <span className="text-xs text-muted-foreground font-mono">{letter.reference}</span>
+
+        <div className="flex items-center gap-2.5 flex-wrap">
+          <span className="text-xs font-mono text-muted-foreground">{letter.reference}</span>
+          <span
+            className={cn(
+              "inline-flex items-center rounded-[10px] px-2.5 py-1 text-[11px] font-bold uppercase tracking-wide",
+              letter.status === "paid"
+                ? "bg-emerald-600/15 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-300 border border-emerald-600/35"
+                : letter.status === "signed"
+                  ? "bg-[#653F84] text-white"
+                  : letter.status === "published"
+                    ? "bg-[#653F84]/12 text-[#653F84] dark:bg-purple-500/20 dark:text-purple-200 border border-[#653F84]/30"
+                    : "bg-muted/70 text-foreground border border-border",
+            )}
+          >
+            {letter.status}
+          </span>
+        </div>
       </div>
 
-      <div>
-        <p className="text-xs font-semibold text-muted-foreground mb-2">Cohorts</p>
+      {/* Work Entries */}
+      <div className="space-y-2.5">
+        <div className="flex items-center justify-between gap-2">
+          <p className="text-xs font-extrabold uppercase tracking-wider text-muted-foreground">
+            Work Entries ({letter.sessions.length})
+          </p>
+          {!locked && (
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => newSession.mutate()}
+              disabled={newSession.isPending}
+              className="h-8 px-3 rounded-[10px] border-border text-xs font-semibold"
+            >
+              <Plus size={13} className="mr-1" /> Add Entry
+            </Button>
+          )}
+        </div>
 
         {/* Mobile card layout */}
-        <div className="block sm:hidden space-y-3">
+        <div className="block md:hidden space-y-3">
           {letter.sessions.map((s, i) => (
-            <div key={s.id} className="p-3 bg-muted/20 border border-border rounded-xl space-y-2.5">
+            <div
+              key={`${s.id}-${s.session_count}-${s.rate_aed}-${s.compensation_aed}-${s.duration_hours}-${s.sort_order}`}
+              className="p-3 rounded-[10px] border border-border bg-background space-y-2.5"
+            >
               <div className="grid grid-cols-2 gap-2">
                 <div>
-                  <label className="text-[10px] font-semibold uppercase text-muted-foreground block mb-1">Date</label>
+                  <label className="text-[11px] font-bold uppercase text-muted-foreground block mb-1">
+                    Date
+                  </label>
                   <input
-                    className={cell} defaultValue={s.session_date ?? ""} disabled={locked}
+                    className={cell}
+                    defaultValue={s.session_date ?? ""}
+                    disabled={locked}
                     placeholder="12/07/2026"
-                    onBlur={(e) => e.target.value !== (s.session_date ?? "") &&
-                      saveSession.mutate({ id: s.id, session_date: e.target.value || null })}
+                    onBlur={(e) =>
+                      e.target.value !== (s.session_date ?? "") &&
+                      saveSession.mutate({ id: s.id, session_date: e.target.value || null })
+                    }
                   />
                 </div>
                 <div>
-                  <label className="text-[10px] font-semibold uppercase text-muted-foreground block mb-1">Workshop</label>
+                  <label className="text-[11px] font-bold uppercase text-muted-foreground block mb-1">
+                    Workshop
+                  </label>
                   <input
-                    className={cell} defaultValue={s.workshop_description} disabled={locked}
-                    placeholder="CubeSat workshop"
-                    onBlur={(e) => e.target.value !== s.workshop_description &&
-                      saveSession.mutate({ id: s.id, workshop_description: e.target.value })}
+                    className={cell}
+                    defaultValue={s.workshop_description}
+                    disabled={locked}
+                    placeholder="Workshop"
+                    onBlur={(e) =>
+                      e.target.value !== s.workshop_description &&
+                      saveSession.mutate({ id: s.id, workshop_description: e.target.value })
+                    }
                   />
                 </div>
               </div>
+
               <div className="grid grid-cols-2 gap-2">
                 <div>
-                  <label className="text-[10px] font-semibold uppercase text-muted-foreground block mb-1">Role</label>
+                  <label className="text-[11px] font-bold uppercase text-muted-foreground block mb-1">
+                    Role
+                  </label>
                   <select
-                    className={cell} value={s.role} disabled={locked}
+                    className={cell}
+                    value={s.role}
+                    disabled={locked}
                     onChange={(e) => saveSession.mutate({ id: s.id, role: e.target.value })}
                   >
-                    {[s.role, ...roleNames.filter((r) => r !== s.role)].map((r) => <option key={r} value={r}>{r}</option>)}
+                    {[s.role, ...roleNames.filter((r) => r !== s.role)].map((r) => (
+                      <option key={r} value={r} className="bg-popover text-popover-foreground">
+                        {r}
+                      </option>
+                    ))}
                   </select>
                 </div>
                 <div>
-                  <label className="text-[10px] font-semibold uppercase text-muted-foreground block mb-1">Location</label>
+                  <label className="text-[11px] font-bold uppercase text-muted-foreground block mb-1">
+                    Location
+                  </label>
                   <input
-                    className={cell} defaultValue={s.location ?? ""} disabled={locked}
-                    placeholder="Dubai"
-                    onBlur={(e) => e.target.value !== (s.location ?? "") &&
-                      saveSession.mutate({ id: s.id, location: e.target.value || null })}
+                    className={cell}
+                    defaultValue={s.location ?? ""}
+                    disabled={locked}
+                    placeholder="Location"
+                    onBlur={(e) =>
+                      e.target.value !== (s.location ?? "") &&
+                      saveSession.mutate({ id: s.id, location: e.target.value || null })
+                    }
                   />
                 </div>
               </div>
-              {/* Sessions x rate is what a cohort row actually prints in the
-                  document's units column — the hours field stays for
-                  single-session and manual rows, which still print hours. */}
+
               <div className="grid grid-cols-4 gap-2 items-end">
                 <div>
-                  <label className="text-[10px] font-semibold uppercase text-muted-foreground block mb-1">
-                    {s.session_count != null ? "Sessions" : "Hours"}
+                  <label className="text-[11px] font-bold uppercase text-muted-foreground block mb-1">
+                    Sess.
                   </label>
-                  {s.session_count != null ? (
-                    <input
-                      type="number" min={1} step="1" className={`${cell} text-right tabular-nums`}
-                      defaultValue={s.session_count} disabled={locked}
-                      onBlur={(e) => {
-                        const v = e.target.value === "" ? null : Number(e.target.value)
-                        if (v !== s.session_count) saveSession.mutate({ id: s.id, session_count: v })
-                      }}
-                    />
-                  ) : (
-                    <input
-                      type="number" step="0.5" min={0} className={`${cell} text-right tabular-nums`}
-                      defaultValue={s.duration_hours ?? ""} disabled={locked}
-                      onBlur={(e) => {
-                        const v = e.target.value === "" ? null : Number(e.target.value)
-                        if (v !== (s.duration_hours ?? null)) {
-                          saveSession.mutate({ id: s.id, duration_hours: v })
-                        }
-                      }}
-                    />
-                  )}
+                  <input
+                    type="number"
+                    min={0}
+                    step={1}
+                    className={`${cell} text-right tabular-nums`}
+                    defaultValue={s.session_count ?? ""}
+                    disabled={locked}
+                    onBlur={(e) => handleSessionsBlur(s, e.target.value)}
+                  />
                 </div>
                 <div>
-                  <label className="text-[10px] font-semibold uppercase text-muted-foreground block mb-1">Rate</label>
+                  <label className="text-[11px] font-bold uppercase text-muted-foreground block mb-1">
+                    Hours
+                  </label>
                   <input
-                    type="number" min={0} className={`${cell} text-right tabular-nums`}
-                    defaultValue={s.rate_aed ?? ""} disabled={locked}
-                    placeholder="—"
+                    type="number"
+                    step={0.5}
+                    min={0}
+                    className={`${cell} text-right tabular-nums`}
+                    defaultValue={s.duration_hours ?? ""}
+                    disabled={locked}
                     onBlur={(e) => {
                       const v = e.target.value === "" ? null : Number(e.target.value)
-                      if (v !== (s.rate_aed ?? null)) saveSession.mutate({ id: s.id, rate_aed: v })
+                      if (v !== (s.duration_hours ?? null)) {
+                        saveSession.mutate({ id: s.id, duration_hours: v })
+                      }
                     }}
                   />
                 </div>
                 <div>
-                  <label className="text-[10px] font-semibold uppercase text-muted-foreground block mb-1">AED</label>
+                  <label className="text-[11px] font-bold uppercase text-muted-foreground block mb-1">
+                    Rate
+                  </label>
                   <input
-                    type="number" min={0} className={`${cell} text-right tabular-nums`}
-                    defaultValue={s.compensation_aed} disabled={locked}
-                    onBlur={(e) => Number(e.target.value) !== s.compensation_aed &&
-                      saveSession.mutate({ id: s.id, compensation_aed: Number(e.target.value) || 0 })}
+                    type="number"
+                    min={0}
+                    className={`${cell} text-right tabular-nums`}
+                    defaultValue={s.rate_aed ?? ""}
+                    disabled={locked}
+                    onBlur={(e) => handleRateBlur(s, e.target.value)}
                   />
                 </div>
-                <div className="flex items-center justify-end gap-1 h-9">
-                  <button
-                    disabled={locked || i === 0}
-                    onClick={() => swapSessions(s, letter.sessions[i - 1])}
-                    className="p-1.5 text-muted-foreground hover:text-foreground disabled:opacity-30"
-                    aria-label="Move up"
-                  ><ArrowUp size={16} /></button>
-                  <button
-                    disabled={locked || i === letter.sessions.length - 1}
-                    onClick={() => swapSessions(s, letter.sessions[i + 1])}
-                    className="p-1.5 text-muted-foreground hover:text-foreground disabled:opacity-30"
-                    aria-label="Move down"
-                  ><ArrowDown size={16} /></button>
-                  <button
+                <div>
+                  <label className="text-[11px] font-bold uppercase text-muted-foreground block mb-1">
+                    AED
+                  </label>
+                  <input
+                    type="number"
+                    min={0}
+                    className={`${cell} text-right font-bold tabular-nums`}
+                    defaultValue={s.compensation_aed}
                     disabled={locked}
-                    onClick={() => removeSession.mutate(s.id)}
-                    className="p-1.5 text-muted-foreground hover:text-red-600 disabled:opacity-30"
-                    aria-label="Remove row"
-                  ><Trash2 size={16} /></button>
+                    onBlur={(e) =>
+                      Number(e.target.value) !== s.compensation_aed &&
+                      saveSession.mutate({
+                        id: s.id,
+                        compensation_aed: Number(e.target.value) || 0,
+                      })
+                    }
+                  />
                 </div>
+              </div>
+
+              <div className="flex items-center justify-end gap-1.5 pt-1">
+                <button
+                  type="button"
+                  disabled={locked || i === 0}
+                  onClick={() => swapSessions(s, letter.sessions[i - 1])}
+                  className="p-1.5 text-muted-foreground hover:text-foreground disabled:opacity-30 cursor-pointer"
+                  aria-label="Move up"
+                >
+                  <ArrowUp size={15} />
+                </button>
+                <button
+                  type="button"
+                  disabled={locked || i === letter.sessions.length - 1}
+                  onClick={() => swapSessions(s, letter.sessions[i + 1])}
+                  className="p-1.5 text-muted-foreground hover:text-foreground disabled:opacity-30 cursor-pointer"
+                  aria-label="Move down"
+                >
+                  <ArrowDown size={15} />
+                </button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={locked || removeSession.isPending}
+                  onClick={() => removeSession.mutate(s.id)}
+                  className="h-8 px-2.5 rounded-[10px] border-rose-600/35 text-rose-600 text-xs font-semibold"
+                >
+                  <Trash2 size={13} className="mr-1" /> Drop
+                </Button>
               </div>
             </div>
           ))}
           {letter.sessions.length === 0 && (
-            <p className="text-sm text-muted-foreground py-2">No cohorts on this letter yet.</p>
+            <p className="text-xs text-muted-foreground py-3">No entries on this letter yet.</p>
           )}
         </div>
 
         {/* Desktop table layout */}
-        <div className="hidden sm:block overflow-x-auto">
-          <table className="w-full min-w-[720px] text-sm">
+        <div className="hidden md:block overflow-x-auto">
+          <table className="w-full min-w-[820px] text-xs border-collapse">
             <thead>
-              <tr className="text-xs text-muted-foreground text-left">
-                <th className="font-medium pb-1 pr-2 w-[7.5rem]">Date</th>
-                <th className="font-medium pb-1 pr-2">Workshop</th>
-                <th className="font-medium pb-1 pr-2 w-44">Role</th>
-                <th className="font-medium pb-1 pr-2 w-36">Location</th>
-                <th className="font-medium pb-1 pr-2 w-20">Hours</th>
-                <th className="font-medium pb-1 pr-2 w-24">AED</th>
-                <th className="pb-1 w-20" />
+              <tr className="border-b border-border text-left text-[11px] font-bold uppercase tracking-wider text-muted-foreground">
+                <th className="py-2 pr-2 w-28">Date</th>
+                <th className="py-2 pr-2">Workshop</th>
+                <th className="py-2 pr-2 w-40">Role</th>
+                <th className="py-2 pr-2 w-36">Location</th>
+                <th className="py-2 pr-2 w-16 text-right">Sess.</th>
+                <th className="py-2 pr-2 w-16 text-right">Hrs</th>
+                <th className="py-2 pr-2 w-20 text-right">Rate</th>
+                <th className="py-2 pr-2 w-24 text-right">AED</th>
+                <th className="py-2 w-28 text-right">Actions</th>
               </tr>
             </thead>
-            <tbody>
+            <tbody className="divide-y divide-border/60">
               {letter.sessions.map((s, i) => (
-                <tr key={s.id}>
-                  <td className="pr-2 py-1">
+                <tr
+                  key={`${s.id}-${s.session_count}-${s.rate_aed}-${s.compensation_aed}-${s.duration_hours}-${s.sort_order}`}
+                >
+                  <td className="pr-2 py-1.5">
                     <input
-                      className={cell} defaultValue={s.session_date ?? ""} disabled={locked}
+                      className={cell}
+                      defaultValue={s.session_date ?? ""}
+                      disabled={locked}
                       placeholder="12/07/2026"
-                      onBlur={(e) => e.target.value !== (s.session_date ?? "") &&
-                        saveSession.mutate({ id: s.id, session_date: e.target.value || null })}
+                      onBlur={(e) =>
+                        e.target.value !== (s.session_date ?? "") &&
+                        saveSession.mutate({ id: s.id, session_date: e.target.value || null })
+                      }
                     />
                   </td>
-                  <td className="pr-2 py-1">
+                  <td className="pr-2 py-1.5">
                     <input
-                      className={cell} defaultValue={s.workshop_description} disabled={locked}
-                      placeholder="CubeSat workshop"
-                      onBlur={(e) => e.target.value !== s.workshop_description &&
-                        saveSession.mutate({ id: s.id, workshop_description: e.target.value })}
+                      className={`${cell} font-semibold`}
+                      defaultValue={s.workshop_description}
+                      disabled={locked}
+                      placeholder="Workshop"
+                      onBlur={(e) =>
+                        e.target.value !== s.workshop_description &&
+                        saveSession.mutate({ id: s.id, workshop_description: e.target.value })
+                      }
                     />
                   </td>
-                  <td className="pr-2 py-1">
+                  <td className="pr-2 py-1.5">
                     <select
-                      className={cell} value={s.role} disabled={locked}
-                      onChange={(e) =>
-                        saveSession.mutate({ id: s.id, role: e.target.value })}
+                      className={cell}
+                      value={s.role}
+                      disabled={locked}
+                      onChange={(e) => saveSession.mutate({ id: s.id, role: e.target.value })}
                     >
-                      {[s.role, ...roleNames.filter((r) => r !== s.role)]
-                        .map((r) => <option key={r} value={r}>{r}</option>)}
+                      {[s.role, ...roleNames.filter((r) => r !== s.role)].map((r) => (
+                        <option key={r} value={r} className="bg-popover text-popover-foreground">
+                          {r}
+                        </option>
+                      ))}
                     </select>
                   </td>
-                  <td className="pr-2 py-1">
+                  <td className="pr-2 py-1.5">
                     <input
-                      className={cell} defaultValue={s.location ?? ""} disabled={locked}
-                      placeholder="Dubai"
-                      onBlur={(e) => e.target.value !== (s.location ?? "") &&
-                        saveSession.mutate({ id: s.id, location: e.target.value || null })}
+                      className={cell}
+                      defaultValue={s.location ?? ""}
+                      disabled={locked}
+                      placeholder="Location"
+                      onBlur={(e) =>
+                        e.target.value !== (s.location ?? "") &&
+                        saveSession.mutate({ id: s.id, location: e.target.value || null })
+                      }
                     />
                   </td>
-                  <td className="pr-2 py-1">
+                  <td className="pr-2 py-1.5">
                     <input
-                      type="number" step="0.5" min={0} className={`${cell} text-right tabular-nums`}
-                      defaultValue={s.duration_hours ?? ""} disabled={locked}
+                      type="number"
+                      min={0}
+                      step={1}
+                      className={`${cell} text-right tabular-nums`}
+                      defaultValue={s.session_count ?? ""}
+                      disabled={locked}
+                      onBlur={(e) => handleSessionsBlur(s, e.target.value)}
+                    />
+                  </td>
+                  <td className="pr-2 py-1.5">
+                    <input
+                      type="number"
+                      step={0.5}
+                      min={0}
+                      className={`${cell} text-right tabular-nums`}
+                      defaultValue={s.duration_hours ?? ""}
+                      disabled={locked}
                       onBlur={(e) => {
                         const v = e.target.value === "" ? null : Number(e.target.value)
                         if (v !== (s.duration_hours ?? null)) {
@@ -357,257 +534,274 @@ export function PaymentLetterTable({ letter }: { letter: PaymentLetter }) {
                       }}
                     />
                   </td>
-                  <td className="pr-2 py-1">
+                  <td className="pr-2 py-1.5">
                     <input
-                      type="number" min={0} className={`${cell} text-right tabular-nums`}
-                      defaultValue={s.compensation_aed} disabled={locked}
-                      onBlur={(e) => Number(e.target.value) !== s.compensation_aed &&
-                        saveSession.mutate({ id: s.id, compensation_aed: Number(e.target.value) || 0 })}
+                      type="number"
+                      min={0}
+                      className={`${cell} text-right tabular-nums`}
+                      defaultValue={s.rate_aed ?? ""}
+                      disabled={locked}
+                      onBlur={(e) => handleRateBlur(s, e.target.value)}
                     />
                   </td>
-                  <td className="py-1">
-                    <div className="flex items-center gap-0.5">
+                  <td className="pr-2 py-1.5">
+                    <input
+                      type="number"
+                      min={0}
+                      className={`${cell} text-right font-bold tabular-nums`}
+                      defaultValue={s.compensation_aed}
+                      disabled={locked}
+                      onBlur={(e) =>
+                        Number(e.target.value) !== s.compensation_aed &&
+                        saveSession.mutate({
+                          id: s.id,
+                          compensation_aed: Number(e.target.value) || 0,
+                        })
+                      }
+                    />
+                  </td>
+                  <td className="py-1.5 text-right">
+                    <div className="inline-flex items-center gap-1">
                       <button
+                        type="button"
                         disabled={locked || i === 0}
                         onClick={() => swapSessions(s, letter.sessions[i - 1])}
-                        className="p-1 text-muted-foreground hover:text-foreground disabled:opacity-30"
+                        className="p-1 text-muted-foreground hover:text-foreground disabled:opacity-30 cursor-pointer"
                         aria-label="Move up"
-                      ><ArrowUp size={14} /></button>
+                      >
+                        <ArrowUp size={13} />
+                      </button>
                       <button
+                        type="button"
                         disabled={locked || i === letter.sessions.length - 1}
                         onClick={() => swapSessions(s, letter.sessions[i + 1])}
-                        className="p-1 text-muted-foreground hover:text-foreground disabled:opacity-30"
+                        className="p-1 text-muted-foreground hover:text-foreground disabled:opacity-30 cursor-pointer"
                         aria-label="Move down"
-                      ><ArrowDown size={14} /></button>
-                      <button
-                        disabled={locked}
+                      >
+                        <ArrowDown size={13} />
+                      </button>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        disabled={locked || removeSession.isPending}
                         onClick={() => removeSession.mutate(s.id)}
-                        className="p-1 text-muted-foreground hover:text-red-600 disabled:opacity-30"
-                        aria-label="Remove row"
-                      ><Trash2 size={14} /></button>
+                        className="h-8 px-2 rounded-[10px] border-rose-600/35 text-rose-600 text-xs font-semibold"
+                      >
+                        <Trash2 size={12} className="mr-1" /> Drop
+                      </Button>
                     </div>
                   </td>
                 </tr>
               ))}
               {letter.sessions.length === 0 && (
-                <tr><td colSpan={7} className="py-2 text-sm text-muted-foreground">
-                  No cohorts on this letter yet.
-                </td></tr>
+                <tr>
+                  <td colSpan={9} className="py-4 text-center text-xs text-muted-foreground">
+                    No entries on this letter yet.
+                  </td>
+                </tr>
               )}
             </tbody>
           </table>
         </div>
-
-        {!locked && (
-          <Button size="sm" variant="outline" className="mt-2"
-            onClick={() => newSession.mutate()} disabled={newSession.isPending}>
-            <Plus size={14} className="mr-1.5" /> Add a session
-          </Button>
-        )}
       </div>
 
-      <div>
-        <p className="text-xs font-semibold text-muted-foreground mb-2">Add-ons</p>
+      {/* Add-ons */}
+      <div className="space-y-2.5">
+        <div className="flex items-center justify-between gap-2">
+          <p className="text-xs font-extrabold uppercase tracking-wider text-muted-foreground">
+            Add-ons ({letter.addons.length})
+          </p>
+          {!locked && (
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => newAddon.mutate()}
+              disabled={newAddon.isPending}
+              className="h-8 px-3 rounded-[10px] border-border text-xs font-semibold"
+            >
+              <Plus size={13} className="mr-1" /> Add Add-on
+            </Button>
+          )}
+        </div>
 
-        {/* Mobile card layout */}
-        <div className="block sm:hidden space-y-3">
+        <div className="space-y-2">
           {letter.addons.map((a, i) => (
-            <div key={a.id} className="p-3 bg-muted/20 border border-border rounded-xl space-y-2.5">
-              <div>
-                <label className="text-[10px] font-semibold uppercase text-muted-foreground block mb-1">Description</label>
-                <input
-                  className={cell} defaultValue={a.description} disabled={locked}
-                  placeholder="Poster printing"
-                  onBlur={(e) => e.target.value !== a.description &&
-                    saveAddon.mutate({ id: a.id, description: e.target.value })}
-                />
-              </div>
-              <div className="grid grid-cols-2 gap-2 items-end">
-                <div>
-                  <label className="text-[10px] font-semibold uppercase text-muted-foreground block mb-1">Notes</label>
-                  <input
-                    className={cell} defaultValue={a.notes ?? ""} disabled={locked}
-                    onBlur={(e) => e.target.value !== (a.notes ?? "") &&
-                      saveAddon.mutate({ id: a.id, notes: e.target.value || null })}
-                  />
-                </div>
-                <div>
-                  <label className="text-[10px] font-semibold uppercase text-muted-foreground block mb-1">AED</label>
-                  <input
-                    type="number" min={0} className={`${cell} text-right tabular-nums`}
-                    defaultValue={a.amount_aed} disabled={locked}
-                    onBlur={(e) => Number(e.target.value) !== a.amount_aed &&
-                      saveAddon.mutate({ id: a.id, amount_aed: Number(e.target.value) || 0 })}
-                  />
-                </div>
-              </div>
-              <div className="flex items-center justify-end gap-1 h-9 pt-1">
+            <div
+              key={`${a.id}-${a.amount_aed}-${a.sort_order}`}
+              className="grid grid-cols-1 sm:grid-cols-[1fr_1fr_110px_auto] gap-2 items-center"
+            >
+              <input
+                className={cell}
+                defaultValue={a.description}
+                disabled={locked}
+                placeholder="Description"
+                onBlur={(e) =>
+                  e.target.value !== a.description &&
+                  saveAddon.mutate({ id: a.id, description: e.target.value })
+                }
+              />
+              <input
+                className={cell}
+                defaultValue={a.notes ?? ""}
+                disabled={locked}
+                placeholder="Notes"
+                onBlur={(e) =>
+                  e.target.value !== (a.notes ?? "") &&
+                  saveAddon.mutate({ id: a.id, notes: e.target.value || null })
+                }
+              />
+              <input
+                type="number"
+                min={0}
+                className={`${cell} text-right font-bold tabular-nums`}
+                defaultValue={a.amount_aed}
+                disabled={locked}
+                onBlur={(e) =>
+                  Number(e.target.value) !== a.amount_aed &&
+                  saveAddon.mutate({ id: a.id, amount_aed: Number(e.target.value) || 0 })
+                }
+              />
+              <div className="flex items-center justify-end gap-1">
                 <button
+                  type="button"
                   disabled={locked || i === 0}
                   onClick={() => swapAddons(a, letter.addons[i - 1])}
-                  className="p-1.5 text-muted-foreground hover:text-foreground disabled:opacity-30"
+                  className="p-1 text-muted-foreground hover:text-foreground disabled:opacity-30 cursor-pointer"
                   aria-label="Move up"
-                ><ArrowUp size={16} /></button>
+                >
+                  <ArrowUp size={13} />
+                </button>
                 <button
+                  type="button"
                   disabled={locked || i === letter.addons.length - 1}
                   onClick={() => swapAddons(a, letter.addons[i + 1])}
-                  className="p-1.5 text-muted-foreground hover:text-foreground disabled:opacity-30"
+                  className="p-1 text-muted-foreground hover:text-foreground disabled:opacity-30 cursor-pointer"
                   aria-label="Move down"
-                ><ArrowDown size={16} /></button>
-                <button
-                  disabled={locked}
+                >
+                  <ArrowDown size={13} />
+                </button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={locked || removeAddon.isPending}
                   onClick={() => removeAddon.mutate(a.id)}
-                  className="p-1.5 text-muted-foreground hover:text-red-600 disabled:opacity-30"
-                  aria-label="Remove row"
-                ><Trash2 size={16} /></button>
+                  className="h-8 px-2 rounded-[10px] border-rose-600/35 text-rose-600"
+                >
+                  <Trash2 size={13} />
+                </Button>
               </div>
             </div>
           ))}
           {letter.addons.length === 0 && (
-            <p className="text-sm text-muted-foreground py-2">No add-ons.</p>
+            <p className="text-xs text-muted-foreground">No add-ons.</p>
           )}
         </div>
+      </div>
 
-        {/* Desktop table layout */}
-        <div className="hidden sm:block overflow-x-auto">
-          <table className="w-full min-w-[560px] text-sm">
-            <thead>
-              <tr className="text-xs text-muted-foreground text-left">
-                <th className="font-medium pb-1 pr-2">Description</th>
-                <th className="font-medium pb-1 pr-2 w-40">Notes</th>
-                <th className="font-medium pb-1 pr-2 w-24">AED</th>
-                <th className="pb-1 w-20" />
-              </tr>
-            </thead>
-            <tbody>
-              {letter.addons.map((a, i) => (
-                <tr key={a.id}>
-                  <td className="pr-2 py-1">
-                    <input
-                      className={cell} defaultValue={a.description} disabled={locked}
-                      placeholder="Poster printing"
-                      onBlur={(e) => e.target.value !== a.description &&
-                        saveAddon.mutate({ id: a.id, description: e.target.value })}
-                    />
-                  </td>
-                  <td className="pr-2 py-1">
-                    <input
-                      className={cell} defaultValue={a.notes ?? ""} disabled={locked}
-                      onBlur={(e) => e.target.value !== (a.notes ?? "") &&
-                        saveAddon.mutate({ id: a.id, notes: e.target.value || null })}
-                    />
-                  </td>
-                  <td className="pr-2 py-1">
-                    <input
-                      type="number" min={0} className={`${cell} text-right tabular-nums`}
-                      defaultValue={a.amount_aed} disabled={locked}
-                      onBlur={(e) => Number(e.target.value) !== a.amount_aed &&
-                        saveAddon.mutate({ id: a.id, amount_aed: Number(e.target.value) || 0 })}
-                    />
-                  </td>
-                  <td className="py-1">
-                    <div className="flex items-center gap-0.5">
-                      <button
-                        disabled={locked || i === 0}
-                        onClick={() => swapAddons(a, letter.addons[i - 1])}
-                        className="p-1 text-muted-foreground hover:text-foreground disabled:opacity-30"
-                        aria-label="Move up"
-                      ><ArrowUp size={14} /></button>
-                      <button
-                        disabled={locked || i === letter.addons.length - 1}
-                        onClick={() => swapAddons(a, letter.addons[i + 1])}
-                        className="p-1 text-muted-foreground hover:text-foreground disabled:opacity-30"
-                        aria-label="Move down"
-                      ><ArrowDown size={14} /></button>
-                      <button
-                        disabled={locked}
-                        onClick={() => removeAddon.mutate(a.id)}
-                        className="p-1 text-muted-foreground hover:text-red-600 disabled:opacity-30"
-                        aria-label="Remove row"
-                      ><Trash2 size={14} /></button>
-                    </div>
-                  </td>
-                </tr>
-              ))}
-              {letter.addons.length === 0 && (
-                <tr><td colSpan={4} className="py-2 text-sm text-muted-foreground">
-                  No add-ons.
-                </td></tr>
-              )}
-            </tbody>
-          </table>
+      {/* Legacy unbilled lines picker if any session exists outside cohort flow */}
+      {billable.length > 0 && (
+        <div className="rounded-[10px] border border-dashed border-border p-3.5 space-y-2.5">
+          <div className="flex items-center justify-between gap-2 flex-wrap">
+            <p className="text-xs font-extrabold uppercase tracking-wider text-muted-foreground">
+              Unbilled Delivered Work ({billable.length})
+            </p>
+            <Button
+              size="sm"
+              onClick={() => bill.mutate(billable.map((b) => b.line_id))}
+              disabled={bill.isPending}
+              className="h-8 px-3 rounded-[10px] bg-primary text-primary-foreground text-xs font-bold"
+            >
+              {bill.isPending ? "Adding..." : "Add All"}
+            </Button>
+          </div>
+          <div className="space-y-1.5">
+            {billable.map((b) => (
+              <div
+                key={b.line_id}
+                className="flex items-center justify-between gap-3 text-xs py-1"
+              >
+                <div className="flex items-center gap-2 flex-wrap text-foreground">
+                  <span className="font-bold">{b.workshop_description}</span>
+                  <span className="text-muted-foreground">{b.session_date}</span>
+                  <span className="rounded-[10px] border border-border px-2 py-0.5 text-[11px]">
+                    {b.role}
+                  </span>
+                  {b.location && <span className="text-muted-foreground">{b.location}</span>}
+                </div>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => bill.mutate([b.line_id])}
+                  disabled={bill.isPending}
+                  className="h-7 px-2.5 rounded-[10px] border-border text-xs font-semibold shrink-0"
+                >
+                  Add
+                </Button>
+              </div>
+            ))}
+          </div>
         </div>
+      )}
 
-        {!locked && (
-          <Button size="sm" variant="outline" className="mt-2"
-            onClick={() => newAddon.mutate()} disabled={newAddon.isPending}>
-            <Plus size={14} className="mr-1.5" /> Add an add-on
+      {/* Certificate toggle, Admin notes, & Total */}
+      <div className="space-y-3 pt-3 border-t border-border">
+        <label className="inline-flex items-center gap-2 text-xs sm:text-sm text-foreground cursor-pointer select-none">
+          <input
+            type="checkbox"
+            checked={letter.issue_certificates ?? true}
+            onChange={(e) => setCertificates.mutate(e.target.checked)}
+            className="h-4 w-4 rounded-[10px]"
+          />
+          <span>Issue delivery certificates on sign</span>
+        </label>
+
+        <div className="grid grid-cols-1 sm:grid-cols-[1fr_auto] gap-3 items-end">
+          <div>
+            <label className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground block mb-1">
+              Admin Notes
+            </label>
+            <input
+              key={`${letter.id}-${letter.admin_notes ?? ""}`}
+              defaultValue={letter.admin_notes ?? ""}
+              placeholder="Internal notes..."
+              className="w-full h-9 px-3 rounded-[10px] text-xs"
+              onBlur={(e) => {
+                const val = e.target.value.trim() || null
+                if (val !== (letter.admin_notes ?? null)) {
+                  setAdminNotes.mutate(val)
+                }
+              }}
+            />
+          </div>
+          <div className="text-right">
+            <p className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">
+              Letter Total
+            </p>
+            <p className="font-display text-2xl font-extrabold text-foreground tabular-nums">
+              AED {total.toLocaleString()}
+            </p>
+          </div>
+        </div>
+      </div>
+
+      {/* Footer actions */}
+      <div className="flex items-center justify-between gap-2 pt-2 border-t border-border flex-wrap">
+        <span className="text-xs text-muted-foreground">
+          {locked ? "Locked" : "Saves on blur"}
+        </span>
+        {isDraft && onIgnoreDraft && (
+          <Button
+            variant="outline"
+            size="lg"
+            onClick={onIgnoreDraft}
+            className="h-9 px-3.5 rounded-[10px] border-rose-600/40 text-rose-600 text-xs font-bold"
+          >
+            <Ban size={14} className="mr-1.5" /> Ignore Draft
           </Button>
         )}
       </div>
 
-      {billable.length > 0 && (
-        <div className="rounded-xl border border-dashed border-border p-3 flex flex-col gap-2">
-          <p className="text-xs font-semibold text-foreground">
-            {billable.length} piece{billable.length === 1 ? "" : "s"} of delivered work not on any letter
-          </p>
-          <div className="flex flex-col gap-1">
-            {billable.map((b) => (
-              <div key={b.line_id} className="flex items-center justify-between gap-3 text-sm">
-                <span className="text-foreground truncate">
-                  {b.session_date} · {b.workshop_description}
-                  <span className="text-xs text-muted-foreground">
-                    {" "}· {b.role}{b.location ? ` · ${b.location}` : ""}
-                    {b.session_count > 1 && b.rate_aed != null
-                      ? ` · ${b.session_count} × AED ${b.rate_aed.toLocaleString()}`
-                      : b.session_count > 1 ? ` · ${b.session_count} sessions` : ""}
-                  </span>
-                </span>
-                <button
-                  onClick={() => bill.mutate([b.line_id])}
-                  disabled={bill.isPending}
-                  className="h-7 px-2.5 text-xs border border-border rounded-lg hover:bg-muted shrink-0 disabled:opacity-40"
-                >
-                  Add
-                </button>
-              </div>
-            ))}
-          </div>
-          <button
-            onClick={() => bill.mutate(billable.map((b) => b.line_id))}
-            disabled={bill.isPending}
-            className="self-start h-8 px-3 bg-primary text-primary-foreground text-xs font-medium rounded-lg hover:opacity-90 disabled:opacity-40"
-          >
-            {bill.isPending ? "Adding…" : "Add all"}
-          </button>
-          <p className="text-xs text-muted-foreground">
-            A cohort row carries its date range and the number of days ops approved, priced at
-            the rate agreed when the instructor was staffed. Every cell stays editable until you
-            publish — the figure is a draft, not a decision already made for you.
-          </p>
-        </div>
-      )}
-
-      <label className="flex items-center gap-2 text-sm text-foreground cursor-pointer select-none">
-        <input
-          type="checkbox"
-          checked={letter.issue_certificates ?? true}
-          onChange={(e) => setCertificates.mutate(e.target.checked)}
-          className="rounded text-primary focus:ring-primary border-border bg-background"
-        />
-        Issue a workshop-delivery certificate per session when this is signed
-      </label>
-
-      <div className="flex items-center justify-between border-t border-border pt-2">
-        <span className="text-xs text-muted-foreground">
-          {locked ? "Locked" : "Changes save as you leave each box."}
-        </span>
-        <span className="text-sm font-semibold text-foreground tabular-nums">
-          Total AED {total.toLocaleString()}
-        </span>
-      </div>
-
-      {error && <p className="text-xs text-red-600 dark:text-red-400">{error}</p>}
+      {error && <p className="text-xs font-semibold text-rose-600">{error}</p>}
     </div>
   )
 }
